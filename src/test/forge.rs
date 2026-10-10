@@ -189,6 +189,11 @@ impl FakeForge {
         *self.viewer_down.lock().unwrap() = Some(error);
     }
 
+    /// Lets asking who the account is succeed again, after [`Self::set_viewer_down`]
+    pub(crate) fn set_viewer_up(&self) {
+        *self.viewer_down.lock().unwrap() = None;
+    }
+
     pub(crate) fn set_default_branch(&self, branch: &str) {
         *self.default_branch.lock().unwrap() = branch.to_owned();
     }

@@ -16,7 +16,8 @@ use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    ForgeError, ForgeHold, Guarded, Leased, Ports, RateHeld, Say, SessionId, Timestamp, Visibility,
+    ForgeError, ForgeHold, Guarded, GuardedVoice, Leased, Ports, RateHeld, Say, SessionId,
+    Timestamp, Visibility,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -88,6 +89,7 @@ mod slots_tests;
 mod timings;
 mod trigger;
 mod turn;
+mod voice;
 mod words;
 mod worker_files;
 
@@ -301,6 +303,11 @@ pub struct Runner {
     looks: looks::Looks,
     // Until when every forge call is held, the forge's rate limit used up
     forge_hold: ForgeHold,
+    // The login `gh` acts as, which a ruling mentions when `git.maintainer` is unset,
+    // asked once a run, in memory only
+    gh_login: std::cell::OnceCell<String>,
+    // Whether a ruling posted with no one to mention has been told, in memory only
+    unmentioned_told: std::cell::Cell<bool>,
 }
 
 impl Runner {
@@ -326,6 +333,7 @@ impl Runner {
         let local = LocalPaths::new([home, paths.kelpie_home.as_path(), checkout]);
         let forge_hold = ForgeHold::default();
         let told = claim::Notes::default();
+        ports.voice = Arc::new(GuardedVoice::new(ports.voice, local.clone()));
         let guarded = Box::new(Guarded::new(ports.forge, local.clone()));
         let clock = Arc::clone(&ports.clock);
         let say: Say = {
@@ -431,6 +439,8 @@ impl Runner {
             parked_reads: BTreeMap::new(),
             looks: looks::Looks::default(),
             forge_hold,
+            gh_login: std::cell::OnceCell::new(),
+            unmentioned_told: std::cell::Cell::new(false),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();

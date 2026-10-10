@@ -245,6 +245,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: labels",
             "golbat: coderabbit",
             "golbat: github app",
+            "golbat: maintainer",
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
@@ -252,6 +253,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "koji: push access",
             "koji: labels",
             "koji: github app",
+            "koji: maintainer",
             "koji: reviewers",
             "koji: rulings",
         ]
