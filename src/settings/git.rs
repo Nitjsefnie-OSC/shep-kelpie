@@ -26,8 +26,8 @@ pub struct Git {
     #[serde(default)]
     pub issues: Filing,
     /// The GitHub login kelpie mentions on a ruling it posts through its
-    /// App, so GitHub notifies them. The repo's owner when absent and the
-    /// owner is a user; nobody is mentioned for an organization's repo.
+    /// App, so GitHub notifies them. The login `gh` acts as (`gh api user`)
+    /// when absent.
     #[serde(default)]
     pub maintainer: Option<GithubLogin>,
 }

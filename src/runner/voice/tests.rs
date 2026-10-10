@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use crate::github::ApiError;
-use crate::ports::{Checks, Finding, Severity};
+use crate::ports::{Checks, Finding, ForgeError, Severity};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -103,69 +103,17 @@ fn a_ruling_before_any_pull_request_is_posted_on_the_issue() {
 }
 
 #[test]
-fn the_maintainer_defaults_to_the_owner_of_a_user_s_repo_and_to_nobody_for_an_organization_s() {
-    let user = Rig::new("shep");
-    user.with_app();
-    user.forge.set_owner_is_user(true);
-    asking_before_a_pull_request(&user);
-    let org = Rig::new("koji");
-    org.with_app();
-    asking_before_a_pull_request(&org);
-
-    assert_eq!(
-        user.github.comments(),
-        [(7, format!("@shep-pm {QUESTION}\n\n{HOW_TO_ANSWER}"))]
-    );
-    assert_eq!(
-        org.github.comments(),
-        [(7, format!("{QUESTION}\n\n{HOW_TO_ANSWER}"))]
-    );
-}
-
-#[test]
-fn the_repo_s_owner_is_asked_about_once_however_many_rulings_are_posted() {
-    let (rig, runner, _) = Rig::parked_set("shep", |rig| {
-        rig.with_app();
-        rig.forge.set_owner_is_user(true);
-    });
-    rig.ask(&runner, "rule", Some("1 no not yet"));
-    rig.claude.script([Scripted::Say(ASKS)]);
-    step(&runner).unwrap(); // the fix turn asks a question: a second ruling
-
-    let mentions = (rig.github.comments().into_iter())
-        .filter(|(_, body)| body.starts_with("@shep-pm "))
-        .count();
-    assert_eq!(mentions, 2, "the merge ruling and the question");
-    assert_eq!(rig.forge.owner_reads(), 1);
-}
-
-#[test]
-fn a_ruling_posted_with_no_one_to_mention_is_noted_once_in_the_log() {
+fn with_no_maintainer_set_a_ruling_mentions_the_login_gh_acts_as_asked_once_a_run() {
     let (rig, runner, _) = Rig::parked_set("shep", |rig| rig.with_app());
     rig.ask(&runner, "rule", Some("1 no not yet"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap(); // the fix turn asks a question: a second ruling
 
-    let comments = rig.github.comments();
-    assert!(
-        comments.iter().all(|(_, body)| !body.starts_with('@')),
-        "an organization's repo mentions no one: {comments:?}"
-    );
-    let notes = runner.lock().unwrap().take_notes();
-    let told: Vec<_> = (notes.iter())
-        .filter(|n| n.contains("without a mention"))
-        .collect();
-    assert_eq!(told.len(), 1, "{notes:?}");
-    assert!(told[0].contains("ruling 1 is posted on #71"), "{told:?}");
-    assert!(told[0].contains("set `git.maintainer`"), "{told:?}");
-}
-
-#[test]
-fn a_maintainer_that_is_set_is_never_noted() {
-    let (_rig, runner, _) = Rig::parked_set("shep", |rig| {
-        rig.with_app();
-        rig.maintainer("octocat");
-    });
+    let mentions = (rig.github.comments().into_iter())
+        .filter(|(_, body)| body.starts_with("@the-maintainer "))
+        .count();
+    assert_eq!(mentions, 2, "the merge ruling and the question");
+    assert_eq!(rig.forge.viewer_reads(), 1);
     let notes = runner.lock().unwrap().take_notes();
     assert!(
         !notes.iter().any(|n| n.contains("without a mention")),
@@ -174,11 +122,23 @@ fn a_maintainer_that_is_set_is_never_noted() {
 }
 
 #[test]
-fn a_ruling_posted_when_the_owner_cannot_be_asked_goes_up_unmentioned_and_says_so() {
+fn a_maintainer_that_is_set_wins_over_the_login_gh_acts_as() {
+    let (rig, _runner, _) = Rig::parked_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+
+    let comments = rig.github.comments();
+    assert!(comments.last().unwrap().1.starts_with("@octocat "));
+    assert_eq!(rig.forge.viewer_reads(), 0, "gh is not asked");
+}
+
+#[test]
+fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
     let rig = Rig::new("shep");
     rig.with_app();
-    rig.forge.set_owner_is_user(true);
-    rig.forge.set_owner_unreadable(true);
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("not logged in".into()));
 
     let (runner, asked) = asking_before_a_pull_request(&rig);
 
@@ -190,22 +150,57 @@ fn a_ruling_posted_when_the_owner_cannot_be_asked_goes_up_unmentioned_and_says_s
         why.starts_with("posted without mentioning the maintainer"),
         "{why}"
     );
+    assert!(why.contains("not logged in"), "{why}");
     assert_eq!(
         rig.github.comments(),
         [(7, format!("{QUESTION}\n\n{HOW_TO_ANSWER}"))]
     );
     assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
 
-    // Asked again at the next ruling, once the forge answers, it mentions them.
-    rig.forge.set_owner_unreadable(false);
+    // Asked again at the next ruling, once gh answers, it mentions them.
+    rig.forge.set_viewer_up();
     rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
     let comments = rig.github.comments();
     assert!(
-        comments.last().unwrap().1.starts_with("@shep-pm "),
+        comments.last().unwrap().1.starts_with("@the-maintainer "),
         "{comments:?}"
     );
+}
+
+#[test]
+fn an_unmentioned_ruling_is_noted_once_and_only_once_it_went_up() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("not logged in".into()));
+    rig.github.refuse_comments(ApiError::Refused(502));
+
+    // The first ruling never went up, so there is nothing to say it lacked a mention.
+    let (runner, _) = asking_before_a_pull_request(&rig);
+    let told = |runner: &Mutex<Runner>| {
+        let notes = runner.lock().unwrap().take_notes();
+        (notes.iter())
+            .filter(|n| n.contains("without a mention"))
+            .count()
+    };
+    assert_eq!(told(&runner), 0);
+
+    // The next two do, and the note is made for the first of them only.
+    rig.github.accept_comments();
+    for id in 1..=2 {
+        rig.ask(&runner, "rule", Some(&format!("{id} answer use --dry-run")));
+        rig.claude.script([Scripted::Say(ASKS)]);
+        step(&runner).unwrap();
+    }
+    let notes = runner.lock().unwrap().take_notes();
+    let told: Vec<_> = (notes.iter())
+        .filter(|n| n.contains("without a mention"))
+        .collect();
+    assert_eq!(told.len(), 1, "{notes:?}");
+    assert!(told[0].starts_with("ruling 2 is posted on #7"), "{told:?}");
+    assert!(told[0].contains("set `git.maintainer`"), "{told:?}");
 }
 
 #[test]

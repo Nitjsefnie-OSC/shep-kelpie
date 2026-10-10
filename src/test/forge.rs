@@ -67,9 +67,6 @@ pub(crate) struct FakeForge {
     default_branch: Arc<Mutex<String>>,
     repo_labels: Arc<Mutex<Vec<String>>>,
     pushes: Arc<AtomicBool>,
-    owner_is_user: Arc<AtomicBool>,
-    owner_reads: Arc<AtomicUsize>,
-    owner_unreadable: Arc<AtomicBool>,
     bot_seen: Arc<AtomicBool>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
     // Every call made, and the board's reads among them
@@ -149,9 +146,6 @@ impl FakeForge {
             default_branch: Arc::new(Mutex::new("main".to_owned())),
             repo_labels: Arc::default(),
             pushes: Arc::new(AtomicBool::new(true)),
-            owner_is_user: Arc::default(),
-            owner_reads: Arc::default(),
-            owner_unreadable: Arc::default(),
             bot_seen: Arc::new(AtomicBool::new(true)),
             viewer_down: Arc::default(),
             asked: Arc::default(),
@@ -185,21 +179,6 @@ impl FakeForge {
         self.pushes.store(pushes, Ordering::SeqCst);
     }
 
-    /// Whether the repo's owner is a user, which it is not until a test says so
-    pub(crate) fn set_owner_is_user(&self, user: bool) {
-        self.owner_is_user.store(user, Ordering::SeqCst);
-    }
-
-    /// Makes the forge unable to say whether the repo's owner is a user, while set
-    pub(crate) fn set_owner_unreadable(&self, unreadable: bool) {
-        self.owner_unreadable.store(unreadable, Ordering::SeqCst);
-    }
-
-    /// How many times the repo's owner was asked about
-    pub(crate) fn owner_reads(&self) -> usize {
-        self.owner_reads.load(Ordering::SeqCst)
-    }
-
     /// Whether a review bot has ever commented on the repo, which it has until a test says not
     pub(crate) fn set_review_bot_seen(&self, seen: bool) {
         self.bot_seen.store(seen, Ordering::SeqCst);
@@ -208,6 +187,11 @@ impl FakeForge {
     /// Makes asking who the account is fail with `error`, as `gh` does when it is logged out
     pub(crate) fn set_viewer_down(&self, error: ForgeError) {
         *self.viewer_down.lock().unwrap() = Some(error);
+    }
+
+    /// Lets asking who the account is succeed again, after [`Self::set_viewer_down`]
+    pub(crate) fn set_viewer_up(&self) {
+        *self.viewer_down.lock().unwrap() = None;
     }
 
     pub(crate) fn set_default_branch(&self, branch: &str) {
@@ -594,15 +578,6 @@ impl Forge for FakeForge {
     fn can_push(&self, _repo: &ForgeSlug) -> Result<bool, ForgeError> {
         self.ask()?;
         Ok(self.pushes.load(Ordering::SeqCst))
-    }
-
-    fn owner_is_user(&self, _repo: &ForgeSlug) -> Result<bool, ForgeError> {
-        self.ask()?;
-        self.owner_reads.fetch_add(1, Ordering::SeqCst);
-        if self.owner_unreadable.load(Ordering::SeqCst) {
-            return Err(ForgeError::Unreadable("no such user".into()));
-        }
-        Ok(self.owner_is_user.load(Ordering::SeqCst))
     }
 
     fn review_bot_seen(&self, _repo: &ForgeSlug, _login: Login<'_>) -> Result<bool, ForgeError> {

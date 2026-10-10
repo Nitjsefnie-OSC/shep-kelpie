@@ -674,50 +674,26 @@ fn an_app_not_installed_on_a_repo_is_asked_about_once_in_ten_minutes() {
     assert_eq!(installations_asked(&github), 2, "installed now, and kept");
 }
 
+// A post that finds GitHub down is not retried, so nothing about the failure
+// may outlast it: the next ask goes to GitHub, whatever it answered before.
 #[test]
-fn a_github_that_is_down_is_asked_once_in_half_a_minute_and_again_after() {
-    let home = tempfile::tempdir().unwrap();
-    let clock = FakeClock::at(1_000_000);
-    let github = FakeGithub::new(clock.clone(), "shep-pm");
-    github.registered(home.path(), "shep-pm/koji");
-    let tokens = github.tokens(home.path());
-    let koji = slug("shep-pm/koji");
-    github.fail_next(ApiError::Unreachable("curl exited 6".to_owned()));
-
-    for _ in 0..3 {
-        assert_eq!(
-            tokens.token(&koji),
-            Err(TokenError::Api(ApiError::Unreachable(
-                "curl exited 6".to_owned()
-            )))
-        );
-    }
-    assert_eq!(
-        installations_asked(&github),
-        1,
-        "one mint, however many askers"
-    );
-
-    clock.advance(30);
-    tokens.token(&koji).unwrap();
-    assert_eq!(
-        installations_asked(&github),
-        2,
-        "asked again, and it answered"
-    );
-}
-
-#[test]
-fn a_refused_token_is_not_held_against_the_next_ask() {
+fn a_refused_or_unanswered_mint_is_not_held_against_the_next_ask() {
     let home = tempfile::tempdir().unwrap();
     let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
     github.registered(home.path(), "shep-pm/koji");
     let tokens = github.tokens(home.path());
-    github.fail_next(ApiError::Refused(401));
+    let koji = slug("shep-pm/koji");
+    for error in [
+        ApiError::Refused(401),
+        ApiError::Refused(502),
+        ApiError::RateLimited,
+        ApiError::Unreachable("curl exited 6".to_owned()),
+    ] {
+        github.fail_next(error.clone());
+        assert_eq!(tokens.token(&koji), Err(TokenError::Api(error)));
+    }
 
-    tokens.token(&slug("shep-pm/koji")).unwrap_err();
-
-    tokens.token(&slug("shep-pm/koji")).unwrap();
+    tokens.token(&koji).unwrap();
 }
 
 // A GitHub whose answer about one repo's installation waits to be let go.

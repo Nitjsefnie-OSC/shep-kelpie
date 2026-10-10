@@ -62,10 +62,6 @@ impl Forge for Guarded {
         self.forge.create_label(repo, label)
     }
 
-    fn owner_is_user(&self, repo: &ForgeSlug) -> Result<bool, ForgeError> {
-        self.forge.owner_is_user(repo)
-    }
-
     fn can_push(&self, repo: &ForgeSlug) -> Result<bool, ForgeError> {
         self.forge.can_push(repo)
     }

@@ -32,8 +32,8 @@ merging = "ask"
 # `skip` files nothing and leaves them in the review.
 issues = "ask"
 # The GitHub login kelpie mentions on a ruling it posts through its App, so
-# GitHub notifies you. Your repo's owner when absent and the owner is a
-# user; an organization's repo mentions nobody until this is set.
+# GitHub notifies you. The login `gh` acts as when absent, so set this when
+# that is not you, such as a bot account.
 # maintainer = "octocat"
 
 [app.dogs.kelpie.ci]

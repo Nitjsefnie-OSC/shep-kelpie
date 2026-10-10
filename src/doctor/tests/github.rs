@@ -43,8 +43,6 @@ async fn github_busy_or_out_of_reach_is_unsure_and_a_refused_app_is_missing() {
             "cannot reach GitHub",
         ),
     ] {
-        // A GitHub that could not answer is believed for half a minute.
-        scene.clock.advance(60);
         scene.github.fail_next(error);
         let report = scene.report().await;
         let Verdict::Unsure { what, .. } = verdict(&report, "koji: github app") else {
@@ -53,7 +51,6 @@ async fn github_busy_or_out_of_reach_is_unsure_and_a_refused_app_is_missing() {
         assert!(what.contains(said), "{what}");
     }
 
-    scene.clock.advance(60);
     scene.github.fail_next(ApiError::Refused(401));
     let report = scene.report().await;
     let (what, fix) = missing(&report, "koji: github app");
@@ -82,58 +79,47 @@ async fn an_app_not_installed_on_the_repo_is_missing_and_names_its_install_page(
 }
 
 #[tokio::test]
-async fn an_org_s_repo_the_app_covers_with_no_maintainer_set_is_missing_and_names_the_setting() {
+async fn a_ruling_on_a_covered_repo_mentions_the_login_gh_acts_as_and_doctor_says_so() {
     let scene = Scene::new().await;
-    scene.forge.set_owner_is_user(false);
+
+    let report = scene.report().await;
+
+    assert_eq!(
+        ok(&report, "koji: maintainer"),
+        "a ruling mentions @the-maintainer (from gh)"
+    );
+}
+
+#[tokio::test]
+async fn a_login_gh_cannot_give_leaves_a_ruling_mentioning_no_one_and_is_missing() {
+    let scene = Scene::new().await;
+    scene
+        .forge
+        .set_viewer_down(ForgeError::Failed("not logged in".into()));
 
     let report = scene.report().await;
 
     let (what, fix) = missing(&report, "koji: maintainer");
-    assert_eq!(
-        what,
-        "shep-pm is an organization, so a ruling mentions no one and notifies no one"
+    assert!(
+        what.contains("mentions no one and notifies no one"),
+        "{what}"
     );
+    assert!(what.contains("not logged in"), "{what}");
     assert!(fix.contains("set `git.maintainer`"), "{fix}");
-    assert!(!report.passed());
 }
 
 #[tokio::test]
-async fn a_maintainer_that_is_set_a_user_s_repo_or_an_app_that_does_not_cover_it_need_no_line() {
-    // An organization's repo, but the maintainer is set.
+async fn a_maintainer_that_is_set_or_an_app_that_does_not_cover_the_repo_needs_no_line() {
     let scene = Scene::new().await;
-    scene.forge.set_owner_is_user(false);
     scene.runs("golbat", |t| {
         t["git"]["maintainer"] = json!("octocat");
     });
     let report = scene.report().await;
     assert!(!subjects(&report).contains(&"golbat: maintainer"));
 
-    // An organization's repo the App is not installed on: no ruling goes through it.
+    // Not installed there, so no ruling goes through the App at all.
     let scene = Scene::new().await;
-    scene.forge.set_owner_is_user(false);
     scene.runs("rotom", |_| {});
     let report = scene.report().await;
     assert!(!subjects(&report).contains(&"rotom: maintainer"));
-
-    // A user's repo, which the default mentions.
-    let scene = Scene::new().await;
-    let report = scene.report().await;
-    assert!(!subjects(&report).contains(&"koji: maintainer"));
-}
-
-#[tokio::test]
-async fn an_owner_the_forge_cannot_place_is_unsure_and_names_the_setting() {
-    let scene = Scene::new().await;
-    scene.forge.set_owner_unreadable(true);
-
-    let report = scene.report().await;
-
-    let Verdict::Unsure { what, next } = verdict(&report, "koji: maintainer") else {
-        panic!("{:#?}", report.render());
-    };
-    assert!(
-        what.contains("cannot tell whether shep-pm is a user"),
-        "{what}"
-    );
-    assert!(next.contains("`git.maintainer`"), "{next}");
 }

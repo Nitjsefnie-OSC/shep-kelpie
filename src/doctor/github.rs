@@ -6,9 +6,9 @@ use crate::github::{GithubApp, TokenError};
 use crate::ports::Forge;
 use crate::settings::{ForgeSlug, Settings};
 
-/// The line for who a ruling mentions on `repo`, when it needs one: the App
-/// covers the repo, `git.maintainer` is unset, and an organization owns the
-/// repo, so a ruling mentions no one and notifies no one
+/// The line for who a ruling mentions on `repo`, for a repo the App covers
+/// and a project with no `git.maintainer`: the login `gh` acts as, or that
+/// a ruling mentions no one and notifies no one when it cannot be read
 pub(super) fn maintainer(
     subject: String,
     repo: &ForgeSlug,
@@ -20,20 +20,16 @@ pub(super) fn maintainer(
     if settings.git.maintainer.is_some() || github.token(repo).is_err() {
         return None;
     }
-    let owner = repo.owner();
-    match forge.owner_is_user(repo) {
-        Ok(true) => None,
-        Ok(false) => Some(Line::missing(
+    Some(match forge.viewer() {
+        Ok(login) => Line::ok(subject, format!("a ruling mentions @{login} (from gh)")),
+        Err(e) => Line::missing(
             subject,
-            format!("{owner} is an organization, so a ruling mentions no one and notifies no one"),
+            format!(
+                "a ruling mentions no one and notifies no one: the login gh acts as cannot be read: {e}"
+            ),
             "set `git.maintainer` to your GitHub login in the project's `[app.dogs.kelpie.git]` table",
-        )),
-        Err(e) => Some(Line::unsure(
-            subject,
-            format!("cannot tell whether {owner} is a user: {e}"),
-            "run doctor again, or set `git.maintainer` to your GitHub login",
-        )),
-    }
+        ),
+    })
 }
 
 /// The line for `repo`'s App, under `subject`

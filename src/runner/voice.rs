@@ -22,27 +22,24 @@ impl Runner {
         self.ports.voice.covers(&self.remote)
     }
 
-    /// The login a ruling mentions: `git.maintainer`, else the repo's owner
-    /// when a user owns it, else nobody
+    /// The login a ruling mentions: `git.maintainer`, else the login `gh`
+    /// acts as, asked once a run and kept
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the setting is absent and the forge could not say
-    /// whether a user owns the repo: who to mention is not known.
-    pub(super) fn maintainer(&self) -> Result<Option<String>, ForgeError> {
+    /// [`ForgeError`] when the setting is absent and `gh` could not say who
+    /// it acts as: who to mention is not known.
+    pub(super) fn maintainer(&self) -> Result<String, ForgeError> {
         if let Some(login) = &self.settings.git.maintainer {
-            return Ok(Some(login.as_str().to_owned()));
+            return Ok(login.as_str().to_owned());
         }
-        // Asked once a run; an answer that failed is asked again next time.
-        let user = match self.owner_is_user.get() {
-            Some(user) => *user,
-            None => {
-                let user = self.ports.forge.owner_is_user(&self.remote)?;
-                let _ = self.owner_is_user.set(user);
-                user
-            }
-        };
-        Ok(user.then(|| self.remote.owner().to_owned()))
+        // An answer that failed is asked again at the next ruling.
+        if let Some(login) = self.gh_login.get() {
+            return Ok(login.clone());
+        }
+        let login = self.ports.forge.viewer()?;
+        let _ = self.gh_login.set(login.clone());
+        Ok(login)
     }
 
     /// Posts ruling `id`'s comment on `thread` as the App, and returns why it
@@ -53,32 +50,28 @@ impl Runner {
         id: u64,
         kind: &RulingKind,
     ) -> Option<String> {
-        // A ruling still goes up when the owner cannot be asked, as the
+        // A ruling still goes up when no one can be named to mention, as the
         // record on the thread, but it notifies no one, so that is told.
         let (mention, unasked) = match self.maintainer() {
-            Ok(mention) => (mention, None),
+            Ok(login) => (Some(login), None),
             Err(e) => (None, Some(e)),
         };
-        // Told once a run: a repo with no one to mention never notifies the
-        // maintainer of any ruling, and doctor says how to put that right.
-        if mention.is_none() && unasked.is_none() && !self.unmentioned_told.replace(true) {
-            self.notes.push(format!(
-                "ruling {id} is posted on #{thread} without a mention, so it notifies no one: \
-                 {} is an organization, so set `git.maintainer` to the login to mention",
-                self.remote.owner()
-            ));
-        }
         let body = ruling_comment(mention.as_deref(), id, kind);
-        match (
-            self.ports.voice.comment(&self.remote, thread, &body),
-            unasked,
-        ) {
-            (Err(e), _) => Some(e.to_string()),
-            (Ok(()), Some(e)) => Some(format!(
-                "posted without mentioning the maintainer, since it could not be asked who \
-                 owns the repo: {e}"
-            )),
-            (Ok(()), None) => None,
+        match self.ports.voice.comment(&self.remote, thread, &body) {
+            Err(e) => Some(e.to_string()),
+            Ok(()) => unasked.map(|why| {
+                // Said in the log once a run, and only for a ruling that went up.
+                if !self.unmentioned_told.replace(true) {
+                    self.notes.push(format!(
+                        "ruling {id} is posted on #{thread} without a mention, so it notifies \
+                         no one: {why}; set `git.maintainer` to your GitHub login"
+                    ));
+                }
+                format!(
+                    "posted without mentioning the maintainer, since the login `gh` acts as \
+                     could not be read: {why}"
+                )
+            }),
         }
     }
 

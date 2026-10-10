@@ -56,8 +56,6 @@ impl Scene {
     async fn new() -> Self {
         let shepherd = FakeShepherd::new().await;
         let forge = FakeForge::new(PathBuf::from("/nowhere"));
-        // A user's repo, whose owner a ruling mentions, until a test says otherwise.
-        forge.set_owner_is_user(true);
         forge.set_repo_labels(&[
             "bug",
             "ready-for-agent",
@@ -247,6 +245,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: labels",
             "golbat: coderabbit",
             "golbat: github app",
+            "golbat: maintainer",
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
@@ -254,6 +253,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "koji: push access",
             "koji: labels",
             "koji: github app",
+            "koji: maintainer",
             "koji: reviewers",
             "koji: rulings",
         ]

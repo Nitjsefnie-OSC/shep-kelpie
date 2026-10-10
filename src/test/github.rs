@@ -91,6 +91,11 @@ impl FakeGithub {
         self.hub.lock().unwrap().comments_refused = Some(error);
     }
 
+    /// Takes comments again after [`Self::refuse_comments`]
+    pub(crate) fn accept_comments(&self) {
+        self.hub.lock().unwrap().comments_refused = None;
+    }
+
     /// Makes the next conversion hand back an App owned by `owner`
     pub(crate) fn converts_for(&self, owner: &str) {
         self.hub.lock().unwrap().convert_owner = Some(owner.to_owned());

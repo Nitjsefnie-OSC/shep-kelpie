@@ -303,8 +303,9 @@ pub struct Runner {
     looks: looks::Looks,
     // Until when every forge call is held, the forge's rate limit used up
     forge_hold: ForgeHold,
-    // Whether the repo's owner is a user, asked once a run, in memory only
-    owner_is_user: std::cell::OnceCell<bool>,
+    // The login `gh` acts as, which a ruling mentions when `git.maintainer` is unset,
+    // asked once a run, in memory only
+    gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
 }
@@ -438,7 +439,7 @@ impl Runner {
             parked_reads: BTreeMap::new(),
             looks: looks::Looks::default(),
             forge_hold,
-            owner_is_user: std::cell::OnceCell::new(),
+            gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
         };
         runner.settle_older_bots()?;

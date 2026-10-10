@@ -27,10 +27,6 @@ const REMINT_BEFORE: u64 = 5 * 60;
 /// repo it does not cover costs no JWT and no call each time
 const NOT_INSTALLED_FOR: u64 = 10 * 60;
 
-/// How long a GitHub that could not answer is believed, so a post made while
-/// it is down costs one mint however many calls it makes
-const DOWN_FOR: u64 = 30;
-
 /// An installation token, which acts as the App on the repos it is installed on
 ///
 /// `Debug` does not show it.
@@ -143,17 +139,8 @@ type RepoKey = (u64, String);
 struct Kept {
     installations: BTreeMap<(u64, String), u64>,
     tokens: BTreeMap<(u64, String, u64), IssuedToken>,
-    // Why a repo got no token, believed until the time given
-    declined: BTreeMap<RepoKey, (Declined, Timestamp)>,
-}
-
-// Why no token could be had for a repo, as kept for a while
-#[derive(Debug, Clone)]
-enum Declined {
-    // The App is not installed on the repo
-    NotInstalled,
-    // GitHub could not answer, or was busy
-    Down(ApiError),
+    // Until when an App is believed not installed on a repo
+    not_installed: BTreeMap<RepoKey, Timestamp>,
 }
 
 /// [`GithubApp`] over the Apps in kelpie's home
@@ -230,41 +217,31 @@ impl GithubApp for AppTokens {
             {
                 return Ok(issued.token.clone());
             }
-            if let Some((why, until)) = kept.declined.get(&key)
+            if let Some(until) = kept.not_installed.get(&key)
                 && now < *until
             {
-                return Err(match why {
-                    Declined::NotInstalled => TokenError::NotInstalled {
-                        app: app.clone(),
-                        repo: repo.clone(),
-                    },
-                    Declined::Down(e) => TokenError::Api(e.clone()),
+                return Err(TokenError::NotInstalled {
+                    app: app.clone(),
+                    repo: repo.clone(),
                 });
             }
             installation
         };
-        let decline = |why: Declined, secs: u64| {
-            let until = Timestamp(now.0.saturating_add(secs));
-            let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-            kept.declined.insert(key.clone(), (why, until));
-        };
         let jwt = self.jwt(&app, &owner, now)?;
         let id = match installation {
             Some(id) => id,
-            None => match self.api.installation(&jwt, repo) {
-                Ok(Some(id)) => id,
-                Ok(None) => {
-                    decline(Declined::NotInstalled, NOT_INSTALLED_FOR);
+            None => match self.api.installation(&jwt, repo)? {
+                Some(id) => id,
+                None => {
+                    // Believed for a while, so a repo the App does not cover costs no
+                    // JWT and no call each time it is asked about.
+                    let until = Timestamp(now.0.saturating_add(NOT_INSTALLED_FOR));
+                    let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+                    kept.not_installed.insert(key, until);
                     return Err(TokenError::NotInstalled {
-                        app: app.clone(),
+                        app,
                         repo: repo.clone(),
                     });
-                }
-                Err(e) => {
-                    if e.passes() {
-                        decline(Declined::Down(e.clone()), DOWN_FOR);
-                    }
-                    return Err(e.into());
                 }
             },
         };
@@ -277,15 +254,10 @@ impl GithubApp for AppTokens {
                 kept.installations.remove(&key);
                 return Err(e.into());
             }
-            Err(e) => {
-                if e.passes() {
-                    decline(Declined::Down(e.clone()), DOWN_FOR);
-                }
-                return Err(e.into());
-            }
+            Err(e) => return Err(e.into()),
         };
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        kept.declined.remove(&key);
+        kept.not_installed.remove(&key);
         kept.tokens.insert(token_key(id), issued.clone());
         kept.installations.insert(key, id);
         Ok(issued.token)

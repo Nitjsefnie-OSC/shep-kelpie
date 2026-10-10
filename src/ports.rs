@@ -103,13 +103,6 @@ pub trait Forge: Send {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn can_push(&self, repo: &ForgeSlug) -> Result<bool, ForgeError>;
 
-    /// Whether the account that owns `repo` is a user rather than an organization
-    ///
-    /// # Errors
-    ///
-    /// [`ForgeError`] when the forge cannot be asked or its answer read.
-    fn owner_is_user(&self, repo: &ForgeSlug) -> Result<bool, ForgeError>;
-
     /// Whether the review bot `login` has commented on any pull request of `repo`
     ///
     /// # Errors
