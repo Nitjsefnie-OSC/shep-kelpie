@@ -116,6 +116,9 @@ pub(crate) fn srt_settings(policy: &Policy) -> Value {
 }
 
 #[cfg(test)]
+mod live;
+
+#[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
