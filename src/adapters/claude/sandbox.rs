@@ -390,7 +390,8 @@ mod tests {
     fn every_role_gets_a_temp_folder_its_sandbox_can_write() {
         let w = World::new();
         let cli = w.cli(Arc::new(OpenSandbox::default()));
-        for call in [w.worker(), w.call(Role::Reviewer)] {
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
             let command = cli.sandboxed_command(&call).unwrap();
             let env_of = |name: &str| {
                 let set = command.get_envs().find(|(n, _)| *n == name);
