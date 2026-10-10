@@ -116,7 +116,8 @@ impl fmt::Display for TokenError {
             }
             Self::NoContents(app) => write!(
                 f,
-                "{} was never given the Contents permission (read and write) a worker's                  token needs: add it in the App's settings, then accept it on the installation",
+                "{} was never given the Contents permission (read and write) a worker's \
+                 token needs: add it in the App's settings, then accept it on the installation",
                 app.slug
             ),
             Self::KeychainLogin => f.write_str(

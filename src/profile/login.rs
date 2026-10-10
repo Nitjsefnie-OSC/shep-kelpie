@@ -10,7 +10,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::github::InstallationToken;
@@ -40,13 +40,19 @@ pub fn write(build: &Path, token: &InstallationToken) -> io::Result<()> {
         token = token.expose()
     );
     // The version says the config is already in the shape `gh` migrates to.
-    fs::write(dir.join("config.yml"), "version: \"1\"\n")?;
+    write_private(&dir.join("config.yml"), "version: \"1\"\n")?;
+    write_private(&dir.join("hosts.yml"), &text)
+}
+
+// `text` in `path` for the user alone, whatever mode a file already there had
+fn write_private(path: &Path, text: &str) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
-        .open(dir.join("hosts.yml"))?;
+        .open(path)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
     file.write_all(text.as_bytes())
 }
 
@@ -72,7 +78,6 @@ pub(super) fn env(build: &Path) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::process::{Command, Stdio};
 
     use super::*;
@@ -96,6 +101,25 @@ mod tests {
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    // A folder an earlier kelpie, or the worker, left with looser files.
+    #[test]
+    fn both_files_are_for_the_user_alone_even_where_older_ones_were_not() {
+        let build = tempfile::tempdir().unwrap();
+        let dir = config_dir(build.path());
+        fs::create_dir_all(&dir).unwrap();
+        for name in ["config.yml", "hosts.yml"] {
+            fs::write(dir.join(name), "old\n").unwrap();
+            fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        write(build.path(), &token("ghs_scoped")).unwrap();
+
+        for name in ["config.yml", "hosts.yml"] {
+            let mode = fs::metadata(dir.join(name)).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "{name}");
+        }
     }
 
     // Measured with git and gh themselves: a helper the maintainer set up, the

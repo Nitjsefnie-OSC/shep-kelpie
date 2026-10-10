@@ -83,7 +83,7 @@ pub(super) fn workers(subject: String, repo: &ForgeSlug, github: &dyn GithubApp)
             format!("no token mints for a worker: {e}"),
             "in the App's settings on GitHub, set Repository permissions, Contents, to Read and \
              write, then accept the new permission on the installation; or register the App \
-             again with `shep kelpie github setup --replace",
+             again with `shep kelpie github setup --replace`",
         ),
         Err(TokenError::Api(e)) if e.passes() => {
             Line::unsure(subject, e.to_string(), "run doctor again")

@@ -288,6 +288,21 @@ Resolves #7"
         );
     }
 
+    // With no App the worker opens its own pull request, as the maintainer's
+    // login, and a file it left is none of kelpie's to act on.
+    #[test]
+    fn a_file_left_by_a_worker_the_app_does_not_cover_opens_nothing() {
+        let (rig, runner) = with_issue_7(false);
+        std::fs::write(path(&rig.build_7()), "feat: x\n\nResolves #7\n").unwrap();
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+        step(&runner).unwrap();
+
+        assert_eq!(rig.forge.text_of(500), None);
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"]["pull_request"], serde_json::Value::Null);
+    }
+
     #[test]
     fn a_turn_that_left_no_file_has_no_pull_request_opened() {
         let (rig, runner) = with_issue_7(true);

@@ -486,16 +486,20 @@ impl Runner {
                 // discovered once, and every later turn that reaches here
                 // (a CI-failure fix, most often) already knows it.
                 let discovering = item.pull_request.is_none();
+                // Only a worker on a repo the App covers hands its pull request
+                // over: any other opens and edits its own, and a file it left
+                // is not kelpie's to act on.
+                let handed_over = self.app_covers();
                 if discovering {
                     item.pull_request = self.pull_request_from(&item.branch);
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
-                    if item.pull_request.is_none() && item.known.head.is_some() {
+                    if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
                         item.pull_request = self.open_handed_over(&item.build, &item.branch);
                     }
                 }
                 // A later turn that rewrote the file changes the title and body.
-                if let (false, Some(number)) = (discovering, item.pull_request) {
+                if let (true, false, Some(number)) = (handed_over, discovering, item.pull_request) {
                     self.edit_handed_over(&item.build, number);
                 }
                 let session = item.session.clone();
