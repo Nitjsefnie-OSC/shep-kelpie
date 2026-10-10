@@ -722,6 +722,11 @@ impl Rig {
         (rig, runner, head)
     }
 
+    /// `login` writes `body` on `thread` now, and the comment's id
+    pub(crate) fn writes_on(&self, thread: u64, login: &str, body: &str) -> u64 {
+        (self.forge.threads).write(thread, login, body, self.clock.now())
+    }
+
     /// Moves the clock on to the board's next read, past the first three
     /// waits of a step that failed
     pub(crate) fn next_look(&self) {

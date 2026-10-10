@@ -144,6 +144,7 @@ mod tests {
                 pull_request: None,
                 kind: Stuck::Closed.into(),
                 alerted: false,
+                heard: None,
             })
             .collect();
         let path = home.join(name).join("state.json");

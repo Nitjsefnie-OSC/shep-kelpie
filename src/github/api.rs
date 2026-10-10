@@ -176,6 +176,15 @@ impl Call {
         )
     }
 
+    /// A thumbs up on comment `comment`,
+    /// `POST /repos/{owner}/{repo}/issues/comments/{comment}/reactions`
+    pub fn thumbs_up(repo: &ForgeSlug, comment: u64) -> Self {
+        Self::post(
+            format!("/repos/{}/issues/comments/{comment}/reactions", repo.as_str()),
+            serde_json::json!({ "content": "+1" }),
+        )
+    }
+
     /// A new issue, `POST /repos/{owner}/{repo}/issues`
     pub fn issue(repo: &ForgeSlug, title: &str, body: &str, labels: &[&str]) -> Self {
         Self::post(

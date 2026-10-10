@@ -11,7 +11,7 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
     Checks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, Timestamp, Visibility,
+    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -76,6 +76,8 @@ pub(crate) struct FakeForge {
     down: Arc<Mutex<Option<down::Down>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
+    /// What people wrote on the threads, and who may write to the repo
+    pub(crate) threads: thread::FakeThreads,
 }
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
@@ -152,6 +154,7 @@ impl FakeForge {
             board_reads: Arc::default(),
             down: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
+            threads: thread::FakeThreads::default(),
         }
     }
 
@@ -701,6 +704,20 @@ impl Forge for FakeForge {
         }
     }
 
+    fn comments_since(
+        &self,
+        _repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.read(since))
+    }
+
+    fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.may_write(login))
+    }
+
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
         self.ask()?;
         if self.comments_down.load(Ordering::SeqCst) {
@@ -919,3 +936,4 @@ impl Forge for FakeForge {
 
 mod down;
 mod queue;
+mod thread;

@@ -127,6 +127,16 @@ impl FakeGithub {
             .collect()
     }
 
+    /// The id of each comment the App reacted to, in order
+    pub(crate) fn reactions(&self) -> Vec<u64> {
+        (self.writes().into_iter())
+            .filter_map(|(_, call)| {
+                let path = call.path.strip_suffix("/reactions")?;
+                path.rsplit('/').next()?.parse().ok()
+            })
+            .collect()
+    }
+
     /// Every JWT a call was made with
     pub(crate) fn jwts(&self) -> Vec<String> {
         self.hub.lock().unwrap().jwts.clone()

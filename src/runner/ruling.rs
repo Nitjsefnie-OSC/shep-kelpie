@@ -15,7 +15,7 @@ use super::rework::HUMAN;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
 use crate::settings::Merging;
-use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
+use crate::state::{Fix, Heard, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree;
 
@@ -418,6 +418,10 @@ pub(super) fn park(
         pull_request,
         kind,
         alerted: false,
+        heard: Some(Heard {
+            time: names.now,
+            comment: 0,
+        }),
     });
     (id, text)
 }

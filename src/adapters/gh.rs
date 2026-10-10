@@ -7,6 +7,7 @@ mod queue;
 mod rate_limit;
 mod review;
 pub(crate) mod review_bot;
+mod thread;
 
 use std::process::Stdio;
 
@@ -15,7 +16,7 @@ use serde::Deserialize;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
     Checks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, PullRequestState,
-    QueueStanding, Reviewed, Timestamp, Visibility,
+    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -122,6 +123,18 @@ impl Forge for Gh {
 
     fn viewer(&self) -> Result<String, ForgeError> {
         review::viewer()
+    }
+
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        thread::comments_since(repo, since)
+    }
+
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        thread::can_write(repo, login)
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {

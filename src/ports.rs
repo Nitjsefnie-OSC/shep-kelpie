@@ -29,6 +29,7 @@ mod rate_limit;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod thread;
 
 pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
@@ -42,6 +43,7 @@ pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use thread::ThreadComment;
 
 /// Seconds since the Unix epoch
 // wire format: changing this is a breaking change to the state file
@@ -155,6 +157,29 @@ pub trait Forge: Send {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn viewer(&self) -> Result<String, ForgeError>;
+
+    /// The comments written on any issue or pull request of `repo` since
+    /// `since`, oldest first
+    ///
+    /// The forge counts a comment since its last edit, so one written before
+    /// `since` and edited after it is among them: [`ThreadComment::created`]
+    /// says when it was written.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError>;
+
+    /// Whether `login` has write access to `repo`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError>;
 
     /// Posts `body` as a comment on pull request `number`
     ///
@@ -491,6 +516,13 @@ pub trait Voice: Send + Sync {
     ///
     /// [`ForgeError`] when the App cannot post it.
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError>;
+
+    /// Reacts to comment `comment` with a thumbs up
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot react.
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError>;
 
     /// Opens an issue on `repo` with these labels, and returns its number
     ///

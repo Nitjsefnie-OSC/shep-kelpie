@@ -22,7 +22,7 @@ use crate::board::{AGENT_LABEL, ReadyIssue, agent_label};
 use crate::issues::Writer;
 use crate::ports::{AgentError, AgentReply, Ending, Role, Timestamp, Tools};
 use crate::settings::{AgentName, Limit};
-use crate::state::{Ruling, RulingKind, StateError, Stuck};
+use crate::state::{Heard, Ruling, RulingKind, StateError, Stuck};
 use crate::usage::{CallKind, Draft};
 
 /// How long the issue writer gets to label one issue, in seconds
@@ -247,6 +247,10 @@ impl Runner {
             pull_request: None,
             kind,
             alerted: false,
+            heard: Some(Heard {
+                time: names.now,
+                comment: 0,
+            }),
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {

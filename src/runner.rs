@@ -86,6 +86,7 @@ mod several;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
+mod thread_replies;
 mod timings;
 mod trigger;
 mod turn;
@@ -265,6 +266,8 @@ pub struct Runner {
     reading: replies::Reading,
     // What a reply's code is checked against, on an ntfy webhook
     totp: Option<replies::Authenticator>,
+    // Reading the rulings' threads for answers, kept in memory only
+    threads: thread_replies::Reading,
     // The account kelpie acts as, read once a run when a rework first needs it
     viewer: Option<String>,
     // The issue of the work item a step or trigger is working on, set before
@@ -423,6 +426,7 @@ impl Runner {
             retry: None,
             reading: replies::Reading::default(),
             totp,
+            threads: thread_replies::Reading::default(),
             viewer: None,
             focus: None,
             last_acted: None,
@@ -479,6 +483,7 @@ impl Runner {
         Names {
             project: self.project.as_str(),
             ids: RulingIds::under(&self.paths.kelpie_home),
+            now: self.ports.clock.now(),
         }
     }
 
@@ -774,6 +779,7 @@ fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsE
 struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
+    now: Timestamp,
 }
 
 // Every listed review bot needs a profile.

@@ -281,6 +281,29 @@ pub struct Ruling {
     /// webhooks existed is posted once.
     #[serde(default)]
     pub alerted: bool,
+    /// How far the comments on its thread have been read for an answer.
+    /// None in a file from before replies in a thread, until a read starts it.
+    #[serde(default)]
+    pub heard: Option<Heard>,
+}
+
+/// The last comment on a ruling's thread read for an answer, or the moment
+/// the ruling was raised when none has been
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Heard {
+    /// When the comment was written
+    pub time: Timestamp,
+    /// The forge's id for it, 0 before any
+    pub comment: u64,
+}
+
+impl Heard {
+    /// Whether a comment written at `time` with this `id` is after this one
+    pub fn before(&self, time: Timestamp, id: u64) -> bool {
+        (self.time, self.comment) < (time, id)
+    }
 }
 
 /// Where reading replies on the webhook's topic has got to

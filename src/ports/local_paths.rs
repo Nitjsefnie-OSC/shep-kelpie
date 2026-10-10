@@ -9,8 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed, Timestamp,
-    Visibility, Voice,
+    Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed,
+    ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::local_paths::{LocalPaths, Surface};
@@ -92,6 +92,18 @@ impl Forge for Guarded {
 
     fn viewer(&self) -> Result<String, ForgeError> {
         self.forge.viewer()
+    }
+
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.forge.comments_since(repo, since)
+    }
+
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.forge.can_write(repo, login)
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
@@ -213,6 +225,10 @@ impl Voice for GuardedVoice {
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {
         self.check("the comment", body)?;
         self.voice.comment(repo, thread, body)
+    }
+
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
+        self.voice.thumbs_up(repo, comment)
     }
 
     fn create_issue(

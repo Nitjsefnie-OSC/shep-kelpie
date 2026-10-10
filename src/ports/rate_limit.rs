@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{
     Clock, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed,
-    Timestamp, Visibility,
+    ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::review_bot::{Activity, Login};
@@ -170,6 +170,18 @@ impl Forge for RateHeld {
 
     fn viewer(&self) -> Result<String, ForgeError> {
         self.call(|f| f.viewer())
+    }
+
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.call(|f| f.comments_since(repo, since))
+    }
+
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.call(|f| f.can_write(repo, login))
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {

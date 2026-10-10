@@ -59,6 +59,10 @@ impl Voice for AppVoice {
             .map(drop)
     }
 
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
+        self.write(repo, &Call::thumbs_up(repo, comment)).map(drop)
+    }
+
     fn create_issue(
         &self,
         repo: &ForgeSlug,
