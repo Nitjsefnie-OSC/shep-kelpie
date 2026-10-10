@@ -12,6 +12,7 @@ const ANSWER: &str = "\
 {\"pick\": <the ready issue to start next, or null to start nothing now>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
  \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"},
+ \"answer\": null or {\"item\": <the work item whose worker asked>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"why\": \"<one sentence>\"},
  \"reply\": null or \"<a message to the maintainer, if one is due>\",
  \"why\": \"<two sentences at most>\"}
 ```
@@ -20,7 +21,15 @@ const ANSWER: &str = "\
 the maintainer, with your `why` as what you propose or ask. `none` leaves it to \
 resolve itself. Kelpie checks every answer against the board, and drops and \
 logs any part that names an issue the board does not show as ready, or an item \
-that is not stuck.";
+that is not stuck.
+
+A worker's question waits on you for one wake at most. Answer it with `text` \
+only where the issue, the docs or an ADR settle it: kelpie sends the worker \
+`PM answered: ` and your text as its next turn, and the maintainer is not \
+asked. For a decision only the maintainer can make, give `escalate` with the \
+choice you recommend, which is added to the question as `PM recommends: \
+<choice>`; kelpie checks that the item is parked on a question, and drops the \
+answer if not, when the question goes to the maintainer as it stands.";
 
 /// The prompt for a wake for `wakes`, carrying `told`: in full for a new
 /// session, shorter for one resumed
@@ -39,7 +48,12 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
         match wake {
             Wake::Told => {}
             other => {
-                let _ = writeln!(out, "- {}", reason(other));
+                let reason = reason(other);
+                let mut lines = reason.lines();
+                let _ = writeln!(out, "- {}", lines.next().unwrap_or_default());
+                for line in lines {
+                    let _ = writeln!(out, "  {line}");
+                }
             }
         }
     }
@@ -86,6 +100,18 @@ pub(super) fn reason(wake: &Wake) -> String {
         ),
         Wake::Stuck(issue, what) => format!("#{issue} is stuck: {what}"),
         Wake::Told => "the maintainer told you something".to_owned(),
+        Wake::Question { issue, id, asked } => {
+            let mut out = format!("#{issue}'s worker asks, on ruling {id}:\n");
+            for line in asked.lines() {
+                match line.is_empty() {
+                    true => out.push_str("\n>"),
+                    false => {
+                        let _ = write!(out, "\n> {line}");
+                    }
+                }
+            }
+            out
+        }
     }
 }
 

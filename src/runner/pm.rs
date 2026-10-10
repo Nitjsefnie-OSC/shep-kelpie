@@ -2,7 +2,10 @@
 //! briefed from the board, and checked against it before kelpie acts
 //!
 //! A wake comes from a free slot with two or more ready issues, two open
-//! branches that conflict, a stuck work item, or the maintainer's `tell`.
+//! branches that conflict, a stuck work item, a worker's question, or the
+//! maintainer's `tell`. A question's ruling is held back from the
+//! maintainer for at most one wake, for the project manager to answer or
+//! pass on with a recommendation.
 //! The reasons gathered since the last wake go in one call, a lamb like any
 //! other, one at a time, which the loop never waits on. Its session is the
 //! project's one, resumed each wake and compacted past [`COMPACT_PAST`].
@@ -26,11 +29,12 @@ mod call;
 mod diffs;
 mod maintainer;
 mod prompt;
+mod question;
 #[cfg(test)]
 mod tests;
 mod wakes;
 
-pub use maintainer::{PmAttaching, PmError, PmStatus};
+pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
 use wakes::stuck_on;
@@ -76,6 +80,15 @@ pub(super) enum Wake {
     Stuck(u64, String),
     /// The maintainer told it something, which the state file holds
     Told,
+    /// A worker asked a question, which ruling `id` holds for the maintainer
+    Question {
+        /// The work item's issue
+        issue: u64,
+        /// The ruling
+        id: u64,
+        /// The worker's question, verbatim
+        asked: String,
+    },
 }
 
 impl Wake {
@@ -85,6 +98,7 @@ impl Wake {
             (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
+            (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -154,6 +168,11 @@ pub(super) struct Desk {
     reply: Option<String>,
     // What it decided for an idle worker whose call it had ended
     after_end: BTreeMap<u64, (Action, String)>,
+    // Each question ruling held back from the maintainer for its answer, with
+    // when it was raised
+    asking: BTreeMap<u64, Timestamp>,
+    // The last few questions it settled, newest last
+    settled: Vec<Settled>,
     flying: Option<Flying>,
 }
 
@@ -303,8 +322,20 @@ impl Runner {
                 }
                 Wake::Told => self.pm_due(Wake::Told),
                 Wake::Conflict(..) | Wake::Stuck(..) => self.pm.lapsed = true,
+                // The ruling goes to the maintainer, who need not wait on it again.
+                Wake::Question { id, .. } => {
+                    self.pm.asking.remove(&id);
+                }
             }
         }
+    }
+
+    /// Whether question ruling `id` waits on the project manager's answer,
+    /// at most one wake, and so is not posted to the maintainer yet
+    pub(super) fn pm_holds_ruling(&self, id: u64) -> bool {
+        let now = self.ports.clock.now();
+        let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
+        !self.draining && self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
     }
 
     fn launch_wake(&mut self, agent: &PmAgent) -> Result<(), String> {
@@ -422,6 +453,12 @@ impl Runner {
         let woke_for = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
         let (acted, dropped) = self.act(&answer, picking)?;
+        // A question it did not settle goes to the maintainer as it stands.
+        for wake in &flying.wakes {
+            if let Wake::Question { id, .. } = wake {
+                self.pm.asking.remove(id);
+            }
+        }
         // Its pick or hold is taken on the board's next read.
         self.looks.board_moved();
         Ok(Some(StepReport::PmAnswered {

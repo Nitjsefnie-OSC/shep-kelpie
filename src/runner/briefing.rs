@@ -97,7 +97,7 @@ impl Runner {
     }
 
     // Saves `found` as board events.
-    fn record(&mut self, found: Vec<String>) -> Result<(), StateError> {
+    pub(in crate::runner) fn record(&mut self, found: Vec<String>) -> Result<(), StateError> {
         if found.is_empty() {
             return Ok(());
         }
