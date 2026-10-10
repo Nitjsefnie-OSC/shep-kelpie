@@ -153,6 +153,11 @@ impl ProjectPaths {
         [self.worktrees.clone(), self.builds.clone()]
     }
 
+    /// The folder holding every work item's worktree
+    pub fn worktrees(&self) -> PathBuf {
+        self.worktrees.clone()
+    }
+
     /// The worktree for the work item that resolves `issue`
     pub fn worktree(&self, issue: u64) -> PathBuf {
         self.worktrees.join(issue.to_string())

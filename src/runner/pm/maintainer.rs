@@ -195,7 +195,7 @@ impl Runner {
                 (id.clone(), Session::New(id))
             }
         };
-        let call = self.pm_call(agent, session, String::new());
+        let call = self.pm_call(agent, session, String::new(), true);
         let command = call
             .and_then(|call| {
                 self.ports

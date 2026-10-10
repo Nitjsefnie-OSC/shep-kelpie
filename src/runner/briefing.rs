@@ -24,6 +24,7 @@ use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
 mod git;
+mod patch;
 
 #[cfg(test)]
 mod tests;
@@ -49,6 +50,8 @@ pub(super) struct BoardCache {
     named_from: BTreeMap<u64, String>,
     // The files each open work item's branch changes, as git last said
     files: BTreeMap<u64, Vec<String>>,
+    // Each open branch's diff as git last gave it, or why not, for the PM
+    patches: BTreeMap<u64, Result<Vec<u8>, String>>,
     git: Git,
     due: bool,
     written: Option<Timestamp>,
@@ -175,6 +178,7 @@ impl Runner {
                 .map(|item| (item.issue, item.branch.clone()))
                 .collect(),
             bodies: self.brief.bodies.clone(),
+            patches: self.agents.pm.is_some(),
         })
     }
 
@@ -221,6 +225,8 @@ impl Runner {
         let open = self.state.open_issues();
         self.brief.files.retain(|issue, _| open.contains(issue));
         self.brief.files.extend(std::mem::take(&mut answers.files));
+        // A diff git could not give is not kept, since a stale one would mislead.
+        self.brief.patches = std::mem::take(&mut answers.patches);
         // Paths the board could not compare before may let it dispatch now.
         let (named_from, files) = &compared;
         if learned(named_from, &self.brief.named_from) || learned(files, &self.brief.files) {
@@ -301,6 +307,13 @@ impl Runner {
             (None, Some(named)) => Files::Named(named.clone()),
             (None, None) => Files::Unknown,
         }
+    }
+
+    /// The work item for `issue`'s diff from `main` as the board's last
+    /// write read it, cut to size, or why git could not give it; `None`
+    /// before a write has read it
+    pub(super) fn brief_patch(&self, issue: u64) -> Option<&Result<Vec<u8>, String>> {
+        self.brief.patches.get(&issue)
     }
 
     /// The paths `issue`'s body names, once the board has read them from
