@@ -610,23 +610,21 @@ async fn a_checkout_that_moved_is_missing_and_fails_the_run() {
 #[tokio::test]
 async fn ci_that_skips_drafts_is_missing_where_ci_blocks_and_not_where_it_does_not() {
     let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["ci"]["block"] = json!(false);
+    });
     let workflow = "on: pull_request\njobs:\n  test:\n    \
                     if: github.event.pull_request.draft == false\n";
-    crate::test::write_in(
-        &scene.home.join("koji/.github/workflows"),
-        "ci.yml",
-        workflow,
-    );
+    for project in ["koji", "golbat"] {
+        let folder = scene.home.join(project).join(".github/workflows");
+        crate::test::write_in(&folder, "ci.yml", workflow);
+    }
     let report = scene.report().await;
     let (what, fix) = missing(&report, "koji: ci on drafts");
     assert!(what.contains("skips a draft (`ci.yml`)"), "{what}");
     assert!(fix.contains("set `ci.block` to false"), "{fix}");
     assert!(!report.passed());
-
-    scene.runs("koji", |t| {
-        t["ci"]["block"] = json!(false);
-    });
-    assert!(!subjects(&scene.report().await).contains(&"koji: ci on drafts"));
+    assert!(!subjects(&report).contains(&"golbat: ci on drafts"));
 }
 
 #[tokio::test]
