@@ -57,8 +57,8 @@ fn an_answer_to_a_ruling_no_longer_waiting_is_logged_and_let_go() {
     assert!(!answers.join("3").exists());
     assert!(
         notes(&runner).contains(
-            &"the answer to ruling 3 left while the runner was stopped was not taken: no ruling 3 \
-              is pending"
+            &"the answer to ruling 3 left while the runner was stopped was not taken: ruling 3 \
+              is already answered, or was never raised"
                 .to_owned()
         )
     );
@@ -84,7 +84,7 @@ fn an_id_written_with_leading_zeros_is_left_under_its_number_and_taken() {
     assert!(
         notes.contains(
             &"the answer to ruling 2 left while the runner was stopped was not taken: \
-                         no ruling 2 is pending"
+                         ruling 2 is already answered, or was never raised"
                 .to_owned()
         ),
         "{notes:?}"

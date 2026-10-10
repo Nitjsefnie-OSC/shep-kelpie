@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::api::{self, ApiError, Call, GithubApi};
 use super::tokens::{GithubApp, InstallationToken, TokenError};
-use crate::ports::{ForgeError, NewLabel, Voice};
+use crate::ports::{ForgeError, NewLabel, PostedComment, Voice};
 use crate::settings::ForgeSlug;
 
 /// [`Voice`] as kelpie's App
@@ -57,6 +57,17 @@ impl Voice for AppVoice {
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {
         self.write(repo, &Call::comment(repo, thread, body))
             .map(drop)
+    }
+
+    fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
+        let answer = self.write(repo, &Call::comment(repo, thread, body))?;
+        let (id, created) =
+            api::parse_posted(&answer).map_err(|e| ForgeError::App(e.to_string()))?;
+        Ok(PostedComment { id, created })
+    }
+
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
+        self.write(repo, &Call::thumbs_up(repo, comment)).map(drop)
     }
 
     fn create_issue(

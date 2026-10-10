@@ -46,7 +46,7 @@ pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
-pub(crate) use forge::FakeForge;
+pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use leases::{FakeLeases, Told};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
@@ -332,6 +332,7 @@ impl Rig {
             home,
         };
         rig.make_repo();
+        rig.forge.threads.use_clock(rig.clock.clone());
 
         let example = include_str!("../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
@@ -635,7 +636,7 @@ impl Rig {
         let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
         let ports = Ports {
             agents: Arc::new(self.claude.clone()),
-            forge: Box::new(self.forge.clone()),
+            forge: Arc::new(self.forge.clone()),
             voice: Arc::new(AppVoice::new(tokens, Box::new(self.github.clone()))),
             meter: Box::new(self.meter.clone()),
             codex_meter: Box::new(self.codex_meter.clone()),
@@ -721,6 +722,11 @@ impl Rig {
             Some(StepReport::Ruling { id: 1, .. })
         ));
         (rig, runner, head)
+    }
+
+    /// `login` writes `body` on `thread` now, and the comment's id
+    pub(crate) fn writes_on(&self, thread: u64, login: &str, body: &str) -> u64 {
+        (self.forge.threads).write(thread, login, body, self.clock.now())
     }
 
     /// Moves the clock on to the board's next read, past the first three

@@ -86,6 +86,7 @@ mod several;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
+mod thread_replies;
 mod timings;
 mod trigger;
 mod turn;
@@ -265,6 +266,8 @@ pub struct Runner {
     reading: replies::Reading,
     // What a reply's code is checked against, on an ntfy webhook
     totp: Option<replies::Authenticator>,
+    // Reading the rulings' threads for answers, kept in memory only
+    threads: thread_replies::Reading,
     // The account kelpie acts as, read once a run when a rework first needs it
     viewer: Option<String>,
     // The issue of the work item a step or trigger is working on, set before
@@ -308,6 +311,9 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // The ids of comments kelpie posted as the login `gh` acts as since the
+    // last save, which the state file keeps: none of them is ever an answer
+    posted: std::cell::RefCell<Vec<u64>>,
 }
 
 impl Runner {
@@ -334,13 +340,13 @@ impl Runner {
         let forge_hold = ForgeHold::default();
         let told = claim::Notes::default();
         ports.voice = Arc::new(GuardedVoice::new(ports.voice, local.clone()));
-        let guarded = Box::new(Guarded::new(ports.forge, local.clone()));
+        let guarded = Arc::new(Guarded::new(ports.forge, local.clone()));
         let clock = Arc::clone(&ports.clock);
         let say: Say = {
             let told = told.clone();
             Box::new(move |line| told.push(line))
         };
-        ports.forge = Box::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
+        ports.forge = Arc::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
         let leases = Arc::clone(&ports.local_leases);
         ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
         let gpu = gpu::GpuWatch::start(
@@ -423,6 +429,7 @@ impl Runner {
             retry: None,
             reading: replies::Reading::default(),
             totp,
+            threads: thread_replies::Reading::default(),
             viewer: None,
             focus: None,
             last_acted: None,
@@ -441,6 +448,7 @@ impl Runner {
             forge_hold,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -681,10 +689,21 @@ impl Runner {
         slots::seat(&self.state, &mut next, self.active_items());
         self.charge(&mut next);
         self.note_changes(&mut next);
-        self.store.save(&next)?;
+        // A ruling that is answered takes the place read to in its thread with it.
+        next.heard
+            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
+        // The comments kelpie posted since the last save go in with it.
+        let fresh = self.posted.take();
+        next.note_posted(&fresh);
+        if let Err(e) = self.store.save(&next) {
+            self.posted.borrow_mut().extend(fresh);
+            return Err(e);
+        }
         if looks::board_moved(&self.state, &next) {
             self.looks.board_moved();
         }
+        self.threads
+            .settled(&self.state, &next, self.ports.clock.now());
         self.state = next;
         Ok(())
     }

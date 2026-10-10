@@ -397,7 +397,7 @@ impl Runner {
         })?;
         let profile = self.profile(bot);
         let body = profile.full_review().unwrap_or_default();
-        let posted = self.ports.forge.comment(&self.remote, number, body);
+        let posted = self.comment_as_gh(number, body);
         if let Err(e) = posted {
             let stage = if again {
                 ReviewStage::Summoned {

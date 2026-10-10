@@ -9,8 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed, Timestamp,
-    Visibility, Voice,
+    Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment, PullRequest, QueueStanding,
+    Reviewed, ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::local_paths::{LocalPaths, Surface};
@@ -19,13 +19,13 @@ use crate::settings::ForgeSlug;
 
 /// A forge that refuses to post any text naming something of this machine's
 pub struct Guarded {
-    forge: Box<dyn Forge>,
+    forge: Arc<dyn Forge>,
     local: LocalPaths,
 }
 
 impl Guarded {
     /// `forge`, refusing posts that `local` finds something in
-    pub fn new(forge: Box<dyn Forge>, local: LocalPaths) -> Self {
+    pub fn new(forge: Arc<dyn Forge>, local: LocalPaths) -> Self {
         Self { forge, local }
     }
 
@@ -94,14 +94,21 @@ impl Forge for Guarded {
         self.forge.viewer()
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
-        self.check("the comment", body)?;
-        self.forge.comment(repo, number, body)
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.forge.comments_since(repo, since)
     }
 
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.forge.can_write(repo, login)
+    }
+
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.check("the comment", body)?;
-        self.forge.post_comment(repo, number, body)
+        self.forge.comment(repo, number, body)
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
@@ -120,9 +127,8 @@ impl Forge for Guarded {
         self.forge.create_issue(repo, title, body, labels)
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
-        self.check("the comment", comment)?;
-        self.forge.close_issue(repo, number, comment)
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.forge.close_issue(repo, number)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
@@ -223,6 +229,15 @@ impl Voice for GuardedVoice {
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {
         self.check("the comment", body)?;
         self.voice.comment(repo, thread, body)
+    }
+
+    fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
+        self.check("the comment", body)?;
+        self.voice.post(repo, thread, body)
+    }
+
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
+        self.voice.thumbs_up(repo, comment)
     }
 
     fn create_issue(

@@ -684,7 +684,7 @@ mod tests {
         );
         assert_eq!(
             rig.ask(&runner, "rule", Some("1 yes")),
-            json!({ "error": "no ruling 1 is pending" })
+            json!({ "error": "ruling 1 is already answered, or was never raised" })
         );
         assert_eq!(
             rig.ask(&runner, "rule", None),

@@ -39,6 +39,7 @@ struct Hub {
     jwts: Vec<String>,
     minted: u32,
     issues: u64,
+    comment_ids: u64,
     // Why every comment is refused, while it is
     comments_refused: Option<ApiError>,
 }
@@ -123,6 +124,16 @@ impl FakeGithub {
                 let thread = call.path.strip_suffix("/comments")?.rsplit('/').next()?;
                 let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
                 Some((thread.parse().ok()?, body["body"].as_str()?.to_owned()))
+            })
+            .collect()
+    }
+
+    /// The id of each comment the App reacted to, in order
+    pub(crate) fn reactions(&self) -> Vec<u64> {
+        (self.writes().into_iter())
+            .filter_map(|(_, call)| {
+                let path = call.path.strip_suffix("/reactions")?;
+                path.rsplit('/').next()?.parse().ok()
             })
             .collect()
     }
@@ -212,6 +223,16 @@ impl GithubApi for FakeGithub {
             .filter(|_| call.path.ends_with("/comments"))
         {
             return Err(error);
+        }
+        // A comment answers with its id, numbered from 100 and so below any a
+        // person writes on the fake forge, and the time the clock says.
+        if call.path.ends_with("/comments") {
+            hub.comment_ids += 1;
+            let created = jiff::Timestamp::from_second(self.clock.now().0 as i64).unwrap();
+            return Ok(format!(
+                r#"{{"id":{},"created_at":"{created}"}}"#,
+                99 + hub.comment_ids
+            ));
         }
         if call.path.ends_with("/issues") {
             hub.issues += 1;

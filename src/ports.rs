@@ -29,6 +29,7 @@ mod rate_limit;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod thread;
 
 pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
@@ -42,6 +43,7 @@ pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use thread::{PostedComment, ThreadComment};
 
 /// Seconds since the Unix epoch
 // wire format: changing this is a breaking change to the state file
@@ -67,7 +69,7 @@ pub enum Visibility {
 }
 
 /// The forge that holds the project's issues and pull requests
-pub trait Forge: Send {
+pub trait Forge: Send + Sync {
     /// Who can see `repo`
     ///
     /// # Errors
@@ -156,19 +158,39 @@ pub trait Forge: Send {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn viewer(&self) -> Result<String, ForgeError>;
 
-    /// Posts `body` as a comment on pull request `number`
+    /// The comments written on any issue or pull request of `repo` since
+    /// `since`, oldest first
+    ///
+    /// The forge counts a comment since its last edit, so one written before
+    /// `since` and edited after it is among them: [`ThreadComment::created`]
+    /// says when it was written.
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the comment cannot be posted.
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError>;
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError>;
 
-    /// Posts `body` as a comment on pull request `number`, and returns its id
+    /// Whether `login` has write access to `repo`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError>;
+
+    /// Posts `body` as a comment on issue or pull request `number`, as the
+    /// account kelpie acts as, and returns its id
+    ///
+    /// The runner notes the id: a comment of the maintainer's own login that
+    /// kelpie posted is never an answer to a ruling.
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the comment cannot be posted or its id read.
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError>;
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError>;
 
     /// The open issues on `repo`, for telling a finding already filed
     ///
@@ -190,12 +212,13 @@ pub trait Forge: Send {
         labels: &[&str],
     ) -> Result<u64, ForgeError>;
 
-    /// Closes issue `number` with `comment`
+    /// Closes issue `number`, with no comment: a comment would be posted as the
+    /// login `gh` acts as, and only [`Forge::comment`] records the id of one
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError>;
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
     /// Marks draft pull request `number` ready for review
     ///
@@ -503,6 +526,21 @@ pub trait Voice: Send + Sync {
     ///
     /// [`ForgeError`] when the App cannot post it.
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError>;
+
+    /// Posts `body` as a comment on issue or pull request `thread`, and
+    /// returns the comment as the forge numbered and dated it
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot post it or its answer cannot be read.
+    fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError>;
+
+    /// Reacts to comment `comment` with a thumbs up
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot react.
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError>;
 
     /// Opens an issue on `repo` with these labels, and returns its number
     ///
@@ -879,7 +917,7 @@ pub struct Ports {
     /// The agents every role runs on, shared so a turn runs without holding the runner
     pub agents: Arc<dyn Agents>,
     /// The forge
-    pub forge: Box<dyn Forge>,
+    pub forge: Arc<dyn Forge>,
     /// Kelpie's own voice on the forge, its GitHub App's where one covers the repo
     pub voice: Arc<dyn Voice>,
     /// The Claude account's usage, from `/usage`

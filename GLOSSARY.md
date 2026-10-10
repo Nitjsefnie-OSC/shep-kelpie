@@ -320,7 +320,12 @@ red, a note sending the worker back. A merge ruling takes three answers:
 `rework <note>`, whose change starts a new pass, as a `no` does on a
 merge ruling that warns of open bot threads, an unread pass or an unread
 head. It names open bot nits apart from the threads that hold a merge, and
-nits never do.
+nits never do. Where an **App** covers the repo, a ruling is also answered by
+a reply in its thread that starts with the ruling's id, as `shep kelpie rule`
+does (`99 yes`), from the one login the ruling mentions, if it has write
+access to the repo: a bare `yes` answers nothing, and a ruling that mentions
+no one is answered at the terminal only. The first answer, from the thread or
+the terminal, wins.
 
 **Merge authority**:
 Who merges a green, reviewed pull request, a project's `git.merging`. `ask`

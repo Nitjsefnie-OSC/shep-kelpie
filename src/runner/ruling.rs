@@ -69,7 +69,9 @@ pub enum RuleError {
 impl fmt::Display for RuleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoSuchRuling(id) => write!(f, "no ruling {id} is pending"),
+            Self::NoSuchRuling(id) => {
+                write!(f, "ruling {id} is already answered, or was never raised")
+            }
             Self::WantsAnswer(id) => write!(
                 f,
                 "ruling {id} is the worker's question, so it takes an answer, not a yes or no"
@@ -350,15 +352,29 @@ impl Runner {
     // Where an App covers the repo, the ruling is posted through it on the
     // pull request, or on the issue while there is none, whatever its kind,
     // and mentions the maintainer.
-    pub(super) fn post_ruling(&self, number: Option<u64>, id: u64) -> Option<String> {
+    //
+    // A ruling that went up through the App with a mention is saved with
+    // where it is answered in its thread: the login it mentions, and the
+    // comment's own id and time as GitHub gave them.
+    pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
-            return self.post_app_ruling(thread, id, &ruling.kind);
+            let (failed, heard) = self.post_app_ruling(thread, id, &ruling.kind);
+            if let Some(heard) = heard {
+                let mut next = self.state.clone();
+                next.heard.insert(id, heard);
+                if let Err(e) = self.save(next) {
+                    self.notes.push(format!(
+                        "cannot save where ruling {id} is answered in its thread: {e}"
+                    ));
+                }
+            }
+            return failed;
         }
         let number = number?;
         let comment = comment(&ruling.kind)?;
-        let posted = self.ports.forge.comment(&self.remote, number, &comment);
+        let posted = self.comment_as_gh(number, &comment);
         posted.err().map(|e| e.to_string())
     }
 

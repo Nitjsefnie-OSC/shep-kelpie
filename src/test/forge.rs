@@ -11,7 +11,7 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
     Checks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, Timestamp, Visibility,
+    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -28,8 +28,8 @@ pub(crate) struct FakeForge {
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
     sub_issues: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
-    // The issues kelpie closed, with the comment each got
-    closings: Arc<Mutex<Vec<(u64, String)>>>,
+    // The issues kelpie closed
+    closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
     open: Arc<Mutex<Vec<OpenPullRequest>>>,
@@ -76,6 +76,8 @@ pub(crate) struct FakeForge {
     down: Arc<Mutex<Option<down::Down>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
+    /// What people wrote on the threads, and who may write to the repo
+    pub(crate) threads: thread::FakeThreads,
 }
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
@@ -152,6 +154,7 @@ impl FakeForge {
             board_reads: Arc::default(),
             down: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
+            threads: thread::FakeThreads::default(),
         }
     }
 
@@ -262,8 +265,8 @@ impl FakeForge {
         self.closes_down.store(down, Ordering::SeqCst);
     }
 
-    /// The issues kelpie closed, with the comment each got
-    pub(crate) fn closings(&self) -> Vec<(u64, String)> {
+    /// The issues kelpie closed
+    pub(crate) fn closings(&self) -> Vec<u64> {
         self.closings.lock().unwrap().clone()
     }
 
@@ -701,7 +704,21 @@ impl Forge for FakeForge {
         }
     }
 
-    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+    fn comments_since(
+        &self,
+        _repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.read(since))
+    }
+
+    fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.may_write(login))
+    }
+
+    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.ask()?;
         if self.comments_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("comments are down".into()));
@@ -730,14 +747,8 @@ impl Forge for FakeForge {
             .lock()
             .unwrap()
             .push((number, body.to_owned()));
-        Ok(())
-    }
-
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.ask()?;
-        self.comment(repo, number, body)?;
-        let at = self.comments.lock().unwrap().len() - 1;
-        Ok(9000 + at as u64)
+        // Kelpie's login is a writer: the comment is on the thread like any other.
+        Ok(self.threads.write_now(number, VIEWER, body))
     }
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
@@ -787,17 +798,14 @@ impl Forge for FakeForge {
         Ok(number)
     }
 
-    fn close_issue(&self, _repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
+    fn close_issue(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("closing is refused".into()));
         }
         self.closed.lock().unwrap().insert(number);
-        self.closings
-            .lock()
-            .unwrap()
-            .push((number, comment.to_owned()));
+        self.closings.lock().unwrap().push(number);
         Ok(())
     }
 
@@ -929,3 +937,4 @@ impl Forge for FakeForge {
 
 mod down;
 mod queue;
+mod thread;

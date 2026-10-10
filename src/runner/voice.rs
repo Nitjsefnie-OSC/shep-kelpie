@@ -14,7 +14,7 @@ use super::ruling::stuck_comment;
 use super::words::Wants;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
-use crate::state::{Notice, RulingKind};
+use crate::state::{Heard, Notice, RulingKind};
 
 impl Runner {
     /// Whether kelpie's App covers the project's repo
@@ -49,30 +49,59 @@ impl Runner {
         thread: u64,
         id: u64,
         kind: &RulingKind,
-    ) -> Option<String> {
+    ) -> (Option<String>, Option<Heard>) {
         // A ruling still goes up when no one can be named to mention, as the
-        // record on the thread, but it notifies no one, so that is told.
+        // record on the thread, but it notifies no one and only the terminal
+        // answers it, so that is told.
         let (mention, unasked) = match self.maintainer() {
             Ok(login) => (Some(login), None),
             Err(e) => (None, Some(e)),
         };
         let body = ruling_comment(mention.as_deref(), id, kind);
-        match self.ports.voice.comment(&self.remote, thread, &body) {
-            Err(e) => Some(e.to_string()),
-            Ok(()) => unasked.map(|why| {
-                // Said in the log once a run, and only for a ruling that went up.
-                if !self.unmentioned_told.replace(true) {
-                    self.notes.push(format!(
-                        "ruling {id} is posted on #{thread} without a mention, so it notifies \
-                         no one: {why}; set `git.maintainer` to your GitHub login"
-                    ));
-                }
-                format!(
-                    "posted without mentioning the maintainer, since the login `gh` acts as \
-                     could not be read: {why}"
-                )
-            }),
+        let posted = match self.ports.voice.post(&self.remote, thread, &body) {
+            Err(e) => return (Some(e.to_string()), None),
+            Ok(posted) => posted,
+        };
+        // Its answer is read from the comment's own time and id, the forge's.
+        let heard = mention.map(|mentions| Heard {
+            mentions,
+            time: posted.created,
+            comment: posted.id,
+        });
+        let told = unasked.map(|why| {
+            // Said in the log once a run, and only for a ruling that went up.
+            if !self.unmentioned_told.replace(true) {
+                self.notes.push(format!(
+                    "ruling {id} is posted on #{thread} without a mention, so it notifies \
+                     no one and only `shep kelpie rule` answers it: {why}; set \
+                     `git.maintainer` to your GitHub login"
+                ));
+            }
+            format!(
+                "posted without mentioning the maintainer, since the login `gh` acts as \
+                 could not be read: {why}. Only `shep kelpie rule` answers it"
+            )
+        });
+        (told, heard)
+    }
+
+    /// Posts `body` on issue or pull request `number` as the login `gh` acts
+    /// as, and keeps the comment's id in the state file at once: a comment
+    /// kelpie wrote is never an answer to a ruling, though it is the
+    /// maintainer's own login's, and a crash must not forget it. The window is
+    /// the forge having the comment and the file not yet having its id, a
+    /// crash between the two or a write that fails, which is told in the log.
+    pub(super) fn comment_as_gh(&self, number: u64, body: &str) -> Result<(), ForgeError> {
+        let id = self.ports.forge.comment(&self.remote, number, body)?;
+        self.posted.borrow_mut().push(id);
+        let mut kept = self.state.clone();
+        kept.note_posted(&self.posted.borrow());
+        if let Err(e) = self.store.save(&kept) {
+            self.notes.push(format!(
+                "cannot save the id of comment {id} on #{number}: {e}"
+            ));
         }
+        Ok(())
     }
 
     /// Makes each of `wanted` the repo lacks, as the App where one covers it
@@ -105,9 +134,7 @@ impl Runner {
     pub(super) fn comment_on_issue(&self, number: u64, body: &str) -> Result<(), ForgeError> {
         match self.app_covers() {
             true => self.ports.voice.comment(&self.remote, number, body),
-            false => (self.ports.forge)
-                .post_comment(&self.remote, number, body)
-                .map(drop),
+            false => self.comment_as_gh(number, body),
         }
     }
 
@@ -299,29 +326,47 @@ fn ruling_comment(mention: Option<&str>, id: u64, kind: &RulingKind) -> String {
         Some(login) => format!("@{login} {said}"),
         None => said,
     };
-    format!("{said}\n\n{}", how_to_answer(id, kind))
+    format!("{said}\n\n{}", how_to_answer(mention, id, kind))
 }
 
-fn how_to_answer(id: u64, kind: &RulingKind) -> String {
-    let others = format!(
-        "If other rulings wait on this thread, start your reply with `{id}`. At the terminal: \
-         `shep kelpie rule {id}"
-    );
+// Exactly what to type, and who may type it: a reply that names its id, from
+// the login mentioned. A ruling that mentions no one is answered at the terminal.
+fn how_to_answer(mention: Option<&str>, id: u64, kind: &RulingKind) -> String {
+    let rule = format!("shep kelpie rule {id}");
+    let Some(login) = mention else {
+        let forms = match Wants::of(kind) {
+            Wants::Answer => format!("`{rule} <your answer>`"),
+            Wants::Merge => {
+                format!("`{rule} yes`, `{rule} no <note>` or `{rule} rework <note>`")
+            }
+            Wants::YesOrNo => format!("`{rule} yes` or `{rule} no <note>`"),
+        };
+        return format!(
+            "This ruling mentions no one, so a reply here answers nothing. Answer it at the \
+             terminal: {forms}."
+        );
+    };
     match Wants::of(kind) {
         Wants::Answer => format!(
-            "Reply in this thread to answer ruling {id}: your reply is the answer.\n\n\
-             {others} <your answer>`."
+            "Reply in this thread to answer ruling {id}: @{login}'s reply is the answer.\n\n\
+             If other rulings wait on this thread, start your reply with `{id}`. At the \
+             terminal: `{rule} <your answer>`."
         ),
         Wants::Merge => format!(
-            "Reply in this thread to answer ruling {id}:\n\
-             - `yes` merges it\n\
-             - `no <note>` sends the worker your note for a fix that goes to CI and back to you\n\
-             - `rework <note>` sends it your note for a change the whole review reads again\n\n\
-             {others} yes`."
+            "Reply in this thread to answer ruling {id}. Only @{login}'s reply counts, and it \
+             starts with the ruling's id:\n\
+             - `{id} yes` merges it\n\
+             - `{id} no <note>` sends the worker your note for a fix that goes to CI and back \
+             to you\n\
+             - `{id} rework <note>` sends it your note for a change the whole review reads \
+             again\n\n\
+             A bare `yes` answers nothing. At the terminal: `{rule} yes`."
         ),
-        Wants::YesOrNo => {
-            format!("Reply `yes` or `no` in this thread to answer ruling {id}.\n\n{others} yes`.")
-        }
+        Wants::YesOrNo => format!(
+            "Reply `{id} yes` or `{id} no <note>` in this thread to answer ruling {id}. Only \
+             @{login}'s reply counts, and it starts with the ruling's id.\n\n\
+             At the terminal: `{rule} yes`."
+        ),
     }
 }
 

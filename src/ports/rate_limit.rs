@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{
     Clock, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed,
-    Timestamp, Visibility,
+    ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::review_bot::{Activity, Login};
@@ -70,7 +70,7 @@ pub type Say = Box<dyn Fn(String) + Send + Sync>;
 
 /// A forge whose calls are held while its rate limit is used up
 pub struct RateHeld {
-    forge: Box<dyn Forge>,
+    forge: Arc<dyn Forge>,
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
@@ -79,7 +79,7 @@ pub struct RateHeld {
 impl RateHeld {
     /// `forge`, holding its calls in `hold` by `clock`'s time, and telling
     /// `say` as each hold begins
-    pub fn new(forge: Box<dyn Forge>, clock: Arc<dyn Clock>, hold: ForgeHold, say: Say) -> Self {
+    pub fn new(forge: Arc<dyn Forge>, clock: Arc<dyn Clock>, hold: ForgeHold, say: Say) -> Self {
         Self {
             forge,
             clock,
@@ -172,12 +172,20 @@ impl Forge for RateHeld {
         self.call(|f| f.viewer())
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
-        self.call(|f| f.comment(repo, number, body))
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.call(|f| f.comments_since(repo, since))
     }
 
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.call(|f| f.post_comment(repo, number, body))
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.call(|f| f.can_write(repo, login))
+    }
+
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+        self.call(|f| f.comment(repo, number, body))
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
@@ -194,8 +202,8 @@ impl Forge for RateHeld {
         self.call(|f| f.create_issue(repo, title, body, labels))
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
-        self.call(|f| f.close_issue(repo, number, comment))
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.call(|f| f.close_issue(repo, number))
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
