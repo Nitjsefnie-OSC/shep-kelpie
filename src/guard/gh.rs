@@ -68,6 +68,50 @@ const NO_COMMENTS: &str = "a worker posts no comment or review text, nor closes 
                            maintainer's login is the one that answers a ruling. Put what you \
                            have to say in your final message.";
 
+const FLAG_FIRST: &str = "kelpie reads a gh command's group and verb by position, so only \
+                          `-R` or `--repo` with its value may come before them: gh takes any \
+                          other flag there with the next word as its value. Put the flag \
+                          after the verb.";
+
+// The first word of a gh command that a shell builds or expands, besides the
+// value of `--body` or `--title`, which is text: `$`, a backtick, a brace, a
+// tilde or a glob character. The words come with their quotes removed, so a
+// quoted one cannot be told from a bare one, and none but those values may
+// hold them.
+fn built_word(words: &[String]) -> Option<&str> {
+    const EXPANDS: [char; 7] = ['$', '`', '{', '~', '*', '?', '['];
+    let mut text = false;
+    for word in words.iter().skip(1) {
+        let value = std::mem::take(&mut text);
+        if value {
+            continue;
+        }
+        let flag = word.split_once('=').map_or(word.as_str(), |(flag, _)| flag);
+        if matches!(flag, "--body" | "--title") {
+            // `--body=text` carries its value, `--body text` is the next word.
+            text = !word.contains('=');
+            continue;
+        }
+        // `-btext` and `-ttext`, one word.
+        if word.starts_with("-b") || word.starts_with("-t") {
+            text = word.len() == 2;
+            continue;
+        }
+        if word.contains(EXPANDS) {
+            return Some(word);
+        }
+    }
+    None
+}
+
+// The groups refused by name, whatever flags and verb follow.
+fn refused_by_name(group: &str) -> bool {
+    matches!(
+        group,
+        "api" | "auth" | "alias" | "co" | "extension" | "extensions" | "ext"
+    )
+}
+
 // The verbs that only read, whose `-c` is `--comments`.
 const READS: [&str; 5] = ["view", "list", "status", "diff", "checks"];
 
@@ -93,14 +137,33 @@ pub(super) fn judge(
     cwd: Option<&Path>,
     home: &Home,
 ) -> Vec<String> {
-    // The group and verb are the first two words that are not flags, which
-    // may come before them: `gh pr -R owner/repo create`.
-    let mut positions = Vec::new();
+    // Each word is what gh gets, so no word may be one a shell builds.
+    if let Some(word) = built_word(words) {
+        return vec![format!(
+            "kelpie cannot check a gh command whose words a shell builds or expands, and \
+             `{}` holds `$`, a backtick, `{{`, `~` or a glob character: write each word out. \
+             Only a quoted `--body` or `--title` value may hold them.",
+            word.chars().take(40).collect::<String>()
+        )];
+    }
+    // The group and verb are the first two words that are not flags, and the
+    // only flag that may come before them is `-R` or `--repo` with its value:
+    // `gh pr -R owner/repo create`. gh takes any other flag there with the next
+    // word as its value, so a verb the guard found could be another to gh.
+    let mut positions: Vec<usize> = Vec::new();
     let mut i = 1;
     while i < words.len() && positions.len() < 2 {
         match words[i].as_str() {
             "-R" | "--repo" => i += 1,
-            w if w.starts_with('-') => {}
+            w if w.starts_with("--repo=") || (w.starts_with("-R") && !w.starts_with("--")) => {}
+            // Refused by name below whatever follows, with their own reasons.
+            w if w.starts_with('-')
+                && positions
+                    .first()
+                    .is_some_and(|&g| refused_by_name(words[g].as_str())) => {}
+            // Nothing follows to misread.
+            "--version" | "--help" | "-h" if words.len() == 2 => {}
+            w if w.starts_with('-') => return vec![FLAG_FIRST.into()],
             _ => positions.push(i),
         }
         i += 1;

@@ -110,6 +110,113 @@ fn judge_all(command: &str) -> bool {
     anywhere(command) == Verdict::Allow
 }
 
+const FLAG_FIRST: &str = "reads a gh command's group and verb by position";
+const BUILT: &str = "whose words a shell builds or expands";
+
+fn all_refused_for(part: &str, commands: &[&str]) {
+    for command in commands {
+        let why = refusal(anywhere(command));
+        assert!(why.contains(part), "{command}: {why}");
+    }
+}
+
+// gh takes an unknown flag before the subcommand with the next word as its
+// value, so these ran `close` and `comment` while the guard read another verb.
+#[test]
+fn a_flag_before_the_group_or_the_verb_is_refused_but_the_repo() {
+    all_refused_for(
+        FLAG_FIRST,
+        &[
+            r#"gh pr --comment="101 yes" close 418"#,
+            "gh pr --comment x close 418",
+            "gh pr -c x close 418",
+            "gh pr -b x comment 418",
+            "gh pr --body x comment 418",
+            "gh pr -b close 418",
+            "gh --comment x pr close 418",
+            "gh -b x pr comment 418",
+            "gh -R acme/koji -b x pr comment 418",
+            "gh pr -R acme/koji --comment x close 418",
+            "gh pr --repo=acme/koji -b x comment 418",
+            "gh issue --comment=x close 7",
+            "gh pr -R acme/koji -F note.md comment 418",
+            "gh --help pr",
+            "gh pr --web view 3",
+            "gh pr -- close 3",
+        ],
+    );
+}
+
+#[test]
+fn the_repo_may_come_before_the_group_or_the_verb() {
+    for command in [
+        "gh pr -R acme/koji view 3",
+        "gh pr --repo acme/koji view 3",
+        "gh pr --repo=acme/koji view 3",
+        "gh pr -Racme/koji view 3",
+        "gh -R acme/koji pr view 3",
+        "gh --repo acme/koji pr view 3",
+        "gh --repo=acme/koji pr view 3",
+        "gh -R acme/koji pr -R acme/koji view 3",
+        "gh pr view 3 --repo acme/koji",
+    ] {
+        assert_eq!(anywhere(command), Verdict::Allow, "{command}");
+    }
+}
+
+// What a shell builds is not what the guard read: the words reach gh expanded.
+#[test]
+fn a_gh_word_a_shell_builds_or_expands_is_refused_in_every_shape() {
+    all_refused_for(
+        BUILT,
+        &[
+            r#"gh pr close 3 $'--comment' x"#,
+            "gh pr close 3 --comment$IFS x",
+            "gh pr close 3 --comment${IFS}x",
+            "F=--comment; gh pr close 3 $F x",
+            "gh pr close 3 $F",
+            r#"gh pr $'merge' 3"#,
+            "gh pr $(echo merge) 3",
+            "gh pr `echo merge` 3",
+            "gh pr close 3 `echo --comment` x",
+            "gh pr close 3 {--comment,x}",
+            "gh pr close 3 ~/x",
+            "gh pr close 3 ~ x",
+            "gh pr clos* 3",
+            "gh pr clo?e 3",
+            "gh pr clos[e] 3",
+            "gh pr close 3 --comme?t x",
+            "gh pr close 3 --commen[t] x",
+            "gh pr close 3 --comm* x",
+            "gh pr view $N",
+            "gh pr view 3 --json $FIELDS",
+            "gh pr list --search 'is:open [WIP]'",
+            "gh pr view 3 --json number --jq '.[0]'",
+            "gh issue close 7 --reason $R",
+            "gh pr edit 3 --add-label $L",
+        ],
+    );
+}
+
+// The one place text goes: a quoted `--body` or `--title` value.
+#[test]
+fn a_body_or_a_title_may_hold_what_a_shell_would_expand() {
+    for command in [
+        "gh pr create --title 'fix: {x} ~ * ? [y] $z' --body 'costs $5, see ~/a {b} *.rs `c`'",
+        "gh pr create --title='fix: $x' --body='a $b'",
+        "gh pr create -t 'fix: $x' -b 'a $b'",
+        "gh pr create -t'fix: $x' -b'a $b'",
+        "gh pr edit 3 --body \"$(cat <<'EOF'\nanother ~ $ { *\nEOF\n)\"",
+        "gh issue create --title 'fix: x' --body \"a $HOME b\"",
+    ] {
+        let verdict = anywhere(command);
+        // A leak check may still refuse a path in the text; the words are not why.
+        if let Verdict::Refuse(why) = &verdict {
+            assert!(!why.contains(BUILT), "{command}: {why}");
+        }
+    }
+}
+
 #[test]
 fn what_a_worker_reads_and_a_close_or_review_without_text_stay_allowed() {
     for command in [
