@@ -49,6 +49,8 @@ async fn github_busy_or_out_of_reach_is_unsure_and_a_refused_app_is_missing() {
             panic!("{:#?}", report.render());
         };
         assert!(what.contains(said), "{what}");
+        // The token is asked for once, so the failure is not followed by a mint that works.
+        assert!(!subjects(&report).contains(&"koji: maintainer"));
     }
 
     scene.github.fail_next(ApiError::Refused(401));

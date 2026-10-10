@@ -118,13 +118,13 @@ pub(super) fn checks(
     if let Some(repo) = &remote {
         let coderabbit = coderabbit_listed(&settings, &book, here.home);
         lines.extend(forge_lines(&at, repo, &settings, coderabbit, probes));
-        lines.push(super::github::app(at("github app"), repo, probes.github));
+        let (line, covered) = super::github::app(at("github app"), repo, probes.github);
+        lines.push(line);
         lines.extend(super::github::maintainer(
             at("maintainer"),
-            repo,
+            covered,
             &settings,
             probes.forge,
-            probes.github,
         ));
     }
     lines.push(reviewers(at("reviewers"), &settings, (&book, here), probes));

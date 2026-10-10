@@ -2,22 +2,21 @@
 //! owner, installed on it, that mints a token
 
 use super::Line;
-use crate::github::{GithubApp, TokenError};
+use crate::github::{GithubApp, InstallationToken, TokenError};
 use crate::ports::Forge;
 use crate::settings::{ForgeSlug, Settings};
 
-/// The line for who a ruling mentions on `repo`, for a repo the App covers
-/// and a project with no `git.maintainer`: the login `gh` acts as, or that
-/// a ruling mentions no one and notifies no one when it cannot be read
+/// The line for who a ruling mentions, for a repo the App covers (`covered`,
+/// as [`app`] says) and a project with no `git.maintainer`: the login `gh`
+/// acts as, or that a ruling mentions no one and notifies no one when it
+/// cannot be read
 pub(super) fn maintainer(
     subject: String,
-    repo: &ForgeSlug,
+    covered: bool,
     settings: &Settings,
     forge: &dyn Forge,
-    github: &dyn GithubApp,
 ) -> Option<Line> {
-    // Held in the token's cache, so this asks GitHub nothing more than the App's line did.
-    if settings.git.maintainer.is_some() || github.token(repo).is_err() {
+    if !covered || settings.git.maintainer.is_some() {
         return None;
     }
     Some(match forge.viewer() {
@@ -32,10 +31,18 @@ pub(super) fn maintainer(
     })
 }
 
-/// The line for `repo`'s App, under `subject`
-pub(super) fn app(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> Line {
+/// The line for `repo`'s App, under `subject`, and whether the App covers
+/// the repo: it minted a token, asked once so that one answer is the line's
+/// and the covering's
+pub(super) fn app(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> (Line, bool) {
+    let minted = github.token(repo);
+    let covered = minted.is_ok();
+    (line(subject, repo, minted), covered)
+}
+
+fn line(subject: String, repo: &ForgeSlug, minted: Result<InstallationToken, TokenError>) -> Line {
     let slug = repo.as_str();
-    match github.token(repo) {
+    match minted {
         Ok(_) => Line::ok(
             subject,
             format!("kelpie's App is installed on {slug} and mints a token"),
