@@ -157,6 +157,18 @@ impl Default for ProjectState {
 }
 
 impl ProjectState {
+    /// Keeps the ids of comments kelpie posted, each once, the last
+    /// [`POSTED_KEPT`] of them
+    pub fn note_posted(&mut self, ids: &[u64]) {
+        for id in ids {
+            if !self.posted.contains(id) {
+                self.posted.push(*id);
+            }
+        }
+        let extra = self.posted.len().saturating_sub(POSTED_KEPT);
+        self.posted.drain(..extra);
+    }
+
     /// A project with nothing in flight
     pub fn new() -> Self {
         Self {

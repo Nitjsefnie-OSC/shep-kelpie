@@ -396,6 +396,51 @@ fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
 }
 
 #[test]
+fn a_ruling_answered_at_the_terminal_between_the_read_and_applying_it_is_not_answered_twice() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    rig.writes_on(71, "octocat", "1 yes");
+    rig.next_look();
+
+    // The read as `read_threads` makes it, the forge asked with the lock let
+    // go, and the terminal answering the ruling before the read is applied.
+    let (now, job) = runner.lock().unwrap().thread_job().expect("a read is due");
+    let read = job.run(now);
+    rig.ask(&runner, "rule", Some("1 no not yet"));
+    runner.lock().unwrap().apply_threads(read).unwrap();
+
+    assert!(rig.github.reactions().is_empty(), "the reply took nothing");
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(pending(&rig, &runner), none());
+    let told = "@octocat Ruling 1 is already answered.";
+    assert_eq!(replies_on_71(&rig), [told]);
+    // The terminal's no is the worker's next turn, once.
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["turn"]["state"],
+        "next"
+    );
+}
+
+#[test]
+fn a_summons_recorded_before_a_restart_is_still_skipped_after_it() {
+    let (rig, runner) = a_question_on_7_mentioning(VIEWER);
+    runner
+        .lock()
+        .unwrap()
+        .comment_as_gh(7, "@codex review")
+        .unwrap();
+    // Nothing else is saved before the runner stops.
+    drop(runner);
+
+    let runner = rig.open().unwrap();
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), [1], "the summons answered nothing");
+    assert!(rig.github.reactions().is_empty());
+    assert_eq!(rig.forge.threads.reads().len(), 1, "it was read");
+}
+
+#[test]
 fn a_ruling_answered_in_its_thread_is_already_answered_at_the_terminal() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     rig.writes_on(71, "octocat", "1 no not yet");

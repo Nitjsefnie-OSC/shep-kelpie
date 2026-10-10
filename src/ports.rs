@@ -212,12 +212,13 @@ pub trait Forge: Send + Sync {
         labels: &[&str],
     ) -> Result<u64, ForgeError>;
 
-    /// Closes issue `number` with `comment`
+    /// Closes issue `number`, with no comment: a comment would be posted as the
+    /// login `gh` acts as, and only [`Forge::comment`] records the id of one
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError>;
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
     /// Marks draft pull request `number` ready for review
     ///

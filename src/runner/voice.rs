@@ -86,11 +86,21 @@ impl Runner {
     }
 
     /// Posts `body` on issue or pull request `number` as the login `gh` acts
-    /// as, and notes the comment's id: a comment kelpie wrote is never an
-    /// answer to a ruling, though it is the maintainer's own login's
+    /// as, and keeps the comment's id in the state file at once: a comment
+    /// kelpie wrote is never an answer to a ruling, though it is the
+    /// maintainer's own login's, and a crash must not forget it. The window is
+    /// the forge having the comment and the file not yet having its id, a
+    /// crash between the two or a write that fails, which is told in the log.
     pub(super) fn comment_as_gh(&self, number: u64, body: &str) -> Result<(), ForgeError> {
         let id = self.ports.forge.comment(&self.remote, number, body)?;
         self.posted.borrow_mut().push(id);
+        let mut kept = self.state.clone();
+        kept.note_posted(&self.posted.borrow());
+        if let Err(e) = self.store.save(&kept) {
+            self.notes.push(format!(
+                "cannot save the id of comment {id} on #{number}: {e}"
+            ));
+        }
         Ok(())
     }
 

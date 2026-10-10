@@ -127,9 +127,8 @@ impl Forge for Guarded {
         self.forge.create_issue(repo, title, body, labels)
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
-        self.check("the comment", comment)?;
-        self.forge.close_issue(repo, number, comment)
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.forge.close_issue(repo, number)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

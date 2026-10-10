@@ -25,7 +25,7 @@ use crate::settings::{
 };
 use crate::skills::Skills;
 use crate::state::ids::RulingIds;
-use crate::state::{POSTED_KEPT, ProjectState, StateError, StateStore};
+use crate::state::{ProjectState, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{
     Known, Phase, QwenTally, ReviewCallState, Seat, Timings, Turn, WorkItem, new_session_id,
@@ -694,9 +694,7 @@ impl Runner {
             .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
         // The comments kelpie posted since the last save go in with it.
         let fresh = self.posted.take();
-        next.posted.extend(&fresh);
-        let kept = next.posted.len().saturating_sub(POSTED_KEPT);
-        next.posted.drain(..kept);
+        next.note_posted(&fresh);
         if let Err(e) = self.store.save(&next) {
             self.posted.borrow_mut().extend(fresh);
             return Err(e);

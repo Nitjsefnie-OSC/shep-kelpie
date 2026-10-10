@@ -59,9 +59,32 @@ const MANAGER_ONLY: &str = "only the project manager merges a pull request, mark
 
 // A worker's `gh` is the maintainer's login, and a comment on its own pull
 // request from that login can read as the maintainer's answer to a ruling.
-const NO_COMMENTS: &str = "a worker posts no comment or review text: kelpie posts what the \
-                           maintainer should read, and the maintainer's login is the one that \
-                           answers a ruling. Put what you have to say in your final message.";
+//
+// Besides the comment verbs, `close` and `reopen` take `--comment`, and
+// `review` and `merge` a body, so a verb other than `create` and `edit` that
+// carries a body or a comment in any spelling is refused.
+const NO_COMMENTS: &str = "a worker posts no comment or review text, nor closes or reopens \
+                           with one: kelpie posts what the maintainer should read, and the \
+                           maintainer's login is the one that answers a ruling. Put what you \
+                           have to say in your final message.";
+
+// The verbs that only read, whose `-c` is `--comments`.
+const READS: [&str; 5] = ["view", "list", "status", "diff", "checks"];
+
+// Whether a command's arguments carry a comment or a body, in any spelling:
+// `--comment`, `--comment=x`, `-c`, `-cx`, `-xc`, and the same for `--body`
+// (`-b`) and `--body-file` (`-F`). The flag counts however its value reads.
+fn carries_text(args: &[String]) -> bool {
+    const LONG: [&str; 3] = ["--comment", "--body", "--body-file"];
+    const SHORT: [char; 3] = ['c', 'b', 'F'];
+    (args.iter().take_while(|a| *a != "--")).any(|word| {
+        if word.starts_with("--") {
+            let name = word.split_once('=').map_or(word.as_str(), |(name, _)| name);
+            return LONG.contains(&name);
+        }
+        (word.strip_prefix('-')).is_some_and(|cluster| cluster.contains(SHORT))
+    })
+}
 
 /// Judges one gh command run in `cwd`
 pub(super) fn judge(
@@ -104,13 +127,12 @@ pub(super) fn judge(
         }
         ("pr", Some("merge" | "ready")) => return vec![MANAGER_ONLY.into()],
         ("pr" | "issue", Some("comment")) => return vec![NO_COMMENTS.into()],
-        ("pr", Some("review"))
-            if !values(
-                &words[i.min(words.len())..],
-                &["--body", "--body-file"],
-                &['b', 'F'],
-            )
-            .is_empty() =>
+        // An allow-list: only create and edit may carry text, so the next verb
+        // gh adds is covered too. What only reads never posts.
+        ("pr" | "issue" | "discussion", Some(verb))
+            if !matches!(verb, "create" | "edit")
+                && !READS.contains(&verb)
+                && carries_text(args) =>
         {
             return vec![NO_COMMENTS.into()];
         }

@@ -28,8 +28,8 @@ pub(crate) struct FakeForge {
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
     sub_issues: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
-    // The issues kelpie closed, with the comment each got
-    closings: Arc<Mutex<Vec<(u64, String)>>>,
+    // The issues kelpie closed
+    closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
     open: Arc<Mutex<Vec<OpenPullRequest>>>,
@@ -265,8 +265,8 @@ impl FakeForge {
         self.closes_down.store(down, Ordering::SeqCst);
     }
 
-    /// The issues kelpie closed, with the comment each got
-    pub(crate) fn closings(&self) -> Vec<(u64, String)> {
+    /// The issues kelpie closed
+    pub(crate) fn closings(&self) -> Vec<u64> {
         self.closings.lock().unwrap().clone()
     }
 
@@ -798,17 +798,14 @@ impl Forge for FakeForge {
         Ok(number)
     }
 
-    fn close_issue(&self, _repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
+    fn close_issue(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("closing is refused".into()));
         }
         self.closed.lock().unwrap().insert(number);
-        self.closings
-            .lock()
-            .unwrap()
-            .push((number, comment.to_owned()));
+        self.closings.lock().unwrap().push(number);
         Ok(())
     }
 
