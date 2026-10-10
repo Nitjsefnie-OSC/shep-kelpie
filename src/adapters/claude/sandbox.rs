@@ -99,6 +99,7 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
         denied_addresses: Vec::new(),
         // Without it, `gh` fails TLS verification on macOS: x509 OSStatus -26276.
         verify_tls: true,
+        no_keychain: false,
     }
 }
 
