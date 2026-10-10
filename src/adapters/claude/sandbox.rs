@@ -49,6 +49,9 @@ impl ClaudeCli {
             .args(argv)
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
+            // A sheep has none, so a shell falls back to `/tmp`, which the
+            // sandbox refuses, and a heredoc cannot make its temp file there.
+            .env("TMPDIR", &scratch)
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
         Ok(command)
     }
@@ -381,6 +384,31 @@ mod tests {
         }
     }
 
+    // A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
+    // and the sandbox refuses a write there.
+    #[test]
+    fn every_role_gets_a_temp_folder_its_sandbox_can_write() {
+        let w = World::new();
+        let cli = w.cli(Arc::new(OpenSandbox::default()));
+        for call in [w.worker(), w.call(Role::Reviewer)] {
+            let command = cli.sandboxed_command(&call).unwrap();
+            let env_of = |name: &str| {
+                let set = command.get_envs().find(|(n, _)| *n == name);
+                set.and_then(|(_, value)| value).map(PathBuf::from)
+            };
+            let policy = policy(&call, &w.path("home"), &[]).unwrap();
+            for name in ["TMPDIR", "CLAUDE_CODE_TMPDIR"] {
+                let folder = env_of(name).unwrap_or_else(|| panic!("{:?}: no {name}", call.role));
+                assert!(
+                    policy.write.contains(&folder),
+                    "{:?}: {name} {folder:?} is not in {:?}",
+                    call.role,
+                    policy.write
+                );
+            }
+        }
+    }
+
     #[test]
     fn the_scratch_folder_is_emptied_and_a_link_there_is_not_followed() {
         let w = World::new();
@@ -434,7 +462,11 @@ mod tests {
         let env: Vec<_> = set.map(|(name, _)| name).collect();
         assert_eq!(
             env,
-            ["CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_TMPDIR"]
+            [
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                "CLAUDE_CODE_TMPDIR",
+                "TMPDIR"
+            ]
         );
         let wrapped = sandbox.wrapped();
         let [(policy_used, file)] = wrapped.as_slice() else {
