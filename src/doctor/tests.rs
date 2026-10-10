@@ -56,6 +56,8 @@ impl Scene {
     async fn new() -> Self {
         let shepherd = FakeShepherd::new().await;
         let forge = FakeForge::new(PathBuf::from("/nowhere"));
+        // A user's repo, whose owner a ruling mentions, until a test says otherwise.
+        forge.set_owner_is_user(true);
         forge.set_repo_labels(&[
             "bug",
             "ready-for-agent",

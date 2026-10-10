@@ -23,6 +23,14 @@ const LAPSES_IN: u64 = 9 * 60;
 /// How long before a token lapses kelpie mints another
 const REMINT_BEFORE: u64 = 5 * 60;
 
+/// How long an App found not installed on a repo is believed, so a post to a
+/// repo it does not cover costs no JWT and no call each time
+const NOT_INSTALLED_FOR: u64 = 10 * 60;
+
+/// How long a GitHub that could not answer is believed, so a post made while
+/// it is down costs one mint however many calls it makes
+const DOWN_FOR: u64 = 30;
+
 /// An installation token, which acts as the App on the repos it is installed on
 ///
 /// `Debug` does not show it.
@@ -135,6 +143,17 @@ type RepoKey = (u64, String);
 struct Kept {
     installations: BTreeMap<(u64, String), u64>,
     tokens: BTreeMap<(u64, String, u64), IssuedToken>,
+    // Why a repo got no token, believed until the time given
+    declined: BTreeMap<RepoKey, (Declined, Timestamp)>,
+}
+
+// Why no token could be had for a repo, as kept for a while
+#[derive(Debug, Clone)]
+enum Declined {
+    // The App is not installed on the repo
+    NotInstalled,
+    // GitHub could not answer, or was busy
+    Down(ApiError),
 }
 
 /// [`GithubApp`] over the Apps in kelpie's home
@@ -211,17 +230,43 @@ impl GithubApp for AppTokens {
             {
                 return Ok(issued.token.clone());
             }
+            if let Some((why, until)) = kept.declined.get(&key)
+                && now < *until
+            {
+                return Err(match why {
+                    Declined::NotInstalled => TokenError::NotInstalled {
+                        app: app.clone(),
+                        repo: repo.clone(),
+                    },
+                    Declined::Down(e) => TokenError::Api(e.clone()),
+                });
+            }
             installation
+        };
+        let decline = |why: Declined, secs: u64| {
+            let until = Timestamp(now.0.saturating_add(secs));
+            let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+            kept.declined.insert(key.clone(), (why, until));
         };
         let jwt = self.jwt(&app, &owner, now)?;
         let id = match installation {
             Some(id) => id,
-            None => {
-                (self.api.installation(&jwt, repo)?).ok_or_else(|| TokenError::NotInstalled {
-                    app: app.clone(),
-                    repo: repo.clone(),
-                })?
-            }
+            None => match self.api.installation(&jwt, repo) {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    decline(Declined::NotInstalled, NOT_INSTALLED_FOR);
+                    return Err(TokenError::NotInstalled {
+                        app: app.clone(),
+                        repo: repo.clone(),
+                    });
+                }
+                Err(e) => {
+                    if e.passes() {
+                        decline(Declined::Down(e.clone()), DOWN_FOR);
+                    }
+                    return Err(e.into());
+                }
+            },
         };
         let issued = match self.api.access_token(&jwt, id, repo) {
             Ok(issued) => issued,
@@ -232,9 +277,15 @@ impl GithubApp for AppTokens {
                 kept.installations.remove(&key);
                 return Err(e.into());
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                if e.passes() {
+                    decline(Declined::Down(e.clone()), DOWN_FOR);
+                }
+                return Err(e.into());
+            }
         };
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.declined.remove(&key);
         kept.tokens.insert(token_key(id), issued.clone());
         kept.installations.insert(key, id);
         Ok(issued.token)

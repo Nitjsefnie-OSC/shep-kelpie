@@ -59,6 +59,15 @@ impl Runner {
             Ok(mention) => (mention, None),
             Err(e) => (None, Some(e)),
         };
+        // Told once a run: a repo with no one to mention never notifies the
+        // maintainer of any ruling, and doctor says how to put that right.
+        if mention.is_none() && unasked.is_none() && !self.unmentioned_told.replace(true) {
+            self.notes.push(format!(
+                "ruling {id} is posted on #{thread} without a mention, so it notifies no one: \
+                 {} is an organization, so set `git.maintainer` to the login to mention",
+                self.remote.owner()
+            ));
+        }
         let body = ruling_comment(mention.as_deref(), id, kind);
         match (
             self.ports.voice.comment(&self.remote, thread, &body),

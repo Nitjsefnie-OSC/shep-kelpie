@@ -625,6 +625,101 @@ fn a_replaced_app_never_hands_out_the_old_apps_token() {
     );
 }
 
+fn installations_asked(github: &FakeGithub) -> usize {
+    (github.asked().iter())
+        .filter(|a| matches!(a, Asked::Installation(_)))
+        .count()
+}
+
+#[test]
+fn an_app_not_installed_on_a_repo_is_asked_about_once_in_ten_minutes() {
+    let home = tempfile::tempdir().unwrap();
+    let clock = FakeClock::at(1_000_000);
+    let github = FakeGithub::new(clock.clone(), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    let golbat = slug("shep-pm/golbat");
+
+    for _ in 0..5 {
+        let error = tokens.token(&golbat).unwrap_err();
+        assert!(
+            matches!(error, TokenError::NotInstalled { .. }),
+            "{error:?}"
+        );
+    }
+    assert_eq!(
+        installations_asked(&github),
+        1,
+        "no JWT signed, no call made, after the first"
+    );
+    assert_eq!(github.jwts().len(), 1);
+
+    clock.advance(10 * 60 - 1);
+    tokens.token(&golbat).unwrap_err();
+    assert_eq!(
+        installations_asked(&github),
+        1,
+        "still within the ten minutes"
+    );
+
+    github.install("shep-pm/golbat", 7);
+    clock.advance(1);
+    tokens.token(&golbat).unwrap();
+    assert_eq!(
+        installations_asked(&github),
+        2,
+        "asked again once the ten minutes passed"
+    );
+    tokens.token(&golbat).unwrap();
+    assert_eq!(installations_asked(&github), 2, "installed now, and kept");
+}
+
+#[test]
+fn a_github_that_is_down_is_asked_once_in_half_a_minute_and_again_after() {
+    let home = tempfile::tempdir().unwrap();
+    let clock = FakeClock::at(1_000_000);
+    let github = FakeGithub::new(clock.clone(), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    let koji = slug("shep-pm/koji");
+    github.fail_next(ApiError::Unreachable("curl exited 6".to_owned()));
+
+    for _ in 0..3 {
+        assert_eq!(
+            tokens.token(&koji),
+            Err(TokenError::Api(ApiError::Unreachable(
+                "curl exited 6".to_owned()
+            )))
+        );
+    }
+    assert_eq!(
+        installations_asked(&github),
+        1,
+        "one mint, however many askers"
+    );
+
+    clock.advance(30);
+    tokens.token(&koji).unwrap();
+    assert_eq!(
+        installations_asked(&github),
+        2,
+        "asked again, and it answered"
+    );
+}
+
+#[test]
+fn a_refused_token_is_not_held_against_the_next_ask() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    github.fail_next(ApiError::Refused(401));
+
+    tokens.token(&slug("shep-pm/koji")).unwrap_err();
+
+    tokens.token(&slug("shep-pm/koji")).unwrap();
+}
+
 // A GitHub whose answer about one repo's installation waits to be let go.
 struct Stalled {
     inner: FakeGithub,

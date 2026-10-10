@@ -146,7 +146,6 @@ fn a_repo_is_covered_only_where_the_owner_has_an_app_installed() {
 fn an_app_that_cannot_mint_now_still_covers_its_repo_and_its_write_fails() {
     let (voice, github, _home) = voiced();
     github.fail_next(ApiError::Unreachable("down".to_owned()));
-    github.fail_next(ApiError::Unreachable("down".to_owned()));
 
     assert!(
         voice.covers(&slug("shep-pm/koji")),
@@ -155,6 +154,13 @@ fn an_app_that_cannot_mint_now_still_covers_its_repo_and_its_write_fails() {
     let error = voice.comment(&slug("shep-pm/koji"), 1, "x").unwrap_err();
     assert!(matches!(error, ForgeError::App(_)), "{error:?}");
     assert_eq!(writes(&github), [], "nothing is posted in its place");
+    let mints = (github.asked().iter())
+        .filter(|a| matches!(a, Asked::Installation(_)))
+        .count();
+    assert_eq!(
+        mints, 1,
+        "covers and the write share the one mint that failed"
+    );
 }
 
 #[test]

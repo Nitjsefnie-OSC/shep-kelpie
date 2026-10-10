@@ -305,6 +305,8 @@ pub struct Runner {
     forge_hold: ForgeHold,
     // Whether the repo's owner is a user, asked once a run, in memory only
     owner_is_user: std::cell::OnceCell<bool>,
+    // Whether a ruling posted with no one to mention has been told, in memory only
+    unmentioned_told: std::cell::Cell<bool>,
 }
 
 impl Runner {
@@ -437,6 +439,7 @@ impl Runner {
             looks: looks::Looks::default(),
             forge_hold,
             owner_is_user: std::cell::OnceCell::new(),
+            unmentioned_told: std::cell::Cell::new(false),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();

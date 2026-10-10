@@ -140,6 +140,40 @@ fn the_repo_s_owner_is_asked_about_once_however_many_rulings_are_posted() {
 }
 
 #[test]
+fn a_ruling_posted_with_no_one_to_mention_is_noted_once_in_the_log() {
+    let (rig, runner, _) = Rig::parked_set("shep", |rig| rig.with_app());
+    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap(); // the fix turn asks a question: a second ruling
+
+    let comments = rig.github.comments();
+    assert!(
+        comments.iter().all(|(_, body)| !body.starts_with('@')),
+        "an organization's repo mentions no one: {comments:?}"
+    );
+    let notes = runner.lock().unwrap().take_notes();
+    let told: Vec<_> = (notes.iter())
+        .filter(|n| n.contains("without a mention"))
+        .collect();
+    assert_eq!(told.len(), 1, "{notes:?}");
+    assert!(told[0].contains("ruling 1 is posted on #71"), "{told:?}");
+    assert!(told[0].contains("set `git.maintainer`"), "{told:?}");
+}
+
+#[test]
+fn a_maintainer_that_is_set_is_never_noted() {
+    let (_rig, runner, _) = Rig::parked_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+    let notes = runner.lock().unwrap().take_notes();
+    assert!(
+        !notes.iter().any(|n| n.contains("without a mention")),
+        "{notes:?}"
+    );
+}
+
+#[test]
 fn a_ruling_posted_when_the_owner_cannot_be_asked_goes_up_unmentioned_and_says_so() {
     let rig = Rig::new("shep");
     rig.with_app();
