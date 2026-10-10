@@ -44,8 +44,17 @@ impl ClaudeCli {
         for folder in [&scratch, &transcripts(&self.home, &call.cwd)?] {
             std::fs::create_dir_all(folder).map_err(|e| setup(folder, e))?;
         }
-        let mut command = crate::spawn::command(&self.program);
+        // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
+        // sandbox refuses, and a heredoc cannot make its temp file there. Only
+        // `claude` is given one, through `env`: `srt` puts its proxy socket
+        // under its own `TMPDIR`, where a path past 104 bytes keeps it from
+        // starting and a folder the call writes lets the call delete the socket.
+        let mut temp = OsString::from("TMPDIR=");
+        temp.push(&scratch);
+        let mut command = crate::spawn::command("/usr/bin/env");
         command
+            .arg(temp)
+            .arg(&self.program)
             .args(argv)
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
@@ -381,6 +390,41 @@ mod tests {
         }
     }
 
+    // A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
+    // and the sandbox refuses a write there. `srt` makes its own proxy socket
+    // under its `TMPDIR`: past 104 bytes it cannot start, and in a folder the
+    // call writes the call could delete the socket. So only the command
+    // inside `srt` gets it, as `env TMPDIR=<folder> claude ...`.
+    #[test]
+    fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
+        let w = World::new();
+        let cli = w.cli(Arc::new(OpenSandbox::default()));
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+            let command = cli.sandboxed_command(&call).unwrap();
+            let policy = policy(&call, &w.path("home"), &[]).unwrap();
+            let role = call.role;
+            let env = |name: &str| command.get_envs().find(|(n, _)| *n == name);
+            assert!(env("TMPDIR").is_none(), "{role:?}: srt would see TMPDIR");
+            let claude_tmp = env("CLAUDE_CODE_TMPDIR").and_then(|(_, value)| value);
+            let claude_tmp = PathBuf::from(claude_tmp.expect("CLAUDE_CODE_TMPDIR"));
+            assert!(
+                policy.write.contains(&claude_tmp),
+                "{role:?}: {claude_tmp:?}"
+            );
+            assert_eq!(command.get_program(), "/usr/bin/env");
+            let mut words = command.get_args();
+            let temp = words.next().unwrap().to_str().unwrap();
+            let folder = PathBuf::from(temp.strip_prefix("TMPDIR=").expect(temp));
+            assert!(
+                policy.write.contains(&folder),
+                "{role:?}: TMPDIR {folder:?} is not in {:?}",
+                policy.write
+            );
+            assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
+        }
+    }
+
     #[test]
     fn the_scratch_folder_is_emptied_and_a_link_there_is_not_followed() {
         let w = World::new();
@@ -413,9 +457,14 @@ mod tests {
         let command = cli.foreground(&call).unwrap();
         let args: Vec<&str> = command.get_args().map(|a| a.to_str().unwrap()).collect();
         let settings = w.path("worker/settings.json");
+        let temp = format!("TMPDIR={}", w.path("worker/settings.tmp").display());
+        let claude = w.path("claude");
+        assert_eq!(command.get_program(), "/usr/bin/env");
         assert_eq!(
             args,
             [
+                temp.as_str(),
+                claude.to_str().unwrap(),
                 "--model",
                 "claude-sonnet-5",
                 "--effort",
