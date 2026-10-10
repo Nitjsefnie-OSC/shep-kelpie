@@ -16,9 +16,11 @@ pub(crate) struct FakeCodeRabbit {
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     label_log: Arc<Mutex<Vec<(u64, String, bool)>>>,
     resolved: Arc<Mutex<Vec<String>>>,
+    replies: Arc<Mutex<Vec<(String, String)>>>,
     logins: Arc<Mutex<Vec<String>>>,
     down: Arc<AtomicBool>,
     resolve_down: Arc<AtomicBool>,
+    reply_down: Arc<AtomicBool>,
 }
 
 // CodeRabbit's own store on pull request `number`.
@@ -164,6 +166,16 @@ impl FakeCodeRabbit {
         self.resolved.lock().unwrap().clone()
     }
 
+    /// Every reply posted on a thread, in order: the thread's id and the text
+    pub(crate) fn replies(&self) -> Vec<(String, String)> {
+        self.replies.lock().unwrap().clone()
+    }
+
+    /// Makes replying to a thread fail, or work again
+    pub(crate) fn set_reply_down(&self, down: bool) {
+        self.reply_down.store(down, Ordering::SeqCst);
+    }
+
     pub(super) fn labels(&self, number: u64) -> Vec<String> {
         let labels = self.labels.lock().unwrap();
         labels.get(&number).cloned().unwrap_or_default()
@@ -219,6 +231,25 @@ impl FakeCodeRabbit {
         }
         self.settle(id);
         self.resolved.lock().unwrap().push(id.to_owned());
+        Ok(())
+    }
+
+    // A thread that does not exist is done, as the gh adapter reads
+    // GitHub's not-found.
+    pub(super) fn reply(&self, id: &str, body: &str) -> Result<(), ForgeError> {
+        if self.reply_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("replying is down".into()));
+        }
+        let activity = self.activity.lock().unwrap();
+        let known = activity
+            .values()
+            .flat_map(|a| &a.threads)
+            .any(|t| t.id == id);
+        drop(activity);
+        if known {
+            let reply = (id.to_owned(), body.to_owned());
+            self.replies.lock().unwrap().push(reply);
+        }
         Ok(())
     }
 }

@@ -39,6 +39,9 @@ pub(crate) enum Scripted {
     /// Commits this file with this text on the worktree's branch, pushes
     /// nothing, and answers
     Commit(&'static str, &'static str),
+    /// Commits this file with this text on the worktree's branch, pushes
+    /// it the way a worker does, and answers with this final message
+    PushSay(&'static str, &'static str, &'static str),
     /// Writes this file with this text in the worktree, commits nothing,
     /// and answers: a write that got past the fence
     Plant(&'static str, &'static str),
@@ -327,6 +330,10 @@ impl Agents for FakeClaude {
             Some(Scripted::Push(file, text)) => {
                 push(&call.cwd, &[(file, text)], file);
                 Ok(said("pushed"))
+            }
+            Some(Scripted::PushSay(file, text, say)) => {
+                push(&call.cwd, &[(file, text)], file);
+                Ok(said(say))
             }
             Some(Scripted::MergeMain) => {
                 git(&call.cwd, &["fetch", "--quiet", "origin", "main"]);

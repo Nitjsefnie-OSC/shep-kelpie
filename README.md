@@ -404,7 +404,7 @@ reviews:
       - "review please"
 ```
 
-Every thread a review bot leaves open goes to the worker as a finding, and shep-kelpie resolves those threads once the worker's fix moves the head. If the forge refuses three steps in a row, the review goes on with them open and the bot's next read sends them again.
+Every thread a review bot leaves open goes to the worker as a finding. The fix turn's prompt asks the worker to end its reply with one line per finding, numbered from 1 in the order the findings file lists them: `thread 1: fixed`, or `thread 2: declined: <the reason>`. shep-kelpie, not the worker, writes to the pull request: it replies on each thread and resolves the ones the worker fixed once the fix moves the head. A declined thread gets the worker's reason as a reply and stays open. A thread the reply does not mention gets a reply saying it was not addressed and stays open, and so does a thread the worker calls fixed in a turn that pushed nothing. Open threads are still the merge ruling's to name, so a declined or unaddressed thread is counted there. This holds for every fix turn a bot's threads go to: a review pass's rounds, a late round, and the new pass a merge ruling's `no <note>` starts when the ruling warns of open threads. A nit fix that pushes nothing (the worker declined the nits) gets the same replies. If the forge refuses a reply or a resolve three steps in a row, the review goes on with the rest open and the bot's next read sends them again.
 
 #### Local reviewers
 

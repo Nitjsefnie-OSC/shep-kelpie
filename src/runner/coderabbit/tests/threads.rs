@@ -11,7 +11,8 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     let (rig, runner, head) = summoned("shep");
     hold_a_finding(&rig, &runner, &head, "Name the flag.");
     rig.forge.coderabbit.set_resolve_down(true);
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude
+        .script([Scripted::PushSay("flag.txt", "named\n", "thread 1: fixed")]);
     step(&runner).unwrap(); // the fix turn
     for _ in 0..2 {
         rig.next_look();
@@ -79,7 +80,8 @@ fn one_refusal_then_a_resolve_goes_on_as_usual() {
     let (rig, runner, head) = summoned("rotom");
     hold_a_finding(&rig, &runner, &head, "Name the flag.");
     rig.forge.coderabbit.set_resolve_down(true);
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude
+        .script([Scripted::PushSay("flag.txt", "named\n", "thread 1: fixed")]);
     step(&runner).unwrap(); // the fix turn
     assert!(matches!(
         step(&runner).unwrap(),

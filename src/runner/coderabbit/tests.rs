@@ -16,6 +16,7 @@ use crate::test::{Rig, Scripted, Told, git};
 mod again;
 mod budget;
 mod full;
+mod replies;
 mod skips;
 mod threads;
 
@@ -581,7 +582,11 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
         "nothing is resolved before the fix"
     );
 
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        "thread 1: fixed\nthread 2: fixed",
+    )]);
     step(&runner).unwrap();
     let fix = rig.claude.calls().pop().unwrap();
     assert!(
@@ -681,7 +686,11 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
     let again = format!(
         "Your last turn on pull request #71 pushed nothing, so round 3's \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
+         `git push origin HEAD`. Each finding is a review bot's thread, numbered from 1 in the order \
+         the file lists them. Kelpie replies on each thread for you and resolves the \
+         ones you fixed, so end your final reply with one line per finding, \
+         `thread <n>: fixed` or `thread <n>: declined: <the reason>`. A finding with \
+         no line is replied to as not addressed, and stays open.",
         path.display()
     );
     let kind = &status["rulings"][0]["kind"];
@@ -695,7 +704,8 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
 
     // A yes sends the same findings, and a fix that pushes resolves the thread.
     rig.ask(&runner, "rule", Some(&format!("{id} yes")));
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude
+        .script([Scripted::PushSay("flag.txt", "named\n", "thread 1: fixed")]);
     step(&runner).unwrap();
     assert_eq!(rig.claude.calls().pop().unwrap().prompt, again);
     let fixed = rig.forge.head_of("kelpie/7");

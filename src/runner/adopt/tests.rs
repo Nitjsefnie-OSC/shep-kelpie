@@ -710,8 +710,11 @@ fn threads_from_before_the_adoption_go_to_the_worker_once_kelpies_own_read_lands
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent { held: 1, .. })
     ));
-    rig.claude
-        .script([Scripted::Push("bounds.txt", "checked\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "bounds.txt",
+        "checked\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the fix turn
     let fixed = rig.forge.head_of("fix/timeline").unwrap();
     assert_ne!(fixed, head);

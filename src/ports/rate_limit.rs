@@ -235,6 +235,15 @@ impl Forge for RateHeld {
         self.call(|f| f.resolve_thread(repo, thread))
     }
 
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.call(|f| f.reply_to_thread(repo, thread, body))
+    }
+
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.call(|f| f.merge(repo, number, head))
     }

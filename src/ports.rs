@@ -251,6 +251,18 @@ pub trait Forge: Send {
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError>;
 
+    /// Replies to review thread `thread` with `body`, as the account kelpie
+    /// runs as
+    ///
+    /// A thread the forge no longer has is done, since there is nothing to
+    /// reply to.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn reply_to_thread(&self, repo: &ForgeSlug, thread: &str, body: &str)
+    -> Result<(), ForgeError>;
+
     /// Merges pull request `number` with a merge commit, only while its head is `head`
     ///
     /// Never a squash or a rebase: the branch's history survives the merge.

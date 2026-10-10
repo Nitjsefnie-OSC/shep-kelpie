@@ -107,20 +107,42 @@ pub(in crate::runner) fn write_findings_file(
     turn::write(folder, path, &text)
 }
 
-pub(super) fn fix_prompt(number: u64, round: u32, count: usize, path: &Path) -> String {
+// What the worker is asked to end its reply with when the findings are a
+// review bot's threads. Kelpie reads the lines (`thread_lines`) and replies
+// on each thread for the worker, resolving the ones it fixed.
+const THREAD_LINES: &str = " Each finding is a review bot's thread, numbered from 1 in the order \
+     the file lists them. Kelpie replies on each thread for you and resolves the \
+     ones you fixed, so end your final reply with one line per finding, \
+     `thread <n>: fixed` or `thread <n>: declined: <the reason>`. A finding with \
+     no line is replied to as not addressed, and stays open.";
+
+pub(super) fn fix_prompt(
+    number: u64,
+    round: u32,
+    count: usize,
+    path: &Path,
+    threads: bool,
+) -> String {
+    let lines = if threads { THREAD_LINES } else { "" };
     format!(
         "Round {round} of the review on your pull request #{number} found \
          {count} finding(s), in {}. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
+         `git push origin HEAD`.{lines}",
         path.display()
     )
 }
 
-pub(in crate::runner) fn again_prompt(number: u64, round: u32, path: &Path) -> String {
+pub(in crate::runner) fn again_prompt(
+    number: u64,
+    round: u32,
+    path: &Path,
+    threads: bool,
+) -> String {
+    let lines = if threads { THREAD_LINES } else { "" };
     format!(
         "Your last turn on pull request #{number} pushed nothing, so round {round}'s \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
+         `git push origin HEAD`.{lines}",
         path.display()
     )
 }
@@ -182,7 +204,13 @@ mod tests {
 
     #[test]
     fn the_fix_prompt_names_the_round_the_pull_request_and_the_file() {
-        let prompt = fix_prompt(71, 3, 2, Path::new("/k/targets/shep/7/review-findings.md"));
+        let prompt = fix_prompt(
+            71,
+            3,
+            2,
+            Path::new("/k/targets/shep/7/review-findings.md"),
+            false,
+        );
         assert_eq!(
             prompt,
             "Round 3 of the review on your pull request #71 found 2 \
@@ -311,7 +339,7 @@ mod tests {
                         }],
                     },
                 },
-                "prompt": again_prompt(71, 1, &path),
+                "prompt": again_prompt(71, 1, &path, false),
             })
         );
         assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id }));

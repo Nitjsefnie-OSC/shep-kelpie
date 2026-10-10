@@ -108,6 +108,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         bots_after_ci: false,
         seat: crate::work_item::Seat::Held,
         threads_sent: Vec::new(),
+        thread_answers: Vec::new(),
         resolve_failures: 0,
         reviewers_skipped: Vec::new(),
         unreviewed: None,

@@ -207,6 +207,15 @@ impl Forge for Gh {
         review_bot::resolve(thread)
     }
 
+    fn reply_to_thread(
+        &self,
+        _repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        review_bot::reply(thread, body)
+    }
+
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         let number = number.to_string();
         gh(&merge_args(repo, &number, head)).map(drop)

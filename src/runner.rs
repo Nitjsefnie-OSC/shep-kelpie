@@ -642,6 +642,7 @@ impl Runner {
             bots_after_ci: false,
             seat: Seat::Held,
             threads_sent: Vec::new(),
+            thread_answers: Vec::new(),
             resolve_failures: 0,
             reviewers_skipped: Vec::new(),
             unreviewed: None,

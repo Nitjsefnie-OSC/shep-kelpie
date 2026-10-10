@@ -36,7 +36,7 @@ use std::path::Path;
 
 use super::Runner;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
-use super::review_bot::Resolved;
+use super::review_bot::Answered;
 use super::ruling::park;
 use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
@@ -273,16 +273,18 @@ impl Runner {
                         Err(reason) => return Ok(self.gate_failed(reason)),
                     }
                     let path = findings::findings_path(build);
-                    let prompt = findings::again_prompt(number, round, &path);
+                    let threads =
+                        (self.current()).is_some_and(|item| !item.threads_sent.is_empty());
+                    let prompt = findings::again_prompt(number, round, &path, threads);
                     let fix = Fix::Review(review);
                     return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
                 }
-                // A fix that moved the head answers the bot threads it was sent.
+                // A fix that moved the head answers the bot threads it was sent, by what the worker said.
                 Ok(now) => {
-                    match self.resolve_sent(number)? {
-                        Resolved::Done => {}
-                        Resolved::Retry(reason) => return Ok(self.gate_failed(reason)),
-                        Resolved::LeftOpen { threads, reason } => {
+                    match self.answer_sent(number, true)? {
+                        Answered::Done => {}
+                        Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
+                        Answered::LeftOpen { threads, reason } => {
                             left_open = Some((threads, reason));
                         }
                     }
@@ -325,8 +327,8 @@ impl Runner {
 
     // Every finding sent was left for a follow-up issue, or every one was a
     // nit the worker declined, so there was nothing to push, and the next
-    // reviewer reads the pull request as it stands. Bot threads sent stay
-    // open, since nothing answered them.
+    // reviewer reads the pull request as it stands. Bot threads sent are
+    // replied to with the worker's lines and stay open, since nothing fixed them.
     fn went_unfixed(
         &mut self,
         number: u64,
@@ -335,11 +337,22 @@ impl Runner {
     ) -> Result<Begin, StateError> {
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
+        let mut left_open = None;
+        match self.answer_sent(number, false)? {
+            Answered::Done => {}
+            Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
+            Answered::LeftOpen { threads, reason } => left_open = Some((threads, reason)),
+        }
         let next = self.after_round(review, self.ports.clock.now());
-        self.update(|item| {
-            item.forget_threads();
-            item.phase = next;
-        })?;
+        self.update(|item| item.phase = next)?;
+        if let Some((threads, reason)) = left_open {
+            return Ok(Begin::Report(StepReport::ThreadsLeftOpen {
+                issue,
+                pull_request: number,
+                threads,
+                reason,
+            }));
+        }
         Ok(Begin::Report(match unfixed {
             Unfixed::Deferred(deferred) => StepReport::FindingsDeferred {
                 issue,
@@ -398,10 +411,11 @@ impl Runner {
     }
 
     // Every finding goes, at the reviewer's own severity, nits included, and
-    // a bot's threads sent with them are kept to resolve once the fix moves
-    // the head. A file the script skipped for its size is reported with the
-    // round but never sent, since no fix of the worker's reviews it. A round
-    // left with nothing to send goes on to the next reviewer.
+    // a bot's threads sent with them are kept, in the findings' order, to
+    // reply on and resolve by the worker's lines once its fix turn ends. A
+    // file the script skipped for its size is reported with the round but
+    // never sent, since no fix of the worker's reviews it. A round left with
+    // nothing to send goes on to the next reviewer.
     fn send_findings(
         &mut self,
         review: Review,
@@ -414,10 +428,21 @@ impl Runner {
             .pull_request
             .expect("review runs once a pull request is known");
         let round = review.round;
-        let findings: Vec<Finding> = findings
-            .into_iter()
-            .filter(|f| !f.is_skipped_for_size())
-            .collect();
+        // A bot's finding is its thread's, in the same order, so a finding
+        // dropped takes its thread with it.
+        let by_thread = threads.len() == findings.len();
+        let (findings, threads): (Vec<Finding>, Vec<String>) = match by_thread {
+            true => (findings.into_iter().zip(threads))
+                .filter(|(f, _)| !f.is_skipped_for_size())
+                .unzip(),
+            false => (
+                findings
+                    .into_iter()
+                    .filter(|f| !f.is_skipped_for_size())
+                    .collect(),
+                threads,
+            ),
+        };
         if findings.is_empty() {
             let next = self.after_round(review, self.ports.clock.now());
             self.update(|item| item.phase = next)?;
@@ -442,18 +467,17 @@ impl Runner {
             return Ok(self.gate_failed(reason));
         }
         let held = findings.len();
-        let prompt = findings::fix_prompt(number, round, held, &path);
+        let report_threads = by_thread && !threads.is_empty();
+        let prompt = findings::fix_prompt(number, round, held, &path, report_threads);
         let deferred_before = match findings::deferred(build) {
             Ok(deferred) => deferred,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         self.update(|item| {
             item.record_held(&findings);
-            for thread in threads {
-                if !item.threads_sent.contains(&thread) {
-                    item.threads_sent.push(thread);
-                }
-            }
+            // In the findings' order, which the worker's lines number.
+            item.threads_sent = threads;
+            item.thread_answers.clear();
             item.turn = Turn::Next { prompt };
             item.counts.fix_turns = item.counts.fix_turns.saturating_add(1);
             item.phase = Phase::Review(Review {
