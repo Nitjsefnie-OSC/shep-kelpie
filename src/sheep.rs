@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, Openssl, ShepLeases, SystemClock,
-    stop_calls,
+    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, Openssl, SecurityKeychain, ShepLeases,
+    SystemClock, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -174,6 +174,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         Box::new(CurlGithub),
         Box::new(Openssl),
         Box::new(SystemClock),
+        Box::new(SecurityKeychain),
     ));
     let ports = Ports {
         agents: Arc::new(Routed::new(

@@ -13,11 +13,13 @@ use crate::settings::ForgeSlug;
 use crate::totp::private_dir;
 
 pub mod api;
+pub mod keychain;
 pub mod setup;
 pub mod tokens;
 pub mod voice;
 
 pub use api::{ApiError, Call, Conversion, GithubApi, Grant, IssuedToken, Pem, Signer, Verb};
+pub use keychain::Keychain;
 pub use tokens::{AppTokens, GithubApp, InstallationToken, TokenError};
 pub use voice::AppVoice;
 

@@ -334,6 +334,47 @@ fn a_token_that_holds_more_than_pushing_is_never_handed_to_a_worker() {
     );
 }
 
+// The login `gh` keeps in the macOS keychain is readable from a worker's
+// sandbox, which no file rule can stop, so no worker gets a token while it is
+// there. Kelpie's own posts do not depend on it.
+#[test]
+fn no_worker_token_is_minted_while_gh_keeps_the_maintainers_login_in_the_keychain() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    let koji = slug("shep-pm/koji");
+    github.keychain_holds_login(true);
+
+    let err = tokens.worker_token(&koji).unwrap_err();
+
+    assert_eq!(err, TokenError::KeychainLogin);
+    tokens.token(&koji).unwrap();
+
+    github.keychain_cannot_be_asked("security exited 36");
+    let err = tokens.worker_token(&koji).unwrap_err();
+    assert_eq!(err, TokenError::Keychain("security exited 36".to_owned()));
+
+    github.keychain_holds_login(false);
+    tokens.worker_token(&koji).unwrap();
+}
+
+// Where the App does not cover the repo the worker runs as the maintainer
+// whatever the keychain holds, so the keychain is not what is said.
+#[test]
+fn a_repo_the_app_does_not_cover_is_not_blamed_on_the_keychain() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    github.keychain_holds_login(true);
+
+    let err = (github.tokens(home.path()))
+        .worker_token(&slug("shep-pm/golbat"))
+        .unwrap_err();
+
+    assert!(matches!(err, TokenError::NotInstalled { .. }), "{err:?}");
+}
+
 // An App registered before workers held its tokens has no Contents
 // permission, and GitHub answers a request for it with 422.
 #[test]
@@ -827,6 +868,7 @@ fn a_slow_answer_for_one_repo_stalls_no_other_repo_s_token() {
         Box::new(stalled),
         Box::new(FakeSigner),
         Box::new(FakeClock::at(1_000_000)),
+        Box::new(github.clone()),
     ));
     let slow = {
         let tokens = Arc::clone(&tokens);

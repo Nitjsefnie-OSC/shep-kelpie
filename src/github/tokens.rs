@@ -10,6 +10,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::api::{ApiError, GithubApi, Grant, IssuedToken, Signer};
+use super::keychain::Keychain;
 use super::{App, Apps, Owner, StoreError};
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -89,6 +90,11 @@ pub enum TokenError {
     /// The App was never given the Contents permission a worker's token
     /// holds: it was registered before workers held its tokens
     NoContents(App),
+    /// `gh` keeps the maintainer's login in the macOS keychain, which a
+    /// worker's sandbox can read
+    KeychainLogin,
+    /// Whether `gh` keeps a login in the keychain could not be told, with why
+    Keychain(String),
     /// GitHub made a worker's token hold more than the permission to push, or
     /// not that, with what it holds
     TooBroad(String),
@@ -112,6 +118,14 @@ impl fmt::Display for TokenError {
                 f,
                 "{} was never given the Contents permission (read and write) a worker's                  token needs: add it in the App's settings, then accept it on the installation",
                 app.slug
+            ),
+            Self::KeychainLogin => f.write_str(
+                "gh keeps the maintainer's login in the macOS keychain (service gh:github.com), \
+                 which a worker's sandbox can read",
+            ),
+            Self::Keychain(why) => write!(
+                f,
+                "cannot tell whether gh keeps the maintainer's login in the macOS keychain: {why}"
             ),
             Self::TooBroad(held) => write!(
                 f,
@@ -175,6 +189,7 @@ pub struct AppTokens {
     api: Box<dyn GithubApi>,
     signer: Box<dyn Signer>,
     clock: Box<dyn Clock + Sync>,
+    keychain: Box<dyn Keychain>,
     // The map is held only to read or write it; each flight is held across
     // the calls to GitHub for its App and repo.
     kept: Mutex<Kept>,
@@ -190,18 +205,21 @@ impl fmt::Debug for AppTokens {
 }
 
 impl AppTokens {
-    /// Tokens for the Apps in `apps`, asked of `api` with JWTs `signer` signs
+    /// Tokens for the Apps in `apps`, asked of `api` with JWTs `signer` signs,
+    /// a worker's only while `keychain` holds no login of the maintainer's
     pub fn new(
         apps: Apps,
         api: Box<dyn GithubApi>,
         signer: Box<dyn Signer>,
         clock: Box<dyn Clock + Sync>,
+        keychain: Box<dyn Keychain>,
     ) -> Self {
         Self {
             apps,
             api,
             signer,
             clock,
+            keychain,
             kept: Mutex::new(Kept::default()),
             flights: Mutex::default(),
         }
@@ -222,7 +240,11 @@ impl GithubApp for AppTokens {
     }
 
     fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
-        match self.mint(repo, Grant::Worker).and_then(pushes_only) {
+        match self
+            .mint(repo, Grant::Worker)
+            .and_then(|issued| self.without_keychain_login(issued))
+            .and_then(pushes_only)
+        {
             // GitHub answers 422 to a request for a permission the App lacks.
             Err(TokenError::Api(ApiError::Refused(422))) => {
                 let owner = Owner::of(repo).map_err(TokenError::Owner)?;
@@ -232,6 +254,19 @@ impl GithubApp for AppTokens {
                 }
             }
             minted => minted.map(|issued| issued.token),
+        }
+    }
+}
+
+impl AppTokens {
+    // A worker's sandbox can ask the keychain `gh` keeps the maintainer's login
+    // in, and the token would then be one of two logins it holds. Asked of the
+    // keychain only for a repo the App covers, whose worker would run on it.
+    fn without_keychain_login(&self, issued: IssuedToken) -> Result<IssuedToken, TokenError> {
+        match self.keychain.holds_gh_login() {
+            Ok(false) => Ok(issued),
+            Ok(true) => Err(TokenError::KeychainLogin),
+            Err(why) => Err(TokenError::Keychain(why)),
         }
     }
 }
