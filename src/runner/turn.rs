@@ -469,6 +469,11 @@ impl Runner {
                 let cost =
                     item.record_call(Role::Worker, now, session, reply.usage, reply.session_cost);
                 item.summary = crate::board::briefing::summary(&reply.text);
+                // A fix turn's reply says what it made of each bot thread sent.
+                let fixing = matches!(&item.phase, Phase::Review(r) if matches!(r.stage, ReviewStage::Fixing { .. }));
+                if fixing {
+                    item.answer_threads(&reply.text);
+                }
                 // A turn that left its work uncommitted and pushed nothing is
                 // sent back once, before the gate can park it on a ruling. A
                 // turn to push before a round is that once already.

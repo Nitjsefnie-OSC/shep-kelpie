@@ -68,6 +68,34 @@ fn a_refusal_names_the_field_and_what_it_found() {
     );
 }
 
+// A thread reply carries the worker's own words, so it is checked as any post is.
+#[test]
+fn a_reply_on_a_thread_naming_a_local_path_is_refused_and_an_ordinary_one_is_posted() {
+    let (forge, fake) = guarded();
+    fake.coderabbit.review(71, "abc", 1, &["Name the flag."]);
+    let refused = forge.reply_to_thread(
+        &slug(),
+        "PRRT_71_0",
+        "Declined: it lives in /Users/me/.kelpie/wt/koji/7/src/a.rs",
+    );
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        "not posted: the reply names a path on this machine, which names its user"
+    );
+    assert_eq!(fake.coderabbit.replies(), []);
+
+    forge
+        .reply_to_thread(&slug(), "PRRT_71_0", "Declined: the name is deliberate")
+        .unwrap();
+    assert_eq!(
+        fake.coderabbit.replies(),
+        [(
+            "PRRT_71_0".to_owned(),
+            "Declined: the name is deliberate".to_owned()
+        )]
+    );
+}
+
 #[test]
 fn ordinary_text_is_posted() {
     let (forge, fake) = guarded();

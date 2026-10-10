@@ -52,8 +52,11 @@ fn late_round_fixed(rig: &Rig, runner: &Mutex<Runner>) -> String {
         })
     ));
     let reviewer_reads = rig.reviewer.seen().len();
-    rig.claude
-        .script([Scripted::Push("strip.txt", "stripped\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: fixed",
+    )]);
     step(runner).unwrap(); // the worker's fix turn
     assert!(matches!(
         step(runner).unwrap(),
@@ -93,6 +96,13 @@ fn a_bot_passed_over_that_reviews_during_ci_gets_a_fix_turn_before_the_merge_rul
         );
 
         let fixed = late_round_fixed(&rig, &runner);
+        // The late round's fix turn answers its thread as any round's does.
+        assert_eq!(
+            rig.forge.coderabbit.replies(),
+            [("PRRT_cubic_71_0".to_owned(), "Fixed.".to_owned())],
+            "auto: {auto}"
+        );
+        assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_cubic_71_0"]);
         let Some(StepReport::Ruling {
             id: 1, question, ..
         }) = rig.verdict(&runner)
@@ -342,8 +352,11 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
     ));
     let reviewer_reads = rig.reviewer.seen().len();
     let worker_turns = rig.claude.calls().len();
-    rig.claude
-        .script([Scripted::Push("strip.txt", "stripped\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the worker's fix turn
     assert!(matches!(
         step(&runner).unwrap(),

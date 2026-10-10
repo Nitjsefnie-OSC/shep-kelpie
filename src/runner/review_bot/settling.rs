@@ -153,8 +153,11 @@ fn read_then_reviewed_again(rig: &Rig, findings: &[&str]) -> Mutex<Runner> {
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent { held: 1, .. })
     ));
-    rig.claude
-        .script([Scripted::Push("strip.txt", "stripped\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the worker's fix turn
     assert!(matches!(
         step(&runner).unwrap(),
@@ -281,8 +284,11 @@ fn a_nit_sent_to_its_fix_and_an_outdated_thread_raise_no_warning() {
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent { held: 1, .. })
     ));
-    rig.claude
-        .script([Scripted::Push("shorter.txt", "shorter\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "shorter.txt",
+        "shorter\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the worker's fix turn
     assert!(matches!(
         step(&runner).unwrap(),
