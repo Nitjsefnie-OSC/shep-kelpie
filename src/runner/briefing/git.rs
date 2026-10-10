@@ -1,5 +1,6 @@
 //! What the board reads from git: heads, each branch's files, the
-//! conflicts between two branches, and the files on `main`
+//! conflicts between two branches, the files on `main`, and for a project
+//! manager each branch's diff
 //!
 //! A board write takes its questions out of the runner as a [`GitJob`] and
 //! runs them with the runner's lock let go. Every answer is kept by the
@@ -10,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use super::patch;
 use crate::board::briefing::{Merge, named_paths};
 use crate::worktree::{BASE, in_repo};
 
@@ -19,6 +21,7 @@ pub(in crate::runner) struct Git {
     tree: Option<(String, Vec<String>)>,
     diffs: BTreeMap<(String, String), Vec<String>>,
     merges: BTreeMap<(String, String), Vec<String>>,
+    patches: BTreeMap<(String, String), Vec<u8>>,
 }
 
 /// What one board write asks git, with the answers kept so far
@@ -30,6 +33,8 @@ pub(in crate::runner) struct GitJob {
     pub(super) branches: Vec<(u64, String)>,
     /// The bodies of the issues ready or open, whose named paths it reads
     pub(super) bodies: Vec<(u64, String)>,
+    /// Whether it reads each branch's diff, for a project manager
+    pub(super) patches: bool,
 }
 
 /// What git answered for one board write
@@ -47,6 +52,9 @@ pub(in crate::runner) struct GitAnswers {
     pub(super) named: BTreeMap<u64, Vec<String>>,
     /// The bodies those paths were read from
     pub(super) bodies: Vec<(u64, String)>,
+    /// Each work item's diff from `main`, cut to [`patch::CAP`], or why
+    /// git could not give it, when asked
+    pub(super) patches: BTreeMap<u64, Result<Vec<u8>, String>>,
 }
 
 impl GitJob {
@@ -57,6 +65,7 @@ impl GitJob {
             mut git,
             branches,
             bodies,
+            patches,
         } = self;
         let main = Git::main(&repo);
         let heads: Vec<(u64, String)> = branches
@@ -96,6 +105,15 @@ impl GitJob {
                 )
             })
             .collect();
+        let patches = match patches {
+            true => (branches.iter())
+                .map(|(issue, branch)| {
+                    let head = heads.iter().find(|(n, _)| n == issue).map(|(_, h)| h);
+                    (*issue, git.patch(&repo, main.as_deref(), branch, head))
+                })
+                .collect(),
+            false => BTreeMap::new(),
+        };
         let live: BTreeSet<String> = heads.into_iter().map(|(_, head)| head).collect();
         git.keep(main.as_deref(), &live);
         GitAnswers {
@@ -105,6 +123,7 @@ impl GitJob {
             merges,
             named,
             bodies,
+            patches,
         }
     }
 }
@@ -185,6 +204,27 @@ impl Git {
         self.diffs
             .retain(|(at, head), _| Some(at.as_str()) == main && kept(head));
         self.merges.retain(|(a, b), _| kept(a) && kept(b));
+        self.patches
+            .retain(|(at, head), _| Some(at.as_str()) == main && kept(head));
+    }
+
+    /// `branch`'s diff from `main`, at `head`, its commit where git read one
+    fn patch(
+        &mut self,
+        repo: &Path,
+        main: Option<&str>,
+        branch: &str,
+        head: Option<&String>,
+    ) -> Result<Vec<u8>, String> {
+        let main = main.ok_or_else(|| format!("origin/{BASE} is not in the checkout"))?;
+        let head = head.ok_or_else(|| format!("{branch} is not in the checkout"))?;
+        let key = (main.to_owned(), head.clone());
+        if let Some(diff) = self.patches.get(&key) {
+            return Ok(diff.clone());
+        }
+        let diff = patch::read(repo, main, head)?;
+        self.patches.insert(key, diff.clone());
+        Ok(diff)
     }
 }
 

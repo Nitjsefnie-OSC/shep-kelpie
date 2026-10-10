@@ -1,0 +1,257 @@
+//! What the project manager reads of the code: its project's worktrees and
+//! checkout, and each open branch's diff that kelpie writes it at a wake
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use serde_json::Value;
+
+use super::{answered, pm_seen, step_until, with_pm};
+use crate::ports::AgentError;
+use crate::profile::CREDENTIALS;
+use crate::runner::pm::call::SECRET_SHAPED;
+use crate::runner::{Runner, StepReport};
+use crate::settings::Harness;
+use crate::test::{Rig, Scripted, Seen, git, write_in};
+
+const NOTHING: &str = "{\"pick\": null}";
+
+/// A project with #7 open, whose worker committed `file` on its branch and
+/// then failed, and the project manager's wake for it
+fn with_open_item(
+    project: &str,
+    file: &'static str,
+    text: &'static str,
+) -> (Rig, Mutex<Runner>, Seen) {
+    let (rig, runner) = with_pm(project);
+    rig.ask(&runner, "add", Some("7"));
+    let failed = AgentError::Failed(Harness::ClaudeCode, "it crashed".into());
+    rig.claude.script([
+        Scripted::Commit(file, text),
+        Scripted::Fail(failed),
+        Scripted::Say(NOTHING),
+    ]);
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+    let seen = pm_seen(&rig).pop().unwrap();
+    (rig, runner, seen)
+}
+
+/// Tells the project manager something, and waits for its answer
+fn wake(rig: &Rig, runner: &Mutex<Runner>) -> Seen {
+    rig.ask(runner, "tell", Some("how is #7?"));
+    rig.claude.script([Scripted::Say(NOTHING)]);
+    answered(Some(step_until(runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+    pm_seen(rig).pop().unwrap()
+}
+
+/// `path` as given and with its links resolved, as each tool may name it
+fn spellings(path: &Path) -> Vec<String> {
+    let resolved = path.canonicalize().ok().filter(|c| c != path);
+    std::iter::once(path.to_owned())
+        .chain(resolved)
+        .map(|p| p.display().to_string())
+        .collect()
+}
+
+/// Whether Claude Code's Read rules in the call's settings refuse `path`
+fn tools_refuse(seen: &Seen, path: &str) -> bool {
+    let deny = seen.settings["permissions"]["deny"].as_array().unwrap();
+    deny.iter().filter_map(Value::as_str).any(|rule| {
+        let Some(glob) = rule
+            .strip_prefix("Read(/")
+            .and_then(|r| r.strip_suffix(')'))
+        else {
+            return false;
+        };
+        match glob.strip_suffix("/**") {
+            Some(folder) => path.starts_with(&format!("{folder}/")),
+            None => path == glob,
+        }
+    })
+}
+
+/// Whether the sandbox refuses `path`: the narrowest rule covering it wins,
+/// as `srt` emits a deny nested in an allow after the allow
+fn sandbox_refuses(seen: &Seen, path: &str) -> bool {
+    let files = &seen.sandbox["filesystem"];
+    let narrowest = |key: &str| {
+        let rules = files[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str);
+        rules
+            .map(|rule| rule.strip_suffix("/**").unwrap_or(rule))
+            .filter(|folder| path == *folder || path.starts_with(&format!("{folder}/")))
+            .map(str::len)
+            .max()
+    };
+    match (narrowest("denyRead"), narrowest("allowRead")) {
+        (Some(denied), Some(allowed)) => denied >= allowed,
+        (denied, _) => denied.is_some(),
+    }
+}
+
+// Its tools are judged on `path` as given and with its links resolved; `srt`
+// resolves its rules' links itself, so the sandbox is judged as given.
+fn assert_reads(seen: &Seen, path: &Path) {
+    for spelled in spellings(path) {
+        assert!(!tools_refuse(seen, &spelled), "its tools refuse {spelled}");
+    }
+    let spelled = path.display().to_string();
+    assert!(
+        !sandbox_refuses(seen, &spelled),
+        "its sandbox refuses {spelled}"
+    );
+}
+
+fn assert_refuses(seen: &Seen, path: &Path) {
+    for spelled in spellings(path) {
+        assert!(tools_refuse(seen, &spelled), "its tools read {spelled}");
+    }
+    let spelled = path.display().to_string();
+    assert!(
+        sandbox_refuses(seen, &spelled),
+        "its sandbox reads {spelled}"
+    );
+}
+
+#[test]
+fn it_reads_the_worktrees_and_checkout_and_none_of_kelpies_secrets() {
+    let (rig, runner, _) = with_open_item("koji", "src/lib.rs", "pub fn x() {}\n");
+    let paths = rig.paths();
+    let home = &paths.kelpie_home;
+    write_in(
+        &home.join("github/acme"),
+        "key.pem",
+        "-----BEGIN PRIVATE KEY-----\n",
+    );
+    write_in(&home.join("other"), "state.json", "{}\n");
+    write_in(&rig.repo(), "notes.txt", "the checkout\n");
+    let seen = wake(&rig, &runner);
+
+    assert_reads(&seen, &paths.worktree(7).join("src/lib.rs"));
+    assert_reads(&seen, &rig.repo().join("notes.txt"));
+    assert_reads(&seen, &paths.pm.join("board.md"));
+    let unread: [PathBuf; 4] = [
+        home.join("github/acme/key.pem"),
+        home.join("other/state.json"),
+        paths.state.clone(),
+        paths.folder.join("settings.toml"),
+    ];
+    for path in unread {
+        assert!(path.is_file(), "{path:?} is a real file");
+        assert_refuses(&seen, &path);
+    }
+    let deny = seen.settings["permissions"]["deny"].to_string();
+    let sandbox = seen.sandbox["filesystem"]["denyRead"].to_string();
+    for secret in CREDENTIALS.iter().chain(&["~/.config/gh/**"]) {
+        assert!(
+            deny.contains(&format!("Read({secret})")),
+            "{secret}: {deny}"
+        );
+        assert!(
+            sandbox.contains(&format!("\"{secret}\"")),
+            "{secret}: {sandbox}"
+        );
+    }
+}
+
+#[test]
+fn every_secret_shaped_file_in_the_code_it_reads_is_denied_in_both_layers() {
+    let (rig, _runner, seen) = with_open_item("chelone", "src/lib.rs", "pub fn x() {}\n");
+    let deny = seen.settings["permissions"]["deny"].as_array().unwrap();
+    let sandbox = seen.sandbox["filesystem"]["denyRead"].as_array().unwrap();
+    for tree in [rig.paths().worktrees(), rig.repo()] {
+        for file in SECRET_SHAPED {
+            let path = format!("{}/{file}", tree.display());
+            let rule = format!("Read(/{path})");
+            assert!(deny.contains(&rule.clone().into()), "{rule}: {deny:?}");
+            assert!(
+                sandbox.contains(&path.clone().into()),
+                "{path}: {sandbox:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_wake_writes_each_open_branchs_diff_and_none_once_it_closes() {
+    let (rig, runner, seen) = with_open_item("rotom", "src/lib.rs", "pub fn x() {}\n");
+    let pm = rig.paths().pm;
+    assert_eq!(seen.call.cwd, pm);
+    let diff = std::fs::read_to_string(pm.join("diffs/7.diff")).unwrap();
+    assert!(diff.contains("+++ b/src/lib.rs\n"), "{diff}");
+    assert!(diff.contains("+pub fn x() {}\n"), "{diff}");
+    let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
+    let worktree = rig.paths().worktree(7).display().to_string();
+    assert!(
+        board.contains(&format!("- #7: worktree `{worktree}`, diff `diffs/7.diff`")),
+        "{board}"
+    );
+
+    rig.ask(&runner, "drop", Some("7"));
+    wake(&rig, &runner);
+    let left: Vec<_> = std::fs::read_dir(pm.join("diffs")).unwrap().collect();
+    assert!(left.is_empty(), "a closed item's diff stays: {left:?}");
+    let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
+    assert!(!board.contains("diffs/7.diff"), "{board}");
+}
+
+#[test]
+fn an_oversized_diff_is_cut_and_says_how_big_it_was() {
+    let line = "the same long line of a generated file, again and again\n";
+    let text: &'static str = line.repeat(2_000).leak();
+    let (rig, _runner, _) = with_open_item("eevee", "generated.txt", text);
+    let diff = std::fs::read(rig.paths().pm.join("diffs/7.diff")).unwrap();
+    assert!(diff.len() <= 64 * 1024 + 200, "{} bytes", diff.len());
+    let diff = String::from_utf8(diff).unwrap();
+    let (kept, cut) = diff.rsplit_once("\n[kelpie cut this diff at ").unwrap();
+    assert!(kept.ends_with(&format!("+{line}")), "cut at a line's end");
+    let (at, rest) = cut.split_once(" of its ").unwrap();
+    assert_eq!(at, "64 KiB");
+    let total: usize = rest.split_once(' ').unwrap().0.parse().unwrap();
+    assert!(
+        total > text.len() + 2_000,
+        "{total} names the whole diff's bytes"
+    );
+    assert!(
+        rest.ends_with(" bytes: read the worktree for the rest]\n"),
+        "{rest}"
+    );
+}
+
+#[test]
+fn one_line_longer_than_the_cap_is_cut_between_characters() {
+    let text: &'static str = format!("{}\n", "é".repeat(40_000)).leak();
+    let (rig, _runner, _) = with_open_item("ditto", "min.js", text);
+    let diff = std::fs::read(rig.paths().pm.join("diffs/7.diff")).unwrap();
+    let diff = String::from_utf8(diff).expect("cut on a character's boundary");
+    let (kept, cut) = diff.rsplit_once("\n[kelpie cut this diff at ").unwrap();
+    assert!(kept.len() > 64 * 1024 - 4, "{} bytes kept", kept.len());
+    assert!(kept.ends_with('é'), "part of the long line is kept");
+    assert!(cut.starts_with("64 KiB of its "), "{cut}");
+}
+
+#[test]
+fn a_diff_git_cannot_give_is_left_out_and_named_and_the_wake_runs() {
+    let (rig, runner, _) = with_open_item("golbat", "src/lib.rs", "pub fn x() {}\n");
+    runner.lock().unwrap().take_notes();
+    git(&rig.repo(), &["update-ref", "-d", "refs/heads/kelpie/7"]);
+    // Past the board's refresh, so its next write reads the branch again.
+    rig.clock.advance(60);
+    wake(&rig, &runner);
+
+    let pm = rig.paths().pm;
+    assert!(!pm.join("diffs/7.diff").exists(), "no stale diff is left");
+    let why = "kelpie/7 is not in the checkout";
+    let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
+    assert!(board.contains(&format!(", no diff: {why}\n")), "{board}");
+    let notes = runner.lock().unwrap().take_notes();
+    let note = format!("no diff of #7 for the project manager: {why}");
+    assert!(notes.contains(&note), "{notes:?}");
+}

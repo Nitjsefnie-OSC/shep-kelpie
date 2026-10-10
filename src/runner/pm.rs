@@ -23,6 +23,7 @@ use crate::work_item::new_session_id;
 mod act;
 mod answer;
 mod call;
+mod diffs;
 mod maintainer;
 mod prompt;
 #[cfg(test)]
@@ -310,7 +311,7 @@ impl Runner {
         let told = self.state.pm_told.clone();
         let full = fresh || self.pm.full_prompt;
         let text = prompt::wake(self.project.as_str(), &wakes, &told, full);
-        let call = match self.pm_call(agent, session, text) {
+        let call = match self.pm_call(agent, session, text, true) {
             Ok(call) => call,
             Err(why) => {
                 self.pm.due = wakes;
@@ -334,7 +335,12 @@ impl Runner {
         let Some(id) = self.state.pm_session.clone() else {
             return Ok(());
         };
-        let call = self.pm_call(agent, Session::Resume(id.clone()), COMPACT.to_owned())?;
+        let call = self.pm_call(
+            agent,
+            Session::Resume(id.clone()),
+            COMPACT.to_owned(),
+            false,
+        )?;
         self.pm.flying = Some(Flying {
             kind: Kind::Compact,
             wakes: Vec::new(),

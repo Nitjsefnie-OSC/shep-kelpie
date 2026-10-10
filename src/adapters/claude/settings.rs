@@ -205,7 +205,7 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
 // The issue writer's file tools read its checkout, and `also`, and nothing
 // else: every other entry from `/` down is denied, and the secrets named
 // outright, whichever folder its checkout is in. Its commands read no file.
-// The project manager's read its own folder the same way.
+// The project manager's read its own folder, the worktrees and the checkout the same way.
 fn reads_only(checkout: &Path, also: &[PathBuf]) -> Vec<String> {
     // Each as given and with its links resolved, since `around` walks a link
     // such as macOS's `/var` as a folder of its own.

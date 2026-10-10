@@ -13,6 +13,7 @@ use crate::settings::Harness;
 use crate::test::{Hold, Rig, Scripted, Seen};
 
 mod attach;
+mod code;
 
 /// How long a test waits on a call in flight
 const PATIENCE: Duration = Duration::from_secs(60);
@@ -142,10 +143,6 @@ fn it_reads_its_folder_appends_to_its_notes_and_runs_nothing() {
     assert!(
         !sandbox.contains("github.com"),
         "it reaches no forge: {sandbox}"
-    );
-    assert!(
-        sandbox.contains(&format!("{}/**", rig.repo().display())),
-        "the checkout is unread: {sandbox}"
     );
 }
 
