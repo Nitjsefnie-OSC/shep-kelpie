@@ -13,14 +13,15 @@ use serde::{Deserialize, Serialize};
 #[cfg(doc)]
 use crate::board::READY;
 use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::github::InstallationToken;
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
-use crate::local_paths::Leak;
 use crate::review_bot::{Activity, Login, Profile, ReviewWindow};
 use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod forge_error;
 mod gpu;
 mod leased;
 mod local_paths;
@@ -35,6 +36,7 @@ pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
     Reach, Role, Session, SessionId, Tools, Usage, Wait, written_at,
 };
+pub use forge_error::ForgeError;
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
@@ -219,6 +221,47 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Opens a draft pull request on `repo` from branch `head` into `base`,
+    /// as the account kelpie acts as, and returns its number
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses, or its answer names no number.
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError>;
+
+    /// Sets the title and body of pull request `number`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError>;
+
+    /// The end of the logs of the CI runs that failed on `head`, or on the
+    /// merge queue when `merge_group`, for a worker whose token cannot read CI
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError>;
 
     /// Marks draft pull request `number` ready for review
     ///
@@ -470,47 +513,6 @@ pub struct OpenIssue {
     pub body: String,
 }
 
-/// Why a forge call failed
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ForgeError {
-    /// The forge's command line tool could not be started, with the OS's reason
-    Spawn(String),
-    /// The tool ran and exited unsuccessfully, with this on stderr
-    Failed(String),
-    /// The tool succeeded but its output was not what was asked for
-    Unreadable(String),
-    /// A field of the post names something private to this machine, so kelpie never sent it
-    LocalPath {
-        /// The field, such as "the comment"
-        what: &'static str,
-        /// What it names
-        leak: Leak,
-    },
-    /// The forge said its rate limit was used up, so no call is made until it resets then
-    Held(Timestamp),
-    /// The GitHub App's write failed, with why
-    App(String),
-}
-
-impl fmt::Display for ForgeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Spawn(error) => write!(f, "cannot run gh: {error}"),
-            Self::Failed(stderr) => write!(f, "gh failed: {}", stderr.trim()),
-            Self::Unreadable(output) => write!(f, "unreadable gh output: {}", output.trim()),
-            Self::LocalPath { what, leak } => write!(f, "not posted: {what} names {leak}"),
-            Self::Held(until) => write!(
-                f,
-                "not asked: the forge's rate limit is used up until {}",
-                rate_limit::time_of(*until)
-            ),
-            Self::App(why) => write!(f, "the GitHub App could not post: {why}"),
-        }
-    }
-}
-
-impl core::error::Error for ForgeError {}
-
 /// Kelpie's own voice on the forge: what it writes for the maintainer to
 /// read, made as its GitHub App once one covers the repo
 ///
@@ -523,6 +525,18 @@ impl core::error::Error for ForgeError {}
 pub trait Voice: Send + Sync {
     /// Whether an App covers `repo`: its owner has one, installed on the repo
     fn covers(&self, repo: &ForgeSlug) -> bool;
+
+    /// The token a worker's call on `repo` holds in place of the maintainer's
+    /// login, fresh for each call and able to push its branch and nothing
+    /// more, or `None` where no App covers `repo` and the worker runs as that login
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError::AppBusy`] when an App covers `repo` and GitHub cannot be
+    /// asked just now: the worker waits and tries again.
+    /// [`ForgeError::App`] when asking again will not help. Either way the
+    /// worker never runs as the maintainer in the App's place.
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError>;
 
     /// Posts `body` as a comment on issue or pull request `thread`
     ///

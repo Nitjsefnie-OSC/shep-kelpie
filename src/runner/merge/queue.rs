@@ -57,9 +57,10 @@ impl Runner {
         if item.red_head.as_deref() == Some(head.as_str()) {
             return self.raise(number, Stuck::MergeRefused { head, why: reason }.into());
         }
+        let help = self.queue_help(&head);
         let prompt = self
             .skills
-            .invoke(Step::CiFix, &queue_prompt(number, &head, &reason));
+            .invoke(Step::CiFix, &queue_prompt(number, &head, &reason, &help));
         self.back_to_worker(
             number,
             head,
@@ -98,14 +99,12 @@ impl Runner {
     }
 }
 
-fn queue_prompt(number: u64, head: &str, reason: &str) -> String {
+fn queue_prompt(number: u64, head: &str, reason: &str, help: &str) -> String {
     format!(
         "The merge queue removed your pull request #{number} at {}: {reason}. The queue \
          tests a pull request on top of `main` and the pull requests ahead of it, so \
          this can come from the combination and not from your branch alone. \
-         `gh run list --event merge_group` lists the queue's runs, and \
-         `gh run view <run id> --log-failed` shows what failed. Fix it on this branch, \
-         commit, and push with `git push origin HEAD`.",
+         {help} Fix it on this branch, commit, and push with `git push origin HEAD`.",
         short(head)
     )
 }

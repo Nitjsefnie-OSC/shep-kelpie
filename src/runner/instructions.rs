@@ -37,6 +37,9 @@ pub(super) struct Extra<'a> {
     pub(super) agent: Option<&'a str>,
     /// The project's file of extra instructions
     pub(super) project: Option<&'a str>,
+    /// Where the worker writes its pull request's text, when kelpie opens
+    /// the pull request for it
+    pub(super) pull_request_file: Option<&'a Path>,
 }
 
 /// The instructions file for one worker turn
@@ -46,7 +49,7 @@ pub(super) struct Extra<'a> {
 /// instructions, then the project's. A pull request template in the
 /// worktree stands in for the body's skill.
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
-    let mut text = profile::instructions(kelpie);
+    let mut text = profile::instructions(kelpie, extra.pull_request_file);
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -158,7 +161,7 @@ mod tests {
 
     // Kelpie's own instructions, naming the binary the rig says kelpie is
     fn kelpies() -> String {
-        profile::instructions(Path::new(Rig::KELPIE))
+        profile::instructions(Path::new(Rig::KELPIE), None)
     }
 
     // The instructions file the worker's first turn was started with
@@ -249,6 +252,7 @@ mod tests {
         let extra = Extra {
             agent: Some("Mind the migrations."),
             project: Some(EXTRA),
+            ..Extra::default()
         };
         let text = compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE));
         let at = |needle: &str| text.find(needle).expect(needle);
@@ -263,6 +267,7 @@ mod tests {
         let blank = Extra {
             agent: Some("\n"),
             project: Some(" \n"),
+            ..Extra::default()
         };
         let (blank, none) = (
             compose(blank, dir.path(), &skills, Path::new(Rig::KELPIE)),

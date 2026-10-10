@@ -21,6 +21,7 @@ use super::alert::post_due;
 use super::briefing::{Watched, brief};
 use super::drain::{CallRole, CallRunning};
 use super::in_flight::InFlight;
+use super::login_refresh;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
 use super::retro;
@@ -499,9 +500,20 @@ impl Runner {
             Arc::clone(&self.ports.reviewer),
         );
         let held = ending.clone();
+        let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| match launch {
-                Launch::Turn { call, .. } => End::Turn(agents.run(&call, &held)),
+                // A covered worker's token lasts an hour, a call may not.
+                Launch::Turn { call, .. } => {
+                    let build = covered_build(&call);
+                    End::Turn(login_refresh::while_running(
+                        voice.as_ref(),
+                        &remote,
+                        build.as_deref(),
+                        login_refresh::EVERY,
+                        || agents.run(&call, &held),
+                    ))
+                }
                 Launch::Review(action) => {
                     let watch = |stage| tell.stage(stage);
                     let reviewed =
@@ -570,6 +582,15 @@ impl Runner {
     fn next_news(&self) -> Option<News> {
         self.flights.news.try_recv().ok()
     }
+}
+
+// The build folder of a worker whose login kelpie wrote, when `call` is one
+fn covered_build(call: &AgentCall) -> Option<std::path::PathBuf> {
+    let fence = call.reach.fence.as_deref()?;
+    fence
+        .env
+        .contains_key("GH_CONFIG_DIR")
+        .then(|| fence.guard.build.clone())
 }
 
 // The end of a call whose thread could not start: a turn on `harness`, or a

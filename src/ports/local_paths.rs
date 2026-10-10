@@ -13,6 +13,7 @@ use super::{
     Reviewed, ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::github::InstallationToken;
 use crate::local_paths::{LocalPaths, Surface};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -131,6 +132,41 @@ impl Forge for Guarded {
         self.forge.close_issue(repo, number)
     }
 
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.check("the pull request's title", title)?;
+        self.check("the pull request's body", body)?;
+        self.forge
+            .create_pull_request(repo, head, base, title, body)
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check("the pull request's title", title)?;
+        self.check("the pull request's body", body)?;
+        self.forge.edit_pull_request(repo, number, title, body)
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.forge.failed_run_logs(repo, head, merge_group)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.mark_ready(repo, number)
     }
@@ -224,6 +260,10 @@ impl fmt::Debug for GuardedVoice {
 impl Voice for GuardedVoice {
     fn covers(&self, repo: &ForgeSlug) -> bool {
         self.voice.covers(repo)
+    }
+
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError> {
+        self.voice.worker_token(repo)
     }
 
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {

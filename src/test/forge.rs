@@ -56,6 +56,10 @@ pub(crate) struct FakeForge {
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
+    // What the failed CI runs' logs say
+    ci_log: Arc<Mutex<String>>,
+    // The title and body of each pull request kelpie opened or edited, by number
+    texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
     issues_down: Arc<Mutex<Option<String>>>,
     // How many more issues may open before every later one fails
@@ -140,6 +144,8 @@ impl FakeForge {
             merges: Arc::default(),
             issues: Arc::default(),
             created: Arc::default(),
+            texts: Arc::default(),
+            ci_log: Arc::default(),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -809,6 +815,51 @@ impl Forge for FakeForge {
         Ok(())
     }
 
+    // Numbers start at 500, clear of every pull request a test opens by hand.
+    fn create_pull_request(
+        &self,
+        _repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.ask()?;
+        let mut texts = self.texts.lock().unwrap();
+        let number = 500 + texts.len() as u64;
+        let closes = (body.lines())
+            .filter_map(|l| l.strip_prefix("Resolves #")?.trim().parse().ok())
+            .collect::<Vec<u64>>();
+        self.open_pull_request(number, head, &closes);
+        self.set_base(number, base);
+        texts.insert(number, (title.to_owned(), body.to_owned()));
+        Ok(number)
+    }
+
+    fn edit_pull_request(
+        &self,
+        _repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        let text = (title.to_owned(), body.to_owned());
+        self.texts.lock().unwrap().insert(number, text);
+        Ok(())
+    }
+
+    fn failed_run_logs(
+        &self,
+        _repo: &ForgeSlug,
+        _head: &str,
+        _merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.ask()?;
+        Ok(self.ci_log.lock().unwrap().clone())
+    }
+
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.opened(number)?;
@@ -936,5 +987,6 @@ impl Forge for FakeForge {
 }
 
 mod down;
+mod handed;
 mod queue;
 mod thread;

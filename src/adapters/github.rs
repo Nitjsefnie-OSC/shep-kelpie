@@ -11,7 +11,9 @@ use std::path::Path;
 use std::process::Stdio;
 
 use super::curl;
-use crate::github::api::{self, ApiError, Call, Conversion, GithubApi, IssuedToken, Signer, Verb};
+use crate::github::api::{
+    self, ApiError, Call, Conversion, GithubApi, Grant, IssuedToken, Signer, Verb,
+};
 use crate::github::tokens::{InstallationToken, Jwt};
 use crate::ports::AlertError;
 use crate::settings::ForgeSlug;
@@ -49,9 +51,10 @@ impl GithubApi for CurlGithub {
         jwt: &Jwt,
         installation: u64,
         repo: &ForgeSlug,
+        grant: Grant,
     ) -> Result<IssuedToken, ApiError> {
         let url = format!("{API}/app/installations/{installation}/access_tokens");
-        match call(&url, Some(jwt), Some(&api::token_request(repo)))? {
+        match call(&url, Some(jwt), Some(&api::token_request(repo, grant)))? {
             (body, 201) => api::parse_token(&body),
             (body, status) => Err(api::refusal(status, &body)),
         }

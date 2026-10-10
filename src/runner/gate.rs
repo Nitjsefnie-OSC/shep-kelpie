@@ -227,9 +227,10 @@ impl Runner {
                 .into(),
             );
         }
+        let help = self.red_help(number, &head);
         let prompt = self
             .skills
-            .invoke(Step::CiFix, &red_prompt(number, &head, &checks));
+            .invoke(Step::CiFix, &red_prompt(number, &head, &checks, &help));
         self.back_to_worker(number, head, checks, prompt, true, review)
     }
 
@@ -309,10 +310,9 @@ pub(super) fn short(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
 }
 
-fn red_prompt(number: u64, head: &str, checks: &[String]) -> String {
+fn red_prompt(number: u64, head: &str, checks: &[String], help: &str) -> String {
     format!(
-        "CI failed on your pull request #{number} at {}: {}. `gh pr checks {number}` \
-         lists the checks, and `gh run view <run id> --log-failed` shows what failed. \
+        "CI failed on your pull request #{number} at {}: {}. {help} \
          Fix it on this branch, commit, and push with `git push origin HEAD`.",
         short(head),
         checks.join(", ")

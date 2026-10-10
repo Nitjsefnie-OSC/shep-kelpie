@@ -3,10 +3,12 @@
 mod access;
 mod board;
 mod issues;
+mod pulls;
 mod queue;
 mod rate_limit;
 mod review;
 pub(crate) mod review_bot;
+mod runs;
 mod thread;
 
 use std::process::Stdio;
@@ -166,6 +168,36 @@ impl Forge for Gh {
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         issues::close_issue(repo, number)
+    }
+
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        pulls::create(repo, head, base, title, body)
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        pulls::edit(repo, number, title, body)
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        runs::failed_run_logs(repo, head, merge_group)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

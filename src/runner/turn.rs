@@ -15,15 +15,17 @@ use super::Runner;
 use super::adopt;
 use super::claude_files::Unchecked;
 use super::instructions;
+use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
+use crate::github::InstallationToken;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
 };
-use crate::profile::WorkerProfile;
+use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};
 use crate::skills::{Step, split_command};
 use crate::state::{Resume, RulingKind, StateError};
@@ -229,10 +231,25 @@ impl Runner {
             && prompt.is_none()
             && !(item.rework || item.adopted)
             && !item.calls.iter().any(|c| c.role == Role::Worker);
+        // A token GitHub would not give a moment ago is not asked for at every pass.
+        if self.token_wait.holds(now) {
+            return Ok(Begin::Idle);
+        }
+        self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
         let mut begin = match prepared {
+            // A covered worker never runs as the maintainer, so a token that
+            // passes waits here and is tried again, not parked on a ruling.
+            Err(reason) if self.token_wait.is_busy() => {
+                if self.token_wait.first_told() {
+                    self.notes
+                        .push(format!("issue #{issue} waits to start its turn: {reason}"));
+                }
+                return Ok(Begin::Idle);
+            }
             Ok(call) => {
+                self.token_wait.ends();
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
@@ -290,16 +307,30 @@ impl Runner {
             effort,
             prompt: agent_prompt,
         } = self.worker_agent(item)?;
-        let reach = self.worker_reach(item, start)?;
+        // Where the App covers the repo, the worker holds its token and never
+        // the maintainer's login; a token it cannot have now fails the call
+        // rather than run it as the maintainer.
+        let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
+            if matches!(e, crate::ports::ForgeError::AppBusy(_)) {
+                self.token_wait.busy_at(self.ports.clock.now());
+            }
+            format!("cannot get the worker a GitHub token: {e}")
+        })?;
+        let reach = self.worker_reach(item, start, token.as_ref())?;
         // Named for the work item: the open items' calls run at once, and
         // each harness keeps its own files beside its settings file.
         let folder = &self.paths.worker;
         let settings = folder.join(format!("settings-{}.json", item.issue));
         let instructions = folder.join(format!("instructions-{}.md", item.issue));
+        let handed_over = token
+            .is_some()
+            .then(|| pull_request_file::path(&item.build));
         let text = instructions::compose(
             instructions::Extra {
                 agent: agent_prompt.as_deref(),
                 project: self.extra_instructions.as_deref(),
+                // Its token opens no pull request, so kelpie opens it.
+                pull_request_file: handed_over.as_deref(),
             },
             &item.worktree,
             &self.skills,
@@ -345,7 +376,12 @@ impl Runner {
     ///
     /// Why the worktree cannot be made ready, or why agents' own files in it
     /// are refused.
-    pub(super) fn worker_reach(&self, item: &WorkItem, start: Start) -> Result<Reach, String> {
+    pub(super) fn worker_reach(
+        &self,
+        item: &WorkItem,
+        start: Start,
+        token: Option<&InstallationToken>,
+    ) -> Result<Reach, String> {
         let dirs = worktree::prepare(
             &self.settings.git.checkout,
             &item.worktree,
@@ -356,6 +392,12 @@ impl Runner {
         .map_err(|e| e.to_string())?;
         if let Some(reason) = self.claude_files_refusal() {
             return Err(reason);
+        }
+        // Its login is written for this call, and a call whose login cannot be
+        // written does not start: `gh` would find the maintainer's instead.
+        if let Some(token) = token {
+            profile::write_login(&item.build, token)
+                .map_err(|e| format!("cannot write the worker's GitHub login: {e}"))?;
         }
         let profile = WorkerProfile {
             worktree: &item.worktree,
@@ -371,6 +413,7 @@ impl Runner {
             build_env: &self.settings.worker.build_env,
             shep_home: &self.paths.shep_home,
             door: &self.paths.door,
+            token,
         };
         Ok(profile.reach())
     }
@@ -462,8 +505,21 @@ impl Runner {
                 // discovered once, and every later turn that reaches here
                 // (a CI-failure fix, most often) already knows it.
                 let discovering = item.pull_request.is_none();
+                // Only a worker on a repo the App covers hands its pull request
+                // over: any other opens and edits its own, and a file it left
+                // is not kelpie's to act on.
+                let handed_over = self.app_covers();
                 if discovering {
                     item.pull_request = self.pull_request_from(&item.branch);
+                    // A worker whose token opens no pull request wrote its text
+                    // for kelpie to open it from, once the branch is pushed.
+                    if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
+                        item.pull_request = self.open_handed_over(&item.build, &item.branch);
+                    }
+                }
+                // A later turn that rewrote the file changes the title and body.
+                if let (true, false, Some(number)) = (handed_over, discovering, item.pull_request) {
+                    self.edit_handed_over(&item.build, number);
                 }
                 let session = item.session.clone();
                 let cost =
