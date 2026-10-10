@@ -532,8 +532,8 @@ pub trait Voice: Send + Sync {
     ///
     /// # Errors
     ///
-    /// [`ForgeError::AppBusy`] when an App covers `repo` and GitHub, or the
-    /// keychain, cannot be asked just now: the worker waits and tries again.
+    /// [`ForgeError::AppBusy`] when an App covers `repo` and GitHub cannot be
+    /// asked just now: the worker waits and tries again.
     /// [`ForgeError::App`] when asking again will not help. Either way the
     /// worker never runs as the maintainer in the App's place.
     fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError>;

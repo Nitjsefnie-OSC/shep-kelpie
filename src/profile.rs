@@ -121,8 +121,8 @@ const MAINTAINERS_LOGIN: [&str; 2] = ["~/.config/gh/**", "~/Library/Keychains/**
 // `security` reads the keychain `gh` and git's osxkeychain helper keep the
 // maintainer's token in, and so does the helper itself, run by hand or with
 // `git credential`. Nothing a worker holding the App's token needs any of
-// them, git asks its helpers itself. These are a guardrail: the boundary is
-// that doctor and the runner find no login in the keychain.
+// them, git asks its helpers itself. These are a guardrail against a mistake,
+// not the boundary: the sandbox closes the keychain itself (#429).
 const KEYCHAIN_COMMANDS: [&str; 6] = [
     "security",
     "security *",

@@ -244,20 +244,6 @@ mod tests {
         assert_eq!(rig.claude.seen().len(), 1, "the turn never started");
     }
 
-    // The sandbox lets a worker ask the keychain `gh` keeps the maintainer's
-    // login in, so a covered repo's worker does not start while it is there.
-    #[test]
-    fn no_covered_worker_starts_while_gh_keeps_the_maintainers_login_in_the_keychain() {
-        let (rig, runner) = with_issue_7(true);
-        rig.claude.script([Scripted::Reply(usage(), Cost(1))]);
-        rig.github.keychain_holds_login(true);
-
-        step(&runner).unwrap();
-
-        assert!(rig.claude.seen().is_empty(), "the call started");
-        assert!(!rig.build_7().join("gh").exists(), "a login was written");
-    }
-
     #[test]
     fn a_turn_that_pushed_with_a_file_left_and_no_pull_request_has_one_opened_for_it() {
         let (rig, runner) = with_issue_7(true);

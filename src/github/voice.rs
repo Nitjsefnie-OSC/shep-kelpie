@@ -60,10 +60,8 @@ impl Voice for AppVoice {
             Err(TokenError::Owner(_) | TokenError::NoApp(_) | TokenError::NotInstalled { .. }) => {
                 Ok(None)
             }
-            // GitHub out of reach, busy or rate limited, or a keychain that cannot
-            // be asked just now: asking again later may work.
+            // GitHub out of reach, busy or rate limited: asking again later may work.
             Err(TokenError::Api(e)) if e.passes() => Err(ForgeError::AppBusy(e.to_string())),
-            Err(e @ TokenError::Keychain(_)) => Err(ForgeError::AppBusy(e.to_string())),
             Err(e) => Err(ForgeError::App(e.to_string())),
         }
     }

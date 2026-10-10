@@ -20,8 +20,7 @@ use shep_client::Client;
 
 use self::host::Host;
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SecurityKeychain, SystemClock,
-    SystemHost,
+    ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemClock, SystemHost,
 };
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;
@@ -307,7 +306,6 @@ pub fn main(args: &[String]) -> ExitCode {
             Box::new(CurlGithub),
             Box::new(Openssl),
             Box::new(SystemClock),
-            Box::new(SecurityKeychain),
         );
         let probes = Probes {
             meter: &meter,

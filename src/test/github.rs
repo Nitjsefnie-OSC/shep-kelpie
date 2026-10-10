@@ -8,7 +8,7 @@ use super::FakeClock;
 use crate::github::tokens::Jwt;
 use crate::github::{
     ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, InstallationToken, IssuedToken,
-    Keychain, Pem, Signer,
+    Pem, Signer,
 };
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -46,8 +46,6 @@ struct Hub {
     workers_refused: Option<ApiError>,
     // A permission GitHub grants a worker's token beyond the one asked for
     extra_grant: Option<(String, String)>,
-    // What the keychain says about the maintainer's `gh` login
-    keychain: Option<Result<bool, String>>,
 }
 
 /// GitHub as kelpie's App sees it: one code converts to an App owned by
@@ -111,16 +109,6 @@ impl FakeGithub {
         self.hub.lock().unwrap().extra_grant = Some(grant);
     }
 
-    /// Makes the keychain hold the maintainer's `gh` login, or not
-    pub(crate) fn keychain_holds_login(&self, holds: bool) {
-        self.hub.lock().unwrap().keychain = Some(Ok(holds));
-    }
-
-    /// Makes the keychain unable to say, with `why`
-    pub(crate) fn keychain_cannot_be_asked(&self, why: &str) {
-        self.hub.lock().unwrap().keychain = Some(Err(why.to_owned()));
-    }
-
     /// Takes comments again after [`Self::refuse_comments`]
     pub(crate) fn accept_comments(&self) {
         self.hub.lock().unwrap().comments_refused = None;
@@ -179,7 +167,6 @@ impl FakeGithub {
             Box::new(self.clone()),
             Box::new(FakeSigner),
             Box::new(self.clock.clone()),
-            Box::new(self.clone()),
         )
     }
 
@@ -294,13 +281,6 @@ impl GithubApi for FakeGithub {
             return Ok(format!(r#"{{"number":{}}}"#, 899 + hub.issues));
         }
         Ok("{}".to_owned())
-    }
-}
-
-// The keychain holds no login unless a test says it does.
-impl Keychain for FakeGithub {
-    fn holds_github_login(&self) -> Result<bool, String> {
-        (self.hub.lock().unwrap().keychain.clone()).unwrap_or(Ok(false))
     }
 }
 
