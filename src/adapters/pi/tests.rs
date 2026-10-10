@@ -367,6 +367,26 @@ fn what_pi_cannot_give_a_worker_fails_before_the_call() {
 }
 
 #[test]
+fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+    let w = World::new();
+    let socket = w.path("worker/forwarder.sock");
+    let upstream = ClaudeCli::default()
+        .pi()
+        .upstream(server(&w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)))).unwrap())
+        .unwrap();
+    let mut calls = [
+        w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID))),
+        w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))),
+    ];
+    for call in &mut calls {
+        let policy = |call: &AgentCall| policy(call, &Files::of(call), &upstream, &socket);
+        assert!(!policy(call).no_keychain);
+        call.reach.block_keychain = true;
+        assert!(policy(call).no_keychain);
+    }
+}
+
+#[test]
 fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));

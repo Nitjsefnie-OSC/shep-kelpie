@@ -103,7 +103,16 @@ shep kelpie tools install
 installed kelpie's tools in /path/to/.shep/kelpie/tools
 ```
 
-It puts the sandbox runtime under shep-kelpie's home, `$SHEP_HOME/kelpie`.
+It puts the sandbox runtime under shep-kelpie's home, `$SHEP_HOME/kelpie`. On macOS it also makes a copy of the runtime with the two keychain services (`com.apple.securityd.xpc` and `com.apple.SecurityServer`) cut from its profile, which the runtime has no setting for. A call on a repo kelpie's GitHub App covers runs under that copy, and refuses to start when the copy is missing, so nothing a worker runs can ask the keychain for a login the `security` command stored, without a prompt. A repo the App does not cover keeps the services: its worker pushes and runs `gh` with the login the keychain holds.
+
+A covered call's `claude` cannot read its own login in the keychain, so it logs in with a token. Make it once, and keep it with `shep secret`:
+
+```sh
+claude setup-token
+shep secret set CLAUDE_CODE_OAUTH_TOKEN
+```
+
+Then give the runner's sheep `CLAUDE_CODE_OAUTH_TOKEN = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}"` in its `env`. The runner hands the token to `claude` alone, in every role: the worker, the reviewers and the project manager. No other process it starts has the variable, and a Codex or pi call never gets it. It is one token the worker can read, where the keychain holds the full login. A covered call whose runner has no token does not start: it fails with the two commands, not with Claude Code's own "not logged in". `doctor` says MISSING for a covered project when the variable is not set in the shell you run it from; run `CLAUDE_CODE_OAUTH_TOKEN=<token> shep kelpie doctor` to check it.
 
 ### 4. Add your project
 
@@ -691,7 +700,7 @@ Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <
 
 `add` names the project after the repo, or `shep kelpie add <name>`. It makes the four labels where the repo lacks them, writes kelpie's own agent files where they are missing, and registers the runner, holding the project's settings as its `[app.dogs.kelpie]` table. Running `add` again changes nothing. `start`, `pause` and `finish` find the project from the checkout, or take its name.
 
-`doctor` changes nothing and prints one line per check, each missing piece with its fix, then exits non-zero if a project needs something it lacks. It checks that `claude` is installed and logged in, that `gh` is logged in and may push to each project's repo, the sandbox runtime every agent runs in, the shepherd's version, each project's checkout, implementers and labels, that kelpie's GitHub App is installed on each project's repo and mints a token, that a worker there holds a token that pushes and nothing more rather than your own `gh` login, and that a ruling on a repo it covers has a login to mention (`git.maintainer`, else the one `gh` acts as) there, CodeRabbit where a project lists it, each project's reviewers, in order, with any command or endpoint among them checked as a runner's start checks it, Codex's usage for a project that spends it, and which webhook, if any, rulings post to. `shep kelpie doctor <project>` checks one project. `--test-alert` posts one test alert to the webhook, which is the only post it ever makes. A line marked `unsure` could not be settled, and does not fail the run: CodeRabbit is one, since a repo it has not yet reviewed looks the same as a repo without it. The GitHub App's line is `unsure` when GitHub is out of reach, busy or rate limited, and when the owner has no App, since kelpie then posts as it always did.
+`doctor` changes nothing and prints one line per check, each missing piece with its fix, then exits non-zero if a project needs something it lacks. It checks that `claude` is installed and logged in, that `gh` is logged in and may push to each project's repo, the sandbox runtime every agent runs in, the shepherd's version, each project's checkout, implementers and labels, that kelpie's GitHub App is installed on each project's repo and mints a token, that a worker there holds a token that pushes and nothing more rather than your own `gh` login, and that a ruling on a repo it covers has a login to mention (`git.maintainer`, else the one `gh` acts as) there, and, on macOS, the keychain-free copy of the sandbox runtime and the login token a covered project's `claude` needs, CodeRabbit where a project lists it, each project's reviewers, in order, with any command or endpoint among them checked as a runner's start checks it, Codex's usage for a project that spends it, and which webhook, if any, rulings post to. `shep kelpie doctor <project>` checks one project. `--test-alert` posts one test alert to the webhook, which is the only post it ever makes. A line marked `unsure` could not be settled, and does not fail the run: CodeRabbit is one, since a repo it has not yet reviewed looks the same as a repo without it. The GitHub App's line is `unsure` when GitHub is out of reach, busy or rate limited, and when the owner has no App, since kelpie then posts as it always did.
 
 ### Leases
 

@@ -416,6 +416,7 @@ mod tests {
         let extra = Reach {
             read: vec![PathBuf::from("/k/extra/7")],
             fence: None,
+            ..Reach::default()
         };
         assert_eq!(
             settings(Tools::Review, &extra)["permissions"]["additionalDirectories"],
@@ -446,6 +447,7 @@ mod tests {
                 },
                 hooks: Vec::new(),
             })),
+            ..Reach::default()
         };
         for reach in [Reach::default(), fenced] {
             let s = settings(Tools::Retro, &reach);
@@ -462,6 +464,7 @@ mod tests {
         let extra = Reach {
             read: vec![PathBuf::from("/k/extra/7")],
             fence: None,
+            ..Reach::default()
         };
         let deny = settings(Tools::Answer, &extra)["permissions"]["deny"].clone();
         let without_read: Vec<&str> = NO_TOOLS.into_iter().filter(|t| *t != "Read").collect();

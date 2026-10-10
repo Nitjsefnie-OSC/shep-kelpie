@@ -251,6 +251,7 @@ fn reach(
     Ok(Reach {
         read: Vec::new(),
         fence: Some(Box::new(fence)),
+        block_keychain: false,
     })
 }
 

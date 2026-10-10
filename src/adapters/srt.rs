@@ -17,12 +17,22 @@ use crate::tools::Tools;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxRuntime {
     tools: Tools,
+    macos: bool,
 }
 
 impl SandboxRuntime {
     /// The runtime `shep kelpie tools install` put in `tools`
     pub fn new(tools: Tools) -> Self {
-        Self { tools }
+        Self {
+            tools,
+            macos: cfg!(target_os = "macos"),
+        }
+    }
+
+    /// The same, as on macOS or not, which a test runs on either
+    #[cfg(test)]
+    pub(crate) fn on_macos(self, macos: bool) -> Self {
+        Self { macos, ..self }
     }
 }
 
@@ -37,6 +47,16 @@ impl Sandbox for SandboxRuntime {
         if !cli.is_file() {
             return Err(SandboxError::Missing(cli));
         }
+        // Only macOS has a keychain to ask. A runtime not patched runs nothing.
+        let cli = match policy.no_keychain && self.macos {
+            true if self.tools.keychain_blocked() => self.tools.sandbox_without_keychain(),
+            true => {
+                return Err(SandboxError::Unpatched(
+                    self.tools.sandbox_without_keychain(),
+                ));
+            }
+            false => cli,
+        };
         let text = serde_json::to_string_pretty(&srt_settings(policy)).expect("settings are JSON");
         let folder = settings.parent().unwrap_or(Path::new("/"));
         std::fs::create_dir_all(folder)
@@ -96,6 +116,9 @@ pub(crate) fn srt_settings(policy: &Policy) -> Value {
 }
 
 #[cfg(test)]
+mod live;
+
+#[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
@@ -145,6 +168,91 @@ mod tests {
         assert_eq!(network["deniedResolvedAddresses"], json!(["192.0.2.9"]));
         let plain = &srt_settings(&Policy::default())["network"];
         assert!(plain.get("mitmProxy").is_none());
+    }
+
+    // A tools folder with the runtime, and with its keychain-free copy when `blocked`.
+    fn installed(dir: &Path, blocked: bool) -> Tools {
+        let tools = Tools::at(dir.to_owned());
+        let services = "'com.apple.securityd.xpc',\n'com.apple.SecurityServer',\n";
+        for cli in [tools.sandbox(), tools.sandbox_without_keychain()] {
+            let sandbox = cli.parent().unwrap().join("sandbox");
+            std::fs::create_dir_all(&sandbox).unwrap();
+            std::fs::write(&cli, "").unwrap();
+            std::fs::write(sandbox.join("macos-sandbox-utils.js"), services).unwrap();
+        }
+        if blocked {
+            tools.block_keychain().unwrap();
+        }
+        tools
+    }
+
+    fn cli_of(wrapped: &Command) -> PathBuf {
+        PathBuf::from(wrapped.get_args().next().unwrap())
+    }
+
+    #[test]
+    fn a_call_that_blocks_the_keychain_runs_under_the_copy_of_srt_without_its_services() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = installed(dir.path(), true);
+        let srt = SandboxRuntime::new(tools.clone()).on_macos(true);
+        let settings = dir.path().join("call.srt.json");
+        let blocking = Policy {
+            no_keychain: true,
+            ..Policy::default()
+        };
+        let wrapped = srt
+            .wrap(&blocking, &settings, &Command::new("claude"))
+            .unwrap();
+        assert_eq!(cli_of(&wrapped), tools.sandbox_without_keychain());
+        // A call that leaves the keychain reachable keeps the runtime as shipped.
+        let wrapped = srt
+            .wrap(&Policy::default(), &settings, &Command::new("claude"))
+            .unwrap();
+        assert_eq!(cli_of(&wrapped), tools.sandbox());
+    }
+
+    #[test]
+    fn a_call_that_blocks_the_keychain_does_not_run_when_srt_is_not_patched() {
+        let dir = tempfile::tempdir().unwrap();
+        // The copy is there, but it still names a service.
+        let tools = installed(dir.path(), false);
+        let srt = SandboxRuntime::new(tools.clone()).on_macos(true);
+        let settings = dir.path().join("call.srt.json");
+        let blocking = Policy {
+            no_keychain: true,
+            ..Policy::default()
+        };
+        let err = srt
+            .wrap(&blocking, &settings, &Command::new("claude"))
+            .unwrap_err();
+        assert!(matches!(err, SandboxError::Unpatched(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("shep kelpie tools install"),
+            "{err}"
+        );
+        assert!(
+            !settings.exists(),
+            "nothing was set up for a call that cannot run"
+        );
+    }
+
+    #[test]
+    fn there_is_no_keychain_to_block_off_macos() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = installed(dir.path(), false);
+        let blocking = Policy {
+            no_keychain: true,
+            ..Policy::default()
+        };
+        let wrapped = SandboxRuntime::new(tools.clone())
+            .on_macos(false)
+            .wrap(
+                &blocking,
+                &dir.path().join("s.json"),
+                &Command::new("claude"),
+            )
+            .unwrap();
+        assert_eq!(cli_of(&wrapped), tools.sandbox());
     }
 
     #[test]

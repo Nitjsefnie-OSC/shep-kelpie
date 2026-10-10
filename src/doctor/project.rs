@@ -128,6 +128,11 @@ pub(super) fn checks(
             &settings,
             probes.forge,
         ));
+        lines.extend(super::machine::login(
+            at("claude login"),
+            covered,
+            probes.host,
+        ));
     }
     lines.push(reviewers(at("reviewers"), &settings, (&book, here), probes));
     if let Some(kelpie) = kelpie.filter(|_| spends_codex(&settings, &book, here)) {

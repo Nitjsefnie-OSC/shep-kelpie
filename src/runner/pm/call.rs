@@ -126,6 +126,7 @@ impl Runner {
                 },
                 hooks: Vec::new(),
             })),
+            block_keychain: false,
         }
     }
 }

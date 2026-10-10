@@ -115,6 +115,9 @@ pub struct Reach {
     /// The fence on its writes, reads, hosts and commands. Without one,
     /// its tools alone hold it.
     pub fence: Option<Box<Fence>>,
+    /// Whether its sandbox keeps it from the maintainer's keychain, as it does
+    /// on a repo kelpie's App covers, which the runner sets on each call
+    pub block_keychain: bool,
 }
 
 /// Where a session may write and connect, and what it may not run

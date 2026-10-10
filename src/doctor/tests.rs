@@ -23,12 +23,25 @@ const SECRET: &str = "https://ntfy.example.invalid/kelpie-s3cr3t-topic";
 const WEBHOOK: &str =
     "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example.invalid/kelpie-s3cr3t-topic\"\n";
 
-#[derive(Debug)]
-struct FakeHost(Vec<&'static str>);
+// A machine with no keychain and no gaps, unless it is given them
+#[derive(Debug, Default)]
+struct FakeHost {
+    gaps: Vec<&'static str>,
+    keychain: bool,
+    token: bool,
+}
 
 impl Host for FakeHost {
     fn sandbox_gaps(&self) -> Vec<&'static str> {
-        self.0.clone()
+        self.gaps.clone()
+    }
+
+    fn has_keychain(&self) -> bool {
+        self.keychain
+    }
+
+    fn login_token(&self) -> bool {
+        self.token
     }
 }
 
@@ -82,7 +95,7 @@ impl Scene {
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
             alerts: FakeAlerts::on(clock.clone()),
-            host: FakeHost(Vec::new()),
+            host: FakeHost::default(),
             clock,
             shepherd,
         };
@@ -414,7 +427,7 @@ async fn gh_missing_or_logged_out_is_told_its_fix() {
 #[tokio::test]
 async fn a_sandbox_the_machine_lacks_names_what_it_lacks() {
     let mut scene = Scene::new().await;
-    scene.host = FakeHost(vec!["bwrap", "socat"]);
+    scene.host.gaps = vec!["bwrap", "socat"];
     let report = scene.report().await;
     let (what, fix) = missing(&report, "sandbox");
     assert!(what.contains("bwrap and socat"), "{what}");

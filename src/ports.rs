@@ -23,6 +23,7 @@ use crate::webhook::Webhook;
 mod agent;
 mod forge_error;
 mod gpu;
+mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
@@ -38,6 +39,7 @@ pub use agent::{
 };
 pub use forge_error::ForgeError;
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
