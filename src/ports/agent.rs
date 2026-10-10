@@ -139,7 +139,7 @@ pub struct Fence {
     /// Commands it may not run, as prefixes where `*` matches any text
     pub no_commands: Vec<String>,
     /// Variables set for every command it runs
-    pub env: BTreeMap<String, PathBuf>,
+    pub env: BTreeMap<String, String>,
     /// Unix sockets it may connect to: the kelpie dog's lease socket,
     /// where a worker takes the lease it runs tests under
     pub sockets: Vec<PathBuf>,

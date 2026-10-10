@@ -637,6 +637,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         build_env: &BTreeMap::new(),
         shep_home: &root.join("shep"),
         door: Path::new("/k/dog/lease.sock"),
+        token: None,
     };
     AgentCall {
         role: Role::Worker,

@@ -51,6 +51,7 @@ impl World {
             build_env: &BTreeMap::new(),
             shep_home: &self.path("shep"),
             door: &self.path("dog/lease.sock"),
+            token: None,
         };
         AgentCall {
             harness: crate::settings::AgentHarness::ClaudeCode,
@@ -282,6 +283,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         build_env: &BTreeMap::new(),
         shep_home: &root.join("shep"),
         door: &root.join("dog/lease.sock"),
+        token: None,
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
     let cli = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone());

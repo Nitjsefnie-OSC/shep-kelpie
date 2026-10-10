@@ -37,6 +37,7 @@ mod agents_tests;
 mod alert;
 mod attach;
 mod briefing;
+mod ci_help;
 mod claim;
 mod claude_files;
 mod closed;
@@ -63,6 +64,7 @@ mod ledger_tests;
 mod left;
 #[cfg(test)]
 mod limits_tests;
+mod login_refresh;
 mod looks;
 mod merge;
 mod older_bots;
@@ -72,6 +74,7 @@ mod pace;
 mod parent;
 mod paths;
 mod pm;
+mod pull_request_file;
 mod question;
 mod replies;
 mod report;
@@ -88,6 +91,7 @@ mod slots;
 mod slots_tests;
 mod thread_replies;
 mod timings;
+mod token_wait;
 mod trigger;
 mod turn;
 mod voice;
@@ -311,6 +315,8 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // Whether a worker's turn waits for a token GitHub is not giving, in memory only
+    token_wait: token_wait::TokenWait,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -450,6 +456,7 @@ impl Runner {
             forge_hold,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            token_wait: token_wait::TokenWait::default(),
             posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;

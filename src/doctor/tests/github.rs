@@ -201,3 +201,48 @@ async fn a_maintainer_that_is_set_or_an_app_that_does_not_cover_the_repo_needs_n
     let report = scene.report().await;
     assert!(!subjects(&report).contains(&"rotom: maintainer"));
 }
+
+#[tokio::test]
+async fn a_worker_on_a_covered_repo_pushes_with_a_token_for_that_repo_alone() {
+    let scene = Scene::new().await;
+
+    let report = scene.report().await;
+
+    let said = ok(&report, "koji: workers");
+    assert!(said.contains("a token for shep-pm/koji alone"), "{said}");
+    assert!(said.contains("protect `main` on GitHub"), "{said}");
+}
+
+// With no App a worker holds the maintainer's login, and doctor says so, but
+// the App is optional, so it does not fail the run.
+#[tokio::test]
+async fn without_an_app_doctor_says_a_worker_holds_the_maintainers_login() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["git"]["remote"] = json!("someone-else/golbat");
+    });
+
+    let report = scene.report().await;
+
+    let Verdict::Unsure { what, next } = verdict(&report, "golbat: workers") else {
+        panic!("{:#?}", report.render());
+    };
+    assert!(what.contains("holds your own gh login"), "{what}");
+    assert!(next.contains("shep kelpie github setup"), "{next}");
+    assert!(report.passed());
+}
+
+// An App registered before workers held its tokens lacks the permission.
+#[tokio::test]
+async fn an_app_without_the_contents_permission_is_missing_and_names_the_fix() {
+    let scene = Scene::new().await;
+    scene.github.refuse_workers(ApiError::Refused(422));
+
+    let report = scene.report().await;
+
+    let (what, fix) = missing(&report, "koji: workers");
+    assert!(what.contains("Contents permission"), "{what}");
+    assert!(fix.contains("Contents, to Read and write"), "{fix}");
+    ok(&report, "koji: github app");
+    assert!(!report.passed());
+}

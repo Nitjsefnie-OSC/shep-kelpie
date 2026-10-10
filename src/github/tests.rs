@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
@@ -17,6 +18,10 @@ use crate::test::{Asked, FakeClock, FakeGithub, FakeSigner, PEM, Rig, Scripted};
 // Bounds every wait on the local page, so a hang fails by name.
 const PATIENCE: Duration = Duration::from_secs(10);
 const STATE: &str = "0123456789abcdef0123456789abcdef";
+
+// What a token of kelpie's own for koji is asked for with
+const KELPIE_KOJI: &str =
+    r#"{"permissions":{"issues":"write","pull_requests":"write"},"repositories":["koji"]}"#;
 
 fn slug(s: &str) -> ForgeSlug {
     ForgeSlug::try_from(s.to_owned()).unwrap()
@@ -205,6 +210,7 @@ fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
             "public": false,
             "hook_attributes": { "url": "https://github.com/shep-pm/shep-kelpie", "active": false },
             "default_permissions": {
+                "contents": "write",
                 "issues": "write",
                 "pull_requests": "write",
                 "metadata": "read",
@@ -258,7 +264,7 @@ fn a_token_is_kept_until_five_minutes_before_it_lapses_then_minted_again() {
         github.asked(),
         [
             Asked::Installation("shep-pm/koji".to_owned()),
-            Asked::AccessToken(7, r#"{"repositories":["koji"]}"#.to_owned())
+            Asked::AccessToken(7, KELPIE_KOJI.to_owned())
         ]
     );
 
@@ -269,13 +275,80 @@ fn a_token_is_kept_until_five_minutes_before_it_lapses_then_minted_again() {
     assert_eq!(second.expose(), "ghs_test2");
     assert_eq!(
         github.asked().last(),
-        Some(&Asked::AccessToken(
-            7,
-            r#"{"repositories":["koji"]}"#.to_owned()
-        )),
+        Some(&Asked::AccessToken(7, KELPIE_KOJI.to_owned())),
         "the installation is known, so only a token is asked for"
     );
     assert_eq!(github.asked().len(), 3);
+}
+
+// A worker's credential on GitHub: it pushes its branch, and the permission
+// to comment, review or merge is not in it. Each call gets one of its own,
+// since a call can run most of an hour, and kelpie's posts are never made
+// with it.
+#[test]
+fn a_workers_token_is_for_one_repo_to_push_and_minted_fresh_for_each_call() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    let koji = slug("shep-pm/koji");
+    let pushes = r#"{"permissions":{"contents":"write"},"repositories":["koji"]}"#;
+
+    let first = tokens.worker_token(&koji).unwrap();
+    let second = tokens.worker_token(&koji).unwrap();
+    let own = tokens.token(&koji).unwrap();
+    let own_again = tokens.token(&koji).unwrap();
+
+    assert_eq!(
+        [first.expose(), second.expose(), own.expose()],
+        ["ghs_test1", "ghs_test2", "ghs_test3"]
+    );
+    assert_eq!(own_again, own, "kelpie keeps its own, and never a worker's");
+    assert_eq!(
+        github.asked(),
+        [
+            Asked::Installation("shep-pm/koji".to_owned()),
+            Asked::AccessToken(7, pushes.to_owned()),
+            Asked::AccessToken(7, pushes.to_owned()),
+            Asked::AccessToken(7, KELPIE_KOJI.to_owned()),
+        ]
+    );
+}
+
+// GitHub's answer says what the token holds. A worker is handed one only if
+// that is the permission to push and nothing else, whatever was asked for.
+#[test]
+fn a_token_that_holds_more_than_pushing_is_never_handed_to_a_worker() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    github.grants_too("pull_requests", "write");
+
+    let err = tokens.worker_token(&slug("shep-pm/koji")).unwrap_err();
+
+    assert_eq!(
+        err.to_string(),
+        "GitHub made the worker's token hold contents: write, metadata: read, \
+         pull_requests: write, which is not the permission to push and nothing else"
+    );
+}
+
+// An App registered before workers held its tokens has no Contents
+// permission, and GitHub answers a request for it with 422.
+#[test]
+fn an_app_without_the_contents_permission_is_told_apart_from_other_refusals() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    tokens.token(&slug("shep-pm/koji")).unwrap();
+
+    github.fail_next(ApiError::Refused(422));
+    let err = tokens.worker_token(&slug("shep-pm/koji")).unwrap_err();
+
+    assert!(matches!(err, TokenError::NoContents(_)), "{err:?}");
+    assert!(err.to_string().contains("Contents"), "{err}");
 }
 
 #[test]
@@ -291,7 +364,11 @@ fn each_repo_gets_a_token_of_its_own_and_a_lost_installation_is_asked_for_again(
     let golbat = tokens.token(&slug("shep-pm/golbat")).unwrap();
 
     assert_ne!(koji, golbat, "one installation, a token per repo");
-    let body = |name: &str| format!(r#"{{"repositories":["{name}"]}}"#);
+    let body = |name: &str| {
+        format!(
+            r#"{{"permissions":{{"issues":"write","pull_requests":"write"}},"repositories":["{name}"]}}"#
+        )
+    };
     assert_eq!(github.asked()[3], Asked::AccessToken(7, body("golbat")));
 
     clock.advance(FakeGithub::LIFETIME);
@@ -332,8 +409,8 @@ fn a_redirect_or_a_rate_limit_is_told_from_a_refusal() {
     assert!(ApiError::Refused(502).passes() && ApiError::RateLimited.passes());
     assert!(!ApiError::Refused(401).passes() && !ApiError::Moved.passes());
     assert_eq!(
-        api::token_request(&slug("shep-pm/koji")),
-        r#"{"repositories":["koji"]}"#
+        api::token_request(&slug("shep-pm/koji"), Grant::Kelpie),
+        KELPIE_KOJI
     );
 }
 
@@ -432,6 +509,10 @@ fn githubs_answers_are_read() {
         "ghs_16C7e42F292c6912E7710c838347Ae178B4a"
     );
     assert_eq!(issued.expires_at, Timestamp(1_468_275_250));
+    assert_eq!(
+        issued.permissions,
+        BTreeMap::from([("issues".to_owned(), "write".to_owned())])
+    );
     assert_eq!(
         api::parse_token(r#"{"token":"t"}"#),
         Err(ApiError::Unreadable("expires_at"))
@@ -547,12 +628,7 @@ fn the_apps_key_never_reaches_a_worker() {
         .fence
         .as_deref()
         .expect("a worker is fenced");
-    assert!(
-        fence
-            .env
-            .values()
-            .all(|v| !v.to_string_lossy().contains(key))
-    );
+    assert!(fence.env.values().all(|v| !v.contains(key)));
     let shep = rig.home.path().join("shep");
     let denied = seen.sandbox["filesystem"]["denyRead"].as_array().unwrap();
     assert!(
@@ -722,8 +798,9 @@ impl GithubApi for Stalled {
         jwt: &Jwt,
         installation: u64,
         repo: &ForgeSlug,
+        grant: Grant,
     ) -> Result<IssuedToken, ApiError> {
-        self.inner.access_token(jwt, installation, repo)
+        self.inner.access_token(jwt, installation, repo, grant)
     }
 
     fn write(&self, token: &InstallationToken, call: &Call) -> Result<String, ApiError> {

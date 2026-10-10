@@ -673,6 +673,7 @@ impl World {
             build_env: &BTreeMap::new(),
             shep_home: &self.path("shep"),
             door: Path::new("/k/dog/lease.sock"),
+            token: None,
         };
         AgentCall {
             role: Role::Worker,

@@ -263,6 +263,7 @@ mod tests {
                 build_env: &BTreeMap::new(),
                 shep_home: Path::new("/k/shep"),
                 door: Path::new("/k/dog/lease.sock"),
+                token: None,
             };
             AgentCall {
                 tools: Tools::Work,
