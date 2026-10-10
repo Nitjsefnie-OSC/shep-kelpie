@@ -57,6 +57,12 @@ const MANAGER_ONLY: &str = "only the project manager merges a pull request, mark
                             or summons a review, on the maintainer's ruling: leave your pull \
                             request as a draft.";
 
+// A worker's `gh` is the maintainer's login, and a comment on its own pull
+// request from that login can read as the maintainer's answer to a ruling.
+const NO_COMMENTS: &str = "a worker posts no comment or review text: kelpie posts what the \
+                           maintainer should read, and the maintainer's login is the one that \
+                           answers a ruling. Put what you have to say in your final message.";
+
 /// Judges one gh command run in `cwd`
 pub(super) fn judge(
     words: &[String],
@@ -97,6 +103,17 @@ pub(super) fn judge(
             return vec!["`gh auth` handles the maintainer's token, which no worker needs.".into()];
         }
         ("pr", Some("merge" | "ready")) => return vec![MANAGER_ONLY.into()],
+        ("pr" | "issue", Some("comment")) => return vec![NO_COMMENTS.into()],
+        ("pr", Some("review"))
+            if !values(
+                &words[i.min(words.len())..],
+                &["--body", "--body-file"],
+                &['b', 'F'],
+            )
+            .is_empty() =>
+        {
+            return vec![NO_COMMENTS.into()];
+        }
         ("alias" | "co" | "extension" | "extensions" | "ext", _) => {
             return vec![
                 "kelpie runs no gh alias or extension: run the gh command it stands for.".into(),
@@ -130,8 +147,8 @@ pub(super) fn judge(
     };
     let publishes = matches!(
         (group, verb),
-        ("pr", "create" | "edit" | "comment" | "review")
-            | ("issue", "create" | "edit" | "comment")
+        ("pr", "create" | "edit" | "review")
+            | ("issue", "create" | "edit")
             | ("release", "create" | "edit")
     );
     if !publishes {

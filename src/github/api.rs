@@ -268,6 +268,22 @@ pub fn parse_number(body: &str) -> Result<u64, ApiError> {
     v["number"].as_u64().ok_or(ApiError::Unreadable("number"))
 }
 
+/// The id and creation time of the comment a post's answer describes
+///
+/// # Errors
+///
+/// [`ApiError::Unreadable`] when the answer has no id or no time.
+pub fn parse_posted(body: &str) -> Result<(u64, Timestamp), ApiError> {
+    let v: Value = serde_json::from_str(body).map_err(|_| ApiError::Unreadable("id"))?;
+    let id = v["id"].as_u64().ok_or(ApiError::Unreadable("id"))?;
+    let created = v["created_at"]
+        .as_str()
+        .and_then(|t| t.parse::<jiff::Timestamp>().ok());
+    let created = created.and_then(|t| u64::try_from(t.as_second()).ok());
+    let created = created.ok_or(ApiError::Unreadable("created_at"))?;
+    Ok((id, Timestamp(created)))
+}
+
 /// Signs with an App's private key: RS256, an RSA signature over SHA-256
 pub trait Signer: Send + Sync {
     /// The signature of `input` by the key in the file `key`

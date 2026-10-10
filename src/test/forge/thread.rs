@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use crate::ports::{ThreadComment, Timestamp};
+use crate::ports::{Clock, ThreadComment, Timestamp};
+use crate::test::FakeClock;
 
 /// The first id a comment on the fake forge gets
 const FIRST: u64 = 5000;
@@ -22,9 +23,22 @@ struct Threads {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FakeThreads {
     threads: Arc<Mutex<Threads>>,
+    // The clock the comments kelpie posts as its own login are written by
+    clock: Arc<Mutex<Option<FakeClock>>>,
 }
 
 impl FakeThreads {
+    /// Has the comments kelpie posts as its own login written by `clock`
+    pub(crate) fn use_clock(&self, clock: FakeClock) {
+        *self.clock.lock().unwrap() = Some(clock);
+    }
+
+    /// `author` writes `body` on `thread` now, by the clock given, and the comment's id
+    pub(super) fn write_now(&self, thread: u64, author: &str, body: &str) -> u64 {
+        let now = (self.clock.lock().unwrap().as_ref()).map_or(Timestamp(0), Clock::now);
+        self.add(thread, author, false, body, now)
+    }
+
     /// Gives `login` write access to the repo
     pub(crate) fn grant_write(&self, login: &str) {
         self.threads

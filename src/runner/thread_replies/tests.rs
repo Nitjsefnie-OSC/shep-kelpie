@@ -1,23 +1,30 @@
 use std::sync::Mutex;
 
-use crate::ports::{Clock, Timestamp};
+use crate::ports::{Clock, ForgeError, Timestamp};
 use crate::runner::{BOARD_POLL, CHECKS_SETTLE, Runner, step};
 use crate::state::{Heard, Ruling, RulingKind, Stuck};
-use crate::test::Rig;
+use crate::test::{Rig, Scripted, VIEWER};
 
-const EXPECTS: &str = "it takes `yes`, `no <note>` or `rework <note>`";
+const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
 
 // A merge ruling for pull request 71 is up through the App, which mentions
-// `octocat`, who has write access to the repo.
-fn a_merge_ruling_on_71() -> (Rig, Mutex<Runner>, String) {
+// `octocat`.
+fn a_merge_ruling_on_71_for(octocat_writes: bool) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::parked_set("shep", |rig| {
         rig.with_app();
         rig.maintainer("octocat");
     });
-    rig.forge.threads.grant_write("octocat");
+    if octocat_writes {
+        rig.forge.threads.grant_write("octocat");
+    }
     // The ruling went up some seconds ago.
     rig.clock.advance(5);
     (rig, runner, head)
+}
+
+// ... and octocat has write access to the repo.
+fn a_merge_ruling_on_71() -> (Rig, Mutex<Runner>, String) {
+    a_merge_ruling_on_71_for(true)
 }
 
 // The ids of the rulings that wait.
@@ -43,10 +50,14 @@ fn replies_on_71(rig: &Rig) -> Vec<String> {
         .collect()
 }
 
+fn none() -> Vec<u64> {
+    Vec::new()
+}
+
 #[test]
-fn a_yes_from_a_login_with_write_access_merges_the_pull_request() {
+fn a_yes_naming_the_ruling_from_the_login_it_mentions_merges_the_pull_request() {
     let (rig, runner, head) = a_merge_ruling_on_71();
-    let comment = rig.writes_on(71, "octocat", "yes");
+    let comment = rig.writes_on(71, "octocat", "1 yes");
 
     rig.next_look();
     step(&runner).unwrap(); // takes the reply, and marks the pull request ready
@@ -58,9 +69,46 @@ fn a_yes_from_a_login_with_write_access_merges_the_pull_request() {
 }
 
 #[test]
-fn a_reply_from_a_login_without_write_access_changes_nothing() {
+fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "stranger", "yes");
+    rig.writes_on(71, "octocat", "yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(pending(&rig, &runner), [1]);
+    assert!(rig.github.reactions().is_empty());
+    let told = "@octocat Ruling 1 was not answered: start your reply with its id, as `1 yes`, \
+                `1 no <note>` or `1 rework <note>`. Reply again in this thread, starting \
+                with `1`.";
+    assert_eq!(replies_on_71(&rig), [told]);
+}
+
+#[test]
+fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_may_write() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    rig.forge.threads.grant_write("stranger");
+    rig.writes_on(71, "stranger", "1 yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), []);
+    assert_eq!(pending(&rig, &runner), [1]);
+    assert!(rig.github.reactions().is_empty(), "no reaction");
+    assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
+    assert_eq!(rig.forge.threads.asked(), Vec::<String>::new());
+}
+
+#[test]
+fn a_reply_from_a_login_without_write_access_changes_nothing() {
+    let (rig, runner, _) = a_merge_ruling_on_71_for(false);
+    rig.writes_on(71, "octocat", "1 yes");
 
     rig.next_look();
     step(&runner).unwrap();
@@ -73,7 +121,7 @@ fn a_reply_from_a_login_without_write_access_changes_nothing() {
     assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
     assert_eq!(
         rig.forge.threads.asked(),
-        ["stranger"],
+        ["octocat"],
         "its access was asked"
     );
 }
@@ -84,7 +132,7 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
     let now = rig.clock.now();
     rig.forge
         .threads
-        .bot_writes(71, "coderabbitai[bot]", "yes", now);
+        .bot_writes(71, "coderabbitai[bot]", "1 yes", now);
 
     rig.next_look();
     step(&runner).unwrap();
@@ -94,25 +142,21 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
     assert_eq!(replies_on_71(&rig), Vec::<String>::new());
 }
 
-#[test]
-fn a_reply_the_forge_lists_late_is_still_answered_after_a_newer_comment_elsewhere() {
-    let (rig, runner, head) = a_merge_ruling_on_71();
-    let written = rig.clock.now();
-    rig.forge
-        .threads
-        .write(9, "octocat", "unrelated", Timestamp(written.0 + 1));
-    rig.next_look();
-    step(&runner).unwrap(); // reads only the comment on #9
-
-    // The forge lists the reply now, though it was written before that one.
-    let comment = rig.forge.threads.write(71, "octocat", "yes", written);
-    rig.next_look();
-    step(&runner).unwrap(); // takes the reply, and marks the pull request ready
-    rig.clock.advance(CHECKS_SETTLE);
-    step(&runner).unwrap(); // merges
-
-    assert_eq!(rig.forge.merges(), [(71, head)]);
-    assert_eq!(rig.github.reactions(), [comment]);
+// The question before any pull request is open: its thread is issue 7.
+fn a_question_on_7_mentioning(login: &str) -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.maintainer(login);
+    rig.forge.threads.grant_write(login);
+    // Issue 7 exists on the forge, so a comment on it can be posted.
+    rig.forge.list_ready(7, false);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    assert_eq!(pending(&rig, &runner), [1]);
+    rig.clock.advance(5);
+    (rig, runner)
 }
 
 #[test]
@@ -123,13 +167,10 @@ fn a_comment_from_before_the_ruling_is_not_an_answer() {
     rig.forge.threads.grant_write("octocat");
     let before = rig.clock.now();
     rig.clock.advance(60);
-    let (runner, _) = (rig.open().unwrap(), ());
+    let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.forge.threads.write(71, "octocat", "yes", before);
-    rig.claude.script([crate::test::Scripted::Say(
-        "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
-    )]);
+    rig.forge.threads.write(7, "octocat", "use --check", before);
+    rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
     assert_eq!(pending(&rig, &runner), [1]);
 
@@ -145,17 +186,65 @@ fn a_comment_from_before_the_ruling_is_not_an_answer() {
 }
 
 #[test]
+fn a_reply_the_forge_lists_late_is_still_answered_after_a_newer_comment_elsewhere() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    let written = rig.clock.now();
+    rig.forge
+        .threads
+        .write(9, "octocat", "unrelated", Timestamp(written.0 + 1));
+    rig.next_look();
+    step(&runner).unwrap(); // reads only the comment on #9
+
+    // The forge lists the reply now, though it was written before that one.
+    let comment = rig.forge.threads.write(71, "octocat", "1 yes", written);
+    rig.next_look();
+    step(&runner).unwrap(); // takes the reply, and marks the pull request ready
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap(); // merges
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
+#[test]
+fn a_reply_acted_on_one_thread_never_drops_a_reply_the_forge_lists_late_on_another() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    let written = rig.clock.now();
+    with_a_second_ruling_on(&runner, &rig, 72);
+    // A reply on #72 that kelpie acts on, written after the one on #71.
+    rig.forge
+        .threads
+        .write(72, "octocat", "2 maybe", Timestamp(written.0 + 1));
+    rig.next_look();
+    step(&runner).unwrap();
+    let told = rig.github.comments();
+    assert!(
+        told.iter()
+            .any(|(thread, body)| *thread == 72 && body.contains("Ruling 2 was not answered")),
+        "{told:?}"
+    );
+
+    // The forge lists the earlier reply on #71 only now.
+    let comment = rig.forge.threads.write(71, "octocat", "1 yes", written);
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
+#[test]
 fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_stays_open() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "looks good to me");
+    rig.writes_on(71, "octocat", "1 maybe");
 
     rig.next_look();
     step(&runner).unwrap();
 
-    let told = format!(
-        "@octocat Ruling 1 was not answered: {EXPECTS}. Reply again in this thread, \
-         starting with `1` if other rulings wait on it."
-    );
+    let told = "@octocat Ruling 1 was not answered: it takes `yes`, `no <note>` or `rework \
+                <note>`. Reply again in this thread, starting with `1`.";
     assert_eq!(replies_on_71(&rig), [told]);
     assert_eq!(pending(&rig, &runner), [1]);
     assert!(rig.github.reactions().is_empty(), "nothing was taken");
@@ -171,22 +260,21 @@ fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_
 #[test]
 fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    let comment = rig.writes_on(71, "octocat", "no please add a test");
-    rig.claude.script([crate::test::Scripted::Say(
-        "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
-    )]);
+    let comment = rig.writes_on(71, "octocat", "1 no please add a test");
+    rig.claude.script([Scripted::Say(ASKS)]);
 
     rig.next_look();
     step(&runner).unwrap(); // takes the no; the worker's fix turn asks
 
     assert_eq!(pending(&rig, &runner), [2], "the worker asked in its place");
     assert_eq!(rig.github.reactions(), [comment]);
+    rig.clock.advance(1);
     let answer = rig.writes_on(71, "octocat", "use --check");
-    rig.claude.script([crate::test::Scripted::Say("Done.")]);
+    rig.claude.script([Scripted::Say("Done.")]);
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), Vec::<u64>::new());
+    assert_eq!(pending(&rig, &runner), none());
     assert_eq!(rig.github.reactions(), [comment, answer]);
 }
 
@@ -232,13 +320,70 @@ fn no_comments_are_read_where_no_ruling_waits_or_no_app_covers_the_repo() {
 }
 
 #[test]
+fn a_ruling_that_mentions_no_one_is_answered_at_the_terminal_only() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.forge.threads.grant_write(VIEWER);
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("not logged in".into()));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say(ASKS)]);
+    step(&runner).unwrap();
+    rig.clock.advance(5);
+    rig.writes_on(7, VIEWER, "use --check");
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), [1], "a reply answers nothing");
+    assert_eq!(rig.forge.threads.reads().len(), 0, "and is not even read");
+    let comments = rig.github.comments();
+    let how = &comments[0].1;
+    assert!(
+        how.ends_with(
+            "This ruling mentions no one, so a reply here answers nothing. Answer it at the \
+             terminal: `shep kelpie rule 1 <your answer>`."
+        ),
+        "{how}"
+    );
+    rig.ask(&runner, "rule", Some("1 answer use --check"));
+    assert_eq!(pending(&rig, &runner), none());
+}
+
+#[test]
+fn a_comment_kelpie_posted_as_the_maintainers_login_is_never_an_answer() {
+    let (rig, runner) = a_question_on_7_mentioning(VIEWER);
+    // A summons, as `gh` posts it: from the login that answers the ruling.
+    runner
+        .lock()
+        .unwrap()
+        .comment_as_gh(7, "@codex review")
+        .unwrap();
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), [1], "the summons answered nothing");
+    assert!(rig.github.reactions().is_empty());
+
+    // The maintainer's own words, from the same login, are.
+    rig.clock.advance(1);
+    let answer = rig.writes_on(7, VIEWER, "use --check");
+    rig.claude.script([Scripted::Say("Done.")]);
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), none());
+    assert_eq!(rig.github.reactions(), [answer]);
+}
+
+#[test]
 fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "yes");
+    rig.writes_on(71, "octocat", "1 yes");
     rig.ask(&runner, "rule", Some("1 no not yet"));
-    rig.claude.script([crate::test::Scripted::Say(
-        "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
-    )]);
+    rig.claude.script([Scripted::Say(ASKS)]);
 
     rig.next_look();
     step(&runner).unwrap();
@@ -253,8 +398,8 @@ fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
 #[test]
 fn a_ruling_answered_in_its_thread_is_already_answered_at_the_terminal() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "no not yet");
-    rig.claude.script([crate::test::Scripted::Say("Fixed.")]);
+    rig.writes_on(71, "octocat", "1 no not yet");
+    rig.claude.script([Scripted::Say("Fixed.")]);
     rig.next_look();
     step(&runner).unwrap();
 
@@ -266,9 +411,9 @@ fn a_ruling_answered_in_its_thread_is_already_answered_at_the_terminal() {
     );
 }
 
-// A second pending ruling on the same pull request, as an older kelpie or a
-// second source would leave it.
-fn with_a_second_ruling_on_71(runner: &Mutex<Runner>, rig: &Rig) {
+// A second pending ruling on thread `thread`, mentioning octocat too, as an
+// older kelpie or a second source would leave it.
+fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
     let mut runner = runner.lock().unwrap();
     let mut next = runner.state.clone();
     next.last_ruling = 2;
@@ -276,18 +421,25 @@ fn with_a_second_ruling_on_71(runner: &Mutex<Runner>, rig: &Rig) {
         id: 2,
         issue: Some(7),
         question: "Is it closed?".into(),
-        pull_request: Some(71),
+        pull_request: Some(thread),
         kind: RulingKind::from(Stuck::Closed),
         alerted: true,
     });
-    next.heard.insert(2, Heard::at(rig.clock.now()));
+    next.heard.insert(
+        2,
+        Heard {
+            mentions: "octocat".into(),
+            time: rig.clock.now(),
+            comment: 0,
+        },
+    );
     runner.save(next).unwrap();
 }
 
 #[test]
 fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    with_a_second_ruling_on_71(&runner, &rig);
+    with_a_second_ruling_on(&runner, &rig, 71);
     rig.clock.advance(1);
     rig.writes_on(71, "octocat", "yes");
 
@@ -302,7 +454,7 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
 
     rig.clock.advance(1);
     let named = rig.writes_on(71, "octocat", "2 yes");
-    rig.claude.script([crate::test::Scripted::Say("Done.")]);
+    rig.claude.script([Scripted::Say("Done.")]);
     rig.next_look();
     step(&runner).unwrap();
 
@@ -311,21 +463,21 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
 }
 
 #[test]
-fn a_ruling_saved_before_replies_in_a_thread_is_read_from_when_it_is_first_seen() {
+fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     {
+        // As a file from before replies in a thread leaves it.
         let mut runner = runner.lock().unwrap();
         let mut next = runner.state.clone();
         next.heard.clear();
         runner.save(next).unwrap();
     }
-    rig.writes_on(71, "octocat", "yes");
-    rig.forge.threads.write(71, "octocat", "yes", Timestamp(1));
+    rig.writes_on(71, "octocat", "1 yes");
 
     rig.next_look();
     step(&runner).unwrap();
 
-    // The reply from before it was seen answers nothing.
     assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(rig.forge.threads.reads().len(), 0);
     assert!(rig.github.reactions().is_empty());
 }

@@ -627,7 +627,8 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
     lock(runner).read_parked()?;
-    lock(runner).read_threads()?;
+    // The forge is asked with the lock let go.
+    super::thread_replies::read_threads(runner)?;
     super::left::answer_left(runner);
     loop {
         let news = lock(runner).next_news();

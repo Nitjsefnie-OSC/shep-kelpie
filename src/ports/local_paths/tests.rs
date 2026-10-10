@@ -13,7 +13,7 @@ fn slug() -> ForgeSlug {
 fn guarded() -> (Guarded, FakeForge) {
     let fake = FakeForge::new("/nowhere".into());
     let local = LocalPaths::new([Path::new("/Users/me/.kelpie")]);
-    (Guarded::new(Box::new(fake.clone()), local), fake)
+    (Guarded::new(Arc::new(fake.clone()), local), fake)
 }
 
 #[test]
@@ -41,8 +41,7 @@ fn every_encoding_of_a_local_path_is_refused_at_every_post() {
                 "{text}"
             );
         };
-        refused(forge.comment(&repo, 3, text));
-        refused(forge.post_comment(&repo, 3, text).map(drop));
+        refused(forge.comment(&repo, 3, text).map(drop));
         refused(forge.create_issue(&repo, "a title", text, &[]).map(drop));
         refused(forge.create_issue(&repo, text, "a body", &[]).map(drop));
         assert_eq!(fake.comments(), [], "{text}");
@@ -63,7 +62,7 @@ fn a_refusal_names_the_field_and_what_it_found() {
         "not posted: the issue's title names an address on a local network"
     );
     assert_eq!(
-        refusal(forge.post_comment(&slug(), 3, "in /Users/me/.kelpie/x")),
+        refusal(forge.comment(&slug(), 3, "in /Users/me/.kelpie/x")),
         "not posted: the comment names a path on this machine, which names its user"
     );
 }

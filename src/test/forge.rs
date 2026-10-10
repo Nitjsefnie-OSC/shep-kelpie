@@ -718,7 +718,7 @@ impl Forge for FakeForge {
         Ok(self.threads.may_write(login))
     }
 
-    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.ask()?;
         if self.comments_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("comments are down".into()));
@@ -747,14 +747,8 @@ impl Forge for FakeForge {
             .lock()
             .unwrap()
             .push((number, body.to_owned()));
-        Ok(())
-    }
-
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.ask()?;
-        self.comment(repo, number, body)?;
-        let at = self.comments.lock().unwrap().len() - 1;
-        Ok(9000 + at as u64)
+        // Kelpie's login is a writer: the comment is on the thread like any other.
+        Ok(self.threads.write_now(number, VIEWER, body))
     }
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {

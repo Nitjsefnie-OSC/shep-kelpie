@@ -2,6 +2,15 @@
 
 use super::Timestamp;
 
+/// A comment kelpie posted as its App, as the forge numbered and dated it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PostedComment {
+    /// The forge's id for it
+    pub id: u64,
+    /// When the forge says it was written
+    pub created: Timestamp,
+}
+
 /// One comment on the thread of an issue or a pull request
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadComment {

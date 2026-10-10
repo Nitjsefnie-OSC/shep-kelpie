@@ -26,7 +26,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 22 added `heard`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -130,12 +130,21 @@ pub struct ProjectState {
     /// end, when the runner stops its own sheep
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub finishing: bool,
-    /// How far the comments on each pending ruling's thread have been read
-    /// for an answer, by ruling id. A ruling is entered when it is raised,
-    /// or when a read first finds it with none, and leaves when it is answered.
+    /// Each pending ruling kelpie's App posted on a thread that mentions
+    /// someone, by ruling id: who may answer it there, and how far the
+    /// comments on its thread have been read for an answer. A ruling is
+    /// entered when its comment is posted, and leaves when it is answered.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub heard: BTreeMap<u64, Heard>,
+    /// The ids of the last [`POSTED_KEPT`] comments kelpie posted as the
+    /// login `gh` acts as, oldest first. A reply in a ruling's thread is
+    /// from that login too, so these are never read as answers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub posted: Vec<u64>,
 }
+
+/// How many ids of kelpie's own comments the state file keeps
+pub const POSTED_KEPT: usize = 500;
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
@@ -173,6 +182,7 @@ impl ProjectState {
             pm_attached: None,
             finishing: false,
             heard: BTreeMap::new(),
+            posted: Vec::new(),
         }
     }
 
@@ -290,22 +300,25 @@ pub struct Ruling {
     pub alerted: bool,
 }
 
-/// The last comment on a ruling's thread read for an answer, or the moment
-/// the ruling was raised when none has been
+/// Where a ruling is answered in its thread: the one login whose reply
+/// answers it, and the last comment read for an answer, which is the
+/// ruling's own comment until a reply has been
 // wire format: changing this is a breaking change to the state file
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Heard {
-    /// When the comment was written
+    /// The login the ruling's comment mentions, in the case it was written
+    pub mentions: String,
+    /// When the comment was written, as the forge says
     pub time: Timestamp,
-    /// The forge's id for it, 0 before any
+    /// The forge's id for it
     pub comment: u64,
 }
 
 impl Heard {
-    /// The place read to when a ruling is raised at `time`
-    pub fn at(time: Timestamp) -> Self {
-        Self { time, comment: 0 }
+    /// Whether `login` is the one whose reply answers: GitHub reads a login in any case
+    pub fn is_mentioned(&self, login: &str) -> bool {
+        self.mentions.eq_ignore_ascii_case(login)
     }
 
     /// Whether a comment written at `time` with this `id` is after this one

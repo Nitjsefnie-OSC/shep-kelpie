@@ -187,7 +187,7 @@ fn a_message_naming_the_home_folder_is_refused_without_echoing_it() {
         "git commit -F - <<'EOF'\nfix: x\n\nBuilt in /home/me/.kelpie/wt/koji/7.\nEOF",
         "gh pr create --title 'fix: x' --body 'ran in /home/me/w'",
         "gh pr create --title 'fix: x' --body \"$(cat <<'EOF'\nran in /home/me/w\nEOF\n)\"",
-        "gh pr comment 3 -b '/home/me/x'",
+        "gh pr edit 3 -b '/home/me/x'",
         "gh issue create --title 'fix: x' --body '/home/me/x'",
         "gh release create v1 --notes 'from /home/me'",
     ] {
@@ -848,7 +848,7 @@ fn other_tools_and_a_missing_home_are_let_through() {
     };
     assert_eq!(judged(&call, Some(HOME)), Verdict::Allow);
     let call = json!({ "tool_name": "Bash", "cwd": "/x", "tool_input": {
-        "command": "gh pr comment 3 --body 'see /Users/me/wt'",
+        "command": "gh pr edit 3 --body 'see /Users/me/wt'",
     } });
     assert_eq!(judged(&call, None), Verdict::Allow);
     assert_eq!(judged(&call, Some("/")), Verdict::Allow);
@@ -870,6 +870,7 @@ fn an_unreadable_call_is_refused() {
 mod agents;
 mod killing;
 mod manager;
+mod posting;
 mod reach;
 
 // The worker's instructions name kelpie by its path, since a program from a variable is refused.

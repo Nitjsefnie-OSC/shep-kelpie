@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::github::Verb;
+use crate::ports::{PostedComment, Timestamp};
 use crate::test::{Asked, FakeClock, FakeGithub};
 
 fn slug(s: &str) -> ForgeSlug {
@@ -46,6 +47,35 @@ fn a_comment_is_posted_on_its_thread_with_the_apps_token() {
                 body: Some(r#"{"body":"hello"}"#.to_owned()),
             }
         )]
+    );
+}
+
+#[test]
+fn a_comment_posted_is_given_back_with_its_id_and_the_time_github_says() {
+    let (voice, _github, _home) = voiced();
+
+    let posted = voice.post(&slug("shep-pm/koji"), 12, "hello").unwrap();
+
+    assert_eq!(
+        posted,
+        PostedComment {
+            id: 100,
+            created: Timestamp(1_000_000)
+        }
+    );
+}
+
+#[test]
+fn an_answer_with_no_id_or_time_is_unreadable() {
+    for body in ["{}", r#"{"id":4}"#, r#"{"id":4,"created_at":"soon"}"#, "x"] {
+        assert!(
+            matches!(api::parse_posted(body), Err(ApiError::Unreadable(_))),
+            "{body}"
+        );
+    }
+    assert_eq!(
+        api::parse_posted(r#"{"id":4,"created_at":"2026-10-10T05:31:54Z","body":"x"}"#),
+        Ok((4, Timestamp(1_791_610_314)))
     );
 }
 

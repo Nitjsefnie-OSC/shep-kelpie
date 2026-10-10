@@ -70,7 +70,7 @@ pub type Say = Box<dyn Fn(String) + Send + Sync>;
 
 /// A forge whose calls are held while its rate limit is used up
 pub struct RateHeld {
-    forge: Box<dyn Forge>,
+    forge: Arc<dyn Forge>,
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
@@ -79,7 +79,7 @@ pub struct RateHeld {
 impl RateHeld {
     /// `forge`, holding its calls in `hold` by `clock`'s time, and telling
     /// `say` as each hold begins
-    pub fn new(forge: Box<dyn Forge>, clock: Arc<dyn Clock>, hold: ForgeHold, say: Say) -> Self {
+    pub fn new(forge: Arc<dyn Forge>, clock: Arc<dyn Clock>, hold: ForgeHold, say: Say) -> Self {
         Self {
             forge,
             clock,
@@ -184,12 +184,8 @@ impl Forge for RateHeld {
         self.call(|f| f.can_write(repo, login))
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         self.call(|f| f.comment(repo, number, body))
-    }
-
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.call(|f| f.post_comment(repo, number, body))
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {

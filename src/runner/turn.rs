@@ -602,7 +602,7 @@ impl Runner {
 
     // A ruling just raised is posted as a comment on its pull request, if it
     // has one; only these three reports carry a ruling and need the outcome.
-    pub(super) fn fill_comment_failed(&self, report: &mut StepReport) {
+    pub(super) fn fill_comment_failed(&mut self, report: &mut StepReport) {
         match report {
             StepReport::Asked {
                 pull_request,

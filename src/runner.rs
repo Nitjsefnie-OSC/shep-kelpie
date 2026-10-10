@@ -25,7 +25,7 @@ use crate::settings::{
 };
 use crate::skills::Skills;
 use crate::state::ids::RulingIds;
-use crate::state::{ProjectState, StateError, StateStore};
+use crate::state::{POSTED_KEPT, ProjectState, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{
     Known, Phase, QwenTally, ReviewCallState, Seat, Timings, Turn, WorkItem, new_session_id,
@@ -311,6 +311,9 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // The ids of comments kelpie posted as the login `gh` acts as since the
+    // last save, which the state file keeps: none of them is ever an answer
+    posted: std::cell::RefCell<Vec<u64>>,
 }
 
 impl Runner {
@@ -337,13 +340,13 @@ impl Runner {
         let forge_hold = ForgeHold::default();
         let told = claim::Notes::default();
         ports.voice = Arc::new(GuardedVoice::new(ports.voice, local.clone()));
-        let guarded = Box::new(Guarded::new(ports.forge, local.clone()));
+        let guarded = Arc::new(Guarded::new(ports.forge, local.clone()));
         let clock = Arc::clone(&ports.clock);
         let say: Say = {
             let told = told.clone();
             Box::new(move |line| told.push(line))
         };
-        ports.forge = Box::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
+        ports.forge = Arc::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
         let leases = Arc::clone(&ports.local_leases);
         ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
         let gpu = gpu::GpuWatch::start(
@@ -445,6 +448,7 @@ impl Runner {
             forge_hold,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -483,7 +487,6 @@ impl Runner {
         Names {
             project: self.project.as_str(),
             ids: RulingIds::under(&self.paths.kelpie_home),
-            now: self.ports.clock.now(),
         }
     }
 
@@ -689,7 +692,15 @@ impl Runner {
         // A ruling that is answered takes the place read to in its thread with it.
         next.heard
             .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
-        self.store.save(&next)?;
+        // The comments kelpie posted since the last save go in with it.
+        let fresh = self.posted.take();
+        next.posted.extend(&fresh);
+        let kept = next.posted.len().saturating_sub(POSTED_KEPT);
+        next.posted.drain(..kept);
+        if let Err(e) = self.store.save(&next) {
+            self.posted.borrow_mut().extend(fresh);
+            return Err(e);
+        }
         if looks::board_moved(&self.state, &next) {
             self.looks.board_moved();
         }
@@ -785,7 +796,6 @@ fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsE
 struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
-    now: Timestamp,
 }
 
 // Every listed review bot needs a profile.

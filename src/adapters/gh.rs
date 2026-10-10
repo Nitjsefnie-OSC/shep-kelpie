@@ -137,21 +137,7 @@ impl Forge for Gh {
         thread::can_write(repo, login)
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
-        let number = number.to_string();
-        let args = [
-            "pr",
-            "comment",
-            &number,
-            "--repo",
-            repo.as_str(),
-            "--body",
-            body,
-        ];
-        gh(&args).map(drop)
-    }
-
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         let path = format!("repos/{}/issues/{number}/comments", repo.as_str());
         let field = format!("body={body}");
         let args = [

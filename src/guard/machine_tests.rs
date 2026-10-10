@@ -40,7 +40,7 @@ const LAN_URL: &str = concat!("open http://192.", "168.1.20:3000");
 const LOOPBACK_URL: &str = concat!("served at http://127.", "0.0.1:5173");
 
 fn comment(text: &str) -> String {
-    format!("gh pr comment 3 --body '{text}'")
+    format!("gh pr edit 3 --body '{text}'")
 }
 
 #[test]

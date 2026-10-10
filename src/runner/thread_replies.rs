@@ -1,30 +1,40 @@
 //! Answering rulings from replies in their thread
 //!
-//! A ruling posted through kelpie's App says to reply in its thread, the
-//! pull request or the issue it is about. Each [`BOARD_POLL`] the runner
-//! asks the forge once for the repo's comments since the last it read, and
-//! reads the new ones on the threads of the rulings that wait. A reply counts
-//! when its author has write access to the repo: anyone else's, and any
-//! bot's, is left alone, with no answer and no reaction.
+//! A ruling posted through kelpie's App that mentions someone says to reply
+//! in its thread, the pull request or the issue it is about. Each
+//! [`BOARD_POLL`] the runner asks the forge once for the repo's comments
+//! since the last it read, and reads the new ones on the threads of the
+//! rulings that wait. A reply counts when its author is the login the ruling
+//! mentions and has write access to the repo: anyone else's, any bot's and
+//! any comment kelpie itself posted, which is the maintainer's own login's
+//! when it went through `gh`, is left alone, with no answer and no reaction.
+//! A ruling that mentions no one is answered at the terminal only.
 //!
-//! The reply is read as `shep kelpie rule` reads an answer, without the id
-//! (see [`read_answer`]): `yes`, `no <note>`, `rework <note>`, or the free
-//! text a question takes. When several rulings wait on one thread the reply
-//! starts with the id of the one it answers. Kelpie reacts with a thumbs up
-//! to the reply it took as the answer, and replies once to one it could not
-//! read, saying what the ruling takes; the ruling stays open.
+//! The reply is read as `shep kelpie rule` reads an answer, with the ruling's
+//! id first (see [`read_answer`]): `99 yes`, `99 no <note>` or `99 rework
+//! <note>`. A bare `yes` answers nothing, so a conversational one never
+//! merges. A worker's question takes any text, with the id first only when
+//! several rulings wait on the thread. Kelpie reacts with a thumbs up to the
+//! reply it took as the answer, and replies once to one it could not read,
+//! saying what to type; the ruling stays open.
 //!
 //! An answer given here and one given at the terminal or on ntfy: the first
 //! wins. A ruling answered elsewhere is watched for a while longer, so a
-//! reply here that reads as an answer is told it is already answered.
+//! reply here that names it is told it is already answered.
+//!
+//! The forge is asked with the runner's lock let go: [`Runner::thread_job`]
+//! decides a read is due and copies what it needs, [`ThreadJob::run`] reads,
+//! and [`Runner::apply_threads`] acts on what was read.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
 use super::Runner;
 use super::looks::BOARD_POLL;
-use super::ruling::Answer;
+use super::trigger::lock;
 use super::words::{Wants, read_answer};
-use crate::ports::{ThreadComment, Timestamp};
+use crate::ports::{Forge, ThreadComment, Timestamp};
+use crate::settings::ForgeSlug;
 use crate::state::{Heard, ProjectState, Ruling, StateError};
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
@@ -36,7 +46,7 @@ const LATE: u64 = 60 * 60;
 const SLACK: u64 = 5 * 60;
 
 /// A ruling's thread being watched for an answer
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Watch {
     thread: u64,
     heard: Heard,
@@ -61,8 +71,8 @@ pub(super) struct Reading {
 
 /// What a comment on a watched thread is a reply to
 enum Aimed {
-    /// A pending ruling
-    At(u64),
+    /// A pending ruling, named or not
+    At(u64, bool),
     /// A ruling that was answered already
     Settled(u64),
     /// A ruling pending on another thread
@@ -73,42 +83,116 @@ enum Aimed {
     Nothing,
 }
 
+/// A read of the comments the runner decided was due, which needs no lock
+pub(super) struct ThreadJob {
+    forge: Arc<dyn Forge>,
+    repo: ForgeSlug,
+    since: Timestamp,
+    watches: Vec<Watch>,
+    judged: BTreeSet<u64>,
+    own: BTreeSet<u64>,
+}
+
+/// What a read found
+pub(super) struct ThreadRead {
+    now: Timestamp,
+    comments: Vec<ThreadComment>,
+    /// Whether each author a reply could come from has write access
+    writers: BTreeMap<String, bool>,
+    /// The comment whose author's access could not be read, and why, where
+    /// the read ended
+    stopped: Option<(u64, String)>,
+}
+
+/// Reads the rulings' threads for answers, if a read is due, asking the
+/// forge with the runner's lock let go
+pub(super) fn read_threads(runner: &Mutex<Runner>) -> Result<(), StateError> {
+    let job = lock(runner).thread_job();
+    let Some((now, job)) = job else {
+        return Ok(());
+    };
+    let read = job.run(now);
+    lock(runner).apply_threads(read)
+}
+
+impl ThreadJob {
+    // Asks for the comments since the place read to, and who may write among
+    // the authors of those that could be an answer.
+    fn run(self, now: Timestamp) -> Result<ThreadRead, String> {
+        let comments = (self.forge.comments_since(&self.repo, self.since))
+            .map_err(|e| format!("cannot read the comments on the rulings' threads: {e}"))?;
+        let mut writers = BTreeMap::new();
+        let mut stopped = None;
+        for comment in &comments {
+            let aimed = (self.watches.iter()).any(|w| aims_at(w, comment));
+            if comment.bot
+                || !aimed
+                || self.judged.contains(&comment.id)
+                || self.own.contains(&comment.id)
+                || writers.contains_key(&comment.author)
+            {
+                continue;
+            }
+            match self.forge.can_write(&self.repo, &comment.author) {
+                Ok(may) => {
+                    writers.insert(comment.author.clone(), may);
+                }
+                Err(e) => {
+                    let who = &comment.author;
+                    stopped = Some((comment.id, format!("cannot tell if {who} may write: {e}")));
+                    break;
+                }
+            }
+        }
+        Ok(ThreadRead {
+            now,
+            comments,
+            writers,
+            stopped,
+        })
+    }
+}
+
 impl Runner {
-    /// Reads the new comments on the threads of the rulings that wait, at
-    /// most once a [`BOARD_POLL`], and answers those they answer
-    ///
-    /// Only where kelpie's App covers the repo. A forge that cannot be asked
-    /// is noted, once while it keeps failing, and asked again at the next
-    /// poll.
-    ///
-    /// # Errors
-    ///
-    /// [`StateError::Write`] when the place read to cannot be saved.
-    pub(super) fn read_threads(&mut self) -> Result<(), StateError> {
+    // Decides whether the threads are read now: at most once a [`BOARD_POLL`],
+    // where kelpie's App covers the repo and a ruling waits in its thread.
+    // Returns the time and what the read needs.
+    fn thread_job(&mut self) -> Option<(Timestamp, ThreadJob)> {
         let now = self.ports.clock.now();
-        self.begin_hearing(now)?;
         self.watch_threads(now);
         if self.threads.watching.is_empty() {
-            return Ok(());
+            return None;
         }
         let poll = BOARD_POLL.as_secs();
         if (self.threads.read).is_some_and(|at| now.0 < at.0.saturating_add(poll)) {
-            return Ok(());
+            return None;
         }
         if !self.app_covers() {
-            return Ok(());
+            return None;
         }
         self.threads.read = Some(now);
-        let heard = self.threads.watching.values().map(|w| w.heard.time).min();
+        let watches: Vec<Watch> = self.threads.watching.values().cloned().collect();
+        let heard = watches.iter().map(|w| w.heard.time).min();
         let since = heard.into_iter().chain(self.threads.floor).max();
-        let comments = match self
-            .ports
-            .forge
-            .comments_since(&self.remote, since.unwrap_or(now))
-        {
-            Ok(comments) => comments,
-            Err(e) => {
-                let why = format!("cannot read the comments on the rulings' threads: {e}");
+        let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
+        own.extend(self.posted.borrow().iter().copied());
+        let job = ThreadJob {
+            forge: Arc::clone(&self.ports.forge),
+            repo: self.remote.clone(),
+            since: since.unwrap_or(now),
+            watches,
+            judged: self.threads.judged.keys().copied().collect(),
+            own,
+        };
+        Some((now, job))
+    }
+
+    // Acts on what a read found: the new replies by the login a ruling
+    // mentions, with write access.
+    fn apply_threads(&mut self, read: Result<ThreadRead, String>) -> Result<(), StateError> {
+        let read = match read {
+            Ok(read) => read,
+            Err(why) => {
                 if self.threads.failed.replace(why.clone()).as_deref() != Some(why.as_str()) {
                     self.notes.push(why);
                 }
@@ -116,70 +200,55 @@ impl Runner {
             }
         };
         self.threads.failed = None;
-        let mut writers = BTreeMap::new();
-        for comment in &comments {
+        for comment in &read.comments {
+            if (read.stopped.as_ref()).is_some_and(|(id, _)| *id == comment.id) {
+                let why = read.stopped.as_ref().map(|(_, why)| why.clone());
+                self.notes.extend(why);
+                return Ok(());
+            }
             let aimed = self.threads.aimed_by(comment);
             if aimed.is_empty() || self.threads.judged.contains_key(&comment.id) {
                 continue;
             }
-            if comment.bot {
+            // The maintainer's own login wrote it for kelpie, not as an answer.
+            let own = self.state.posted.contains(&comment.id)
+                || self.posted.borrow().contains(&comment.id);
+            if comment.bot || own {
                 self.threads.judged.insert(comment.id, comment.created);
                 continue;
             }
-            let may = match writers.get(&comment.author) {
-                Some(&may) => may,
-                None => match self.ports.forge.can_write(&self.remote, &comment.author) {
-                    Ok(may) => *writers.entry(comment.author.clone()).or_insert(may),
-                    Err(e) => {
-                        let who = &comment.author;
-                        self.notes
-                            .push(format!("cannot tell if {who} may write: {e}"));
-                        return Ok(());
-                    }
-                },
+            // An author the read did not ask about is left for the next one.
+            let Some(&may) = read.writers.get(&comment.author) else {
+                continue;
             };
             if may {
                 // Before it is acted on, so a reply is answered once. Only a
-                // reply acted on moves the place read to: any other comment
-                // moving it would skip a reply the forge lists later.
-                self.hear(comment.created, comment.id)?;
+                // reply acted on moves the place read to on its thread: any
+                // other comment moving it would skip a reply the forge lists
+                // later.
+                self.hear(comment)?;
                 self.respond(comment, &aimed);
             } else {
                 self.threads.judged.insert(comment.id, comment.created);
             }
         }
-        let floor = Timestamp(now.0.saturating_sub(SLACK));
+        let floor = Timestamp(read.now.0.saturating_sub(SLACK));
         self.threads.floor = Some(floor);
         self.threads.judged.retain(|_, created| *created >= floor);
         Ok(())
     }
 
-    // Starts the reading of a ruling saved before replies in a thread, from now.
-    fn begin_hearing(&mut self, now: Timestamp) -> Result<(), StateError> {
-        let unheard: Vec<u64> = (self.state.rulings.iter())
-            .map(|r| r.id)
-            .filter(|id| !self.state.heard.contains_key(id))
-            .collect();
-        if unheard.is_empty() {
-            return Ok(());
-        }
-        let mut next = self.state.clone();
-        for id in unheard {
-            next.heard.insert(id, Heard::at(now));
-        }
-        self.save(next)
-    }
-
     // Watches each pending ruling's thread, and a ruling that was answered
     // for a while after.
     fn watch_threads(&mut self, now: Timestamp) {
-        let threads = &mut self.threads.watching;
         let state = &self.state;
         let open: Vec<_> = (state.rulings.iter())
             .filter_map(|ruling| watch_of(state, ruling))
             .collect();
+        let threads = &mut self.threads.watching;
         for (id, watch) in &open {
-            threads.insert(*id, *watch);
+            // The place read to is kept in memory too, but the state's wins.
+            threads.insert(*id, watch.clone());
         }
         threads.retain(|id, watch| {
             if open.iter().any(|(open, _)| open == id) {
@@ -192,13 +261,14 @@ impl Runner {
         });
     }
 
-    // Moves the place read to forward to the comment written at `time` with
-    // `id`, and saves it with each pending ruling.
-    fn hear(&mut self, time: Timestamp, id: u64) -> Result<(), StateError> {
+    // Moves the place read to forward to `comment` for each ruling on its
+    // thread, and saves it with each pending ruling.
+    fn hear(&mut self, comment: &ThreadComment) -> Result<(), StateError> {
         let mut moved = false;
         for watch in self.threads.watching.values_mut() {
-            if watch.heard.before(time, id) {
-                watch.heard = Heard { time, comment: id };
+            if watch.thread == comment.thread && watch.heard.before(comment.created, comment.id) {
+                watch.heard.time = comment.created;
+                watch.heard.comment = comment.id;
                 moved = true;
             }
         }
@@ -208,20 +278,20 @@ impl Runner {
         let mut next = self.state.clone();
         for ruling in &self.state.rulings {
             if let Some(watch) = self.threads.watching.get(&ruling.id) {
-                next.heard.insert(ruling.id, watch.heard);
+                next.heard.insert(ruling.id, watch.heard.clone());
             }
         }
         self.save(next)
     }
 
-    // Acts on a reply by a login with write access.
+    // Acts on a reply by the login a ruling mentions, with write access.
     fn respond(&mut self, comment: &ThreadComment, aimed: &[u64]) {
         let words = comment.body.trim();
-        let (named, words) = self.threads.name_of(words);
+        let (named, words) = self.threads.name_of(words, comment);
         let open = |id: &u64| self.state.rulings.iter().any(|r| r.id == *id);
         let waiting: Vec<u64> = aimed.iter().copied().filter(open).collect();
         let aimed = match named {
-            Some(id) if waiting.contains(&id) => Aimed::At(id),
+            Some(id) if waiting.contains(&id) => Aimed::At(id, true),
             Some(id) => match self.threads.watching.get(&id) {
                 Some(Watch {
                     settled: Some(_), ..
@@ -230,21 +300,8 @@ impl Runner {
                 None => Aimed::Nothing,
             },
             None => match waiting.as_slice() {
-                [id] => Aimed::At(*id),
-                [] => {
-                    let settled = aimed.iter().find(|id| !open(id));
-                    let first = words
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("")
-                        .to_ascii_lowercase();
-                    match settled {
-                        Some(&id) if ["yes", "no", "rework"].contains(&first.as_str()) => {
-                            Aimed::Settled(id)
-                        }
-                        _ => Aimed::Nothing,
-                    }
-                }
+                [id] => Aimed::At(*id, false),
+                [] => Aimed::Nothing,
                 several => Aimed::Unnamed(several.to_vec()),
             },
         };
@@ -252,7 +309,7 @@ impl Runner {
         let thread = comment.thread;
         match aimed {
             Aimed::Nothing => {}
-            Aimed::At(id) => self.answer(comment, id, words),
+            Aimed::At(id, named) => self.answer(comment, id, named, words),
             Aimed::Settled(id) => {
                 let said = format!("@{who} Ruling {id} is already answered.");
                 self.say(thread, &said);
@@ -275,13 +332,23 @@ impl Runner {
     }
 
     // Answers ruling `id` with `words`, reacting if it took, or says why not.
-    fn answer(&mut self, comment: &ThreadComment, id: u64, words: &str) {
+    // A ruling that takes a yes or a no is answered only by a reply that
+    // names it, so a conversational yes never merges.
+    fn answer(&mut self, comment: &ThreadComment, id: u64, named: bool, words: &str) {
         let (who, thread) = (&comment.author, comment.thread);
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
-        let answer: Result<Answer, String> = read_answer(Wants::of(&ruling.kind), words);
-        let ruled = answer.and_then(|answer| self.rule(id, answer).map_err(|e| e.to_string()));
+        let wants = Wants::of(&ruling.kind);
+        let ruled = if named || wants == Wants::Answer {
+            read_answer(wants, words)
+                .and_then(|answer| self.rule(id, answer).map_err(|e| e.to_string()))
+        } else {
+            Err(format!(
+                "start your reply with its id, as {}",
+                forms(wants, id)
+            ))
+        };
         let said = match ruled {
             Ok(()) => {
                 if let Err(e) = self.ports.voice.thumbs_up(&self.remote, comment.id) {
@@ -292,7 +359,7 @@ impl Runner {
             }
             Err(why) => format!(
                 "@{who} Ruling {id} was not answered: {why}. Reply again in this thread, \
-                 starting with `{id}` if other rulings wait on it."
+                 starting with `{id}`."
             ),
         };
         self.say(thread, &said);
@@ -311,47 +378,62 @@ impl Reading {
     // however it was answered, for a while.
     pub(super) fn settled(&mut self, before: &ProjectState, after: &ProjectState, now: Timestamp) {
         let until = Timestamp(now.0.saturating_add(LATE));
-        let gone = before
-            .rulings
-            .iter()
-            .filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
+        let gone = (before.rulings.iter()).filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
         for (id, watch) in gone.filter_map(|ruling| watch_of(before, ruling)) {
             let watch = self.watching.entry(id).or_insert(watch);
             watch.settled.get_or_insert(until);
         }
     }
 
-    // The watched rulings `comment` is new to: on their thread, and written
-    // after the place read to.
+    // The watched rulings `comment` is new to: on their thread, written after
+    // the place read to, by the login each mentions.
     fn aimed_by(&self, comment: &ThreadComment) -> Vec<u64> {
         (self.watching.iter())
-            .filter(|(_, w)| {
-                w.thread == comment.thread && w.heard.before(comment.created, comment.id)
-            })
+            .filter(|(_, w)| aims_at(w, comment))
             .map(|(&id, _)| id)
             .collect()
     }
 
     // The id of a ruling a reply starts with, and the rest of it. A number
-    // that names no ruling watched, or the whole of a reply, is its text.
-    fn name_of<'a>(&self, words: &'a str) -> (Option<u64>, &'a str) {
+    // that names no ruling this author may answer, or the whole of a reply, is its text.
+    fn name_of<'a>(&self, words: &'a str, comment: &ThreadComment) -> (Option<u64>, &'a str) {
         let Some((first, rest)) = words.split_once(char::is_whitespace) else {
             return (None, words);
         };
         let id = first.trim_start_matches('#').parse().ok();
+        let mentioned = |id: &u64| {
+            (self.watching.get(id)).is_some_and(|w| w.heard.is_mentioned(&comment.author))
+        };
         match id {
-            Some(id) if self.watching.contains_key(&id) && !rest.trim().is_empty() => {
-                (Some(id), rest.trim_start())
-            }
+            Some(id) if mentioned(&id) && !rest.trim().is_empty() => (Some(id), rest.trim_start()),
             _ => (None, words),
         }
     }
 }
 
+// Whether `comment` is new to the ruling `watch` follows, and from the login
+// it mentions.
+fn aims_at(watch: &Watch, comment: &ThreadComment) -> bool {
+    watch.thread == comment.thread
+        && watch.heard.before(comment.created, comment.id)
+        && watch.heard.is_mentioned(&comment.author)
+}
+
+// What a reply to a ruling that wants `wants` starts with.
+fn forms(wants: Wants, id: u64) -> String {
+    match wants {
+        Wants::Answer => format!("`{id} <your answer>`"),
+        Wants::Merge => format!("`{id} yes`, `{id} no <note>` or `{id} rework <note>`"),
+        Wants::YesOrNo => format!("`{id} yes` or `{id} no <note>`"),
+    }
+}
+
 // The thread a pending ruling is answered in, and the place read to there.
+// A ruling kelpie's App did not post with a mention is answered at the
+// terminal only, so it has none.
 fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(u64, Watch)> {
     let thread = ruling.pull_request.or(ruling.issue)?;
-    let heard = *state.heard.get(&ruling.id)?;
+    let heard = state.heard.get(&ruling.id)?.clone();
     let settled = None;
     Some((
         ruling.id,

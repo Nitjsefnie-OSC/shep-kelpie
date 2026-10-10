@@ -10,9 +10,13 @@ const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-
 const QUESTION: &str = "Should it be `--dry-run` or `--check`?";
 
 // The reply a question ruling is answered with, as its comment ends
-const HOW_TO_ANSWER: &str = "Reply in this thread to answer ruling 1: your reply is the answer.\n\n\
+const HOW_TO_ANSWER: &str = "Reply in this thread to answer ruling 1: @octocat's reply is the answer.\n\n\
      If other rulings wait on this thread, start your reply with `1`. \
      At the terminal: `shep kelpie rule 1 <your answer>`.";
+
+// ... and when no one is mentioned
+const HOW_UNMENTIONED: &str = "This ruling mentions no one, so a reply here answers nothing. \
+     Answer it at the terminal: `shep kelpie rule 1 <your answer>`.";
 
 // A running project with issue 7 in flight, whose worker's first turn asks
 // before any pull request is open
@@ -60,12 +64,14 @@ fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the
     let short = &head[..7];
     let body = format!(
         "@octocat Merge this pull request at {short} into main?\n\n\
-         Reply in this thread to answer ruling 1:\n\
-         - `yes` merges it\n\
-         - `no <note>` sends the worker your note for a fix that goes to CI and back to you\n\
-         - `rework <note>` sends it your note for a change the whole review reads again\n\n\
-         If other rulings wait on this thread, start your reply with `1`. \
-         At the terminal: `shep kelpie rule 1 yes`."
+         Reply in this thread to answer ruling 1. Only @octocat's reply counts, and it \
+         starts with the ruling's id:\n\
+         - `1 yes` merges it\n\
+         - `1 no <note>` sends the worker your note for a fix that goes to CI and back to \
+         you\n\
+         - `1 rework <note>` sends it your note for a change the whole review reads \
+         again\n\n\
+         A bare `yes` answers nothing. At the terminal: `shep kelpie rule 1 yes`."
     );
     // The two review rounds that came first are on the thread too.
     let comments = rig.github.comments();
@@ -153,7 +159,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
     assert!(why.contains("not logged in"), "{why}");
     assert_eq!(
         rig.github.comments(),
-        [(7, format!("{QUESTION}\n\n{HOW_TO_ANSWER}"))]
+        [(7, format!("{QUESTION}\n\n{HOW_UNMENTIONED}"))]
     );
     assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
 
