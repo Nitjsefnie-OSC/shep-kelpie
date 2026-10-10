@@ -52,6 +52,24 @@ pub struct Review {
     /// worktree held, clean, as the round started
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reading: Option<String>,
+    /// The run kelpie waits on before a reviewer reads a head (ADR 0008)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ci: Option<Box<Awaited>>,
+}
+
+/// CI on the head a round's reviewer is about to read
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Awaited {
+    /// The head
+    pub head: String,
+    /// When kelpie first saw that head, whose checks need two minutes to
+    /// register whole
+    pub since: Timestamp,
+    /// Whether the run passed, so no later reviewer of the pass waits again
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub green: bool,
 }
 
 impl Review {
@@ -67,6 +85,7 @@ impl Review {
             unread: true,
             bots_only: false,
             reading: None,
+            ci: None,
         }
     }
 
@@ -98,6 +117,7 @@ impl Review {
             unread: self.unread,
             bots_only: self.bots_only,
             reading: None,
+            ci: self.ci,
         }
     }
 }

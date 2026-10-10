@@ -1,0 +1,96 @@
+//! CI on the head a reviewer is about to read
+//!
+//! A red run is a sure defect that costs no model's read and no bot's window,
+//! so no reviewer reads a head until it is pushed and green (ADR 0008). The
+//! round that is about to start a reviewer, or summon a bot, first waits for
+//! the run on the head it would read: the same two minutes for the checks to
+//! register, then pending waits, green goes on, and red is the worker's CI fix
+//! turn, counted toward `ci.fix_attempts`, which comes back to this round.
+//! A head already green stays so for the rest of the pass, and with
+//! `ci.block` off the round starts at once.
+
+use super::super::Runner;
+use super::super::gate::settled;
+use super::super::report::Begin;
+use crate::ports::{Checks, PullRequestState};
+use crate::state::StateError;
+use crate::work_item::{Awaited, Phase, Review};
+
+impl Runner {
+    /// What the step does instead of `review`'s reviewer reading the pushed
+    /// head, when CI has not passed on it: wait, or send the worker its CI
+    /// fix
+    ///
+    /// `None` lets the reviewer go ahead, and keeps in `review` the run it
+    /// waited on.
+    pub(super) fn before_read(&mut self, review: &mut Review) -> Result<Option<Begin>, StateError> {
+        if !self.settings.ci.block {
+            return Ok(None);
+        }
+        let Some(head) = review.reading.clone() else {
+            return Ok(None);
+        };
+        if review
+            .ci
+            .as_ref()
+            .is_some_and(|ci| ci.green && ci.head == head)
+        {
+            return Ok(None);
+        }
+        let item = self.current().expect("a round is a work item's");
+        let number = item.pull_request.expect("review runs on a pull request");
+        let pr = match self.ports.forge.pull_request(&self.remote, number) {
+            Ok(pr) => pr,
+            Err(e) => {
+                return Ok(Some(
+                    self.gate_failed(format!("cannot read #{number}: {e}")),
+                ));
+            }
+        };
+        // A pull request merged or closed by hand is the gate's to end.
+        if pr.state != PullRequestState::Open {
+            return Ok(None);
+        }
+        // The forge lags a push by a moment, and its checks are of its head.
+        if pr.head != head {
+            return Ok(Some(Begin::Idle));
+        }
+        let now = self.ports.clock.now();
+        let since = (review.ci.as_ref())
+            .filter(|ci| ci.head == head)
+            .map_or(now, |ci| ci.since);
+        let mut ci = Awaited {
+            head: head.clone(),
+            since,
+            green: false,
+        };
+        let verdict = match pr.checks {
+            _ if !settled(since, now) => None,
+            Checks::None | Checks::Pending => None,
+            Checks::Passed => {
+                ci.green = true;
+                Some(Ok(()))
+            }
+            Checks::Failed(checks) => Some(Err(checks)),
+        };
+        if review.ci.as_deref() != Some(&ci) {
+            review.ci = Some(Box::new(ci.clone()));
+            self.update(|item| {
+                if let Phase::Review(review) = &mut item.phase {
+                    review.ci = Some(Box::new(ci));
+                }
+            })?;
+        }
+        match verdict {
+            None => Ok(Some(Begin::Idle)),
+            Some(Ok(())) => Ok(None),
+            Some(Err(checks)) => {
+                let back = Review {
+                    reading: None,
+                    ..review.clone()
+                };
+                self.ci_failed(number, head, checks, Some(back)).map(Some)
+            }
+        }
+    }
+}
