@@ -84,18 +84,29 @@ impl Tools {
     ///
     /// Why the runtime's profile could not be read as expected, or the copy not made.
     pub(crate) fn block_keychain(&self) -> Result<(), String> {
-        let (from, to) = (self.package(PACKAGE_NAME), self.package(BLOCKED_NAME));
-        let profile = from.join(PROFILE);
-        let text = std::fs::read_to_string(&profile)
-            .map_err(|e| format!("cannot read {}: {e}", profile.display()))?;
-        let patched = without_keychain(&text)?;
+        let to = self.package(BLOCKED_NAME);
+        // The last install's copy goes first, so a step that fails leaves none
+        // to be found blocked, whether it is the last one's or half of this one.
         match std::fs::remove_dir_all(&to) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 return Err(format!("cannot remove {}: {e}", to.display()));
             }
             _ => {}
         }
-        run(crate::spawn::command("cp").arg("-R").arg(&from).arg(&to))?;
+        let made = self.copy_without_keychain(&to);
+        if made.is_err() {
+            let _ = std::fs::remove_dir_all(&to);
+        }
+        made
+    }
+
+    fn copy_without_keychain(&self, to: &Path) -> Result<(), String> {
+        let from = self.package(PACKAGE_NAME);
+        let profile = from.join(PROFILE);
+        let text = std::fs::read_to_string(&profile)
+            .map_err(|e| format!("cannot read {}: {e}", profile.display()))?;
+        let patched = without_keychain(&text)?;
+        run(crate::spawn::command("cp").arg("-R").arg(&from).arg(to))?;
         let copy = to.join(PROFILE);
         std::fs::write(&copy, patched)
             .map_err(|e| format!("cannot write {}: {e}", copy.display()))?;
@@ -220,6 +231,32 @@ const lines = [
         // A second install replaces the copy.
         tools.block_keychain().unwrap();
         assert!(tools.keychain_blocked());
+    }
+
+    // An install that stops partway must not leave the last install's copy, or
+    // half of this one, for a call to find blocked.
+    #[test]
+    fn an_install_that_fails_leaves_no_copy_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = installed(dir.path(), PROFILE);
+        tools.block_keychain().unwrap();
+        assert!(tools.keychain_blocked());
+
+        // A runtime whose profile no longer names a service once.
+        let renamed = PROFILE.replace("com.apple.SecurityServer", "com.apple.Elsewhere");
+        std::fs::write(utils(&tools), renamed).unwrap();
+        tools.block_keychain().unwrap_err();
+        assert!(!tools.keychain_blocked(), "the old copy was left");
+        assert!(!tools.sandbox_without_keychain().exists());
+
+        // A profile that stops parsing once the lines are cut.
+        let unclosed = "call(\n'com.apple.securityd.xpc'\n'com.apple.SecurityServer'\n";
+        std::fs::write(utils(&tools), unclosed).unwrap();
+        tools.block_keychain().unwrap_err();
+        assert!(
+            !tools.keychain_blocked(),
+            "a copy that does not parse was left"
+        );
     }
 
     #[test]
