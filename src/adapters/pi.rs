@@ -489,6 +489,7 @@ fn policy(call: &AgentCall, files: &Files, upstream: &Upstream, forwarder: &Path
             ..Policy::default()
         },
     };
+    policy.no_keychain = call.reach.block_keychain;
     // pi logs in nowhere, so no harness's login is its own, the maintainer's pi included.
     let logins = fence::HARNESSES.iter().flat_map(|own| own.credentials);
     policy.no_read.extend(logins.map(|&path| path.to_owned()));

@@ -130,6 +130,7 @@ pub(crate) fn policy(
         }
     };
     policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_keychain = call.reach.block_keychain;
     let transcripts = transcripts(home, &call.cwd)?;
     // Auto memory there loads into every session in the folder, a review's too.
     policy.no_write.push(transcripts.join("memory"));
@@ -324,6 +325,17 @@ mod tests {
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
         assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
         assert!(policy.verify_tls);
+    }
+
+    #[test]
+    fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+        let w = World::new();
+        for mut call in [w.worker(), w.call(Role::Reviewer)] {
+            let home = w.path("home");
+            assert!(!policy(&call, &home, &[]).unwrap().no_keychain);
+            call.reach.block_keychain = true;
+            assert!(policy(&call, &home, &[]).unwrap().no_keychain);
+        }
     }
 
     #[test]

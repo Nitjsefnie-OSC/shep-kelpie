@@ -235,6 +235,21 @@ fn a_steps_skill_is_a_file_a_worker_reads_and_text_a_call_with_no_shell_is_given
 }
 
 #[test]
+fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+    let w = World::new();
+    let mut calls = [
+        w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID))),
+        w.call(Role::Reviewer, Session::New(id(WORKER_ID))),
+    ];
+    for call in &mut calls {
+        let policy = |call: &AgentCall| policy(call, &w.path("login"), &Files::of(call));
+        assert!(!policy(call).no_keychain);
+        call.reach.block_keychain = true;
+        assert!(policy(call).no_keychain);
+    }
+}
+
+#[test]
 fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     let w = World::new();
     let login = w.path("login");
