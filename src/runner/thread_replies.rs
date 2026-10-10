@@ -52,6 +52,9 @@ pub(super) struct Reading {
     /// The comments before this are not asked for again
     floor: Option<Timestamp>,
     watching: BTreeMap<u64, Watch>,
+    /// The comments read and left alone, a bot's or a login's without write
+    /// access, by id and when written, until a read no longer reaches them
+    judged: BTreeMap<u64, Timestamp>,
     /// Why the last read failed, told once while it keeps failing
     failed: Option<String>,
 }
@@ -116,7 +119,11 @@ impl Runner {
         let mut writers = BTreeMap::new();
         for comment in &comments {
             let aimed = self.threads.aimed_by(comment);
-            if comment.bot || aimed.is_empty() {
+            if aimed.is_empty() || self.threads.judged.contains_key(&comment.id) {
+                continue;
+            }
+            if comment.bot {
+                self.threads.judged.insert(comment.id, comment.created);
                 continue;
             }
             let may = match writers.get(&comment.author) {
@@ -132,15 +139,18 @@ impl Runner {
                 },
             };
             if may {
-                // Before it is acted on, so a reply is answered once.
+                // Before it is acted on, so a reply is answered once. Only a
+                // reply acted on moves the place read to: any other comment
+                // moving it would skip a reply the forge lists later.
                 self.hear(comment.created, comment.id)?;
                 self.respond(comment, &aimed);
+            } else {
+                self.threads.judged.insert(comment.id, comment.created);
             }
         }
-        if let Some(last) = comments.last() {
-            self.hear(last.created, last.id)?;
-        }
-        self.threads.floor = Some(Timestamp(now.0.saturating_sub(SLACK)));
+        let floor = Timestamp(now.0.saturating_sub(SLACK));
+        self.threads.floor = Some(floor);
+        self.threads.judged.retain(|_, created| *created >= floor);
         Ok(())
     }
 

@@ -95,6 +95,27 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
 }
 
 #[test]
+fn a_reply_the_forge_lists_late_is_still_answered_after_a_newer_comment_elsewhere() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    let written = rig.clock.now();
+    rig.forge
+        .threads
+        .write(9, "octocat", "unrelated", Timestamp(written.0 + 1));
+    rig.next_look();
+    step(&runner).unwrap(); // reads only the comment on #9
+
+    // The forge lists the reply now, though it was written before that one.
+    let comment = rig.forge.threads.write(71, "octocat", "yes", written);
+    rig.next_look();
+    step(&runner).unwrap(); // takes the reply, and marks the pull request ready
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap(); // merges
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
+#[test]
 fn a_comment_from_before_the_ruling_is_not_an_answer() {
     let rig = Rig::new("shep");
     rig.with_app();
