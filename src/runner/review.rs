@@ -463,11 +463,12 @@ impl Runner {
         };
         let build = &item.build;
         let path = findings::findings_path(build);
-        if let Err(reason) = findings::write_findings_file(build, &path, round, &findings) {
+        let report_threads = by_thread && !threads.is_empty();
+        let written = findings::write_findings_file(build, &path, round, &findings, report_threads);
+        if let Err(reason) = written {
             return Ok(self.gate_failed(reason));
         }
         let held = findings.len();
-        let report_threads = by_thread && !threads.is_empty();
         let prompt = findings::fix_prompt(number, round, held, &path, report_threads);
         let deferred_before = match findings::deferred(build) {
             Ok(deferred) => deferred,

@@ -686,11 +686,12 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
     let again = format!(
         "Your last turn on pull request #71 pushed nothing, so round 3's \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`. Each finding is a review bot's thread, numbered from 1 in the order \
-         the file lists them. Kelpie replies on each thread for you and resolves the \
-         ones you fixed, so end your final reply with one line per finding, \
-         `thread <n>: fixed` or `thread <n>: declined: <the reason>`. A finding with \
-         no line is replied to as not addressed, and stays open.",
+         `git push origin HEAD`. Each finding is a review bot's thread, and its line in the file starts \
+         with its number, `thread <n>|`. Kelpie replies on each thread for you and \
+         resolves the ones you fixed, so end your final reply with one line per \
+         finding, using the number its line starts with: `thread <n>: fixed` or \
+         `thread <n>: declined: <the reason>`. A finding with no line is replied to as \
+         not addressed, and stays open.",
         path.display()
     );
     let kind = &status["rulings"][0]["kind"];

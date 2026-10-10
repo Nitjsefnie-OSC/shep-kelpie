@@ -214,11 +214,12 @@ fn the_fix_prompt_asks_for_a_line_per_thread() {
     let prompt = rig.claude.calls().pop().unwrap().prompt;
     assert!(
         prompt.ends_with(
-            " Each finding is a review bot's thread, numbered from 1 in the order the file \
-             lists them. Kelpie replies on each thread for you and resolves the ones you \
-             fixed, so end your final reply with one line per finding, `thread <n>: fixed` \
-             or `thread <n>: declined: <the reason>`. A finding with no line is replied to \
-             as not addressed, and stays open."
+            " Each finding is a review bot's thread, and its line in the file starts with its \
+             number, `thread <n>|`. Kelpie replies on each thread for you and resolves the \
+             ones you fixed, so end your final reply with one line per finding, using the \
+             number its line starts with: `thread <n>: fixed` or `thread <n>: declined: \
+             <the reason>`. A finding with no line is replied to as not addressed, and \
+             stays open."
         ),
         "{prompt}"
     );

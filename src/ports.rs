@@ -815,8 +815,22 @@ pub fn read_review(text: &str) -> Result<Vec<Finding>, String> {
     Ok(findings)
 }
 
+// A line of a bot's findings starts with its thread number, `thread 2|`, which
+// is no part of the finding: a line copied with it still reads as the finding.
+fn without_thread_number(line: &str) -> &str {
+    let numbered = (line.strip_prefix("thread ")).and_then(|rest| rest.split_once('|'));
+    match numbered {
+        Some((number, rest))
+            if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            rest
+        }
+        _ => line,
+    }
+}
+
 fn parse_finding_line(line: &str) -> Option<Finding> {
-    let mut parts = line.splitn(4, '|');
+    let mut parts = without_thread_number(line).splitn(4, '|');
     let severity = match parts.next()? {
         "LOW" => Severity::Low,
         "MEDIUM" => Severity::Medium,

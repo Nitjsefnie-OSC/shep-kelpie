@@ -734,8 +734,11 @@ impl Runner {
     /// Declined and unaddressed threads stay open.
     ///
     /// A thread is resolved before it is replied to, and forgotten once both
-    /// are done, so a failure part way retries only what is left and never
-    /// replies twice.
+    /// are done, so a failure part way retries only what is left and a
+    /// running runner never replies twice. A runner killed between a reply
+    /// and the save that forgets the thread replies to it again after the
+    /// restart: that order is kept, since the other would leave a thread with
+    /// no reply at all.
     pub(super) fn answer_sent(
         &mut self,
         number: u64,

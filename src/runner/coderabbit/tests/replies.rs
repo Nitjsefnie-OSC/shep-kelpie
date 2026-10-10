@@ -50,6 +50,49 @@ fn each_thread_gets_the_workers_line_and_only_the_fixed_one_is_resolved() {
     assert_eq!(phase(&rig, &runner)["state"], "ci");
 }
 
+// The worker names a thread by the number its line in the findings file
+// starts with, so a number read off the file and answered resolves exactly
+// that thread, whatever header the file opens with.
+#[test]
+fn the_number_a_findings_line_starts_with_names_its_thread() {
+    let (rig, runner) = sent(&["Name the flag.", "Guard the index."]);
+    let file = std::fs::read_to_string(rig.build_7().join("review-findings.md")).unwrap();
+    let number_of = |title: &str| -> String {
+        let line = file.lines().find(|l| l.contains(title)).unwrap();
+        let (number, _) = line
+            .strip_prefix("thread ")
+            .unwrap()
+            .split_once('|')
+            .unwrap();
+        number.to_owned()
+    };
+    let guard = number_of("Guard the index.");
+    assert_ne!(guard, number_of("Name the flag."));
+
+    let said = format!("thread {guard}: fixed");
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        Box::leak(said.into_boxed_str()),
+    )]);
+    step(&runner).unwrap(); // the fix turn
+    step(&runner).unwrap(); // the threads are answered
+    assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_1"]);
+    let replies = rig.forge.coderabbit.replies();
+    assert_eq!(
+        replies.iter().find(|(t, _)| t == "PRRT_71_1").unwrap().1,
+        "Fixed."
+    );
+    assert!(
+        replies
+            .iter()
+            .find(|(t, _)| t == "PRRT_71_0")
+            .unwrap()
+            .1
+            .starts_with("Not addressed")
+    );
+}
+
 // The guarded forge always refuses a text naming this machine's folders, so
 // a decline's reason that does can never be posted: it is replied to without
 // the reason, and the threads after it are answered all the same.
@@ -83,7 +126,7 @@ fn a_reason_naming_a_local_path_is_not_posted_and_blocks_no_other_thread() {
 }
 
 // A reply the forge refuses is tried again at the next step, and a thread
-// already replied to is not replied to twice.
+// already replied to is not replied to twice by a running runner.
 #[test]
 fn a_reply_the_forge_refuses_is_tried_again_and_no_thread_is_replied_to_twice() {
     let (rig, runner) = sent(&["Name the flag.", "Guard the index."]);

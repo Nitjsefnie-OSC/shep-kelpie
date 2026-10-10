@@ -84,6 +84,7 @@ pub(in crate::runner) fn write_findings_file(
     path: &Path,
     round: u32,
     findings: &[Finding],
+    numbered: bool,
 ) -> Result<(), String> {
     let deferred = deferred_path(folder);
     let mut text = format!(
@@ -91,10 +92,20 @@ pub(in crate::runner) fn write_findings_file(
          commit and push. A finding that is out of scope for this pull request may be \
          left: copy its line, as it stands here, onto a line of its own in {}. Kelpie \
          files what is there as an issue once the pull request merges, except a LOW \
-         one, which is dropped.\n\n",
+         one, which is dropped.",
         deferred.display()
     );
-    for f in findings {
+    if numbered {
+        text.push_str(
+            " Each line starts with its thread number, `thread <n>|`, which is how you \
+             report on it.",
+        );
+    }
+    text.push_str("\n\n");
+    for (at, f) in findings.iter().enumerate() {
+        if numbered {
+            text.push_str(&format!("thread {}|", at + 1));
+        }
         text.push_str(&format!(
             "{}|{}:{}|{}|{}\n",
             severity_tag(f.severity),
@@ -110,11 +121,12 @@ pub(in crate::runner) fn write_findings_file(
 // What the worker is asked to end its reply with when the findings are a
 // review bot's threads. Kelpie reads the lines (`thread_lines`) and replies
 // on each thread for the worker, resolving the ones it fixed.
-const THREAD_LINES: &str = " Each finding is a review bot's thread, numbered from 1 in the order \
-     the file lists them. Kelpie replies on each thread for you and resolves the \
-     ones you fixed, so end your final reply with one line per finding, \
-     `thread <n>: fixed` or `thread <n>: declined: <the reason>`. A finding with \
-     no line is replied to as not addressed, and stays open.";
+const THREAD_LINES: &str = " Each finding is a review bot's thread, and its line in the file starts \
+     with its number, `thread <n>|`. Kelpie replies on each thread for you and \
+     resolves the ones you fixed, so end your final reply with one line per \
+     finding, using the number its line starts with: `thread <n>: fixed` or \
+     `thread <n>: declined: <the reason>`. A finding with no line is replied to as \
+     not addressed, and stays open.";
 
 pub(super) fn fix_prompt(
     number: u64,
@@ -179,7 +191,7 @@ mod tests {
                 why: "dead code".into(),
             },
         ];
-        write_findings_file(dir.path(), &path, 3, &findings).unwrap();
+        write_findings_file(dir.path(), &path, 3, &findings, false).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             text.starts_with("Round 3's findings, at the reviewer's severity."),
@@ -200,6 +212,43 @@ mod tests {
             text.contains("LOW|src/main.rs:1|unused import|dead code\n"),
             "{text}"
         );
+    }
+
+    fn bot_finding(what: &str) -> Finding {
+        Finding {
+            severity: Severity::Medium,
+            file: "src/lib.rs".into(),
+            line: 3,
+            what: what.into(),
+            why: "it matters".into(),
+        }
+    }
+
+    // A bot's findings are its threads, which the worker names by number: each
+    // line starts with its own, and the header says so.
+    #[test]
+    fn a_bots_threads_are_numbered_from_one_at_the_start_of_each_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("review-findings.md");
+        let findings = [bot_finding("first"), bot_finding("second")];
+        write_findings_file(dir.path(), &path, 3, &findings, true).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("Each line starts with its thread number"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nthread 1|MEDIUM|src/lib.rs:3|first|it matters\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nthread 2|MEDIUM|src/lib.rs:3|second|it matters\n"),
+            "{text}"
+        );
+
+        // The numbers are the worker's, so a line copied into the deferred
+        // file with its number still reads as the finding it was.
+        assert_eq!(parse_findings(&text), findings);
     }
 
     #[test]
@@ -235,8 +284,14 @@ mod tests {
             what: "nit".into(),
             why: "style".into(),
         };
-        let err = write_findings_file(&folder, &folder.join("review-findings.md"), 1, &[finding])
-            .unwrap_err();
+        let err = write_findings_file(
+            &folder,
+            &folder.join("review-findings.md"),
+            1,
+            &[finding],
+            false,
+        )
+        .unwrap_err();
         assert!(err.contains("review-findings.md"), "{err}");
 
         // Restore write access so the tempdir can clean itself up.
