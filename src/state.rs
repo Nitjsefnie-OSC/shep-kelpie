@@ -13,6 +13,7 @@ mod removed;
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use removed::OldWorker;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -25,7 +26,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 21 added `heard`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -39,7 +40,7 @@ use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, Wor
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 20;
+const VERSION: u32 = 21;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -129,6 +130,11 @@ pub struct ProjectState {
     /// end, when the runner stops its own sheep
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub finishing: bool,
+    /// How far the comments on each pending ruling's thread have been read
+    /// for an answer, by ruling id. A ruling is entered when it is raised,
+    /// or when a read first finds it with none, and leaves when it is answered.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub heard: BTreeMap<u64, Heard>,
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -166,6 +172,7 @@ impl ProjectState {
             pm_told: Vec::new(),
             pm_attached: None,
             finishing: false,
+            heard: BTreeMap::new(),
         }
     }
 
@@ -281,10 +288,6 @@ pub struct Ruling {
     /// webhooks existed is posted once.
     #[serde(default)]
     pub alerted: bool,
-    /// How far the comments on its thread have been read for an answer.
-    /// None in a file from before replies in a thread, until a read starts it.
-    #[serde(default)]
-    pub heard: Option<Heard>,
 }
 
 /// The last comment on a ruling's thread read for an answer, or the moment
@@ -300,6 +303,11 @@ pub struct Heard {
 }
 
 impl Heard {
+    /// The place read to when a ruling is raised at `time`
+    pub fn at(time: Timestamp) -> Self {
+        Self { time, comment: 0 }
+    }
+
     /// Whether a comment written at `time` with this `id` is after this one
     pub fn before(&self, time: Timestamp, id: u64) -> bool {
         (self.time, self.comment) < (time, id)

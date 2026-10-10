@@ -25,7 +25,7 @@ use super::looks::BOARD_POLL;
 use super::ruling::Answer;
 use super::words::{Wants, read_answer};
 use crate::ports::{ThreadComment, Timestamp};
-use crate::state::{Heard, Ruling, StateError};
+use crate::state::{Heard, ProjectState, Ruling, StateError};
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
 /// came before the answer is told it is settled
@@ -98,7 +98,11 @@ impl Runner {
         self.threads.read = Some(now);
         let heard = self.threads.watching.values().map(|w| w.heard.time).min();
         let since = heard.into_iter().chain(self.threads.floor).max();
-        let comments = match self.ports.forge.comments_since(&self.remote, since.unwrap_or(now)) {
+        let comments = match self
+            .ports
+            .forge
+            .comments_since(&self.remote, since.unwrap_or(now))
+        {
             Ok(comments) => comments,
             Err(e) => {
                 let why = format!("cannot read the comments on the rulings' threads: {e}");
@@ -121,7 +125,8 @@ impl Runner {
                     Ok(may) => *writers.entry(comment.author.clone()).or_insert(may),
                     Err(e) => {
                         let who = &comment.author;
-                        self.notes.push(format!("cannot tell if {who} may write: {e}"));
+                        self.notes
+                            .push(format!("cannot tell if {who} may write: {e}"));
                         return Ok(());
                     }
                 },
@@ -141,15 +146,16 @@ impl Runner {
 
     // Starts the reading of a ruling saved before replies in a thread, from now.
     fn begin_hearing(&mut self, now: Timestamp) -> Result<(), StateError> {
-        if self.state.rulings.iter().all(|r| r.heard.is_some()) {
+        let unheard: Vec<u64> = (self.state.rulings.iter())
+            .map(|r| r.id)
+            .filter(|id| !self.state.heard.contains_key(id))
+            .collect();
+        if unheard.is_empty() {
             return Ok(());
         }
         let mut next = self.state.clone();
-        for ruling in next.rulings.iter_mut().filter(|r| r.heard.is_none()) {
-            ruling.heard = Some(Heard {
-                time: now,
-                comment: 0,
-            });
+        for id in unheard {
+            next.heard.insert(id, Heard::at(now));
         }
         self.save(next)
     }
@@ -158,7 +164,10 @@ impl Runner {
     // for a while after.
     fn watch_threads(&mut self, now: Timestamp) {
         let threads = &mut self.threads.watching;
-        let open: Vec<_> = self.state.rulings.iter().filter_map(watch_of).collect();
+        let state = &self.state;
+        let open: Vec<_> = (state.rulings.iter())
+            .filter_map(|ruling| watch_of(state, ruling))
+            .collect();
         for (id, watch) in &open {
             threads.insert(*id, *watch);
         }
@@ -166,7 +175,9 @@ impl Runner {
             if open.iter().any(|(open, _)| open == id) {
                 return true;
             }
-            let until = *watch.settled.get_or_insert(Timestamp(now.0.saturating_add(LATE)));
+            let until = *watch
+                .settled
+                .get_or_insert(Timestamp(now.0.saturating_add(LATE)));
             now < until
         });
     }
@@ -185,9 +196,9 @@ impl Runner {
             return Ok(());
         }
         let mut next = self.state.clone();
-        for ruling in &mut next.rulings {
+        for ruling in &self.state.rulings {
             if let Some(watch) = self.threads.watching.get(&ruling.id) {
-                ruling.heard = Some(watch.heard);
+                next.heard.insert(ruling.id, watch.heard);
             }
         }
         self.save(next)
@@ -202,7 +213,9 @@ impl Runner {
         let aimed = match named {
             Some(id) if waiting.contains(&id) => Aimed::At(id),
             Some(id) => match self.threads.watching.get(&id) {
-                Some(Watch { settled: Some(_), .. }) => Aimed::Settled(id),
+                Some(Watch {
+                    settled: Some(_), ..
+                }) => Aimed::Settled(id),
                 Some(Watch { thread, .. }) => Aimed::Elsewhere(id, *thread),
                 None => Aimed::Nothing,
             },
@@ -210,7 +223,11 @@ impl Runner {
                 [id] => Aimed::At(*id),
                 [] => {
                     let settled = aimed.iter().find(|id| !open(id));
-                    let first = words.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+                    let first = words
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
                     match settled {
                         Some(&id) if ["yes", "no", "rework"].contains(&first.as_str()) => {
                             Aimed::Settled(id)
@@ -274,18 +291,33 @@ impl Runner {
     // Posts `text` on `thread` as the App, and notes why it could not.
     fn say(&mut self, thread: u64, text: &str) {
         if let Err(e) = self.ports.voice.comment(&self.remote, thread, text) {
-            self.notes
-                .push(format!("cannot reply on #{thread}: {e}"));
+            self.notes.push(format!("cannot reply on #{thread}: {e}"));
         }
     }
 }
 
 impl Reading {
+    // Keeps watching each ruling that `before` had and `after` has not,
+    // however it was answered, for a while.
+    pub(super) fn settled(&mut self, before: &ProjectState, after: &ProjectState, now: Timestamp) {
+        let until = Timestamp(now.0.saturating_add(LATE));
+        let gone = before
+            .rulings
+            .iter()
+            .filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
+        for (id, watch) in gone.filter_map(|ruling| watch_of(before, ruling)) {
+            let watch = self.watching.entry(id).or_insert(watch);
+            watch.settled.get_or_insert(until);
+        }
+    }
+
     // The watched rulings `comment` is new to: on their thread, and written
     // after the place read to.
     fn aimed_by(&self, comment: &ThreadComment) -> Vec<u64> {
         (self.watching.iter())
-            .filter(|(_, w)| w.thread == comment.thread && w.heard.before(comment.created, comment.id))
+            .filter(|(_, w)| {
+                w.thread == comment.thread && w.heard.before(comment.created, comment.id)
+            })
             .map(|(&id, _)| id)
             .collect()
     }
@@ -307,9 +339,9 @@ impl Reading {
 }
 
 // The thread a pending ruling is answered in, and the place read to there.
-fn watch_of(ruling: &Ruling) -> Option<(u64, Watch)> {
+fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(u64, Watch)> {
     let thread = ruling.pull_request.or(ruling.issue)?;
-    let heard = ruling.heard?;
+    let heard = *state.heard.get(&ruling.id)?;
     let settled = None;
     Some((
         ruling.id,

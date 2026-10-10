@@ -49,12 +49,17 @@ fn parse_comments(stdout: &[u8]) -> Result<Vec<ThreadComment>, ForgeError> {
         login: String,
         r#type: String,
     }
-    let pages: Vec<Vec<Comment>> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    let pages: Vec<Vec<Comment>> =
+        serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
     pages
         .into_iter()
         .flatten()
         .map(|comment| {
-            let thread = comment.issue_url.rsplit('/').next().and_then(|n| n.parse().ok());
+            let thread = comment
+                .issue_url
+                .rsplit('/')
+                .next()
+                .and_then(|n| n.parse().ok());
             let created = comment.created_at.parse::<jiff::Timestamp>().ok();
             let created = created.and_then(|at| u64::try_from(at.as_second()).ok());
             let (Some(thread), Some(created)) = (thread, created) else {
@@ -141,7 +146,10 @@ mod tests {
     fn an_answer_that_is_not_comments_is_unreadable() {
         for text in ["{}", "", r#"[[{"id": 1}]]"#] {
             assert!(
-                matches!(parse_comments(text.as_bytes()), Err(ForgeError::Unreadable(_))),
+                matches!(
+                    parse_comments(text.as_bytes()),
+                    Err(ForgeError::Unreadable(_))
+                ),
                 "{text}"
             );
         }
@@ -150,7 +158,12 @@ mod tests {
     #[test]
     fn only_admin_and_write_may_answer() {
         let said = |permission| format!(r#"{{"permission":"{permission}","role_name":"x"}}"#);
-        for (permission, may) in [("admin", true), ("write", true), ("read", false), ("none", false)] {
+        for (permission, may) in [
+            ("admin", true),
+            ("write", true),
+            ("read", false),
+            ("none", false),
+        ] {
             let text = said(permission);
             assert_eq!(parse_permission(text.as_bytes()), Ok(may), "{text}");
         }

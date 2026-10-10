@@ -50,6 +50,25 @@ fn a_comment_is_posted_on_its_thread_with_the_apps_token() {
 }
 
 #[test]
+fn a_comment_is_reacted_to_with_a_thumbs_up_as_the_app() {
+    let (voice, github, _home) = voiced();
+
+    voice.thumbs_up(&slug("shep-pm/koji"), 5001).unwrap();
+
+    assert_eq!(
+        writes(&github),
+        [(
+            "ghs_test1".to_owned(),
+            Call {
+                verb: Verb::Post,
+                path: "/repos/shep-pm/koji/issues/comments/5001/reactions".to_owned(),
+                body: Some(r#"{"content":"+1"}"#.to_owned()),
+            }
+        )]
+    );
+}
+
+#[test]
 fn an_issue_is_opened_with_its_labels_and_its_number_read_back() {
     let (voice, github, _home) = voiced();
 

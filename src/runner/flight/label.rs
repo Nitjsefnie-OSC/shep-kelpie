@@ -247,11 +247,8 @@ impl Runner {
             pull_request: None,
             kind,
             alerted: false,
-            heard: Some(Heard {
-                time: names.now,
-                comment: 0,
-            }),
         });
+        next.heard.insert(id, Heard::at(names.now));
         self.save(next)?;
         Ok(StepReport::Unlabelled {
             issue,

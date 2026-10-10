@@ -69,7 +69,9 @@ pub enum RuleError {
 impl fmt::Display for RuleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoSuchRuling(id) => write!(f, "no ruling {id} is pending"),
+            Self::NoSuchRuling(id) => {
+                write!(f, "ruling {id} is already answered, or was never raised")
+            }
             Self::WantsAnswer(id) => write!(
                 f,
                 "ruling {id} is the worker's question, so it takes an answer, not a yes or no"
@@ -418,11 +420,8 @@ pub(super) fn park(
         pull_request,
         kind,
         alerted: false,
-        heard: Some(Heard {
-            time: names.now,
-            comment: 0,
-        }),
     });
+    next.heard.insert(id, Heard::at(names.now));
     (id, text)
 }
 

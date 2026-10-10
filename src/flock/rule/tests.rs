@@ -13,7 +13,6 @@ fn yes_or_no(id: u64) -> Ruling {
         pull_request: Some(71),
         kind: RulingKind::from(Stuck::Closed),
         alerted: true,
-        heard: None,
     }
 }
 

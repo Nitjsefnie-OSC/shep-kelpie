@@ -88,7 +88,7 @@ fn nothing_merges_without_a_yes() {
         assert_eq!(step(&runner).unwrap(), None);
     }
     let refused = [
-        ("2 yes", "no ruling 2 is pending"),
+        ("2 yes", "ruling 2 is already answered, or was never raised"),
         (
             "1 no",
             "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 no\"",
@@ -258,7 +258,7 @@ fn ruling_ids_are_never_given_twice() {
     ));
     assert_eq!(
         rig.ask(&runner, "rule", Some("1 yes")),
-        json!({ "error": "no ruling 1 is pending" })
+        json!({ "error": "ruling 1 is already answered, or was never raised" })
     );
 }
 

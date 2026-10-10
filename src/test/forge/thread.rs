@@ -27,7 +27,11 @@ pub(crate) struct FakeThreads {
 impl FakeThreads {
     /// Gives `login` write access to the repo
     pub(crate) fn grant_write(&self, login: &str) {
-        self.threads.lock().unwrap().writers.insert(login.to_owned());
+        self.threads
+            .lock()
+            .unwrap()
+            .writers
+            .insert(login.to_owned());
     }
 
     /// `author` writes `body` on `thread` at `created`, and the comment's id

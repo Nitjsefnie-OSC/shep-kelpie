@@ -685,10 +685,15 @@ impl Runner {
         slots::seat(&self.state, &mut next, self.active_items());
         self.charge(&mut next);
         self.note_changes(&mut next);
+        // A ruling that is answered takes the place read to in its thread with it.
+        next.heard
+            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
         self.store.save(&next)?;
         if looks::board_moved(&self.state, &next) {
             self.looks.board_moved();
         }
+        self.threads
+            .settled(&self.state, &next, self.ports.clock.now());
         self.state = next;
         Ok(())
     }

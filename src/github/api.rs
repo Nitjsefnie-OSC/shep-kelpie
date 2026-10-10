@@ -180,7 +180,10 @@ impl Call {
     /// `POST /repos/{owner}/{repo}/issues/comments/{comment}/reactions`
     pub fn thumbs_up(repo: &ForgeSlug, comment: u64) -> Self {
         Self::post(
-            format!("/repos/{}/issues/comments/{comment}/reactions", repo.as_str()),
+            format!(
+                "/repos/{}/issues/comments/{comment}/reactions",
+                repo.as_str()
+            ),
             serde_json::json!({ "content": "+1" }),
         )
     }
