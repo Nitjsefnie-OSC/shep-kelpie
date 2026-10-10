@@ -68,7 +68,7 @@ So kelpie moves the control room's rules (gates, locks, rate windows) into code,
 
 ## Workers
 
-- A worker owns one work item and outlives its sessions. It builds inline, with no plan to follow and no crew: its instructions say to implement the issue itself, and every skill call's headless rules forbid sub-agents and the Agent and Task tools. A reset, by compact or by clear with a handoff, would keep the same worker; no step drives one yet.
+- A worker owns one work item and outlives its sessions. It builds inline, with no plan to follow and no crew: its instructions say to implement the issue itself, and every skill call's headless rules forbid sub-agents and the Agent and Task tools. A reset, by compact or by clear with a handoff, would keep the same worker. One step drives a reset now (shep-pm/shep-kelpie#426, the first of #71's "Resets within a work item"): before a turn the runner sends a worker after its first, if the session's last turn ended with its context past `WORKER_COMPACT_PAST` (150k tokens, set beside the project manager's `COMPACT_PAST`), the runner sends `/compact` first, recorded in the usage ledger as its own `compact` call with the issue and pull request. The turn stays due while it runs, and its prompt, once the compaction ends, opens with the issue and the pull request, since the summary may have lost them. A compaction that fails is told and let go, and the turn goes on in the session as it was. A clear with a handoff is still driven by no step.
 - Agents never see budget numbers. Budget talk makes models stop after every task. Budgets live in kelpie's code.
 - Model defaults, kept in kelpie's own agent files (shep-pm/shep-kelpie#313): implementers on Sonnet 5.5 at high effort, `sonnet-high`, the default a new project lists, and `opus-high`, Opus 5.5 at high, for work that is hard to undo. Measured, Sonnet 5.5 at high built as well as Opus 5.5 for less, `xhigh` was no better for more, and every plan or spec workflow was no better for more (Facts). An `agent:<name>` label runs that item on another implementer the project lists.
 - Workers start with `--setting-sources project` plus a settings file kelpie writes for each one. They get the project's CLAUDE.md and project skills, and none of the maintainer's hooks, plugins or skills. `local` was dropped on shep-pm/shep-kelpie#98: it adds only the worktree's `.claude/settings.local.json`, a file no repo commits and nothing kelpie runs needs, and it was the door the #55 review walked through. Kelpie's own guard goes into every worker's file (shep-pm/shep-kelpie#108), and the guard hooks the project settings name follow it. `worker.guard_hooks` is optional and the example leaves it empty, since its old entry was a file on the maintainer's machine and a beta tester's copy would fail every Bash call. A hook command that does not resolve (its program on `PATH` or at its path, and every absolute or `~/` path in it) stops the runner at start, naming it.
@@ -388,6 +388,7 @@ What was built and later changed or removed, one line each. Where a section abov
 - 2026-10-10: a work item whose issue is closed with no change finishes with no ruling, and an answered question starts the stopped-short count over (#385)
 - 2026-10-10: `finish` lets the open work items end, picks nothing new, then stops the runner's sheep (#303)
 - 2026-10-10: a trigger that only asks or flags no longer wakes the runner's loop, the board is read at most once a minute, a failing step waits longer each time, and a used-up rate limit holds every forge call until it resets (#394)
+- 2026-10-10: a worker's session is compacted before a runner-sent turn once its last turn ended past 150k tokens of context (#426)
 
 ## Lift list
 
@@ -864,6 +865,20 @@ Built for shep-pm/shep-kelpie#143. Before it, an upgrade was a sequence of hand 
 - gh says a used-up GraphQL limit as `GraphQL: API rate limit already exceeded for user ID <n>.`, read from the live runner's log on 2026-10-10, where every board read failed that way for as long as the limit stayed used up.
 - `gh api rate_limit` answers `{"resources": {"core": {...}, "graphql": {...}, ...}, "rate": {...}}`, each limit with `limit`, `used`, `remaining` and `reset` in seconds since the epoch; recorded 2026-10-10 as `fixtures/gh-api-rate-limit.json`. GitHub documents the endpoint as counting against no limit. The REST and secondary-limit texts kelpie also matches (`API rate limit exceeded`, `secondary rate limit`) are GitHub's documented messages, not recorded here.
 - During an upgrade on the maintainer's live project, a drain's 500ms poll of `drain` and `status` woke the runner's loop for a full pass each time, so the runner read GitHub about every two seconds instead of once a minute, and a merged item's failing cleanup was retried 408 times in 13 minutes (4454 times during the previous day's upgrade). The account's 5,000-an-hour GraphQL limit ran out, and every runner on it failed its board reads until the reset.
+
+### A worker's session grows past what its turns need
+
+From `usage.jsonl` on four shep-kelpie work items (2026-10-10, #426), in units. Every turn after the build resumes the worker's one session and rereads all of it, and nothing compacted it:
+
+| Issue | Build turn | Later worker turns | Context at the end |
+|---|---|---|---|
+| #397 | 4.49M | 5.75M (7 turns) | 486k |
+| #398 | 3.21M | 7.28M (6 turns, retro included) | 399k (475k peak) |
+| #361 | 3.24M | 2.55M (4 turns) | 356k |
+| #367 | 2.53M | 1.41M (4 turns) | 284k |
+
+- Cache reads were 75 to 80% of each session's units. One fix round on #398, for a ruling's note, cost 3.33M on its own, about what the whole build cost, and #398's worker read 76.8M cached tokens in six calls.
+- The project manager's `COMPACT_PAST` (100k) had already found compacting as it goes the cheapest shape with nothing lost. The worker's `WORKER_COMPACT_PAST` starts at 150k; whether that is the right mark is unmeasured, and the ledger's `compact` calls are what to measure it by.
 
 ### codebase-memory-mcp
 

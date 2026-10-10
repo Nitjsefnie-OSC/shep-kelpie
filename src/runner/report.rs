@@ -636,6 +636,24 @@ pub enum StepReport {
         /// Its session
         session: SessionId,
     },
+    /// A worker's session was compacted before its next turn, its context
+    /// past the mark
+    WorkerCompacted {
+        /// The work item's issue
+        issue: u64,
+        /// Its session
+        session: SessionId,
+        /// The tokens its context held before
+        context: Option<u64>,
+    },
+    /// A worker's session could not be compacted, so its next turn goes on
+    /// in the session as it was
+    WorkerCompactFailed {
+        /// The work item's issue
+        issue: u64,
+        /// Why
+        reason: String,
+    },
 }
 
 impl StepReport {
@@ -657,11 +675,13 @@ pub(super) enum Begin {
     Idle,
     Report(StepReport),
     /// A worker's turn, ended at `deadline` if it runs that long. `first`
-    /// is its work item's first, which has no session to keep.
+    /// is its work item's first, which has no session to keep. `compact`
+    /// is a `/compact` of its session, sent before the turn that waits.
     Call {
         call: AgentCall,
         deadline: Timestamp,
         first: bool,
+        compact: bool,
     },
     Review(ReviewCall),
     /// The retro turn of a work item that finished, before its worktree goes

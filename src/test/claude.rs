@@ -36,6 +36,9 @@ pub(crate) enum Scripted {
     /// Commits this file with this text on the worktree's branch, pushes
     /// it the way a worker does, and answers
     Push(&'static str, &'static str),
+    /// Pushes like [`Self::Push`], and answers with its session's context
+    /// this many tokens
+    PushAt(&'static str, &'static str, u64),
     /// Commits this file with this text on the worktree's branch, pushes
     /// nothing, and answers
     Commit(&'static str, &'static str),
@@ -330,6 +333,13 @@ impl Agents for FakeClaude {
             Some(Scripted::Push(file, text)) => {
                 push(&call.cwd, &[(file, text)], file);
                 Ok(said("pushed"))
+            }
+            Some(Scripted::PushAt(file, text, context)) => {
+                push(&call.cwd, &[(file, text)], file);
+                Ok(AgentReply {
+                    context: Some(context),
+                    ..said("pushed")
+                })
             }
             Some(Scripted::PushSay(file, text, say)) => {
                 push(&call.cwd, &[(file, text)], file);

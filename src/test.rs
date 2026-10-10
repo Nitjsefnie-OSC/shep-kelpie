@@ -101,6 +101,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         merge_refused: false,
         sent_back: false,
         asked_to_commit: false,
+        context: None,
         merge_tried: None,
         merge_queued: None,
         summon_owed: false,

@@ -106,6 +106,11 @@ impl Flights {
         self.flying.remove(&issue);
     }
 
+    /// Whether `issue`'s call in flight is a `/compact` of its worker's session
+    pub(super) fn runs_compact(&self, issue: u64) -> bool {
+        self.flying.get(&issue).is_some_and(|f| f.compact)
+    }
+
     /// Whether any work item has its retro in flight
     pub(super) fn retro_running(&self) -> bool {
         self.flying.values().any(|f| f.retro)
@@ -178,6 +183,8 @@ struct Flight {
     first: bool,
     // Whether it is a finished work item's retro, not a turn of its worker
     retro: bool,
+    // Whether it is a `/compact` of the worker's session, sent before a turn
+    compact: bool,
     // When the call began, past the lease it waited for
     began_at: Option<Timestamp>,
     // What the call last said it waits for, and since when
@@ -296,6 +303,7 @@ enum Launch {
         again: bool,
         first: bool,
         retro: bool,
+        compact: bool,
     },
     Review(ReviewCall),
 }
@@ -401,12 +409,14 @@ impl Runner {
                 call,
                 deadline,
                 first,
+                compact,
             } => Launch::Turn {
                 call,
                 deadline,
                 again: start_over.is_some(),
                 first,
                 retro: false,
+                compact,
             },
             Begin::Retro(call) => {
                 let now = self.ports.clock.now();
@@ -416,6 +426,7 @@ impl Runner {
                     again: false,
                     first: false,
                     retro: true,
+                    compact: false,
                 }
             }
             Begin::Review(action) => Launch::Review(action),
@@ -463,6 +474,7 @@ impl Runner {
             Launch::Review(_) => (None, false, false, None),
         };
         let retro = matches!(launch, Launch::Turn { retro: true, .. });
+        let compact = matches!(launch, Launch::Turn { compact: true, .. });
         let role = harness.map_or("reviewer", |_| "worker");
         let now = self.ports.clock.now();
         let watched = Watched {
@@ -475,10 +487,10 @@ impl Runner {
         };
         let draft = match &launch {
             Launch::Turn { call, .. } => {
-                let kind = if retro {
-                    CallKind::Retro
-                } else {
-                    CallKind::Turn
+                let kind = match (retro, compact) {
+                    (true, _) => CallKind::Retro,
+                    (false, true) => CallKind::Compact,
+                    (false, false) => CallKind::Turn,
                 };
                 Draft::of(call, &self.ledger_worker(issue), kind, now)
             }
@@ -531,6 +543,7 @@ impl Runner {
             watched,
             first,
             retro,
+            compact,
             began_at: None,
             told: None,
             fallback: waiting::Fallback::Stays,
@@ -720,6 +733,15 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
             }
             runner.retro_ended(issue, Err(AgentError::Setup("its call panicked".into())));
             Ok(None)
+        }
+        End::Turn(result) if runner.flights.runs_compact(issue) => {
+            let line = open.and_then(|open| runner.turn_line(&open, &result));
+            let unreported = result.is_err();
+            let ended = runner.on(Some(issue)).compact_ended(result);
+            if let (Some(line), Ok(_)) = (line, &ended) {
+                runner.append_call(line, unreported);
+            }
+            ended
         }
         End::Turn(result) => {
             let line = open.and_then(|open| runner.turn_line(&open, &result));
