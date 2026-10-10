@@ -286,7 +286,9 @@ fn rules(step: Step) -> String {
              body. One only the maintainer can make still ends your turn in a \
              `<kelpie-question>` block.\n\
              - Run no /code-review or other review of your own: kelpie reviews the pull \
-             request once you push.\n"
+             request once you push.\n\
+             - Run only the tests for what you changed. Where the skill says to run the \
+             full test suite, leave it to CI, which runs it on every push.\n"
         }
         Step::Triage | Step::Spec | Step::Reset => IN_REPLY,
         Step::Retro => {
