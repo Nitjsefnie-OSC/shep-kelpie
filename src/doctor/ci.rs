@@ -12,7 +12,8 @@ use crate::settings::Settings;
 
 /// The line for a project whose workflows all skip a draft pull request, or
 /// none where `ci.block` is off, the repo has no workflow that runs on a pull
-/// request, or one of them runs on a draft
+/// request, or one of them runs on a draft (a job without a draft condition,
+/// or a push trigger, runs it)
 pub(super) fn drafts(subject: String, settings: &Settings) -> Option<Line> {
     if !settings.ci.block {
         return None;
@@ -65,11 +66,53 @@ fn runs_on_pull_requests(text: &str) -> bool {
         .contains("pull_request")
 }
 
-// Whether a workflow carries a condition that is false on a draft, in the
-// forms GitHub's documentation shows.
+// Whether a workflow runs on a draft pull request's branch by another
+// trigger: a push runs it, whatever the draft conditions say, since a
+// condition on the pull request is empty there.
+fn runs_on_push(text: &str) -> bool {
+    let text = without_comments(text);
+    let triggers = text.split("\njobs:").next().unwrap_or("");
+    let words = triggers.split(|c: char| !(c.is_alphanumeric() || c == '_'));
+    words.into_iter().any(|word| word == "push")
+}
+
+// Whether every job of a workflow carries a condition that is false on a
+// draft, in the forms GitHub's documentation shows, and no push runs it.
 fn skips_drafts(text: &str) -> bool {
+    if runs_on_push(text) {
+        return false;
+    }
+    let jobs = jobs(&without_comments(text));
+    !jobs.is_empty() && jobs.iter().all(|job| has_draft_condition(job))
+}
+
+// The text of each job under the workflow's `jobs:` key: from its key, at
+// the indent of the first, to the next key at that indent.
+fn jobs(text: &str) -> Vec<String> {
+    let mut lines = text.lines().skip_while(|l| l.trim_end() != "jobs:");
+    lines.next();
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let mut jobs: Vec<String> = Vec::new();
+    let mut at = None;
+    for line in lines.filter(|l| !l.trim().is_empty()) {
+        let here = indent(line);
+        if here == 0 {
+            break;
+        }
+        if *at.get_or_insert(here) == here {
+            jobs.push(String::new());
+        }
+        if let Some(job) = jobs.last_mut() {
+            job.push_str(line);
+            job.push('\n');
+        }
+    }
+    jobs
+}
+
+fn has_draft_condition(text: &str) -> bool {
     const DRAFT: &str = "pull_request.draft";
-    without_comments(text).lines().any(|line| {
+    text.lines().any(|line| {
         let Some(at) = line.find(DRAFT) else {
             return false;
         };
@@ -132,8 +175,33 @@ mod tests {
             "on: pull_request\n# if: github.event.pull_request.draft == false\n"
         ));
         assert!(!skips_drafts(
-            "if: github.event.pull_request.draft == true\n"
+            "on: pull_request\njobs:\n  t:\n    if: github.event.pull_request.draft == true\n"
         ));
+    }
+
+    #[test]
+    fn a_workflow_skips_drafts_only_if_every_job_does() {
+        let job = |name: &str, condition: &str| {
+            format!("  {name}:\n{condition}    runs-on: ubuntu-latest\n")
+        };
+        let skip = "    if: github.event.pull_request.draft == false\n";
+        let head = "on:\n  pull_request:\njobs:\n";
+        let both = format!("{head}{}{}", job("a", skip), job("b", skip));
+        let one = format!("{head}{}{}", job("a", skip), job("b", ""));
+        assert!(skips_drafts(&both));
+        assert!(!skips_drafts(&one), "the job with no condition runs");
+    }
+
+    #[test]
+    fn a_workflow_that_a_push_runs_runs_on_a_drafts_branch() {
+        for on in [
+            "on: [push, pull_request]\n",
+            "on:\n  push:\n  pull_request:\n",
+        ] {
+            let text =
+                format!("{on}jobs:\n  t:\n    if: github.event.pull_request.draft == false\n");
+            assert!(!skips_drafts(&text), "{on}");
+        }
     }
 
     #[test]

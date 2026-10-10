@@ -13,7 +13,7 @@ use super::super::Runner;
 use super::super::gate::settled;
 use super::super::report::Begin;
 use crate::ports::{Checks, PullRequestState};
-use crate::state::StateError;
+use crate::state::{StateError, Stuck};
 use crate::work_item::{Awaited, Phase, Review};
 
 impl Runner {
@@ -38,7 +38,8 @@ impl Runner {
             return Ok(None);
         }
         let item = self.current().expect("a round is a work item's");
-        let number = item.pull_request.expect("review runs on a pull request");
+        let (issue, number) = (item.issue, item.pull_request);
+        let number = number.expect("review runs on a pull request");
         let pr = match self.ports.forge.pull_request(&self.remote, number) {
             Ok(pr) => pr,
             Err(e) => {
@@ -47,9 +48,16 @@ impl Runner {
                 ));
             }
         };
-        // A pull request merged or closed by hand is the gate's to end.
-        if pr.state != PullRequestState::Open {
-            return Ok(None);
+        // A pull request merged or closed by hand ends as the gate ends it,
+        // and no reviewer reads it.
+        match pr.state {
+            PullRequestState::Open => {}
+            PullRequestState::Merged => {
+                return self.merged(issue, number, pr.head, false).map(Some);
+            }
+            PullRequestState::Closed => {
+                return self.raise(number, Stuck::Closed.into()).map(Some);
+            }
         }
         // The forge lags a push by a moment, and its checks are of its head.
         if pr.head != head {

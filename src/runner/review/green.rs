@@ -251,6 +251,36 @@ fn with_ci_block_off_the_review_starts_at_once() {
     assert_eq!(reads(&rig), 1, "no run was waited for");
 }
 
+#[test]
+fn a_pull_request_merged_by_hand_while_the_review_waits_is_read_by_no_one() {
+    let (rig, runner, _) = pushed();
+    rig.forge
+        .set_state(71, crate::ports::PullRequestState::Merged);
+
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Finished { merged: true, .. })),
+        "{report:?}"
+    );
+    assert_eq!(reads(&rig), 0);
+}
+
+#[test]
+fn a_pull_request_closed_by_hand_while_the_review_waits_is_read_by_no_one() {
+    let (rig, runner, _) = pushed();
+    rig.forge
+        .set_state(71, crate::ports::PullRequestState::Closed);
+
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+    assert_eq!(reads(&rig), 0);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["kind"]["reason"], "closed");
+}
+
 // CodeRabbit alone is listed, and its summon spends a window that is scarce.
 fn bot_pushed() -> (Rig, Mutex<Runner>, String) {
     let rig = Rig::new("shep");
