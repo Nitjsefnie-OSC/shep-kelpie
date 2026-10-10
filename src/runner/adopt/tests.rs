@@ -45,6 +45,7 @@ fn file_5(rig: &Rig) -> PathBuf {
 #[test]
 fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     let rig = Rig::new("shep");
+    rig.ci_on();
     let head = opened_80(&rig);
     let runner = running(&rig);
     let status = rig.ask(&runner, "adopt", Some("80"));
@@ -479,6 +480,7 @@ fn foreign_ruling(rig: &Rig, runner: &Mutex<Runner>, pushed: &str) {
 #[test]
 fn a_push_by_the_branchs_owner_during_the_workers_turn_is_not_the_workers() {
     let rig = Rig::new("koji");
+    rig.ci_on();
     let runner = running(&rig);
     red_80(&rig, &runner);
     let hold = Hold::default();
@@ -500,6 +502,7 @@ fn a_push_by_the_branchs_owner_during_the_workers_turn_is_not_the_workers() {
 #[test]
 fn a_push_by_the_branchs_owner_before_the_workers_turn_parks_it_with_no_turn() {
     let rig = Rig::new("rotom");
+    rig.ci_on();
     let runner = running(&rig);
     red_80(&rig, &runner);
     let pushed = rig.push_by_hand("fix/timeline", "owner.txt");

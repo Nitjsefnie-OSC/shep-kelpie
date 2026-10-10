@@ -237,14 +237,17 @@ pub(super) fn eight_reaches_ci(rig: &Rig, runner: &Mutex<Runner>) -> String {
         Scripted::Push("eight.txt", "eight\n"),
         Scripted::Text("CLEAN"),
     ]);
-    for _ in 0..3 {
-        assert_eq!(
-            issue_of(step(runner).unwrap()),
-            8,
-            "a turn, then its review"
-        );
+    assert_eq!(issue_of(step(runner).unwrap()), 8, "a turn");
+    // Its review reads the head once its run is green.
+    let eight = rig.forge.head_of("kelpie/8").unwrap();
+    rig.forge.set_checks(&eight, Checks::Passed);
+    assert_eq!(step(runner).unwrap(), None, "its run is waited for");
+    rig.clock.advance(crate::runner::CHECKS_SETTLE);
+    for _ in 0..2 {
+        assert_eq!(issue_of(step(runner).unwrap()), 8, "its review");
     }
-    rig.forge.head_of("kelpie/8").unwrap()
+    rig.forge.set_checks(&eight, Checks::Pending);
+    eight
 }
 
 #[test]

@@ -208,14 +208,14 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     );
 
     let pushed = rig.forge.head_of("kelpie/7").unwrap();
-    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    rig.forge.set_checks(&pushed, Checks::Passed);
+    rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(
         step(&runner).unwrap(),
         None,
-        "CI on the new head is pending"
+        "the new head's run has not settled"
     );
-    rig.forge.set_checks(&pushed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling { id: 2, .. })
@@ -248,10 +248,10 @@ fn ruling_ids_are_never_given_twice() {
         Scripted::Text("CLEAN"),
     ]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
-    step(&runner).unwrap(); // review round 1, qwen: clean by default
-    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     let head = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&head, Checks::Passed);
+    rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
+    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert!(matches!(
         rig.verdict(&runner),
         Some(StepReport::Ruling { id: 2, .. })
@@ -297,9 +297,9 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     let parent = crate::test::git(&rig.worktree_7(), &["rev-parse", "HEAD^"]);
     assert_eq!(parent, by_hand);
 
-    step(&runner).unwrap(); // review round 1, qwen: clean by default
-    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     rig.forge.set_checks(&pushed, Checks::Passed);
+    rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
+    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     let Some(StepReport::Ruling {
         id: 2, question, ..
     }) = rig.verdict(&runner)

@@ -43,11 +43,7 @@ fn a_bot_the_list_drops_mid_round_is_never_summoned_again() {
             crate::test::RIG_REVIEWERS,
         )
     });
-    runner
-        .lock()
-        .unwrap()
-        .reread(rig.settings(), rig.kelpie_settings())
-        .unwrap();
+    rig.ci_on_now(&runner);
     assert_eq!(
         step(&runner).unwrap(),
         skipped("the project no longer lists it")

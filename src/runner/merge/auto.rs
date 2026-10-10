@@ -551,6 +551,7 @@ fn a_yes_that_vouches_for_a_new_head_sends_it_back_through_every_gate() {
         rig.threads_read(&runner),
         Some(StepReport::BotReviewed { .. })
     ));
+    rig.ci_on_now(&runner);
     rig.forge
         .set_checks(&head, Checks::Failed(vec!["lint".into()]));
     assert!(matches!(
@@ -570,9 +571,9 @@ fn a_yes_that_vouches_for_a_new_head_sends_it_back_through_every_gate() {
     assert_eq!(status["work_item"]["phase"]["state"], "review");
 
     rig.claude.script([Scripted::Text("CLEAN")]);
-    step(&runner).unwrap(); // review round 1, qwen: clean by default
-    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     rig.forge.set_checks(&fixed, Checks::Passed);
+    rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
+    step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned {
@@ -635,7 +636,7 @@ fn a_head_a_yes_under_ask_left_unknown_is_gated_again_after_a_switch_to_auto() {
 
     let reviewed = rig.reviewer.seen().len();
     rig.claude.script([Scripted::Text("CLEAN")]);
-    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(rig.reviewer.seen().len(), reviewed + 1);
     assert!(matches!(

@@ -8,6 +8,8 @@ Kelpie's flow grew ahead of the evidence: a planning call, a review loop that al
 - A fixer's "fixed" was wrong for one bug in four.
 - qwen found 1 of 52 at 8% precision. No pull request bot showed a measured gain.
 
+ADR 0008 amends the order below: no reviewer reads a head until CI has passed on it, so "whatever the last fix leaves" waits for green before the next reviewer, and a red run is the worker's fix turn first.
+
 So the flow is: the issue says what done means, one agent builds it inline, and a list of reviewers each read it once, in order, each followed by one fix turn. Whatever the last fix leaves is what goes to CI and the merge. There is no loop and no judge. Where a reviewer leaves a failing test, kelpie runs it before and after the fix and reports both, in place of a session that asks whether the fix worked.
 
 An agent is a definition file, like Claude Code's own agents: harness, model, effort, prompt, tools and what it is for. Kelpie embeds its defaults at compile time and `add` writes them out, so the maintainer edits a file rather than a settings table. A project names its implementers and its reviewers in order. A pull request bot is a reviewer on a bot harness, off by default.

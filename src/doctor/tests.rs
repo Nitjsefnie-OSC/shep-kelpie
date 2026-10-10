@@ -608,6 +608,26 @@ async fn a_checkout_that_moved_is_missing_and_fails_the_run() {
 }
 
 #[tokio::test]
+async fn ci_that_skips_drafts_is_missing_where_ci_blocks_and_not_where_it_does_not() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["ci"]["block"] = json!(false);
+    });
+    let workflow = "on: pull_request\njobs:\n  test:\n    \
+                    if: github.event.pull_request.draft == false\n";
+    for project in ["koji", "golbat"] {
+        let folder = scene.home.join(project).join(".github/workflows");
+        crate::test::write_in(&folder, "ci.yml", workflow);
+    }
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "koji: ci on drafts");
+    assert!(what.contains("skips a draft (`ci.yml`)"), "{what}");
+    assert!(fix.contains("set `ci.block` to false"), "{fix}");
+    assert!(!report.passed());
+    assert!(!subjects(&report).contains(&"golbat: ci on drafts"));
+}
+
+#[tokio::test]
 async fn a_repo_that_cannot_be_named_skips_only_the_forge_lines() {
     let scene = Scene::new().await;
     scene.runs("golbat", |t| {

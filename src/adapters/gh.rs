@@ -395,6 +395,7 @@ enum Check {
 enum Outcome {
     Pending,
     Passed,
+    Skipped,
     Failed,
 }
 
@@ -407,7 +408,8 @@ impl Check {
                 conclusion,
             } => {
                 let outcome = match (status.as_deref(), conclusion.as_deref()) {
-                    (Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL" | "SKIPPED")) => Outcome::Passed,
+                    (Some("COMPLETED"), Some("SKIPPED")) => Outcome::Skipped,
+                    (Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL")) => Outcome::Passed,
                     (Some("COMPLETED"), _) => Outcome::Failed,
                     _ => Outcome::Pending,
                 };
@@ -431,15 +433,17 @@ fn checks(rollup: &[Check]) -> Checks {
         return Checks::None;
     }
     let mut failed = Vec::new();
+    let mut ran = false;
     for check in rollup {
         match check.outcome() {
             (_, Outcome::Pending) => return Checks::Pending,
             (name, Outcome::Failed) => failed.push(name.to_owned()),
-            (_, Outcome::Passed) => {}
+            (_, Outcome::Passed) => ran = true,
+            (_, Outcome::Skipped) => {}
         }
     }
     if failed.is_empty() {
-        Checks::Passed
+        if ran { Checks::Passed } else { Checks::Skipped }
     } else {
         Checks::Failed(failed)
     }
@@ -612,6 +616,14 @@ mod tests {
                 Checks::Failed(vec!["lint".into()])
             )
         );
+    }
+
+    #[test]
+    fn skipped_runs_pass_beside_a_run_that_ran_and_are_skipped_alone() {
+        let skipped = r#"{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"}"#;
+        let passed = r#"{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"}"#;
+        assert_eq!(rollup(&format!("[{skipped},{skipped}]")), Checks::Skipped);
+        assert_eq!(rollup(&format!("[{skipped},{passed}]")), Checks::Passed);
     }
 
     #[test]

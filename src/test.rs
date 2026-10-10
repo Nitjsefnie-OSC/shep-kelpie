@@ -349,6 +349,10 @@ impl Rig {
         // A retro is one more call at every work item's end, so most tests
         // leave it off and a test of the retro turns it on with [`Rig::retro_on`].
         let settings = format!("{settings}{NO_RETRO}");
+        // No reviewer reads a head before CI has passed on it, and a run has
+        // two minutes to register, so most tests run the project without CI
+        // and a test of the gate turns it on with [`Rig::ci_on`].
+        let settings = settings.replace("block = true", "block = false");
         let paths = rig.paths();
         std::fs::create_dir_all(&paths.folder).unwrap();
         std::fs::write(rig.settings_file(), settings).unwrap();
@@ -539,6 +543,18 @@ impl Rig {
         });
     }
 
+    /// Has the project block on CI, read when a runner next opens
+    pub(crate) fn ci_on(&self) {
+        self.edit_settings(|s| s.replace("block = false", "block = true"));
+    }
+
+    /// [`Rig::ci_on`] for a runner already open, which reads its settings again
+    pub(crate) fn ci_on_now(&self, runner: &Mutex<Runner>) {
+        self.ci_on();
+        let (settings, kelpie) = (self.settings(), self.kelpie_settings());
+        runner.lock().unwrap().reread(settings, kelpie).unwrap();
+    }
+
     /// Lets the project run its retro, read when a runner next opens
     pub(crate) fn retro_on(&self) {
         self.edit_settings(|s| {
@@ -701,6 +717,8 @@ impl Rig {
         step(&runner).unwrap(); // review round 1, qwen: clean by default
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
         let head = rig.forge.head_of("kelpie/7").expect("the worker pushed");
+        // The gate begins here, so CI blocks from now on.
+        rig.ci_on_now(&runner);
         (rig, runner, head)
     }
 
