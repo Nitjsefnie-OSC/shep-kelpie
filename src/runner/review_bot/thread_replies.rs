@@ -68,6 +68,33 @@ fn a_thread_the_workers_reply_leaves_out_is_replied_to_as_not_addressed_and_stay
     );
 }
 
+// A reply the parser cannot read says nothing of any thread, so each is
+// replied to as not addressed and none is resolved, whatever it pushed.
+#[test]
+fn a_reply_the_parser_cannot_read_leaves_every_thread_open_as_not_addressed() {
+    let (rig, runner, _) = sent(&[FINDING, NIT]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "All fixed!\nThread one: done\nthreads 1 and 2 are fixed\n**1.** fixed\nthread 2 - fixed",
+    )]);
+    step(&runner).unwrap(); // the worker's fix turn
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+    let not_addressed =
+        "Not addressed: the worker's reply did not mention this thread, so it stays open.";
+    assert_eq!(
+        rig.forge.coderabbit.replies(),
+        [
+            (THREAD.to_owned(), not_addressed.to_owned()),
+            ("PRRT_cubic_71_1".to_owned(), not_addressed.to_owned()),
+        ]
+    );
+    assert_eq!(rig.forge.coderabbit.resolved(), Vec::<String>::new());
+}
+
 // ADR 0007: a fix turn sent only nits may decline them all and push nothing.
 #[test]
 fn a_nit_fix_that_pushes_nothing_gets_the_same_replies() {
