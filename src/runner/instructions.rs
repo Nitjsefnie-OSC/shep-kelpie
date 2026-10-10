@@ -199,10 +199,11 @@ mod tests {
             "{rules}"
         );
         assert!(rules.contains("Run no /code-review"), "{rules}");
+        assert!(rules.contains("leave it to CI"), "{rules}");
     }
 
     #[test]
-    fn the_worker_is_told_to_run_its_tests_under_the_lease_with_kelpie_itself() {
+    fn the_worker_is_told_to_run_its_own_tests_under_the_lease_and_leave_the_suite_to_ci() {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
@@ -211,6 +212,7 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("{kelpie}"), "{text}");
+        assert!(text.contains("leave the whole suite to CI"), "{text}");
     }
 
     #[test]
