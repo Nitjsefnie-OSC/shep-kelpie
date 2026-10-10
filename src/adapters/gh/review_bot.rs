@@ -24,6 +24,10 @@ const REACTIONS: &str = "query($owner: String!, $name: String!, $number: Int!) {
 const RESOLVE: &str = "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) \
     { thread { isResolved } } }";
 
+const REPLY: &str = "mutation($id: ID!, $body: String!) { \
+    addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $body}) \
+    { comment { id } } }";
+
 pub(super) fn activity(
     repo: &ForgeSlug,
     number: u64,
@@ -143,6 +147,24 @@ pub(super) fn resolve(thread: &str) -> Result<(), ForgeError> {
         Ok(())
     } else {
         Err(unreadable(&resolved))
+    }
+}
+
+// GitHub answers a thread it no longer has with a not-found error, which
+// leaves nothing to reply to.
+pub(super) fn reply(thread: &str, body: &str) -> Result<(), ForgeError> {
+    match gh(&[
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={REPLY}"),
+        "-f",
+        &format!("id={thread}"),
+        "-f",
+        &format!("body={body}"),
+    ]) {
+        Err(e) if gone(&e) => Ok(()),
+        reply => reply.map(drop),
     }
 }
 

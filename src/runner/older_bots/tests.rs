@@ -129,9 +129,9 @@ fn an_item_a_bot_read_or_a_project_with_no_bot_goes_on_to_its_merge() {
     );
 }
 
-// The cap held the threads it sent: a yes sends them for a fix that resolves them.
+// The cap held the threads it sent: a yes sends them for a fix.
 #[test]
-fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_resolves_them() {
+fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_leaves_them_open() {
     let (rig, runner, head) = summoned("shep");
     hold_a_finding(&rig, &runner, &head, "Name the flag.");
     let runner = as_version_3(&rig, runner, |saved| {
@@ -161,7 +161,12 @@ fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_resolves_th
         step(&runner).unwrap(),
         Some(StepReport::FixPushed { .. })
     ));
-    assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0"]);
+    // The old ruling's prompt asks for no line per thread, so the fix is not
+    // taken as the worker's word on the thread: it is replied to and left open.
+    assert_eq!(rig.forge.coderabbit.resolved(), Vec::<String>::new());
+    let replies = rig.forge.coderabbit.replies();
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert!(replies[0].1.starts_with("Not addressed:"), "{replies:?}");
 }
 
 // An adoption's owed summon from an older file is owed by each listed bot.

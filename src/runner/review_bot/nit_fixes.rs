@@ -43,8 +43,11 @@ fn a_bot_that_reviews_every_push_cannot_loop_on_nits() {
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent { held: 1, .. })
     ));
-    rig.claude
-        .script([Scripted::Push("shorter.txt", "shorter\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "shorter.txt",
+        "shorter\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the worker's fix turn
     assert!(matches!(
         step(&runner).unwrap(),

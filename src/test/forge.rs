@@ -867,6 +867,16 @@ impl Forge for FakeForge {
         self.coderabbit.resolve(thread)
     }
 
+    fn reply_to_thread(
+        &self,
+        _repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.coderabbit.reply(thread, body)
+    }
+
     // Refuses what GitHub refuses: a draft, a pull request that is not open,
     // and a head that moved since the caller looked.
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {

@@ -162,6 +162,16 @@ impl Forge for Guarded {
         self.forge.resolve_thread(repo, thread)
     }
 
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check("the reply", body)?;
+        self.forge.reply_to_thread(repo, thread, body)
+    }
+
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.forge.merge(repo, number, head)
     }

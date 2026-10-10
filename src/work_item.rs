@@ -19,6 +19,7 @@ mod review;
 mod seat;
 mod spend;
 mod tally;
+mod threads;
 mod timings;
 
 pub use bots::BotSkipped;
@@ -28,6 +29,7 @@ pub use review::{Review, ReviewStage};
 pub use seat::Seat;
 pub use spend::{QwenTally, RoleSpend, Spend};
 pub use tally::{Counts, RoleTally, Tally};
+pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
 
 /// The work item in flight
@@ -137,11 +139,16 @@ pub struct WorkItem {
     /// The listed review bots this pass went on without, and why
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bots_skipped: Vec<BotSkipped>,
-    /// The forge's ids of the review bot threads sent to the worker, which
-    /// kelpie resolves once its fix moves the head
+    /// The forge's ids of the review bot threads sent to the worker, in the
+    /// order its findings file lists them, which kelpie replies on once the
+    /// fix turn ends, and resolves when the worker fixed them
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub threads_sent: Vec<String>,
-    /// Steps in a row that could not resolve `threads_sent`
+    /// What the worker's reply said of `threads_sent`, which kelpie replies
+    /// with: a thread it did not mention has none
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread_answers: Vec<ThreadAnswer>,
+    /// Steps in a row that could not answer `threads_sent`
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resolve_failures: u32,
     /// The reviewers whose calls failed so often in a row that a pass went
@@ -447,6 +454,7 @@ impl WorkItem {
     /// this round will resolve now
     pub fn forget_threads(&mut self) {
         self.threads_sent.clear();
+        self.thread_answers.clear();
         self.resolve_failures = 0;
     }
 
