@@ -171,7 +171,7 @@ impl Runner {
         // that, anything but green withdraws the yes.
         let green = match pr.checks {
             _ if !ci => true,
-            Checks::Passed => true,
+            Checks::Passed | Checks::Skipped => true,
             Checks::None | Checks::Pending if readied.is_some() => false,
             Checks::None | Checks::Pending | Checks::Failed(_) => {
                 let reason = format!("CI on #{number} is no longer green");

@@ -76,11 +76,56 @@ fn runs_on_push(text: &str) -> bool {
     words.into_iter().any(|word| word == "push")
 }
 
-// Whether every job of a workflow carries a condition that is false on a
-// draft, in the forms GitHub's documentation shows, and no push runs it.
+// Whether the pull request event is limited to types that never fire on a
+// draft: a `types` list under `pull_request` with none of the types a push to a
+// draft raises (`opened`, `synchronize`, `reopened`), such as
+// `[ready_for_review]`. The list is read inline or as a block of `- type` lines.
+fn trigger_skips_drafts(text: &str) -> bool {
+    let text = without_comments(text);
+    let triggers = text.split("\njobs:").next().unwrap_or("");
+    let lines: Vec<&str> = triggers.lines().collect();
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let Some(at) = lines.iter().position(|l| l.trim() == "pull_request:") else {
+        return false;
+    };
+    let base = indent(lines[at]);
+    let block = lines[at + 1..]
+        .iter()
+        .take_while(|l| l.trim().is_empty() || indent(l) > base);
+    let mut types = Vec::new();
+    let mut listing = false;
+    for line in block {
+        let trimmed = line.trim();
+        if let Some(inline) = trimmed.strip_prefix("types:") {
+            listing = inline.trim().is_empty();
+            types.extend(words(inline));
+        } else if listing && trimmed.starts_with('-') {
+            types.extend(words(trimmed));
+        } else if !trimmed.is_empty() {
+            listing = false;
+        }
+    }
+    let fires_on_a_draft = ["opened", "synchronize", "reopened"];
+    !types.is_empty() && !types.iter().any(|t| fires_on_a_draft.contains(&t.as_str()))
+}
+
+fn words(text: &str) -> Vec<String> {
+    let word = |c: char| !(c.is_alphanumeric() || c == '_');
+    text.split(word)
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+// Whether a workflow does not run on a draft: its trigger never fires on one,
+// or every job carries a condition that is false on a draft, in the forms
+// GitHub's documentation shows. A push runs it whatever either says.
 fn skips_drafts(text: &str) -> bool {
     if runs_on_push(text) {
         return false;
+    }
+    if trigger_skips_drafts(text) {
+        return true;
     }
     let jobs = jobs(&without_comments(text));
     !jobs.is_empty() && jobs.iter().all(|job| has_draft_condition(job))
@@ -190,6 +235,26 @@ mod tests {
         let one = format!("{head}{}{}", job("a", skip), job("b", ""));
         assert!(skips_drafts(&both));
         assert!(!skips_drafts(&one), "the job with no condition runs");
+    }
+
+    #[test]
+    fn a_pull_request_trigger_that_never_fires_on_a_draft_skips_it() {
+        let job = "jobs:\n  t:\n    runs-on: ubuntu-latest\n";
+        for types in [
+            "    types: [ready_for_review]\n",
+            "    types:\n      - ready_for_review\n      - labeled\n",
+        ] {
+            let text = format!("on:\n  pull_request:\n{types}{job}");
+            assert!(skips_drafts(&text), "{types}");
+        }
+        for types in [
+            "    types: [opened, ready_for_review]\n",
+            "    types:\n      - synchronize\n",
+            "    branches: [main]\n",
+        ] {
+            let text = format!("on:\n  pull_request:\n{types}{job}");
+            assert!(!skips_drafts(&text), "{types}");
+        }
     }
 
     #[test]

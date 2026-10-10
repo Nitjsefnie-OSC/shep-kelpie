@@ -252,6 +252,48 @@ fn with_ci_block_off_the_review_starts_at_once() {
 }
 
 #[test]
+fn a_draft_whose_every_check_was_skipped_is_not_green() {
+    let (rig, runner, head) = pushed();
+    rig.forge.set_checks(&head, Checks::Skipped);
+
+    rig.verdict(&runner);
+    rig.clock.advance(CHECKS_SETTLE);
+    assert_eq!(step(&runner).unwrap(), None, "nothing ran on the draft");
+    assert_eq!(reads(&rig), 0);
+
+    // Once it is ready, a skipped rollup is the repo's own choice not to run.
+    rig.forge.ready_pull_request(71);
+    assert!(step(&runner).unwrap().is_some());
+    assert_eq!(reads(&rig), 1);
+}
+
+#[test]
+fn a_question_in_the_ci_fix_turn_goes_back_to_the_round_that_waited() {
+    let (rig, runner, head) = pushed();
+    let fixed = fixed(&rig, &runner, &head, Severity::High);
+    red(&rig, &fixed);
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::CiFailed { .. })
+    ));
+    rig.claude.script([Scripted::Say(
+        "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
+    )]);
+    let asked = step(&runner).unwrap();
+    assert!(matches!(asked, Some(StepReport::Asked { .. })), "{asked:?}");
+
+    rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
+    rig.claude
+        .script([Scripted::Push("answer.txt", "answered\n")]);
+    step(&runner).unwrap(); // the answered turn pushes
+    let status = rig.ask(&runner, "status", None);
+    let phase = &status["work_item"]["phase"];
+    assert_eq!(phase["state"], "review");
+    assert_eq!(phase["ran"], serde_json::json!(["qwen"]), "{phase}");
+    assert_eq!(phase["round"], 2, "the pass goes on, not from the top");
+}
+
+#[test]
 fn a_pull_request_merged_by_hand_while_the_review_waits_is_read_by_no_one() {
     let (rig, runner, _) = pushed();
     rig.forge

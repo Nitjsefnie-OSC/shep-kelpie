@@ -111,7 +111,7 @@ impl Runner {
         }
         match pr.checks {
             Checks::None | Checks::Pending => Ok(Begin::Idle),
-            Checks::Passed => self.passed(number, pr.head),
+            Checks::Passed | Checks::Skipped => self.passed(number, pr.head),
             Checks::Failed(checks) => self.ci_failed(number, pr.head, checks, None),
         }
     }

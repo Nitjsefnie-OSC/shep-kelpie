@@ -75,7 +75,11 @@ impl Runner {
         let verdict = match pr.checks {
             _ if !settled(since, now) => None,
             Checks::None | Checks::Pending => None,
-            Checks::Passed => {
+            // Nothing ran on a draft whose jobs all skip it, and the real
+            // run starts only once it is marked ready, which a bot's round
+            // does after this wait: so a draft waits, and doctor says why.
+            Checks::Skipped if pr.draft => None,
+            Checks::Passed | Checks::Skipped => {
                 ci.green = true;
                 Some(Ok(()))
             }
