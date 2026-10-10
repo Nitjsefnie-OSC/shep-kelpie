@@ -16,8 +16,8 @@ use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    ForgeError, ForgeHold, Guarded, GuardedVoice, Leased, Ports, RateHeld, Say, SessionId,
-    Timestamp, Visibility,
+    ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld, Say,
+    SessionId, Timestamp, Visibility,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -373,6 +373,8 @@ impl Runner {
         }
         let totp = replies::authenticator(webhook.as_ref(), &paths.totp)?;
         let remote = check_checkout(&settings)?;
+        let voice = Arc::clone(&ports.voice);
+        ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
         let env_home = std::env::var_os("HOME").map(PathBuf::from);
         guard_hooks::check(
