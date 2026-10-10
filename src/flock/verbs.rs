@@ -170,10 +170,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         }
         ("tell", [_, ..]) => {
             let project = project().await?;
-            control::send(&client, &project, "tell", Some(&args.join(" "))).await?;
-            Ok(vec![format!(
-                "told {project}'s project manager, which reads it on its next wake"
-            )])
+            control::tell(&client, &project, &args.join(" ")).await
         }
         ("pm", []) => pm::pm(&client, &project().await?).await,
         ("issue", [_, ..]) => {

@@ -483,6 +483,38 @@ pub async fn send(
     }
 }
 
+/// Hands `project`'s project manager `note` for its next wake
+///
+/// A runner busy mid-step can take the note and not answer in time. The
+/// shepherd delivered it then, so that is no failure to retry: telling again
+/// would wake the project manager a second time for one note.
+///
+/// # Errors
+///
+/// A message when the project has no kelpie runner, it is not running, or
+/// it refused the note, with its reason.
+pub async fn tell(
+    client: &Client,
+    project: &ProjectName,
+    note: &str,
+) -> Result<Vec<String>, String> {
+    kelpie_runner(client, &flock(client).await?, project).await?;
+    let runner = project.as_str();
+    match trigger(client, runner, "tell", Some(note)).await? {
+        Answered::Runner(body) => match refusal(&body) {
+            Some(why) => Err(why),
+            None => Ok(vec![format!(
+                "told {project}'s project manager, which reads it on its next wake"
+            )]),
+        },
+        Answered::TimedOut => Ok(vec![format!(
+            "told {project}'s project manager, though {runner}'s runner did not answer in time: \
+             the note was delivered, so do not tell it again"
+        )]),
+        other => Err(unanswered(runner, other)),
+    }
+}
+
 // Why `runner` gave no answer of its own.
 fn unanswered(runner: &str, answered: Answered) -> String {
     match answered {
