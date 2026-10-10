@@ -292,7 +292,9 @@ private key stays in kelpie's home, and kelpie acts as the App with an
 installation token minted from it, one per repo. Kelpie's rulings, notices
 and review rounds are posted as the App, and the issues and labels it makes.
 Merging, a review bot's summons and a pull request's labels stay on the
-maintainer's own `gh` login.
+maintainer's own `gh` login. On a repo it covers, a **worker** holds a token
+of the App's too, for that repo alone and able to push and nothing more,
+never the maintainer's login.
 _Avoid_: bot account, kelpie's account
 
 **Pacing**:

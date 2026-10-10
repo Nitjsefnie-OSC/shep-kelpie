@@ -72,6 +72,7 @@ mod pace;
 mod parent;
 mod paths;
 mod pm;
+mod pull_request_file;
 mod question;
 mod replies;
 mod report;

@@ -4,6 +4,7 @@
 //! GitHub. The answers' JSON is read here, from the shapes GitHub's REST
 //! documentation gives for each call.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
@@ -60,6 +61,8 @@ pub struct IssuedToken {
     pub token: InstallationToken,
     /// When it stops working
     pub expires_at: Timestamp,
+    /// What GitHub says it holds, such as `contents` to `write`
+    pub permissions: BTreeMap<String, String>,
 }
 
 /// Why a call to GitHub came to nothing
@@ -123,8 +126,10 @@ pub trait GithubApi: Send + Sync {
     /// [`ApiError`] when GitHub cannot be reached or refuses the App's `jwt`.
     fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<u64>, ApiError>;
 
-    /// A new token for `installation` that reaches `repo` alone,
-    /// `POST /app/installations/{id}/access_tokens` with `{"repositories": [<name>]}`
+    /// A new token for `installation` that reaches `repo` alone and holds
+    /// the permissions `grant` names,
+    /// `POST /app/installations/{id}/access_tokens` with
+    /// `{"repositories": [<name>], "permissions": {..}}`
     ///
     /// # Errors
     ///
@@ -134,6 +139,7 @@ pub trait GithubApi: Send + Sync {
         jwt: &Jwt,
         installation: u64,
         repo: &ForgeSlug,
+        grant: Grant,
     ) -> Result<IssuedToken, ApiError>;
 
     /// Makes `call` as the App whose installation `token` is, and returns
@@ -305,9 +311,28 @@ pub fn refusal(status: u16, body: &str) -> ApiError {
     }
 }
 
+/// What an installation token may do, which is less than the App may
+///
+/// A token asks for permissions the App holds and gets those alone, so a
+/// token is never more than the call that uses it needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grant {
+    /// Kelpie's own posts: issues and pull requests, written
+    Kelpie,
+    /// A worker's: contents, written, which lets it push its branch and
+    /// nothing else. No comment, review, approval or merge, and no workflow
+    /// file, which needs a permission of its own.
+    Worker,
+}
+
 /// The body of an access token's request, which limits the token to `repo`
-pub fn token_request(repo: &ForgeSlug) -> String {
-    serde_json::json!({ "repositories": [repo.name()] }).to_string()
+/// and to what `grant` allows
+pub fn token_request(repo: &ForgeSlug, grant: Grant) -> String {
+    let permissions = match grant {
+        Grant::Kelpie => serde_json::json!({ "issues": "write", "pull_requests": "write" }),
+        Grant::Worker => serde_json::json!({ "contents": "write" }),
+    };
+    serde_json::json!({ "permissions": permissions, "repositories": [repo.name()] }).to_string()
 }
 
 /// The App in a conversion's answer
@@ -353,8 +378,12 @@ pub fn parse_token(body: &str) -> Result<IssuedToken, ApiError> {
         .and_then(|at| at.parse::<jiff::Timestamp>().ok())
         .and_then(|at| u64::try_from(at.as_second()).ok())
         .ok_or(ApiError::Unreadable("expires_at"))?;
+    let permissions = (v["permissions"].as_object().into_iter().flatten())
+        .filter_map(|(name, level)| Some((name.clone(), level.as_str()?.to_owned())))
+        .collect();
     Ok(IssuedToken {
         token: InstallationToken::new(token.to_owned()),
         expires_at: Timestamp(expires_at),
+        permissions,
     })
 }

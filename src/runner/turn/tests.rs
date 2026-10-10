@@ -61,7 +61,10 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
     assert_eq!(call.instructions, Some(worker.join("instructions-7.md")));
     let instructions = fs::read_to_string(worker.join("instructions-7.md")).unwrap();
     assert!(
-        instructions.starts_with(&profile::instructions(std::path::Path::new(Rig::KELPIE))),
+        instructions.starts_with(&profile::instructions(
+            std::path::Path::new(Rig::KELPIE),
+            None
+        )),
         "{instructions}"
     );
     assert!(seen.build_existed, "the build folder came after the worker");

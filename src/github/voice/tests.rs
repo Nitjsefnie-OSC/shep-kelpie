@@ -31,6 +31,36 @@ fn writes(github: &FakeGithub) -> Vec<(String, Call)> {
         .collect()
 }
 
+// A worker holds a token for its repo where the App covers it, and none
+// where it does not: it then runs as the maintainer's login, as before.
+#[test]
+fn a_worker_gets_a_token_only_where_the_app_covers_the_repo() {
+    let (voice, github, _home) = voiced();
+
+    let covered = voice.worker_token(&slug("shep-pm/koji")).unwrap();
+    let not_installed = voice.worker_token(&slug("shep-pm/golbat")).unwrap();
+    let no_app = voice.worker_token(&slug("someone/else")).unwrap();
+
+    assert_eq!(
+        covered.map(|t| t.expose().to_owned()).as_deref(),
+        Some("ghs_test1")
+    );
+    assert_eq!((not_installed, no_app), (None, None));
+    assert!(writes(&github).is_empty(), "minting a token posts nothing");
+}
+
+// An App that is set but cannot mint a token for a worker still covers the
+// repo: the call fails and says so, rather than run as the maintainer.
+#[test]
+fn a_worker_is_not_handed_the_maintainers_login_when_the_app_cannot_mint() {
+    let (voice, github, _home) = voiced();
+    github.fail_next(ApiError::Refused(502));
+
+    let err = voice.worker_token(&slug("shep-pm/koji")).unwrap_err();
+
+    assert!(matches!(err, ForgeError::App(_)), "{err:?}");
+}
+
 #[test]
 fn a_comment_is_posted_on_its_thread_with_the_apps_token() {
     let (voice, github, _home) = voiced();

@@ -40,6 +40,48 @@ pub(super) fn app(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> 
     (line(subject, repo, minted), covered)
 }
 
+/// The line for what a worker on `repo` holds: a token that pushes its branch
+/// where the App covers the repo, else the maintainer's own login
+pub(super) fn workers(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> Line {
+    let slug = repo.as_str();
+    match github.worker_token(repo) {
+        Ok(_) => Line::ok(
+            subject,
+            format!(
+                "a worker pushes with a token for {slug} alone, which cannot comment, review, \
+                 approve or merge; it can push any branch, so protect `main` on GitHub"
+            ),
+        ),
+        // Not covered: the worker runs as the maintainer, as before the App.
+        Err(TokenError::Owner(_) | TokenError::NoApp(_) | TokenError::NotInstalled { .. }) => {
+            Line::unsure(
+                subject,
+                "a worker holds your own gh login: it can comment, approve and merge as you, \
+                 and kelpie's guard only parses its commands",
+                format!(
+                    "install kelpie's App on {slug} (`shep kelpie github setup` registers it), \
+                     so a worker holds a token for the repo that pushes and nothing more"
+                ),
+            )
+        }
+        Err(e @ TokenError::NoContents(_)) => Line::missing(
+            subject,
+            format!("no token mints for a worker: {e}"),
+            "in the App's settings on GitHub, set Repository permissions, Contents, to Read and \
+             write, then accept the new permission on the installation; or register the App \
+             again with `shep kelpie github setup --replace",
+        ),
+        Err(TokenError::Api(e)) if e.passes() => {
+            Line::unsure(subject, e.to_string(), "run doctor again")
+        }
+        Err(e) => Line::missing(
+            subject,
+            format!("no token mints for a worker: {e}"),
+            "put right what it names",
+        ),
+    }
+}
+
 fn line(subject: String, repo: &ForgeSlug, minted: Result<InstallationToken, TokenError>) -> Line {
     let slug = repo.as_str();
     match minted {

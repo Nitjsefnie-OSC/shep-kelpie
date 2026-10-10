@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(doc)]
 use crate::board::READY;
 use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::github::InstallationToken;
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
 use crate::local_paths::Leak;
@@ -219,6 +220,34 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Opens a draft pull request on `repo` from branch `head` into `base`,
+    /// as the account kelpie acts as, and returns its number
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses, or its answer names no number.
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError>;
+
+    /// Sets the title and body of pull request `number`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError>;
 
     /// Marks draft pull request `number` ready for review
     ///
@@ -519,6 +548,16 @@ impl core::error::Error for ForgeError {}
 pub trait Voice: Send + Sync {
     /// Whether an App covers `repo`: its owner has one, installed on the repo
     fn covers(&self, repo: &ForgeSlug) -> bool;
+
+    /// The token a worker's call on `repo` holds in place of the maintainer's
+    /// login, fresh for each call and able to push its branch and nothing
+    /// more, or `None` where no App covers `repo` and the worker runs as that login
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when an App covers `repo` and mints no token now: the
+    /// worker waits, and never runs as the maintainer in the App's place.
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError>;
 
     /// Posts `body` as a comment on issue or pull request `thread`
     ///

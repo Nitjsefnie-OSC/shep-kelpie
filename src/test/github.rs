@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use super::FakeClock;
 use crate::github::tokens::Jwt;
 use crate::github::{
-    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, InstallationToken, IssuedToken, Pem,
-    Signer,
+    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, InstallationToken, IssuedToken,
+    Pem, Signer,
 };
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -42,6 +42,10 @@ struct Hub {
     comment_ids: u64,
     // Why every comment is refused, while it is
     comments_refused: Option<ApiError>,
+    // Why every worker's token is refused, while it is
+    workers_refused: Option<ApiError>,
+    // A permission GitHub grants a worker's token beyond the one asked for
+    extra_grant: Option<(String, String)>,
 }
 
 /// GitHub as kelpie's App sees it: one code converts to an App owned by
@@ -90,6 +94,19 @@ impl FakeGithub {
     /// Makes every comment answer `error` from now on, whatever else is asked
     pub(crate) fn refuse_comments(&self, error: ApiError) {
         self.hub.lock().unwrap().comments_refused = Some(error);
+    }
+
+    /// Makes every worker's token answer `error` from now on, as an App that
+    /// was never given the Contents permission does
+    pub(crate) fn refuse_workers(&self, error: ApiError) {
+        self.hub.lock().unwrap().workers_refused = Some(error);
+    }
+
+    /// Makes GitHub grant every worker's token `permission` at `level` besides
+    /// what was asked for
+    pub(crate) fn grants_too(&self, permission: &str, level: &str) {
+        let grant = (permission.to_owned(), level.to_owned());
+        self.hub.lock().unwrap().extra_grant = Some(grant);
     }
 
     /// Takes comments again after [`Self::refuse_comments`]
@@ -194,16 +211,41 @@ impl GithubApi for FakeGithub {
         jwt: &Jwt,
         installation: u64,
         repo: &ForgeSlug,
+        grant: Grant,
     ) -> Result<IssuedToken, ApiError> {
         let mut hub = self.hub.lock().unwrap();
-        let body = crate::github::api::token_request(repo);
+        let body = crate::github::api::token_request(repo, grant);
         hub.asked.push(Asked::AccessToken(installation, body));
         hub.jwts.push(jwt.expose().to_owned());
         if let Some(error) = hub.failures.pop_front() {
             return Err(error);
         }
+        if let Some(error) = hub
+            .workers_refused
+            .clone()
+            .filter(|_| grant == Grant::Worker)
+        {
+            return Err(error);
+        }
         hub.minted += 1;
+        let ask = |pairs: &[(&str, &str)]| {
+            (pairs.iter())
+                .map(|&(name, level)| (name.to_owned(), level.to_owned()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let mut permissions = match grant {
+            Grant::Kelpie => ask(&[
+                ("issues", "write"),
+                ("metadata", "read"),
+                ("pull_requests", "write"),
+            ]),
+            Grant::Worker => ask(&[("contents", "write"), ("metadata", "read")]),
+        };
+        if let Some((name, level)) = hub.extra_grant.clone().filter(|_| grant == Grant::Worker) {
+            permissions.insert(name, level);
+        }
         Ok(IssuedToken {
+            permissions,
             token: InstallationToken::new(format!("ghs_test{}", hub.minted)),
             expires_at: Timestamp(self.clock.now().0 + Self::LIFETIME),
         })

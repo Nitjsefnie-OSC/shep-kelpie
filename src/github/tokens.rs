@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::api::{ApiError, GithubApi, IssuedToken, Signer};
+use super::api::{ApiError, GithubApi, Grant, IssuedToken, Signer};
 use super::{App, Apps, Owner, StoreError};
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -86,6 +86,12 @@ pub enum TokenError {
         /// The repo
         repo: ForgeSlug,
     },
+    /// The App was never given the Contents permission a worker's token
+    /// holds: it was registered before workers held its tokens
+    NoContents(App),
+    /// GitHub made a worker's token hold more than the permission to push, or
+    /// not that, with what it holds
+    TooBroad(String),
     /// The App's files could not be read
     Store(StoreError),
     /// The App's key could not sign a JWT, with why
@@ -102,6 +108,16 @@ impl fmt::Display for TokenError {
             Self::NotInstalled { app, repo } => {
                 write!(f, "{} is not installed on {}", app.slug, repo.as_str())
             }
+            Self::NoContents(app) => write!(
+                f,
+                "{} was never given the Contents permission (read and write) a worker's                  token needs: add it in the App's settings, then accept it on the installation",
+                app.slug
+            ),
+            Self::TooBroad(held) => write!(
+                f,
+                "GitHub made the worker's token hold {held}, which is not the permission to \
+                 push and nothing else"
+            ),
             Self::Store(e) => e.fmt(f),
             Self::Sign(why) => write!(f, "the App's key cannot sign: {why}"),
             Self::Api(e) => e.fmt(f),
@@ -127,6 +143,16 @@ pub trait GithubApp: Send + Sync {
     /// [`TokenError`] when there is no App for the owner, it is not
     /// installed on `repo`, or no token could be minted.
     fn token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
+
+    /// A token for a worker's calls on `repo`: minted fresh, so it has its
+    /// whole hour to run, and holding the permission to push and nothing
+    /// that can comment, review, approve or merge
+    ///
+    /// # Errors
+    ///
+    /// As [`GithubApp::token`], and also when GitHub refuses the permission
+    /// because the App was never given it.
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
 }
 
 // An App's id and a repo's `owner/name` in lower case
@@ -192,6 +218,48 @@ impl AppTokens {
 
 impl GithubApp for AppTokens {
     fn token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
+        self.mint(repo, Grant::Kelpie).map(|issued| issued.token)
+    }
+
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
+        match self.mint(repo, Grant::Worker).and_then(pushes_only) {
+            // GitHub answers 422 to a request for a permission the App lacks.
+            Err(TokenError::Api(ApiError::Refused(422))) => {
+                let owner = Owner::of(repo).map_err(TokenError::Owner)?;
+                match self.apps.get(&owner).map_err(TokenError::Store)? {
+                    Some(app) => Err(TokenError::NoContents(app)),
+                    None => Err(TokenError::NoApp(owner)),
+                }
+            }
+            minted => minted.map(|issued| issued.token),
+        }
+    }
+}
+
+// What GitHub says a worker's token holds must be the permission to push
+// and the read of metadata every token has, whatever was asked for.
+fn pushes_only(issued: IssuedToken) -> Result<IssuedToken, TokenError> {
+    let holds = |name: &str, level: &str| issued.permissions.get(name).is_some_and(|l| l == level);
+    let only = issued
+        .permissions
+        .keys()
+        .all(|n| n == "contents" || n == "metadata");
+    match holds("contents", "write") && only {
+        true => Ok(issued),
+        false => Err(TokenError::TooBroad(
+            (issued.permissions.iter())
+                .map(|(name, level)| format!("{name}: {level}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )),
+    }
+}
+
+impl AppTokens {
+    // A token of kelpie's kept until it nears its end, or a worker's, which
+    // is never kept: it has the whole of its hour for the call that gets it,
+    // and kelpie's own posts must never be handed it.
+    fn mint(&self, repo: &ForgeSlug, grant: Grant) -> Result<IssuedToken, TokenError> {
         let owner = Owner::of(repo).map_err(TokenError::Owner)?;
         let app = (self.apps.get(&owner).map_err(TokenError::Store)?)
             .ok_or_else(|| TokenError::NoApp(owner.clone()))?;
@@ -213,9 +281,10 @@ impl GithubApp for AppTokens {
             let installation = kept.installations.get(&key).copied();
             let issued = installation.and_then(|id| kept.tokens.get(&token_key(id)));
             if let Some(issued) = issued
+                && grant == Grant::Kelpie
                 && now.0.saturating_add(REMINT_BEFORE) < issued.expires_at.0
             {
-                return Ok(issued.token.clone());
+                return Ok(issued.clone());
             }
             if let Some(until) = kept.not_installed.get(&key)
                 && now < *until
@@ -245,7 +314,7 @@ impl GithubApp for AppTokens {
                 }
             },
         };
-        let issued = match self.api.access_token(&jwt, id, repo) {
+        let issued = match self.api.access_token(&jwt, id, repo, grant) {
             Ok(issued) => issued,
             // The App was taken off the repo, or its installation is gone.
             Err(e @ ApiError::Refused(401 | 404)) => {
@@ -258,9 +327,11 @@ impl GithubApp for AppTokens {
         };
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.not_installed.remove(&key);
-        kept.tokens.insert(token_key(id), issued.clone());
+        if grant == Grant::Kelpie {
+            kept.tokens.insert(token_key(id), issued.clone());
+        }
         kept.installations.insert(key, id);
-        Ok(issued.token)
+        Ok(issued)
     }
 }
 
