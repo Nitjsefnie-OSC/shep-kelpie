@@ -44,16 +44,22 @@ pub fn write(build: &Path, token: &InstallationToken) -> io::Result<()> {
     write_private(&dir.join("hosts.yml"), &text)
 }
 
-// `text` in `path` for the user alone, whatever mode a file already there had
+// `text` in `path` for the user alone, whatever mode a file already there had,
+// renamed into place so a `gh` reading it never finds half of it: with no token
+// in the file it would look in the keychain
 fn write_private(path: &Path, text: &str) -> io::Result<()> {
+    let mut beside = path.as_os_str().to_owned();
+    beside.push(".tmp");
+    let beside = PathBuf::from(beside);
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
-        .open(path)?;
+        .open(&beside)?;
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    file.write_all(text.as_bytes())
+    file.write_all(text.as_bytes())?;
+    fs::rename(&beside, path)
 }
 
 /// The variables that point `gh` and git at that login

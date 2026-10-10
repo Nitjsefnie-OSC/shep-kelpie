@@ -68,10 +68,11 @@ pub(super) fn workers(subject: String, repo: &ForgeSlug, github: &dyn GithubApp)
         Err(e @ TokenError::KeychainLogin) => Line::missing(
             subject,
             format!("no worker starts on {slug}: {e}"),
-            "move the login into gh's hosts.yml with `gh auth login --insecure-storage`, then \
-             delete the old keychain entry with `security delete-generic-password -s \
-             gh:github.com`, again until it says the item could not be found: the new login \
-             does not remove it",
+            "move the login into gh's hosts.yml with `gh auth login --insecure-storage`, and make \
+             git use gh's with `gh auth setup-git`; then delete the old keychain entries with \
+             `security delete-generic-password -s gh:github.com` and `security \
+             delete-internet-password -s github.com`, each again until it says the item could \
+             not be found: the new login does not remove them",
         ),
         Err(e @ TokenError::Keychain(_)) => Line::unsure(
             subject,

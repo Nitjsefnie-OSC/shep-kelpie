@@ -299,7 +299,7 @@ impl GithubApi for FakeGithub {
 
 // The keychain holds no login unless a test says it does.
 impl Keychain for FakeGithub {
-    fn holds_gh_login(&self) -> Result<bool, String> {
+    fn holds_github_login(&self) -> Result<bool, String> {
         (self.hub.lock().unwrap().keychain.clone()).unwrap_or(Ok(false))
     }
 }

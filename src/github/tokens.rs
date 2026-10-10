@@ -90,10 +90,10 @@ pub enum TokenError {
     /// The App was never given the Contents permission a worker's token
     /// holds: it was registered before workers held its tokens
     NoContents(App),
-    /// `gh` keeps the maintainer's login in the macOS keychain, which a
+    /// The maintainer's GitHub login is in the macOS keychain, which a
     /// worker's sandbox can read
     KeychainLogin,
-    /// Whether `gh` keeps a login in the keychain could not be told, with why
+    /// Whether the keychain holds a GitHub login could not be told, with why
     Keychain(String),
     /// GitHub made a worker's token hold more than the permission to push, or
     /// not that, with what it holds
@@ -121,12 +121,13 @@ impl fmt::Display for TokenError {
                 app.slug
             ),
             Self::KeychainLogin => f.write_str(
-                "gh keeps the maintainer's login in the macOS keychain (service gh:github.com), \
-                 which a worker's sandbox can read",
+                "the maintainer's GitHub login is in the macOS keychain (gh's entry, service \
+                 gh:github.com, or git's, an internet password for github.com), which a \
+                 worker's sandbox can read",
             ),
             Self::Keychain(why) => write!(
                 f,
-                "cannot tell whether gh keeps the maintainer's login in the macOS keychain: {why}"
+                "cannot tell whether the maintainer's GitHub login is in the macOS keychain: {why}"
             ),
             Self::TooBroad(held) => write!(
                 f,
@@ -264,7 +265,7 @@ impl AppTokens {
     // in, and the token would then be one of two logins it holds. Asked of the
     // keychain only for a repo the App covers, whose worker would run on it.
     fn without_keychain_login(&self, issued: IssuedToken) -> Result<IssuedToken, TokenError> {
-        match self.keychain.holds_gh_login() {
+        match self.keychain.holds_github_login() {
             Ok(false) => Ok(issued),
             Ok(true) => Err(TokenError::KeychainLogin),
             Err(why) => Err(TokenError::Keychain(why)),

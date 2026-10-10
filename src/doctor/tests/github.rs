@@ -184,10 +184,13 @@ async fn a_login_in_the_keychain_is_missing_and_names_how_to_move_and_delete_it(
     assert!(what.contains("no worker starts on shep-pm/koji"), "{what}");
     assert!(what.contains("keychain"), "{what}");
     assert!(fix.contains("`gh auth login --insecure-storage`"), "{fix}");
-    assert!(
-        fix.contains("`security delete-generic-password -s gh:github.com`"),
-        "{fix}"
-    );
+    assert!(fix.contains("`gh auth setup-git`"), "{fix}");
+    for delete in [
+        "`security delete-generic-password -s gh:github.com`",
+        "`security delete-internet-password -s github.com`",
+    ] {
+        assert!(fix.contains(delete), "{fix}");
+    }
     ok(&report, "koji: github app");
     assert!(!report.passed());
 }

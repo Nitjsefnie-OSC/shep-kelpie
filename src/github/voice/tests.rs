@@ -58,6 +58,18 @@ fn a_worker_is_not_handed_the_maintainers_login_when_the_app_cannot_mint() {
 
     let err = voice.worker_token(&slug("shep-pm/koji")).unwrap_err();
 
+    assert!(matches!(err, ForgeError::AppBusy(_)), "{err:?}");
+}
+
+// A refusal that asking again will not change is told apart from GitHub
+// being busy, which waits.
+#[test]
+fn a_permission_the_app_lacks_is_no_reason_to_wait() {
+    let (voice, github, _home) = voiced();
+    github.refuse_workers(ApiError::Refused(422));
+
+    let err = voice.worker_token(&slug("shep-pm/koji")).unwrap_err();
+
     assert!(matches!(err, ForgeError::App(_)), "{err:?}");
 }
 

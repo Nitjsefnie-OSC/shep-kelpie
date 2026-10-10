@@ -227,6 +227,15 @@ impl Forge for RateHeld {
         self.call(|f| f.edit_pull_request(repo, number, title, body))
     }
 
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.call(|f| f.failed_run_logs(repo, head, merge_group))
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(|f| f.mark_ready(repo, number))
     }

@@ -119,8 +119,18 @@ const PUSH_FLAGS: [&str; 9] = [
 const MAINTAINERS_LOGIN: [&str; 2] = ["~/.config/gh/**", "~/Library/Keychains/**"];
 
 // `security` reads the keychain `gh` and git's osxkeychain helper keep the
-// maintainer's token in. Nothing a worker holding the App's token needs it.
-const KEYCHAIN_COMMANDS: [&str; 2] = ["security", "security *"];
+// maintainer's token in, and so does the helper itself, run by hand or with
+// `git credential`. Nothing a worker holding the App's token needs any of
+// them, git asks its helpers itself. These are a guardrail: the boundary is
+// that doctor and the runner find no login in the keychain.
+const KEYCHAIN_COMMANDS: [&str; 6] = [
+    "security",
+    "security *",
+    "git credential",
+    "git credential *",
+    "git credential-*",
+    "git -c credential*",
+];
 
 // What `git push` and `gh` reach. A project adds its own, such as a registry.
 const GITHUB: [&str; 2] = ["github.com", "api.github.com"];
@@ -381,7 +391,13 @@ mod tests {
         for path in ["~/.config/gh/**", "~/Library/Keychains/**"] {
             assert!(fence.no_read.contains(&path.to_owned()), "{path}");
         }
-        for command in ["security", "security *"] {
+        for command in [
+            "security",
+            "security *",
+            "git credential *",
+            "git credential-*",
+            "git -c credential*",
+        ] {
             assert!(fence.no_commands.contains(&command.to_owned()), "{command}");
         }
     }

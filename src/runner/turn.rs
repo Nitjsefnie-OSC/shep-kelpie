@@ -231,10 +231,25 @@ impl Runner {
             && prompt.is_none()
             && !(item.rework || item.adopted)
             && !item.calls.iter().any(|c| c.role == Role::Worker);
+        // A token GitHub would not give a moment ago is not asked for at every pass.
+        if self.token_wait.holds(now) {
+            return Ok(Begin::Idle);
+        }
+        self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
         let mut begin = match prepared {
+            // A covered worker never runs as the maintainer, so a token that
+            // passes waits here and is tried again, not parked on a ruling.
+            Err(reason) if self.token_wait.is_busy() => {
+                if self.token_wait.first_told() {
+                    self.notes
+                        .push(format!("issue #{issue} waits to start its turn: {reason}"));
+                }
+                return Ok(Begin::Idle);
+            }
             Ok(call) => {
+                self.token_wait.ends();
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
@@ -295,8 +310,12 @@ impl Runner {
         // Where the App covers the repo, the worker holds its token and never
         // the maintainer's login; a token it cannot have now fails the call
         // rather than run it as the maintainer.
-        let token = (self.ports.voice.worker_token(&self.remote))
-            .map_err(|e| format!("cannot get the worker a GitHub token: {e}"))?;
+        let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
+            if matches!(e, crate::ports::ForgeError::AppBusy(_)) {
+                self.token_wait.busy_at(self.ports.clock.now());
+            }
+            format!("cannot get the worker a GitHub token: {e}")
+        })?;
         let reach = self.worker_reach(item, start, token.as_ref())?;
         // Named for the work item: the open items' calls run at once, and
         // each harness keeps its own files beside its settings file.

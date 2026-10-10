@@ -8,6 +8,7 @@ mod queue;
 mod rate_limit;
 mod review;
 pub(crate) mod review_bot;
+mod runs;
 mod thread;
 
 use std::process::Stdio;
@@ -188,6 +189,15 @@ impl Forge for Gh {
         body: &str,
     ) -> Result<(), ForgeError> {
         pulls::edit(repo, number, title, body)
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        runs::failed_run_logs(repo, head, merge_group)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

@@ -56,6 +56,8 @@ pub(crate) struct FakeForge {
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
+    // What the failed CI runs' logs say
+    ci_log: Arc<Mutex<String>>,
     // The title and body of each pull request kelpie opened or edited, by number
     texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
@@ -143,6 +145,7 @@ impl FakeForge {
             issues: Arc::default(),
             created: Arc::default(),
             texts: Arc::default(),
+            ci_log: Arc::default(),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -301,12 +304,6 @@ impl FakeForge {
             author: VIEWER.to_owned(),
         };
         self.pull_requests.lock().unwrap().insert(number, pr);
-    }
-
-    /// The title and body kelpie gave pull request `number` when it opened or
-    /// edited it, or none when it did neither
-    pub(crate) fn text_of(&self, number: u64) -> Option<(String, String)> {
-        self.texts.lock().unwrap().get(&number).cloned()
     }
 
     /// Makes pull request `number` one `login` opened, not kelpie's account
@@ -853,6 +850,16 @@ impl Forge for FakeForge {
         Ok(())
     }
 
+    fn failed_run_logs(
+        &self,
+        _repo: &ForgeSlug,
+        _head: &str,
+        _merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.ask()?;
+        Ok(self.ci_log.lock().unwrap().clone())
+    }
+
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.opened(number)?;
@@ -980,5 +987,6 @@ impl Forge for FakeForge {
 }
 
 mod down;
+mod handed;
 mod queue;
 mod thread;

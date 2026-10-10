@@ -158,6 +158,15 @@ impl Forge for Guarded {
         self.forge.edit_pull_request(repo, number, title, body)
     }
 
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.forge.failed_run_logs(repo, head, merge_group)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.mark_ready(repo, number)
     }

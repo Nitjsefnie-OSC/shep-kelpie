@@ -233,6 +233,15 @@ mod tests {
         step(&runner).unwrap();
 
         assert!(rig.claude.seen().is_empty(), "the call started");
+        // Held back, not parked: no ruling asks the maintainer, and a pause
+        // later the turn starts on a token.
+        let status = rig.ask(&runner, "status", None);
+        assert_ne!(status["work_item"]["phase"]["state"], "ruling", "{status}");
+        step(&runner).unwrap();
+        assert!(rig.claude.seen().is_empty(), "asked again before the pause");
+        rig.clock.advance(31);
+        step(&runner).unwrap();
+        assert_eq!(rig.claude.seen().len(), 1, "the turn never started");
     }
 
     // The sandbox lets a worker ask the keychain `gh` keeps the maintainer's

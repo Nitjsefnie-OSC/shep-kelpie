@@ -1,4 +1,5 @@
-//! Whether `gh` keeps the maintainer's login in the macOS keychain
+//! Whether the maintainer's GitHub login is in the macOS keychain, where `gh`
+//! keeps it, and where git's osxkeychain helper keeps the one it was given
 //!
 //! A worker's sandbox lets a process ask the keychain (measured from a
 //! worker's own session), and no file rule stops it, since securityd reads
@@ -8,7 +9,7 @@
 
 /// The keychain the maintainer's `gh` login may be kept in
 pub trait Keychain: Send + Sync {
-    /// Whether an entry for `gh` on github.com is there, asked from outside
+    /// Whether a GitHub login is there, `gh`'s or git's, asked from outside
     /// any worker's sandbox
     ///
     /// A machine with no keychain holds none.
@@ -17,5 +18,5 @@ pub trait Keychain: Send + Sync {
     ///
     /// Why the keychain could not be asked, such as a locked one: a worker is
     /// then not started, as with a login that is there.
-    fn holds_gh_login(&self) -> Result<bool, String>;
+    fn holds_github_login(&self) -> Result<bool, String>;
 }
