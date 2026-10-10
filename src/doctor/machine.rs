@@ -7,6 +7,7 @@ use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
 use super::host::Host;
+use crate::adapters::LOGIN_FIX;
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::ConnectRefused;
 use crate::tools::Tools;
@@ -178,9 +179,7 @@ pub(super) fn login(subject: String, covered: bool, host: &dyn Host) -> Option<L
             subject,
             "the keychain is blocked in this project's calls and CLAUDE_CODE_OAUTH_TOKEN is not \
              set in this shell, so claude has no login there",
-            "run `claude setup-token`, then `shep secret set CLAUDE_CODE_OAUTH_TOKEN` and set \
-             `CLAUDE_CODE_OAUTH_TOKEN = \"{{secret:CLAUDE_CODE_OAUTH_TOKEN}}\"` in the runner's \
-             `env`; to check it here, run doctor once with the variable set",
+            format!("{LOGIN_FIX}; to check it here, run doctor once with the variable set"),
         ),
     })
 }

@@ -31,11 +31,19 @@ impl Tools {
     ///
     /// The step that failed, and why.
     pub fn install(&self) -> Result<(), String> {
+        self.install_with("npm")
+    }
+
+    // `install` with `npm` as the program that fetches the packages.
+    fn install_with(&self, npm: &str) -> Result<(), String> {
         std::fs::create_dir_all(&self.0)
             .and_then(|()| std::fs::write(self.0.join("package.json"), PACKAGE))
             .map_err(|e| format!("cannot write {}: {e}", self.0.display()))?;
-        let npm = ["install", "--no-audit", "--no-fund"];
-        run(crate::spawn::command("npm").args(npm).current_dir(&self.0))?;
+        // The copy of the last install is of the last version. It goes before npm
+        // can fail, so a failed install leaves none for a call to find blocked.
+        self.remove_keychain_copy()?;
+        let args = ["install", "--no-audit", "--no-fund"];
+        run(crate::spawn::command(npm).args(args).current_dir(&self.0))?;
         // Only macOS has a keychain, and only its profile names the services.
         if cfg!(target_os = "macos") {
             self.block_keychain()?;
@@ -87,17 +95,22 @@ impl Tools {
         let to = self.package(BLOCKED_NAME);
         // The last install's copy goes first, so a step that fails leaves none
         // to be found blocked, whether it is the last one's or half of this one.
-        match std::fs::remove_dir_all(&to) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                return Err(format!("cannot remove {}: {e}", to.display()));
-            }
-            _ => {}
-        }
+        self.remove_keychain_copy()?;
         let made = self.copy_without_keychain(&to);
         if made.is_err() {
             let _ = std::fs::remove_dir_all(&to);
         }
         made
+    }
+
+    fn remove_keychain_copy(&self) -> Result<(), String> {
+        let to = self.package(BLOCKED_NAME);
+        match std::fs::remove_dir_all(&to) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(format!("cannot remove {}: {e}", to.display()))
+            }
+            _ => Ok(()),
+        }
     }
 
     fn copy_without_keychain(&self, to: &Path) -> Result<(), String> {
@@ -257,6 +270,21 @@ const lines = [
             !tools.keychain_blocked(),
             "a copy that does not parse was left"
         );
+    }
+
+    // A pinned srt that npm cannot fetch leaves the old package, and a copy of
+    // the old one is not the runtime the main one now is.
+    #[test]
+    fn an_install_whose_npm_fails_leaves_the_last_installs_copy_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = installed(dir.path(), PROFILE);
+        tools.block_keychain().unwrap();
+        assert!(tools.keychain_blocked());
+        let npm = dir.path().join("failing-npm");
+        crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+        assert!(!tools.keychain_blocked());
+        assert!(!tools.sandbox_without_keychain().exists());
     }
 
     #[test]

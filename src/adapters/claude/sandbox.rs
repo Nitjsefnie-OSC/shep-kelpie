@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, LOGIN_VAR, argv, terminal_argv};
+use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Fence, Policy};
 use crate::profile::CREDENTIALS;
@@ -33,6 +33,14 @@ impl ClaudeCli {
     // `claude` with `argv`, its scratch folder emptied and its transcript
     // folder made. A scratch folder swapped for a link is removed, not followed.
     fn command(&self, call: &AgentCall, argv: Vec<OsString>) -> Result<Command, AgentError> {
+        // `claude` would start and fail with its own "not logged in", which a ruling
+        // would carry, in place of the fix.
+        if call.reach.block_keychain && self.macos && self.login.is_none() {
+            return Err(AgentError::Setup(format!(
+                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
+                 runner's environment, so claude has no login: {LOGIN_FIX}"
+            )));
+        }
         let scratch = scratch(call);
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
@@ -483,6 +491,45 @@ mod tests {
                 "{role:?}"
             );
         }
+    }
+
+    // With the keychain blocked and no token, `claude` would start and fail
+    // with its own "not logged in", which a ruling would carry. The call says
+    // what doctor says instead, and runs nothing.
+    #[test]
+    fn a_blocked_keychain_and_no_login_token_refuses_the_call_with_the_fix() {
+        let w = World::new();
+        let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
+        let cli = |login: Option<LoginToken>, macos: bool| {
+            w.cli(Arc::new(OpenSandbox::default()))
+                .with_login(login)
+                .on_macos(macos)
+        };
+        let blocked = |mut call: AgentCall| {
+            call.reach.block_keychain = true;
+            call
+        };
+        for call in [w.worker(), w.call(Role::Reviewer)] {
+            let call = blocked(call);
+            for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
+                let err = run(&cli(None, true), &call).unwrap_err();
+                let AgentError::Setup(why) = &err else {
+                    panic!("{err:?}")
+                };
+                assert!(why.contains("`claude setup-token`"), "{why}");
+                assert!(
+                    why.contains("`shep secret set CLAUDE_CODE_OAUTH_TOKEN`"),
+                    "{why}"
+                );
+                run(&cli(token.clone(), true), &call).unwrap();
+                // No keychain off macOS, and a call that keeps it logs in there.
+                run(&cli(None, false), &call).unwrap();
+                run(&cli(None, true), &w.worker()).unwrap();
+            }
+            let err = cli(None, true).run(&call, &Ending::default()).unwrap_err();
+            assert!(matches!(err, AgentError::Setup(_)), "{err:?}");
+        }
+        assert!(!w.path("ran").exists(), "claude ran with no login");
     }
 
     #[test]
