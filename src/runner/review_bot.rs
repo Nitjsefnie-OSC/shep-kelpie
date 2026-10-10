@@ -38,7 +38,7 @@ use super::gate::settled;
 use super::report::{Begin, StepReport};
 
 use crate::lease::wire::WindowFact;
-use crate::ports::{Finding, PullRequestState, Timestamp, Visibility};
+use crate::ports::{Finding, ForgeError, PullRequestState, Timestamp, Visibility};
 use crate::review_bot::{Activity, Bot, BotReviewer, Reading, ReviewWindow};
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{StateError, Stuck};
@@ -67,6 +67,10 @@ pub(super) const FAR: u64 = 3600;
 // Steps in a row that may fail to resolve the threads sent before the
 // review goes on with them open: one the forge keeps refusing never resolves.
 const RESOLVE_FAILURES: u32 = 3;
+
+// Replaces a decline whose reason the forge guard refuses, as it names
+// something of this machine's.
+const UNPOSTABLE_REASON: &str = "Declined: the worker's reason names something on the machine kelpie runs on, so it is not posted.";
 
 // What kelpie replies on a thread sent to the worker, and whether it
 // resolves the thread, from what the worker's reply said of it.
@@ -750,12 +754,18 @@ impl Runner {
                 false => Ok(()),
             };
             if let Err(e) = resolved {
-                failed = Some(format!("cannot resolve a thread on #{number}: {e}"));
-                break;
+                failed.get_or_insert(format!("cannot resolve a thread on #{number}: {e}"));
+                continue;
             }
-            if let Err(e) = forge.reply_to_thread(&self.remote, &id, &body) {
-                failed = Some(format!("cannot reply to a thread on #{number}: {e}"));
-                break;
+            let mut posted = forge.reply_to_thread(&self.remote, &id, &body);
+            // The guard refuses the same text every time, so a reason that
+            // names this machine is left out rather than retried for ever.
+            if matches!(posted, Err(ForgeError::LocalPath { .. })) {
+                posted = forge.reply_to_thread(&self.remote, &id, UNPOSTABLE_REASON);
+            }
+            if let Err(e) = posted {
+                failed.get_or_insert(format!("cannot reply to a thread on #{number}: {e}"));
+                continue;
             }
             self.update(|item| item.thread_answered(&id))?;
         }

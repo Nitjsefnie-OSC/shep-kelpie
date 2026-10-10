@@ -240,6 +240,14 @@ impl FakeCodeRabbit {
         if self.reply_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("replying is down".into()));
         }
+        // As the guarded forge refuses a text naming this machine's folders.
+        if body.contains("/Users/") {
+            let leak = crate::local_paths::Leak::Path;
+            return Err(ForgeError::LocalPath {
+                what: "the reply",
+                leak,
+            });
+        }
         let activity = self.activity.lock().unwrap();
         let known = activity
             .values()

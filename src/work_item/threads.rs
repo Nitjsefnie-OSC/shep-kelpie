@@ -66,6 +66,12 @@ pub fn thread_lines(reply: &str) -> Vec<(usize, Said)> {
 fn thread_line(line: &str) -> Option<(usize, Said)> {
     const MARKS: [char; 4] = ['-', '*', '`', ' '];
     let line = line.trim().trim_start_matches(MARKS);
+    // A numbered list: `1. thread 1: fixed`, `2) thread 2: declined: x`.
+    let digits = line.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+    let line = match line[digits..].strip_prefix(['.', ')']) {
+        Some(after) if digits > 0 => after.trim_start_matches(MARKS),
+        _ => line,
+    };
     let rest = strip_word(line, "thread")?.trim_start();
     let digits = rest
         .find(|c: char| !c.is_ascii_digit())
@@ -182,6 +188,18 @@ mod tests {
                 (4, declined("not worth the churn")),
             ]
         );
+    }
+
+    #[test]
+    fn a_numbered_list_marker_leads_a_line_too() {
+        let reply = "1. thread 1: fixed\n\
+                     2) thread 2: declined: x\n\
+                     10. **thread 3: fixed**";
+        assert_eq!(
+            thread_lines(reply),
+            [(1, Said::Fixed), (2, declined("x")), (3, Said::Fixed)]
+        );
+        assert_eq!(thread_lines("3. fixed"), []);
     }
 
     #[test]

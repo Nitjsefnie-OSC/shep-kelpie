@@ -50,6 +50,38 @@ fn each_thread_gets_the_workers_line_and_only_the_fixed_one_is_resolved() {
     assert_eq!(phase(&rig, &runner)["state"], "ci");
 }
 
+// The guarded forge always refuses a text naming this machine's folders, so
+// a decline's reason that does can never be posted: it is replied to without
+// the reason, and the threads after it are answered all the same.
+#[test]
+fn a_reason_naming_a_local_path_is_not_posted_and_blocks_no_other_thread() {
+    let (rig, runner) = sent(&["Name the flag.", "Guard the index."]);
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        "thread 1: declined: it lives in /Users/me/.kelpie/wt/koji/7/src/a.rs\nthread 2: fixed",
+    )]);
+    step(&runner).unwrap(); // the fix turn
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+    assert_eq!(
+        rig.forge.coderabbit.replies(),
+        [
+            (
+                "PRRT_71_0".to_owned(),
+                "Declined: the worker's reason names something on the machine kelpie runs on, \
+                 so it is not posted."
+                    .to_owned()
+            ),
+            ("PRRT_71_1".to_owned(), "Fixed.".to_owned()),
+        ]
+    );
+    assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_1"]);
+    assert_eq!(phase(&rig, &runner)["state"], "ci");
+}
+
 // A reply the forge refuses is tried again at the next step, and a thread
 // already replied to is not replied to twice.
 #[test]
