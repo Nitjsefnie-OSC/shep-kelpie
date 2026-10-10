@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, Openssl, ShepLeases, SystemClock,
-    stop_calls,
+    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl, ShepLeases,
+    SystemClock, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -157,6 +157,8 @@ fn serve(project: &str) -> Result<(), Exit> {
     // A runner reads the gateways once, so each key's variable is unset in every call it makes.
     let gateways = kelpie_settings.gateways();
     crate::spawn::hide(gateways.key_vars());
+    // The runner's `env` holds the token `claude` logs in with, for `claude` alone.
+    let login = LoginToken::take();
     let claude = ClaudeCli::labelling(Arc::new(shepherd.clone()))
         .in_runtime(
             paths.tools.clone(),
@@ -164,7 +166,8 @@ fn serve(project: &str) -> Result<(), Exit> {
             &codex_home,
             gateways.key_vars(),
         )
-        .unfenced_unread(&shep_home);
+        .unfenced_unread(&shep_home)
+        .with_login(login);
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));
     let book = BookFile::new(kelpie_home.join(crate::dog::BOOK));

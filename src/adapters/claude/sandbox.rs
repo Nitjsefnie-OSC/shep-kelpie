@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, argv, terminal_argv};
+use super::{ClaudeCli, LOGIN_VAR, argv, terminal_argv};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Fence, Policy};
 use crate::profile::CREDENTIALS;
@@ -59,6 +59,9 @@ impl ClaudeCli {
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+        if let Some(login) = &self.login {
+            command.env(LOGIN_VAR, login.expose());
+        }
         Ok(command)
     }
 
@@ -189,7 +192,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::adapters::{ClaudeCli, SandboxRuntime};
+    use crate::adapters::{ClaudeCli, LoginToken, SandboxRuntime};
     use crate::ports::Ending;
     use crate::ports::{Agents, Reach, Role, Session, SessionId, Tools};
     use crate::profile::WorkerProfile;
@@ -435,6 +438,49 @@ mod tests {
                 policy.write
             );
             assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
+        }
+    }
+
+    type Cmd = fn(&ClaudeCli, &AgentCall) -> Result<Command, AgentError>;
+
+    // With the keychain blocked, a call's login is the token the maintainer
+    // made with `claude setup-token`. It is a variable of the command inside
+    // the sandbox and never an argument, which `ps` shows.
+    #[test]
+    fn every_role_s_claude_gets_the_login_token_and_none_without_one() {
+        let w = World::new();
+        let token = "sk-ant-oat01-for-the-test";
+        let with = w
+            .cli(Arc::new(OpenSandbox::default()))
+            .with_login(LoginToken::new(token.to_owned()));
+        let without = w.cli(Arc::new(OpenSandbox::default()));
+        assert!(
+            !format!("{with:?}").contains(token),
+            "Debug shows the token"
+        );
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+            let role = call.role;
+            let login = |cli: &ClaudeCli, command: Cmd| {
+                let command = command(cli, &call).unwrap();
+                let set = command.get_envs().find(|(n, _)| *n == LOGIN_VAR);
+                let args: Vec<_> = command.get_args().collect();
+                assert!(!args.iter().any(|a| a.to_string_lossy().contains(token)));
+                set.map(|(_, value)| value.map(|v| v.to_string_lossy().into_owned()))
+            };
+            let session = ClaudeCli::sandboxed_command;
+            assert_eq!(
+                login(&with, session),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
+            assert_eq!(login(&without, session), None, "{role:?}");
+            let terminal = ClaudeCli::terminal_command;
+            assert_eq!(
+                login(&with, terminal),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
         }
     }
 
