@@ -168,6 +168,7 @@ impl Forge for Guarded {
         thread: &str,
         body: &str,
     ) -> Result<(), ForgeError> {
+        self.check("the reply", body)?;
         self.forge.reply_to_thread(repo, thread, body)
     }
 

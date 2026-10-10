@@ -72,7 +72,8 @@ fn thread_line(line: &str) -> Option<(usize, Said)> {
         .unwrap_or(rest.len());
     let number: usize = rest[..digits].parse().ok()?;
     let rest = rest[digits..].trim_start().strip_prefix(':')?;
-    let rest = rest.trim().trim_end_matches(['*', '`']).trim();
+    let rest = rest.trim().trim_start_matches(['*', '`', ' ']);
+    let rest = rest.trim_end_matches(['*', '`']).trim();
     if let Some(after) = strip_word(rest, "declined") {
         let reason = after.trim_start_matches([':', '-', ' ']).trim();
         let reason = match reason.is_empty() {
@@ -81,7 +82,11 @@ fn thread_line(line: &str) -> Option<(usize, Said)> {
         };
         return Some((number, Said::Declined(reason.to_owned())));
     }
-    strip_word(rest, "fixed").map(|_| (number, Said::Fixed))
+    // A thread is resolved on this word, so nothing but closing marks may
+    // follow it: "fixed, no wait" and "fixed in part" are not a fix.
+    let closing = |c: char| matches!(c, '.' | '!' | '*' | '`' | ' ');
+    let after = strip_word(rest, "fixed")?;
+    after.chars().all(closing).then_some((number, Said::Fixed))
 }
 
 // `text` without `word` at its start, whatever the case, when the word ends
@@ -188,6 +193,19 @@ mod tests {
                      thread 4: maybe\n\
                      thread: fixed";
         assert_eq!(thread_lines(reply), []);
+    }
+
+    // A thread is resolved on this word alone, so a line that says more than
+    // `fixed` is not read as it, whatever it starts with.
+    #[test]
+    fn a_fixed_line_that_takes_the_fix_back_is_not_read_as_fixed() {
+        let reply = "thread 1: fixed, no wait, I could not\n\
+                     thread 2: fixed? not really\n\
+                     thread 3: fixed - but only in part\n\
+                     thread 4: fixed in a1b2c3d\n\
+                     thread 5: Fixed!\n\
+                     thread 6: **fixed**.";
+        assert_eq!(thread_lines(reply), [(5, Said::Fixed), (6, Said::Fixed)]);
     }
 
     #[test]
