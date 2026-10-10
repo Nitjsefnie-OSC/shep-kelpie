@@ -61,7 +61,14 @@ impl Runner {
         let prompt = self
             .skills
             .invoke(Step::CiFix, &queue_prompt(number, &head, &reason, &help));
-        self.back_to_worker(number, head, vec!["merge queue".to_owned()], prompt, false)
+        self.back_to_worker(
+            number,
+            head,
+            vec!["merge queue".to_owned()],
+            prompt,
+            false,
+            None,
+        )
     }
 
     // Auto-merge queues whatever head the branch has once it can, so one

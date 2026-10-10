@@ -17,6 +17,7 @@ use crate::work_item::TimingPhase;
 #[test]
 fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     let rig = Rig::new("koji");
+    rig.ci_on();
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -37,6 +38,20 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
         (Some("worker"), 100)
     );
     stops.push(t);
+
+    // The review waits for the pushed head's run, and that wait is CI's.
+    let pushed = rig.forge.head_of("kelpie/7").unwrap();
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "no reviewer reads a pending head"
+    );
+    rig.clock.advance(60);
+    let t = timings(&rig, &runner);
+    assert_eq!((t["phase"].as_str(), secs(&t, "ci")), (Some("ci"), 60));
+    stops.push(t);
+    rig.forge.set_checks(&pushed, Checks::Passed);
+    rig.clock.advance(crate::runner::CHECKS_SETTLE);
 
     let (queued, running) = (Hold::default(), Hold::default());
     rig.reviewer.script([ScriptedRound::Queued {
@@ -87,7 +102,7 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     let phases: Vec<_> = stops.iter().map(|t| t["phase"].as_str().unwrap()).collect();
     assert_eq!(
         phases,
-        ["worker", "review", "review", "ci", "ruling", "merge"]
+        ["worker", "ci", "review", "review", "ci", "ruling", "merge"]
     );
     for stop in &stops {
         assert_sums(stop);
@@ -99,7 +114,7 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     assert_eq!(got(TimingPhase::Worker), 100);
     assert_eq!(got(TimingPhase::Review), 50);
     assert_eq!(got(TimingPhase::Ruling), 1_200);
-    assert!(got(TimingPhase::Ci) >= 300);
+    assert!(got(TimingPhase::Ci) >= 60 + 300);
     assert!(got(TimingPhase::Merge) >= crate::runner::CHECKS_SETTLE);
     let t = rig.ask(&runner, "timings", None);
     assert_eq!(

@@ -466,6 +466,10 @@ pub enum Checks {
     Pending,
     /// Every check finished, and none failed
     Passed,
+    /// Every check finished and was skipped, as a workflow whose jobs all
+    /// skip a draft leaves on one: nothing ran, and it counts as passed once
+    /// the pull request is ready
+    Skipped,
     /// Every check finished, and these failed
     Failed(Vec<String>),
 }

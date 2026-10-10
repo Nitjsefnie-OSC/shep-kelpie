@@ -4,6 +4,7 @@
 //! missing is what a runner would stop on. It changes nothing. The one post
 //! it can make is a test alert, and only when asked.
 
+mod ci;
 mod gateways;
 mod github;
 pub mod host;

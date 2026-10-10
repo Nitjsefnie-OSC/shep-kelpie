@@ -92,6 +92,7 @@ fn a_review_saved_after_its_last_reviewer_goes_on_to_ci() {
     });
     std::fs::write(&state, saved.to_string()).unwrap();
 
+    rig.ci_on();
     let runner = rig.open().unwrap();
     step(&runner).unwrap();
     assert_eq!(

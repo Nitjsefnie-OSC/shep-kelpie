@@ -13,11 +13,14 @@
 //! [`super::review_bot`]'s, and its open threads are its findings. After the
 //! last reviewer the work item goes on to [`super::gate`].
 
+mod awaited;
 pub(super) mod calls;
 mod criteria;
 pub(super) mod findings;
 #[cfg(test)]
 mod foreign;
+#[cfg(test)]
+mod green;
 mod lineup;
 #[cfg(test)]
 mod local;
@@ -100,6 +103,10 @@ impl Runner {
                     Ok(None) => return self.pass_ended(&review),
                     Err(reason) => return Ok(self.gate_failed(reason)),
                 };
+                // Before any reader or bot is started on the head.
+                if let Some(begin) = self.before_read(&mut review)? {
+                    return Ok(begin);
+                }
                 if let Some(bot) = chosen.bot() {
                     return self.bot_round(&chosen, bot, review);
                 }

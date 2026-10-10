@@ -14,10 +14,12 @@ use serde::Deserialize;
 pub struct Ci {
     /// Whether the repo runs CI on pull requests, which a merge waits for
     ///
-    /// On, a pull request with no checks yet waits for them, and a merge
-    /// waits for green. Off, kelpie reads no checks at all and asks for the
-    /// merge once the branch has the latest `main`, and `fix_attempts`
-    /// does not apply. Review rounds never wait for CI.
+    /// On, a pull request with no checks yet waits for them, a merge waits
+    /// for green, and no reviewer reads a head until CI has passed on it,
+    /// so CI must run on the draft pull request too. Off, kelpie reads no
+    /// checks at all, asks for the merge once the branch has the latest
+    /// `main`, and starts the review at once, and `fix_attempts` does not
+    /// apply.
     pub block: bool,
     /// How many fix turns the worker gets on red runs for one work item,
     /// before kelpie raises a ruling instead

@@ -619,6 +619,12 @@ impl Runner {
                     Some(text) => {
                         let resume = match &item.phase {
                             Phase::Review(review) => Resume::Review(review.clone()),
+                            // A CI fix turn sent from a round waiting on its head's run
+                            // goes back to that round once answered, and the answer
+                            // keeps the saved round in `resume`.
+                            Phase::Implement if matches!(item.resume, Some(Phase::Review(_))) => {
+                                Resume::Nothing
+                            }
                             // A merge ruling's no sends its fix to CI, question or none.
                             Phase::Implement if item.noted_from.is_some() => Resume::Nothing,
                             Phase::Implement if pull_request.is_some() => Resume::ReviewFirst,

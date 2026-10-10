@@ -109,6 +109,7 @@ pub(super) fn checks(
     };
     let (line, remote) = checkout(at("checkout"), &settings);
     let mut lines = vec![line];
+    lines.extend(super::ci::drafts(at("ci on drafts"), &settings));
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));
     }
