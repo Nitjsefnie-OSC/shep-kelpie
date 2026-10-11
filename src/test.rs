@@ -114,6 +114,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         threads_sent: Vec::new(),
         thread_answers: Vec::new(),
         resolve_failures: 0,
+        threads_accepted: Vec::new(),
         reviewers_skipped: Vec::new(),
         unreviewed: None,
         local_failures: Default::default(),
@@ -719,7 +720,9 @@ impl Rig {
         action: &str,
         params: Option<&str>,
     ) -> serde_json::Value {
-        serde_json::from_str(&answer(runner, action, params)).expect("a JSON reply")
+        let reply = answer(runner, action, params);
+        runner.lock().unwrap().settle_notices();
+        serde_json::from_str(&reply).expect("a JSON reply")
     }
 
     /// A running project whose worker's first turn pushed `work.txt` on

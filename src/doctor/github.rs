@@ -44,14 +44,27 @@ pub(super) fn app(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> 
 /// where the App covers the repo, else the maintainer's own login
 pub(super) fn workers(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> Line {
     let slug = repo.as_str();
-    match github.worker_token(repo) {
-        Ok(_) => Line::ok(
-            subject,
-            format!(
-                "a worker pushes with a token for {slug} alone, which cannot comment, review, \
-                 approve or merge; it can push any branch, so protect `main` on GitHub"
-            ),
-        ),
+    match github.worker(repo) {
+        Ok(worker) => {
+            let workflows = match worker.workflows {
+                true => {
+                    "it can change a workflow file, and CI runs with the repo's secrets, so \
+                     review a change to one"
+                }
+                false => {
+                    "it cannot change a workflow file: to let it, give the App the `workflows` \
+                     permission (read and write) in its settings and accept it on the installation"
+                }
+            };
+            Line::ok(
+                subject,
+                format!(
+                    "a worker pushes with a token for {slug} alone, which cannot comment, review, \
+                     approve or merge; it can push any branch, so protect `main` on GitHub; \
+                     {workflows}"
+                ),
+            )
+        }
         // Not covered: the worker runs as the maintainer, as before the App.
         Err(TokenError::Owner(_) | TokenError::NoApp(_) | TokenError::NotInstalled { .. }) => {
             Line::unsure(

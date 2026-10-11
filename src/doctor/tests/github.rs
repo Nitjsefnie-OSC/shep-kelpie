@@ -213,6 +213,22 @@ async fn a_worker_on_a_covered_repo_pushes_with_a_token_for_that_repo_alone() {
     assert!(said.contains("protect `main` on GitHub"), "{said}");
 }
 
+#[tokio::test]
+async fn doctor_says_whether_a_worker_can_change_workflow_files() {
+    let scene = Scene::new().await;
+
+    let without = scene.report().await;
+    let said = ok(&without, "koji: workers");
+    assert!(said.contains("cannot change a workflow file"), "{said}");
+    assert!(said.contains("`workflows` permission"), "{said}");
+
+    scene.github.hold_workflows();
+    let with = scene.report().await;
+    let said = ok(&with, "koji: workers");
+    assert!(said.contains("can change a workflow file"), "{said}");
+    assert!(said.contains("runs with the repo's secrets"), "{said}");
+}
+
 // With no App a worker holds the maintainer's login, and doctor says so, but
 // the App is optional, so it does not fail the run.
 #[tokio::test]

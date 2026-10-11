@@ -77,7 +77,13 @@ pub(in crate::runner) fn ticked(kind: &RulingKind, body: &str) -> Option<Answer>
     if !boxes(kind) {
         return None;
     }
-    let mut ticked = (body.lines()).filter_map(|line| {
+    // Only the boxes kelpie wrote count: the lines after the one that says to
+    // tick, not a task line in the facts a worker's question carries.
+    let lines: Vec<&str> = body.lines().collect();
+    let offered = lines
+        .iter()
+        .rposition(|line| line.trim_end().ends_with("ick one:"))?;
+    let mut ticked = lines[offered + 1..].iter().filter_map(|line| {
         let key = line.trim().strip_prefix("- [")?;
         let (mark, key) = key.split_once("] ")?;
         matches!(mark, "x" | "X").then(|| key.trim().to_owned())

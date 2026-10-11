@@ -108,6 +108,7 @@ mod tests {
             head: "abc".into(),
             unreviewed: None,
             open_threads: None,
+            held_by: Vec::new(),
             unread_head: false,
             note_fix: false,
             late_fix: false,

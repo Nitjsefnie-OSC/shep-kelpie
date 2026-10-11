@@ -30,6 +30,7 @@ fn merge() -> RulingKind {
         head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
         unreviewed: None,
         open_threads: None,
+        held_by: Vec::new(),
         unread_head: false,
         note_fix: false,
         late_fix: false,
@@ -66,6 +67,7 @@ fn a_merge_ruling_that_warns_says_what_it_warns_of_and_offers_no_separate_rework
         head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
         unreviewed: Some("the reviewer was down".into()),
         open_threads: Some("coderabbit".into()),
+        held_by: Vec::new(),
         unread_head: false,
         note_fix: false,
         late_fix: false,
@@ -92,6 +94,7 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
         head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
         unreviewed: Some("the reviewer was down".into()),
         open_threads: None,
+        held_by: Vec::new(),
         unread_head: false,
         note_fix: false,
         late_fix: false,
@@ -117,6 +120,26 @@ fn a_question_becomes_the_options_it_lists_plus_an_other_row() {
         rendered(&ruling(1, asking(asked))),
         expected!("question.md")
     );
+}
+
+#[test]
+fn a_ticked_line_in_a_workers_question_is_no_box_of_the_comment() {
+    let asked = "Where we are:\n- [x] tests pass\n\nWhich flag?\n- `--dry-run`\n- `--check`";
+    let comment = rendered(&ruling(1, asking(asked)));
+    let ticked = comment.replace("- [ ] A", "- [x] A");
+    let two = comment
+        .replace("- [ ] A", "- [x] A")
+        .replace("- [ ] B", "- [x] B");
+
+    assert_eq!(
+        ticked_answer(&asking(asked), &ticked),
+        Some(Answer::Text("--dry-run".into()))
+    );
+    assert_eq!(ticked_answer(&asking(asked), &two), None);
+}
+
+fn ticked_answer(kind: &RulingKind, body: &str) -> Option<Answer> {
+    ticked(kind, body)
 }
 
 #[test]

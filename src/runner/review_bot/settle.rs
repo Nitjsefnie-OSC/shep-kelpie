@@ -82,18 +82,23 @@ impl Runner {
     ///
     /// A message when the forge cannot read a bot's activity.
     pub(in crate::runner) fn threads_open(&self, number: u64) -> Result<OpenThreads, String> {
-        let sent = self.current().map(|item| item.threads_sent.clone());
-        let sent = sent.unwrap_or_default();
-        let (mut holding, mut nits) = (Vec::new(), Vec::new());
+        // A thread sent to a fix turn is the worker's, and one the
+        // maintainer merged past with a yes holds nothing again.
+        let passed: Vec<String> = (self.current().into_iter())
+            .flat_map(|item| item.threads_sent.iter().chain(&item.threads_accepted))
+            .cloned()
+            .collect();
+        let (mut holding, mut held_by, mut nits) = (Vec::new(), Vec::new(), Vec::new());
         for listed in self.listed_bots() {
             let profile = self.profile(listed.bot);
             let activity = self.activity(listed.bot, number)?;
             let (low, above): (Vec<_>, Vec<_>) = (activity.open_threads())
-                .filter(|t| !sent.contains(&t.id))
+                .filter(|t| !passed.contains(&t.id))
                 .partition(|t| profile.finding(t).is_nit());
             let name = profile.name();
             if !above.is_empty() {
                 holding.push(format!("{} from {name}", above.len()));
+                held_by.extend(above.iter().map(|t| t.id.clone()));
             }
             match low.len() {
                 0 => {}
@@ -104,6 +109,7 @@ impl Runner {
         let joined = |named: Vec<String>| (!named.is_empty()).then(|| named.join(", "));
         Ok(OpenThreads {
             holding: joined(holding),
+            held_by,
             nits: joined(nits),
         })
     }
@@ -114,6 +120,8 @@ impl Runner {
 pub(in crate::runner) struct OpenThreads {
     /// Those above a nit, which hold a merge under `auto`, if any
     pub(in crate::runner) holding: Option<String>,
+    /// The forge's ids of the threads in `holding`
+    pub(in crate::runner) held_by: Vec<String>,
     /// The nits, which hold nothing, if any
     pub(in crate::runner) nits: Option<String>,
 }

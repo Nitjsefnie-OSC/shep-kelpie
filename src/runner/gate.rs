@@ -109,10 +109,22 @@ impl Runner {
         if !settled(since, now) {
             return Ok(Begin::Idle);
         }
+        let issue = self.current().map_or(0, |item| item.issue);
         match pr.checks {
             Checks::None | Checks::Pending => Ok(Begin::Idle),
-            Checks::Passed | Checks::Skipped => self.passed(number, pr.head),
-            Checks::Failed(checks) => self.ci_failed(number, pr.head, checks, None),
+            Checks::Passed | Checks::Skipped => {
+                let conclusion = if pr.checks == Checks::Skipped {
+                    "skipped"
+                } else {
+                    "passed"
+                };
+                self.ci_settled(issue, number, &pr.head, conclusion, &[]);
+                self.passed(number, pr.head)
+            }
+            Checks::Failed(checks) => {
+                self.ci_settled(issue, number, &pr.head, "failed", &checks);
+                self.ci_failed(number, pr.head, checks, None)
+            }
         }
     }
 
@@ -174,6 +186,7 @@ impl Runner {
             head,
             unreviewed,
             open_threads: open.holding,
+            held_by: open.held_by,
             unread_head,
             note_fix,
             late_fix,

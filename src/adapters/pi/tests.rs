@@ -358,6 +358,167 @@ fn the_guard_sends_commands_to_guard_and_writes_to_confine_and_refuses_the_rest(
     assert_eq!(edit["tool_input"]["file_path"], json!(wt.join("b.txt")));
 }
 
+fn pi_hooks(points: &[crate::settings::HookPoint]) -> crate::hooks::Hooks {
+    let list: Vec<crate::settings::ProjectHook> = points
+        .iter()
+        .map(|&point| crate::settings::ProjectHook {
+            point,
+            command: "check-words".to_owned().try_into().unwrap(),
+        })
+        .collect();
+    crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &list)
+}
+
+// The checks the guard extension is given for a fenced worker with `hooks`.
+fn checks_for(w: &World, hooks: crate::hooks::Hooks) -> serde_json::Value {
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+    stand_in(w, FRESH).prepare(&call).unwrap();
+    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let line = guard
+        .lines()
+        .find(|l| l.starts_with("const CHECKS"))
+        .unwrap();
+    serde_json::from_str(line.split_once(" = ").unwrap().1.trim_end_matches(';')).unwrap()
+}
+
+#[test]
+fn the_projects_write_and_after_command_hooks_reach_a_pi_workers_checks() {
+    use crate::settings::HookPoint;
+    let hooks = pi_hooks(&[HookPoint::Write, HookPoint::AfterCommand]);
+    let flag = hooks.flag().unwrap();
+
+    let checks = checks_for(&World::new(), hooks);
+
+    let confine = checks["confine"].as_array().unwrap();
+    assert_eq!(confine.last().unwrap(), &json!(flag));
+    let after = checks["after"].as_array().unwrap();
+    assert_eq!(after[0], "guard");
+    assert!(after.contains(&json!(flag)), "{after:?}");
+    assert_eq!(after.last().unwrap(), "--after");
+
+    let plain = checks_for(&World::new(), pi_hooks(&[HookPoint::Commit]));
+    assert_eq!(plain["confine"].as_array().unwrap().len(), 3);
+    assert_eq!(plain["after"], serde_json::Value::Null);
+}
+
+// Loads the guard extension as pi does and hands its `tool_result` handler each of `events`.
+const RESULT_RUNNER: &str = r#"
+import guard from "./guard.mts";
+let handler;
+guard({ on: (name, fn) => { if (name === "tool_result") handler = fn; } });
+const out = [];
+for (const event of JSON.parse(process.argv[2])) {
+  out.push((await handler(event, { cwd: process.argv[3] })) ?? null);
+}
+console.log(JSON.stringify(out));
+"#;
+
+// What the guard extension answers each of `events` with, as pi's `tool_result` handler.
+fn after_results(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_json::Value> {
+    use crate::settings::HookPoint;
+    let mut call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
+    call.reach.fence.as_mut().unwrap().guard.hooks = pi_hooks(&[HookPoint::AfterCommand]);
+    let fence = call.reach.fence.as_deref().unwrap();
+    std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
+    std::fs::write(w.path("run.mjs"), RESULT_RUNNER).unwrap();
+    let out = std::process::Command::new("node")
+        .arg(w.path("run.mjs"))
+        .arg(events.to_string())
+        .arg(w.path("wt"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+// pi has no PostToolUse: its `tool_result` event is where a refused result reaches the model.
+#[test]
+fn an_after_command_refusal_reaches_a_pi_worker_as_feedback_on_the_result() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    // A stand-in for kelpie's check: it logs the result it was handed and refuses `refuse-me`.
+    let log = w.path("checks.log");
+    let script = format!(
+        "#!/bin/sh\necho \"$*\" >> {log}\nin=$(cat)\necho \"$in\" >> {log}\n\
+         case \"$in\" in *refuse-me*) echo 'the build failed' >&2; exit 2;; esac\n",
+        log = log.display()
+    );
+    crate::test::write_script(&w.path("kelpie"), &script);
+    let ok = json!([{ "type": "text", "text": "fine" }]);
+    let bad = json!([{ "type": "text", "text": "refuse-me. Command exited with code 101" }]);
+    let events = json!([
+        { "toolName": "bash", "input": { "command": "ls" }, "content": ok, "isError": false },
+        { "toolName": "bash", "input": { "command": "cargo build" }, "content": bad, "isError": true },
+        { "toolName": "read", "input": { "path": "a" }, "content": ok, "isError": false },
+    ]);
+
+    let results = after_results(&w, &w.path("kelpie"), events);
+
+    assert_eq!(results[0], serde_json::Value::Null);
+    assert_eq!(results[1]["isError"], true);
+    let content = results[1]["content"].as_array().unwrap();
+    assert_eq!(content[0], bad[0]);
+    assert!(
+        content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("the build failed"),
+        "{content:?}"
+    );
+    assert_eq!(results[2], serde_json::Value::Null);
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = calls.lines().collect();
+    assert_eq!(lines.len(), 4, "{calls}");
+    assert!(lines[0].starts_with("guard "), "{}", lines[0]);
+    assert!(lines[0].ends_with("--after"), "{}", lines[0]);
+    let second: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(second["tool_name"], "Bash");
+    assert_eq!(second["tool_input"]["command"], "cargo build");
+    assert_eq!(second["tool_response"]["exit_code"], 101);
+    assert!(
+        second["tool_response"]["stdout"]
+            .as_str()
+            .unwrap()
+            .starts_with("refuse-me"),
+    );
+}
+
+#[test]
+fn a_pi_write_hands_confine_the_content_for_the_projects_write_hooks() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    let log = w.path("checks.log");
+    let script = format!(
+        "#!/bin/sh\ncat >> {log}\necho >> {log}\n",
+        log = log.display()
+    );
+    crate::test::write_script(&w.path("kelpie"), &script);
+    let events = json!([
+        { "toolName": "write", "input": { "path": "a.txt", "content": "one" } },
+        { "toolName": "edit", "input": { "path": "b.txt", "edits": [
+            { "oldText": "x", "newText": "y" }, { "oldText": "z", "newText": "w" } ] } },
+    ]);
+
+    guarded(&w, &w.path("kelpie"), events);
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let seen: Vec<serde_json::Value> = calls
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(seen[0]["tool_input"]["content"], "one");
+    assert_eq!(seen[1]["tool_input"]["content"], "y\nw");
+}
+
 #[test]
 fn a_guard_whose_checks_cannot_run_refuses() {
     if !has_node() {

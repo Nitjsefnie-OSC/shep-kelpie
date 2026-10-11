@@ -17,8 +17,10 @@ pub mod setup;
 pub mod tokens;
 pub mod voice;
 
-pub use api::{ApiError, Call, Conversion, GithubApi, Grant, IssuedToken, Pem, Signer, Verb};
-pub use tokens::{AppTokens, GithubApp, InstallationToken, TokenError};
+pub use api::{
+    ApiError, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Pem, Signer, Verb,
+};
+pub use tokens::{AppTokens, GithubApp, InstallationToken, TokenError, WorkerToken};
 pub use voice::AppVoice;
 
 /// The folder in kelpie's home the Apps are kept in

@@ -66,6 +66,7 @@ impl Flow<'_> {
             "hook_attributes": { "url": HOMEPAGE, "active": false },
             "default_permissions": {
                 "contents": "write",
+                "workflows": "write",
                 "issues": "write",
                 "pull_requests": "write",
                 "metadata": "read",

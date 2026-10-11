@@ -211,6 +211,7 @@ fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
             "hook_attributes": { "url": "https://github.com/shep-pm/shep-kelpie", "active": false },
             "default_permissions": {
                 "contents": "write",
+                "workflows": "write",
                 "issues": "write",
                 "pull_requests": "write",
                 "metadata": "read",
@@ -309,14 +310,69 @@ fn a_workers_token_is_for_one_repo_to_push_and_minted_fresh_for_each_call() {
         [
             Asked::Installation("shep-pm/koji".to_owned()),
             Asked::AccessToken(7, pushes.to_owned()),
+            Asked::Installation("shep-pm/koji".to_owned()),
             Asked::AccessToken(7, pushes.to_owned()),
             Asked::AccessToken(7, KELPIE_KOJI.to_owned()),
+        ],
+        "a worker's token reads the installation afresh; kelpie's own reuses the one kept"
+    );
+}
+
+// Changing a workflow file takes the `workflows` permission, and a change to
+// CI runs with the repo's secrets, so a worker's token asks for it only where
+// the installation holds it.
+#[test]
+fn a_workers_token_asks_to_change_workflow_files_only_where_the_installation_holds_it() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    let tokens = github.tokens(home.path());
+    let koji = slug("shep-pm/koji");
+
+    let without = tokens.worker(&koji).unwrap();
+    github.hold_workflows();
+    let with = tokens.worker(&koji).unwrap();
+
+    assert!(!without.workflows);
+    assert!(with.workflows, "accepted since, and asked for at once");
+    let asked_for: Vec<_> = (github.asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::AccessToken(_, body) => Some(body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked_for,
+        [
+            r#"{"permissions":{"contents":"write"},"repositories":["koji"]}"#,
+            r#"{"permissions":{"contents":"write","workflows":"write"},"repositories":["koji"]}"#,
         ]
     );
 }
 
+// GitHub's answer says what the token holds: pushing and changing workflow
+// files are the most a worker is handed.
+#[test]
+fn a_token_that_changes_workflow_files_and_more_is_never_handed_to_a_worker() {
+    let home = tempfile::tempdir().unwrap();
+    let github = FakeGithub::new(FakeClock::at(1_000_000), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    github.hold_workflows();
+    let tokens = github.tokens(home.path());
+    let koji = slug("shep-pm/koji");
+
+    assert!(tokens.worker(&koji).is_ok(), "contents and workflows alone");
+    for broader in ["issues", "pull_requests"] {
+        github.grants_too(broader, "write");
+        let err = tokens.worker(&koji).unwrap_err();
+        assert!(matches!(err, TokenError::TooBroad(_)), "{broader}: {err:?}");
+        assert!(err.to_string().contains(broader), "{err}");
+    }
+}
+
 // GitHub's answer says what the token holds. A worker is handed one only if
-// that is the permission to push and nothing else, whatever was asked for.
+// that is the permission to push, and to change workflow files where the App
+// holds it, and nothing else, whatever was asked for.
 #[test]
 fn a_token_that_holds_more_than_pushing_is_never_handed_to_a_worker() {
     let home = tempfile::tempdir().unwrap();
@@ -499,7 +555,21 @@ fn githubs_answers_are_read() {
 
     let installation =
         r#"{"id":1,"account":{"login":"octocat"},"app_id":1,"target_type":"Organization"}"#;
-    assert_eq!(api::parse_installation(installation), Ok(1));
+    let plain = Installation {
+        id: 1,
+        workflows: false,
+    };
+    assert_eq!(api::parse_installation(installation), Ok(plain));
+    let accepted = r#"{"id":1,"permissions":{"contents":"write","workflows":"write"}}"#;
+    assert_eq!(
+        api::parse_installation(accepted),
+        Ok(Installation {
+            workflows: true,
+            ..plain
+        })
+    );
+    let read_only = r#"{"id":1,"permissions":{"workflows":"read"}}"#;
+    assert_eq!(api::parse_installation(read_only), Ok(plain));
 
     let token = r#"{"token":"ghs_16C7e42F292c6912E7710c838347Ae178B4a","expires_at":"2016-07-11T22:14:10Z",
         "permissions":{"issues":"write"},"repository_selection":"selected"}"#;
@@ -785,7 +855,7 @@ impl GithubApi for Stalled {
         self.inner.convert(code)
     }
 
-    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<u64>, ApiError> {
+    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError> {
         if repo.as_str() == self.repo {
             self.inside.send(()).unwrap();
             let _ = self.release.lock().unwrap().recv_timeout(PATIENCE);

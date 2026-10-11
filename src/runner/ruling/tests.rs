@@ -71,6 +71,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
         head: "abc".into(),
         unreviewed: None,
         open_threads: None,
+        held_by: Vec::new(),
         unread_head: false,
         note_fix: false,
         late_fix: false,

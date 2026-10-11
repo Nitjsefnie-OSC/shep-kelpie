@@ -398,6 +398,7 @@ impl Runner {
             spend: Some(item.tally()),
         };
         let line = crate::usage::FinishedLine::of(&record, &item.tally());
+        let ended = record.clone();
         let report = StepReport::Finished {
             issue: item.issue,
             pull_request: item.pull_request,
@@ -419,6 +420,7 @@ impl Runner {
         next.record_finished(record);
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
+        self.tell_done(&ended);
         self.mark_held(issue, false);
         self.late_reads.remove(&issue);
         self.parked_reads.remove(&issue);

@@ -153,6 +153,10 @@ pub struct WorkItem {
     /// Steps in a row that could not answer `threads_sent`
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resolve_failures: u32,
+    /// The forge's ids of the review bot threads the maintainer merged past
+    /// with a yes, which hold no later merge of this work item
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads_accepted: Vec<String>,
     /// The reviewers whose calls failed so often in a row that a pass went
     /// on without them
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
