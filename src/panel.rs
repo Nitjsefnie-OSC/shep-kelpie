@@ -5,10 +5,14 @@
 //! with one JSON object, `{"choice": "<option key>", "why": "<at most 350
 //! characters>", "design": true|false}`. A vote kelpie cannot read is an
 //! abstention. This module is the votes and how one is read; the runner
-//! asks for them.
+//! asks for them, and [`settle`] is how the votes decide a ruling.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+
+mod tally;
+
+pub use tally::{Advice, MAJORITY, Stage, Step, Tier, Verdict, Work, settle, simulate, work_of};
 
 /// The most a vote's `why` keeps, in characters: four lines of a GitHub comment
 pub const WHY_LONGEST: usize = 350;
