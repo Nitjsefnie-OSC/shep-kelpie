@@ -486,8 +486,10 @@ pub async fn send(
 /// Hands `project`'s project manager `note` for its next wake
 ///
 /// A runner busy mid-step can take the note and not answer in time. The
-/// shepherd delivered it then, so that is no failure to retry: telling again
-/// would wake the project manager a second time for one note.
+/// shepherd delivered the trigger then, so the note has most likely arrived,
+/// and an error would invite a retry that wakes the project manager a second
+/// time for one note. It is no error, and says the note may have arrived. The
+/// runner's own refusal, which comes after the deadline, is not seen.
 ///
 /// # Errors
 ///
@@ -508,8 +510,9 @@ pub async fn tell(
             )]),
         },
         Answered::TimedOut => Ok(vec![format!(
-            "told {project}'s project manager, though {runner}'s runner did not answer in time: \
-             the note was delivered, so do not tell it again"
+            "{runner}'s runner did not answer in time, and the note may have arrived: \
+             do not tell it again unless the project manager does not wake for it, \
+             and `shep bleats {runner}` says why"
         )]),
         other => Err(unanswered(runner, other)),
     }

@@ -373,7 +373,9 @@ async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() 
         panic!("{lines:?}")
     };
     assert!(line.contains("did not answer in time"), "{line}");
+    assert!(line.contains("the note may have arrived"), "{line}");
     assert!(line.contains("do not tell it again"), "{line}");
+    assert!(line.contains("`shep bleats koji`"), "{line}");
     assert_eq!(asked(&shepherd.writes()), ["tell"]);
 }
 
