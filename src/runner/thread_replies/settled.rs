@@ -61,7 +61,7 @@ impl Outcome {
             ),
             Settler::Thread => Self {
                 line: None,
-                told: format!("is already answered in this thread: {words}"),
+                told: format!("is already answered in its own thread: {words}"),
             },
             Settler::Pm { answer, why } => {
                 let (answer, why) = (bare(answer), bare(why));

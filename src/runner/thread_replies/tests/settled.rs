@@ -43,6 +43,16 @@ fn a_ruling_answered_in_its_own_thread_is_left_as_it_is() {
 
     assert_eq!(pending(&rig, &runner), none());
     assert_eq!(rig.github.edits(), []);
+
+    // A later reply is told where it was answered without saying "this thread",
+    // which it may not be.
+    rig.writes_on(71, "octocat", "1 yes");
+    rig.next_look();
+    step(&runner).unwrap();
+    assert_eq!(
+        replies_on_71(&rig).last().map(String::as_str),
+        Some("@octocat Ruling 1 is already answered in its own thread: no, not yet.")
+    );
 }
 
 #[test]
