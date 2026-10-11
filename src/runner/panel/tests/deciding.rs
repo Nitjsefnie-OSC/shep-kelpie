@@ -386,11 +386,10 @@ fn a_merge_kind_on_pm_alone_stops_the_runner_naming_the_setting() {
     let rig = Rig::new("n-refused");
     rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n"));
 
-    let err = rig
-        .open()
-        .err()
-        .expect("the runner does not open")
-        .to_string();
+    let err = match rig.open() {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("the runner opened"),
+    };
 
     assert!(err.contains("rulings.pm_alone"), "{err}");
     assert!(err.contains("merge"), "{err}");

@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{CallLine, VoteMark};
 
+// How a vote is grouped.
+type Key = fn(&VoteMark) -> String;
+
 /// What one group of votes cost and did
 #[derive(Debug, Default)]
 struct Share {
@@ -36,7 +39,7 @@ pub(super) fn split(calls: &[&CallLine]) -> Vec<String> {
         count(rulings.len(), "ruling"),
         per(cost, rulings.len())
     )];
-    let by: [(&str, fn(&VoteMark) -> String); 3] = [
+    let by: [(&str, Key); 3] = [
         ("expert", |v| v.voter.name().to_lowercase()),
         ("kind", |v| v.ruling_kind.as_str().to_owned()),
         ("type", |v| v.work.clone()),
@@ -65,7 +68,7 @@ pub(super) fn split(calls: &[&CallLine]) -> Vec<String> {
 }
 
 // The votes in `calls` grouped by `key`.
-fn shares(calls: &[&&CallLine], key: fn(&VoteMark) -> String) -> BTreeMap<String, Share> {
+fn shares(calls: &[&&CallLine], key: Key) -> BTreeMap<String, Share> {
     let mut shares: BTreeMap<String, Share> = BTreeMap::new();
     for call in calls {
         let marks = call.votes.len().max(1) as f64;

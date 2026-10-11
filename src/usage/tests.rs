@@ -291,10 +291,6 @@ fn voted(
     seconds: u64,
     usd: f64,
 ) -> Line {
-    let role = match voter {
-        "pm" => "pm",
-        other => other,
-    };
     let call_kind = if voter == "pm" { "wake" } else { "vote" };
     let mut mark = json!({
         "ruling": ruling, "ruling_kind": kind, "voter": voter, "panel": "fix", "work": work,
@@ -303,7 +299,7 @@ fn voted(
         mark["choice"] = json!(choice);
     }
     let line: CallLine = serde_json::from_value(json!({
-        "at": 100 + ruling, "issue": null, "role": role, "kind": call_kind,
+        "at": 100 + ruling, "issue": null, "role": voter, "kind": call_kind,
         "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
         "units": 10, "cost_usd": usd, "seconds": seconds, "ended": "answered",
         "votes": [mark],
