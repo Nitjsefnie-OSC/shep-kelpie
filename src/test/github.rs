@@ -265,6 +265,11 @@ impl GithubApi for FakeGithub {
                 ("pull_requests", "write"),
             ]),
             Grant::Worker => ask(&[("contents", "write"), ("metadata", "read")]),
+            Grant::Threads => ask(&[
+                ("contents", "write"),
+                ("metadata", "read"),
+                ("pull_requests", "write"),
+            ]),
         };
         if let Some((name, level)) = hub.extra_grant.clone().filter(|_| grant == Grant::Worker) {
             permissions.insert(name, level);
