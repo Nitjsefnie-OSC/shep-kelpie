@@ -519,7 +519,8 @@ pub struct OpenIssue {
 /// read, made as its GitHub App once one covers the repo
 ///
 /// Its writes are the rulings, notices and review rounds posted as comments,
-/// the issues and labels kelpie makes, and the issue labels it sets. A
+/// the replies and resolves on a review bot's threads, the issues and labels
+/// kelpie makes, and the issue labels it sets. A
 /// summon and the labels on a pull request stay on the maintainer's own
 /// login through [`Forge`]: a review bot answers a person's label or comment.
 /// Where no App covers a repo the caller writes through [`Forge`] as before,
@@ -574,6 +575,26 @@ pub trait Voice: Send + Sync {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError>;
+
+    /// Resolves review thread `thread`
+    ///
+    /// A thread already resolved, or one the forge no longer has, is done.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot resolve it.
+    fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError>;
+
+    /// Replies to review thread `thread` with `body`
+    ///
+    /// A thread the forge no longer has is done, since there is nothing to
+    /// reply to.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot reply.
+    fn reply_to_thread(&self, repo: &ForgeSlug, thread: &str, body: &str)
+    -> Result<(), ForgeError>;
 
     /// Makes `label` on `repo`
     ///

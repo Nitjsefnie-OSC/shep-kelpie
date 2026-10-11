@@ -2,7 +2,7 @@
 //! the shapes the real one was recorded posting on shep
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::ports::{ForgeError, Timestamp};
@@ -21,6 +21,7 @@ pub(crate) struct FakeCodeRabbit {
     down: Arc<AtomicBool>,
     resolve_down: Arc<AtomicBool>,
     reply_down: Arc<AtomicBool>,
+    gh_writes: Arc<AtomicUsize>,
 }
 
 // CodeRabbit's own store on pull request `number`.
@@ -169,6 +170,16 @@ impl FakeCodeRabbit {
     /// Every reply posted on a thread, in order: the thread's id and the text
     pub(crate) fn replies(&self) -> Vec<(String, String)> {
         self.replies.lock().unwrap().clone()
+    }
+
+    /// How many replies and resolves came through `gh`, as the maintainer
+    pub(crate) fn gh_writes(&self) -> usize {
+        self.gh_writes.load(Ordering::SeqCst)
+    }
+
+    // A reply or resolve made through the forge port, which is `gh`.
+    pub(super) fn made_by_gh(&self) {
+        self.gh_writes.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Makes replying to a thread fail, or work again

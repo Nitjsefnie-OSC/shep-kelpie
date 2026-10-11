@@ -870,3 +870,36 @@ fn askers_for_one_repo_at_once_mint_one_token() {
         .count();
     assert_eq!(minted, 1);
 }
+
+// GraphQL answers HTTP 200 whatever came of the mutation, so the body says.
+#[test]
+fn a_thread_write_is_read_from_the_graphql_answer() {
+    use super::api::{ThreadWrite, parse_thread_write};
+    let resolved = r#"{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}"#;
+    let replied = r#"{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"c"}}}}"#;
+    let gone = r#"{"data":null,"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a node with the global id of 'PRRT_1'"}]}"#;
+    let refused =
+        r#"{"data":null,"errors":[{"message":"Resource not accessible by integration"}]}"#;
+    let still_open = r#"{"data":{"resolveReviewThread":{"thread":{"isResolved":false}}}}"#;
+
+    assert_eq!(
+        parse_thread_write(resolved, "resolveReviewThread"),
+        Ok(ThreadWrite::Done)
+    );
+    assert_eq!(
+        parse_thread_write(replied, "addPullRequestReviewThreadReply"),
+        Ok(ThreadWrite::Done)
+    );
+    assert_eq!(
+        parse_thread_write(gone, "resolveReviewThread"),
+        Ok(ThreadWrite::Gone)
+    );
+    assert_eq!(
+        parse_thread_write(refused, "resolveReviewThread"),
+        Ok(ThreadWrite::Refused(
+            "Resource not accessible by integration".to_owned()
+        ))
+    );
+    assert!(parse_thread_write(still_open, "resolveReviewThread").is_err());
+    assert!(parse_thread_write("not json", "resolveReviewThread").is_err());
+}

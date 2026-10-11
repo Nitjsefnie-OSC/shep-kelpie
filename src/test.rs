@@ -334,6 +334,7 @@ impl Rig {
         };
         rig.make_repo();
         rig.forge.threads.use_clock(rig.clock.clone());
+        rig.github.use_threads(rig.forge.coderabbit.clone());
 
         let example = include_str!("../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
