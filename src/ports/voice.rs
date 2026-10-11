@@ -11,8 +11,8 @@ use crate::settings::ForgeSlug;
 /// the replies and resolves on a review bot's threads, the issues and labels
 /// kelpie makes, and the issue labels it sets. A
 /// summon and the labels on a pull request stay on the maintainer's own
-/// login through [`Forge`]: a review bot answers a person's label or comment.
-/// Where no App covers a repo the caller writes through [`Forge`] as before,
+/// login through [`Forge`](super::Forge): a review bot answers a person's label or comment.
+/// Where no App covers a repo the caller writes through [`Forge`](super::Forge) as before,
 /// so each write below is made only after [`Voice::covers`] says yes.
 pub trait Voice: Send + Sync {
     /// Whether an App covers `repo`: its owner has one, installed on the repo
