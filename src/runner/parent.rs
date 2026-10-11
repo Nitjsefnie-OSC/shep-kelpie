@@ -30,12 +30,13 @@ impl Runner {
             i.sub_issues.all_closed() && refused.get(&i.number).is_none_or(|n| *n < TRIES)
         });
         let issue = done?.number;
-        // The comment goes first, on the first try only, as a comment kelpie
-        // records: closing with `--comment` would post it as the login that
-        // answers rulings, with no id to skip. A comment that fails is told
-        // in the log, and the close goes on without it.
+        // The comment goes first, on the first try only, as the App where one
+        // covers the repo, else as a comment kelpie records: closing with
+        // `--comment` would post it as the login that answers rulings, with no
+        // id to skip. A comment that fails is told in the log, and the close
+        // goes on without it.
         if !self.close_refused.contains_key(&issue)
-            && let Err(e) = self.comment_as_gh(issue, PARENT_CLOSED)
+            && let Err(e) = self.comment_on_issue(issue, PARENT_CLOSED)
         {
             self.notes.push(format!(
                 "cannot comment on issue #{issue} before closing it: {e}"

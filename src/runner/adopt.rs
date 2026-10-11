@@ -282,7 +282,7 @@ impl Runner {
 
     fn refusal_comment(&self, number: u64, refused: &AdoptError) -> Option<String> {
         let comment = format!("Kelpie cannot adopt this pull request: {refused}.");
-        let posted = self.comment_as_gh(number, &comment);
+        let posted = self.comment_on_issue(number, &comment);
         posted.err().map(|e| e.to_string())
     }
 
