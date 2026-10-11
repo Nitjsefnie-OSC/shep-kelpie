@@ -21,7 +21,7 @@ pub(in crate::runner) struct Git {
     tree: Option<(String, Vec<String>)>,
     diffs: BTreeMap<(String, String), Vec<String>>,
     merges: BTreeMap<(String, String), Vec<String>>,
-    patches: BTreeMap<(String, String), Vec<u8>>,
+    patches: BTreeMap<(String, String, PathBuf), Vec<u8>>,
 }
 
 /// What one board write asks git, with the answers kept so far
@@ -33,8 +33,9 @@ pub(in crate::runner) struct GitJob {
     pub(super) branches: Vec<(u64, String)>,
     /// The bodies of the issues ready or open, whose named paths it reads
     pub(super) bodies: Vec<(u64, String)>,
-    /// Whether it reads each branch's diff, for a project manager
-    pub(super) patches: bool,
+    /// Where each open work item's worktree is, when it reads each
+    /// branch's diff, for a project manager
+    pub(super) patches: Option<BTreeMap<u64, PathBuf>>,
 }
 
 /// What git answered for one board write
@@ -106,13 +107,15 @@ impl GitJob {
             })
             .collect();
         let patches = match patches {
-            true => (branches.iter())
+            Some(worktrees) => (branches.iter())
                 .map(|(issue, branch)| {
                     let head = heads.iter().find(|(n, _)| n == issue).map(|(_, h)| h);
-                    (*issue, git.patch(&repo, main.as_deref(), branch, head))
+                    let worktree = worktrees.get(issue).cloned().unwrap_or_default();
+                    let diff = git.patch(&repo, main.as_deref(), branch, head, &worktree);
+                    (*issue, diff)
                 })
                 .collect(),
-            false => BTreeMap::new(),
+            None => BTreeMap::new(),
         };
         let live: BTreeSet<String> = heads.into_iter().map(|(_, head)| head).collect();
         git.keep(main.as_deref(), &live);
@@ -205,7 +208,7 @@ impl Git {
             .retain(|(at, head), _| Some(at.as_str()) == main && kept(head));
         self.merges.retain(|(a, b), _| kept(a) && kept(b));
         self.patches
-            .retain(|(at, head), _| Some(at.as_str()) == main && kept(head));
+            .retain(|(at, head, _), _| Some(at.as_str()) == main && kept(head));
     }
 
     /// `branch`'s diff from `main`, at `head`, its commit where git read one
@@ -215,14 +218,16 @@ impl Git {
         main: Option<&str>,
         branch: &str,
         head: Option<&String>,
+        worktree: &Path,
     ) -> Result<Vec<u8>, String> {
         let main = main.ok_or_else(|| format!("origin/{BASE} is not in the checkout"))?;
         let head = head.ok_or_else(|| format!("{branch} is not in the checkout"))?;
-        let key = (main.to_owned(), head.clone());
+        let key = (main.to_owned(), head.clone(), worktree.to_owned());
         if let Some(diff) = self.patches.get(&key) {
             return Ok(diff.clone());
         }
-        let diff = patch::read(repo, main, head)?;
+        let files = self.files(repo, main, head);
+        let diff = patch::read(repo, main, head, files.as_deref(), worktree)?;
         self.patches.insert(key, diff.clone());
         Ok(diff)
     }
