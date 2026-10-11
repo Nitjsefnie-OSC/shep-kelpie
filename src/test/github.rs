@@ -9,7 +9,7 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::github::tokens::Jwt;
 use crate::github::{
     ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, Installation, InstallationToken,
-    IssuedToken, Pem, Signer,
+    IssuedToken, Pem, Signer, Verb,
 };
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -173,6 +173,18 @@ impl FakeGithub {
                 let thread = call.path.strip_suffix("/comments")?.rsplit('/').next()?;
                 let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
                 Some((thread.parse().ok()?, body["body"].as_str()?.to_owned()))
+            })
+            .collect()
+    }
+
+    /// The id and new text of each comment the App edited, in order
+    pub(crate) fn edits(&self) -> Vec<(u64, String)> {
+        (self.writes().into_iter())
+            .filter(|(_, call)| call.verb == Verb::Patch)
+            .filter_map(|(_, call)| {
+                let id = call.path.rsplit('/').next()?.parse().ok()?;
+                let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
+                Some((id, body["body"].as_str()?.to_owned()))
             })
             .collect()
     }

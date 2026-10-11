@@ -6,6 +6,7 @@ use crate::state::{Heard, Ruling, RulingKind, Stuck};
 use crate::test::{Rig, Scripted, VIEWER};
 
 mod marks;
+mod settled;
 
 const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
 
@@ -392,7 +393,8 @@ fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
 
     assert!(rig.github.reactions().is_empty());
     // The worker's question, ruling 2, went up on the thread too.
-    let told = "@octocat Ruling 1 is already answered.";
+    let told = "@octocat Ruling 1 is already answered at the terminal with `shep kelpie rule`: \
+                no, not yet.";
     assert!(replies_on_71(&rig).contains(&told.to_owned()));
     assert_eq!(rig.forge.merges(), []);
 }
@@ -413,7 +415,8 @@ fn a_ruling_answered_at_the_terminal_between_the_read_and_applying_it_is_not_ans
     assert!(rig.github.reactions().is_empty(), "the reply took nothing");
     assert_eq!(rig.forge.merges(), []);
     assert_eq!(pending(&rig, &runner), none());
-    let told = "@octocat Ruling 1 is already answered.";
+    let told = "@octocat Ruling 1 is already answered at the terminal with `shep kelpie rule`: \
+                no, not yet.";
     assert_eq!(replies_on_71(&rig), [told]);
     // The terminal's no is the worker's next turn, once.
     assert_eq!(

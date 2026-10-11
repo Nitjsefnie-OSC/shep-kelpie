@@ -141,6 +141,27 @@ fn a_comment_is_reacted_to_with_a_thumbs_up_as_the_app() {
 }
 
 #[test]
+fn a_comment_is_edited_in_place_as_the_app() {
+    let (voice, github, _home) = voiced();
+
+    voice
+        .edit_comment(&slug("shep-pm/koji"), 5001, "settled")
+        .unwrap();
+
+    assert_eq!(
+        writes(&github),
+        [(
+            "ghs_test1".to_owned(),
+            Call {
+                verb: Verb::Patch,
+                path: "/repos/shep-pm/koji/issues/comments/5001".to_owned(),
+                body: Some(r#"{"body":"settled"}"#.to_owned()),
+            }
+        )]
+    );
+}
+
+#[test]
 fn an_issue_is_opened_with_its_labels_and_its_number_read_back() {
     let (voice, github, _home) = voiced();
 

@@ -4,6 +4,8 @@
 //! review round of kelpie's own reviewers are comments on the work item's
 //! pull request, or on its issue while it has none. A ruling mentions the
 //! maintainer, so GitHub notifies them, and ends with how to answer it. A
+//! ruling the project manager, the terminal or a withdrawal settles has its
+//! comment edited to say so (see [`settled_comment`]). A
 //! failed post is told once in the runner's log and never fails the step it
 //! belongs to. Where no App covers the repo nothing here posts, and the
 //! runner writes as it did before.
@@ -14,7 +16,25 @@ use super::gate::short;
 use super::ruling::stuck_comment;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
-use crate::state::{Heard, Notice, Ruling, RulingKind};
+use crate::state::{Heard, Notice, ProjectState, Ruling, RulingKind};
+
+/// Where a ruling's posted comment is kept in the state
+pub(super) enum Placed {
+    /// It mentions a login, whose reply in the thread answers it
+    Heard(Heard),
+    /// It mentions no one: the id of the comment
+    Unmentioned(u64),
+}
+
+impl Placed {
+    /// Keeps it in `state` for ruling `id`
+    pub(super) fn keep(self, state: &mut ProjectState, id: u64) {
+        match self {
+            Self::Heard(heard) => state.heard.insert(id, heard).map(drop),
+            Self::Unmentioned(comment) => state.unmentioned.insert(id, comment).map(drop),
+        };
+    }
+}
 
 impl Runner {
     /// Whether kelpie's App covers the project's repo
@@ -43,12 +63,13 @@ impl Runner {
     }
 
     /// Posts ruling `id`'s comment on `thread` as the App, and returns why it
-    /// failed, or went up without a mention of the maintainer, if it did
+    /// failed, or went up without a mention of the maintainer, if it did,
+    /// and where its comment is kept
     pub(super) fn post_app_ruling(
         &self,
         thread: u64,
         ruling: &Ruling,
-    ) -> (Option<String>, Option<Heard>) {
+    ) -> (Option<String>, Option<Placed>) {
         let id = ruling.id;
         // A ruling still goes up when no one can be named to mention, as the
         // record on the thread, but it notifies no one and only the terminal
@@ -63,11 +84,16 @@ impl Runner {
             Ok(posted) => posted,
         };
         // Its answer is read from the comment's own time and id, the forge's.
-        let heard = mention.map(|mentions| Heard {
-            mentions,
-            time: posted.created,
-            comment: posted.id,
-            ruling_comment: posted.id,
+        let placed = Some(match mention {
+            Some(mentions) => Placed::Heard(Heard {
+                mentions,
+                time: posted.created,
+                comment: posted.id,
+                ruling_comment: posted.id,
+            }),
+            // No one is read for an answer, but the comment is still edited
+            // when the ruling is settled.
+            None => Placed::Unmentioned(posted.id),
         });
         let told = unasked.map(|why| {
             // Said in the log once a run, and only for a ruling that went up.
@@ -83,7 +109,7 @@ impl Runner {
                  could not be read: {why}. Only `shep kelpie rule` answers it"
             )
         });
-        (told, heard)
+        (told, placed)
     }
 
     /// Posts `body` on issue or pull request `number` as the login `gh` acts
@@ -333,7 +359,7 @@ pub(super) fn said(kind: &RulingKind) -> String {
 
 mod card;
 
-pub(super) use self::card::{thumbs, ticked};
+pub(super) use self::card::{settled_comment, thumbs, ticked};
 
 #[cfg(test)]
 mod tests;

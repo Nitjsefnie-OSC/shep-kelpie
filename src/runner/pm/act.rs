@@ -8,6 +8,7 @@
 
 use super::answer::{Action, Answer, Unstick};
 use super::{Pick, stuck_on};
+use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::Phase;
@@ -170,13 +171,20 @@ impl Runner {
         };
         let why = plain(&self.shown(why.to_owned()), WORDS);
         if action == Action::Retry {
-            let answer = match ruling.kind {
-                RulingKind::Stuck(crate::state::Stuck::StillRed { .. }) => Ruled::No(format!(
-                    "(from the project manager) CI is still red: fix it and push. PM says: {why}"
-                )),
-                _ => Ruled::Yes,
+            let (answer, said) = match ruling.kind {
+                RulingKind::Stuck(crate::state::Stuck::StillRed { .. }) => (
+                    Ruled::No(format!(
+                        "(from the project manager) CI is still red: fix it and push. PM says: {why}"
+                    )),
+                    "no, CI is still red, so the worker fixes it and pushes",
+                ),
+                _ => (Ruled::Yes, "yes"),
             };
-            return match self.rule(id, answer) {
+            let by = Settler::Pm {
+                answer: said.to_owned(),
+                why: why.clone(),
+            };
+            return match self.rule_by(id, answer, by) {
                 Ok(()) => Ok(Ok(())),
                 Err(RuleError::State(e)) => Err(e),
                 Err(e) => Ok(Err(format!("retry #{issue}: {e}"))),

@@ -45,6 +45,13 @@ pub trait Voice: Send + Sync {
     /// [`ForgeError`] when the App cannot post it or its answer cannot be read.
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError>;
 
+    /// Rewrites comment `comment`, one the App posted, to say `body`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot edit it.
+    fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError>;
+
     /// Reacts to comment `comment` with a thumbs up
     ///
     /// # Errors
