@@ -99,6 +99,11 @@ impl Voice for AppVoice {
         Ok(PostedComment { id, created })
     }
 
+    fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {
+        self.write(repo, &Call::edit_comment(repo, comment, body))
+            .map(drop)
+    }
+
     fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
         self.write(repo, &Call::thumbs_up(repo, comment)).map(drop)
     }

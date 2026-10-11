@@ -250,7 +250,7 @@ impl Runner {
         let reason = refused.to_string();
         let comment = format!("Kelpie cannot rework this pull request: {reason}.");
         let comment_failed = self
-            .comment_as_gh(number, &comment)
+            .comment_on_issue(number, &comment)
             .err()
             .map(|e| e.to_string());
         Ok(Ok(Begin::Report(StepReport::ReworkRefused {

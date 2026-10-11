@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use super::Runner;
 use super::alert::backoff;
 use super::report::StepReport;
+use super::thread_replies::Settler;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
 use crate::ports::{Alert, AlertError, Alerts, Reply, ReplyWith, Since, Takes, Timestamp};
@@ -438,7 +439,7 @@ impl Runner {
             Ok(answer) => answer,
             Err(reason) => return self.reply_refused(id, reason),
         };
-        match self.rule(id, answer) {
+        match self.rule_by(id, answer, Settler::Alert) {
             Ok(()) => (StepReport::ReplyAnswered { id }, None),
             Err(e) => self.reply_refused(id, e.to_string()),
         }

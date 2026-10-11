@@ -51,6 +51,43 @@ async fn a_covered_project_on_a_keychain_needs_the_login_token_and_names_the_two
     assert!(found.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{found}");
 }
 
+// The runner reads the token from its sheep's `env`, which doctor's shell
+// does not share, so a token set there is enough.
+#[tokio::test]
+async fn a_runner_whose_env_sets_the_login_token_has_a_login_without_it_in_the_shell() {
+    let mut scene = Scene::new().await;
+    scene.host.keychain = true;
+    scene.host.token = false;
+    patched_srt(&scene);
+    let secret = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}";
+    scene
+        .shepherd
+        .sets_env("koji", "CLAUDE_CODE_OAUTH_TOKEN", secret);
+
+    let report = scene.report().await;
+
+    let found = ok(&report, "koji: claude login");
+    assert!(found.contains("the runner's `env`"), "{found}");
+}
+
+// The runner refuses an empty token, and shep's reply does not show a plain
+// value, so a plain key in `env` is no login.
+#[tokio::test]
+async fn a_runner_whose_env_sets_the_login_token_to_nothing_has_no_login() {
+    let mut scene = Scene::new().await;
+    scene.host.keychain = true;
+    scene.host.token = false;
+    patched_srt(&scene);
+    scene
+        .shepherd
+        .sets_env("koji", "CLAUDE_CODE_OAUTH_TOKEN", "");
+
+    let report = scene.report().await;
+
+    let (what, _) = missing(&report, "koji: claude login");
+    assert!(what.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{what}");
+}
+
 // A repo the App does not cover pushes with the keychain's login, so its
 // calls keep the keychain and `claude` keeps the login it has there.
 #[tokio::test]

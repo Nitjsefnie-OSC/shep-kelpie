@@ -203,6 +203,27 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
 }
 
 #[test]
+fn an_unmentioned_ruling_answered_at_the_terminal_has_its_comment_edited_to_say_so() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("not logged in".into()));
+    let (runner, _) = asking_before_a_pull_request(&rig);
+
+    rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
+
+    let [(comment, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!(comment, 100);
+    assert_eq!(
+        body.lines().next(),
+        Some(
+            "**Settled.** Answered at the terminal with `shep kelpie rule`: use --dry-run. \
+             Nothing waits on the maintainer."
+        )
+    );
+}
+
+#[test]
 fn an_unmentioned_ruling_is_noted_once_and_only_once_it_went_up() {
     let rig = Rig::new("shep");
     rig.with_app();

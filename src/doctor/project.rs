@@ -80,12 +80,14 @@ pub(super) fn old_home(
     lines
 }
 
-/// Every check for the project on `sheep`, whose table is `table`
+/// Every check for the project on `sheep`, whose table is `table` and whose
+/// entry backs the names `env` with secrets in its `env`
 ///
 /// A table that does not load is the one line: nothing else can be read from it.
 pub(super) fn checks(
     sheep: &str,
     table: &Map<String, Value>,
+    env: &[String],
     probes: Probes<'_>,
     here: Here<'_>,
     kelpie: Option<&KelpieSettings>,
@@ -131,6 +133,7 @@ pub(super) fn checks(
         lines.extend(super::machine::login(
             at("claude login"),
             covered,
+            env,
             probes.host,
         ));
     }

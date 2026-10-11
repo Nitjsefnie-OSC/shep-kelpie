@@ -26,7 +26,11 @@ const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json
 
 /// A running project whose settings name the project manager `pm`
 fn with_pm(project: &str) -> (Rig, Mutex<Runner>) {
-    let rig = Rig::new(project);
+    pm_on(Rig::new(project))
+}
+
+/// ... on `rig`, whose runner is opened here
+fn pm_on(rig: Rig) -> (Rig, Mutex<Runner>) {
     rig.edit_settings(|s| {
         let listed = "\nimplementers = [\"sonnet-high\"]\n";
         assert!(s.contains(listed), "the example's implementers moved");

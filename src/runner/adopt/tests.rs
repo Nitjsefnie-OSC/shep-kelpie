@@ -209,6 +209,28 @@ fn each_refusal_comments_and_adopts_nothing() {
     }
 }
 
+// Where an App covers the repo the refusal is the App's, not the maintainer's.
+#[test]
+fn a_refusal_is_posted_through_the_app_where_one_covers_the_repo() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    opened_80(&rig);
+    rig.forge.set_from_fork(80);
+    let runner = running(&rig);
+
+    rig.ask(&runner, "adopt", Some("80"));
+
+    assert_eq!(rig.forge.comments(), []);
+    let posted = (rig.github.writes().into_iter())
+        .find(|(_, call)| call.path == "/repos/shep-pm/shep/issues/80/comments")
+        .expect("the refusal went through the App");
+    let body = posted.1.body.unwrap_or_default();
+    assert!(
+        body.contains("Kelpie cannot adopt this pull request"),
+        "{body}"
+    );
+}
+
 #[test]
 fn a_labelled_pull_request_refused_loses_the_label_and_gets_the_comment_once() {
     let rig = Rig::new("rotom");

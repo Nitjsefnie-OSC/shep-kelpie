@@ -7,7 +7,7 @@ use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
 use super::host::Host;
-use crate::adapters::LOGIN_FIX;
+use crate::adapters::{LOGIN_FIX, LOGIN_VAR};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::ConnectRefused;
 use crate::tools::Tools;
@@ -164,22 +164,34 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
 /// The login a project's `claude` calls run with, for a repo the App covers (`covered`)
 /// on a machine with a keychain, where the calls cannot reach the one `claude` keeps there
 ///
-/// The runner reads the token from its sheep's `env`, and doctor from this
-/// shell's, so a token only the runner has is missing here too.
-pub(super) fn login(subject: String, covered: bool, host: &dyn Host) -> Option<Line> {
+/// The runner reads the token from its sheep's `env`, whose secret-backed names are
+/// `env`, and doctor from this shell's. A plain value there could be empty, which
+/// the runner refuses and shep's reply does not show, so it does not count.
+pub(super) fn login(
+    subject: String,
+    covered: bool,
+    env: &[String],
+    host: &dyn Host,
+) -> Option<Line> {
     if !covered || !host.has_keychain() {
         return None;
     }
-    Some(match host.login_token() {
-        true => Line::ok(
+    let runner = env.iter().any(|name| name == LOGIN_VAR);
+    Some(match (runner, host.login_token()) {
+        (true, _) => Line::ok(
+            subject,
+            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN from the runner's `env`, as the \
+             keychain is blocked in its calls",
+        ),
+        (false, true) => Line::ok(
             subject,
             "claude logs in with CLAUDE_CODE_OAUTH_TOKEN, as the keychain is blocked in its calls",
         ),
-        false => Line::missing(
+        (false, false) => Line::missing(
             subject,
-            "the keychain is blocked in this project's calls and CLAUDE_CODE_OAUTH_TOKEN is not \
-             set in this shell, so claude has no login there",
-            format!("{LOGIN_FIX}; to check it here, run doctor once with the variable set"),
+            "the keychain is blocked in this project's calls and CLAUDE_CODE_OAUTH_TOKEN is set \
+             in neither the runner's `env` nor this shell, so claude has no login there",
+            LOGIN_FIX,
         ),
     })
 }

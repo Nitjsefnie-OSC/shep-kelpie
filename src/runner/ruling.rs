@@ -12,6 +12,7 @@ use super::gate::short;
 use super::report::{Begin, StepReport};
 use super::review::pushed::{off_text, push_prompt};
 use super::rework::HUMAN;
+use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
 use crate::settings::Merging;
@@ -145,17 +146,18 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: u64, answer: Answer) -> Result<(), RuleError> {
-        self.rule_by(id, answer, false)
+        self.rule_by(id, answer, Settler::Terminal)
     }
 
-    /// [`Runner::rule`], where `by_pm` says the project manager answered for the
-    /// maintainer, which the researcher's record of it says
-    pub(super) fn rule_by(
+    // Applies an answer, and says whether it was taken, not after the branch moved.
+    // `by_pm` says the project manager answered for the maintainer, which the
+    // researcher's record of it says.
+    pub(super) fn apply(
         &mut self,
         id: u64,
         answer: Answer,
         by_pm: bool,
-    ) -> Result<(), RuleError> {
+    ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
         let now = self.ports.clock.now();
@@ -248,7 +250,9 @@ impl Runner {
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
                 let issue = item.issue;
-                return self.ask_again(next, issue, ruling.pull_request, change, now);
+                return self
+                    .ask_again(next, issue, ruling.pull_request, change, now)
+                    .map(|()| false);
             }
         }
         let moved = decide(id, answer, ruling, now, head_moved)?;
@@ -346,7 +350,7 @@ impl Runner {
             self.notes
                 .push(format!("ruling {id} is not kept for the researcher: {why}"));
         }
-        Ok(())
+        Ok(true)
     }
 
     // The branch moved again while the ruling waited, so the answer was about
@@ -423,10 +427,10 @@ impl Runner {
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
-            let (failed, heard) = self.post_app_ruling(thread, ruling);
-            if let Some(heard) = heard {
+            let (failed, placed) = self.post_app_ruling(thread, ruling);
+            if let Some(placed) = placed {
                 let mut next = self.state.clone();
-                next.heard.insert(id, heard);
+                placed.keep(&mut next, id);
                 if let Err(e) = self.save(next) {
                     self.notes.push(format!(
                         "cannot save where ruling {id} is answered in its thread: {e}"

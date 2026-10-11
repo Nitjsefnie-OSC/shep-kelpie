@@ -27,7 +27,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 28 added a ruling's `panel` and `unposted`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -137,6 +137,12 @@ pub struct ProjectState {
     /// entered when its comment is posted, and leaves when it is answered.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub heard: BTreeMap<u64, Heard>,
+    /// Each pending ruling kelpie's App posted on a thread with no mention,
+    /// since no login could be named, by ruling id: the id of its comment.
+    /// Nothing is read for an answer there, but the comment is edited when
+    /// the ruling is settled.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unmentioned: BTreeMap<u64, u64>,
     /// The ids of the last [`POSTED_KEPT`] comments kelpie posted as the
     /// login `gh` acts as, oldest first. A reply in a ruling's thread is
     /// from that login too, so these are never read as answers.
@@ -195,6 +201,7 @@ impl ProjectState {
             pm_attached: None,
             finishing: false,
             heard: BTreeMap::new(),
+            unmentioned: BTreeMap::new(),
             posted: Vec::new(),
         }
     }

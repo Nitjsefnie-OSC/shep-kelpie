@@ -9,8 +9,9 @@ use super::{Runner, StepReport};
 use crate::ports::{AgentCall, Role};
 
 impl Runner {
-    /// The `session-started` steps of the calls started since the last call,
-    /// oldest first
+    /// The steps of what happened in the middle of a pass since the last call,
+    /// oldest first: the `session-started` of each call started, and a
+    /// `pull-request-not-opened` of a turn's end
     ///
     /// They are not a pass's result, since a call starts in the middle of one,
     /// so the runner logs them as they come.

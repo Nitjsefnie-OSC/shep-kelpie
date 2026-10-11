@@ -12,6 +12,7 @@ use super::answer::{How, Settle};
 use super::maintainer::Settled;
 use crate::ports::PM_NOTES;
 use crate::runner::ruling::question;
+use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::Phase;
@@ -60,7 +61,11 @@ impl Runner {
         let why = plain(&self.shown(settle.why.clone()), WORDS);
         let (done, outcome, recommends) = match &settle.how {
             How::Text(text) => {
-                match self.rule_by(id, Ruled::Text(format!("{ANSWERED} {text}")), true) {
+                let by = Settler::Pm {
+                    answer: text.clone(),
+                    why: why.clone(),
+                };
+                match self.rule_by(id, Ruled::Text(format!("{ANSWERED} {text}")), by) {
                     Ok(()) => {}
                     Err(RuleError::State(e)) => return Err(e),
                     Err(e) => return Ok(Err(format!("answer #{n}: {e}"))),
