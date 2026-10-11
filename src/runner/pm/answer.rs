@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 4] = ["pick", "hold", "unstick", "reply"];
+const KEYS: [&str; 5] = ["pick", "hold", "unstick", "answer", "reply"];
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
@@ -22,6 +22,8 @@ pub(super) struct Answer {
     pub(super) hold: Vec<u64>,
     /// What to do about one stuck work item
     pub(super) unstick: Option<Unstick>,
+    /// What to do about one worker's question
+    pub(super) answer: Option<Settle>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
     /// Why, in its own words
@@ -39,6 +41,26 @@ pub(super) struct Unstick {
     pub(super) action: Action,
     /// Why, which a ruling it raises carries
     pub(super) why: String,
+}
+
+/// The project manager's call on one worker's question
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Settle {
+    /// The work item's issue, parked on the question's ruling
+    pub(super) item: u64,
+    /// Whether it answers or passes the question on
+    pub(super) how: How,
+    /// Why, in its own words
+    pub(super) why: String,
+}
+
+/// How the project manager settles a worker's question
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum How {
+    /// The worker's next turn, which the maintainer's answer would have been
+    Text(String),
+    /// The maintainer decides, with this choice recommended if it names one
+    Escalate(Option<String>),
 }
 
 /// What the project manager does about a stuck work item
@@ -101,6 +123,15 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                     None => answer.unread.push(unread(
                         "`item`, an `action` of retry, re-scope, ask or none, and `why`",
                     )),
+                },
+            },
+            "answer" => match &value {
+                Value::Null => {}
+                value => match settle(value) {
+                    Some(s) => answer.answer = Some(s),
+                    None => answer
+                        .unread
+                        .push(unread("`item`, then `text` or `escalate`, and `why`")),
                 },
             },
             "reply" | "why" => match value {
@@ -187,6 +218,29 @@ fn unstick(value: &Value) -> Option<Unstick> {
     })
 }
 
+fn settle(value: &Value) -> Option<Settle> {
+    let item = number(value.get("item")?)?;
+    let text = value.get("text").filter(|v| !v.is_null());
+    let escalate = value.get("escalate").filter(|v| !v.is_null());
+    let how = match (text, escalate) {
+        (Some(Value::String(text)), None) => match printable(text.trim()) {
+            text if text.is_empty() => return None,
+            text => How::Text(text),
+        },
+        (None, Some(Value::Bool(true))) => How::Escalate(None),
+        (None, Some(Value::String(choice))) => {
+            How::Escalate(Some(choice.trim().to_owned()).filter(|c| !c.is_empty()))
+        }
+        _ => return None,
+    };
+    let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    Some(Settle {
+        item,
+        how,
+        why: why.trim().to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,11 +262,46 @@ mod tests {
                     action: Action::ReScope,
                     why: "split the parser out".into(),
                 }),
+                answer: None,
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
                 unread: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn an_answer_takes_text_or_an_escalation_and_nothing_else() {
+        let text =
+            read("{\"answer\": {\"item\": \"#7\", \"text\": \" Use it. \", \"why\": \"r\"}}");
+        assert_eq!(
+            text.unwrap().answer,
+            Some(Settle {
+                item: 7,
+                how: How::Text("Use it.".into()),
+                why: "r".into(),
+            })
+        );
+        let escalate =
+            read("{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"why\": \"r\"}}");
+        assert_eq!(
+            escalate.unwrap().answer.map(|a| a.how),
+            Some(How::Escalate(Some("--check".into())))
+        );
+        let bare = read("{\"answer\": {\"item\": 7, \"escalate\": true}}");
+        assert_eq!(
+            bare.unwrap().answer.map(|a| a.how),
+            Some(How::Escalate(None))
+        );
+        for bad in [
+            "{\"answer\": {\"item\": 7, \"text\": \"a\", \"escalate\": \"b\"}}",
+            "{\"answer\": {\"item\": 7}}",
+            "{\"answer\": {\"item\": 7, \"text\": \"  \"}}",
+            "{\"answer\": {\"text\": \"a\"}}",
+        ] {
+            let read = read(bad).unwrap();
+            assert_eq!((read.answer, read.unread.len()), (None, 1), "{bad}");
+        }
     }
 
     #[test]
