@@ -198,6 +198,101 @@ fn a_gh_word_a_shell_builds_or_expands_is_refused_in_every_shape() {
     );
 }
 
+// A shell splits an unquoted `$X` into words, so an unquoted value can hold
+// flags, and a glob can build a flag from a file named for it.
+#[test]
+fn an_unquoted_body_or_title_value_is_a_word_like_any_other() {
+    all_refused_for(
+        BUILT,
+        &[
+            "gh pr edit 3 --body x$IFS--add-label${IFS}CodeRabbit",
+            "gh pr edit 3 --body=x$IFS--add-label${IFS}CodeRabbit",
+            "gh pr edit 3 -bx$IFS--add-label${IFS}CodeRabbit",
+            "gh pr edit 3 --title $T",
+            "gh pr edit 3 --title=$T",
+            "gh pr edit 3 -t $T",
+            "gh pr edit 3 --body $HOME",
+            "gh pr edit 3 --body=$HOME",
+            "gh pr edit 3 --body *",
+            "gh pr edit 3 --body $'x'",
+            // zsh turns a bare `=name` into the command's path.
+            "gh pr edit 3 --body =kelpie",
+            "gh pr edit 3 --title =kelpie",
+            "gh pr view =kelpie",
+        ],
+    );
+}
+
+// Double quotes hold a space but not a `$` or a backtick, so the shell still
+// puts the maintainer's home path in a body written this way.
+#[test]
+fn a_double_quoted_body_or_title_may_not_expand() {
+    all_refused_for(
+        BUILT,
+        &[
+            r#"gh pr edit 3 --body "$HOME""#,
+            r#"gh pr edit 3 --body "a $HOME b""#,
+            r#"gh pr edit 3 --body "a ${HOME} b""#,
+            r#"gh pr edit 3 --body="a $HOME b""#,
+            r#"gh pr edit 3 -b "a $HOME b""#,
+            r#"gh pr edit 3 --body "a `echo $PWD` b""#,
+            r#"gh pr edit 3 --body "$(echo $HOME)""#,
+            r#"gh pr edit 3 --title "fix: $HOME""#,
+        ],
+    );
+}
+
+#[test]
+fn a_glob_a_shell_expands_to_a_flag_is_refused() {
+    all_refused_for(
+        BUILT,
+        &[
+            "gh pr close 3 --comment!(x) hello",
+            "gh pr close 3 --comment?(x) hello",
+            "gh pr close 3 --comment@(|x) hello",
+            "gh pr close 3 --comment+(x) hello",
+            "gh pr close 3 --comment*(x) hello",
+            "gh pr close 3 --comment^x hello",
+            "gh pr close 3 --comment<1-> hello",
+            "gh pr close 3 --commen# hello",
+        ],
+    );
+}
+
+#[test]
+fn a_word_outside_the_safe_characters_is_refused_even_when_quoted() {
+    all_refused_for(
+        BUILT,
+        &[
+            "gh pr view 3 --json 'number title'",
+            "gh pr view 3 --json 'number!'",
+            "gh pr edit 3 --add-label 'good first issue'",
+            r#"gh pr edit 3 --milestone "v 1""#,
+            r"gh pr view 3 --json a\ b",
+            "gh pr view 3 --json 'a'$X",
+        ],
+    );
+}
+
+#[test]
+fn a_quoted_body_or_title_value_may_hold_text_in_every_spelling() {
+    for command in [
+        "gh pr create --title 'fix: x' --body 'costs $5'",
+        "gh pr create --title 'fix: x' --body \"costs \\$5\"",
+        "gh pr create --title='fix: x' --body='costs $5'",
+        "gh pr create --title 'fix: x' --body=\"costs 5\"",
+        "gh pr create --title 'fix: x' --body '=kelpie'",
+        "gh pr create --title 'fix: x' --body \"=kelpie\"",
+        "gh pr create -t 'fix: x' -b 'costs $5'",
+        "gh pr create -t'fix: x' -b'a $5'",
+        "gh pr create --title 'fix: x' --body 'a (b) | c; d > e'",
+        "gh pr create --title 'fix: x' --body-file - <<'EOF'\ncosts $5 (really) *\nEOF",
+        "gh pr create --title 'fix: x' --body \"$(cat <<'EOF'\ncosts $5 (really) *\nEOF\n)\"",
+    ] {
+        assert_eq!(anywhere(command), Verdict::Allow, "{command}");
+    }
+}
+
 // The one place text goes: a quoted `--body` or `--title` value.
 #[test]
 fn a_body_or_a_title_may_hold_what_a_shell_would_expand() {
@@ -207,7 +302,6 @@ fn a_body_or_a_title_may_hold_what_a_shell_would_expand() {
         "gh pr create -t 'fix: $x' -b 'a $b'",
         "gh pr create -t'fix: $x' -b'a $b'",
         "gh pr edit 3 --body \"$(cat <<'EOF'\nanother ~ $ { *\nEOF\n)\"",
-        "gh issue create --title 'fix: x' --body \"a $HOME b\"",
     ] {
         let verdict = anywhere(command);
         // A leak check may still refuse a path in the text; the words are not why.
@@ -220,6 +314,9 @@ fn a_body_or_a_title_may_hold_what_a_shell_would_expand() {
 #[test]
 fn what_a_worker_reads_and_a_close_or_review_without_text_stay_allowed() {
     for command in [
+        "gh pr view 3 --json number,title,headRefName 2>/dev/null",
+        "gh pr list --search is:open --limit 5",
+        "gh pr view 3 -R acme/koji",
         "gh pr view 3 --comments",
         "gh pr view 3 -c",
         "gh issue view 7 --comments",

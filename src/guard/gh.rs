@@ -4,11 +4,15 @@
 //! or notes may carry what [`LocalPaths`](crate::local_paths::LocalPaths) finds of this machine's. What only the project manager
 //! does is refused whatever the command's shape: merging, marking ready and
 //! summoning a review, with `gh api` and `gh auth`, which reach around them.
+//! A word a shell could build is refused too: outside a quoted `--body`,
+//! `--title` or `--notes` value, a word holds only letters, digits and
+//! `. _ / : @ = , + -`.
 //! An alias or an extension could stand for any of those, so only gh's own
 //! commands run.
 
 use std::path::Path;
 
+use super::shell::Quoting;
 use super::{Home, WRITE, files, values};
 use crate::coderabbit::LABEL;
 
@@ -73,31 +77,76 @@ const FLAG_FIRST: &str = "kelpie reads a gh command's group and verb by position
                           other flag there with the next word as its value. Put the flag \
                           after the verb.";
 
-// The first word of a gh command that a shell builds or expands, besides the
-// value of `--body` or `--title`, which is text: `$`, a backtick, a brace, a
-// tilde or a glob character. The words come with their quotes removed, so a
-// quoted one cannot be told from a bare one, and none but those values may
-// hold them.
-fn built_word(words: &[String]) -> Option<&str> {
-    const EXPANDS: [char; 7] = ['$', '`', '{', '~', '*', '?', '['];
-    let mut text = false;
-    for word in words.iter().skip(1) {
-        let value = std::mem::take(&mut text);
-        if value {
-            continue;
+// A character any gh word may be made of. A shell leaves these as they are, so
+// the guard reads what gh gets. A list of the shell's expansions would miss
+// the next one: extended globs and zsh's. A word may not start with `=`, which
+// zsh expands.
+fn plain(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '@' | '=' | ',' | '+' | '-')
+}
+
+// Where a `--body`, `--title` or `--notes` value starts in `word`, if it carries one, and
+// sets `next` when the value is the next word.
+fn text_from(word: &str, next: &mut bool) -> Option<usize> {
+    let flag = word.split_once('=').map_or(word, |(flag, _)| flag);
+    if matches!(flag, "--body" | "--title" | "--notes") {
+        // `--body=text` carries its value, `--body text` is the next word.
+        *next = !word.contains('=');
+        return Some(if *next { word.len() } else { flag.len() + 1 });
+    }
+    // `-btext` and `-ttext`, one word.
+    if word.starts_with("-b") || word.starts_with("-t") {
+        *next = word.len() == 2;
+        return Some(2);
+    }
+    None
+}
+
+// How many characters of `word` a shell reads as a redirection: `>`, `2>`, `<<`.
+// It builds no word for gh, and a heredoc's `<<` is how `--body-file -` is fed.
+fn redirect_len(word: &str, quoted: impl Fn(usize) -> bool) -> usize {
+    let digits = word.chars().take_while(char::is_ascii_digit).count();
+    let marks = word
+        .chars()
+        .skip(digits)
+        .take_while(|c| matches!(c, '<' | '>'))
+        .count();
+    match marks {
+        0 => 0,
+        _ if (0..digits + marks).any(quoted) => 0,
+        _ => digits + marks,
+    }
+}
+
+// The first word of a gh command that a shell may build or expand: one with a
+// character outside [`plain`], besides the characters a quote holds in a
+// `--body`, `--title` or `--notes` value, which is text. A quoted word is checked like a
+// bare one anywhere else. `quoting` has no entry for a word it does not know,
+// and that word is bare.
+fn built_word<'a>(words: &'a [String], quoting: &[Quoting]) -> Option<&'a str> {
+    let mut value = false;
+    for (at, word) in words.iter().enumerate().skip(1) {
+        let quoting = quoting.get(at);
+        let held = |i: usize| quoting.is_some_and(|q| q.quoted.get(i) == Some(&true));
+        // An unquoted `(` after a word may make it one glob with the next.
+        if quoting.is_some_and(|q| q.glued) {
+            return Some(word);
         }
-        let flag = word.split_once('=').map_or(word.as_str(), |(flag, _)| flag);
-        if matches!(flag, "--body" | "--title") {
-            // `--body=text` carries its value, `--body text` is the next word.
-            text = !word.contains('=');
-            continue;
-        }
-        // `-btext` and `-ttext`, one word.
-        if word.starts_with("-b") || word.starts_with("-t") {
-            text = word.len() == 2;
-            continue;
-        }
-        if word.contains(EXPANDS) {
+        let from = if std::mem::take(&mut value) {
+            Some(0)
+        } else {
+            text_from(word, &mut value)
+        };
+        let skip = match from {
+            None => redirect_len(word, held),
+            Some(_) => 0,
+        };
+        let bad = word.chars().enumerate().skip(skip).any(|(i, c)| {
+            let text = from.is_some_and(|from| i >= from) && held(i);
+            // zsh turns a bare `=name` at the start of a word into a path.
+            !text && (!plain(c) || (i == 0 && c == '='))
+        });
+        if bad {
             return Some(word);
         }
     }
@@ -130,22 +179,34 @@ fn carries_text(args: &[String]) -> bool {
     })
 }
 
-/// Judges one gh command run in `cwd`
+/// Judges one gh command run in `cwd`, `quoting` saying how each of `words` was written
 pub(super) fn judge(
     words: &[String],
+    quoting: &[Quoting],
     heredocs: &[String],
     cwd: Option<&Path>,
     home: &Home,
 ) -> Vec<String> {
-    // Each word is what gh gets, so no word may be one a shell builds.
-    if let Some(word) = built_word(words) {
-        return vec![format!(
-            "kelpie cannot check a gh command whose words a shell builds or expands, and \
-             `{}` holds `$`, a backtick, `{{`, `~` or a glob character: write each word out. \
-             Only a quoted `--body` or `--title` value may hold them.",
-            word.chars().take(40).collect::<String>()
-        )];
+    let mut found = read(words, heredocs, cwd, home);
+    // Each word is what gh gets, so no word may be one a shell builds. The rest
+    // is judged as the words read, so it may also say what else is wrong.
+    if let Some(word) = built_word(words, quoting) {
+        found.insert(
+            0,
+            format!(
+                "kelpie cannot check a gh command whose words a shell builds or expands, \
+                 and `{}` holds a character outside letters, digits and `. _ / : @ = , + -`: \
+                 write each word out with those. Only a quoted `--body`, `--title` or \
+                 `--notes` value may hold others.",
+                word.chars().take(40).collect::<String>()
+            ),
+        );
     }
+    found
+}
+
+// What is wrong with a gh command, reading its words as gh gets them.
+fn read(words: &[String], heredocs: &[String], cwd: Option<&Path>, home: &Home) -> Vec<String> {
     // The group and verb are the first two words that are not flags, and the
     // only flag that may come before them is `-R` or `--repo` with its value:
     // `gh pr -R owner/repo create`. gh takes any other flag there with the next
@@ -344,6 +405,7 @@ mod tests {
             let found = judge(
                 &["gh", name, "list"].map(str::to_owned),
                 &[],
+                &[],
                 None,
                 &nobody(),
             );
@@ -354,6 +416,7 @@ mod tests {
         }
         let found = judge(
             &["gh", "workflow", "view", "ci"].map(str::to_owned),
+            &[],
             &[],
             None,
             &nobody(),
