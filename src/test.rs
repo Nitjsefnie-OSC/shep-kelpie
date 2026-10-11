@@ -701,6 +701,7 @@ impl Rig {
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
             clock: Arc::new(self.clock.clone()),
+            flock: Vec::new(),
         };
         let paths = self.paths();
         Runner::open(

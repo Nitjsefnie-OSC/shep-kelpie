@@ -22,7 +22,7 @@ use shep_client::{Client, TRIGGER_DEADLINE};
 
 use super::{Checkout, flock, halt, kelpie_sheep, resume, tables};
 use crate::runner::{ProjectName, leave_answer};
-use crate::settings::Settings;
+use crate::settings::{ForgeSlug, Settings};
 use crate::shepherd;
 use crate::upgrade::drain::{self, Purpose};
 use crate::upgrade::restart::{Interrupt, Patience, interrupted, wait_out_merges};
@@ -92,6 +92,59 @@ pub async fn project_here(
     }
 }
 
+// The repo `settings` works: its `git.remote`, or the `origin` of its checkout.
+fn repo_of(settings: &Settings) -> Option<ForgeSlug> {
+    (settings.git.remote.clone())
+        .or_else(|| Checkout::of(&settings.git.checkout).ok().map(|c| c.forge))
+}
+
+/// The repo of every project in the flock
+///
+/// A table that does not parse still gives its repo when it names `git.remote`
+/// or a checkout with an `origin`.
+///
+/// # Errors
+///
+/// A message when the shepherd cannot be asked for the projects' tables, or
+/// when a project's repo cannot be told, since a post could then name a private
+/// repo of the flock unseen.
+pub async fn repos(client: &Client, home: &Path) -> Result<Vec<ForgeSlug>, String> {
+    let tables = tables(client).await?;
+    tables
+        .iter()
+        .map(|(sheep, table)| {
+            let repo = match Settings::from_table(table, sheep, home, home) {
+                Ok(settings) => repo_of(&settings),
+                Err(_) => raw_repo_of(table, home),
+            };
+            repo.ok_or_else(|| {
+                format!(
+                    "cannot tell which repo project {sheep} works, so kelpie cannot keep its \
+                     name off a public repo: fix its settings, or remove the project"
+                )
+            })
+        })
+        .collect()
+}
+
+// The repo a project table names, read without parsing the rest of it.
+fn raw_repo_of(
+    table: &serde_json::Map<String, serde_json::Value>,
+    home: &Path,
+) -> Option<ForgeSlug> {
+    let git = table.get("git")?.as_object()?;
+    let text = |key: &str| git.get(key)?.as_str().map(str::to_owned);
+    if let Some(remote) = text("remote") {
+        return ForgeSlug::try_from(remote).ok();
+    }
+    let checkout = text("checkout")?;
+    let folder = match checkout.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(checkout),
+    };
+    Checkout::of(&folder).ok().map(|c| c.forge)
+}
+
 // The one project whose `git.remote` is `folder`'s `origin`, for a clone that
 // is no project's checkout. A project with no `git.remote` set has its
 // checkout's own `origin` stand in, as its runner reads it. None when `folder`
@@ -107,9 +160,7 @@ fn by_origin(
         .iter()
         .filter(|(_, s)| {
             // GitHub owner and repo names are case-insensitive.
-            let remote = s.git.remote.clone();
-            remote
-                .or_else(|| Checkout::of(&s.git.checkout).ok().map(|c| c.forge))
+            repo_of(s)
                 .is_some_and(|forge| forge.as_str().eq_ignore_ascii_case(clone.forge.as_str()))
         })
         .map(|(sheep, _)| sheep.as_str())

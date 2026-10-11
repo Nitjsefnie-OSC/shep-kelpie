@@ -442,11 +442,11 @@ impl Home {
     // An address is taken out; a path is written from the repo's root.
     fn refusal(&self, what: &str, leak: Leak, fix: &str) -> String {
         let advice = match leak {
-            Leak::Path | Leak::Tilde => {
+            Leak::Path => {
                 " Write a path in the repo from its root (`src/lib.rs`), and leave out one \
                  outside it."
             }
-            Leak::Lan => "",
+            Leak::Lan | Leak::Private => "",
         };
         format!("{what} carries {leak}. {fix}{advice}")
     }

@@ -886,6 +886,9 @@ pub struct Ports {
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
+    /// The repo of every project in the flock, whose names a post to a public
+    /// repo leaves out when GitHub marks them private
+    pub flock: Vec<ForgeSlug>,
 }
 
 impl Ports {

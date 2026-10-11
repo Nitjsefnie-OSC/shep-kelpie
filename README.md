@@ -312,6 +312,14 @@ A work item with no pull request ends when its issue is closed and it holds no w
 
 Each worker runs inside the sandbox with its fence: it writes only its worktree and build folder, reaches only GitHub, the model's API and the project's `allowed_domains`, and never merges, marks a pull request ready or summons a review bot. `kelpie confine` checks every file write and `kelpie guard` every command. Workers run their test suites under the `cargo-test` lease (see [Leases](#leases)).
 
+Kelpie keeps what is private off the forge. It refuses, and never sends, any commit message, issue, comment, reply or pull request text that names:
+
+- a path that names you: your home folder, kelpie's home and the project's checkout, `/home/<name>`, `C:\Users\<name>`, and the scratch folders `/private/tmp` and `/var/folders`
+- an address on a local network, such as `192.168.1.20` or `host.local`
+- in a post kelpie makes to a public repo, a project of your flock whose repo GitHub marks private, as `owner/name` or by its bare name. The `gh` calls and commits of a worker are not held to this rule
+
+A `~/` path goes through, since it is the same folder on every machine that runs shep. A post to a repo GitHub marks private may name another private project. A refusal says which rule fired and never repeats the text. The flock's repos are read when the runner starts, so a project added later is covered after the runner restarts.
+
 #### Skills
 
 Every step shep-kelpie drives an agent through runs a skill, by default from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT). shep-kelpie vendors the ones it uses in `skills/`, pinned to one upstream commit with its licence, and writes them out as a Claude Code plugin when a runner starts. A project installs nothing.

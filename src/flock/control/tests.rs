@@ -538,3 +538,45 @@ async fn a_runner_still_taking_its_actions_is_starting() {
         .unwrap_err();
     assert_eq!(err, "koji's runner is starting: ask again in a moment");
 }
+
+#[tokio::test]
+async fn the_flock_s_repos_include_a_project_whose_settings_do_not_parse() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "acme/koji",
+    );
+    let mut broken = crate::test::project_table(EXAMPLE);
+    let checkout = shepherd.scratch("runner/vault").display().to_string();
+    broken["git"]["checkout"] = Value::String(checkout);
+    broken["git"]["remote"] = Value::String("acme/vault".to_owned());
+    broken["git"]["merging"] = Value::String("no such mode".to_owned());
+    shepherd.holds(launch(&shepherd).runner(&project("vault"), broken), false);
+    let client = client(&shepherd).await;
+
+    let found = in_time(repos(&client, Path::new("/home/me")))
+        .await
+        .unwrap();
+    let mut names: Vec<&str> = found.iter().map(ForgeSlug::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["acme/koji", "acme/vault"]);
+}
+
+#[tokio::test]
+async fn the_flock_s_repos_are_refused_when_a_project_s_repo_cannot_be_told() {
+    let shepherd = FakeShepherd::new().await;
+    // A checkout that is no git checkout, and no `git.remote`.
+    let mut table = crate::test::project_table(EXAMPLE);
+    let checkout = shepherd.scratch("runner/vault").display().to_string();
+    table["git"]["checkout"] = Value::String(checkout);
+    table["git"].as_object_mut().unwrap().remove("remote");
+    shepherd.holds(launch(&shepherd).runner(&project("vault"), table), false);
+    let client = client(&shepherd).await;
+
+    let err = in_time(repos(&client, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert!(err.contains("project vault"), "{err}");
+}
