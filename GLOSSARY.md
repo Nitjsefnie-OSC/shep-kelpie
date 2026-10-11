@@ -255,6 +255,13 @@ What a worker's call may write, read and reach, which kelpie's OS
 **sandbox** enforces around the whole call, with **confine** (on every file
 write) and **guard** (on every command) as kelpie's own checks inside it.
 
+**Hook**:
+A project's own command, which kelpie runs itself at one of its points for
+every harness and role: `publish` (text bound for the forge), `commit`,
+`push` and `handover`. It refuses with exit 2 and a reason, and a hook that
+cannot run refuses too. Apart from `worker.guard_hooks`, which are Claude
+Code hooks that only a Claude Code worker runs.
+
 **Timings**:
 Where a work item's wall time went, by timing phase: `worker`, `review`,
 `ci`, `ruling`, `merge` and `other`. Every second lands in exactly one. A

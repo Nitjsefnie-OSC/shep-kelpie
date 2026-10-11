@@ -4,6 +4,7 @@ use super::ledger::Ledger;
 use super::{IssueRules, ONLY, PLAIN, heredoc_body, is_heredoc, plain};
 use crate::board::AGENT_LABEL;
 use crate::guard::{Home, WRITE};
+use crate::hooks::Role;
 use crate::issues::has_criteria;
 
 // The labels that say where an issue stands for kelpie. Only the one the
@@ -164,8 +165,14 @@ fn create(
                 .into(),
         );
     }
-    if let Some(leak) = home.find_in_prose([title.to_string(), body]) {
+    if let Some(leak) = home.find_in_prose([title.to_string(), body.clone()]) {
         return Err(home.refusal("this issue", leak, WRITE));
+    }
+    // The project's own hooks judge what the guard let through.
+    for (field, text) in [("the issue's title", *title), ("the issue's body", &body)] {
+        if let Some(why) = home.publish(Role::IssueWriter, field, text) {
+            return Err(why);
+        }
     }
     Ok(())
 }

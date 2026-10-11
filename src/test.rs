@@ -101,6 +101,9 @@ pub(crate) fn a_work_item() -> WorkItem {
         merge_refused: false,
         sent_back: false,
         asked_to_commit: false,
+        handed_over: None,
+        handover_refused: false,
+        pull_request_refused: None,
         context: None,
         merge_tried: None,
         merge_queued: None,
@@ -543,6 +546,36 @@ impl Rig {
             assert!(s.contains(ask), "the example's `git.issues` moved");
             s.replace(ask, &format!("{ask}\nmaintainer = \"{login}\""))
         });
+    }
+
+    /// Gives the project a hook at each of `points` that runs `script`, a
+    /// shell script written to the rig's home as `name`, read when a
+    /// runner next opens
+    pub(crate) fn hook(&self, name: &str, points: &[&str], script: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let file = self.home.path().join(name);
+        std::fs::write(&file, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let hooks: String = points
+            .iter()
+            .map(|point| {
+                format!(
+                    "\n[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"{}\"\n",
+                    file.display()
+                )
+            })
+            .collect();
+        self.edit_settings(|s| s + &hooks);
+    }
+
+    /// Gives the project a hook at each of `points` that refuses any text
+    /// naming `word`, exit 2 with a reason that does not repeat it, read
+    /// when a runner next opens
+    pub(crate) fn forbid_word(&self, points: &[&str], word: &str) {
+        let script = format!(
+            "if grep -q '{word}'; then echo 'it names a word the project keeps private' >&2; exit 2; fi"
+        );
+        self.hook("forbid-word.sh", points, &script);
     }
 
     /// Has the project block on CI, read when a runner next opens

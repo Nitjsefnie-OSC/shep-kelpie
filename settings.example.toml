@@ -142,6 +142,19 @@ turn_timeout = 60
 # matcher = "Bash"
 # command = "~/bin/lint-guard"
 
+# The project's own checks, which kelpie runs itself for every harness and
+# role, where `worker.guard_hooks` reach a Claude Code worker alone. A point
+# is `publish` (any text before it goes to the forge, kelpie's own included),
+# `commit` (a worker's message and staged diff), `push` (the commits being
+# pushed) or `handover` (a worker's finished branch, before review). The
+# command gets a JSON payload on stdin: exit 0 passes, 2 refuses with its
+# stderr as the reason, and anything else is a hook that failed, which also
+# refuses. A hook that runs past 30 seconds has failed. Each command must
+# resolve when the runner starts, as a guard hook's must.
+# [[app.dogs.kelpie.hooks]]
+# point = "publish"
+# command = "~/bin/check-words"
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
 # lists each step and its default. `path` is a skill folder of your own,

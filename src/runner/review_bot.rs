@@ -73,6 +73,10 @@ const RESOLVE_FAILURES: u32 = 3;
 // something of this machine's.
 const UNPOSTABLE_REASON: &str = "Declined: the worker's reason names something on the machine kelpie runs on, so it is not posted.";
 
+// Replaces a decline whose reason a `publish` hook of the project's refuses.
+const HOOK_REFUSED_REASON: &str =
+    "Declined: the worker's reason was refused by a hook of the project's, so it is not posted.";
+
 // What kelpie replies on a thread sent to the worker, and whether it
 // resolves the thread, from what the worker's reply said of it.
 fn reply_to(answer: Option<&ThreadAnswer>, pushed: bool) -> (bool, String) {
@@ -769,9 +773,17 @@ impl Runner {
             };
             let mut posted = reply(&body);
             // The guard refuses the same text every time, so a reason that
-            // names this machine is left out rather than retried for ever.
-            if matches!(posted, Err(ForgeError::LocalPath { .. })) {
-                posted = reply(UNPOSTABLE_REASON);
+            // names this machine, or that a hook refuses, is left out rather
+            // than retried for ever. A hook that failed to run is retried.
+            // Only a decline carries the worker's words, so only it is
+            // replaced, by a reply that says it was a decline.
+            let declined = matches!(answer, Some(ThreadAnswer::Declined { .. }));
+            match &posted {
+                Err(ForgeError::LocalPath { .. }) => posted = reply(UNPOSTABLE_REASON),
+                Err(ForgeError::Hook { refusal, .. }) if declined && !refusal.failed => {
+                    posted = reply(HOOK_REFUSED_REASON);
+                }
+                _ => {}
             }
             if let Err(e) = posted {
                 failed.get_or_insert(format!("cannot reply to a thread on #{number}: {e}"));

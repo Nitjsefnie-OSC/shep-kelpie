@@ -15,6 +15,7 @@ use std::path::Path;
 use super::shell::Quoting;
 use super::{Home, WRITE, files, values};
 use crate::coderabbit::LABEL;
+use crate::hooks::Role;
 
 /// The conventional commit types a pull request title may start with
 const TYPES: [&str; 11] = [
@@ -319,13 +320,25 @@ fn read(words: &[String], heredocs: &[String], cwd: Option<&Path>, home: &Home) 
             TYPES.join(", ")
         ));
     }
-    let texts = titles
+    let bodies: Vec<String> = values(args, &["--body", "--notes"], &['b', 'n'])
         .into_iter()
-        .chain(values(args, &["--body", "--notes"], &['b', 'n']))
         .chain(files(args, &["--body-file", "--notes-file"], &['F'], cwd))
-        .chain(heredocs.iter().cloned());
+        .chain(heredocs.iter().cloned())
+        .collect();
+    let texts = titles.iter().chain(&bodies).cloned();
     if let Some(leak) = home.find_in_prose(texts) {
         out.push(home.refusal(&format!("this `gh {group} {verb}`"), leak, WRITE));
+        return out;
+    }
+    // The project's own hooks judge what the guard let through.
+    let fields = [("title", &titles), ("body", &bodies)];
+    for (field, texts) in fields {
+        let field = format!("the `gh {group} {verb}` {field}");
+        out.extend(
+            texts
+                .iter()
+                .find_map(|t| home.publish(Role::Worker, &field, t)),
+        );
     }
     out
 }

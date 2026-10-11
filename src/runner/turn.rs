@@ -32,9 +32,11 @@ use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
 use crate::worker_folder;
 use crate::worktree::{self, Start};
+use handover::{Handover, Refused};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
+mod handover;
 mod unfinished;
 
 /// What a work item's worker runs on this turn
@@ -433,7 +435,13 @@ impl Runner {
             door: &self.paths.door,
             token,
         };
-        Ok(profile.reach())
+        // The guard in the fence runs the project's `commit`, `push` and
+        // `publish` hooks, so every harness reaches them with its own checks.
+        let mut reach = profile.reach();
+        if let Some(fence) = reach.fence.as_mut() {
+            fence.guard.hooks = self.hooks.clone().in_folder(&item.worktree);
+        }
+        Ok(reach)
     }
 
     /// The agent `item`'s worker runs on: the one it opened on, as that
@@ -533,13 +541,19 @@ impl Runner {
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
                     if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
-                        item.pull_request = self.open_handed_over(&item.build, &item.branch);
+                        item.pull_request = self.open_handed_over(
+                            &item.build,
+                            &item.branch,
+                            &mut item.pull_request_refused,
+                        );
                     }
                 }
-                // A later turn that rewrote the file changes the title and body.
-                if let (true, false, Some(number)) = (handed_over, discovering, item.pull_request) {
-                    self.edit_handed_over(&item.build, number);
-                }
+                // A later turn that rewrote the file changes the title and body,
+                // and a project's hook may refuse what it wrote.
+                let file_refused = match (handed_over, discovering, item.pull_request) {
+                    (true, false, Some(number)) => self.edit_handed_over(&item.build, number),
+                    _ => None,
+                };
                 let session = item.session.clone();
                 let cost =
                     item.record_call(Role::Worker, now, session, reply.usage, reply.session_cost);
@@ -569,8 +583,35 @@ impl Runner {
                     None => Vec::new(),
                 };
                 let commit_first = !uncommitted.is_empty();
-                item.turn = if commit_first {
-                    item.asked_to_commit = true;
+                // The branch is handed over when the turn ends with it pushed,
+                // asking nothing and holding no work back, and the project's
+                // hooks judge it before review reads it. A refusal sends the
+                // worker back once, and the next parks the work item.
+                let handed = match commit_first || question.is_some() {
+                    true => Handover::NotDue,
+                    false => self.handover(item),
+                };
+                let already = item.handover_refused;
+                if let Handover::Passed(head) = &handed {
+                    item.handed_over = Some(head.clone());
+                    item.handover_refused = false;
+                }
+                let refusal = match handed {
+                    Handover::Refused(why) => Some(Refused::branch(&why)),
+                    _ => file_refused.as_deref().map(Refused::pull_request_file),
+                };
+                // A turn no hook refused, with its work all committed, spent the
+                // worker's send-back: the next refusal, of whatever hook, is
+                // a new one and sends it back again.
+                if refusal.is_none() && !commit_first {
+                    item.handover_refused = false;
+                }
+                let hook_parks = refusal.clone().filter(|_| already);
+                let hook_first = refusal.as_ref().filter(|_| !already);
+                let to_worker = commit_first || refusal.is_some();
+                item.turn = if to_worker {
+                    item.asked_to_commit |= commit_first;
+                    item.handover_refused |= hook_first.is_some();
                     // The pull request this turn opened still owes its first
                     // review, which the follow-up's end is too late to see as
                     // a discovery.
@@ -582,7 +623,10 @@ impl Runner {
                         item.resume = Some(Phase::Review(Review::first()));
                     }
                     Turn::Next {
-                        prompt: uncommitted_prompt(&uncommitted),
+                        prompt: match &refusal {
+                            Some(refused) if !commit_first => refused.prompt.clone(),
+                            _ => uncommitted_prompt(&uncommitted),
+                        },
                     }
                 } else {
                     Turn::Ended { at: now }
@@ -592,7 +636,7 @@ impl Runner {
                 // have ended normally, and the answer resumes exactly this,
                 // captured below before `park` parks it on a ruling.
                 let stopped_short = pushed_nothing && awaits_a_push(item);
-                if question.is_none() && !stopped_short && !commit_first {
+                if question.is_none() && !stopped_short && !to_worker {
                     if let Some(resume) = item.resume.take() {
                         item.phase = resume;
                         // The follow-up was the worker's one turn to push, so
@@ -628,6 +672,12 @@ impl Runner {
                 let session = item.session.clone();
                 let (work_item_cost_usd, pull_request) = (item.cost().usd(), item.pull_request);
                 match question {
+                    // The hooks refused the branch again: the worker's turn to fix
+                    // it was spent, so the work item parks, and a yes sends it back.
+                    None if hook_parks.is_some() => {
+                        let why = hook_parks.map(|refused| refused.parked).unwrap_or_default();
+                        failed(self.names(), &mut next, issue, now, why)
+                    }
                     None => StepReport::Ended {
                         issue,
                         session,

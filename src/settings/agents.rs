@@ -411,7 +411,7 @@ impl Settings {
                 setting: IMPLEMENTERS,
                 reason: format!(
                     "implementer {name} runs on {harness}, which cannot run {what}: \
-                     turn those off or build on Claude Code"
+                     turn those off, move the check to `hooks`, or build on Claude Code"
                 ),
             });
         }

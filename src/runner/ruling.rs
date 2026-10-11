@@ -237,6 +237,7 @@ impl Runner {
             }
             if answered {
                 item.sent_back = false;
+                item.handover_refused = false;
             }
             let worker = match moved {
                 Move::Phase(phase) => {

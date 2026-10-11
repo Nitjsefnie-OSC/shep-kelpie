@@ -9,6 +9,7 @@
 //! refused wherever it runs, since only the project manager changes it.
 
 mod front;
+mod hooks;
 mod runs;
 
 use std::collections::HashMap;
@@ -128,12 +129,14 @@ pub(super) fn judge(
     } else {
         Vec::new()
     };
+    let mut messages: Vec<String> = Vec::new();
     if sub == "commit" || sub == "tag" {
-        let messages = values(args, &["--message"], &['m'])
+        messages = values(args, &["--message"], &['m'])
             .into_iter()
             .chain(files(args, &["--file"], &['F'], dir.as_deref()))
-            .chain(git.heredocs.iter().cloned());
-        if let Some(leak) = home.find_in_prose(messages) {
+            .chain(git.heredocs.iter().cloned())
+            .collect();
+        if let Some(leak) = home.find_in_prose(messages.iter().cloned()) {
             out.push(home.refusal(&format!("this {sub}'s message"), leak, WRITE));
         }
     }
@@ -170,12 +173,14 @@ pub(super) fn judge(
         ));
         return out;
     }
+    let mut sources: Vec<String> = Vec::new();
     let keys = if sub == "push" {
         let current = pushed.iter().any(Refspec::sends_current_branch);
-        let sent = pushed
-            .into_iter()
+        sources = (pushed.iter())
             .filter(|spec| !spec.source.is_empty())
-            .map(|spec| Read::Push(spec.source));
+            .map(|spec| spec.source.clone())
+            .collect();
+        let sent = sources.iter().cloned().map(Read::Push);
         std::iter::once(Read::PushConfig)
             .chain(current.then_some(Read::Branch))
             .chain(sent)
@@ -202,6 +207,13 @@ pub(super) fn judge(
                 "kelpie cannot read this worktree's git to check this {sub}: {e}"
             )),
         }
+    }
+    // The project's own hooks judge what the guard let through.
+    if out.is_empty() {
+        out = match sub {
+            "push" => hooks::push(home, checkout, &sources),
+            _ => hooks::commit(home, checkout, &messages, all_tracked(args)),
+        };
     }
     out
 }

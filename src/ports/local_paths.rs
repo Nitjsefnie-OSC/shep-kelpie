@@ -4,6 +4,11 @@
 //! refuses a text [`LocalPaths`] finds something of this machine's in: its
 //! folders, a path under `~`, an address on a local network, or a name the
 //! project keeps private. A post that names one is never sent.
+//!
+//! The project's `publish` hooks judge the same text after that, so a post
+//! one refuses is never sent either. A pull request's title and body are the
+//! worker's text, handed over for kelpie to post; every other text is
+//! kelpie's own.
 
 use std::fmt;
 use std::sync::Arc;
@@ -14,28 +19,54 @@ use super::{
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
+use crate::hooks::{Hooks, Role};
 use crate::local_paths::{LocalPaths, Surface};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+
+// `what` names the field, so a refusal says which one to fix.
+fn check(
+    local: &LocalPaths,
+    hooks: &Hooks,
+    role: Role,
+    what: &'static str,
+    text: &str,
+) -> Result<(), ForgeError> {
+    if let Some(leak) = local.find(text, Surface::Prose) {
+        return Err(ForgeError::LocalPath { what, leak });
+    }
+    (hooks.publish(role, what, text)).map_err(|refusal| ForgeError::Hook { what, refusal })
+}
 
 /// A forge that refuses to post any text naming something of this machine's
 pub struct Guarded {
     forge: Arc<dyn Forge>,
     local: LocalPaths,
+    hooks: Hooks,
 }
 
 impl Guarded {
     /// `forge`, refusing posts that `local` finds something in
     pub fn new(forge: Arc<dyn Forge>, local: LocalPaths) -> Self {
-        Self { forge, local }
+        Self {
+            forge,
+            local,
+            hooks: Hooks::default(),
+        }
     }
 
-    // `what` names the field, so a refusal says which one to fix.
+    /// This forge, also refusing posts that one of `hooks`' publish hooks refuses
+    #[must_use]
+    pub fn with_hooks(self, hooks: Hooks) -> Self {
+        Self { hooks, ..self }
+    }
+
     fn check(&self, what: &'static str, text: &str) -> Result<(), ForgeError> {
-        match self.local.find(text, Surface::Prose) {
-            Some(leak) => Err(ForgeError::LocalPath { what, leak }),
-            None => Ok(()),
-        }
+        self.check_as(Role::Kelpie, what, text)
+    }
+
+    fn check_as(&self, role: Role, what: &'static str, text: &str) -> Result<(), ForgeError> {
+        check(&self.local, &self.hooks, role, what, text)
     }
 }
 
@@ -140,8 +171,8 @@ impl Forge for Guarded {
         title: &str,
         body: &str,
     ) -> Result<u64, ForgeError> {
-        self.check("the pull request's title", title)?;
-        self.check("the pull request's body", body)?;
+        self.check_as(Role::Worker, "the pull request's title", title)?;
+        self.check_as(Role::Worker, "the pull request's body", body)?;
         self.forge
             .create_pull_request(repo, head, base, title, body)
     }
@@ -153,8 +184,8 @@ impl Forge for Guarded {
         title: &str,
         body: &str,
     ) -> Result<(), ForgeError> {
-        self.check("the pull request's title", title)?;
-        self.check("the pull request's body", body)?;
+        self.check_as(Role::Worker, "the pull request's title", title)?;
+        self.check_as(Role::Worker, "the pull request's body", body)?;
         self.forge.edit_pull_request(repo, number, title, body)
     }
 
@@ -235,19 +266,28 @@ impl Forge for Guarded {
 pub struct GuardedVoice {
     voice: Arc<dyn Voice>,
     local: LocalPaths,
+    hooks: Hooks,
 }
 
 impl GuardedVoice {
     /// `voice`, refusing writes that `local` finds something in
     pub fn new(voice: Arc<dyn Voice>, local: LocalPaths) -> Self {
-        Self { voice, local }
+        Self {
+            voice,
+            local,
+            hooks: Hooks::default(),
+        }
     }
 
+    /// This voice, also refusing writes that one of `hooks`' publish hooks refuses
+    #[must_use]
+    pub fn with_hooks(self, hooks: Hooks) -> Self {
+        Self { hooks, ..self }
+    }
+
+    // Everything the App writes is kelpie's own text.
     fn check(&self, what: &'static str, text: &str) -> Result<(), ForgeError> {
-        match self.local.find(text, Surface::Prose) {
-            Some(leak) => Err(ForgeError::LocalPath { what, leak }),
-            None => Ok(()),
-        }
+        check(&self.local, &self.hooks, Role::Kelpie, what, text)
     }
 }
 

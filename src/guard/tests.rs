@@ -868,6 +868,7 @@ fn an_unreadable_call_is_refused() {
 }
 
 mod agents;
+mod hooks;
 mod killing;
 mod manager;
 mod posting;

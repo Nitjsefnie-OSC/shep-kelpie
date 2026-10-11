@@ -10,6 +10,7 @@
 
 use std::time::Duration;
 
+use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
 use crate::runner::closed::end_closed;
 use crate::runner::report::{Begin, StepReport};
@@ -131,25 +132,61 @@ impl Runner {
         let item = next.item_mut(issue).expect("the work item checked above");
         if let Some(number) = found {
             item.pull_request = Some(number);
+            // A pull request found only now was never handed over, so the
+            // project's `handover` hooks judge the branch before review reads it.
+            match self.handover(item) {
+                Handover::Refused(why) => {
+                    let refused = Refused::branch(&why);
+                    if item.handover_refused {
+                        let now = self.ports.clock.now();
+                        let mut report =
+                            failed(self.names(), &mut next, issue, now, refused.parked);
+                        self.save(next)?;
+                        self.fill_comment_failed(&mut report);
+                        return Ok(Begin::Report(report));
+                    }
+                    item.handover_refused = true;
+                    item.turn = Turn::Next {
+                        prompt: refused.prompt,
+                    };
+                    // The pull request still owes its first review.
+                    item.resume = Some(Phase::Review(Review::first()));
+                    self.save(next)?;
+                    return self.begin_item(false);
+                }
+                Handover::Passed(head) => {
+                    item.handed_over = Some(head);
+                    item.handover_refused = false;
+                }
+                Handover::NotDue => {}
+            }
             item.phase = Phase::Review(Review::first());
             self.save(next)?;
             return self.begin_item(false);
         }
-        let (prompt, why) = if pushed_nothing {
-            (PUSHED_NOTHING, PUSHED_NOTHING_TWICE)
-        } else {
-            (STOPPED_SHORT, STOPPED_TWICE)
+        // A pull request file a project's hook refused is the worker's to fix.
+        let refused = item.pull_request_refused.take();
+        let (prompt, why) = match (pushed_nothing, refused) {
+            (true, _) => (PUSHED_NOTHING.to_owned(), PUSHED_NOTHING_TWICE.to_owned()),
+            (false, Some(refusal)) => (
+                format!(
+                    "Your last turn ended with no pull request: kelpie could not open one from \
+                     `pull-request.md`. {refusal}. Change the file so the hook accepts it, and \
+                     end your turn. If only the maintainer can unblock you, end your reply with \
+                     a <kelpie-question> block."
+                ),
+                format!("kelpie could not open its pull request from `pull-request.md`: {refusal}"),
+            ),
+            (false, None) => (STOPPED_SHORT.to_owned(), STOPPED_TWICE.to_owned()),
         };
-        item.turn = Turn::Next {
-            prompt: prompt.to_owned(),
-        };
+        item.turn = Turn::Next { prompt };
         if !sent_back {
             item.sent_back = true;
             self.save(next)?;
             return self.begin_item(false);
         }
         let now = self.ports.clock.now();
-        let mut report = failed(self.names(), &mut next, issue, now, why.to_owned());
+        let mut report = failed(self.names(), &mut next, issue, now, why);
         self.save(next)?;
         self.fill_comment_failed(&mut report);
         Ok(Begin::Report(report))

@@ -249,8 +249,8 @@ fn every_old_top_level_key_is_refused_at_once_naming_what_replaces_it() {
              - `max_items`, {grouped}: move its value to `concurrency.active_items`\n\
              - `max_parked`, {grouped}: move its value to `concurrency.pending_rulings`\n\
              - `private_names`, because kelpie no longer checks text for the project's own \
-             words: guard a worker's commits and posts with a hook in \
-             `worker.guard_hooks`, and delete it\n\
+             words: check text for the project's own words with a hook in `hooks`, \
+             which kelpie runs for every harness and role, and delete it\n\
              - `skills.ci`, because the step is named for what it does, apart from the \
              `[ci]` table: move its value to `skills.ci_fix`"
         )
@@ -734,6 +734,39 @@ fn a_projects_own_guard_hooks_are_read() {
         Some("Bash".into())
     );
     assert_eq!(hook.command.as_str(), "~/bin/lint-guard");
+}
+
+// The example with its commented project hook switched on, at `point`.
+fn with_project_hook(point: &str) -> String {
+    let hook = "# [[app.dogs.kelpie.hooks]]\n# point = \"publish\"\n# command = \"~/";
+    assert!(EXAMPLE.contains(hook), "the example's hook moved");
+    let on = format!("[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"~/");
+    EXAMPLE.replace(hook, &on)
+}
+
+#[test]
+fn a_projects_own_hooks_are_read_at_each_point() {
+    assert!(parse(EXAMPLE).unwrap().hooks.is_empty());
+    for (word, point) in [
+        ("publish", HookPoint::Publish),
+        ("commit", HookPoint::Commit),
+        ("push", HookPoint::Push),
+        ("handover", HookPoint::Handover),
+    ] {
+        let [hook] = parse(&with_project_hook(word))
+            .unwrap()
+            .hooks
+            .try_into()
+            .unwrap();
+        assert_eq!(hook.point, point);
+        assert_eq!(hook.command.as_str(), "~/bin/check-words");
+    }
+}
+
+#[test]
+fn a_hook_at_a_point_kelpie_has_none_of_is_refused_naming_it() {
+    let err = parse_err(&with_project_hook("merge"));
+    assert!(err.contains("`hooks.point = \"merge\"`"), "{err}");
 }
 
 #[test]

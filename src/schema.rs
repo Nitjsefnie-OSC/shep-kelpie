@@ -138,6 +138,10 @@ mod tests {
                 "# [[app.dogs.kelpie.worker.guard_hooks]]\n# event = \"PreToolUse\"\n# matcher = \"Bash\"\n# command =",
                 "[[app.dogs.kelpie.worker.guard_hooks]]\nevent = \"PreToolUse\"\nmatcher = \"Bash\"\ncommand =",
             )
+            .replace(
+                "# [[app.dogs.kelpie.hooks]]\n# point = \"publish\"\n# command =",
+                "[[app.dogs.kelpie.hooks]]\npoint = \"publish\"\ncommand =",
+            )
             .replace("# reviewers = [\"qwen\", \"defect-hunter\"]", "reviewers = [\"qwen\"]")
             .replace("# pm = \"pm\"", "pm = \"pm\"")
             .replace("# issue_writer =", "issue_writer =")
