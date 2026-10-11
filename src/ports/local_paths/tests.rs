@@ -177,6 +177,7 @@ fn the_name_of_a_public_project_or_a_longer_word_is_posted() {
         "the vaulted ceiling, vault-door and my_vault",
         "see vault.rs and the vault.example.com page",
         "ported from other/vault",
+        "the vault/foo folder and /other/acme/vault",
     ] {
         let (forge, fake) = guarded_in_a_flock();
         forge.create_issue(&slug(), "a title", text, &[]).unwrap();

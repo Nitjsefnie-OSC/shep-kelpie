@@ -98,19 +98,51 @@ fn repo_of(settings: &Settings) -> Option<ForgeSlug> {
         .or_else(|| Checkout::of(&settings.git.checkout).ok().map(|c| c.forge))
 }
 
-/// The repo of every project in the flock, one the shepherd lists no settings
-/// for or whose repo is unknown left out
+/// The repo of every project in the flock
+///
+/// A table that does not parse still gives its repo when it names `git.remote`
+/// or a checkout with an `origin`.
 ///
 /// # Errors
 ///
-/// A message when the shepherd cannot be asked for the projects' tables.
+/// A message when the shepherd cannot be asked for the projects' tables, or
+/// when a project's repo cannot be told, since a post could then name a private
+/// repo of the flock unseen.
 pub async fn repos(client: &Client, home: &Path) -> Result<Vec<ForgeSlug>, String> {
     let tables = tables(client).await?;
-    Ok(tables
+    tables
         .iter()
-        .filter_map(|(sheep, table)| Settings::from_table(table, sheep, home, home).ok())
-        .filter_map(|settings| repo_of(&settings))
-        .collect())
+        .map(|(sheep, table)| {
+            let repo = match Settings::from_table(table, sheep, home, home) {
+                Ok(settings) => repo_of(&settings),
+                Err(_) => raw_repo_of(table, home),
+            };
+            repo.ok_or_else(|| {
+                format!(
+                    "cannot tell which repo project {sheep} works, so kelpie cannot keep its \
+                     name off a public repo: fix its settings, or remove the project"
+                )
+            })
+        })
+        .collect()
+}
+
+// The repo a project table names, read without parsing the rest of it.
+fn raw_repo_of(
+    table: &serde_json::Map<String, serde_json::Value>,
+    home: &Path,
+) -> Option<ForgeSlug> {
+    let git = table.get("git")?.as_object()?;
+    let text = |key: &str| git.get(key)?.as_str().map(str::to_owned);
+    if let Some(remote) = text("remote") {
+        return ForgeSlug::try_from(remote).ok();
+    }
+    let checkout = text("checkout")?;
+    let folder = match checkout.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(checkout),
+    };
+    Checkout::of(&folder).ok().map(|c| c.forge)
 }
 
 // The one project whose `git.remote` is `folder`'s `origin`, for a clone that

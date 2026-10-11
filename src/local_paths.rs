@@ -219,28 +219,41 @@ fn names_system_path(text: &str) -> bool {
 /// Whether `text` names `repo`, by `owner/name` or by its bare name
 ///
 /// Case does not matter. A name inside a longer one, `vault-door`, `my_vault` or
-/// `vault.rs`, is not it, and nor is the bare name after a `/`, which is another
-/// owner's repo or a folder.
+/// `vault.rs`, is not it. A bare name beside a `/` is a folder or another owner's
+/// repo. `owner/name` after a `/` counts only behind a host, as in
+/// `github.com/owner/name`.
 pub fn names_repo(text: &str, repo: &ForgeSlug) -> bool {
     let (full, bare) = (repo.as_str().to_lowercase(), repo.name().to_lowercase());
-    variants(text).iter().any(|v| {
-        names_word(v, &full, |c| !(is_word(c) || matches!(c, '-' | '.')))
-            || names_word(v, &bare, |c| !(is_word(c) || matches!(c, '-' | '.' | '/')))
-    })
+    variants(text)
+        .iter()
+        .any(|v| names_word(v, &full, true) || names_word(v, &bare, false))
 }
 
-// `name` as a whole word: `starts` says what may come right before it, a full stop
-// ends a sentence unless a word follows it, and a name in a longer one is no match.
-fn names_word(text: &str, name: &str, starts: impl Fn(char) -> bool) -> bool {
+// `name` as a whole word. A full stop ends a sentence unless a word follows it, and
+// a name in a longer one is no match. A `/` next to it is a path around it, which
+// `owner/name` allows after a host or before more path, and a bare name does not.
+fn names_word(text: &str, name: &str, owner_and_name: bool) -> bool {
     text.match_indices(name).any(|(at, _)| {
         let mut after = text[at + name.len()..].chars();
         let ends = match after.next() {
             None => true,
+            Some('/') => owner_and_name,
             Some('.') => !after.next().is_some_and(is_word),
             Some(c) => !(is_word(c) || c == '-'),
         };
-        ends && before(text, at).is_none_or(&starts)
+        let starts = match before(text, at) {
+            None => true,
+            Some('/') => owner_and_name && behind_host(&text[..at - 1]),
+            Some(c) => !(is_word(c) || matches!(c, '-' | '.')),
+        };
+        ends && starts
     })
+}
+
+// Whether `head` ends in a host name, such as `https://github.com`.
+fn behind_host(head: &str) -> bool {
+    let last = head.rsplit(|c: char| c == '/' || c.is_whitespace()).next();
+    last.is_some_and(|label| label.contains('.'))
 }
 
 fn has_lan(text: &str) -> bool {

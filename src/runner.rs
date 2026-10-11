@@ -17,8 +17,8 @@ use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld, Say,
-    SessionId, Timestamp, Visibility,
+    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld,
+    Say, SessionId, Timestamp, Visibility,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -392,20 +392,22 @@ impl Runner {
         let remote = check_checkout(&settings)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
-        let voice = GuardedVoice::new(ports.voice, local.clone())
-            .with_flock(ports.flock.clone(), Arc::clone(&ports.forge))
-            .with_hooks(hooks.clone());
-        ports.voice = Arc::new(voice);
-        let guarded = Guarded::new(ports.forge, local.clone())
-            .with_flock(ports.flock.clone())
-            .with_hooks(hooks.clone());
-        let guarded = Arc::new(guarded);
         let clock = Arc::clone(&ports.clock);
         let say: Say = {
             let told = told.clone();
             Box::new(move |line| told.push(line))
         };
-        ports.forge = Arc::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
+        // The guard sits outside the hold, so its own questions to the forge are held too.
+        let held: Arc<dyn Forge> =
+            Arc::new(RateHeld::new(ports.forge, clock, forge_hold.clone(), say));
+        let voice = GuardedVoice::new(ports.voice, local.clone())
+            .with_flock(ports.flock.clone(), Arc::clone(&held))
+            .with_hooks(hooks.clone());
+        ports.voice = Arc::new(voice);
+        let guarded = Guarded::new(held, local.clone())
+            .with_flock(ports.flock.clone())
+            .with_hooks(hooks.clone());
+        ports.forge = Arc::new(guarded);
         let voice = Arc::clone(&ports.voice);
         ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
