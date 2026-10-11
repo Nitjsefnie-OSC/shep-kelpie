@@ -54,6 +54,16 @@ pub struct Conversion {
     pub pem: Pem,
 }
 
+/// An App's installation on a repo, as GitHub describes it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Installation {
+    /// The installation's id
+    pub id: u64,
+    /// Whether the installation holds `workflows` at `write`: the App was
+    /// given it and the installation accepted it
+    pub workflows: bool,
+}
+
 /// An installation token and when GitHub lets it lapse
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuedToken {
@@ -118,13 +128,13 @@ pub trait GithubApi: Send + Sync {
     /// [`ApiError`] when GitHub cannot be reached or refuses the code.
     fn convert(&self, code: &str) -> Result<Conversion, ApiError>;
 
-    /// The id of the App's installation on `repo`, `GET /repos/{owner}/{repo}/installation`,
+    /// The App's installation on `repo`, `GET /repos/{owner}/{repo}/installation`,
     /// or `None` when GitHub says the App is not installed there
     ///
     /// # Errors
     ///
     /// [`ApiError`] when GitHub cannot be reached or refuses the App's `jwt`.
-    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<u64>, ApiError>;
+    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError>;
 
     /// A new token for `installation` that reaches `repo` alone and holds
     /// the permissions `grant` names,
@@ -392,10 +402,14 @@ pub fn refusal(status: u16, body: &str) -> ApiError {
 pub enum Grant {
     /// Kelpie's own posts: issues and pull requests, written
     Kelpie,
-    /// A worker's: contents, written, which lets it push its branch and
-    /// nothing else. No comment, review, approval or merge, and no workflow
-    /// file, which needs a permission of its own.
-    Worker,
+    /// A worker's: contents, written, which lets it push its branch, and
+    /// workflows, written, where the installation holds it, which lets it
+    /// change a workflow file. Nothing else: no comment, review, approval or
+    /// merge.
+    Worker {
+        /// Whether the token asks for `workflows` too
+        workflows: bool,
+    },
 }
 
 /// The body of an access token's request, which limits the token to `repo`
@@ -403,7 +417,10 @@ pub enum Grant {
 pub fn token_request(repo: &ForgeSlug, grant: Grant) -> String {
     let permissions = match grant {
         Grant::Kelpie => serde_json::json!({ "issues": "write", "pull_requests": "write" }),
-        Grant::Worker => serde_json::json!({ "contents": "write" }),
+        Grant::Worker { workflows: false } => serde_json::json!({ "contents": "write" }),
+        Grant::Worker { workflows: true } => {
+            serde_json::json!({ "contents": "write", "workflows": "write" })
+        }
     };
     serde_json::json!({ "permissions": permissions, "repositories": [repo.name()] }).to_string()
 }
@@ -428,14 +445,17 @@ pub fn parse_conversion(body: &str) -> Result<Conversion, ApiError> {
     })
 }
 
-/// The installation's id in `GET /repos/{owner}/{repo}/installation`'s answer
+/// The installation in `GET /repos/{owner}/{repo}/installation`'s answer
 ///
 /// # Errors
 ///
-/// [`ApiError::Unreadable`] when it has none.
-pub fn parse_installation(body: &str) -> Result<u64, ApiError> {
+/// [`ApiError::Unreadable`] when it has no id.
+pub fn parse_installation(body: &str) -> Result<Installation, ApiError> {
     let v: Value = serde_json::from_str(body).map_err(|_| ApiError::Unreadable("id"))?;
-    v["id"].as_u64().ok_or(ApiError::Unreadable("id"))
+    Ok(Installation {
+        id: v["id"].as_u64().ok_or(ApiError::Unreadable("id"))?,
+        workflows: v["permissions"]["workflows"].as_str() == Some("write"),
+    })
 }
 
 /// The token in an access token's answer, and when it lapses

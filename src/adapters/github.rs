@@ -12,7 +12,7 @@ use std::process::Stdio;
 
 use super::curl;
 use crate::github::api::{
-    self, ApiError, Call, Conversion, GithubApi, Grant, IssuedToken, Signer, Verb,
+    self, ApiError, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Signer, Verb,
 };
 use crate::github::tokens::{InstallationToken, Jwt};
 use crate::ports::AlertError;
@@ -37,7 +37,7 @@ impl GithubApi for CurlGithub {
         }
     }
 
-    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<u64>, ApiError> {
+    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError> {
         let url = format!("{API}/repos/{}/installation", repo.as_str());
         match call(&url, Some(jwt), None)? {
             (body, 200) => api::parse_installation(&body).map(Some),

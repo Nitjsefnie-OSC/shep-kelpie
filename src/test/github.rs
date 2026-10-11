@@ -8,8 +8,8 @@ use super::FakeClock;
 use super::coderabbit::FakeCodeRabbit;
 use crate::github::tokens::Jwt;
 use crate::github::{
-    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, InstallationToken, IssuedToken,
-    Pem, Signer,
+    ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, Installation, InstallationToken,
+    IssuedToken, Pem, Signer,
 };
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -32,6 +32,8 @@ pub(crate) enum Asked {
 #[derive(Debug, Default)]
 struct Hub {
     installed: BTreeMap<String, u64>,
+    // Whether the installations hold the `workflows` permission
+    workflows: bool,
     // What the next calls answer in place of their success, in turn
     failures: VecDeque<ApiError>,
     // The owner the next conversion hands back in place of the stand-in's
@@ -87,6 +89,11 @@ impl FakeGithub {
     pub(crate) fn install(&self, repo: &str, id: u64) {
         let repo = repo.to_ascii_lowercase();
         self.hub.lock().unwrap().installed.insert(repo, id);
+    }
+
+    /// Gives the App the `workflows` permission, accepted on every installation
+    pub(crate) fn hold_workflows(&self) {
+        self.hub.lock().unwrap().workflows = true;
     }
 
     /// Makes the next call answer `error`, after any failures already set
@@ -219,7 +226,7 @@ impl GithubApi for FakeGithub {
         })
     }
 
-    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<u64>, ApiError> {
+    fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError> {
         let mut hub = self.hub.lock().unwrap();
         hub.asked
             .push(Asked::Installation(repo.as_str().to_owned()));
@@ -228,7 +235,11 @@ impl GithubApi for FakeGithub {
             return Err(error);
         }
         let repo = repo.as_str().to_ascii_lowercase();
-        Ok(hub.installed.get(&repo).copied())
+        let workflows = hub.workflows;
+        Ok(hub
+            .installed
+            .get(&repo)
+            .map(|&id| Installation { id, workflows }))
     }
 
     fn access_token(
@@ -248,7 +259,7 @@ impl GithubApi for FakeGithub {
         if let Some(error) = hub
             .workers_refused
             .clone()
-            .filter(|_| grant == Grant::Worker)
+            .filter(|_| matches!(grant, Grant::Worker { .. }))
         {
             return Err(error);
         }
@@ -264,9 +275,17 @@ impl GithubApi for FakeGithub {
                 ("metadata", "read"),
                 ("pull_requests", "write"),
             ]),
-            Grant::Worker => ask(&[("contents", "write"), ("metadata", "read")]),
+            Grant::Worker { workflows: false } => {
+                ask(&[("contents", "write"), ("metadata", "read")])
+            }
+            Grant::Worker { workflows: true } => ask(&[
+                ("contents", "write"),
+                ("metadata", "read"),
+                ("workflows", "write"),
+            ]),
         };
-        if let Some((name, level)) = hub.extra_grant.clone().filter(|_| grant == Grant::Worker) {
+        let extra = (hub.extra_grant.clone()).filter(|_| matches!(grant, Grant::Worker { .. }));
+        if let Some((name, level)) = extra {
             permissions.insert(name, level);
         }
         Ok(IssuedToken {
