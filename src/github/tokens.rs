@@ -164,6 +164,14 @@ pub trait GithubApp: Send + Sync {
     fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
         self.worker(repo).map(|worker| worker.token)
     }
+
+    /// A token to resolve a review thread on `repo`: minted fresh and never
+    /// kept, since it can push, which the token of [`GithubApp::token`] cannot
+    ///
+    /// # Errors
+    ///
+    /// As [`GithubApp::token`].
+    fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
 }
 
 /// A worker's token and what it lets the worker change beyond its branch
@@ -242,6 +250,10 @@ impl GithubApp for AppTokens {
         self.mint(repo, Grant::Kelpie).map(|issued| issued.token)
     }
 
+    fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
+        self.mint(repo, Grant::Threads).map(|issued| issued.token)
+    }
+
     fn worker(&self, repo: &ForgeSlug) -> Result<WorkerToken, TokenError> {
         match (self.mint(repo, Grant::Worker { workflows: false })).and_then(pushes_only) {
             // GitHub answers 422 to a request for a permission the App lacks.
@@ -285,10 +297,11 @@ fn pushes_only(issued: IssuedToken) -> Result<IssuedToken, TokenError> {
 }
 
 impl AppTokens {
-    // A token of kelpie's kept until it nears its end, or a worker's, which
-    // is never kept: it has the whole of its hour for the call that gets it,
-    // and kelpie's own posts must never be handed it. A worker's `grant`
-    // names no `workflows`: the installation says whether to ask for it.
+    // A token of kelpie's kept until it nears its end. A worker's and a
+    // thread's are never kept: a worker's has the whole of its hour for the
+    // call that gets it, and both can push, so kelpie's own posts must never
+    // be handed them. A worker's `grant` names no `workflows`: the
+    // installation says whether to ask for it.
     fn mint(&self, repo: &ForgeSlug, grant: Grant) -> Result<IssuedToken, TokenError> {
         let owner = Owner::of(repo).map_err(TokenError::Owner)?;
         let app = (self.apps.get(&owner).map_err(TokenError::Store)?)
@@ -327,7 +340,7 @@ impl AppTokens {
             // A worker's token asks for what the installation holds now, so
             // the installation is read afresh, and a permission the
             // maintainer accepted since takes effect on the next call.
-            installation.filter(|_| grant == Grant::Kelpie)
+            installation.filter(|_| !matches!(grant, Grant::Worker { .. }))
         };
         let jwt = self.jwt(&app, &owner, now)?;
         let (id, workflows) = match installation {

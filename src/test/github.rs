@@ -283,6 +283,11 @@ impl GithubApi for FakeGithub {
                 ("metadata", "read"),
                 ("workflows", "write"),
             ]),
+            Grant::Threads => ask(&[
+                ("contents", "write"),
+                ("metadata", "read"),
+                ("pull_requests", "write"),
+            ]),
         };
         let extra = (hub.extra_grant.clone()).filter(|_| matches!(grant, Grant::Worker { .. }));
         if let Some((name, level)) = extra {
