@@ -272,8 +272,7 @@ fn a_thread_is_replied_to_and_resolved_with_the_apps_token() {
 
     let made = writes(&github);
     assert_eq!(made.len(), 2, "{made:?}");
-    for (token, call) in &made {
-        assert_eq!(token, "ghs_test1");
+    for (_, call) in &made {
         assert_eq!(call.path, "/graphql");
     }
     let sent: serde_json::Value = serde_json::from_str(made[0].1.body.as_deref().unwrap()).unwrap();
@@ -287,4 +286,33 @@ fn a_thread_is_replied_to_and_resolved_with_the_apps_token() {
             .unwrap()
             .contains("addPullRequestReviewThreadReply")
     );
+}
+
+// GitHub refuses a thread's resolve to a token without Contents written,
+// which its documentation does not say. Only that call is minted the
+// permission: kelpie's posts, a reply included, still cannot push.
+#[test]
+fn a_thread_is_resolved_with_a_token_that_holds_contents_and_posts_use_one_that_does_not() {
+    let (voice, github, _home) = voiced();
+    let repo = slug("shep-pm/koji");
+
+    voice.reply_to_thread(&repo, "PRRT_1", "Fixed.").unwrap();
+    voice.resolve_thread(&repo, "PRRT_1").unwrap();
+
+    let requests: Vec<String> = (github.asked().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::AccessToken(_, body) => Some(body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        requests,
+        [
+            r#"{"permissions":{"issues":"write","pull_requests":"write"},"repositories":["koji"]}"#,
+            r#"{"permissions":{"contents":"write","pull_requests":"write"},"repositories":["koji"]}"#,
+        ]
+    );
+    let made = writes(&github);
+    assert_eq!(made[0].0, "ghs_test1", "the reply uses kelpie's token");
+    assert_eq!(made[1].0, "ghs_test2", "the resolve uses its own");
 }

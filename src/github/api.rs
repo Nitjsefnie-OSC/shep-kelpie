@@ -396,6 +396,12 @@ pub enum Grant {
     /// nothing else. No comment, review, approval or merge, and no workflow
     /// file, which needs a permission of its own.
     Worker,
+    /// The resolve of a review thread: pull requests and contents, written
+    ///
+    /// GitHub refuses `resolveReviewThread` to a token without Contents
+    /// written, though its documentation does not say so. It is minted for
+    /// that call alone, because it can push, which kelpie's posts cannot.
+    Threads,
 }
 
 /// The body of an access token's request, which limits the token to `repo`
@@ -404,6 +410,7 @@ pub fn token_request(repo: &ForgeSlug, grant: Grant) -> String {
     let permissions = match grant {
         Grant::Kelpie => serde_json::json!({ "issues": "write", "pull_requests": "write" }),
         Grant::Worker => serde_json::json!({ "contents": "write" }),
+        Grant::Threads => serde_json::json!({ "contents": "write", "pull_requests": "write" }),
     };
     serde_json::json!({ "permissions": permissions, "repositories": [repo.name()] }).to_string()
 }

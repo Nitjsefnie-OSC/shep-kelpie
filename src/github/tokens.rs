@@ -154,6 +154,14 @@ pub trait GithubApp: Send + Sync {
     /// As [`GithubApp::token`], and also when GitHub refuses the permission
     /// because the App was never given it.
     fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
+
+    /// A token to resolve a review thread on `repo`: minted fresh and never
+    /// kept, since it can push, which the token of [`GithubApp::token`] cannot
+    ///
+    /// # Errors
+    ///
+    /// As [`GithubApp::token`].
+    fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
 }
 
 // An App's id and a repo's `owner/name` in lower case
@@ -222,6 +230,10 @@ impl GithubApp for AppTokens {
         self.mint(repo, Grant::Kelpie).map(|issued| issued.token)
     }
 
+    fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
+        self.mint(repo, Grant::Threads).map(|issued| issued.token)
+    }
+
     fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
         match self.mint(repo, Grant::Worker).and_then(pushes_only) {
             // GitHub answers 422 to a request for a permission the App lacks.
@@ -257,9 +269,10 @@ fn pushes_only(issued: IssuedToken) -> Result<IssuedToken, TokenError> {
 }
 
 impl AppTokens {
-    // A token of kelpie's kept until it nears its end, or a worker's, which
-    // is never kept: it has the whole of its hour for the call that gets it,
-    // and kelpie's own posts must never be handed it.
+    // A token of kelpie's kept until it nears its end. A worker's and a
+    // thread's are never kept: a worker's has the whole of its hour for the
+    // call that gets it, and both can push, so kelpie's own posts must never
+    // be handed them.
     fn mint(&self, repo: &ForgeSlug, grant: Grant) -> Result<IssuedToken, TokenError> {
         let owner = Owner::of(repo).map_err(TokenError::Owner)?;
         let app = (self.apps.get(&owner).map_err(TokenError::Store)?)
