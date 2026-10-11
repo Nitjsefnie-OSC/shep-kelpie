@@ -182,3 +182,55 @@ fn a_compaction_that_fails_sends_the_turn_on_as_it_was() {
         fix.call.prompt
     );
 }
+
+// The settings file of a worker's first turn, under a `worker` table that
+// sets `compact_window` to `window`, or leaves it at its default.
+fn first_turn_settings(window: Option<&str>) -> Value {
+    let rig = Rig::new("shep");
+    if let Some(window) = window {
+        rig.edit_settings(|s| {
+            s.replace(
+                "compact_window = 200000",
+                &format!("compact_window = {window}"),
+            )
+        });
+    }
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say("done")]);
+    step(&runner).unwrap();
+    let [turn] = rig.claude.all_seen().try_into().unwrap();
+    turn.settings
+}
+
+#[test]
+fn a_worker_s_settings_carry_the_compact_window_at_its_default_and_as_set() {
+    assert_eq!(first_turn_settings(None)["autoCompactWindow"], 200_000);
+    assert_eq!(
+        first_turn_settings(Some("120000"))["autoCompactWindow"],
+        120_000
+    );
+}
+
+#[test]
+fn a_compact_window_of_zero_leaves_it_out_of_a_worker_s_settings() {
+    let settings = first_turn_settings(Some("0"));
+    assert!(settings.get("autoCompactWindow").is_none());
+    assert!(settings["hooks"].get("SessionStart").is_none());
+}
+
+#[test]
+fn kelpie_s_own_compact_call_is_not_bounded_by_the_window() {
+    let (rig, runner) = fix_round_due(150_001);
+    rig.claude.script([
+        Scripted::Say("compacted"),
+        Scripted::Push("fixed.txt", "fixed\n"),
+    ]);
+    step(&runner).unwrap();
+    step(&runner).unwrap();
+
+    let [build, compact, fix] = rig.claude.all_seen().try_into().unwrap();
+    assert_eq!(build.settings["autoCompactWindow"], 200_000);
+    assert!(compact.settings.get("autoCompactWindow").is_none());
+    assert_eq!(fix.settings["autoCompactWindow"], 200_000);
+}

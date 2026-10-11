@@ -48,6 +48,11 @@ pub(crate) enum Scripted {
     /// Commits this file with this text on the worktree's branch, pushes
     /// it the way a worker does, and answers with this final message
     PushSay(&'static str, &'static str, &'static str),
+    /// Pushes like [`Self::PushSay`] from a session Claude Code compacted
+    /// partway, which answers with the final message only if the settings
+    /// file's `SessionStart` hook for a compaction handed it the reply's
+    /// `thread <n>: fixed` line format back, and with "done" otherwise
+    PushSayCompacted(&'static str, &'static str, &'static str),
     /// Writes this file with this text in the worktree, commits nothing,
     /// and answers: a write that got past the fence
     Plant(&'static str, &'static str),
@@ -364,6 +369,16 @@ impl Agents for FakeClaude {
                 push(&call.cwd, &[(file, text)], file);
                 Ok(said(say))
             }
+            Some(Scripted::PushSayCompacted(file, text, say)) => {
+                push(&call.cwd, &[(file, text)], file);
+                // Its history now a summary, it knows the reply's line format
+                // only if the hook handed the turn's prompt back.
+                let remembered = after_compaction(&call.cwd, &settings_of(call));
+                Ok(said(match remembered.contains("`thread <n>: fixed`") {
+                    true => say,
+                    false => "done",
+                }))
+            }
             Some(Scripted::MergeMain) => {
                 git(&call.cwd, &["fetch", "--quiet", "origin", "main"]);
                 git(
@@ -386,6 +401,36 @@ impl Agents for FakeClaude {
             )),
         }
     }
+}
+
+// The settings file the call named, as it stands.
+fn settings_of(call: &AgentCall) -> serde_json::Value {
+    std::fs::read_to_string(&call.settings)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+// What Claude Code adds to a session it compacted: the output of each
+// `SessionStart` hook whose matcher is `compact`, run in `cwd`.
+fn after_compaction(cwd: &Path, settings: &serde_json::Value) -> String {
+    let entries = settings["hooks"]["SessionStart"].as_array();
+    let mut added = String::new();
+    for entry in entries.into_iter().flatten() {
+        if entry["matcher"] != "compact" {
+            continue;
+        }
+        for hook in entry["hooks"].as_array().into_iter().flatten() {
+            let command = hook["command"].as_str().expect("a hook has a command");
+            let out = std::process::Command::new("sh")
+                .args(["-c", command])
+                .current_dir(cwd)
+                .output()
+                .expect("sh runs");
+            added.push_str(&String::from_utf8_lossy(&out.stdout));
+        }
+    }
+    added
 }
 
 // What a call that cost nothing answers, saying `text`.

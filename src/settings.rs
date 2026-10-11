@@ -412,6 +412,16 @@ pub struct Worker {
     /// on a ruling, keeping its session. 60 when absent.
     #[serde(default = "default_turn_timeout")]
     pub turn_timeout: NonZeroU32,
+    /// Tokens of context at which Claude Code compacts a worker's session in
+    /// the middle of a turn. 200000 when absent; 0 leaves Claude Code to
+    /// compact near the model's own window.
+    #[serde(default = "default_compact_window")]
+    pub compact_window: u32,
+}
+
+/// The design log's default for `worker.compact_window`, in tokens
+fn default_compact_window() -> u32 {
+    200_000
 }
 
 /// The design log's default for `worker.turn_timeout`, in minutes

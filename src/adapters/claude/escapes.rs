@@ -69,6 +69,7 @@ impl World {
             agent_tools: None,
             reach: profile.reach(),
             lease: None,
+            compact_window: None,
         }
     }
 
@@ -314,6 +315,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         agent_tools: None,
         reach: profile.reach(),
         lease: None,
+        compact_window: None,
     };
     cli.prepare(&call).unwrap();
     // A live call has five minutes, as a worker's turn has its ceiling.

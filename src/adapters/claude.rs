@@ -249,6 +249,11 @@ impl Agents for ClaudeCli {
 /// Writes the call's settings file whole, from the call alone
 pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), AgentError> {
     let mut value = settings::settings(call.tools, &call.reach);
+    // The prompt beside the settings file, for the hook that hands it back.
+    let again = call.settings.with_extension("prompt.md");
+    if let Some(window) = call.compact_window {
+        settings::compacting(&mut value, window, &again);
+    }
     let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
@@ -257,6 +262,10 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     let folder = call.settings.parent().unwrap_or(std::path::Path::new("/"));
     std::fs::create_dir_all(folder)
         .and_then(|()| std::fs::write(&call.settings, text))
+        .and_then(|()| match call.compact_window {
+            Some(_) => std::fs::write(&again, compacted_prompt(&call.prompt)),
+            None => Ok(()),
+        })
         .map_err(|e| {
             AgentError::Setup(format!(
                 "cannot write {}: {}",
@@ -264,6 +273,15 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
                 e.kind()
             ))
         })
+}
+
+// What a compaction's hook prints into the session: the turn's prompt again.
+fn compacted_prompt(prompt: &str) -> String {
+    format!(
+        "Claude Code compacted your session partway through this turn, so what came before is \
+         a summary, and the prompt may have been cut from it. This is the prompt again:\n\n\
+         {prompt}\n"
+    )
 }
 
 // `--setting-sources project` keeps the project's CLAUDE.md and skills and
@@ -543,6 +561,7 @@ mod tests {
             agent_tools: None,
             reach: Reach::default(),
             lease: None,
+            compact_window: None,
         }
     }
 

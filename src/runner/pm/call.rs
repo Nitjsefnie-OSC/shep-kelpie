@@ -82,6 +82,7 @@ impl Runner {
             agent_tools: None,
             lease: agent.limit.lease().cloned(),
             reach: self.pm_reach(),
+            compact_window: None,
         })
     }
 

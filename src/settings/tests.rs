@@ -49,6 +49,7 @@ fn the_example_holds_the_first_build_defaults() {
     assert!(s.pacing.enabled);
     assert_eq!(s.pacing.kickoff_hours.get(), 8);
     assert_eq!(s.worker.turn_timeout.get(), 60);
+    assert_eq!(s.worker.compact_window, 200_000);
     assert!(
         s.worker.guard_hooks.is_empty(),
         "kelpie's own guard needs none"
