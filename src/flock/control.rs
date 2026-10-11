@@ -106,9 +106,11 @@ fn by_origin(
     let matching: Vec<&str> = settings
         .iter()
         .filter(|(_, s)| {
+            // GitHub owner and repo names are case-insensitive.
             let remote = s.git.remote.clone();
-            remote.or_else(|| Checkout::of(&s.git.checkout).ok().map(|c| c.forge))
-                == Some(clone.forge.clone())
+            remote
+                .or_else(|| Checkout::of(&s.git.checkout).ok().map(|c| c.forge))
+                .is_some_and(|forge| forge.as_str().eq_ignore_ascii_case(clone.forge.as_str()))
         })
         .map(|(sheep, _)| sheep.as_str())
         .collect();

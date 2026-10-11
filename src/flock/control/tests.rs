@@ -305,7 +305,7 @@ async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
     let clone = clone_of(
         &shepherd,
         "mine/reactmap",
-        "git@github.com:shep-pm/reactmap.git",
+        "git@github.com:Shep-PM/ReactMap.git",
     );
     let deep = shepherd.scratch("mine/reactmap/src/deep");
     let client = client(&shepherd).await;
