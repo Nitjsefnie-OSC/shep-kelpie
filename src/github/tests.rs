@@ -371,7 +371,8 @@ fn a_token_that_changes_workflow_files_and_more_is_never_handed_to_a_worker() {
 }
 
 // GitHub's answer says what the token holds. A worker is handed one only if
-// that is the permission to push and nothing else, whatever was asked for.
+// that is the permission to push, and to change workflow files where the App
+// holds it, and nothing else, whatever was asked for.
 #[test]
 fn a_token_that_holds_more_than_pushing_is_never_handed_to_a_worker() {
     let home = tempfile::tempdir().unwrap();

@@ -89,8 +89,8 @@ pub enum TokenError {
     /// The App was never given the Contents permission a worker's token
     /// holds: it was registered before workers held its tokens
     NoContents(App),
-    /// GitHub made a worker's token hold more than the permission to push, or
-    /// not that, with what it holds
+    /// GitHub made a worker's token hold more than the permission to push and
+    /// to change workflow files, or not the push, with what it holds
     TooBroad(String),
     /// The App's files could not be read
     Store(StoreError),
