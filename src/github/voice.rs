@@ -31,19 +31,23 @@ impl AppVoice {
 
     fn write(&self, repo: &ForgeSlug, call: &Call) -> Result<String, ForgeError> {
         let token = self.token(repo)?;
+        self.send(&token, call)
+    }
+
+    fn send(&self, token: &InstallationToken, call: &Call) -> Result<String, ForgeError> {
         self.api
-            .write(&token, call)
+            .write(token, call)
             .map_err(|e| ForgeError::App(e.to_string()))
     }
 
     // GraphQL answers a refusal with HTTP 200, so the body says how it went.
     fn thread_write(
         &self,
-        repo: &ForgeSlug,
+        token: &InstallationToken,
         call: &Call,
         mutation: &'static str,
     ) -> Result<(), ForgeError> {
-        let answer = self.write(repo, call)?;
+        let answer = self.send(token, call)?;
         match api::parse_thread_write(&answer, mutation) {
             Ok(ThreadWrite::Done | ThreadWrite::Gone) => Ok(()),
             Ok(ThreadWrite::Refused(why)) => Err(ForgeError::App(format!(
@@ -111,7 +115,9 @@ impl Voice for AppVoice {
     }
 
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
-        self.thread_write(repo, &Call::resolve_thread(thread), "resolveReviewThread")
+        let token = (self.tokens.thread_token(repo)).map_err(|e| ForgeError::App(e.to_string()))?;
+        let call = Call::resolve_thread(thread);
+        self.thread_write(&token, &call, "resolveReviewThread")
     }
 
     fn reply_to_thread(
@@ -121,7 +127,8 @@ impl Voice for AppVoice {
         body: &str,
     ) -> Result<(), ForgeError> {
         let call = Call::reply_to_thread(thread, body);
-        self.thread_write(repo, &call, "addPullRequestReviewThreadReply")
+        let token = self.token(repo)?;
+        self.thread_write(&token, &call, "addPullRequestReviewThreadReply")
     }
 
     fn create_label(&self, repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
