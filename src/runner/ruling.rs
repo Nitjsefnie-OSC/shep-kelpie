@@ -19,6 +19,9 @@ use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, St
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree;
 
+mod prompts;
+use prompts::{answer_prompt, declined_prompt, note_prompt, rework_prompt};
+
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
 const TIMEOUT_CONTINUE: &str = "Kelpie stopped your last turn: it ran past its ceiling. \
@@ -956,43 +959,6 @@ fn capitalized(text: &str) -> String {
     chars.next().map_or_else(String::new, |first| {
         first.to_uppercase().chain(chars).collect()
     })
-}
-
-fn note_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!("The maintainer answered no on {about}, with this note:\n\n{note}\n")
-}
-
-fn rework_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "The maintainer asked for a rework of {about}, with this note:\n\n{note}\n\n\
-         Once you push it, the whole review reads your change again.\n"
-    )
-}
-
-fn declined_prompt(number: Option<u64>, head: &str, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your branch".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "Someone other than you pushed commit {} to {about}, and the maintainer \
-         declined it, with this note:\n\n{note}\n\nYour worktree is now at that commit. \
-         Revert or change it with a new commit on top, and push with \
-         `git push origin HEAD`. Do not force-push.\n",
-        short(head)
-    )
-}
-
-fn answer_prompt(text: &str) -> String {
-    format!("The maintainer answered your question:\n\n{text}\n")
 }
 
 #[cfg(test)]
