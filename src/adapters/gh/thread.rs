@@ -36,17 +36,28 @@ pub(super) fn can_write(repo: &ForgeSlug, login: &str) -> Result<bool, ForgeErro
 
 // A comment's author and words, its reactions and who made each of its edits.
 // Edits are only on GraphQL, and GraphQL finds a comment by its node id.
-const MARKS: &str = "query($id: ID!) { node(id: $id) { ... on IssueComment { \
+const MARKS: &str = "query($id: ID!, $after: String) { node(id: $id) { ... on IssueComment { \
     author { login } body \
     reactions(first: 100) { nodes { content user { login } } } \
-    userContentEdits(first: 100) { nodes { editor { login } } } } } }";
+    userContentEdits(first: 100, after: $after) { \
+    pageInfo { hasNextPage endCursor } nodes { editor { login } } } } } }";
 
 pub(super) fn comment_marks(repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
     let path = format!("repos/{}/issues/comments/{comment}", repo.as_str());
     let node = parse_node_id(&gh(&["api", &path])?)?;
     let query = format!("query={MARKS}");
-    let marks = gh(&["api", "graphql", "-f", &query, "-f", &format!("id={node}")])?;
-    parse_marks(&marks)
+    let id = format!("id={node}");
+    let (mut marks, mut next) = parse_marks(&gh(&["api", "graphql", "-f", &query, "-f", &id])?)?;
+    // A tick is trusted only if every editor is known, so every page of
+    // edits is read; the other pages' reactions and words are the first's.
+    while let Some(cursor) = next {
+        let after = format!("after={cursor}");
+        let page = gh(&["api", "graphql", "-f", &query, "-f", &id, "-f", &after])?;
+        let (more, cursor) = parse_marks(&page)?;
+        marks.editors.extend(more.editors);
+        next = cursor;
+    }
+    Ok(marks)
 }
 
 fn parse_node_id(stdout: &[u8]) -> Result<String, ForgeError> {
@@ -60,7 +71,7 @@ fn parse_node_id(stdout: &[u8]) -> Result<String, ForgeError> {
 
 // GraphQL's answer to [`MARKS`]. A deleted account is a ghost, which is no
 // one's login. Reactions other than thumbs are left out.
-fn parse_marks(stdout: &[u8]) -> Result<CommentMarks, ForgeError> {
+fn parse_marks(stdout: &[u8]) -> Result<(CommentMarks, Option<String>), ForgeError> {
     #[derive(Deserialize)]
     struct Reply {
         data: Data,
@@ -75,11 +86,24 @@ fn parse_marks(stdout: &[u8]) -> Result<CommentMarks, ForgeError> {
         body: String,
         reactions: Nodes<Reaction>,
         #[serde(rename = "userContentEdits")]
-        edits: Nodes<Edit>,
+        edits: Edits,
     }
     #[derive(Deserialize)]
     struct Nodes<T> {
         nodes: Option<Vec<T>>,
+    }
+    #[derive(Deserialize)]
+    struct Edits {
+        nodes: Option<Vec<Edit>>,
+        #[serde(rename = "pageInfo", default)]
+        page: Option<Page>,
+    }
+    #[derive(Deserialize)]
+    struct Page {
+        #[serde(rename = "hasNextPage")]
+        more: bool,
+        #[serde(rename = "endCursor")]
+        cursor: Option<String>,
     }
     #[derive(Deserialize)]
     struct Reaction {
@@ -111,12 +135,18 @@ fn parse_marks(stdout: &[u8]) -> Result<CommentMarks, ForgeError> {
     let editors = (comment.edits.nodes.into_iter().flatten())
         .map(|edit| edit.editor.map_or_else(ghost, |editor| editor.login))
         .collect();
-    Ok(CommentMarks {
+    // More edits than a page hold, but no cursor to the rest: not all known.
+    let next = match comment.edits.page {
+        Some(Page { more: true, cursor }) => Some(cursor.ok_or_else(|| unreadable(stdout))?),
+        _ => None,
+    };
+    let marks = CommentMarks {
         author: comment.author.map_or_else(ghost, |author| author.login),
         body: comment.body,
         thumbs,
         editors,
-    })
+    };
+    Ok((marks, next))
 }
 
 // The pages `gh api --paginate --slurp` gathers, each GitHub's list of issue comments.
@@ -255,7 +285,9 @@ mod tests {
 
     #[test]
     fn a_comments_thumbs_and_editors_are_read_and_other_reactions_left_out() {
-        let marks = parse_marks(MARKED.as_bytes()).unwrap();
+        let (marks, next) = parse_marks(MARKED.as_bytes()).unwrap();
+
+        assert_eq!(next, None);
 
         assert_eq!(
             marks,
@@ -278,11 +310,37 @@ mod tests {
     }
 
     #[test]
+    fn edits_past_the_first_page_are_asked_for_by_their_cursor() {
+        let page = |info: &str| {
+            format!(
+                r#"{{"data":{{"node":{{"author":null,"body":"","reactions":{{"nodes":[]}},
+                "userContentEdits":{{"pageInfo":{info},
+                "nodes":[{{"editor":{{"login":"octocat"}}}}]}}}}}}}}"#
+            )
+        };
+
+        let more = page(r#"{"hasNextPage":true,"endCursor":"Y3Vyc29y"}"#);
+        let last = page(r#"{"hasNextPage":false,"endCursor":"Y3Vyc29y"}"#);
+        let lost = page(r#"{"hasNextPage":true,"endCursor":null}"#);
+
+        assert_eq!(
+            parse_marks(more.as_bytes()).unwrap().1.as_deref(),
+            Some("Y3Vyc29y")
+        );
+        assert_eq!(parse_marks(last.as_bytes()).unwrap().1, None);
+        // Trusting a tick on a history not all read is the harm, so it fails.
+        assert!(matches!(
+            parse_marks(lost.as_bytes()),
+            Err(ForgeError::Unreadable(_))
+        ));
+    }
+
+    #[test]
     fn a_comment_never_edited_has_no_editors() {
         let text = r#"{"data":{"node":{"author":null,"body":"","reactions":{"nodes":[]},
                         "userContentEdits":{"nodes":null}}}}"#;
 
-        let marks = parse_marks(text.as_bytes()).unwrap();
+        let (marks, _) = parse_marks(text.as_bytes()).unwrap();
 
         assert_eq!(marks.editors, Vec::<String>::new());
         assert_eq!(marks.author, "ghost");
