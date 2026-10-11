@@ -211,6 +211,40 @@ fn a_notice_that_hangs_is_stopped_logged_and_holds_nothing_up() {
 }
 
 #[test]
+fn a_slow_notice_does_not_keep_the_runner_waiting_and_notices_run_in_order() {
+    use crate::hooks::Role;
+    use crate::settings::HookPoint;
+    let rig = Rig::new("koji");
+    let file = rig.home.path().join("told");
+    // The first notice sleeps before it records, and the second records at once.
+    let script = format!(
+        "read line; case \"$line\" in *'\"n\":1'*) sleep 1;; esac; echo \"$line\" >> {}",
+        file.display()
+    );
+    rig.hook("slow.sh", &["done"], &script);
+    let runner = rig.open().unwrap();
+
+    let started = std::time::Instant::now();
+    {
+        let runner = runner.lock().unwrap();
+        for n in 1..=2 {
+            runner.tell_hooks(HookPoint::Done, Role::Kelpie, serde_json::json!({ "n": n }));
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "the runner waited for a hook"
+        );
+        runner.settle_notices();
+    }
+
+    let told: Vec<u64> = payloads(&rig, "told")
+        .iter()
+        .map(|p| p["n"].as_u64().unwrap())
+        .collect();
+    assert_eq!(told, [1, 2], "told in the order they came");
+}
+
+#[test]
 fn the_ci_hook_is_told_a_head_that_settled_green_with_no_failed_checks() {
     let (rig, runner, head) = parked_recording(&["ci"]);
 

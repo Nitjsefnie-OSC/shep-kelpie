@@ -834,6 +834,8 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
 pub fn step(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     let stepped = step_once(runner);
     brief(runner);
+    // A notice hook runs off the runner's lock, so a test waits for what it told.
+    lock(runner).settle_notices();
     stepped
 }
 

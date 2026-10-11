@@ -1,18 +1,21 @@
 //! The project's hooks at the points of kelpie's own work item loop
 //!
 //! `turn_end` is a gate, run here when a worker's turn ends. `ruling`, `ci`
-//! and `done` are notices: the runner runs them, logs a non-zero exit or a
-//! hang with the hook's name, and goes on. `turn_start` and `reset` run on
+//! and `done` are notices: the runner hands them to a thread of their own,
+//! which logs a non-zero exit or a hang with the hook's name, so the runner
+//! goes on without waiting. `turn_start` and `reset` run on
 //! the thread of the call they come before, in [`super::turn_hooks`]. All run
 //! in the runner, outside any sandbox, so they read what the runner can.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{OnceLock, mpsc};
 
 use serde_json::{Value, json};
 
 use super::Runner;
+use super::claim::Notes;
 use super::words::Wants;
-use crate::hooks::Role;
+use crate::hooks::{Hooks, Role};
 use crate::settings::HookPoint;
 use crate::state::{Finished, ProjectState, Ruling};
 use crate::work_item::{Phase, WorkItem};
@@ -27,6 +30,8 @@ pub(super) struct Told {
     rulings: BTreeSet<u64>,
     // The head each work item's CI last settled on, told to the `ci` hooks
     ci: BTreeMap<u64, String>,
+    // The thread the notice hooks run on
+    notices: Notices,
 }
 
 impl Told {
@@ -35,6 +40,74 @@ impl Told {
         Self {
             rulings: state.rulings.iter().map(|r| r.id).collect(),
             ci: BTreeMap::new(),
+            notices: Notices::default(),
+        }
+    }
+}
+
+// One notice to run, or in a test a mark to say the ones before it have.
+enum Job {
+    Tell {
+        hooks: Hooks,
+        notes: Notes,
+        point: HookPoint,
+        role: Role,
+        details: Value,
+    },
+    #[cfg(test)]
+    Settled(mpsc::Sender<()>),
+}
+
+impl Job {
+    fn run(self) {
+        match self {
+            Self::Tell {
+                hooks,
+                notes,
+                point,
+                role,
+                details,
+            } => {
+                if let Some(line) = hooks.notify(point, role, None, details) {
+                    notes.push(line);
+                }
+            }
+            #[cfg(test)]
+            Self::Settled(done) => {
+                let _ = done.send(());
+            }
+        }
+    }
+}
+
+/// The notice hooks' one thread, started with the first notice
+///
+/// A notice runs here and not under the runner's lock, so a hook that hangs
+/// its 30 seconds holds up the notices behind it and nothing else. They run
+/// in the order they were told.
+#[derive(Debug, Default)]
+struct Notices {
+    queue: OnceLock<mpsc::Sender<Job>>,
+}
+
+impl Notices {
+    // Hands `job` over, or gives it back when no thread can take it.
+    fn send(&self, job: Job) -> Result<(), Box<Job>> {
+        let queue = self.queue.get_or_init(|| {
+            let (sender, jobs) = mpsc::channel::<Job>();
+            let _ = std::thread::Builder::new()
+                .name("kelpie-notices".to_owned())
+                .spawn(move || jobs.into_iter().for_each(Job::run));
+            sender
+        });
+        queue.send(job).map_err(|e| Box::new(e.0))
+    }
+
+    #[cfg(test)]
+    fn settle(&self) {
+        let (done, settled) = mpsc::channel();
+        if self.send(Job::Settled(done)).is_ok() {
+            let _ = settled.recv();
         }
     }
 }
@@ -67,15 +140,29 @@ impl Runner {
         checked.err().map(|refusal| refusal.to_string())
     }
 
-    /// Runs the project's notice hooks at `point` with `details`, and logs
-    /// the ones that did not exit 0
+    /// Hands the project's notice hooks at `point` `details` to run, off
+    /// the runner's lock, and logs the ones that did not exit 0
     pub(super) fn tell_hooks(&self, point: HookPoint, role: Role, details: Value) {
         if !self.hooks.has(point) {
             return;
         }
-        if let Some(line) = self.hooks.notify(point, role, None, details) {
-            self.notes.push(line);
+        let job = Job::Tell {
+            hooks: self.hooks.clone(),
+            notes: self.notes.clone(),
+            point,
+            role,
+            details,
+        };
+        if let Err(job) = self.told_points.notices.send(job) {
+            // No thread could start, so the notice runs here, as it would have.
+            job.run();
         }
+    }
+
+    /// Waits until every notice told so far has run
+    #[cfg(test)]
+    pub(crate) fn settle_notices(&self) {
+        self.told_points.notices.settle();
     }
 
     /// Tells the `ruling` hooks each ruling raised since they last heard
