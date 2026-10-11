@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use super::calls::severity_tag;
 use crate::ports::{Finding, parse_findings};
 use crate::runner::turn;
+use crate::worker_folder;
 
 /// Where a round's findings are written for the worker's next turn
 const FINDINGS_FILE: &str = "review-findings.md";
@@ -32,11 +33,12 @@ pub(in crate::runner) fn deferred_path(build: &Path) -> PathBuf {
 ///
 /// A message naming the file when it is there but cannot be read.
 pub(in crate::runner) fn deferred(build: &Path) -> Result<Vec<Finding>, String> {
-    let path = deferred_path(build);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => Ok(parse_findings(&text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("cannot read {}: {}", path.display(), e.kind())),
+    match worker_folder::read(build, Path::new(DEFERRED_FILE)) {
+        Ok(text) => Ok(text.map_or_else(Vec::new, |text| parse_findings(&text))),
+        Err(e) => Err(format!(
+            "cannot read {}: {e}",
+            deferred_path(build).display()
+        )),
     }
 }
 
@@ -298,6 +300,44 @@ mod tests {
         let mut perms = std::fs::metadata(&folder).unwrap().permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&folder, perms).unwrap();
+    }
+
+    #[test]
+    fn a_findings_file_that_links_to_another_file_is_replaced_and_that_file_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (build, hook) = (dir.path().join("build"), dir.path().join("pre-commit"));
+        std::fs::create_dir(&build).unwrap();
+        std::fs::write(&hook, "#!/bin/sh\n").unwrap();
+        std::os::unix::fs::symlink(&hook, findings_path(&build)).unwrap();
+        let finding = Finding {
+            severity: Severity::Low,
+            file: "a.rs".into(),
+            line: 1,
+            what: "nit".into(),
+            why: "style".into(),
+        };
+
+        write_findings_file(&build, &findings_path(&build), 1, &[finding], false).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&hook).unwrap(), "#!/bin/sh\n");
+        let text = std::fs::read_to_string(findings_path(&build)).unwrap();
+        assert!(text.contains("a.rs:1"), "{text}");
+    }
+
+    #[test]
+    fn a_deferred_file_that_links_to_another_file_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (build, theirs) = (dir.path().join("build"), dir.path().join("notes.md"));
+        std::fs::create_dir(&build).unwrap();
+        let line = "HIGH|src/lib.rs:3|a thing|it is wrong\n";
+        std::fs::write(&theirs, line).unwrap();
+        std::os::unix::fs::symlink(&theirs, deferred_path(&build)).unwrap();
+
+        let err = deferred(&build).unwrap_err();
+
+        assert!(err.contains("deferred-findings.md"), "{err}");
+        assert!(err.contains("not a regular file"), "{err}");
+        assert!(!err.contains("a thing"), "{err}");
     }
 
     // Round 1 on pull request 71 found one MEDIUM finding, and its fix turn is next.
