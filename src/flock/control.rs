@@ -128,9 +128,7 @@ fn by_origin(
 // The checkouts `folder` belongs to: its own top folder, and for a worktree
 // the checkout it was made from. None when it is in no git checkout.
 fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
-    let output = crate::spawn::command("git")
-        .arg("-C")
-        .arg(folder)
+    let output = super::git_in(folder)
         .args([
             "rev-parse",
             "--path-format=absolute",

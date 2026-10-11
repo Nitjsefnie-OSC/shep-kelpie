@@ -317,6 +317,26 @@ async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
 }
 
 #[tokio::test]
+async fn a_project_with_no_remote_set_matches_on_its_checkouts_origin() {
+    let shepherd = FakeShepherd::new().await;
+    let home = PathBuf::from("/home/me");
+    let runner_checkout = clone_of(&shepherd, "runner/koji", "git@github.com:shep-pm/koji.git");
+    let mut table = crate::test::project_table(EXAMPLE);
+    table["git"]["checkout"] = Value::String(runner_checkout.display().to_string());
+    table["git"].as_object_mut().unwrap().remove("remote");
+    shepherd.holds(launch(&shepherd).runner(&project("koji"), table), false);
+    let clone = clone_of(
+        &shepherd,
+        "mine/koji",
+        "https://github.com/shep-pm/koji.git",
+    );
+    let client = client(&shepherd).await;
+
+    let found = in_time(project_here(&client, &clone, &home)).await;
+    assert_eq!(found, Ok(project("koji")));
+}
+
+#[tokio::test]
 async fn a_clone_whose_origin_is_no_projects_remote_asks_for_a_name() {
     let shepherd = FakeShepherd::new().await;
     remote(
