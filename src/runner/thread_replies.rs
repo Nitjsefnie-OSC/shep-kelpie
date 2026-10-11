@@ -92,9 +92,9 @@ pub(super) struct Reading {
     /// were up, until what became of them is said
     ended: BTreeMap<u64, Ended>,
     /// The edit of a settled ruling's comment that failed, by ruling: the
-    /// comment's id and its new body, tried again at each poll while the
-    /// ruling is watched
-    unedited: BTreeMap<u64, (u64, String)>,
+    /// comment's id and its new body, and when it is given up, tried again at
+    /// each poll until then
+    unedited: BTreeMap<u64, (u64, String, Timestamp)>,
 }
 
 /// What a comment on a watched thread is a reply to
@@ -347,10 +347,10 @@ impl Runner {
             now < until
         });
         self.threads.told.retain(|id, _| threads.contains_key(id));
-        self.threads
-            .unedited
-            .retain(|id, _| threads.contains_key(id));
-        self.retry_edits();
+        // What a ruling's end said is said by the call that ended it, before
+        // any poll, so a ruling still here at a poll ended another way.
+        self.threads.ended.clear();
+        self.retry_edits(now);
     }
 
     // Moves the place read to forward to `comment` for each ruling on its
@@ -474,15 +474,21 @@ impl Reading {
     pub(super) fn settled(&mut self, before: &ProjectState, after: &ProjectState, now: Timestamp) {
         let until = Timestamp(now.0.saturating_add(LATE));
         let gone = (before.rulings.iter()).filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
-        self.ended.clear();
-        for (ruling, (id, watch)) in gone.filter_map(|r| Some((r, watch_of(before, r)?))) {
-            let comment = watch.heard.ruling_comment;
-            if comment != 0 {
+        for ruling in gone {
+            // A ruling posted with no mention has no place read to, only its
+            // comment's id.
+            let kept = before.heard.get(&ruling.id).map(|h| h.ruling_comment);
+            let comment = kept
+                .filter(|comment| *comment != 0)
+                .or_else(|| before.unmentioned.get(&ruling.id).copied());
+            if let Some(comment) = comment {
                 let ruling = ruling.clone();
-                self.ended.insert(id, Ended { ruling, comment });
+                self.ended.insert(ruling.id, Ended { ruling, comment });
             }
-            let watch = self.watching.entry(id).or_insert(watch);
-            watch.settled.get_or_insert(until);
+            if let Some((id, watch)) = watch_of(before, ruling) {
+                let watch = self.watching.entry(id).or_insert(watch);
+                watch.settled.get_or_insert(until);
+            }
         }
     }
 

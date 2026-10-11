@@ -405,10 +405,10 @@ impl Runner {
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
-            let (failed, heard) = self.post_app_ruling(thread, ruling);
-            if let Some(heard) = heard {
+            let (failed, placed) = self.post_app_ruling(thread, ruling);
+            if let Some(placed) = placed {
                 let mut next = self.state.clone();
-                next.heard.insert(id, heard);
+                placed.keep(&mut next, id);
                 if let Err(e) = self.save(next) {
                     self.notes.push(format!(
                         "cannot save where ruling {id} is answered in its thread: {e}"

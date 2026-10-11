@@ -10,7 +10,8 @@
 use super::super::voice::settled_comment;
 use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
-use super::Runner;
+use super::{LATE, Runner};
+use crate::ports::Timestamp;
 use crate::state::Ruling;
 
 /// What a settled ruling's comment says after its first line
@@ -145,23 +146,22 @@ impl Runner {
         if let Err(e) = (self.ports.voice).edit_comment(&self.remote, ended.comment, &body) {
             self.notes.push(format!(
                 "cannot edit the comment of ruling {id} to say it is settled, and will try \
-                 again while its thread is watched: {e}"
+                 again for a while: {e}"
             ));
-            self.threads.unedited.insert(id, (ended.comment, body));
+            let until = Timestamp(self.ports.clock.now().0.saturating_add(LATE));
+            (self.threads.unedited).insert(id, (ended.comment, body, until));
         }
     }
 
     /// Tries again each edit of a settled ruling's comment that failed, and
-    /// lets go of the ones that went through
-    pub(super) fn retry_edits(&mut self) {
+    /// lets go of the ones that went through or that have waited too long
+    pub(super) fn retry_edits(&mut self, now: Timestamp) {
         let wanted = std::mem::take(&mut self.threads.unedited);
-        for (id, (comment, body)) in wanted {
+        for (id, (comment, body, until)) in wanted {
             // The failure was told when it first happened, not at each poll.
-            if (self.ports.voice)
-                .edit_comment(&self.remote, comment, &body)
-                .is_err()
-            {
-                self.threads.unedited.insert(id, (comment, body));
+            let sent = (self.ports.voice).edit_comment(&self.remote, comment, &body);
+            if sent.is_err() && now < until {
+                self.threads.unedited.insert(id, (comment, body, until));
             }
         }
     }

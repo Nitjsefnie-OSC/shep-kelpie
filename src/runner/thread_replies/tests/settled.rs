@@ -87,6 +87,31 @@ fn an_edit_that_failed_is_tried_again_at_the_next_poll() {
 }
 
 #[test]
+fn a_terminal_answer_to_a_head_the_branch_moved_past_edits_the_old_comment_to_say_withdrawn() {
+    let (rig, runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+    rig.push_by_hand("kelpie/7", "first.txt");
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::Ruling { id: 1, .. })
+    ));
+    let comment = ruling_comment(&rig);
+    rig.push_by_hand("kelpie/7", "second.txt");
+
+    rig.ask(&runner, "rule", Some("1 yes"));
+
+    assert_eq!(pending(&rig, &runner), [2]);
+    let [(edited, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!(edited, comment);
+    assert!(
+        body.starts_with("**Withdrawn:** the branch moved"),
+        "{body}"
+    );
+}
+
+#[test]
 fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as_it_is() {
     let (rig, runner, _) = Rig::with_pull_request_set("shep", |rig| {
         rig.with_app();
