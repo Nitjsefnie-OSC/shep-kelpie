@@ -12,6 +12,8 @@ d7e61f30a9fd8ca70d9ee68f019c2a9ebf2d13f7  skills/engineering/domain-modeling/ADR
 9c0b4c7a2e8507c23cbb5e0baa66d81699321cc6  skills/engineering/domain-modeling/GLOSSARY-FORMAT.md
 a4438c6879c517d1a08e2b5fbca049b632688dfe  skills/engineering/domain-modeling/SKILL.md
 7f1522d2f11506ee205275ab7c282aa52366ecf6  skills/engineering/domain-modeling/agents/openai.yaml
+62b9efb6f991d1b229adee7506962f13ced0c499  skills/engineering/grill-with-docs/SKILL.md
+5dbe2780a51be3e9b118bd7758a73e54a9384e11  skills/engineering/grill-with-docs/agents/openai.yaml
 edcd514c60e407f795d786162f5f8173a2dde454  skills/engineering/implement/SKILL.md
 f8794dc153b409052a9167baf10858cf01b36175  skills/engineering/implement/agents/openai.yaml
 5314bda2fa6005e264c9b5c1de7c425e719dc91f  skills/engineering/pr/CREDITS.md

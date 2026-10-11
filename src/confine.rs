@@ -235,6 +235,42 @@ mod tests {
     }
 
     #[test]
+    fn a_file_and_a_folder_named_hold_the_writes_to_exactly_those() {
+        let w = world();
+        // The issue writer's: the glossary, and the folder of ADRs
+        let only = [w.root.join("wt/GLOSSARY.md"), w.root.join("wt/docs/adr")];
+        let judge_one = |tool: &str, p: &str| {
+            let call = json!({
+                "cwd": w.root.join("wt"),
+                "tool_name": tool,
+                "tool_input": { "file_path": w.path(p) },
+            });
+            judge(call.to_string().as_bytes(), &only)
+        };
+        for p in [
+            "wt/GLOSSARY.md",
+            "wt/docs/adr/0001-x.md",
+            "wt/docs/adr/a/b.md",
+        ] {
+            for tool in ["Write", "Edit", "MultiEdit"] {
+                assert_eq!(judge_one(tool, p), Verdict::Allow, "{tool} {p}");
+            }
+        }
+        for p in [
+            "wt/src/lib.rs",
+            "wt/GLOSSARY.md.bak",
+            "wt/GLOSSARY-MAP.md",
+            "wt/docs/guide.md",
+            "wt/docs/adr/../guide.md",
+            "wt/docs/adrs/0001.md",
+            "target/x",
+        ] {
+            let verdict = judge_one("Write", p);
+            assert!(matches!(verdict, Verdict::Refuse(_)), "{p}: {verdict:?}");
+        }
+    }
+
+    #[test]
     fn a_write_outside_is_refused_naming_the_folders() {
         let w = world();
         let Verdict::Refuse(why) = w.judge(json!({ "file_path": w.path("home/.zshrc") })) else {

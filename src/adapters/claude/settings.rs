@@ -217,6 +217,31 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
     }))
 }
 
+/// Lets the file tools in an issue writer's `settings` write `paths` and
+/// everything under them, and nothing else
+///
+/// [`settings`] denies the issue writer the file writers outright. Their
+/// deny rules go here, and the `confine` hook that holds them is replaced by
+/// one that names `paths` alone, so a write anywhere else, the worktree
+/// included, is refused before it lands.
+pub(crate) fn write_only(settings: &mut Value, kelpie: &Path, paths: &[PathBuf]) {
+    const WRITERS: [&str; 3] = ["Edit", "Write", "MultiEdit"];
+    if let Some(deny) = settings["permissions"]["deny"].as_array_mut() {
+        deny.retain(|tool| !tool.as_str().is_some_and(|t| WRITERS.contains(&t)));
+    }
+    let confine = [kelpie, Path::new("confine")]
+        .into_iter()
+        .chain(paths.iter().map(PathBuf::as_path))
+        .map(|p| shell_quote(&p.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let pre = &mut settings["hooks"]["PreToolUse"];
+    let mut entries = pre.as_array().cloned().unwrap_or_default();
+    entries.retain(|e| e["matcher"] != FILE_TOOLS);
+    entries.push(entry(Some(FILE_TOOLS), &confine));
+    *pre = entries.into();
+}
+
 // The issue writer's file tools read its checkout, and `also`, and nothing
 // else: every other entry from `/` down is denied, and the secrets named
 // outright, whichever folder its checkout is in. Its commands read no file.

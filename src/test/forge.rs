@@ -412,6 +412,11 @@ impl FakeForge {
         self.labels_down.store(down, Ordering::SeqCst);
     }
 
+    /// The title and body pull request `number` was opened or edited with
+    pub(crate) fn pull_request_text(&self, number: u64) -> Option<(String, String)> {
+        self.texts.lock().unwrap().get(&number).cloned()
+    }
+
     /// Every comment posted, oldest first, with its pull request
     pub(crate) fn comments(&self) -> Vec<(u64, String)> {
         self.comments.lock().unwrap().clone()
