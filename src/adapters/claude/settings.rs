@@ -5,6 +5,7 @@
 //! a hook that runs `kelpie confine` on the file tools, `kelpie guard` on
 //! every command, then any hook the project adds.
 
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -270,6 +271,28 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
         "hooks": hooks,
         "env": env(fence),
     }))
+}
+
+/// Where the prompt that [`compacting`] hands back is kept, beside the call's
+/// `settings` file
+pub(crate) fn prompt_file(settings: &Path) -> PathBuf {
+    settings.with_extension("prompt.md")
+}
+
+/// Has Claude Code compact the session at `window` tokens of context, and
+/// print `prompt_file` into it after it does
+///
+/// A compaction in the middle of a turn summarizes the turn's own prompt, and
+/// early instructions may not survive the summary. Kelpie reads the reply's
+/// `thread <n>: fixed` lines when the turn ends, so the prompt comes back
+/// through a `SessionStart` hook that fires for a compaction alone.
+pub(crate) fn compacting(settings: &mut Value, window: NonZeroU32, prompt_file: &Path) {
+    settings["autoCompactWindow"] = window.get().into();
+    let command = format!("cat {}", shell_quote(&prompt_file.to_string_lossy()));
+    let start = &mut settings["hooks"]["SessionStart"];
+    let mut entries = start.as_array().cloned().unwrap_or_default();
+    entries.push(entry(Some("compact"), &command));
+    *start = entries.into();
 }
 
 /// Lets the file tools in an issue writer's `settings` write `paths` and

@@ -54,6 +54,7 @@ pub(in crate::runner) fn build_call(
         agent_tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
         reach: Reach::default(),
         lease: limit.lease().cloned(),
+        compact_window: None,
     })
 }
 

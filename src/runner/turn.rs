@@ -7,6 +7,7 @@
 //! short before it wrote anything starts over. A turn that ends on a
 //! question block parks the worker on a ruling.
 
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
@@ -370,6 +371,9 @@ impl Runner {
                     .invoke(Step::Implement, &first_prompt(item.issue, &issue))
             }
         };
+        // A `/compact` has nothing to bound, and would hand itself back after.
+        let compact_window =
+            NonZeroU32::new(self.settings.worker.compact_window).filter(|_| prompt != COMPACT);
         Ok(AgentCall {
             role: Role::Worker,
             harness,
@@ -386,6 +390,7 @@ impl Runner {
             agent_tools,
             reach,
             lease: limit.lease().cloned(),
+            compact_window,
         })
     }
 

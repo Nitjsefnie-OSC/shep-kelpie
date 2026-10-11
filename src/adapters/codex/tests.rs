@@ -712,6 +712,7 @@ impl World {
             agent_tools: None,
             reach: Reach::default(),
             lease: None,
+            compact_window: None,
         }
     }
 
