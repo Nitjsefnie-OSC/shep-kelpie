@@ -65,6 +65,7 @@ impl GithubApi for CurlGithub {
         let bearer = Some(token.expose());
         let sent = match write.verb {
             Verb::Post => request(&url, bearer, None, write.body.as_deref())?,
+            Verb::Patch => request(&url, bearer, Some("PATCH"), write.body.as_deref())?,
             Verb::Delete => request(&url, bearer, Some("DELETE"), None)?,
         };
         match sent {

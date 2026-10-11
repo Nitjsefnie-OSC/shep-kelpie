@@ -12,6 +12,7 @@ use super::gate::short;
 use super::report::{Begin, StepReport};
 use super::review::pushed::{off_text, push_prompt};
 use super::rework::HUMAN;
+use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
 use crate::settings::Merging;
@@ -142,6 +143,11 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: u64, answer: Answer) -> Result<(), RuleError> {
+        self.rule_by(id, answer, Settler::Terminal)
+    }
+
+    // Applies an answer, and says whether it was taken, not after the branch moved.
+    pub(super) fn apply(&mut self, id: u64, answer: Answer) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
         let now = self.ports.clock.now();
@@ -232,7 +238,9 @@ impl Runner {
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
                 let issue = item.issue;
-                return self.ask_again(next, issue, ruling.pull_request, change, now);
+                return self
+                    .ask_again(next, issue, ruling.pull_request, change, now)
+                    .map(|()| false);
             }
         }
         let moved = decide(id, answer, ruling, now, head_moved)?;
@@ -325,7 +333,8 @@ impl Runner {
                 }
             }
         }
-        self.save(next).map_err(RuleError::State)
+        self.save(next).map_err(RuleError::State)?;
+        Ok(true)
     }
 
     // The branch moved again while the ruling waited, so the answer was about

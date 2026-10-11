@@ -58,6 +58,19 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     blocks.join("\n\n")
 }
 
+/// A ruling's comment once it is settled, to edit over the one it was posted as
+///
+/// `line` says how it was settled and that nothing waits on the maintainer.
+/// The question stays under it, with the panel's words, and no option, tick,
+/// reaction or reply is offered.
+pub(in crate::runner) fn settled_comment(ruling: &Ruling, line: &str) -> String {
+    let card = Card::of(&ruling.kind);
+    let mut blocks = vec![line.to_owned(), format!("### {}", card.title)];
+    blocks.extend(card.facts.clone());
+    blocks.extend(panel(ruling, &card.choices));
+    blocks.join("\n\n")
+}
+
 /// The answer a 👍 (`up`) or a 👎 gives to a ruling of `kind`, if it takes one
 pub(in crate::runner) fn thumbs(kind: &RulingKind, up: bool) -> Option<Answer> {
     let card = Card::of(kind);

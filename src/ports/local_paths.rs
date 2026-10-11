@@ -320,6 +320,11 @@ impl Voice for GuardedVoice {
         self.voice.post(repo, thread, body)
     }
 
+    fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {
+        self.check("the comment", body)?;
+        self.voice.edit_comment(repo, comment, body)
+    }
+
     fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
         self.voice.thumbs_up(repo, comment)
     }
