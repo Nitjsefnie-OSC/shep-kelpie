@@ -61,7 +61,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use shep_kelpie::confine::{APPEND, Verdict, judge, judge_append};
+use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
 use shep_kelpie::hooks::Hooks;
 use shep_kelpie::tools::Tools;
@@ -85,6 +85,7 @@ fn main() -> ExitCode {
             let (record, local) = guard::record_flag(&local);
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
+            let (after, local) = guard::after_flag(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -103,6 +104,9 @@ fn main() -> ExitCode {
             if let Some(rules) = issues.as_ref().filter(|_| record) {
                 guard::record_issues(&input[..], rules);
                 return ExitCode::SUCCESS;
+            }
+            if after {
+                return hook(guard::judge_after(&input[..], &hooks, Path::new(worktree)));
             }
             if let Some(rules) = issues {
                 return hook(guard::judge_issues_with(
@@ -160,8 +164,13 @@ fn main() -> ExitCode {
             hook(judge_append(std::io::stdin().lock(), Path::new(file)))
         }
         [role, folders @ ..] if role == "confine" && !folders.is_empty() => {
+            // The project's `write` hooks ride on the command line after the folders.
+            let (hooks, folders) = match Hooks::take(folders) {
+                Ok(taken) => taken,
+                Err(why) => return hook(Verdict::Refuse(why)),
+            };
             let folders: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
-            hook(judge(std::io::stdin().lock(), &folders))
+            hook(judge_with(std::io::stdin().lock(), &folders, &hooks))
         }
         [command, sub] if command == "tools" && sub == "install" => install_tools(),
         [command] if command == "totp" => totp(false),

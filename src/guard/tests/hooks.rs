@@ -234,7 +234,8 @@ fn a_hook_missing_from_the_machine_refuses_the_call() {
 }
 
 // The maintainer's git gate, as a `command` hook: it refuses a line that runs `git reset`.
-const NO_GIT_RESET: &str = "grep -q 'git reset' && { echo 'no git reset here' >&2; exit 2; }; exit 0";
+const NO_GIT_RESET: &str =
+    "grep -q 'git reset' && { echo 'no git reset here' >&2; exit 2; }; exit 0";
 
 #[test]
 fn a_command_hook_refuses_a_shell_command_with_its_reason() {

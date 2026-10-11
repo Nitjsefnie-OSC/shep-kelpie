@@ -28,13 +28,13 @@ use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
 use super::process::{Processes, RunError};
 use crate::fence;
-use crate::guard::{FOLDER_FLAG, PIN_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy, Sandbox,
     Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::profile::CREDENTIALS;
-use crate::settings::{AgentHarness, Harness};
+use crate::settings::{AgentHarness, Harness, HookPoint};
 
 #[cfg(test)]
 mod tests;
@@ -513,6 +513,13 @@ fn argv(
     // Codex runs a hook only once it is trusted; kelpie wrote these itself.
     argv.push("--dangerously-bypass-hook-trust".into());
     argv.extend(["-c".into(), config("hooks.PreToolUse", hooks)]);
+    let after = match &call.reach.fence {
+        Some(fence) if call.tools == Tools::Work => after_hooks(fence),
+        _ => None,
+    };
+    if let Some(after) = after {
+        argv.extend(["-c".into(), config("hooks.PostToolUse", after)]);
+    }
     argv.push("--".into());
     if let Some(thread) = resumed {
         argv.push(thread.id.as_str().into());
@@ -558,13 +565,21 @@ fn prompt(call: &AgentCall) -> Result<String, AgentError> {
 fn hooks(fence: &Fence) -> toml::Value {
     let guard = &fence.guard;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
-    let confine = [
+    let mut confine = vec![
         quoted(&guard.kelpie),
         shell_quote("confine"),
         quoted(&guard.worktree),
         quoted(&guard.build),
-    ]
-    .join(" ");
+    ];
+    // The project's `write` hooks, which `confine` runs on each file a patch writes.
+    if let Some(flag) = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::Write))
+    {
+        confine.push(shell_quote(&flag));
+    }
+    let confine = confine.join(" ");
     let commands: Vec<String> = [
         quoted(&guard.kelpie),
         shell_quote("guard"),
@@ -585,6 +600,30 @@ fn hooks(fence: &Fence) -> toml::Value {
         hook_entry("^apply_patch$", confine),
         hook_entry("^Bash$", commands.join(" ")),
     ])
+}
+
+/// The `PostToolUse` hook that runs the project's `after_command` hooks on a
+/// command's result, if the project has any
+///
+/// It is the guard again, without the pin that keeps a command to the folder
+/// the guard judged it in, since the command has already run.
+fn after_hooks(fence: &Fence) -> Option<toml::Value> {
+    let guard = &fence.guard;
+    let flag = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::AfterCommand))?;
+    let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
+    let command = [
+        quoted(&guard.kelpie),
+        shell_quote("guard"),
+        quoted(&guard.git_common_dir),
+        quoted(&guard.worktree),
+        shell_quote(&flag),
+        shell_quote(AFTER_FLAG),
+    ]
+    .join(" ");
+    Some(toml::Value::Array(vec![hook_entry("^Bash$", command)]))
 }
 
 /// The `PreToolUse` hook of a call with no fence, which writes no file

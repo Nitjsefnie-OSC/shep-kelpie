@@ -55,7 +55,12 @@ pub fn judge_after(input: impl Read, hooks: &Hooks, worktree: &Path) -> Verdict 
     };
     let (exit, output) = result(&call.tool_response, call.error.as_deref());
     let details = json!({ "command": line, "cwd": call.cwd, "exit": exit, "output": output });
-    match hooks.check(HookPoint::AfterCommand, Role::Worker, Some(worktree), details) {
+    match hooks.check(
+        HookPoint::AfterCommand,
+        Role::Worker,
+        Some(worktree),
+        details,
+    ) {
         Ok(()) => Verdict::Allow,
         Err(refusal) => Verdict::Refuse(format!("after this command: {refusal}")),
     }
@@ -66,9 +71,8 @@ pub fn judge_after(input: impl Read, hooks: &Hooks, worktree: &Path) -> Verdict 
 // error that names none.
 fn result(response: &Value, error: Option<&str>) -> (Value, String) {
     let number = |keys: &[&str]| keys.iter().find_map(|k| response[k].as_i64());
-    let text = |keys: &[&str]| -> Vec<&str> {
-        keys.iter().filter_map(|k| response[k].as_str()).collect()
-    };
+    let text =
+        |keys: &[&str]| -> Vec<&str> { keys.iter().filter_map(|k| response[k].as_str()).collect() };
     let mut parts = text(&["stdout", "output", "content"]);
     parts.extend(text(&["stderr"]));
     if let Some(whole) = response.as_str() {
@@ -76,10 +80,12 @@ fn result(response: &Value, error: Option<&str>) -> (Value, String) {
     }
     let said = error.map(str::to_owned);
     // Claude Code's failure event says `Exit code N` first, then the output.
-    let (stated, rest) = said.as_deref().map_or((None, None), |e| match exit_code(e) {
-        Some((code, rest)) => (Some(code), Some(rest)),
-        None => (None, Some(e)),
-    });
+    let (stated, rest) = said
+        .as_deref()
+        .map_or((None, None), |e| match exit_code(e) {
+            Some((code, rest)) => (Some(code), Some(rest)),
+            None => (None, Some(e)),
+        });
     parts.extend(rest);
     let exit = number(&["exit_code", "exitCode", "exit", "returncode"])
         .or(stated)

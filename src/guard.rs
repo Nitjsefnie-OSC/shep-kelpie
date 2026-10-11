@@ -262,7 +262,13 @@ pub fn judge_with(
     judging.line(&line, Some(call.cwd.clone()), 0, &mut call_state);
     if call_state.refusals.is_empty() {
         // What kelpie lets through is the project's to judge too, whole.
-        return command_hooks(hooks, Role::Worker, &line, &call.cwd, Some(checkout.worktree));
+        return command_hooks(
+            hooks,
+            Role::Worker,
+            &line,
+            &call.cwd,
+            Some(checkout.worktree),
+        );
     }
     Verdict::Refuse(call_state.refusals.join("\n\n"))
 }

@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::guard::{FOLDER_FLAG, RECORD_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, RECORD_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{Fence, PM_NOTES, Reach, Tools};
-use crate::settings::HookEvent;
+use crate::settings::{HookEvent, HookPoint};
 use crate::trim::trimmed;
 
 /// The tools that write files without going through Bash
@@ -316,10 +316,19 @@ fn env(fence: &Fence) -> Value {
 fn hooks(fence: &Fence) -> Value {
     let guard = &fence.guard;
     let kelpie = guard.kelpie.as_path();
-    let confine = [kelpie, Path::new("confine"), &guard.worktree, &guard.build]
+    let mut confine = [kelpie, Path::new("confine"), &guard.worktree, &guard.build]
         .map(|p| shell_quote(&p.to_string_lossy()))
         .join(" ");
-    let mut pre = vec![entry(Some(FILE_TOOLS), &confine)];
+    // The project's `write` hooks, which `confine` runs on each file a call writes.
+    let writes = guard.hooks.has(HookPoint::Write);
+    if let Some(flag) = guard.hooks.flag().filter(|_| writes) {
+        confine = format!("{confine} {}", shell_quote(&flag));
+    }
+    let mut confined = entry(Some(FILE_TOOLS), &confine);
+    if writes {
+        confined["hooks"][0]["timeout"] = (GUARD_BUDGET.as_secs() + GUARD_MARGIN).into();
+    }
+    let mut pre = vec![confined];
     let commands = [
         kelpie,
         Path::new("guard"),
@@ -356,6 +365,16 @@ fn hooks(fence: &Fence) -> Value {
         let record = format!("{} {RECORD_FLAG}", commands.join(" "));
         post.push(entry(Some("Bash"), &record));
     }
+    // The project's `after_command` hooks, run on a command's result. Claude Code
+    // fires one event for a command that succeeded and another for one that failed.
+    let mut failed = Vec::new();
+    if guard.hooks.has(HookPoint::AfterCommand) && guard.issues.is_none() {
+        let after = format!("{} {AFTER_FLAG}", commands.join(" "));
+        let mut e = entry(Some("Bash"), &after);
+        e["hooks"][0]["timeout"] = (GUARD_BUDGET.as_secs() + GUARD_MARGIN).into();
+        post.push(e.clone());
+        failed.push(e);
+    }
     for hook in &fence.hooks {
         let e = entry(
             hook.matcher.as_ref().map(|m| m.as_str()),
@@ -369,6 +388,9 @@ fn hooks(fence: &Fence) -> Value {
     let mut hooks = json!({ "PreToolUse": pre });
     if !post.is_empty() {
         hooks["PostToolUse"] = post.into();
+    }
+    if !failed.is_empty() {
+        hooks["PostToolUseFailure"] = failed.into();
     }
     hooks
 }
@@ -489,8 +511,29 @@ mod tests {
     // the guard spends on them, and without them it keeps the default.
     #[test]
     fn the_guard_waits_longer_than_it_spends_on_the_projects_hooks() {
-        use crate::settings::{HookPoint, NonBlank, ProjectHook};
-        let reach = |hooks: Hooks| Reach {
+        use crate::settings::HookPoint;
+        let reach = reach_with;
+        let guard_entry = |reach: &Reach| {
+            let pre = settings(Tools::Work, reach)["hooks"]["PreToolUse"].clone();
+            let bash = pre
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["matcher"] == GUARDED_TOOLS);
+            bash.unwrap()["hooks"][0].clone()
+        };
+        let with = guard_entry(&reach(hooks_at(&[HookPoint::Commit])));
+        assert_eq!(with["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
+        assert!(
+            guard_entry(&reach(Hooks::default()))
+                .get("timeout")
+                .is_none()
+        );
+    }
+
+    // A fenced worker's reach with `hooks` as the project's own.
+    fn reach_with(hooks: Hooks) -> Reach {
+        Reach {
             read: Vec::new(),
             fence: Some(Box::new(Fence {
                 write: Vec::new(),
@@ -513,34 +556,69 @@ mod tests {
                 hooks: Vec::new(),
             })),
             ..Reach::default()
-        };
-        let guard_entry = |reach: &Reach| {
-            let pre = settings(Tools::Work, reach)["hooks"]["PreToolUse"].clone();
-            let bash = pre
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|e| e["matcher"] == GUARDED_TOOLS);
-            bash.unwrap()["hooks"][0].clone()
-        };
-        let command = NonBlank::try_from("exit 0".to_owned()).unwrap();
-        let hooks = Hooks::new(
-            "koji",
-            "acme/koji",
-            Path::new("/"),
-            &[ProjectHook {
-                point: HookPoint::Commit,
-                command,
-            }],
-        );
+        }
+    }
 
-        let with = guard_entry(&reach(hooks));
-        assert_eq!(with["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
-        assert!(
-            guard_entry(&reach(Hooks::default()))
-                .get("timeout")
-                .is_none()
-        );
+    fn hooks_at(points: &[crate::settings::HookPoint]) -> Hooks {
+        use crate::settings::{NonBlank, ProjectHook};
+        let list: Vec<ProjectHook> = points
+            .iter()
+            .map(|&point| ProjectHook {
+                point,
+                command: NonBlank::try_from("exit 0".to_owned()).unwrap(),
+            })
+            .collect();
+        Hooks::new("koji", "acme/koji", Path::new("/"), &list)
+    }
+
+    fn commands_of(entries: &Value, matcher: &str) -> Vec<String> {
+        let entries = entries.as_array().cloned().unwrap_or_default();
+        (entries.iter())
+            .filter(|e| e["matcher"] == matcher)
+            .map(|e| e["hooks"][0]["command"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    // Claude Code runs the project's `write` hooks through `confine`, and its
+    // `after_command` ones through a second guard entry on each command's result,
+    // a success and a failure alike, since it fires a different event for each.
+    #[test]
+    fn the_projects_write_and_after_command_hooks_ride_on_confine_and_the_guard() {
+        use crate::settings::HookPoint;
+        let hooks = hooks_at(&[
+            HookPoint::Write,
+            HookPoint::AfterCommand,
+            HookPoint::Command,
+        ]);
+        let flag = shell_quote(&hooks.flag().unwrap());
+
+        let s = settings(Tools::Work, &reach_with(hooks));
+
+        let confine = commands_of(&s["hooks"]["PreToolUse"], FILE_TOOLS);
+        assert_eq!(confine.len(), 1);
+        assert!(confine[0].ends_with(&flag), "{}", confine[0]);
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            let after = commands_of(&s["hooks"][event], "Bash");
+            assert_eq!(after.len(), 1, "{event}");
+            assert!(after[0].contains("guard"), "{event}: {}", after[0]);
+            assert!(after[0].contains(&flag), "{event}: {}", after[0]);
+            assert!(after[0].ends_with(" --after"), "{event}: {}", after[0]);
+            let entry = &s["hooks"][event][0]["hooks"][0];
+            assert_eq!(entry["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
+        }
+        let pre = &s["hooks"]["PreToolUse"][0]["hooks"][0];
+        assert_eq!(pre["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
+    }
+
+    #[test]
+    fn no_write_or_after_command_hook_adds_no_flag_to_confine_and_no_post_entry() {
+        use crate::settings::HookPoint;
+        let s = settings(Tools::Work, &reach_with(hooks_at(&[HookPoint::Commit])));
+
+        let confine = commands_of(&s["hooks"]["PreToolUse"], FILE_TOOLS);
+        assert!(!confine[0].contains("--hooks="), "{}", confine[0]);
+        assert!(s["hooks"].get("PostToolUse").is_none());
+        assert!(s["hooks"].get("PostToolUseFailure").is_none());
     }
 
     #[test]

@@ -28,13 +28,13 @@ use super::paddock;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
-use crate::guard::FOLDER_FLAG;
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
     Sandbox, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 use crate::profile::CREDENTIALS;
-use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
+use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
 #[cfg(test)]
@@ -478,10 +478,30 @@ fn guard_extension(fence: &Fence) -> String {
             .map(|p| format!("{FOLDER_FLAG}{}", p.display())),
     );
     commands.extend(guard.hooks.flag());
+    // The project's `write` hooks ride on `confine`, and its `after_command` ones on
+    // the guard again, run on each command's result.
+    let mut confine = vec![
+        "confine".to_owned(),
+        text(&guard.worktree),
+        text(&guard.build),
+    ];
+    if let Some(flag) = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::Write))
+    {
+        confine.push(flag);
+    }
+    let after = guard.hooks.has(HookPoint::AfterCommand).then(|| {
+        let mut after = commands.clone();
+        after.push(AFTER_FLAG.to_owned());
+        after
+    });
     let checks = json!({
         "kelpie": text(&guard.kelpie),
-        "confine": ["confine", text(&guard.worktree), text(&guard.build)],
+        "confine": confine,
         "guard": commands,
+        "after": after,
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
 }
