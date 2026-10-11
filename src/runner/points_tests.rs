@@ -117,7 +117,10 @@ fn a_ruling_is_told_to_the_ruling_hook_with_its_kind_question_and_choices() {
     assert_eq!(ruling["issue"], 7);
     assert_eq!(ruling["pull_request"], 71);
     assert_eq!(ruling["kind"], "merge");
-    assert_eq!(ruling["choices"], serde_json::json!(["yes", "no", "rework"]));
+    assert_eq!(
+        ruling["choices"],
+        serde_json::json!(["yes", "no", "rework"])
+    );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(ruling["question"], status["rulings"][0]["question"]);
     // Told once, however many passes the ruling waits.
@@ -161,7 +164,11 @@ fn a_ruling_a_restart_finds_is_not_told_again() {
 #[test]
 fn a_notice_that_exits_one_is_logged_with_its_name_and_the_loop_goes_on() {
     let (rig, runner, _) = Rig::parked_set("koji", |rig| {
-        rig.hook("fails.sh", &["ruling"], "echo 'no webhook for you' >&2; exit 1");
+        rig.hook(
+            "fails.sh",
+            &["ruling"],
+            "echo 'no webhook for you' >&2; exit 1",
+        );
     });
 
     let logged = notes(&runner);
@@ -287,6 +294,167 @@ fn the_done_hook_is_told_a_work_item_that_ended_unmerged_too() {
     };
     assert_eq!(done["issue"], 7);
     assert_eq!(done["merged"], false);
+}
+
+#[test]
+fn the_turn_start_hook_is_told_each_prompt_kelpie_sends_a_worker_and_a_reviewer() {
+    let (rig, _runner, _) = parked_recording(&["turn_start"]);
+
+    let told = payloads(&rig, "told");
+
+    let [worker, reviewer] = &told[..] else {
+        panic!("a worker's turn and a reviewer's round: {told:?}");
+    };
+    assert_eq!(worker["point"], "turn_start");
+    assert_eq!(worker["role"], "worker");
+    assert_eq!(worker["recipient"], "worker");
+    assert_eq!(worker["issue"], 7);
+    assert_eq!(worker["phase"], "implement");
+    assert_eq!(worker["session"], "new");
+    assert!(
+        worker["prompt"].as_str().unwrap().contains("issue #7"),
+        "{worker}"
+    );
+    assert_eq!(reviewer["role"], "kelpie");
+    assert_eq!(reviewer["recipient"], "reviewer");
+    assert_eq!(reviewer["issue"], 7);
+    assert_eq!(reviewer["phase"], "review");
+    assert_eq!(reviewer["session"], "new");
+}
+
+#[test]
+fn a_later_turn_is_a_resumed_session_and_its_prompt_is_the_one_sent() {
+    let rig = Rig::new("shep");
+    rig.forbid_word(&["turn_end"], WORD);
+    record(&rig, &["turn_start"], "told");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::PushSay("work.txt", "one\n", "built for Acme"),
+        Scripted::PushSay("work.txt", "two\n", "built for a customer"),
+    ]);
+
+    step(&runner).unwrap(); // refused by turn_end, sent back
+    step(&runner).unwrap();
+
+    let told = payloads(&rig, "told");
+    let [first, second] = &told[..] else {
+        panic!("two turns: {told:?}");
+    };
+    assert_eq!(first["session"], "new");
+    assert_eq!(second["session"], "resumed");
+    assert_eq!(second["prompt"], prompts(&rig)[1].as_str());
+    assert!(second["prompt"].as_str().unwrap().contains("turn_end"));
+}
+
+#[test]
+fn a_prompt_the_turn_start_hook_refuses_is_not_sent_and_parks_on_a_ruling_naming_the_hook() {
+    let rig = Rig::new("shep");
+    rig.hook("gate.sh", &["turn_start"], "echo 'not now' >&2; exit 2");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+
+    let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+        panic!("a refused prompt did not park");
+    };
+
+    assert!(
+        question.contains("the `turn_start` hook `gate.sh` refused: not now"),
+        "{question}"
+    );
+    assert_eq!(phase(&rig, &runner), "ruling");
+    assert!(prompts(&rig).is_empty(), "the worker was sent nothing");
+}
+
+#[test]
+fn a_reviewer_s_prompt_the_turn_start_hook_refuses_is_not_sent() {
+    let rig = Rig::new("shep");
+    rig.hook(
+        "gate.sh",
+        &["turn_start"],
+        "grep -q '\"recipient\":\"reviewer\"' && { echo 'no reviewers today' >&2; exit 2; }; exit 0",
+    );
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Text("CLEAN"),
+    ]);
+
+    step(&runner).unwrap(); // the worker's turn
+    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    let before = prompts(&rig).len();
+    let report = step(&runner).unwrap(); // review round 2, claude: refused
+
+    assert_eq!(prompts(&rig).len(), before, "the reviewer was sent nothing");
+    // A prompt no hook lets through is a call that failed: the round is tried again,
+    // and a reviewer that keeps failing is skipped, as for any failed call.
+    let Some(StepReport::GateFailed { reason, .. }) = report else {
+        panic!("a refused reviewer did not fail its call: {report:?}");
+    };
+    assert!(
+        reason.contains("the `turn_start` hook `gate.sh` refused: no reviewers today"),
+        "{reason}"
+    );
+    assert_eq!(phase(&rig, &runner), "review");
+}
+
+// Issue 7's build turn opened pull request 71 with its session at 200k tokens of
+// context, and round 1 found one thing, so a fix turn is next, behind a `/compact`.
+fn compact_due(rig: &Rig) -> Mutex<Runner> {
+    use crate::ports::{Finding, Severity};
+    use crate::test::ScriptedRound;
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude
+        .script([Scripted::PushAt("work.txt", "work\n", 200_000)]);
+    step(&runner).unwrap(); // the build turn opens the pull request
+    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
+        severity: Severity::Medium,
+        file: "src/lib.rs".into(),
+        line: 3,
+        what: "the flag is misnamed".into(),
+        why: "it reads as its opposite".into(),
+    }])]);
+    step(&runner).unwrap(); // round 1's call
+    step(&runner).unwrap(); // the findings go out
+    runner
+}
+
+#[test]
+fn the_reset_hook_is_told_before_a_worker_is_compacted_and_a_failure_is_logged() {
+    let rig = Rig::new("shep");
+    record(&rig, &["reset"], "told");
+    rig.hook("fails.sh", &["reset"], "exit 1");
+    let runner = compact_due(&rig);
+    rig.claude.script([
+        Scripted::Say("compacted"),
+        Scripted::Push("fixed.txt", "fixed\n"),
+    ]);
+
+    step(&runner).unwrap(); // the `/compact`
+    step(&runner).unwrap(); // the fix turn, behind it
+
+    let told = payloads(&rig, "told");
+    let [reset] = &told[..] else {
+        panic!("one reset: {told:?}");
+    };
+    assert_eq!(reset["point"], "reset");
+    assert_eq!(reset["role"], "worker");
+    assert_eq!(reset["issue"], 7);
+    assert_eq!(reset["recipient"], "worker");
+    assert_eq!(reset["kind"], "compact");
+    assert_eq!(reset["handoff"], serde_json::Value::Null);
+    let logged = notes(&runner);
+    assert!(logged.contains("the `reset` hook `fails.sh`"), "{logged}");
+    assert_eq!(
+        rig.claude.all_seen().len(),
+        3,
+        "the compaction and fix both ran"
+    );
 }
 
 #[test]

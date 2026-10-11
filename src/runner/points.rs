@@ -120,7 +120,13 @@ impl Runner {
         if !self.hooks.has(HookPoint::Ci) {
             return;
         }
-        if self.told_points.ci.insert(issue, head.to_owned()).as_deref() == Some(head) {
+        if self
+            .told_points
+            .ci
+            .insert(issue, head.to_owned())
+            .as_deref()
+            == Some(head)
+        {
             return;
         }
         let details = json!({

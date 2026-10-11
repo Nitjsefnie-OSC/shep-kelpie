@@ -27,6 +27,7 @@ use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport
 use super::retro;
 use super::review::run_review_call;
 use super::trigger::lock;
+use super::turn_hooks::TurnHooks;
 use crate::ports::{AgentCall, AgentError, AgentReply, Ending, RoundStage, Timestamp, Wait};
 use crate::settings::Harness;
 use crate::state::StateError;
@@ -366,7 +367,12 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = Arc::clone(&self.ports.agents);
+        let agents = TurnHooks::around(
+            Arc::clone(&self.ports.agents),
+            &self.hooks,
+            &self.notes,
+            None,
+        );
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
@@ -515,10 +521,14 @@ impl Runner {
             Launch::Review(ReviewCall::Local { .. }) => {}
         }
         let ledger = self.flights.ledger.clone();
-        let (agents, reviewer) = (
+        let item = self.state.work_items.iter().find(|i| i.issue == issue);
+        let agents = TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            Arc::clone(&self.ports.reviewer),
+            &self.hooks,
+            &self.notes,
+            item,
         );
+        let reviewer = Arc::clone(&self.ports.reviewer);
         let held = ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let run = move || {
