@@ -201,6 +201,40 @@ mod tests {
     }
 
     #[test]
+    fn a_changed_rulings_table_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!(
+                "{s}\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone = [\"still-red\"]\n"
+            )
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: rulings now in effect")
+        );
+        assert_eq!(
+            runner.settings().rulings.decide,
+            crate::settings::Decide::Panel
+        );
+    }
+
+    #[test]
+    fn a_merge_kind_added_to_pm_alone_is_refused_and_the_settings_kept() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(next, rig.kelpie_settings()).unwrap_err();
+        assert!(err.to_string().contains("rulings.pm_alone"), "{err}");
+        assert!(runner.settings().rulings.pm_alone.is_empty());
+    }
+
+    #[test]
     fn the_same_settings_change_nothing() {
         let rig = Rig::new("shep");
         let runner = rig.open().unwrap();
