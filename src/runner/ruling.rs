@@ -470,6 +470,7 @@ pub(super) fn park(
         pull_request,
         kind,
         alerted: false,
+        panel: None,
     });
     (id, text)
 }

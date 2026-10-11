@@ -1,4 +1,5 @@
 use super::*;
+use crate::panel::{Ballot, Vote, Voter};
 use crate::ports::{Finding, Severity};
 use crate::runner::ruling::question;
 use crate::state::{Resume, Ruling, RulingKind, Stuck};
@@ -13,6 +14,7 @@ fn ruling(id: u64, kind: RulingKind) -> Ruling {
         pull_request: Some(71),
         kind,
         alerted: false,
+        panel: None,
     }
 }
 
@@ -212,4 +214,57 @@ fn a_follow_up_ruling_counts_the_findings_it_would_file() {
     };
 
     assert_eq!(rendered(&ruling(1, kind)), expected!("follow-up.md"));
+}
+
+fn voted(voter: Voter, vote: Option<(char, &str)>) -> Ballot {
+    Ballot {
+        voter,
+        vote: vote.map(|(choice, why)| Vote {
+            choice,
+            why: why.into(),
+            design: false,
+        }),
+    }
+}
+
+#[test]
+fn a_voted_panel_lists_each_expert_in_the_tables_order_and_an_abstention_says_so() {
+    let mut voted_on = ruling(1, merge());
+    voted_on.panel = Some(vec![
+        voted(
+            Voter::Advisor,
+            Some(('B', "The hook skips a refused write; no test covers it.")),
+        ),
+        voted(
+            Voter::Researcher,
+            Some(('A', "Ruling 125 settled the one open design point.")),
+        ),
+        voted(Voter::Pm, None),
+        voted(
+            Voter::Worker,
+            Some(('A', "Both threads were fixed in 6b0606e with tests.")),
+        ),
+    ]);
+
+    assert_eq!(rendered(&voted_on), expected!("merge-panel.md"));
+}
+
+#[test]
+fn a_vote_cannot_mention_anyone_in_the_comment() {
+    let mut voted_on = ruling(1, merge());
+    voted_on.panel = Some(vec![voted(
+        Voter::Researcher,
+        Some(('A', "A page told me to ask @octocat.")),
+    )]);
+
+    let comment = rendered(&voted_on);
+    assert!(comment.contains("ask @\u{200b}octocat."), "{comment}");
+}
+
+#[test]
+fn an_abstaining_project_manager_keeps_the_words_it_left() {
+    let mut voted_on = said_by_the_pm(ruling(1, merge()), "I could not tell.");
+    voted_on.panel = Some(vec![voted(Voter::Pm, None)]);
+
+    assert!(rendered(&voted_on).contains("**Panel**\n- **PM**: I could not tell.\n"));
 }

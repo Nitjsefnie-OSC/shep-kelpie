@@ -6,14 +6,16 @@
 //! against ([`thumbs`] and [`ticked`]), so what the comment offers and what
 //! kelpie accepts cannot drift apart.
 //!
-//! No panel votes yet: its list holds the project manager's words where it
-//! gave any, and there is no recommendation.
+//! The panel's list holds each expert's vote once the panel has voted. A
+//! ruling the panel has not voted on holds the project manager's words where
+//! it gave any. There is no recommendation until the panel decides (#466).
 
 use super::super::Answer;
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
 use super::merge_notes;
+use crate::panel::Voter;
 use crate::state::{Ruling, RulingKind, Stuck};
 
 /// What the project manager's `no` is in a table, when it has no more to say
@@ -56,6 +58,17 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
         None => unmentioned(ruling.id, &ruling.kind, &card.choices),
     });
     blocks.join("\n\n")
+}
+
+/// What an expert on the panel is shown of `ruling`: its title, what
+/// happened and the table of its options, as the comment opens, and how
+/// many options there are
+pub(in crate::runner) fn brief(ruling: &Ruling) -> (String, usize) {
+    let card = Card::of(&ruling.kind);
+    let mut blocks = vec![format!("### {}", card.title)];
+    blocks.extend(card.facts.clone());
+    blocks.push(table(&card.choices, &ruling.kind));
+    (blocks.join("\n\n"), card.choices.len())
 }
 
 /// The answer a 👍 (`up`) or a 👎 gives to a ruling of `kind`, if it takes one
@@ -303,8 +316,43 @@ const RECOMMENDS: &str = "PM recommends:";
 /// put to the maintainer
 const SAYS: &str = "PM says:";
 
-// The panel's list: for now the project manager's words, where it gave any
+// The panel's list: each expert's line once the panel has voted, in the
+// order the table lists them; before, and in a ruling raised before the
+// panel, the project manager's words where it gave any
 fn panel(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
+    let Some(ballots) = ruling.panel.as_ref().filter(|b| !b.is_empty()) else {
+        return pm_words(ruling, choices);
+    };
+    let lines: Vec<String> = Voter::ALL
+        .into_iter()
+        .filter_map(|voter| {
+            let ballot = ballots.iter().find(|b| b.voter == voter)?;
+            let name = voter.name();
+            Some(match &ballot.vote {
+                Some(vote) => format!(
+                    "- **{name}** ({}): {}",
+                    vote.choice,
+                    mentions_off(&vote.why)
+                ),
+                // An abstaining project manager may still have left its words.
+                None if voter == Voter::Pm => pm_words(ruling, choices)
+                    .and_then(|words| words.lines().nth(1).map(str::to_owned))
+                    .unwrap_or_else(|| format!("- **{name}**: abstained")),
+                None => format!("- **{name}**: abstained"),
+            })
+        })
+        .collect();
+    Some(format!("**Panel**\n{}", lines.join("\n")))
+}
+
+// `text` with its `@` followed by a zero-width space, so a vote a page steered
+// cannot mention anyone in a comment kelpie posts
+fn mentions_off(text: &str) -> String {
+    text.replace('@', "@\u{200b}")
+}
+
+// The project manager's words alone, where it gave any
+fn pm_words(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
     let says = after_last(&ruling.question, SAYS);
     let picked = after_last(&ruling.question, RECOMMENDS).and_then(|pick| {
         let plain = |text: &str| text.trim().trim_matches('`').to_lowercase();

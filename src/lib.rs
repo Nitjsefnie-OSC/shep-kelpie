@@ -28,6 +28,7 @@ pub mod issues;
 pub mod lease;
 pub mod local_paths;
 pub mod pacer;
+pub mod panel;
 pub mod ports;
 pub mod profile;
 pub mod review_bot;
