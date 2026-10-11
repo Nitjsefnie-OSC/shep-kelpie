@@ -249,6 +249,7 @@ impl Runner {
             kind,
             alerted: false,
             panel: None,
+            unposted: false,
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {

@@ -405,6 +405,7 @@ impl Runner {
         if self.pm_holds_comment(id) {
             return None;
         }
+        self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
@@ -483,6 +484,7 @@ pub(super) fn park(
         kind,
         alerted: false,
         panel: None,
+        unposted: false,
     });
     (id, text)
 }

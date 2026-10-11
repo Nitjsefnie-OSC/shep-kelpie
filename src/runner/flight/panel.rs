@@ -9,6 +9,7 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
 use super::super::Runner;
@@ -27,22 +28,39 @@ use crate::usage::{CallKind, Draft, Spent, ended};
 pub(in crate::runner) struct Panelling {
     id: u64,
     options: usize,
-    deadline: Timestamp,
-    endings: Vec<Ending>,
+    calls: Vec<Called>,
     drafts: Vec<(Voter, Draft)>,
 }
 
+// One expert's call, and when it is due to be ended: its ceiling counts from
+// when it has the lease it waited for, as a worker's turn does, so a call
+// queued on a lease is not ended before its model has run.
+#[derive(Debug)]
+struct Called {
+    ending: Ending,
+    due: Arc<AtomicU64>,
+}
+
+impl Called {
+    fn due(&self) -> Timestamp {
+        Timestamp(self.due.load(Ordering::SeqCst))
+    }
+}
+
 impl Panelling {
-    // Ends every call once past the ceiling.
+    // Ends each call that is past its ceiling.
     pub(super) fn end_overdue(&self, now: Timestamp) {
-        if self.deadline <= now {
-            self.endings.iter().for_each(Ending::end);
-        }
+        (self.calls.iter())
+            .filter(|call| call.due() <= now)
+            .for_each(|call| call.ending.end());
     }
 
-    // When its calls are due to be ended, while they have not been.
+    // When its calls are due to be ended: the soonest of those not ended.
     pub(super) fn ceiling(&self) -> Option<Timestamp> {
-        (self.endings.iter().any(|e| !e.asked())).then_some(self.deadline)
+        (self.calls.iter())
+            .filter(|call| !call.ending.asked())
+            .map(Called::due)
+            .min()
     }
 }
 
@@ -55,7 +73,7 @@ impl Runner {
     /// Ends every call of the experts in flight; their end comes back as news
     pub(in crate::runner) fn panel_end_flight(&self) {
         if let Some(panel) = &self.flights.panel {
-            panel.endings.iter().for_each(Ending::end);
+            panel.calls.iter().for_each(|call| call.ending.end());
         }
     }
 
@@ -159,17 +177,36 @@ impl Runner {
     fn launch_panel(&mut self, id: u64, options: usize, calls: Vec<(Voter, AgentCall, String)>) {
         let now = self.ports.clock.now();
         let mut drafts = Vec::new();
-        let mut endings = Vec::new();
+        let mut called = Vec::new();
         let mut running = Vec::new();
+        let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         for (voter, call, agent) in calls {
             let draft = self.with_pull_request(Draft::of(&call, &agent, CallKind::Vote, now));
             self.call_started(&call, &agent);
             drafts.push((voter, draft));
-            let ending = Ending::default();
-            endings.push(ending.clone());
+            // Its ceiling starts again once the lease it waited for is its.
+            let due = Arc::new(AtomicU64::new(now.0.saturating_add(CEILING)));
+            let began = {
+                let (due, clock, wake) = (
+                    Arc::clone(&due),
+                    Arc::clone(&self.ports.clock),
+                    wake.clone(),
+                );
+                move || {
+                    due.store(clock.now().0.saturating_add(CEILING), Ordering::SeqCst);
+                    if let Some(wake) = &wake {
+                        let _ = wake.send(());
+                    }
+                }
+            };
+            let ending = Ending::telling(began, |_| {});
+            called.push(Called {
+                ending: ending.clone(),
+                due,
+            });
             running.push((voter, call, ending));
         }
-        let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
+        let calls = called;
         let agents = TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
@@ -220,8 +257,7 @@ impl Runner {
         self.flights.panel = Some(Panelling {
             id,
             options,
-            deadline: Timestamp(now.0.saturating_add(CEILING)),
-            endings,
+            calls,
             drafts,
         });
     }

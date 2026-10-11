@@ -365,8 +365,28 @@ impl Runner {
         let held = self.ruling_held(id);
         if held {
             self.pm.unposted.insert(id);
+            self.mark_unposted(id, true);
         }
         held
+    }
+
+    /// Keeps on ruling `id` whether its comment is still to be posted, so a
+    /// runner that restarts mid-hold posts it
+    pub(super) fn mark_unposted(&mut self, id: u64, unposted: bool) {
+        let differs = (self.state.rulings.iter().find(|r| r.id == id))
+            .is_some_and(|r| r.unposted != unposted);
+        if !differs {
+            return;
+        }
+        let mut next = self.state.clone();
+        if let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) {
+            ruling.unposted = unposted;
+        }
+        if let Err(e) = self.save(next) {
+            self.notes.push(format!(
+                "cannot save whether ruling {id}'s comment is posted: {e}"
+            ));
+        }
     }
 
     /// Posts the comment of each held ruling whose hold has ended and which
@@ -374,6 +394,12 @@ impl Runner {
     pub(super) fn post_released(&mut self) {
         // A ruling the project manager's hold has let go of may be the panel's now.
         self.panel_pass();
+        // A ruling held when the runner last stopped is still to be posted.
+        let kept: Vec<u64> = (self.state.rulings.iter())
+            .filter(|r| r.unposted)
+            .map(|r| r.id)
+            .collect();
+        self.pm.unposted.extend(kept);
         let released: Vec<u64> = (self.pm.unposted.iter().copied())
             .filter(|&id| !self.ruling_held(id))
             .collect();

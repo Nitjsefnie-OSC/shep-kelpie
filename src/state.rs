@@ -315,6 +315,11 @@ pub struct Ruling {
     /// while it has not, and in a file from before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub panel: Option<Vec<Ballot>>,
+    /// Whether its comment on its thread is held back, for the panel's votes
+    /// or the project manager's answer, and so is still to be posted. Kept so
+    /// a runner that restarts posts it once the hold ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unposted: bool,
 }
 
 /// Where a ruling is answered in its thread: the one login whose reply

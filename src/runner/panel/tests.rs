@@ -364,6 +364,25 @@ fn a_panel_the_settings_dropped_no_longer_holds_its_ruling() {
 }
 
 #[test]
+fn a_runner_restarted_while_a_ruling_is_held_posts_its_comment_once_the_panel_has_voted() {
+    let (rig, runner) = parked("mew", false);
+    assert_eq!(
+        ruling_comment(&rig),
+        None,
+        "the comment waits for the panel"
+    );
+    assert_eq!(state_of(&rig)["rulings"][0]["unposted"], true);
+    drop(runner);
+    script_all(&rig, false);
+
+    let runner = rig.open().unwrap();
+    let comment = settle(&rig, &runner);
+
+    assert!(comment.contains("**Panel**"), "{comment}");
+    assert_eq!(state_of(&rig)["rulings"][0].get("unposted"), None);
+}
+
+#[test]
 fn a_ruling_whose_work_item_is_dropped_while_the_panel_votes_is_never_posted() {
     let (rig, runner) = parked("snorlax", false);
     script_all(&rig, false);

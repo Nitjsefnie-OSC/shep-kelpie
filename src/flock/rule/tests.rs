@@ -14,6 +14,7 @@ fn yes_or_no(id: u64) -> Ruling {
         kind: RulingKind::from(Stuck::Closed),
         alerted: true,
         panel: None,
+        unposted: false,
     }
 }
 
