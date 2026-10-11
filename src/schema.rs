@@ -157,6 +157,10 @@ mod tests {
                 "# allowed_domains = [\"docs.rs\"]",
                 "allowed_domains = [\"docs.rs\"]",
             )
+            .replace(
+                "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
+                "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
+            )
             .replace("# issue_writer =", "issue_writer =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =");
