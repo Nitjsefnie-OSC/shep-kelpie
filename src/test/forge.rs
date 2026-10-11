@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
-    Checks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    Checks, CommentMarks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue,
+    PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -727,6 +727,11 @@ impl Forge for FakeForge {
     fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.ask()?;
         Ok(self.threads.may_write(login))
+    }
+
+    fn comment_marks(&self, _repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.marks_of(comment))
     }
 
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {

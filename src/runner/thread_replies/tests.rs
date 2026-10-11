@@ -5,6 +5,8 @@ use crate::runner::{BOARD_POLL, CHECKS_SETTLE, Runner, step};
 use crate::state::{Heard, Ruling, RulingKind, Stuck};
 use crate::test::{Rig, Scripted, VIEWER};
 
+mod marks;
+
 const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
 
 // A merge ruling for pull request 71 is up through the App, which mentions
@@ -476,6 +478,7 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
             mentions: "octocat".into(),
             time: rig.clock.now(),
             comment: 0,
+            ruling_comment: 0,
         },
     );
     runner.save(next).unwrap();

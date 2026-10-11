@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{ForgeError, ThreadComment, Timestamp};
+use crate::ports::{CommentMarks, ForgeError, ThreadComment, Thumb, Timestamp};
 use crate::settings::ForgeSlug;
 
 // One page is as many comments as GitHub gives.
@@ -32,6 +32,91 @@ pub(super) fn can_write(repo: &ForgeSlug, login: &str) -> Result<bool, ForgeErro
         Err(ForgeError::Failed(why)) if why.contains("HTTP 404") => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+// A comment's author and words, its reactions and who made each of its edits.
+// Edits are only on GraphQL, and GraphQL finds a comment by its node id.
+const MARKS: &str = "query($id: ID!) { node(id: $id) { ... on IssueComment { \
+    author { login } body \
+    reactions(first: 100) { nodes { content user { login } } } \
+    userContentEdits(first: 100) { nodes { editor { login } } } } } }";
+
+pub(super) fn comment_marks(repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+    let path = format!("repos/{}/issues/comments/{comment}", repo.as_str());
+    let node = parse_node_id(&gh(&["api", &path])?)?;
+    let query = format!("query={MARKS}");
+    let marks = gh(&["api", "graphql", "-f", &query, "-f", &format!("id={node}")])?;
+    parse_marks(&marks)
+}
+
+fn parse_node_id(stdout: &[u8]) -> Result<String, ForgeError> {
+    #[derive(Deserialize)]
+    struct Comment {
+        node_id: String,
+    }
+    let comment: Comment = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    Ok(comment.node_id)
+}
+
+// GraphQL's answer to [`MARKS`]. A deleted account is a ghost, which is no
+// one's login. Reactions other than thumbs are left out.
+fn parse_marks(stdout: &[u8]) -> Result<CommentMarks, ForgeError> {
+    #[derive(Deserialize)]
+    struct Reply {
+        data: Data,
+    }
+    #[derive(Deserialize)]
+    struct Data {
+        node: Option<Comment>,
+    }
+    #[derive(Deserialize)]
+    struct Comment {
+        author: Option<Login>,
+        body: String,
+        reactions: Nodes<Reaction>,
+        #[serde(rename = "userContentEdits")]
+        edits: Nodes<Edit>,
+    }
+    #[derive(Deserialize)]
+    struct Nodes<T> {
+        nodes: Option<Vec<T>>,
+    }
+    #[derive(Deserialize)]
+    struct Reaction {
+        content: String,
+        user: Option<Login>,
+    }
+    #[derive(Deserialize)]
+    struct Edit {
+        editor: Option<Login>,
+    }
+    #[derive(Deserialize)]
+    struct Login {
+        login: String,
+    }
+    let ghost = || "ghost".to_owned();
+    let reply: Reply = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    let comment = reply.data.node.ok_or_else(|| unreadable(stdout))?;
+    let thumbs = (comment.reactions.nodes.into_iter().flatten())
+        .filter_map(|reaction| {
+            let up = match reaction.content.as_str() {
+                "THUMBS_UP" => true,
+                "THUMBS_DOWN" => false,
+                _ => return None,
+            };
+            let login = reaction.user.map_or_else(ghost, |user| user.login);
+            Some(Thumb { login, up })
+        })
+        .collect();
+    let editors = (comment.edits.nodes.into_iter().flatten())
+        .map(|edit| edit.editor.map_or_else(ghost, |editor| editor.login))
+        .collect();
+    Ok(CommentMarks {
+        author: comment.author.map_or_else(ghost, |author| author.login),
+        body: comment.body,
+        thumbs,
+        editors,
+    })
 }
 
 // The pages `gh api --paginate --slurp` gathers, each GitHub's list of issue comments.
@@ -153,6 +238,71 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    // GraphQL's documented answer to `MARKS` for a ruling's comment the
+    // maintainer ticked a box in and gave a thumbs up, with a laugh from
+    // someone else and one reaction by a deleted account. Documented, not
+    // recorded, for the reason `PAGES` is.
+    const MARKED: &str = r#"{"data":{"node":{
+      "author":{"login":"kelpie-o"},
+      "body":"- [x] A",
+      "reactions":{"nodes":[
+        {"content":"THUMBS_UP","user":{"login":"octocat"}},
+        {"content":"LAUGH","user":{"login":"stranger"}},
+        {"content":"THUMBS_DOWN","user":null}]},
+      "userContentEdits":{"nodes":[{"editor":{"login":"octocat"}}]}}}}"#;
+
+    #[test]
+    fn a_comments_thumbs_and_editors_are_read_and_other_reactions_left_out() {
+        let marks = parse_marks(MARKED.as_bytes()).unwrap();
+
+        assert_eq!(
+            marks,
+            CommentMarks {
+                author: "kelpie-o".into(),
+                body: "- [x] A".into(),
+                thumbs: vec![
+                    Thumb {
+                        login: "octocat".into(),
+                        up: true
+                    },
+                    Thumb {
+                        login: "ghost".into(),
+                        up: false
+                    },
+                ],
+                editors: vec!["octocat".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_comment_never_edited_has_no_editors() {
+        let text = r#"{"data":{"node":{"author":null,"body":"","reactions":{"nodes":[]},
+                        "userContentEdits":{"nodes":null}}}}"#;
+
+        let marks = parse_marks(text.as_bytes()).unwrap();
+
+        assert_eq!(marks.editors, Vec::<String>::new());
+        assert_eq!(marks.author, "ghost");
+    }
+
+    #[test]
+    fn a_comment_the_forge_no_longer_has_is_unreadable() {
+        for text in [r#"{"data":{"node":null}}"#, "{}", ""] {
+            assert!(
+                matches!(parse_marks(text.as_bytes()), Err(ForgeError::Unreadable(_))),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_comments_node_id_is_read() {
+        let text = r#"{"id": 7, "node_id": "IC_kwDOA", "body": "x"}"#;
+
+        assert_eq!(parse_node_id(text.as_bytes()).as_deref(), Ok("IC_kwDOA"));
     }
 
     #[test]

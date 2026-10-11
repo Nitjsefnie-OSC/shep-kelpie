@@ -67,6 +67,7 @@ impl Runner {
             mentions,
             time: posted.created,
             comment: posted.id,
+            ruling_comment: posted.id,
         });
         let told = unasked.map(|why| {
             // Said in the log once a run, and only for a ruling that went up.
@@ -331,6 +332,8 @@ pub(super) fn said(kind: &RulingKind) -> String {
 }
 
 mod card;
+
+pub(super) use self::card::{thumbs, ticked};
 
 #[cfg(test)]
 mod tests;

@@ -47,7 +47,7 @@ pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
-pub use thread::{PostedComment, ThreadComment};
+pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
 
 /// Seconds since the Unix epoch
@@ -185,6 +185,14 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError>;
+
+    /// The thumbs on comment `comment` of `repo`, what it says now, and who
+    /// edited it
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError>;
 
     /// Posts `body` as a comment on issue or pull request `number`, as the
     /// account kelpie acts as, and returns its id

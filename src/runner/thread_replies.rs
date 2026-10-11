@@ -18,6 +18,13 @@
 //! reply it took as the answer, and replies once to one it could not read,
 //! saying what to type; the ruling stays open.
 //!
+//! A ruling's own comment is read too, for a reaction or a ticked box (see
+//! [`marked`]). A 👍 or 👎 from the login the ruling mentions answers a yes or
+//! a no; a merge ruling's and a question's options are task-list boxes, and a
+//! tick counts only when every edit of the comment was by that login or by the
+//! App that wrote it, which GraphQL's `userContentEdits` says. The answer is
+//! applied as a reply's is, and the board's events tell the project manager.
+//!
 //! An answer given here and one given at the terminal or on ntfy: the first
 //! wins. A ruling answered elsewhere is watched for a while longer, so a
 //! reply here that names it is told it is already answered.
@@ -29,13 +36,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use super::Runner;
 use super::looks::BOARD_POLL;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
-use crate::ports::{Forge, ThreadComment, Timestamp};
+use super::{Answer, Runner, voice};
+use crate::ports::{CommentMarks, Forge, ThreadComment, Timestamp};
 use crate::settings::ForgeSlug;
-use crate::state::{Heard, ProjectState, Ruling, StateError};
+use crate::state::{Heard, ProjectState, Ruling, RulingKind, StateError};
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
 /// came before the answer is told it is settled
@@ -48,6 +55,7 @@ const SLACK: u64 = 5 * 60;
 /// A ruling's thread being watched for an answer
 #[derive(Debug, Clone)]
 struct Watch {
+    ruling: u64,
     thread: u64,
     heard: Heard,
     /// Until when it is watched after it was answered, once it was
@@ -67,6 +75,12 @@ pub(super) struct Reading {
     judged: BTreeMap<u64, Timestamp>,
     /// Why the last read failed, told once while it keeps failing
     failed: Option<String>,
+    /// Why the last read of a ruling's comment for reactions and ticks
+    /// failed, told once while it keeps failing
+    marks_failed: Option<String>,
+    /// Why a ruling's reaction or tick was refused, told once each, since
+    /// it stays on the comment and is read again at every poll
+    refused: BTreeMap<u64, String>,
 }
 
 /// What a comment on a watched thread is a reply to
@@ -102,6 +116,8 @@ pub(super) struct ThreadRead {
     /// The comment whose author's access could not be read, and why, where
     /// the read ended
     stopped: Option<(u64, String)>,
+    /// What was done to each pending ruling's own comment
+    marks: BTreeMap<u64, Result<CommentMarks, String>>,
 }
 
 /// Reads the rulings' threads for answers, if a read is due, asking the
@@ -144,11 +160,23 @@ impl ThreadJob {
                 }
             }
         }
+        // A reaction or a tick on the ruling's own comment is read from the
+        // comment itself, whatever was written in the thread since.
+        let marks = (self.watches.iter())
+            .filter(|w| w.settled.is_none() && w.heard.ruling_comment != 0)
+            .map(|w| (w.ruling, w.heard.ruling_comment))
+            .map(|(ruling, comment)| {
+                let marks = (self.forge.comment_marks(&self.repo, comment))
+                    .map_err(|e| format!("cannot read the reactions on comment {comment}: {e}"));
+                (ruling, marks)
+            })
+            .collect();
         Ok(ThreadRead {
             now,
             comments,
             writers,
             stopped,
+            marks,
         })
     }
 }
@@ -235,7 +263,49 @@ impl Runner {
         let floor = Timestamp(read.now.0.saturating_sub(SLACK));
         self.threads.floor = Some(floor);
         self.threads.judged.retain(|_, created| *created >= floor);
+        self.apply_marks(read.marks);
         Ok(())
+    }
+
+    // Answers each ruling its comment's reaction or ticked box answers, when
+    // the maintainer it mentions gave it. Their reaction stays on the comment
+    // and is read at every poll, so a refusal is told once.
+    fn apply_marks(&mut self, marks: BTreeMap<u64, Result<CommentMarks, String>>) {
+        let mut failed = None;
+        for (id, marks) in marks {
+            let marks = match marks {
+                Ok(marks) => marks,
+                Err(why) => {
+                    failed = Some(why);
+                    continue;
+                }
+            };
+            let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
+                continue;
+            };
+            let Some(watch) = self.threads.watching.get(&id) else {
+                continue;
+            };
+            let Some(answer) = marked(&ruling.kind, &watch.heard.mentions, &marks) else {
+                continue;
+            };
+            match self.rule(id, answer) {
+                Ok(()) => {
+                    self.threads.refused.remove(&id);
+                }
+                Err(e) => {
+                    let why =
+                        format!("cannot answer ruling {id} from the reaction on its comment: {e}");
+                    if self.threads.refused.insert(id, why.clone()).as_deref() != Some(&why) {
+                        self.notes.push(why);
+                    }
+                }
+            }
+        }
+        if self.threads.marks_failed != failed {
+            self.notes.extend(failed.clone());
+            self.threads.marks_failed = failed;
+        }
     }
 
     // Watches each pending ruling's thread, and a ruling that was answered
@@ -419,6 +489,42 @@ fn aims_at(watch: &Watch, comment: &ThreadComment) -> bool {
         && watch.heard.is_mentioned(&comment.author)
 }
 
+// The answer a ruling's comment gives of itself: the thumbs the login it
+// mentions left, else a box ticked in it. A thumbs up with a thumbs down
+// answers nothing. A tick counts only when every edit of the comment was made
+// by that login or by the App that wrote it, since anyone with write access
+// can edit a comment, and the forge does not say which edit ticked the box.
+fn marked(kind: &RulingKind, maintainer: &str, marks: &CommentMarks) -> Option<Answer> {
+    let thumbs = |up: bool| {
+        (marks.thumbs.iter())
+            .any(|thumb| thumb.up == up && thumb.login.eq_ignore_ascii_case(maintainer))
+    };
+    match (thumbs(true), thumbs(false)) {
+        (true, true) => return None,
+        (true, false) => {
+            if let Some(answer) = voice::thumbs(kind, true) {
+                return Some(answer);
+            }
+        }
+        (false, true) => {
+            if let Some(answer) = voice::thumbs(kind, false) {
+                return Some(answer);
+            }
+        }
+        (false, false) => {}
+    }
+    let own = |login: &str| plain_login(login) == plain_login(&marks.author);
+    let theirs = |login: &String| login.eq_ignore_ascii_case(maintainer) || own(login);
+    let edited = !marks.editors.is_empty() && marks.editors.iter().all(theirs);
+    edited.then(|| voice::ticked(kind, &marks.body)).flatten()
+}
+
+// GraphQL names an App's login without the `[bot]` REST adds.
+fn plain_login(login: &str) -> String {
+    let login = login.strip_suffix("[bot]").unwrap_or(login);
+    login.to_ascii_lowercase()
+}
+
 // What a reply to a ruling that wants `wants` starts with.
 fn forms(wants: Wants, id: u64) -> String {
     match wants {
@@ -438,6 +544,7 @@ fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(u64, Watch)> {
     Some((
         ruling.id,
         Watch {
+            ruling: ruling.id,
             thread,
             heard,
             settled,
