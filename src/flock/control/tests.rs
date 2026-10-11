@@ -362,6 +362,48 @@ async fn status_marks_a_draining_runner() {
 }
 
 #[tokio::test]
+async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() {
+    let mut shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.replies("koji", &[None]);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    let lines = told.expect("a note that arrived is no error to retry");
+    let [line] = lines.as_slice() else {
+        panic!("{lines:?}")
+    };
+    assert!(line.contains("did not answer in time"), "{line}");
+    assert!(line.contains("the note may have arrived"), "{line}");
+    assert!(line.contains("do not tell it again"), "{line}");
+    assert!(line.contains("`shep bleats koji`"), "{line}");
+    assert_eq!(asked(&shepherd.writes()), ["tell"]);
+}
+
+#[tokio::test]
+async fn a_tell_the_runner_answered_says_it_was_told() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    assert_eq!(
+        told,
+        Ok(vec![
+            "told koji's project manager, which reads it on its next wake".to_owned()
+        ])
+    );
+}
+
+#[tokio::test]
+async fn a_runner_that_refuses_a_tell_is_its_error() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[r#"{"error":"koji has no project manager"}"#]);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    assert_eq!(told, Err("koji has no project manager".into()));
+}
+
+#[tokio::test]
 async fn a_runner_still_taking_its_actions_is_starting() {
     let shepherd = FakeShepherd::new().await;
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
