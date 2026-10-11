@@ -58,7 +58,8 @@ pub(super) fn told(refusal: &ForgeError) -> String {
         ForgeError::LocalPath { leak, .. } => {
             let found = match leak {
                 Leak::Lan => "address",
-                Leak::Path | Leak::Tilde => "path",
+                Leak::Path => "path",
+                Leak::Private => "repo name",
             };
             format!("{refusal}. Rewrite the file without the {found} it names")
         }
