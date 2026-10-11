@@ -25,7 +25,7 @@ Gates on an agent's tool call, run by `kelpie guard` and `kelpie confine`:
 
 - **`command`**: before any shell command an agent runs, the worker's and the issue writer's. This is Claude Code's and Codex's `PreToolUse` on a shell command, and the point a check on every command, such as a git gate, belongs at.
 - **`write`**: before a file write or edit. It is `PreToolUse` on a file edit (`apply_patch` in Codex), run by `kelpie confine` after it has held the write to the worker's folders, once for each file the call writes.
-- **`after_command`**: after a shell command has run, failed or not. It is `PostToolUse` and `PostToolUseFailure`. It cannot undo the command, so a refusal reaches the agent as feedback on the result.
+- **`after_command`**: after a shell command has run, failed or not, the worker's and the issue writer's. It is `PostToolUse` and `PostToolUseFailure`. It cannot undo the command, so a refusal reaches the agent as feedback on the result.
 
 Gates in kelpie's own work item loop, run in the runner, outside the sandbox:
 

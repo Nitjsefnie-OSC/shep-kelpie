@@ -30,8 +30,8 @@ pub fn after_flag(args: &[String]) -> (bool, Vec<String>) {
 }
 
 /// Runs the project's `after_command` hooks on the finished shell command in
-/// `input`, in `worktree`
-pub fn judge_after(input: impl Read, hooks: &Hooks, worktree: &Path) -> Verdict {
+/// `input`, for `role`, in `worktree`
+pub fn judge_after(input: impl Read, hooks: &Hooks, role: Role, worktree: &Path) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
         tool_name: String,
@@ -55,12 +55,9 @@ pub fn judge_after(input: impl Read, hooks: &Hooks, worktree: &Path) -> Verdict 
     };
     let (exit, output) = result(&call.tool_response, call.error.as_deref());
     let details = json!({ "command": line, "cwd": call.cwd, "exit": exit, "output": output });
-    match hooks.check(
-        HookPoint::AfterCommand,
-        Role::Worker,
-        Some(worktree),
-        details,
-    ) {
+    // The issue writer's hooks run where its commands do, as its `command` hooks do.
+    let folder = (role == Role::Worker).then_some(worktree);
+    match hooks.check(HookPoint::AfterCommand, role, folder, details) {
         Ok(()) => Verdict::Allow,
         Err(refusal) => Verdict::Refuse(format!("after this command: {refusal}")),
     }

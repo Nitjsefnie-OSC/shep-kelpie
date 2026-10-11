@@ -16,8 +16,8 @@ use crate::hooks::{Hooks, Role};
 use crate::settings::HookPoint;
 
 // The keys a file tool gives the text it writes under, by harness: Claude
-// Code's `content` and `new_string`, pi's `newText`.
-const CONTENT: [&str; 3] = ["content", "new_string", "newText"];
+// Code's `content`, `new_string` and a notebook's `new_source`, pi's `newText`.
+const CONTENT: [&str; 4] = ["content", "new_string", "new_source", "newText"];
 
 /// Runs the `write` hooks on each of `targets`, the files `tool` writes
 /// with `input` as its call, from the worktree `root`
@@ -239,6 +239,20 @@ mod tests {
 
         let contents: Vec<_> = w.payloads().iter().map(|p| p["content"].clone()).collect();
         assert_eq!(contents, [json!("b\nd")]);
+    }
+
+    #[test]
+    fn a_write_hook_reads_the_new_source_of_a_notebook_edit() {
+        let w = world();
+        let hooks = w.recorder();
+
+        let notebook = json!({ "notebook_path": w.file("wt/a.ipynb"), "new_source": "print(1)" });
+        assert_eq!(w.judge(&hooks, "NotebookEdit", notebook), Verdict::Allow);
+
+        let payloads = w.payloads();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0]["content"], "print(1)");
+        assert_eq!(payloads[0]["tool"], "NotebookEdit");
     }
 
     #[test]

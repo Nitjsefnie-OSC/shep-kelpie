@@ -393,7 +393,7 @@ fn hooks(fence: &Fence) -> Value {
     // The project's `after_command` hooks, run on a command's result. Claude Code
     // fires one event for a command that succeeded and another for one that failed.
     let mut failed = Vec::new();
-    if guard.hooks.has(HookPoint::AfterCommand) && guard.issues.is_none() {
+    if guard.hooks.has(HookPoint::AfterCommand) {
         let after = format!("{} {AFTER_FLAG}", commands.join(" "));
         let mut e = entry(Some("Bash"), &after);
         e["hooks"][0]["timeout"] = (GUARD_BUDGET.as_secs() + GUARD_MARGIN).into();
@@ -633,6 +633,32 @@ mod tests {
         }
         let pre = &s["hooks"]["PreToolUse"][0]["hooks"][0];
         assert_eq!(pre["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
+    }
+
+    // The issue writer's ledger recorder is one post entry; the project's
+    // `after_command` hooks are another, with the writer's rules on its line.
+    #[test]
+    fn the_issue_writer_gets_the_after_command_hook_beside_its_ledger_recorder() {
+        use crate::guard::IssueRules;
+        use crate::settings::HookPoint;
+        let mut reach = reach_with(hooks_at(&[HookPoint::AfterCommand]));
+        let fence = reach.fence.as_mut().unwrap();
+        fence.guard.issues = Some(IssueRules {
+            status: "ready".to_owned(),
+            agents: vec!["claude".to_owned()],
+            ledger: None,
+        });
+
+        let s = settings(Tools::Work, &reach);
+
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            let posts = commands_of(&s["hooks"][event], "Bash");
+            let after: Vec<_> = posts.iter().filter(|c| c.ends_with(" --after")).collect();
+            assert_eq!(after.len(), 1, "{event}: {posts:?}");
+            assert!(after[0].contains("--issues"), "{event}: {}", after[0]);
+        }
+        let posts = commands_of(&s["hooks"]["PostToolUse"], "Bash");
+        assert!(posts.iter().any(|c| c.ends_with(" --record")), "{posts:?}");
     }
 
     #[test]

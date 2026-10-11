@@ -65,7 +65,7 @@ use std::process::ExitCode;
 
 use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
-use shep_kelpie::hooks::Hooks;
+use shep_kelpie::hooks::{Hooks, Role};
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -108,7 +108,16 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             if after {
-                return hook(guard::judge_after(&input[..], &hooks, Path::new(worktree)));
+                let role = match issues {
+                    Some(_) => Role::IssueWriter,
+                    None => Role::Worker,
+                };
+                return hook(guard::judge_after(
+                    &input[..],
+                    &hooks,
+                    role,
+                    Path::new(worktree),
+                ));
             }
             if let Some(rules) = issues {
                 return hook(guard::judge_issues_with(
