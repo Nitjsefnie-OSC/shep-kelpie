@@ -45,6 +45,8 @@ impl Runner {
         let mut said = BTreeMap::new();
         for (issue, head) in red {
             let file = format!("{CI}/{issue}.log");
+            // A `StillRed` ruling is raised only on a pull request's red run
+            // (`ci_failed`), never on a merge queue removal, so not `merge_group`.
             let read = (self.ports.forge)
                 .failed_run_logs(&self.remote, &head, false)
                 .map_err(|e| format!("kelpie could not read it ({e})"))
@@ -53,7 +55,11 @@ impl Runner {
                     false => Ok(logs),
                 });
             let written = match (&cleared, read) {
-                (Err(e), _) => Err(format!("cannot clear {}: {}", ci.display(), e.kind())),
+                (Err(e), _) => Err(format!(
+                    "cannot clear {}: {}, so any log left there is stale",
+                    ci.display(),
+                    e.kind()
+                )),
                 (Ok(()), Err(why)) => Err(why),
                 (Ok(()), Ok(logs)) => std::fs::create_dir_all(&ci)
                     .and_then(|()| std::fs::write(folder.join(&file), logs))

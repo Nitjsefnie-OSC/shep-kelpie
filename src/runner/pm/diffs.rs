@@ -41,6 +41,8 @@ impl Runner {
         if self.state.work_items.is_empty() {
             out.push_str("(none)\n");
         }
+        // Only `pm_call` reaches here, as a wake or `shep kelpie pm` starts,
+        // so the logs are read once per call and not on every board write.
         let mut logs = self.pm_ci_logs(folder);
         let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         for issue in issues {
