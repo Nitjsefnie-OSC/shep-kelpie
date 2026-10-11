@@ -44,6 +44,7 @@ pub mod state;
 pub mod terminal;
 pub mod tools;
 pub mod totp;
+mod transcripts;
 mod trim;
 pub mod upgrade;
 pub mod usage;

@@ -14,7 +14,7 @@ const WHO: usize = 24;
 
 /// What a line says
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     /// What kelpie sent the agent
     Prompt,
     /// What the agent said
@@ -45,7 +45,7 @@ impl Kind {
 /// One thing a transcript or the runner's log recorded, before it is
 /// attributed
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Event {
+pub(crate) struct Event {
     pub at: Timestamp,
     pub kind: Kind,
     pub text: String,
