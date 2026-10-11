@@ -151,6 +151,15 @@ pub trait GithubApi: Send + Sync {
     fn write(&self, token: &InstallationToken, call: &Call) -> Result<String, ApiError>;
 }
 
+/// The GraphQL mutation that resolves a review thread
+pub const RESOLVE_THREAD: &str = "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) \
+    { thread { isResolved } } }";
+
+/// The GraphQL mutation that replies on a review thread
+pub const REPLY_TO_THREAD: &str = "mutation($id: ID!, $body: String!) { \
+    addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $body}) \
+    { comment { id } } }";
+
 /// How a write is sent
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verb {
@@ -237,6 +246,28 @@ impl Call {
         }
     }
 
+    /// Review thread `thread` resolved, `POST /graphql` with
+    /// [`RESOLVE_THREAD`]
+    pub fn resolve_thread(thread: &str) -> Self {
+        Self::graphql(RESOLVE_THREAD, serde_json::json!({ "id": thread }))
+    }
+
+    /// A reply on review thread `thread`, `POST /graphql` with
+    /// [`REPLY_TO_THREAD`]
+    pub fn reply_to_thread(thread: &str, body: &str) -> Self {
+        Self::graphql(
+            REPLY_TO_THREAD,
+            serde_json::json!({ "id": thread, "body": body }),
+        )
+    }
+
+    fn graphql(query: &str, variables: Value) -> Self {
+        Self::post(
+            "/graphql".to_owned(),
+            serde_json::json!({ "query": query, "variables": variables }),
+        )
+    }
+
     fn post(path: String, body: Value) -> Self {
         Self {
             verb: Verb::Post,
@@ -288,6 +319,48 @@ pub fn parse_posted(body: &str) -> Result<(u64, Timestamp), ApiError> {
     let created = created.and_then(|t| u64::try_from(t.as_second()).ok());
     let created = created.ok_or(ApiError::Unreadable("created_at"))?;
     Ok((id, Timestamp(created)))
+}
+
+/// What GraphQL answered a write on a review thread
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThreadWrite {
+    /// The mutation took effect
+    Done,
+    /// GitHub has no such thread, so there is nothing to write on
+    Gone,
+    /// GitHub refused it, with the first message it gave
+    Refused(String),
+}
+
+/// What a GraphQL `answer` says of the thread mutation `mutation`
+///
+/// GraphQL answers HTTP 200 with its errors in the body.
+///
+/// # Errors
+///
+/// [`ApiError::Unreadable`] when the answer is not JSON, or holds neither
+/// errors nor the mutation's result.
+pub fn parse_thread_write(answer: &str, mutation: &'static str) -> Result<ThreadWrite, ApiError> {
+    let v: Value = serde_json::from_str(answer).map_err(|_| ApiError::Unreadable(mutation))?;
+    if let Some(errors) = v["errors"].as_array().filter(|e| !e.is_empty()) {
+        let message = |e: &Value| e["message"].as_str().unwrap_or_default().to_owned();
+        let gone = errors.iter().any(|e| {
+            e["type"] == "NOT_FOUND"
+                || message(e).contains("Could not resolve to a node with the global id")
+        });
+        return Ok(match gone {
+            true => ThreadWrite::Gone,
+            false => ThreadWrite::Refused(message(&errors[0])),
+        });
+    }
+    let result = &v["data"][mutation];
+    if mutation == "resolveReviewThread" && result["thread"]["isResolved"] != true {
+        return Err(ApiError::Unreadable(mutation));
+    }
+    match result.is_object() {
+        true => Ok(ThreadWrite::Done),
+        false => Err(ApiError::Unreadable(mutation)),
+    }
 }
 
 /// Signs with an App's private key: RS256, an RSA signature over SHA-256

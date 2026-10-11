@@ -13,7 +13,8 @@
 //! of the bot's open threads agree they are the round's findings, which go
 //! to one fix turn as any reviewer's do. Kelpie replies on each thread it sent
 //! with the worker's line for it, and resolves the ones fixed once that fix
-//! moves the head. A bot that read the pull request before
+//! moves the head, as its App where one covers the repo and through `gh`
+//! where none does. A bot that read the pull request before
 //! has its nits on a head a nit-only fix pushed left open, not sent again.
 //! A bot passed over that reviews the head anyway gets a round of its own
 //! before the next reviewer's, at green CI, or while the merge ruling waits.
@@ -748,23 +749,29 @@ impl Runner {
             return Ok(Answered::Done);
         }
         let mut failed = None;
+        let app = self.app_covers();
         for id in self.item().threads_sent.clone() {
             let answer = self.item().answer_of(&id).cloned();
             let (resolve, body) = reply_to(answer.as_ref(), pushed);
-            let forge = &self.ports.forge;
-            let resolved = match resolve {
-                true => forge.resolve_thread(&self.remote, &id),
-                false => Ok(()),
+            let (forge, voice) = (&self.ports.forge, &self.ports.voice);
+            let resolved = match (resolve, app) {
+                (false, _) => Ok(()),
+                (true, true) => voice.resolve_thread(&self.remote, &id),
+                (true, false) => forge.resolve_thread(&self.remote, &id),
             };
             if let Err(e) = resolved {
                 failed.get_or_insert(format!("cannot resolve a thread on #{number}: {e}"));
                 continue;
             }
-            let mut posted = forge.reply_to_thread(&self.remote, &id, &body);
+            let reply = |text: &str| match app {
+                true => voice.reply_to_thread(&self.remote, &id, text),
+                false => forge.reply_to_thread(&self.remote, &id, text),
+            };
+            let mut posted = reply(&body);
             // The guard refuses the same text every time, so a reason that
             // names this machine is left out rather than retried for ever.
             if matches!(posted, Err(ForgeError::LocalPath { .. })) {
-                posted = forge.reply_to_thread(&self.remote, &id, UNPOSTABLE_REASON);
+                posted = reply(UNPOSTABLE_REASON);
             }
             if let Err(e) = posted {
                 failed.get_or_insert(format!("cannot reply to a thread on #{number}: {e}"));

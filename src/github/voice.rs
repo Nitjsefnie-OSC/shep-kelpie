@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use super::api::{self, ApiError, Call, GithubApi};
+use super::api::{self, ApiError, Call, GithubApi, ThreadWrite};
 use super::tokens::{GithubApp, InstallationToken, TokenError};
 use crate::ports::{ForgeError, NewLabel, PostedComment, Voice};
 use crate::settings::ForgeSlug;
@@ -34,6 +34,23 @@ impl AppVoice {
         self.api
             .write(&token, call)
             .map_err(|e| ForgeError::App(e.to_string()))
+    }
+
+    // GraphQL answers a refusal with HTTP 200, so the body says how it went.
+    fn thread_write(
+        &self,
+        repo: &ForgeSlug,
+        call: &Call,
+        mutation: &'static str,
+    ) -> Result<(), ForgeError> {
+        let answer = self.write(repo, call)?;
+        match api::parse_thread_write(&answer, mutation) {
+            Ok(ThreadWrite::Done | ThreadWrite::Gone) => Ok(()),
+            Ok(ThreadWrite::Refused(why)) => Err(ForgeError::App(format!(
+                "GitHub refused the {mutation}: {why}"
+            ))),
+            Err(e) => Err(ForgeError::App(e.to_string())),
+        }
     }
 }
 
@@ -91,6 +108,20 @@ impl Voice for AppVoice {
     ) -> Result<u64, ForgeError> {
         let answer = self.write(repo, &Call::issue(repo, title, body, labels))?;
         api::parse_number(&answer).map_err(|e| ForgeError::App(e.to_string()))
+    }
+
+    fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
+        self.thread_write(repo, &Call::resolve_thread(thread), "resolveReviewThread")
+    }
+
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        let call = Call::reply_to_thread(thread, body);
+        self.thread_write(repo, &call, "addPullRequestReviewThreadReply")
     }
 
     fn create_label(&self, repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {

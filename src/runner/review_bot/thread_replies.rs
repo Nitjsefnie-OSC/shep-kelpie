@@ -16,7 +16,10 @@ const THREAD: &str = "PRRT_cubic_71_0";
 // cubic, last after qwen and Claude, reads the head and leaves `threads`,
 // which go to the worker's fix turn, the next step.
 fn sent(threads: &[&str]) -> (Rig, Mutex<Runner>, String) {
-    let rig = listing("shep", &["cubic"]);
+    sent_in(listing("shep", &["cubic"]), threads)
+}
+
+fn sent_in(rig: Rig, threads: &[&str]) -> (Rig, Mutex<Runner>, String) {
     let (runner, head) = reviewed(&rig);
     step(&runner).unwrap(); // marks the draft ready
     assert_eq!(step(&runner).unwrap(), summoned(&head));
@@ -33,6 +36,57 @@ fn sent(threads: &[&str]) -> (Rig, Mutex<Runner>, String) {
         Some(StepReport::ReviewFindingsSent { .. })
     ));
     (rig, runner, head)
+}
+
+// Where kelpie's App covers the repo, the reply and the resolve are the
+// App's, made with its token, not the maintainer's login through `gh`.
+#[test]
+fn where_the_app_covers_the_repo_the_replies_and_resolves_are_the_apps() {
+    let rig = listing("shep", &["cubic"]);
+    rig.with_app();
+    let (rig, runner, _) = sent_in(rig, &[FINDING]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: fixed",
+    )]);
+    step(&runner).unwrap(); // the worker's fix turn
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+
+    assert_eq!(
+        rig.forge.coderabbit.replies(),
+        [(THREAD.to_owned(), "Fixed.".to_owned())]
+    );
+    assert_eq!(rig.forge.coderabbit.resolved(), [THREAD]);
+    let made = rig.github.thread_writes();
+    assert_eq!(made.len(), 2, "{made:?}");
+    for (token, _) in &made {
+        assert!(token.starts_with("ghs_test"), "{token}");
+    }
+    assert_eq!(
+        rig.forge.coderabbit.gh_writes(),
+        0,
+        "nothing went through gh as the maintainer"
+    );
+}
+
+// With no App the threads are answered through `gh`, as before.
+#[test]
+fn with_no_app_the_replies_and_resolves_go_through_gh() {
+    let (rig, runner, _) = sent(&[FINDING]);
+    rig.claude.script([Scripted::PushSay(
+        "strip.txt",
+        "stripped\n",
+        "thread 1: fixed",
+    )]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap(); // the thread is answered
+
+    assert_eq!(rig.forge.coderabbit.gh_writes(), 2);
+    assert_eq!(rig.github.thread_writes(), []);
 }
 
 #[test]

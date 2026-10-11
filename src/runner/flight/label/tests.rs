@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ports::{AgentError, Role, Tools};
 use crate::runner::{Pass, StepReport, advance, step};
@@ -22,21 +22,6 @@ fn ledger(rig: &Rig) -> Vec<Value> {
     (lines.iter())
         .map(|line| serde_json::to_value(line).unwrap())
         .collect()
-}
-
-// The first step that reports, once the held call has ended
-//
-// A call answers before its flight is recorded as ended, and a pass in between
-// is idle, so an idle step is retried until the flight ends.
-fn step_once_ended(runner: &std::sync::Mutex<crate::runner::Runner>) -> Option<StepReport> {
-    let deadline = std::time::Instant::now() + PATIENCE;
-    loop {
-        let report = step(runner).unwrap();
-        if report.is_some() || std::time::Instant::now() > deadline {
-            return report;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
 }
 
 fn dispatched_on(report: Option<StepReport>) -> String {
@@ -291,9 +276,18 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
         "the board waits too"
     );
     hold.release();
+    assert!(hold.answered(PATIENCE), "the call never answered");
     rig.claude.script([Scripted::Say("done")]);
+    // The call answering is not its news arriving: a step in between finds
+    // the writer still labelling and reports nothing, so step until it does.
+    let by = Instant::now() + PATIENCE;
+    let mut report = step(&runner).unwrap();
+    while report.is_none() && Instant::now() < by {
+        std::thread::sleep(Duration::from_millis(10));
+        report = step(&runner).unwrap();
+    }
     assert_eq!(
-        dispatched_on(step_once_ended(&runner)),
+        dispatched_on(report),
         "sonnet-high",
         "the hand label stands"
     );

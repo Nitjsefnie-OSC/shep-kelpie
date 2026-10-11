@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use super::FakeClock;
+use super::coderabbit::FakeCodeRabbit;
 use crate::github::tokens::Jwt;
 use crate::github::{
     ApiError, AppTokens, Apps, Call, Conversion, GithubApi, Grant, InstallationToken, IssuedToken,
@@ -46,6 +47,8 @@ struct Hub {
     workers_refused: Option<ApiError>,
     // A permission GitHub grants a worker's token beyond the one asked for
     extra_grant: Option<(String, String)>,
+    // The review threads a GraphQL write lands on
+    threads: Option<FakeCodeRabbit>,
 }
 
 /// GitHub as kelpie's App sees it: one code converts to an App owned by
@@ -107,6 +110,28 @@ impl FakeGithub {
     pub(crate) fn grants_too(&self, permission: &str, level: &str) {
         let grant = (permission.to_owned(), level.to_owned());
         self.hub.lock().unwrap().extra_grant = Some(grant);
+    }
+
+    /// Makes the App's GraphQL writes on review threads land in `threads`
+    pub(crate) fn use_threads(&self, threads: FakeCodeRabbit) {
+        self.hub.lock().unwrap().threads = Some(threads);
+    }
+
+    /// Every GraphQL write the App made on a review thread, in order, with
+    /// the token it was made with and the query it sent
+    pub(crate) fn thread_writes(&self) -> Vec<(String, String)> {
+        (self.writes().into_iter())
+            .filter(|(_, call)| call.path == "/graphql")
+            .map(|(token, call)| {
+                (
+                    token,
+                    graphql(&call)["query"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                )
+            })
+            .collect()
     }
 
     /// Takes comments again after [`Self::refuse_comments`]
@@ -266,6 +291,11 @@ impl GithubApi for FakeGithub {
         {
             return Err(error);
         }
+        if call.path == "/graphql" {
+            let threads = hub.threads.clone();
+            drop(hub);
+            return Ok(Self::graphql_answer(threads, call));
+        }
         // A comment answers with its id, numbered from 100 and so below any a
         // person writes on the fake forge, and the time the clock says.
         if call.path.ends_with("/comments") {
@@ -281,6 +311,49 @@ impl GithubApi for FakeGithub {
             return Ok(format!(r#"{{"number":{}}}"#, 899 + hub.issues));
         }
         Ok("{}".to_owned())
+    }
+}
+
+// A GraphQL call's JSON body.
+fn graphql(call: &Call) -> serde_json::Value {
+    serde_json::from_str(call.body.as_deref().unwrap_or("{}")).unwrap()
+}
+
+impl FakeGithub {
+    // What GraphQL answers a write on a review thread, which lands in the
+    // review bot store where the rig has one. GraphQL answers HTTP 200 with
+    // its errors in the body, as GitHub does.
+    fn graphql_answer(threads: Option<FakeCodeRabbit>, call: &Call) -> String {
+        let sent = graphql(call);
+        let (query, id) = (
+            sent["query"].as_str().unwrap_or_default(),
+            &sent["variables"],
+        );
+        let id = id["id"].as_str().unwrap_or_default();
+        let done = |result: Result<(), crate::ports::ForgeError>| match result {
+            Ok(()) => None,
+            Err(e) => Some(e.to_string()),
+        };
+        let (field, answer, failed) = if query.contains("resolveReviewThread") {
+            let failed = threads.and_then(|t| done(t.resolve(id)));
+            (
+                "resolveReviewThread",
+                r#"{"thread":{"isResolved":true}}"#,
+                failed,
+            )
+        } else {
+            let body = sent["variables"]["body"].as_str().unwrap_or_default();
+            let failed = threads.and_then(|t| done(t.reply(id, body)));
+            (
+                "addPullRequestReviewThreadReply",
+                r#"{"comment":{"id":"c"}}"#,
+                failed,
+            )
+        };
+        match failed {
+            Some(why) => serde_json::json!({ "errors": [{ "message": why }] }).to_string(),
+            None => format!(r#"{{"data":{{"{field}":{answer}}}}}"#),
+        }
     }
 }
 

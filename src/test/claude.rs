@@ -42,6 +42,9 @@ pub(crate) enum Scripted {
     /// Commits this file with this text on the worktree's branch, pushes
     /// nothing, and answers
     Commit(&'static str, &'static str),
+    /// Commits these files with these texts in one commit on the worktree's
+    /// branch, pushes nothing, and answers
+    CommitFiles(&'static [(&'static str, &'static str)]),
     /// Commits this file with this text on the worktree's branch, pushes
     /// it the way a worker does, and answers with this final message
     PushSay(&'static str, &'static str, &'static str),
@@ -336,6 +339,14 @@ impl Agents for FakeClaude {
                 write_in(&call.cwd, file, text);
                 git(&call.cwd, &["add", file]);
                 git(&call.cwd, &["commit", "--quiet", "-m", file]);
+                Ok(said("committed"))
+            }
+            Some(Scripted::CommitFiles(files)) => {
+                for (file, text) in files {
+                    write_in(&call.cwd, file, text);
+                    git(&call.cwd, &["add", file]);
+                }
+                git(&call.cwd, &["commit", "--quiet", "-m", "files"]);
                 Ok(said("committed"))
             }
             Some(Scripted::Push(file, text)) => {
