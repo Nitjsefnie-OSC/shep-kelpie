@@ -164,8 +164,9 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
 /// The login a project's `claude` calls run with, for a repo the App covers (`covered`)
 /// on a machine with a keychain, where the calls cannot reach the one `claude` keeps there
 ///
-/// The runner reads the token from its sheep's `env`, whose names are `env`,
-/// and doctor from this shell's.
+/// The runner reads the token from its sheep's `env`, whose secret-backed names are
+/// `env`, and doctor from this shell's. A plain value there could be empty, which
+/// the runner refuses and shep's reply does not show, so it does not count.
 pub(super) fn login(
     subject: String,
     covered: bool,

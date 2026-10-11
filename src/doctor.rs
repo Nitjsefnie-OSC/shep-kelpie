@@ -265,7 +265,7 @@ async fn projects(client: &Client, probes: Probes<'_>, here: Here<'_>, ask: Ask<
     for (sheep, table) in &tables {
         if ask.project.is_none_or(|n| n.as_str() == sheep) {
             // A runner whose config cannot be read is judged by this shell's env alone.
-            let env = flock::env_keys(client, sheep).await.unwrap_or_default();
+            let env = flock::env_secrets(client, sheep).await.unwrap_or_default();
             let checks = project::checks(sheep, table, &env, probes, here, kelpie.as_ref());
             lines.extend(checks);
         }

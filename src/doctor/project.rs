@@ -81,7 +81,7 @@ pub(super) fn old_home(
 }
 
 /// Every check for the project on `sheep`, whose table is `table` and whose
-/// entry sets the names `env` in its `env`
+/// entry backs the names `env` with secrets in its `env`
 ///
 /// A table that does not load is the one line: nothing else can be read from it.
 pub(super) fn checks(
