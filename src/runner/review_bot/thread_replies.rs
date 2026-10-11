@@ -7,6 +7,7 @@ use crate::ports::Checks;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::{Runner, StepReport, step};
+use crate::state::RulingKind;
 use crate::test::{Rig, Scripted};
 
 const FINDING: &str = "P2: `bleats` loses a stamped prefix. Strip only files shep stamped.";
@@ -126,6 +127,17 @@ fn a_thread_the_workers_reply_leaves_out_is_replied_to_as_not_addressed_and_stay
 // catch-up with `main` that withdraws the yes does not ask about them again.
 #[test]
 fn a_yes_merges_past_its_open_threads_after_main_moves() {
+    yes_after_main_moves(false);
+}
+
+// A ruling a version 24 file left pending names its threads and holds no
+// ids, so the yes asks the forge which hold it.
+#[test]
+fn a_yes_to_a_ruling_kept_without_ids_merges_past_its_open_threads_too() {
+    yes_after_main_moves(true);
+}
+
+fn yes_after_main_moves(without_ids: bool) {
     let rig = listing("shep", &["cubic"]);
     rig.merge_auto();
     let (rig, runner, _) = sent_in(rig, &[FINDING]);
@@ -139,6 +151,14 @@ fn a_yes_merges_past_its_open_threads_after_main_moves() {
         panic!("no merge ruling");
     };
     assert!(question.contains("1 from cubic"), "{question}");
+    if without_ids {
+        let mut runner = runner.lock().unwrap();
+        for ruling in &mut runner.state.rulings {
+            if let RulingKind::Merge { held_by, .. } = &mut ruling.kind {
+                held_by.clear();
+            }
+        }
+    }
 
     rig.land_on_origin("landed.txt");
     rig.ask(&runner, "rule", Some(&format!("{id} yes")));
