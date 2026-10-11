@@ -215,6 +215,29 @@ fn an_unquoted_body_or_title_value_is_a_word_like_any_other() {
             "gh pr edit 3 --body=$HOME",
             "gh pr edit 3 --body *",
             "gh pr edit 3 --body $'x'",
+            // zsh turns a bare `=name` into the command's path.
+            "gh pr edit 3 --body =kelpie",
+            "gh pr edit 3 --title =kelpie",
+            "gh pr view =kelpie",
+        ],
+    );
+}
+
+// Double quotes hold a space but not a `$` or a backtick, so the shell still
+// puts the maintainer's home path in a body written this way.
+#[test]
+fn a_double_quoted_body_or_title_may_not_expand() {
+    all_refused_for(
+        BUILT,
+        &[
+            r#"gh pr edit 3 --body "$HOME""#,
+            r#"gh pr edit 3 --body "a $HOME b""#,
+            r#"gh pr edit 3 --body "a ${HOME} b""#,
+            r#"gh pr edit 3 --body="a $HOME b""#,
+            r#"gh pr edit 3 -b "a $HOME b""#,
+            r#"gh pr edit 3 --body "a `echo $PWD` b""#,
+            r#"gh pr edit 3 --body "$(echo $HOME)""#,
+            r#"gh pr edit 3 --title "fix: $HOME""#,
         ],
     );
 }
@@ -258,6 +281,8 @@ fn a_quoted_body_or_title_value_may_hold_text_in_every_spelling() {
         "gh pr create --title 'fix: x' --body \"costs \\$5\"",
         "gh pr create --title='fix: x' --body='costs $5'",
         "gh pr create --title 'fix: x' --body=\"costs 5\"",
+        "gh pr create --title 'fix: x' --body '=kelpie'",
+        "gh pr create --title 'fix: x' --body \"=kelpie\"",
         "gh pr create -t 'fix: x' -b 'costs $5'",
         "gh pr create -t'fix: x' -b'a $5'",
         "gh pr create --title 'fix: x' --body 'a (b) | c; d > e'",
@@ -277,7 +302,6 @@ fn a_body_or_a_title_may_hold_what_a_shell_would_expand() {
         "gh pr create -t 'fix: $x' -b 'a $b'",
         "gh pr create -t'fix: $x' -b'a $b'",
         "gh pr edit 3 --body \"$(cat <<'EOF'\nanother ~ $ { *\nEOF\n)\"",
-        "gh issue create --title 'fix: x' --body \"a $HOME b\"",
     ] {
         let verdict = anywhere(command);
         // A leak check may still refuse a path in the text; the words are not why.

@@ -28,7 +28,8 @@ pub(super) struct Command {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Quoting {
     /// For each character of the word, whether a quote or a backslash holds it
-    /// literal
+    /// literal. Double quotes do not hold a `$` or a backtick, which the shell
+    /// still expands.
     pub quoted: Vec<bool>,
     /// Whether a `(` follows the word with no space between: the shell may read
     /// both as one extended glob, as `--comment@(|x)`
@@ -401,11 +402,16 @@ fn words(segment: &[char]) -> Vec<Word> {
             '"' => {
                 i += 1;
                 while i < segment.len() && segment[i] != '"' {
-                    if segment[i] == '\\' && i + 1 < segment.len() {
+                    let escaped = segment[i] == '\\' && i + 1 < segment.len();
+                    if escaped {
                         i += 1;
                     }
                     word.push(segment[i]);
-                    quoted.push(true);
+                    // Double quotes leave `$` and a backtick to the shell, but for
+                    // the `$(` of a substitution, which is a command of its own.
+                    let expands = segment[i] == '`'
+                        || (segment[i] == '$' && segment.get(i + 1) != Some(&'('));
+                    quoted.push(escaped || !expands);
                     i += 1;
                 }
                 i += 1;

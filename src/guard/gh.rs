@@ -79,7 +79,8 @@ const FLAG_FIRST: &str = "kelpie reads a gh command's group and verb by position
 
 // A character any gh word may be made of. A shell leaves these as they are, so
 // the guard reads what gh gets. A list of the shell's expansions would miss
-// the next one: extended globs and zsh's.
+// the next one: extended globs and zsh's. A word may not start with `=`, which
+// zsh expands.
 fn plain(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | ':' | '@' | '=' | ',' | '+' | '-')
 }
@@ -142,7 +143,8 @@ fn built_word<'a>(words: &'a [String], quoting: &[Quoting]) -> Option<&'a str> {
         };
         let bad = word.chars().enumerate().skip(skip).any(|(i, c)| {
             let text = from.is_some_and(|from| i >= from) && held(i);
-            !text && !plain(c)
+            // zsh turns a bare `=name` at the start of a word into a path.
+            !text && (!plain(c) || (i == 0 && c == '='))
         });
         if bad {
             return Some(word);
