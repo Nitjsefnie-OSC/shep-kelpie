@@ -775,9 +775,12 @@ impl Runner {
             // The guard refuses the same text every time, so a reason that
             // names this machine, or that a hook refuses, is left out rather
             // than retried for ever. A hook that failed to run is retried.
+            // Only a decline carries the worker's words, so only it is
+            // replaced, by a reply that says it was a decline.
+            let declined = matches!(answer, Some(ThreadAnswer::Declined { .. }));
             match &posted {
                 Err(ForgeError::LocalPath { .. }) => posted = reply(UNPOSTABLE_REASON),
-                Err(ForgeError::Hook { refusal, .. }) if !refusal.failed => {
+                Err(ForgeError::Hook { refusal, .. }) if declined && !refusal.failed => {
                     posted = reply(HOOK_REFUSED_REASON);
                 }
                 _ => {}

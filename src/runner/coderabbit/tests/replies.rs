@@ -163,6 +163,31 @@ fn a_reason_a_publish_hook_refuses_is_not_posted_and_blocks_no_other_thread() {
     assert_eq!(phase(&rig, &runner)["state"], "ci");
 }
 
+// Only a decline carries the worker's words, so only it is replaced by a
+// decline's line. Kelpie's own "Fixed." that a hook refuses is not rewritten
+// into a decline the worker never made: it is tried again, and the thread
+// after it is answered all the same.
+#[test]
+fn a_fixed_line_a_publish_hook_refuses_is_not_posted_as_a_decline() {
+    let (rig, runner) = sent_with(&["Name the flag.", "Guard the index."], |rig| {
+        rig.forbid_word(&["publish"], "Fixed");
+    });
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        "thread 1: fixed\nthread 2: declined: the caller checks the index",
+    )]);
+    step(&runner).unwrap(); // the fix turn
+    step(&runner).unwrap(); // the threads are answered
+    assert_eq!(
+        rig.forge.coderabbit.replies(),
+        [(
+            "PRRT_71_1".to_owned(),
+            "Declined: the caller checks the index".to_owned()
+        )]
+    );
+}
+
 // A reply the forge refuses is tried again at the next step, and a thread
 // already replied to is not replied to twice by a running runner.
 #[test]

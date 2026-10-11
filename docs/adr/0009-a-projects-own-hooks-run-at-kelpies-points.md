@@ -44,7 +44,7 @@ The exit is the answer:
 
 ### The commit and push points ride on `kelpie guard`
 
-Every harness already runs `kelpie guard` on each command, and `kelpie confine` on each write, so the hooks reach pi and Codex with no Claude-shaped hook. The guard's command line carries them as one `--hooks=<json>` argument, with the project's name and repo. A pi or Codex implementer beside `hooks` is not refused at load. The guard hook runs outside the agent's sandbox, so a hook can read config the agent cannot, and the agent can neither edit nor skip it.
+Every harness already runs `kelpie guard` on each command, and `kelpie confine` on each write, so the hooks reach pi and Codex with no Claude-shaped hook. The guard's command line carries them as one `--hooks=<json>` argument, with the project's name and repo. A pi or Codex implementer beside `hooks` is not refused at load. The agent can neither edit nor skip a hook, since the guard's command line is pinned in the call's settings. Where a hook runs differs by point. `kelpie guard` runs inside kelpie's OS sandbox, in the worker's fence, so a `commit`, `push` or worker `publish` hook is a child of the guard: it sees the worker's environment and can read only what the worker can, and a hook that needs config the fence hides fails and so refuses every such command. Only `handover` and kelpie's own `publish` run in the runner, outside the sandbox, with the runner's access. A hook that needs a secret belongs at one of those two points, or reads it from a path the fence leaves readable.
 
 ### `worker.guard_hooks` stays
 

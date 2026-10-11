@@ -80,6 +80,61 @@ fn a_branch_the_hook_refuses_twice_parks_on_a_ruling_naming_the_hook() {
     assert!(question.contains("refused the branch twice"), "{question}");
 }
 
+// The hook reads the worktree it runs in, as the test above does.
+fn refuses_acme_in_work() -> Rig {
+    let rig = Rig::new("shep");
+    rig.hook(
+        "forbid-word.sh",
+        &["handover"],
+        "if grep -q Acme work.txt; then echo 'it names a word the project keeps private' >&2; exit 2; fi",
+    );
+    rig
+}
+
+// A turn that ended before its pull request was seen leaves the item to the
+// next step, which finds it. That is a handover too, so the hook judges the
+// branch there before any review reads it.
+#[test]
+fn a_pull_request_found_after_the_turn_is_handed_over_before_review() {
+    let rig = refuses_acme_in_work();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([
+        Scripted::Push("work.txt", "built for Acme\n"),
+        Scripted::Push("work.txt", "built for a customer\n"),
+    ]);
+
+    step(&runner).unwrap(); // pushes, and no pull request is open yet
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    step(&runner).unwrap(); // finds it, and the hook refuses the branch
+    assert_eq!(phase(&rig, &runner), "implement", "no review reads it");
+
+    step(&runner).unwrap(); // sent back with the hook's reason, and pushes again
+    let prompts: Vec<String> = (rig.claude.seen().into_iter())
+        .map(|s| s.call.prompt)
+        .collect();
+    let told = prompts.last().unwrap();
+    assert!(told.contains(REFUSED), "{told}");
+    assert_eq!(phase(&rig, &runner), "review", "the second push passes");
+}
+
+#[test]
+fn a_pull_request_found_after_the_turn_that_the_hook_refuses_twice_parks() {
+    let rig = refuses_acme_in_work();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([
+        Scripted::Push("work.txt", "built for Acme\n"),
+        Scripted::Push("work.txt", "still for Acme\n"),
+    ]);
+
+    step(&runner).unwrap(); // pushes, and no pull request is open yet
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    step(&runner).unwrap(); // found, and refused
+    step(&runner).unwrap(); // sent back, and pushes again
+    assert_eq!(phase(&rig, &runner), "ruling");
+}
+
 #[test]
 fn a_hook_reads_the_commits_the_branch_holds_past_the_base() {
     let rig = Rig::new("shep");

@@ -3,8 +3,10 @@
 //! A project names commands in `hooks`, each for a [`HookPoint`]. Kelpie runs
 //! them itself, so a pi or Codex worker, a reviewer, the issue writer and
 //! kelpie's own posts reach them as a Claude Code worker does, with no
-//! harness-shaped hook. A hook runs outside the agent's sandbox, so it can
-//! read config the agent cannot, and the agent can neither edit nor skip it.
+//! harness-shaped hook. The agent can neither edit nor skip a hook. One run
+//! by `kelpie guard` (`commit`, `push`, a worker's `publish`) is inside
+//! kelpie's sandbox, in the worker's fence, so it reads what the worker can;
+//! `handover` and kelpie's own `publish` run in the runner, outside it.
 //!
 //! The command runs under `sh -c` with a JSON payload on its stdin: the
 //! point, the project, the role whose text or work it judges, the repo's

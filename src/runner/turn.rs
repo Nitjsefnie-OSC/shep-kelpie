@@ -32,7 +32,7 @@ use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
 use crate::worker_folder;
 use crate::worktree::{self, Start};
-use handover::{Handover, handover_prompt};
+use handover::{Handover, Refused};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
@@ -544,10 +544,12 @@ impl Runner {
                         item.pull_request = self.open_handed_over(&item.build, &item.branch);
                     }
                 }
-                // A later turn that rewrote the file changes the title and body.
-                if let (true, false, Some(number)) = (handed_over, discovering, item.pull_request) {
-                    self.edit_handed_over(&item.build, number);
-                }
+                // A later turn that rewrote the file changes the title and body,
+                // and a project's hook may refuse what it wrote.
+                let file_refused = match (handed_over, discovering, item.pull_request) {
+                    (true, false, Some(number)) => self.edit_handed_over(&item.build, number),
+                    _ => None,
+                };
                 let session = item.session.clone();
                 let cost =
                     item.record_call(Role::Worker, now, session, reply.usage, reply.session_cost);
@@ -591,11 +593,11 @@ impl Runner {
                     item.handover_refused = false;
                 }
                 let refusal = match handed {
-                    Handover::Refused(why) => Some(why),
-                    _ => None,
+                    Handover::Refused(why) => Some(Refused::branch(&why)),
+                    _ => file_refused.as_deref().map(Refused::pull_request_file),
                 };
                 let hook_parks = refusal.clone().filter(|_| already);
-                let hook_first = refusal.as_deref().filter(|_| !already);
+                let hook_first = refusal.as_ref().filter(|_| !already);
                 let to_worker = commit_first || refusal.is_some();
                 item.turn = if to_worker {
                     item.asked_to_commit |= commit_first;
@@ -612,7 +614,7 @@ impl Runner {
                     }
                     Turn::Next {
                         prompt: match &refusal {
-                            Some(why) if !commit_first => handover_prompt(why),
+                            Some(refused) if !commit_first => refused.prompt.clone(),
                             _ => uncommitted_prompt(&uncommitted),
                         },
                     }
@@ -663,9 +665,7 @@ impl Runner {
                     // The hooks refused the branch again: the worker's turn to fix
                     // it was spent, so the work item parks, and a yes sends it back.
                     None if hook_parks.is_some() => {
-                        let why = hook_parks.unwrap_or_default();
-                        let why =
-                            format!("the project's handover hook refused the branch twice: {why}");
+                        let why = hook_parks.map(|refused| refused.parked).unwrap_or_default();
                         failed(self.names(), &mut next, issue, now, why)
                     }
                     None => StepReport::Ended {

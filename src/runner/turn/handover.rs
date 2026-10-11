@@ -25,13 +25,43 @@ pub(super) enum Handover {
     Refused(String),
 }
 
-/// The prompt that sends a worker back to fix a branch a hook refused
-pub(super) fn handover_prompt(refusal: &str) -> String {
-    format!(
-        "Your branch is not ready to hand over: {refusal}. Fix it, commit and push, and end \
-         your turn. If only the maintainer can unblock you, end your reply with a \
-         <kelpie-question> block."
-    )
+/// A project hook's refusal of a worker's turn: what sends the worker back
+/// once, and why a second parks the work item
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Refused {
+    pub(super) prompt: String,
+    pub(super) parked: String,
+}
+
+impl Refused {
+    /// A `handover` hook refused the branch
+    pub(super) fn branch(refusal: &str) -> Self {
+        Self {
+            prompt: format!(
+                "Your branch is not ready to hand over: {refusal}. Fix it, commit and push, \
+                 and end your turn. If only the maintainer can unblock you, end your reply \
+                 with a <kelpie-question> block."
+            ),
+            parked: format!("the project's handover hook refused the branch twice: {refusal}"),
+        }
+    }
+
+    /// A `publish` hook refused the title and body the worker changed in
+    /// `pull-request.md`
+    pub(super) fn pull_request_file(refusal: &str) -> Self {
+        Self {
+            prompt: format!(
+                "Kelpie could not set the pull request's title and body from \
+                 `pull-request.md`: {refusal}. Change the file so the hook accepts it, and \
+                 end your turn. If only the maintainer can unblock you, end your reply with \
+                 a <kelpie-question> block."
+            ),
+            parked: format!(
+                "the project's publish hook refused the pull request's text, after the worker \
+                 was sent back once already: {refusal}"
+            ),
+        }
+    }
 }
 
 impl Runner {

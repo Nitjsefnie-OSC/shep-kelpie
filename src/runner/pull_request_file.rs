@@ -87,22 +87,27 @@ impl Runner {
 
     /// Sets pull request `number`'s title and body to what the worker's file
     /// says now, when a turn changed it since kelpie last did
-    pub(super) fn edit_handed_over(&self, build: &Path, number: u64) {
-        let Some(file) = self.read_handed_over(build) else {
-            return;
-        };
+    ///
+    /// The refusal of a project's hook, when one refused the file: the worker
+    /// can fix its own file, so it is told why. The file is not marked
+    /// applied, so the next turn's end tries it again.
+    pub(super) fn edit_handed_over(&self, build: &Path, number: u64) -> Option<String> {
+        let file = self.read_handed_over(build)?;
         let applied = worker_folder::read(build, Path::new(APPLIED));
         if applied.is_ok_and(|applied| applied.as_deref() == Some(file.as_str())) {
-            return;
+            return None;
         }
-        let Some(text) = parse(&file) else {
-            return;
-        };
+        let text = parse(&file)?;
         match (self.ports.forge).edit_pull_request(&self.remote, number, &text.title, &text.body) {
-            Ok(()) => self.keep_applied(build, &file),
-            Err(e) => self
-                .notes
-                .push(format!("cannot edit pull request #{number}: {e}")),
+            Ok(()) => {
+                self.keep_applied(build, &file);
+                None
+            }
+            Err(e) => {
+                self.notes
+                    .push(format!("cannot edit pull request #{number}: {e}"));
+                matches!(e, ForgeError::Hook { .. }).then(|| e.to_string())
+            }
         }
     }
 
@@ -342,6 +347,35 @@ body
 
         edit("feat: second");
         assert_eq!(rig.forge.text_of(500).unwrap().0, "feat: second");
+    }
+
+    // A project's publish hook may refuse the text of an edit as it does a new
+    // pull request's. The worker is told why, the file is not marked applied,
+    // and the file once fixed is applied.
+    #[test]
+    fn an_edit_a_publish_hook_refuses_is_told_and_applied_once_the_file_is_fixed() {
+        let rig = Rig::new("shep");
+        rig.with_app();
+        rig.forbid_word(&["publish"], "Acme");
+        let runner = rig.open().unwrap();
+        assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+        let (build, runner) = (rig.build_7(), runner.lock().unwrap());
+        std::fs::create_dir_all(&build).unwrap();
+        rig.forge.open_pull_request(500, "kelpie/7", &[7]);
+        let before = rig.forge.text_of(500);
+
+        std::fs::write(path(&build), "feat: x\n\nBuilt for Acme.\n").unwrap();
+        let refused = runner.edit_handed_over(&build, 500).expect("refused");
+        assert!(refused.contains("forbid-word.sh"), "{refused}");
+        assert!(!refused.contains("Acme"), "{refused}");
+        assert_eq!(rig.forge.text_of(500), before);
+
+        std::fs::write(path(&build), "feat: x\n\nBuilt for a customer.\n").unwrap();
+        assert_eq!(runner.edit_handed_over(&build, 500), None);
+        assert_eq!(
+            rig.forge.text_of(500),
+            Some(("feat: x".to_owned(), "Built for a customer.".to_owned()))
+        );
     }
 
     // The worker can write its build folder, and kelpie reads and writes it as

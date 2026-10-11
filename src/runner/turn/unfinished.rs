@@ -10,6 +10,7 @@
 
 use std::time::Duration;
 
+use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
 use crate::runner::closed::end_closed;
 use crate::runner::report::{Begin, StepReport};
@@ -131,6 +132,34 @@ impl Runner {
         let item = next.item_mut(issue).expect("the work item checked above");
         if let Some(number) = found {
             item.pull_request = Some(number);
+            // A pull request found only now was never handed over, so the
+            // project's `handover` hooks judge the branch before review reads it.
+            match self.handover(item) {
+                Handover::Refused(why) => {
+                    let refused = Refused::branch(&why);
+                    if item.handover_refused {
+                        let now = self.ports.clock.now();
+                        let mut report =
+                            failed(self.names(), &mut next, issue, now, refused.parked);
+                        self.save(next)?;
+                        self.fill_comment_failed(&mut report);
+                        return Ok(Begin::Report(report));
+                    }
+                    item.handover_refused = true;
+                    item.turn = Turn::Next {
+                        prompt: refused.prompt,
+                    };
+                    // The pull request still owes its first review.
+                    item.resume = Some(Phase::Review(Review::first()));
+                    self.save(next)?;
+                    return self.begin_item(false);
+                }
+                Handover::Passed(head) => {
+                    item.handed_over = Some(head);
+                    item.handover_refused = false;
+                }
+                Handover::NotDue => {}
+            }
             item.phase = Phase::Review(Review::first());
             self.save(next)?;
             return self.begin_item(false);
