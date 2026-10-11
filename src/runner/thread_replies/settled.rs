@@ -118,7 +118,7 @@ impl Runner {
         by: Settler,
     ) -> Result<(), RuleError> {
         let outcome = Outcome::answered(&by, &answer);
-        let outcome = match self.apply(id, answer)? {
+        let outcome = match self.apply(id, answer, matches!(by, Settler::Pm { .. }))? {
             true => outcome,
             // The answer was about a head that is gone, so none was taken. An
             // answer in the ruling's own thread leaves its comment as it is.

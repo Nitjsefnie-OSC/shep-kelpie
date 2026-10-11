@@ -31,8 +31,8 @@ mod reviewers;
 mod skills;
 
 pub use agents::{
-    Account, AgentHarness, AgentName, Harness, Implementer, Limit, ModelServer, PmAgent,
-    RoleAgentNames, RoleAgents, UsageReader,
+    Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
+    PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
 pub use ci::{Ci, Concurrency, FixAttempts};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
@@ -65,6 +65,9 @@ pub struct Settings {
     pub pacing: Pacing,
     /// What every worker is started with
     pub worker: Worker,
+    /// What the researcher may read besides what kelpie writes for it
+    #[serde(default)]
+    pub researcher: Researcher,
     /// The project's own hooks, which kelpie runs at its own points for
     /// every harness and role. Each must resolve when the runner starts.
     /// Empty when absent.
@@ -383,6 +386,24 @@ fn default_pacing_enabled() -> bool {
     true
 }
 
+/// What the researcher, one of the experts who vote on each ruling, may read
+/// beyond what kelpie writes into its folder
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Researcher {
+    /// Folders of the maintainer's own agent sessions for this project,
+    /// which the researcher reads, read only. Each is a harness's folder of
+    /// sessions, such as one under `~/.claude/projects`; `~/` is the home
+    /// folder, and a relative path is taken from the project's folder in
+    /// kelpie's home. Off while empty, which it is when absent.
+    #[serde(default)]
+    pub transcripts: Vec<PathBuf>,
+    /// Domains the researcher's web fetch may reach, such as a library's
+    /// docs. Its web search needs none. Empty when absent.
+    #[serde(default)]
+    pub allowed_domains: Vec<NonBlank>,
+}
+
 /// What every worker is started with
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -669,6 +690,7 @@ impl Settings {
         [self.worker.instructions_file.as_mut()]
             .into_iter()
             .flatten()
+            .chain(self.researcher.transcripts.iter_mut())
             .chain(self.skills.paths_mut())
     }
 }

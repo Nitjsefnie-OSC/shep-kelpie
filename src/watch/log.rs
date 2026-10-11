@@ -33,7 +33,7 @@ pub(super) fn parse(line: &str) -> Option<Step> {
 
 /// Which program wrote a session's transcript, and so how it reads
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Format {
+pub(crate) enum Format {
     Claude,
     Codex,
     Pi,
@@ -53,6 +53,27 @@ pub(super) struct Started {
 }
 
 impl Started {
+    /// A session of `format` named `session`, begun at `at`, whose transcripts
+    /// a harness writes in `folder`
+    pub fn of(
+        format: Format,
+        session: &str,
+        folder: PathBuf,
+        threads: Option<PathBuf>,
+        at: Timestamp,
+    ) -> Self {
+        Self {
+            at,
+            who: String::new(),
+            format,
+            session: session.to_owned(),
+            folder,
+            threads,
+            issue: None,
+            pm: false,
+        }
+    }
+
     /// Whether `scope` shows this session
     pub fn in_scope(&self, scope: Scope) -> bool {
         match scope {

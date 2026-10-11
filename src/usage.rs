@@ -77,6 +77,9 @@ pub enum CallKind {
     Issues,
     /// The worker's retro turn, once its work item has finished
     Retro,
+    /// An expert's vote on a ruling: the worker's resumed session, the
+    /// advisor's or the researcher's
+    Vote,
 }
 
 /// How a call ended

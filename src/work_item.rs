@@ -440,6 +440,16 @@ impl WorkItem {
         Cost(self.calls.iter().map(|c| c.cost.0).sum())
     }
 
+    /// Moves what `session` had cost as of its last recorded call up to `to`,
+    /// for a call in it that the work item does not count, so the cost of the
+    /// next call here leaves that one out
+    pub fn advance_session_cost(&mut self, session: &SessionId, to: Cost) {
+        let last = self.calls.iter_mut().rev().find(|c| &c.session == session);
+        if let Some(last) = last.filter(|c| c.session_cost.0 < to.0) {
+            last.session_cost = to;
+        }
+    }
+
     /// What `session` had cost as of its last recorded call
     pub fn session_cost(&self, session: &SessionId) -> Cost {
         let last = self.calls.iter().rev().find(|c| &c.session == session);
@@ -827,5 +837,27 @@ mod tests {
         assert_eq!(item.session_cost(&other), Cost(40));
         assert_eq!(item.session_cost(&SessionId("new".into())), Cost(0));
         assert_eq!(item.cost(), Cost(45));
+    }
+
+    #[test]
+    fn a_call_the_item_does_not_count_moves_its_sessions_cost_without_adding_to_its_own() {
+        let mut item = a_work_item();
+        let session = item.session.clone();
+        let before = item.cost();
+
+        item.advance_session_cost(&session, Cost(30));
+        item.advance_session_cost(&session, Cost(10));
+        item.advance_session_cost(&SessionId("new".into()), Cost(99));
+
+        assert_eq!(item.session_cost(&session), Cost(30));
+        assert_eq!(item.cost(), before);
+        let next = item.record_call(
+            Role::Worker,
+            Timestamp(9),
+            session,
+            Usage::default(),
+            Some(Cost(35)),
+        );
+        assert_eq!(next, Some(Cost(5)));
     }
 }
