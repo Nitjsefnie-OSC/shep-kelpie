@@ -346,6 +346,23 @@ mod tests {
     }
 
     #[test]
+    fn votes_name_their_ruling_and_a_bad_one_is_named_while_the_rest_count() {
+        let text = "{\"pick\": null, \"votes\": [{\"ruling\": 4, \"choice\": \"A\", \
+                    \"why\": \"CI is green\", \"design\": false}, {\"ruling\": \"#5\", \
+                    \"choice\": \"B\"}, {\"choice\": \"A\"}, 7]}";
+        let answer = read(text).unwrap();
+        let rulings: Vec<u64> = answer.votes.iter().map(|(id, _)| *id).collect();
+        assert_eq!(rulings, [4, 5]);
+        assert_eq!(
+            crate::panel::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
+            Ok('A')
+        );
+        assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);
+        let bad = read("{\"votes\": \"A\"}").unwrap();
+        assert_eq!(bad.unread, ["`votes`: a list of votes, not \"A\""]);
+    }
+
+    #[test]
     fn a_malformed_field_is_named_and_the_rest_still_count() {
         let text = "{\"pick\": \"soon\", \"hold\": [5, true], \"unstick\": {\"item\": 7, \
                     \"action\": \"reboot\"}, \"merge_order\": [71], \"reply\": \"On it.\"}";

@@ -300,6 +300,27 @@ fn the_worker_vote_resumes_its_own_session_and_reads_without_writing() {
 }
 
 #[test]
+fn a_restarted_runner_does_not_ask_the_panel_again_of_a_ruling_that_has_voted() {
+    let (rig, runner) = parked("eevee", false);
+    script_all(&rig, false);
+    settle(&rig, &runner);
+    drop(runner);
+
+    let runner = rig.open().unwrap();
+    for _ in 0..4 {
+        step(&runner).unwrap();
+    }
+
+    for role in [Role::Advisor, Role::Researcher] {
+        assert_eq!(seen(&rig, role).len(), 1, "{role:?} was asked again");
+    }
+    let votes = (seen(&rig, Role::Worker).into_iter())
+        .filter(|s| s.call.prompt.contains("vote on ruling 1"))
+        .count();
+    assert_eq!(votes, 1, "the worker was asked again");
+}
+
+#[test]
 fn a_ruling_whose_work_item_is_dropped_while_the_panel_votes_is_never_posted() {
     let (rig, runner) = parked("snorlax", false);
     script_all(&rig, false);

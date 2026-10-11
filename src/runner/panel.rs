@@ -120,10 +120,13 @@ impl Runner {
     }
 
     // Whether `ruling` needs a panel that has not been taken up: it has no
-    // votes, lists two options or more, and no hold of the project manager's
-    // is still on it.
+    // votes, lists two options or more, no hold of the project manager's is
+    // still on it, and it is not posted already, since a comment posted
+    // without the votes is not edited to hold them.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
+        let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         ruling.panel.is_none()
+            && !posted
             && !self.panel.open.contains_key(&ruling.id)
             && !self.pm_holds_ruling(ruling.id)
             && super::voice::brief(ruling).1 >= 2

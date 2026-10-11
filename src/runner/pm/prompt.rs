@@ -267,4 +267,29 @@ mod tests {
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
     }
+
+    #[test]
+    fn a_wake_for_a_ruling_before_the_panel_shows_it_and_asks_for_a_vote_alone() {
+        let vote = Wake::Vote {
+            id: 4,
+            asked: "### Merge #455 into main?\n\n| | Option | What it does |".into(),
+        };
+        let fresh = wake("koji", std::slice::from_ref(&vote), &[], true);
+        assert!(
+            fresh.contains(
+                "- ruling 4 is before the panel, and your vote is due:\n  \n  > ### Merge #455 \
+                 into main?\n  >\n  > | | Option | What it does |"
+            ),
+            "{fresh}"
+        );
+        assert!(fresh.contains("\"votes\": [] or [{\"ruling\""), "{fresh}");
+        let resumed = wake("koji", &[vote], &[], false);
+        assert!(
+            resumed.contains("\"votes\": [] or [{\"ruling\""),
+            "{resumed}"
+        );
+        assert!(resumed.contains("You vote alone"), "{resumed}");
+        let other = wake("koji", &[Wake::Pick(2)], &[], false);
+        assert!(!other.contains("\"votes\""), "{other}");
+    }
 }
