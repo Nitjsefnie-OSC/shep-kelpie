@@ -27,8 +27,9 @@
 //! `kelpie version [--json]`: the build's version and the shep version it is
 //! made with, which `upgrade` reads from a build before it installs it.
 //!
-//! `kelpie confine <folder>...`: the hook that holds a worker's file tools
-//! to its folders. Claude Code runs it; it is not for the maintainer. With
+//! `kelpie confine <folder>... [--hooks=<json>]`: the hook that holds a worker's
+//! file tools to its folders, and runs the project's `write` hooks. Claude Code
+//! runs it; it is not for the maintainer. With
 //! `--append <file>` it is the project manager's, which may only add to the
 //! end of that file.
 //!
@@ -40,7 +41,8 @@
 //! With `--issues=<label>`, an `--agent=<name>` per implementer and
 //! `--ledger=<file>` it is the issue writer's hook instead, which runs only
 //! the commands it lists. With `--record` too it is the PostToolUse hook
-//! that records what the session filed and read in that ledger.
+//! that records what the session filed and read in that ledger. With `--after`
+//! it is the PostToolUse hook that runs the project's `after_command` hooks.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an

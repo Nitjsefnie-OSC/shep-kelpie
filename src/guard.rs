@@ -18,6 +18,9 @@
 //! worktree steps do, with the worktree's git dirs named and checked. A
 //! repo the worker made could name any program in its own config.
 //!
+//! The project's `command` hooks judge each command it lets through, whole;
+//! `--after` makes it the PostToolUse hook for `after_command` instead.
+//!
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
 //! only the commands it lists.
 
