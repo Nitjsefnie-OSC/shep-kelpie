@@ -294,8 +294,9 @@ pub struct Runner {
     // What the runner carried on without, kept in memory only until
     // `take_notes` hands it out
     notes: claim::Notes,
-    // The `session-started` steps of the calls just started, kept in memory
-    // only until `take_started` hands them out
+    // The steps logged in the middle of a pass, such as a `session-started`
+    // of a call just started, kept in memory only until `take_started` hands
+    // them out
     started: Vec<StepReport>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
