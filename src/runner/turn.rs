@@ -541,11 +541,22 @@ impl Runner {
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
                     if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
-                        item.pull_request = self.open_handed_over(
-                            &item.build,
-                            &item.branch,
-                            &mut item.pull_request_refused,
-                        );
+                        match self.open_handed_over(&item.build, &item.branch) {
+                            Ok(opened) => {
+                                if opened.is_some() {
+                                    item.pull_request_refused = None;
+                                }
+                                item.pull_request = opened;
+                            }
+                            // The worker can fix its own file, so it is told why.
+                            Err(refusal) => {
+                                item.pull_request_refused = Some(pull_request_file::told(&refusal));
+                                self.started.push(StepReport::PullRequestNotOpened {
+                                    issue,
+                                    reason: refusal.to_string(),
+                                });
+                            }
+                        }
                     }
                 }
                 // A later turn that rewrote the file changes the title and body,

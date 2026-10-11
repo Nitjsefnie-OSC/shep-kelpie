@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Runner;
+use crate::local_paths::Leak;
 use crate::ports::ForgeError;
 use crate::worker_folder;
 use crate::worktree::BASE;
@@ -47,51 +48,56 @@ pub(super) fn parse(file: &str) -> Option<Text> {
     })
 }
 
+/// Why a refused open reads to the worker, with how to fix it where the
+/// worker can
+///
+/// The guard's refusal never repeats what it found, so this does not either.
+pub(super) fn told(refusal: &ForgeError) -> String {
+    match refusal {
+        ForgeError::Hook { .. } => format!("{refusal}. Change the file so the hook accepts it"),
+        ForgeError::LocalPath { leak, .. } => {
+            let found = match leak {
+                Leak::Lan => "address",
+                Leak::Path | Leak::Tilde => "path",
+            };
+            format!("{refusal}. Rewrite the file without the {found} it names")
+        }
+        _ => refusal.to_string(),
+    }
+}
+
 impl Runner {
     /// Opens a draft pull request from `branch` with the text the worker left
     /// in its build folder, and returns its number
     ///
-    /// None when there is no file, or when the forge refused, which is told
-    /// in the log: the turn is then judged as one that opened no pull request.
-    ///
-    /// A project's hook that refused the file is told in `refused`, which the
-    /// worker can act on; an opened one clears it.
+    /// `Ok(None)` when there is no file to open one from, which is told in the
+    /// log. `Err` when the forge refused, whether the guard, a project's hook
+    /// or the forge itself, which is told in the log too: the turn is then
+    /// judged as one that opened no pull request, and the refusal is what the
+    /// worker and the project manager are told.
     pub(super) fn open_handed_over(
         &self,
         build: &Path,
         branch: &str,
-        refused: &mut Option<String>,
-    ) -> Option<u64> {
-        let file = self.read_handed_over(build)?;
-        let text = parse(&file).or_else(|| {
+    ) -> Result<Option<u64>, ForgeError> {
+        let Some(file) = self.read_handed_over(build) else {
+            return Ok(None);
+        };
+        let Some(text) = parse(&file) else {
             self.notes.push(format!(
                 "{} has no title on its first line, so no pull request is opened from it",
                 path(build).display()
             ));
-            None
-        })?;
-        match (self.ports.forge).create_pull_request(
-            &self.remote,
-            branch,
-            BASE,
-            &text.title,
-            &text.body,
-        ) {
-            Ok(number) => {
-                self.keep_applied(build, &file);
-                *refused = None;
-                Some(number)
-            }
-            Err(e) => {
-                // The worker can fix its own file, so it is told why.
-                if matches!(e, ForgeError::Hook { .. }) {
-                    *refused = Some(e.to_string());
-                }
+            return Ok(None);
+        };
+        let number = (self.ports.forge)
+            .create_pull_request(&self.remote, branch, BASE, &text.title, &text.body)
+            .inspect_err(|e| {
                 self.notes
                     .push(format!("cannot open a pull request from {branch}: {e}"));
-                None
-            }
-        }
+            })?;
+        self.keep_applied(build, &file);
+        Ok(Some(number))
     }
 
     /// Sets pull request `number`'s title and body to what the worker's file
@@ -145,7 +151,7 @@ mod tests {
     use super::*;
     use crate::github::ApiError;
     use crate::ports::{Cost, Forge, Usage};
-    use crate::runner::step;
+    use crate::runner::{StepReport, step};
     use crate::settings::ForgeSlug;
     use crate::test::{Asked, Rig, Scripted};
 
@@ -294,6 +300,77 @@ Resolves #7"
         );
     }
 
+    const HOME_PATH_REFUSED: &str =
+        "not posted: the pull request's body names a path under the home folder";
+
+    fn prompts(rig: &Rig) -> Vec<String> {
+        (rig.claude.seen().into_iter())
+            .map(|seen| seen.call.prompt)
+            .collect()
+    }
+
+    // The guard refuses a body naming a path under the home folder. The
+    // worker cannot see that, so the turn after tells it why and how to fix it.
+    #[test]
+    fn a_file_the_guard_refuses_is_told_to_the_worker_and_opens_once_it_is_fixed() {
+        let (rig, runner) = with_issue_7(true);
+        std::fs::write(
+            path(&rig.build_7()),
+            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+        )
+        .unwrap();
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+        step(&runner).unwrap(); // the turn pushes, and the body is refused
+
+        assert_eq!(rig.forge.text_of(500), None);
+        let logged = runner.lock().unwrap().take_started();
+        let Some(StepReport::PullRequestNotOpened { issue: 7, reason }) = logged.last() else {
+            panic!("the refusal was not logged as a step: {logged:?}");
+        };
+        assert_eq!(reason, HOME_PATH_REFUSED);
+        std::fs::write(path(&rig.build_7()), "feat: x\n\nWhy.\n\nResolves #7\n").unwrap();
+        rig.claude.script([Scripted::Say("fixed the file")]);
+        step(&runner).unwrap(); // sent back with the guard's reason
+
+        let prompts = prompts(&rig);
+        let told = prompts.last().unwrap();
+        assert!(told.contains("pull-request.md"), "{told}");
+        assert!(told.contains(HOME_PATH_REFUSED), "{told}");
+        assert!(told.contains("without the path it names"), "{told}");
+        assert!(!told.contains("~/notes"), "{told}");
+        assert_eq!(
+            rig.forge.text_of(500),
+            Some(("feat: x".to_owned(), "Why.\n\nResolves #7".to_owned())),
+            "opened from the fixed file"
+        );
+    }
+
+    // The same refusal twice parks on a ruling the project manager reads.
+    #[test]
+    fn a_file_the_guard_keeps_refusing_parks_on_a_ruling_naming_the_refusal() {
+        let (rig, runner) = with_issue_7(true);
+        std::fs::write(
+            path(&rig.build_7()),
+            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+        )
+        .unwrap();
+        rig.claude.script([
+            Scripted::Push("work.txt", "work\n"),
+            Scripted::Say("still the same"),
+        ]);
+
+        step(&runner).unwrap(); // the first turn, refused
+        step(&runner).unwrap(); // sent back, and refused again
+        let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+            panic!("the file the guard keeps refusing did not park the item");
+        };
+
+        assert_eq!(rig.forge.text_of(500), None);
+        assert!(question.contains(HOME_PATH_REFUSED), "{question}");
+        assert!(!question.contains("~/notes"), "{question}");
+    }
+
     // With no App the worker opens its own pull request, as the maintainer's
     // login, and a file it left is none of kelpie's to act on.
     #[test]
@@ -420,13 +497,13 @@ body
         let file = path(&build);
 
         nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRWXU).unwrap();
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7", &mut None), None);
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), Ok(None));
         runner.edit_handed_over(&build, 500);
         std::fs::remove_file(&file).unwrap();
 
         let two_mib = format!("feat: x\n\n{}", "y".repeat(2 << 20));
         std::fs::write(&file, two_mib).unwrap();
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7", &mut None), None);
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), Ok(None));
         runner.edit_handed_over(&build, 500);
 
         assert_eq!(rig.forge.text_of(500), None);
