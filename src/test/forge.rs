@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
-    Checks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    Checks, CommentMarks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue,
+    PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -443,37 +443,6 @@ impl FakeForge {
         self.skipped.lock().unwrap().clone()
     }
 
-    /// Leaves issue `number` open, as someone other than kelpie would have,
-    /// and shows this title and body when it is viewed
-    pub(crate) fn open_issue(&self, number: u64, title: &str, body: &str) {
-        self.issues.lock().unwrap().push(OpenIssue {
-            number,
-            title: title.to_owned(),
-            body: body.to_owned(),
-        });
-    }
-
-    /// Every issue kelpie opened, oldest first
-    pub(crate) fn created(&self) -> Vec<CreatedIssue> {
-        self.created.lock().unwrap().clone()
-    }
-
-    /// Makes listing and opening issues fail, or work again
-    pub(crate) fn set_issues_down(&self, down: bool) {
-        let why = down.then(|| "issues are down".to_owned());
-        *self.issues_down.lock().unwrap() = why;
-    }
-
-    /// Makes listing and opening issues fail with `error`, verbatim
-    pub(crate) fn set_issues_error(&self, error: &str) {
-        *self.issues_down.lock().unwrap() = Some(error.to_owned());
-    }
-
-    /// Lets `n` more issues open, then makes every later one fail
-    pub(crate) fn set_creates_left(&self, n: usize) {
-        *self.creates_left.lock().unwrap() = Some(n);
-    }
-
     /// Every merge made, with the head it was held to
     pub(crate) fn merges(&self) -> Vec<(u64, String)> {
         self.merges.lock().unwrap().clone()
@@ -727,6 +696,12 @@ impl Forge for FakeForge {
     fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.ask()?;
         Ok(self.threads.may_write(login))
+    }
+
+    fn comment_marks(&self, _repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.ask()?;
+        (self.threads.marks_of(comment))
+            .ok_or_else(|| ForgeError::Failed(format!("comment {comment} is unreadable")))
     }
 
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
@@ -995,5 +970,6 @@ impl Forge for FakeForge {
 
 mod down;
 mod handed;
+mod issues;
 mod queue;
 mod thread;

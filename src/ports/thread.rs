@@ -11,6 +11,32 @@ pub struct PostedComment {
     pub created: Timestamp,
 }
 
+/// A thumbs up or down someone left on a comment
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thumb {
+    /// Who left it
+    pub login: String,
+    /// Whether it is a thumbs up, and not a thumbs down
+    pub up: bool,
+}
+
+/// What people did to a comment of kelpie's, short of replying
+///
+/// A ruling's comment is answered by a reaction on it or a box ticked in it.
+/// Anyone with write access can edit a comment, so a tick counts only when
+/// the forge says whose edit it was.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommentMarks {
+    /// The login that wrote the comment
+    pub author: String,
+    /// What it says now
+    pub body: String,
+    /// The thumbs up and down on it, other reactions left out
+    pub thumbs: Vec<Thumb>,
+    /// The login that made each edit of it, one entry an edit
+    pub editors: Vec<String>,
+}
+
 /// One comment on the thread of an issue or a pull request
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadComment {

@@ -10,8 +10,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::{
-    Clock, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed,
-    ThreadComment, Timestamp, Visibility,
+    Clock, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding,
+    Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::review_bot::{Activity, Login};
@@ -182,6 +182,10 @@ impl Forge for RateHeld {
 
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.call(|f| f.can_write(repo, login))
+    }
+
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.call(|f| f.comment_marks(repo, comment))
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {

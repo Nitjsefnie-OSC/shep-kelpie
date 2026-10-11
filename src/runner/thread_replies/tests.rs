@@ -5,6 +5,8 @@ use crate::runner::{BOARD_POLL, CHECKS_SETTLE, Runner, step};
 use crate::state::{Heard, Ruling, RulingKind, Stuck};
 use crate::test::{Rig, Scripted, VIEWER};
 
+mod marks;
+
 const ASKS: &str = "<kelpie-question>\nWhich flag?\n</kelpie-question>\n";
 
 // A merge ruling for pull request 71 is up through the App, which mentions
@@ -39,7 +41,7 @@ fn replies_on_71(rig: &Rig) -> Vec<String> {
     let comments = rig.github.comments();
     let after = comments
         .iter()
-        .position(|(_, body)| body.starts_with("@octocat Merge"));
+        .position(|(_, body)| body.starts_with("### Merge"));
     let comments = &comments[after.unwrap() + 1..];
     comments
         .iter()
@@ -342,8 +344,8 @@ fn a_ruling_that_mentions_no_one_is_answered_at_the_terminal_only() {
     let how = &comments[0].1;
     assert!(
         how.ends_with(
-            "This ruling mentions no one, so a reply here answers nothing. Answer it at the \
-             terminal: `shep kelpie rule 1 <your answer>`."
+            "This ruling mentions no one, so a reaction, a tick or a reply here answers \
+             nothing. Answer it at the terminal: `shep kelpie rule 1 <your answer>`."
         ),
         "{how}"
     );
@@ -476,6 +478,7 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
             mentions: "octocat".into(),
             time: rig.clock.now(),
             comment: 0,
+            ruling_comment: 0,
         },
     );
     runner.save(next).unwrap();

@@ -26,7 +26,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -40,7 +40,7 @@ use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, Wor
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 25;
+const VERSION: u32 = 26;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -325,6 +325,11 @@ pub struct Heard {
     pub time: Timestamp,
     /// The forge's id for it
     pub comment: u64,
+    /// The forge's id for the ruling's own comment, which a reaction or a
+    /// ticked box on it answers, and which `comment` leaves once a reply has
+    /// been read. Zero in a file from before, which then reads no reaction.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ruling_comment: u64,
 }
 
 impl Heard {
