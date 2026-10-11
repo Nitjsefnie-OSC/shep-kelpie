@@ -104,6 +104,13 @@ impl FakeShepherd {
         self.flock.lock().unwrap().push(sheep);
     }
 
+    /// Sets `key` in the `env` of the sheep named `name`
+    pub(crate) fn sets_env(&self, name: &str, key: &str, value: &str) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        sheep.config.env.insert(key.to_owned(), value.to_owned());
+    }
+
     /// Holds `toml` as kelpie's own `[kelpie]` section of `dogs.toml`
     pub(crate) fn holds_section(&self, toml: &str) {
         *self.section.lock().unwrap() = toml.to_owned();

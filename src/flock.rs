@@ -221,6 +221,21 @@ pub(crate) async fn kelpie_sheep(
     }
 }
 
+/// The names in `name`'s `env` whose value is a secret reference, never the values
+///
+/// A plain key could hold an empty or blank value, which shep's reply does not
+/// show, so only a reference to the secret store counts as set.
+pub(crate) async fn env_secrets(client: &Client, name: &str) -> Result<Vec<String>, String> {
+    let request = Request::SheepConfig {
+        name: name.to_owned(),
+    };
+    match client.request(request).await {
+        Ok(Response::SheepConfig(view)) => Ok(view.env_secrets),
+        Ok(other) => Err(format!("the shepherd answered {other:?} for `{name}`")),
+        Err(e) => Err(format!("cannot read `{name}`'s config: {e}")),
+    }
+}
+
 /// The program `name`'s entry runs
 pub(crate) async fn script(client: &Client, name: &str) -> Result<String, String> {
     let request = Request::SheepConfig {
