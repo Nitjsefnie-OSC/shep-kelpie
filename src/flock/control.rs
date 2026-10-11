@@ -20,7 +20,7 @@ use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 use shep_client::{Client, TRIGGER_DEADLINE};
 
-use super::{flock, halt, kelpie_sheep, resume, tables};
+use super::{Checkout, flock, halt, kelpie_sheep, resume, tables};
 use crate::runner::{ProjectName, leave_answer};
 use crate::settings::Settings;
 use crate::shepherd;
@@ -35,6 +35,9 @@ const ASK_AGAIN: Duration = Duration::from_millis(500);
 
 /// The project whose repo holds `folder`: its checkout, or a worktree of it
 ///
+/// Failing that, the one project whose `git.remote` is the `origin` of the
+/// clone `folder` is in, so the maintainer's own clone finds its project.
+///
 /// # Errors
 ///
 /// A message when no project, or more than one, has its repo there, listing
@@ -46,17 +49,28 @@ pub async fn project_here(
 ) -> Result<ProjectName, String> {
     let roots = checkout_roots(folder);
     let tables = tables(client).await?;
-    let here: Vec<&String> = tables
+    let settings: Vec<(&String, Settings)> = tables
         .iter()
-        .filter(|(sheep, table)| {
-            Settings::from_table(table, sheep, home, home).is_ok_and(|s| {
-                let repo = s.git.checkout.canonicalize().unwrap_or(s.git.checkout);
-                roots.contains(&repo)
-            })
+        .filter_map(|(sheep, table)| {
+            Settings::from_table(table, sheep, home, home)
+                .ok()
+                .map(|s| (sheep, s))
         })
-        .map(|(sheep, _)| sheep)
+        .collect();
+    let here: Vec<&String> = settings
+        .iter()
+        .filter(|(_, s)| {
+            let repo = s.git.checkout.canonicalize();
+            roots.contains(&repo.unwrap_or_else(|_| s.git.checkout.clone()))
+        })
+        .map(|(sheep, _)| *sheep)
         .collect();
     let projects: Vec<&str> = tables.keys().map(String::as_str).collect();
+    if here.is_empty()
+        && let Some(found) = by_origin(folder, &settings)?
+    {
+        return Ok(found);
+    }
     match here.as_slice() {
         [one] => ProjectName::try_from(one.as_str()).map_err(|e| e.to_string()),
         [] if projects.is_empty() => {
@@ -74,6 +88,39 @@ pub async fn project_here(
                 .collect::<Vec<_>>()
                 .join(", "),
             folder.display()
+        )),
+    }
+}
+
+// The one project whose `git.remote` is `folder`'s `origin`, for a clone that
+// is no project's checkout. A project with no `git.remote` set has its
+// checkout's own `origin` stand in, as its runner reads it. None when `folder`
+// has no GitHub `origin` or no project has it.
+fn by_origin(
+    folder: &Path,
+    settings: &[(&String, Settings)],
+) -> Result<Option<ProjectName>, String> {
+    let Ok(clone) = Checkout::of(folder) else {
+        return Ok(None);
+    };
+    let matching: Vec<&str> = settings
+        .iter()
+        .filter(|(_, s)| {
+            let remote = s.git.remote.clone();
+            remote.or_else(|| Checkout::of(&s.git.checkout).ok().map(|c| c.forge))
+                == Some(clone.forge.clone())
+        })
+        .map(|(sheep, _)| sheep.as_str())
+        .collect();
+    match matching.as_slice() {
+        [] => Ok(None),
+        [one] => ProjectName::try_from(*one)
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        more => Err(format!(
+            "{} all have {} as their remote, so name one with `-p <project>`",
+            more.join(", "),
+            clone.forge.as_str()
         )),
     }
 }

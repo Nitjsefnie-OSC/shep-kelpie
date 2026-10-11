@@ -270,6 +270,107 @@ async fn a_command_reaches_the_project_whose_repo_holds_the_folder() {
     );
 }
 
+// Sets project `name`'s `git.remote`, as a settings file may.
+fn remote(shepherd: &FakeShepherd, name: &str, root: &Path, slug: &str) {
+    let mut table = crate::test::project_table(EXAMPLE);
+    table["git"]["checkout"] = Value::String(root.display().to_string());
+    table["git"]["remote"] = Value::String(slug.to_owned());
+    shepherd.holds(launch(shepherd).runner(&project(name), table), false);
+}
+
+// A plain clone of a repo: not any project's checkout, with `origin` at `url`.
+fn clone_of(shepherd: &FakeShepherd, path: &str, url: &str) -> PathBuf {
+    let folder = shepherd.scratch(path);
+    git(&folder, &["init", "-q"]);
+    git(&folder, &["remote", "add", "origin", url]);
+    folder
+}
+
+#[tokio::test]
+async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
+    let shepherd = FakeShepherd::new().await;
+    let home = PathBuf::from("/home/me");
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    remote(
+        &shepherd,
+        "reactmap",
+        &shepherd.scratch("runner/reactmap"),
+        "shep-pm/reactmap",
+    );
+    let clone = clone_of(
+        &shepherd,
+        "mine/reactmap",
+        "git@github.com:shep-pm/reactmap.git",
+    );
+    let deep = shepherd.scratch("mine/reactmap/src/deep");
+    let client = client(&shepherd).await;
+
+    for folder in [&clone, &deep] {
+        let found = in_time(project_here(&client, folder, &home)).await;
+        assert_eq!(found, Ok(project("reactmap")), "{}", folder.display());
+    }
+}
+
+#[tokio::test]
+async fn a_clone_whose_origin_is_no_projects_remote_asks_for_a_name() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    let clone = clone_of(&shepherd, "mine/other", "https://github.com/shep-pm/other");
+    let client = client(&shepherd).await;
+
+    let err = in_time(project_here(&client, &clone, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err,
+        format!(
+            "no project's repo holds {}, so name one with `-p <project>`: koji",
+            clone.display()
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_clone_whose_origin_two_projects_share_asks_for_a_name() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    remote(
+        &shepherd,
+        "koji-fork",
+        &shepherd.scratch("runner/fork"),
+        "shep-pm/koji",
+    );
+    let clone = clone_of(
+        &shepherd,
+        "mine/koji",
+        "https://github.com/shep-pm/koji.git",
+    );
+    let client = client(&shepherd).await;
+
+    let err = in_time(project_here(&client, &clone, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err,
+        "koji, koji-fork all have shep-pm/koji as their remote, so name one with `-p <project>`"
+    );
+}
+
 #[tokio::test]
 async fn with_no_projects_the_folder_names_none() {
     let shepherd = FakeShepherd::new().await;

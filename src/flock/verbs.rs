@@ -55,7 +55,7 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
 
 `-p <project>` or `--project <project>` goes anywhere in the line, before a
 ruling's answer. Without it, the project is the one whose repo holds this
-folder.";
+folder, or whose GitHub repo is this clone's `origin`.";
 
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
