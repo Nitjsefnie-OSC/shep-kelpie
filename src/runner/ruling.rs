@@ -366,7 +366,7 @@ impl Runner {
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
-            let (failed, heard) = self.post_app_ruling(thread, id, &ruling.kind);
+            let (failed, heard) = self.post_app_ruling(thread, ruling);
             if let Some(heard) = heard {
                 let mut next = self.state.clone();
                 next.heard.insert(id, heard);
@@ -902,7 +902,7 @@ pub(super) fn question(id: u64, issue: u64, number: Option<u64>, kind: &RulingKi
 // Whether a merge ruling warns of what only a new pass of the review clears:
 // a pass no reviewer read, a listed bot's threads left open, or a head no
 // round read and no fix turn of kelpie's pushed.
-fn needs_pass(kind: &RulingKind) -> bool {
+pub(super) fn needs_pass(kind: &RulingKind) -> bool {
     matches!(
         kind,
         RulingKind::Merge { unreviewed, open_threads, unread_head, .. }

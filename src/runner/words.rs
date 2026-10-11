@@ -9,6 +9,11 @@
 use super::Answer;
 use crate::state::RulingKind;
 
+/// The note a worker gets from a no or a rework that was given by a reaction
+/// or a tick, which carries none
+pub const NO_NOTE: &str = "The maintainer gave no note: read the pull request, its reviews \
+                           and CI again, and fix what looks wrong.";
+
 /// Which answer a ruling takes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wants {
