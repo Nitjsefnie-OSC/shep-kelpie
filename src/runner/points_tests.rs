@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
+use crate::ports::Checks;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -94,6 +95,198 @@ fn a_turn_the_hook_refuses_twice_parks_on_a_ruling_naming_the_hook() {
     assert_eq!(phase(&rig, &runner), "ruling");
     assert!(question.contains(TURN_END_REFUSED), "{question}");
     assert!(question.contains("refused the turn twice"), "{question}");
+}
+
+// A project parked on its merge ruling, 1, with `points` recording what they are told.
+fn parked_recording(points: &[&str]) -> (Rig, Mutex<Runner>, String) {
+    Rig::parked_set("koji", |rig| record(rig, points, "told"))
+}
+
+#[test]
+fn a_ruling_is_told_to_the_ruling_hook_with_its_kind_question_and_choices() {
+    let (rig, runner, _) = parked_recording(&["ruling"]);
+
+    let told = payloads(&rig, "told");
+
+    let [ruling] = &told[..] else {
+        panic!("one ruling was raised: {told:?}");
+    };
+    assert_eq!(ruling["point"], "ruling");
+    assert_eq!(ruling["role"], "kelpie");
+    assert_eq!(ruling["id"], 1);
+    assert_eq!(ruling["issue"], 7);
+    assert_eq!(ruling["pull_request"], 71);
+    assert_eq!(ruling["kind"], "merge");
+    assert_eq!(ruling["choices"], serde_json::json!(["yes", "no", "rework"]));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(ruling["question"], status["rulings"][0]["question"]);
+    // Told once, however many passes the ruling waits.
+    step(&runner).unwrap();
+    step(&runner).unwrap();
+    assert_eq!(payloads(&rig, "told").len(), 1);
+}
+
+#[test]
+fn a_question_ruling_takes_free_text_and_has_no_choices() {
+    let rig = Rig::new("shep");
+    record(&rig, &["ruling"], "told");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say(
+        "<kelpie-question>\nWhich flag?\n</kelpie-question>",
+    )]);
+
+    step(&runner).unwrap();
+
+    let told = payloads(&rig, "told");
+    let [ruling] = &told[..] else {
+        panic!("one ruling was raised: {told:?}");
+    };
+    assert_eq!(ruling["kind"], "question");
+    assert_eq!(ruling["choices"], serde_json::json!([]));
+    assert!(ruling["question"].as_str().unwrap().contains("Which flag?"));
+}
+
+#[test]
+fn a_ruling_a_restart_finds_is_not_told_again() {
+    let (rig, runner, _) = parked_recording(&["ruling"]);
+    drop(runner);
+
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+
+    assert_eq!(payloads(&rig, "told").len(), 1);
+}
+
+#[test]
+fn a_notice_that_exits_one_is_logged_with_its_name_and_the_loop_goes_on() {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        rig.hook("fails.sh", &["ruling"], "echo 'no webhook for you' >&2; exit 1");
+    });
+
+    let logged = notes(&runner);
+
+    assert!(logged.contains("the `ruling` hook `fails.sh`"), "{logged}");
+    assert!(logged.contains("no webhook for you"), "{logged}");
+    // The ruling still stands, and can be answered.
+    assert_eq!(phase(&rig, &runner), "ruling");
+    rig.ask(&runner, "rule", Some("1 yes"));
+    assert_eq!(phase(&rig, &runner), "merge");
+}
+
+#[test]
+fn a_notice_that_hangs_is_stopped_logged_and_holds_nothing_up() {
+    let rig = Rig::new("koji");
+    rig.hook("hangs.sh", &["ci"], "sleep 30");
+    let runner = rig.open().unwrap();
+    let timeout = std::time::Duration::from_millis(200);
+    {
+        let mut runner = runner.lock().unwrap();
+        runner.hooks = runner.hooks.clone().with_timeout(timeout);
+    }
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.ci_on_now(&runner);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the turn pushes, and the review starts
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+
+    let started = std::time::Instant::now();
+    for _ in 0..8 {
+        rig.verdict(&runner);
+    }
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    let logged = notes(&runner);
+    assert!(logged.contains("the `ci` hook `hangs.sh`"), "{logged}");
+    assert!(logged.contains("ran past"), "{logged}");
+}
+
+#[test]
+fn the_ci_hook_is_told_a_head_that_settled_green_with_no_failed_checks() {
+    let (rig, runner, head) = parked_recording(&["ci"]);
+
+    let told = payloads(&rig, "told");
+
+    let [ci] = &told[..] else {
+        panic!("CI settled once: {told:?}");
+    };
+    assert_eq!(ci["point"], "ci");
+    assert_eq!(ci["role"], "kelpie");
+    assert_eq!(ci["issue"], 7);
+    assert_eq!(ci["pull_request"], 71);
+    assert_eq!(ci["head"], head.as_str());
+    assert_eq!(ci["conclusion"], "passed");
+    assert_eq!(ci["failed"], serde_json::json!([]));
+    step(&runner).unwrap();
+    assert_eq!(payloads(&rig, "told").len(), 1, "told once for the head");
+}
+
+#[test]
+fn the_ci_hook_is_told_the_names_of_the_checks_that_failed() {
+    let rig = Rig::new("koji");
+    record(&rig, &["ci"], "told");
+    let runner = rig.open().unwrap();
+    rig.ci_on_now(&runner);
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["build".into(), "lint".into()]));
+
+    rig.verdict(&runner);
+
+    let told = payloads(&rig, "told");
+    let [ci] = &told[..] else {
+        panic!("CI settled once: {told:?}");
+    };
+    assert_eq!(ci["conclusion"], "failed");
+    assert_eq!(ci["failed"], serde_json::json!(["build", "lint"]));
+    assert_eq!(ci["head"], head.as_str());
+}
+
+#[test]
+fn the_done_hook_is_told_a_work_item_that_merged_with_its_history_entry() {
+    let (rig, runner, head) = parked_recording(&["done"]);
+    rig.ask(&runner, "rule", Some("1 yes"));
+
+    step(&runner).unwrap(); // marks the draft ready
+    rig.clock.advance(crate::runner::CHECKS_SETTLE);
+    step(&runner).unwrap(); // merges, and the work item ends
+
+    let told = payloads(&rig, "told");
+    let [done] = &told[..] else {
+        panic!("one work item ended: {told:?}");
+    };
+    assert_eq!(done["point"], "done");
+    assert_eq!(done["issue"], 7);
+    assert_eq!(done["pull_request"], 71);
+    assert_eq!(done["merged"], true);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(done["history"], status["history"][0]);
+    assert_eq!(done["history"]["issue"], 7);
+    let _ = head;
+}
+
+#[test]
+fn the_done_hook_is_told_a_work_item_that_ended_unmerged_too() {
+    let rig = Rig::new("shep");
+    record(&rig, &["done"], "told");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+
+    rig.ask(&runner, "drop", None);
+    step(&runner).unwrap();
+
+    let told = payloads(&rig, "told");
+    let [done] = &told[..] else {
+        panic!("one work item ended: {told:?}");
+    };
+    assert_eq!(done["issue"], 7);
+    assert_eq!(done["merged"], false);
 }
 
 #[test]

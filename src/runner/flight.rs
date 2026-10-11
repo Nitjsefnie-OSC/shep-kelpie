@@ -650,6 +650,8 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 #[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     let pass = one_pass(runner);
+    // After the pass, so a ruling it raised is told in the pass that raised it.
+    lock(runner).tell_rulings();
     brief(runner);
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
@@ -696,8 +698,15 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).begin(None)
 }
 
-// Records one piece of news from a call in flight.
+// Records one piece of news from a call in flight, and tells the project's `ruling`
+// hooks the ruling it may have raised.
 fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
+    let heard = hear_news(runner, news);
+    lock(runner).tell_rulings();
+    heard
+}
+
+fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
     let mut runner = lock(runner);
     let (issue, end) = match news {
         News::Stage { issue, stage, .. } => {
