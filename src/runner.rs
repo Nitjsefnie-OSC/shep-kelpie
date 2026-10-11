@@ -739,6 +739,8 @@ impl Runner {
         // A ruling that is answered takes the place read to in its thread with it.
         next.heard
             .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
+        next.unmentioned
+            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
         // The comments kelpie posted since the last save go in with it.
         let fresh = self.posted.take();
         next.note_posted(&fresh);

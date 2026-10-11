@@ -27,7 +27,9 @@
 //!
 //! An answer given here and one given at the terminal or on ntfy: the first
 //! wins. A ruling answered elsewhere is watched for a while longer, so a
-//! reply here that names it is told it is already answered.
+//! reply here that names it is told who answered it and with what. Its own
+//! comment is edited to say it is settled (see [`settled`]), unless the
+//! maintainer answered it here.
 //!
 //! The forge is asked with the runner's lock let go: [`Runner::thread_job`]
 //! decides a read is due and copies what it needs, [`ThreadJob::run`] reads,
@@ -36,6 +38,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
+use self::settled::Ended;
+pub(super) use self::settled::{Outcome, Settler};
 use super::looks::BOARD_POLL;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
@@ -81,6 +85,16 @@ pub(super) struct Reading {
     /// Why a ruling's reaction or tick was refused, told once each, since
     /// it stays on the comment and is read again at every poll
     refused: BTreeMap<u64, String>,
+    /// What became of each ruling that left the state while it was watched,
+    /// as a reply in its thread is told
+    told: BTreeMap<u64, String>,
+    /// The rulings the last save took out of the state while their comments
+    /// were up, until what became of them is said
+    ended: BTreeMap<u64, Ended>,
+    /// The edit of a settled ruling's comment that failed, by ruling: the
+    /// comment's id and its new body, and when it is given up, tried again at
+    /// each poll until then
+    unedited: BTreeMap<u64, (u64, String, Timestamp)>,
 }
 
 /// What a comment on a watched thread is a reply to
@@ -289,7 +303,7 @@ impl Runner {
             let Some(answer) = marked(&ruling.kind, &watch.heard.mentions, &marks) else {
                 continue;
             };
-            match self.rule(id, answer) {
+            match self.rule_by(id, answer, Settler::Thread) {
                 Ok(()) => {
                     self.threads.refused.remove(&id);
                 }
@@ -332,6 +346,11 @@ impl Runner {
                 .get_or_insert(Timestamp(now.0.saturating_add(LATE)));
             now < until
         });
+        self.threads.told.retain(|id, _| threads.contains_key(id));
+        // What a ruling's end said is said by the call that ended it, before
+        // any poll, so a ruling still here at a poll ended another way.
+        self.threads.ended.clear();
+        self.retry_edits(now);
     }
 
     // Moves the place read to forward to `comment` for each ruling on its
@@ -384,7 +403,9 @@ impl Runner {
             Aimed::Nothing => {}
             Aimed::At(id, named) => self.answer(comment, id, named, words),
             Aimed::Settled(id) => {
-                let said = format!("@{who} Ruling {id} is already answered.");
+                let told =
+                    (self.threads.told.get(&id)).map_or("is already answered", String::as_str);
+                let said = format!("@{who} Ruling {id} {told}.");
                 self.say(thread, &said);
             }
             Aimed::Elsewhere(id, there) => {
@@ -414,8 +435,9 @@ impl Runner {
         };
         let wants = Wants::of(&ruling.kind);
         let ruled = if named || wants == Wants::Answer {
-            read_answer(wants, words)
-                .and_then(|answer| self.rule(id, answer).map_err(|e| e.to_string()))
+            read_answer(wants, words).and_then(|answer| {
+                (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
+            })
         } else {
             Err(format!(
                 "start your reply with its id, as {}",
@@ -452,9 +474,21 @@ impl Reading {
     pub(super) fn settled(&mut self, before: &ProjectState, after: &ProjectState, now: Timestamp) {
         let until = Timestamp(now.0.saturating_add(LATE));
         let gone = (before.rulings.iter()).filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
-        for (id, watch) in gone.filter_map(|ruling| watch_of(before, ruling)) {
-            let watch = self.watching.entry(id).or_insert(watch);
-            watch.settled.get_or_insert(until);
+        for ruling in gone {
+            // A ruling posted with no mention has no place read to, only its
+            // comment's id.
+            let kept = before.heard.get(&ruling.id).map(|h| h.ruling_comment);
+            let comment = kept
+                .filter(|comment| *comment != 0)
+                .or_else(|| before.unmentioned.get(&ruling.id).copied());
+            if let Some(comment) = comment {
+                let ruling = ruling.clone();
+                self.ended.insert(ruling.id, Ended { ruling, comment });
+            }
+            if let Some((id, watch)) = watch_of(before, ruling) {
+                let watch = self.watching.entry(id).or_insert(watch);
+                watch.settled.get_or_insert(until);
+            }
         }
     }
 
@@ -554,6 +588,8 @@ fn watch_of(state: &ProjectState, ruling: &Ruling) -> Option<(u64, Watch)> {
         },
     ))
 }
+
+mod settled;
 
 #[cfg(test)]
 mod tests;

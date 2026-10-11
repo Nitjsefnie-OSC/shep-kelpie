@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use super::{PATIENCE, answered, step_until, with_pm};
+use super::{PATIENCE, answered, pm_on, step_until, with_pm};
 use crate::ports::AgentError;
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
@@ -70,6 +70,60 @@ fn a_question_wakes_it_and_its_text_is_the_workers_next_turn() {
         resumed.contains("PM answered: Use --dry-run: the issue says it matches shep."),
         "{resumed}"
     );
+}
+
+#[test]
+fn a_question_posted_while_draining_is_edited_to_say_the_project_manager_answered_it() {
+    let rig = Rig::new("raichu");
+    rig.with_app();
+    rig.maintainer("octocat");
+    rig.forge.list_ready(7, false);
+    // With no webhook the maintainer is told by the comment alone, so the
+    // ruling is not alerted, and the project manager may still answer it.
+    std::fs::write(rig.kelpie_settings_file(), "").unwrap();
+    let (rig, runner) = pm_on(rig);
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say(ASKS)]);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Asked { id: 1, .. })
+    ));
+    // A runner that drains for an upgrade does not hold the question back
+    // for the project manager, so it is posted at once.
+    rig.ask(&runner, "drain", None);
+    step(&runner).unwrap();
+    let posted = rig.github.comments();
+    assert!(
+        posted
+            .iter()
+            .any(|(_, c)| c.contains("Both appear in the docs."))
+    );
+    assert_eq!(rig.github.edits(), []);
+
+    // The restarted runner's project manager answers it.
+    rig.ask(&runner, "undrain", None);
+    rig.claude.script([
+        Scripted::Say(
+            "{\"answer\": {\"item\": 7, \"text\": \"Use --dry-run: the issue says it matches \
+             shep.\", \"why\": \"#7 names the flag\"}}",
+        ),
+        Scripted::Say("renamed"),
+    ]);
+    step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+
+    let [(comment, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!(comment, 100);
+    let first = "**Settled.** The project manager answered: Use --dry-run: the issue says it \
+                 matches shep (why: #7 names the flag). Nothing waits on the maintainer.";
+    assert_eq!(body.lines().next(), Some(first));
+    assert!(
+        body.contains("### Should it be `--dry-run` or `--check`?"),
+        "{body}"
+    );
+    assert!(body.contains("Both appear in the docs."), "{body}");
+    for gone in ["@octocat", "- [ ]", "Reply", "| Option |"] {
+        assert!(!body.contains(gone), "{gone} is still in:\n{body}");
+    }
 }
 
 #[test]

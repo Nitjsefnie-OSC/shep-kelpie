@@ -175,6 +175,8 @@ pub const REPLY_TO_THREAD: &str = "mutation($id: ID!, $body: String!) { \
 pub enum Verb {
     /// `POST`
     Post,
+    /// `PATCH`
+    Patch,
     /// `DELETE`
     Delete,
 }
@@ -199,6 +201,16 @@ impl Call {
             format!("/repos/{}/issues/{thread}/comments", repo.as_str()),
             serde_json::json!({ "body": body }),
         )
+    }
+
+    /// Comment `comment` rewritten to say `body`,
+    /// `PATCH /repos/{owner}/{repo}/issues/comments/{comment}`
+    pub fn edit_comment(repo: &ForgeSlug, comment: u64, body: &str) -> Self {
+        Self {
+            verb: Verb::Patch,
+            path: format!("/repos/{}/issues/comments/{comment}", repo.as_str()),
+            body: Some(serde_json::json!({ "body": body }).to_string()),
+        }
     }
 
     /// A thumbs up on comment `comment`,

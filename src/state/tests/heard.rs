@@ -36,6 +36,27 @@ fn where_a_ruling_is_answered_in_its_thread_is_pinned_by_ruling_id_and_left_out_
 }
 
 #[test]
+fn the_comment_of_a_ruling_posted_with_no_mention_is_kept_by_ruling_id_and_left_out_when_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::new(dir.path().join("state.json"));
+    let mut state = ProjectState::new();
+    let saved = |store: &StateStore, state: &ProjectState| {
+        store.save(state).unwrap();
+        let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()
+    };
+    assert_eq!(saved(&store, &state).get("unmentioned"), None);
+
+    state.unmentioned.insert(3, 12);
+
+    assert_eq!(
+        saved(&store, &state)["unmentioned"],
+        serde_json::json!({ "3": 12 })
+    );
+    assert_eq!(store.load().unwrap(), Some(state));
+}
+
+#[test]
 fn a_heard_saved_before_the_rulings_own_comment_was_kept_loads_with_none() {
     let old = r#"{"mentions":"octocat","time":6,"comment":7}"#;
 

@@ -8,6 +8,7 @@
 //! say. With no bot listed, it owes none.
 
 use super::Runner;
+use super::thread_replies::Outcome;
 use crate::ports::Alert;
 use crate::state::{RulingKind, StateError};
 use crate::work_item::{Awaited, Phase};
@@ -78,6 +79,7 @@ impl Runner {
         );
         let text = format!("Merge ruling {id} on {about} is withdrawn: {why}. Nothing to answer.");
         self.notes.push(text.clone());
+        self.say_settled(id, Outcome::withdrawn(why));
         self.notice_on(number.unwrap_or(issue), &text);
         let Some(webhook) = self.webhook.clone() else {
             return;
