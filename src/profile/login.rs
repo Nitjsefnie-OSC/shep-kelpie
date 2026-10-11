@@ -68,6 +68,13 @@ fn write_private(path: &Path, text: &str) -> io::Result<()> {
 /// reads it after every config file, so the helper list is emptied after
 /// whatever the maintainer's own files named, and github.com's is the only one
 /// left. None of the names holds `KEY`, `SECRET` or `TOKEN`.
+///
+/// The sandbox runtime sets the same variable to
+/// `http.proxyAuthMethod=basic`, and this one replaces it, so it carries that
+/// setting too. Without it git connects to the sandbox's proxy without its
+/// login, the proxy answers 407 and closes the connection, and git's retry on
+/// that connection fails as "Proxy CONNECT aborted": no covered worker could
+/// push.
 pub(super) fn env(build: &Path) -> Vec<(String, String)> {
     let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
     vec![
@@ -76,7 +83,7 @@ pub(super) fn env(build: &Path) -> Vec<(String, String)> {
         pair("GIT_TERMINAL_PROMPT", "0"),
         pair(
             "GIT_CONFIG_PARAMETERS",
-            "'credential.helper'='' \
+            "'http.proxyAuthMethod'='basic' 'credential.helper'='' \
              'credential.https://github.com.helper'='!gh auth git-credential'",
         ),
     ]
