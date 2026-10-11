@@ -33,6 +33,7 @@ impl Runner {
             }
         };
         self.trim_finished(&ready)?;
+        self.trim_dropped(&ready)?;
         // An issue in flight is left out, and not listed in `skipped`: it is
         // being worked on, not passed over.
         ready.retain(|issue| self.state.item(issue.number).is_none());
@@ -58,21 +59,27 @@ impl Runner {
         let overlaps = self.parked_overlap(&ready);
         ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == issue.number));
         let implementers = self.agents.implementer_names();
-        let all = takeable(&ready, &open, &self.state.finished, &implementers);
+        let all = takeable(
+            &ready,
+            &open,
+            &self.state.finished,
+            &self.state.dropped,
+            &implementers,
+        );
         let held = self.pm_holds(&all);
         ready.retain(|issue| !held.contains(&issue.number));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
             let implementers = self.agents.implementer_names();
-            let finished = &self.state.finished;
-            let pick = board::pick(&ready, &open, finished, &implementers);
+            let (finished, dropped) = (&self.state.finished, &self.state.dropped);
+            let pick = board::pick(&ready, &open, finished, dropped, &implementers);
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
             skipped.extend(unlabelled.iter().cloned());
             skipped.sort_by_key(Skip::issue);
-            let takeable = takeable(&ready, &open, finished, &implementers);
+            let takeable = takeable(&ready, &open, finished, dropped, &implementers);
             let Some(issue) = pick.issue else {
                 let reason = failed
                     .iter()
@@ -172,12 +179,13 @@ fn takeable(
     ready: &[ReadyIssue],
     open: &[board::OpenPullRequest],
     finished: &[u64],
+    dropped: &[u64],
     implementers: &[crate::settings::AgentName],
 ) -> Vec<u64> {
     (ready.iter())
         .filter(|i| {
             let one = std::slice::from_ref(*i);
-            board::pick(one, open, finished, implementers)
+            board::pick(one, open, finished, dropped, implementers)
                 .issue
                 .is_some()
         })
@@ -206,6 +214,18 @@ impl Runner {
         next.finished.retain(|n| !closed.contains(n));
         self.save(next)
     }
+
+    // The board leaves a dropped issue be while the forge lists it ready, so an
+    // entry goes once the forge stops listing it: a label put back is then new.
+    fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
+        let listed = |n: &u64| ready.iter().any(|r| r.number == *n);
+        if self.state.dropped.iter().all(listed) {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.dropped.retain(listed);
+        self.save(next)
+    }
 }
 
 #[cfg(test)]
@@ -225,6 +245,59 @@ mod tests {
         let rig = Rig::new(project);
         let runner = rig.open().unwrap();
         (rig, runner)
+    }
+
+    #[test]
+    fn a_dropped_item_labelled_ready_again_is_picked_again() {
+        let (rig, runner) = running("shep");
+        rig.forge.list_ready(7, false);
+        step(&runner).unwrap();
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", None);
+
+        // Still labelled, so the board leaves it be and says it was dropped.
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["skipped"],
+            json!([{ "reason": "dropped", "issue": 7 }])
+        );
+
+        rig.forge.unlist_ready(7);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.forge.list_ready(7, false);
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 7, .. })
+        ));
+    }
+
+    #[test]
+    fn a_merged_item_the_forge_still_lists_ready_stays_skipped() {
+        let (rig, runner, _) = Rig::parked("acme");
+        rig.ask(&runner, "rule", Some("1 yes"));
+        step(&runner).unwrap();
+        rig.clock.advance(crate::runner::CHECKS_SETTLE);
+        step(&runner).unwrap();
+        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
+
+        // The forge still lists #7 as ready, and it stays skipped as finished
+        // even once a label comes off and goes on again.
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.next_look();
+        rig.forge.unlist_ready(7);
+        step(&runner).unwrap();
+        rig.next_look();
+        rig.forge.list_ready(7, false);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["skipped"],
+            json!([{ "reason": "finished", "issue": 7 }])
+        );
     }
 
     fn sonnet_high() -> AgentName {

@@ -31,7 +31,10 @@ impl Runner {
     // for each finished issue, whose own removal a refusal may have missed
     pub(super) fn settle_labels(&mut self) {
         let held = self.state.open_issues();
-        let finished = self.state.finished.clone();
+        let state = &self.state;
+        let finished: Vec<u64> = (state.finished.iter().chain(&state.dropped))
+            .copied()
+            .collect();
         for issue in held {
             self.mark_held(issue, true);
         }
