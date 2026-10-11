@@ -51,6 +51,12 @@ impl Ledger {
     }
 }
 
+/// The issues the session with the ledger at `path` filed, in the order it
+/// filed them, none when the ledger is missing or cannot be read
+pub fn filed_in(path: &Path) -> Vec<u64> {
+    Ledger::read(Some(path)).filed
+}
+
 /// Records what the issue writer's finished command in `input`, a
 /// PostToolUse hook's input, filed or read, in the ledger `rules` name
 ///

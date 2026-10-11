@@ -11,10 +11,29 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
     let status = mode.status();
     let ending = match mode {
         Mode::Headless => format!(
-            "You run on your own, and no one answers a question. Where the request \
-             leaves a choice open, take the one the repo's docs point to, and say in the \
-             issue what you chose and why. File every issue with `{status}`, which holds \
-             it for the maintainer to read before any agent takes it.\n\n\
+            "You run on your own, and no one answers a question, so you cannot grill \
+             the maintainer. Where the request leaves a choice open, take the one the \
+             repo's docs point to, and say in the issue what you chose and why. \
+             {FACTS}\n\n\
+             A decision the repo's docs and code do not settle is one only the maintainer \
+             can make. Do not guess it silently: end the issue it affects with an \
+             `## Open questions` section, after the acceptance criteria, that asks it in \
+             the format of the `grilling` skill, with your recommended answer, so the \
+             maintainer can answer on the issue before labelling it ready. Number the \
+             questions from 1 in each issue, and separate them with `---`:\n\n\
+             ```\n\
+             ## Open questions\n\n\
+             {QUESTION}\n\n\
+             ---\n\n\
+             ❓ **Q2** - **<question title>**: <question body>\n\n\
+             ➡️ <your recommended answer>\n\
+             ```\n\n\
+             Put a question in the issue it holds up; one that holds up the whole \
+             request goes in the parent. Write the section only if you left a decision \
+             open, and then write each acceptance criterion as if your recommended \
+             answer holds.\n\n\
+             File every issue with `{status}`, which holds it for the maintainer to \
+             read before any agent takes it.\n\n\
              When you have filed everything, end with one JSON object and nothing \
              else:\n\
              {{\"filed\": [<each issue's number, a parent first>], \"note\": \"<one \
@@ -23,11 +42,22 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
              covers, file nothing and say why in the note."
         ),
         Mode::Interactive => format!(
-            "You are working with the maintainer in their terminal. Research first, \
-             then propose the issues: each one's title, what it delivers, its agent and \
+            "You are working with the maintainer in their terminal, and the session \
+             starts with the `grill-with-docs` skill: grill the maintainer on the \
+             request, round by round, until nothing is left silently assumed. Research \
+             the repo before you ask. {FACTS}\n\n\
+             File nothing until the maintainer confirms you share an understanding. \
+             Then propose the issues: each one's title, what it delivers, its agent and \
              what blocks it. Ask whether the scope and any split are right, and file only \
              what the maintainer agrees, with `{status}`, which puts it on kelpie's \
-             board. Then list what you filed, by number."
+             board. Then list what you filed, by number.\n\n\
+             You are in a checkout of a docs branch cut from `origin/main`. As decisions \
+             settle, `domain-modeling` writes terms to `GLOSSARY.md` and records ADRs \
+             in `docs/adr/`: write them here. Those are the only files you may write, \
+             and your file tools refuse any other. Do not commit or push. When the \
+             session ends, kelpie commits what you wrote, pushes the branch, opens a \
+             draft pull request beside the issues and links it from each issue you \
+             filed."
         ),
     };
     format!(
@@ -37,6 +67,16 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
         commands(status),
     )
 }
+
+// One open question, in the format of the `grilling` skill.
+const QUESTION: &str = "❓ **Q1** - **<question title>**: <question body, which may run to \
+    several paragraphs and offer choices>\n\n➡️ <your recommended answer>";
+
+// Facts are the repo's to give. The skills the issue writer runs would send a
+// sub-agent for one, and its settings deny sub-agents.
+const FACTS: &str = "Facts come from the repo, never the maintainer. A skill may tell you \
+    to send a sub-agent to find one: you have none, so look it up yourself with Read, Grep \
+    and Glob. Ask the maintainer only for decisions.";
 
 /// The listed implementers, the default first, as an `agent:` label names them
 pub fn implementers(agents: &RoleAgents) -> String {

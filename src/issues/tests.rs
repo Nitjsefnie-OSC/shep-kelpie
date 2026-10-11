@@ -322,6 +322,15 @@ fn the_prompt_lists_the_implementers_default_first_and_how_each_mode_ends() {
     assert!(headless.contains(listed), "{headless}");
     assert!(headless.contains("--label 'ready-for-human'"), "{headless}");
     assert!(headless.contains("{\"filed\": ["), "{headless}");
+    // It cannot grill, so what it could not settle it asks on the issue, in
+    // the grilling skill's format with a recommended answer.
+    for word in [
+        "## Open questions",
+        "❓ **Q1**",
+        "➡️ <your recommended answer>",
+    ] {
+        assert!(headless.contains(word), "{word}: {headless}");
+    }
     assert!(
         !headless.contains("`git"),
         "the guard runs no git: {headless}"
@@ -335,6 +344,20 @@ fn the_prompt_lists_the_implementers_default_first_and_how_each_mode_ends() {
         !interactive.contains("{\"filed\""),
         "it talks to the maintainer"
     );
+    assert!(!interactive.contains("Open questions"), "{interactive}");
+    for word in [
+        "`grill-with-docs`",
+        "`GLOSSARY.md`",
+        "`docs/adr/`",
+        "only files you may write",
+    ] {
+        assert!(interactive.contains(word), "{word}: {interactive}");
+    }
+    // Facts are the repo's to give, and it has no sub-agent to fetch them.
+    for prompt in [&headless, &interactive] {
+        assert!(prompt.contains("Facts come from the repo"), "{prompt}");
+        assert!(prompt.contains("Read, Grep and Glob"), "{prompt}");
+    }
     for prompt in [&headless, &interactive] {
         for word in ["cost", "price", "cheap", "expensive", "budget"] {
             assert!(!prompt.to_lowercase().contains(word), "{word}");
@@ -342,24 +365,47 @@ fn the_prompt_lists_the_implementers_default_first_and_how_each_mode_ends() {
     }
 }
 
-#[test]
-fn interactive_starts_claude_in_the_checkout_with_the_prompt_appended_and_the_guard() {
-    let s = Setup::new();
-    let dir = tempfile::tempdir().unwrap();
-    let (program, said) = (dir.path().join("claude"), dir.path().join("argv"));
-    let record = format!(
+// A `claude` that records how it was started and then writes `files`, each
+// with its folder made, in the checkout it runs in.
+fn fake_claude(dir: &Path, files: &[&str]) -> (PathBuf, PathBuf) {
+    let (program, said) = (dir.join("claude"), dir.join("argv"));
+    let mut script = format!(
         "#!/bin/sh\nprintf '%s\\0' \"$PWD\" \"$@\" > '{}'\n",
         said.display()
     );
-    write_script(&program, &record);
+    for file in files {
+        script.push_str(&format!(
+            "mkdir -p \"$(dirname '{file}')\"\nprintf 'written\\n' > '{file}'\n"
+        ));
+    }
+    write_script(&program, &script);
+    (program, said)
+}
+
+#[test]
+fn interactive_starts_claude_on_grill_with_docs_in_a_docs_checkout_with_the_guard() {
+    let s = Setup::new();
+    let dir = tempfile::tempdir().unwrap();
+    let (program, said) = fake_claude(dir.path(), &[]);
 
     let mut claude = interactive(&s.project(), &s.writer, REQUEST, program.as_os_str()).unwrap();
     assert!(claude.command.status().unwrap().success());
 
     let said = std::fs::read_to_string(&said).unwrap();
     let words: Vec<&str> = said.trim_end_matches('\0').split('\0').collect();
-    let repo = s.settings.git.checkout.canonicalize().unwrap();
-    assert_eq!(Path::new(words[0]).canonicalize().unwrap(), repo);
+    // It runs in a checkout of its own, cut from main on a branch of its own,
+    // not in the maintainer's.
+    let docs = claude.docs.worktree().to_owned();
+    assert_eq!(
+        Path::new(words[0]).canonicalize().unwrap(),
+        docs.canonicalize().unwrap()
+    );
+    assert!(docs.starts_with(s.paths.issues()), "{}", docs.display());
+    let branch = claude.docs.branch();
+    assert!(branch.starts_with("kelpie/docs-"), "{branch}");
+    assert_eq!(git(&docs, &["branch", "--show-current"]).trim(), branch);
+    let main = git(&s.settings.git.checkout, &["rev-parse", "origin/main"]);
+    assert_eq!(git(&docs, &["rev-parse", "HEAD"]), main);
     let [settings, ledger] = claude.files.as_slice() else {
         panic!("its settings and its ledger, not {:?}", claude.files)
     };
@@ -370,9 +416,13 @@ fn interactive_starts_claude_in_the_checkout_with_the_prompt_appended_and_the_gu
     );
     let prompt = instructions(&s.writer, &s.project(), Mode::Interactive);
     let settings_arg = settings.display().to_string();
+    let plugin_arg = claude.plugin.display().to_string();
+    let first = format!("/mattpocock:grill-with-docs {REQUEST}");
     assert_eq!(
         &words[1..],
         [
+            "--plugin-dir",
+            plugin_arg.as_str(),
             "--model",
             "claude-opus-5-5",
             "--effort",
@@ -381,9 +431,14 @@ fn interactive_starts_claude_in_the_checkout_with_the_prompt_appended_and_the_gu
             settings_arg.as_str(),
             "--append-system-prompt",
             prompt.as_str(),
-            REQUEST,
+            first.as_str(),
         ]
     );
+    // The plugin holds the skill the first message runs, and the two it calls.
+    for skill in ["grill-with-docs", "grilling", "domain-modeling"] {
+        let found = claude.plugin.join(format!("skills/{skill}/SKILL.md"));
+        assert!(found.is_file(), "{}", found.display());
+    }
     let written: Value = serde_json::from_str(&std::fs::read_to_string(settings).unwrap()).unwrap();
     assert!(
         written.get("sandbox").is_none(),
@@ -392,11 +447,173 @@ fn interactive_starts_claude_in_the_checkout_with_the_prompt_appended_and_the_gu
     // The maintainer is asked before each command the guard lets through.
     assert!(written["permissions"].get("allow").is_none(), "{written}");
     assert_guarded(&written, READY, ledger);
-    assert_file_tools_read_only(&written, &s.settings.git.checkout, &s.rig);
+    assert_file_tools_read_only(&written, &docs, &s.rig);
+    assert_writes_docs_only(&written, &docs);
+    // It reads the skills' own files, wherever the plugin is.
+    assert_file_tools_read_only(&written, &claude.plugin, &s.rig);
     assert!(
         s.rig.claude.all_seen().is_empty(),
         "no session of kelpie's own"
     );
+}
+
+// Its file tools may write the glossary and the ADR folder in `docs`, and
+// the notebook writer stays denied.
+fn assert_writes_docs_only(settings: &Value, docs: &Path) {
+    let deny: Vec<&str> = (settings["permissions"]["deny"].as_array().unwrap().iter())
+        .filter_map(Value::as_str)
+        .collect();
+    for tool in ["Edit", "Write", "MultiEdit"] {
+        assert!(!deny.contains(&tool), "{tool} is allowed to ask");
+    }
+    assert!(deny.contains(&"NotebookEdit"), "{deny:?}");
+    assert!(deny.contains(&"Agent"), "no sub-agents: {deny:?}");
+    let hooks = settings["hooks"]["PreToolUse"].as_array().unwrap();
+    let confines: Vec<&str> = hooks
+        .iter()
+        .filter(|h| h["matcher"].as_str().is_some_and(|m| m.contains("Edit")))
+        .map(|h| h["hooks"][0]["command"].as_str().unwrap())
+        .collect();
+    let root = docs.canonicalize().unwrap();
+    let root = root.display();
+    assert_eq!(
+        confines,
+        [format!(
+            "'{}' 'confine' '{root}/GLOSSARY.md' '{root}/docs/adr'",
+            Rig::KELPIE
+        )]
+    );
+}
+
+// The checkout of a `main` that has the project's glossary, and the git
+// identity a commit of the maintainer's needs.
+fn identified(s: &Setup) {
+    let repo = &s.settings.git.checkout;
+    git(repo, &["config", "user.name", "rig"]);
+    git(repo, &["config", "user.email", "rig@example.invalid"]);
+}
+
+// Runs the interactive writer to its end, with the issues in `filed` in its
+// ledger, and returns what kelpie said.
+fn ran_to_the_end(
+    s: &Setup,
+    files: &[&str],
+    filed: &[u64],
+) -> (Interactive, Result<Vec<String>, String>) {
+    identified(s);
+    let dir = tempfile::tempdir().unwrap();
+    let (program, _) = fake_claude(dir.path(), files);
+    let mut claude = interactive(&s.project(), &s.writer, REQUEST, program.as_os_str()).unwrap();
+    assert!(claude.command.status().unwrap().success());
+    let filed = json!({ "filed": filed, "ids": {} });
+    std::fs::write(&claude.files[1], filed.to_string()).unwrap();
+    let said = claude.end(&s.project(), &s.rig.forge);
+    (claude, said)
+}
+
+#[test]
+fn what_it_writes_becomes_a_draft_pull_request_linked_from_the_issues_it_filed() {
+    let s = Setup::new();
+    s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
+    s.filed(42, "Its lookout button", BODY, &[READY, "agent:opus-high"]);
+
+    let (claude, said) = ran_to_the_end(&s, &["GLOSSARY.md", "docs/adr/0001-pause.md"], &[41, 42]);
+
+    assert_eq!(
+        said.unwrap(),
+        [
+            "opened draft pull request #500 on shep-pm/shep with GLOSSARY.md, \
+             docs/adr/0001-pause.md",
+            "linked it from #41",
+            "linked it from #42",
+        ]
+    );
+    let (title, body) = s.rig.forge.pull_request_text(500).unwrap();
+    assert_eq!(
+        title,
+        format!("docs: record what planning \"{REQUEST}\" settled")
+    );
+    assert!(body.contains("- `GLOSSARY.md`"), "{body}");
+    assert!(body.contains("- `docs/adr/0001-pause.md`"), "{body}");
+    assert!(body.contains("Filed beside it: #41, #42"), "{body}");
+    assert!(s.rig.forge.draft(500));
+    let link = "The glossary terms and ADRs settled while planning this are in #500.";
+    assert_eq!(
+        s.rig.forge.comments(),
+        [(41, link.to_owned()), (42, link.to_owned())]
+    );
+    // The branch is on origin, one commit past main, holding both files.
+    let repo = &s.settings.git.checkout;
+    let branch = claude.docs.branch();
+    assert!(s.rig.forge.head_of(branch).is_some(), "{branch} is pushed");
+    git(repo, &["fetch", "--quiet", "origin"]);
+    let remote = format!("origin/{branch}");
+    assert_eq!(
+        git(repo, &["rev-parse", &format!("{remote}~1")]),
+        git(repo, &["rev-parse", "origin/main"])
+    );
+    let changed = git(repo, &["diff", "--name-only", "origin/main", &remote]);
+    assert_eq!(
+        changed.lines().collect::<Vec<_>>(),
+        ["GLOSSARY.md", "docs/adr/0001-pause.md"]
+    );
+    // Kelpie's checkout of it, its plugin and its files are gone.
+    assert!(!claude.docs.worktree().exists());
+    assert!(!claude.plugin.exists());
+    assert!(claude.files.iter().all(|f| !f.exists()));
+    assert_eq!(git(repo, &["branch", "--list", branch]), "");
+}
+
+#[test]
+fn a_session_that_wrote_nothing_opens_no_pull_request_and_leaves_no_checkout() {
+    let s = Setup::new();
+    s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
+
+    let (claude, said) = ran_to_the_end(&s, &[], &[41]);
+
+    assert_eq!(said.unwrap(), Vec::<String>::new());
+    assert!(s.rig.forge.comments().is_empty());
+    assert_eq!(s.rig.forge.pull_request_text(500), None);
+    assert!(!claude.docs.worktree().exists());
+    let repo = &s.settings.git.checkout;
+    assert_eq!(git(repo, &["branch", "--list", claude.docs.branch()]), "");
+}
+
+#[test]
+fn a_file_besides_the_glossary_and_adrs_is_never_committed() {
+    let s = Setup::new();
+
+    let (claude, said) = ran_to_the_end(&s, &["GLOSSARY.md", "src/stray.rs"], &[]);
+
+    let err = said.unwrap_err();
+    assert!(err.contains("changed src/stray.rs"), "{err}");
+    assert!(
+        err.contains("may write only GLOSSARY.md and docs/adr/"),
+        "{err}"
+    );
+    assert!(err.contains(claude.docs.branch()), "{err}");
+    assert_eq!(s.rig.forge.pull_request_text(500), None);
+    assert_eq!(s.rig.forge.head_of(claude.docs.branch()), None);
+    // What it wrote is kept to look at.
+    assert!(claude.docs.worktree().join("src/stray.rs").is_file());
+}
+
+#[test]
+fn a_link_that_fails_is_named_beside_the_pull_request_that_opened() {
+    let s = Setup::new();
+    s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
+    s.rig.forge.set_comments_down(true);
+
+    let (_, said) = ran_to_the_end(&s, &["GLOSSARY.md"], &[41]);
+
+    let err = said.unwrap_err();
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(
+        lines[0],
+        "opened draft pull request #500 on shep-pm/shep with GLOSSARY.md"
+    );
+    assert!(lines[1].starts_with("cannot link it from #41: "), "{err}");
+    assert!(s.rig.forge.pull_request_text(500).is_some());
 }
 
 #[test]

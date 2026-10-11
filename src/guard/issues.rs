@@ -27,7 +27,7 @@ use ledger::Ledger;
 mod gh;
 mod ledger;
 
-pub use ledger::record_issues;
+pub use ledger::{filed_in, record_issues};
 
 /// How the hook's command line names the status label the issue writer files with
 pub const ISSUES_FLAG: &str = "--issues=";

@@ -30,8 +30,8 @@ mod shell;
 mod wrap;
 
 pub use issues::{
-    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, issue_rules, judge_issues,
-    record_issues,
+    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
+    judge_issues, record_issues,
 };
 
 use std::fs;

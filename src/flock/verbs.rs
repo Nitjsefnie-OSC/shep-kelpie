@@ -246,13 +246,15 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         issues::make_labels(&Gh, &project, Mode::Interactive)?;
         let mut claude = issues::interactive(&project, &writer, &request, OsStr::new("claude"))?;
         let status = claude.command.status();
-        for file in &claude.files {
-            let _ = std::fs::remove_file(file);
-        }
+        let landed = claude.end(&project, &Gh);
         let status = status.map_err(|e| format!("cannot run claude: {e}"))?;
-        return match status.success() {
-            true => Ok(Vec::new()),
-            false => Err(format!("claude ended with {status}")),
+        return match (landed, status.success()) {
+            (landed, true) => landed,
+            (Ok(mut lines), false) => {
+                lines.insert(0, format!("claude ended with {status}"));
+                Err(lines.join("\n"))
+            }
+            (Err(e), false) => Err(format!("claude ended with {status}\n{e}")),
         };
     }
     let tools = Tools::under(here.kelpie_home);
