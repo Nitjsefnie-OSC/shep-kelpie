@@ -121,6 +121,11 @@ pub enum Skip {
         /// The issue
         issue: u64,
     },
+    /// `drop` ended its work item, and the forge has listed it as ready since
+    Dropped {
+        /// The issue
+        issue: u64,
+    },
     /// Someone is assigned to it
     Assigned {
         /// The issue
@@ -211,6 +216,7 @@ impl Skip {
         match self {
             Self::PullRequest { issue, .. }
             | Self::Finished { issue }
+            | Self::Dropped { issue }
             | Self::Assigned { issue }
             | Self::Split { issue, .. }
             | Self::Blocked { issue, .. }
@@ -244,10 +250,15 @@ pub struct Pick {
 /// `finished` lists the issues whose work items kelpie already finished. The
 /// forge can still list one as open and ready for a while after its pull
 /// request merges, so the board never takes one again.
+///
+/// `dropped` lists the issues whose work items `drop` ended. The board leaves
+/// one be while the forge lists it. The runner forgets one once the forge no
+/// longer lists it, so a label put back returns it.
 pub fn pick(
     ready: &[ReadyIssue],
     open: &[OpenPullRequest],
     finished: &[u64],
+    dropped: &[u64],
     implementers: &[AgentName],
 ) -> Pick {
     let mut ready: Vec<&ReadyIssue> = ready.iter().collect();
@@ -264,6 +275,8 @@ pub fn pick(
         by.sort_unstable();
         if finished.contains(&number) {
             skipped.push(Skip::Finished { issue: number });
+        } else if dropped.contains(&number) {
+            skipped.push(Skip::Dropped { issue: number });
         } else if let Some(pr) = open.iter().find(|pr| pr.closes.contains(&number)) {
             skipped.push(Skip::PullRequest {
                 issue: number,
@@ -452,7 +465,7 @@ mod tests {
 
     #[test]
     fn the_oldest_ready_issue_is_picked_whatever_order_they_are_listed_in() {
-        let pick = pick(&[ready(16), ready(12), ready(14)], &[], &[], &listed());
+        let pick = pick(&[ready(16), ready(12), ready(14)], &[], &[], &[], &listed());
         assert_eq!(pick.issue, Some(12));
         assert_eq!(pick.skipped, []);
     }
@@ -467,6 +480,7 @@ mod tests {
     fn a_p0_issue_is_picked_before_an_older_unlabelled_one() {
         let pick = pick(
             &[ready(3), prioritised(9, "priority: P0")],
+            &[],
             &[],
             &[],
             &listed(),
@@ -488,7 +502,7 @@ mod tests {
             prioritised(7, "priority: P1"),
             prioritised(8, "priority: P0"),
         ];
-        while let Some(next) = pick(&issues, &[], &[], &listed()).issue {
+        while let Some(next) = pick(&issues, &[], &[], &[], &listed()).issue {
             order.push(next);
             issues.retain(|i| i.number != next);
         }
@@ -499,7 +513,13 @@ mod tests {
     fn an_issue_with_several_priority_labels_ranks_by_the_highest() {
         let mut both = prioritised(9, "priority: P3");
         both.labels.push("priority: P1".into());
-        let pick = pick(&[prioritised(2, "priority: P2"), both], &[], &[], &listed());
+        let pick = pick(
+            &[prioritised(2, "priority: P2"), both],
+            &[],
+            &[],
+            &[],
+            &listed(),
+        );
         assert_eq!(pick.issue, Some(9));
     }
 
@@ -507,7 +527,7 @@ mod tests {
     fn a_blocked_p0_issue_waits_and_the_next_priority_is_picked() {
         let mut p0 = blocked(9, &[(4, true)]);
         p0.labels.push("priority: P0".into());
-        let pick = pick(&[p0, ready(1)], &[], &[], &listed());
+        let pick = pick(&[p0, ready(1)], &[], &[], &[], &listed());
         assert_eq!(pick.issue, Some(1));
         assert_eq!(pick.skipped.len(), 1);
     }
@@ -521,7 +541,7 @@ mod tests {
         };
         let mut piece = ready(5);
         piece.parent = Some(4);
-        let pick = pick(&[parent, piece], &[], &[], &listed());
+        let pick = pick(&[parent, piece], &[], &[], &[], &listed());
         assert_eq!(pick.issue, Some(5));
         assert_eq!(pick.skipped, [Skip::Split { issue: 4, open: 2 }]);
     }
@@ -529,7 +549,7 @@ mod tests {
     #[test]
     fn nothing_ready_picks_nothing() {
         assert_eq!(
-            pick(&[], &[], &[], &listed()),
+            pick(&[], &[], &[], &[], &listed()),
             Pick {
                 issue: None,
                 skipped: vec![]
@@ -547,7 +567,7 @@ mod tests {
             closes: vec![2],
             labels: vec![],
         }];
-        let pick = pick(&[ready(2), taken, ready(5)], &open, &[], &listed());
+        let pick = pick(&[ready(2), taken, ready(5)], &open, &[], &[], &listed());
         assert_eq!(pick.issue, Some(5));
         assert_eq!(
             pick.skipped,
@@ -563,9 +583,16 @@ mod tests {
 
     #[test]
     fn an_issue_kelpie_finished_is_passed_over_while_the_forge_still_lists_it() {
-        let pick = pick(&[ready(22), ready(23)], &[], &[22], &listed());
+        let pick = pick(&[ready(22), ready(23)], &[], &[22], &[], &listed());
         assert_eq!(pick.issue, Some(23));
         assert_eq!(pick.skipped, [Skip::Finished { issue: 22 }]);
+    }
+
+    #[test]
+    fn an_issue_kelpie_dropped_is_passed_over_as_dropped_and_not_as_finished() {
+        let pick = pick(&[ready(22), ready(23)], &[], &[], &[22], &listed());
+        assert_eq!(pick.issue, Some(23));
+        assert_eq!(pick.skipped, [Skip::Dropped { issue: 22 }]);
     }
 
     #[test]
@@ -573,7 +600,7 @@ mod tests {
         let mut taken = ready(3);
         taken.assigned = true;
         assert_eq!(
-            pick(&[taken], &[], &[], &listed()),
+            pick(&[taken], &[], &[], &[], &listed()),
             Pick {
                 issue: None,
                 skipped: vec![Skip::Assigned { issue: 3 }]
@@ -585,7 +612,7 @@ mod tests {
     fn an_issue_labelled_for_an_agent_the_project_does_not_list_is_passed_over() {
         let mut odd = ready(1);
         odd.labels.push("agent:haiku-low".into());
-        let pick = pick(&[odd, ready(2)], &[], &[], &listed());
+        let pick = pick(&[odd, ready(2)], &[], &[], &[], &listed());
         assert_eq!(pick.issue, Some(2));
         assert_eq!(
             pick.skipped,
@@ -611,12 +638,21 @@ mod tests {
     fn an_old_worker_label_is_no_label_error() {
         let mut old = ready(1);
         old.labels.push("worker:gpt-high".into());
-        assert_eq!(pick(&[old, ready(2)], &[], &[], &listed()).issue, Some(1));
+        assert_eq!(
+            pick(&[old, ready(2)], &[], &[], &[], &listed()).issue,
+            Some(1)
+        );
     }
 
     #[test]
     fn an_issue_with_an_open_blocker_is_passed_over_for_the_next_oldest() {
-        let pick = pick(&[blocked(8, &[(32, true)]), ready(9)], &[], &[], &listed());
+        let pick = pick(
+            &[blocked(8, &[(32, true)]), ready(9)],
+            &[],
+            &[],
+            &[],
+            &listed(),
+        );
         assert_eq!(pick.issue, Some(9));
         assert_eq!(
             pick.skipped,
@@ -634,6 +670,7 @@ mod tests {
             &[blocked(8, &[(32, false), (33, false)])],
             &[],
             &[],
+            &[],
             &listed(),
         );
         assert_eq!(pick.issue, Some(8));
@@ -644,7 +681,7 @@ mod tests {
     fn a_skip_for_blockers_names_only_the_open_ones_lowest_first() {
         let mixed = blocked(27, &[(40, true), (24, false), (19, true), (37, true)]);
         assert_eq!(
-            pick(&[mixed], &[], &[], &listed()),
+            pick(&[mixed], &[], &[], &[], &listed()),
             Pick {
                 issue: None,
                 skipped: vec![Skip::Blocked {
@@ -660,7 +697,7 @@ mod tests {
     fn blockers_the_forge_did_not_list_count_as_open() {
         let mut long = blocked(8, &[(12, false)]);
         long.unlisted_blockers = 3;
-        let pick = pick(&[long, ready(9)], &[], &[], &listed());
+        let pick = pick(&[long, ready(9)], &[], &[], &[], &listed());
         assert_eq!(pick.issue, Some(9));
         assert_eq!(
             pick.skipped,
