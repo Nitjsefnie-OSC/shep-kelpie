@@ -11,6 +11,7 @@ use crate::settings::Harness;
 use crate::test::{Rig, Scripted, Seen};
 
 mod fences;
+mod folders;
 
 /// How long a test waits on the panel
 const PATIENCE: Duration = Duration::from_secs(60);

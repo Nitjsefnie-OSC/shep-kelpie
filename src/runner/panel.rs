@@ -76,7 +76,7 @@ impl Desk {
 
 impl Runner {
     // Whether the project has a panel: it names an advisor or a researcher.
-    fn panel_enabled(&self) -> bool {
+    pub(super) fn panel_enabled(&self) -> bool {
         self.agents.advisor.is_some() || self.agents.researcher.is_some()
     }
 

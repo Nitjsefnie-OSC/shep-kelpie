@@ -144,6 +144,19 @@ mod tests {
             )
             .replace("# reviewers = [\"qwen\", \"defect-hunter\"]", "reviewers = [\"qwen\"]")
             .replace("# pm = \"pm\"", "pm = \"pm\"")
+            .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
+            .replace(
+                "# researcher = \"researcher\"",
+                "researcher = \"researcher\"",
+            )
+            .replace(
+                "# [app.dogs.kelpie.researcher]\n# transcripts =",
+                "[app.dogs.kelpie.researcher]\ntranscripts =",
+            )
+            .replace(
+                "# allowed_domains = [\"docs.rs\"]",
+                "allowed_domains = [\"docs.rs\"]",
+            )
             .replace("# issue_writer =", "issue_writer =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =");
