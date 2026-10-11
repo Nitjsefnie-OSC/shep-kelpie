@@ -216,17 +216,17 @@ fn names_system_path(text: &str) -> bool {
     })
 }
 
-/// Whether `text` names `repo`, by `owner/name` or by its bare name
+/// Whether `text` names `repo`, by `owner/name` or, if `by_bare_name`, by its bare name
 ///
 /// Case does not matter. A name inside a longer one, `vault-door`, `my_vault` or
 /// `vault.rs`, is not it. A bare name beside a `/` is a folder or another owner's
 /// repo. `owner/name` after a `/` counts only behind a host, as in
 /// `github.com/owner/name`. A `.git` after `owner/name` is a clone URL's suffix.
-pub fn names_repo(text: &str, repo: &ForgeSlug) -> bool {
+pub fn names_repo(text: &str, repo: &ForgeSlug, by_bare_name: bool) -> bool {
     let (full, bare) = (repo.as_str().to_lowercase(), repo.name().to_lowercase());
     variants(text)
         .iter()
-        .any(|v| names_word(v, &full, true) || names_word(v, &bare, false))
+        .any(|v| names_word(v, &full, true) || (by_bare_name && names_word(v, &bare, false)))
 }
 
 // `name` as a whole word. A full stop ends a sentence unless a word follows it, and

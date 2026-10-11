@@ -45,7 +45,12 @@ impl Flock {
     fn names_private(&self, destination: &ForgeSlug, text: &str) -> Result<bool, ForgeError> {
         let named: Vec<&ForgeSlug> = (self.repos.iter())
             .filter(|repo| !repo.as_str().eq_ignore_ascii_case(destination.as_str()))
-            .filter(|repo| names_repo(text, repo))
+            .filter(|repo| {
+                // A repo sharing the destination's bare name is the destination to
+                // the reader, so only its full slug names it.
+                let by_bare_name = !repo.name().eq_ignore_ascii_case(destination.name());
+                names_repo(text, repo, by_bare_name)
+            })
             .collect();
         if named.is_empty() || self.forge.visibility(destination)? != Visibility::Public {
             return Ok(false);

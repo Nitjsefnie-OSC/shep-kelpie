@@ -188,6 +188,18 @@ fn the_name_of_a_public_project_or_a_longer_word_is_posted() {
     }
 }
 
+// The destination's own name is what its posts say, whatever another owner's repo of
+// the same name is.
+#[test]
+fn a_repo_sharing_the_destination_s_name_is_named_by_its_full_slug_only() {
+    let (forge, fake) = guarded();
+    fake.set_visibility_of(&repo("other/lab"), Visibility::Private);
+    let forge = forge.with_flock(vec![repo("shep-pm/lab"), repo("other/lab")]);
+    let post = |text| forge.create_issue(&slug(), "a title", text, &[]);
+    post("the lab project, or lab.").unwrap();
+    assert!(post("ported from other/lab").is_err());
+}
+
 #[test]
 fn a_post_naming_a_flock_repo_is_refused_when_the_forge_cannot_say_who_sees_it() {
     let (forge, fake) = guarded_in_a_flock();
