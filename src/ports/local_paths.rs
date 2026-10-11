@@ -394,7 +394,7 @@ impl Voice for GuardedVoice {
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {
-        self.check("the comment", body)?;
+        self.check(repo, "the comment", body)?;
         self.voice.edit_comment(repo, comment, body)
     }
 
