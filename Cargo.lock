@@ -1006,6 +1006,7 @@ dependencies = [
  "jiff",
  "nix",
  "qrcode",
+ "rustix",
  "schemars",
  "serde",
  "serde-saphyr",

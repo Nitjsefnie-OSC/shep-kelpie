@@ -47,6 +47,7 @@ pub mod upgrade;
 pub mod usage;
 pub mod webhook;
 pub mod work_item;
+mod worker_folder;
 pub mod worktree;
 
 #[cfg(test)]

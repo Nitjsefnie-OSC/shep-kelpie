@@ -7,7 +7,6 @@
 //! short before it wrote anything starts over. A turn that ends on a
 //! question block parks the worker on a ruling.
 
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -31,6 +30,7 @@ use crate::settings::{AgentHarness, Effort, Limit};
 use crate::skills::{Step, split_command};
 use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
+use crate::worker_folder;
 use crate::worktree::{self, Start};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
@@ -716,9 +716,11 @@ impl Runner {
 }
 
 pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String> {
-    fs::create_dir_all(folder)
-        .and_then(|()| fs::write(file, text))
-        .map_err(|e| format!("cannot write {}: {}", file.display(), e.kind()))
+    let failed = |why: &dyn std::fmt::Display| format!("cannot write {}: {why}", file.display());
+    let rel = file
+        .strip_prefix(folder)
+        .map_err(|_| failed(&"it is not in the folder"))?;
+    worker_folder::write(folder, rel, text).map_err(|e| failed(&e))
 }
 
 #[cfg(test)]
