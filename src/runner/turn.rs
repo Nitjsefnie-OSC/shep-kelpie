@@ -15,6 +15,7 @@ use super::Runner;
 use super::adopt;
 use super::claude_files::Unchecked;
 use super::instructions;
+use super::pm::{COMPACT, WORKER_COMPACT_PAST};
 use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
@@ -212,6 +213,16 @@ impl Runner {
             }
             Turn::Ended { .. } | Turn::Failed { .. } => return Ok(Begin::Idle),
         };
+        // A turn the runner sends into a session grown past the mark is
+        // sent behind a `/compact`, which leaves the turn due as it was.
+        let compacting = matches!(item.turn, Turn::Next { .. })
+            && matches!(session, Session::Resume(_))
+            && item.context.is_some_and(|c| c > WORKER_COMPACT_PAST);
+        let prompt = if compacting {
+            Some(COMPACT.to_owned())
+        } else {
+            prompt
+        };
         let ceiling = self.turn_ceiling();
         let elapsed = Duration::from_secs(now.0.saturating_sub(since.0));
         let remaining = ceiling.saturating_sub(elapsed);
@@ -253,12 +264,15 @@ impl Runner {
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
-                item.turn = Turn::Running { since };
+                if !compacting {
+                    item.turn = Turn::Running { since };
+                }
                 let deadline = Timestamp(since.0.saturating_add(ceiling.as_secs()));
                 Begin::Call {
                     call,
                     deadline,
                     first,
+                    compact: compacting,
                 }
             }
             Err(reason) => {
@@ -525,6 +539,7 @@ impl Runner {
                 let cost =
                     item.record_call(Role::Worker, now, session, reply.usage, reply.session_cost);
                 item.summary = crate::board::briefing::summary(&reply.text);
+                item.context = reply.context;
                 // A fix turn's reply says what it made of each bot thread sent.
                 let fixing = matches!(&item.phase, Phase::Review(r) if matches!(r.stage, ReviewStage::Fixing { .. }));
                 if fixing {

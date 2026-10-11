@@ -41,6 +41,16 @@ use wakes::stuck_on;
 /// of wakes ran in, and lost no probe of what it knew.
 pub(super) const COMPACT_PAST: u64 = 100_000;
 
+/// The context, in tokens, past which a worker's session is compacted
+/// before the next turn the runner sends it
+///
+/// Every turn after the build resumes the session and rereads all of it.
+/// On four work items it ended at 284k to 486k tokens, and its turns after
+/// the build cost as much as the build or more, three quarters of it cache
+/// reads. Set above [`COMPACT_PAST`] since a worker's build alone reads a
+/// good deal of the repo.
+pub(super) const WORKER_COMPACT_PAST: u64 = 150_000;
+
 /// How long one call may run before it is ended, in seconds. A wake ran
 /// 12 to 26 seconds when measured.
 pub(super) const CEILING: u64 = 10 * 60;
@@ -53,7 +63,7 @@ const DOWN_FOR: u64 = 10 * 60;
 pub(super) const NOTHING_FOR: u64 = 30 * 60;
 
 /// What `/compact` is sent as
-const COMPACT: &str = "/compact";
+pub(super) const COMPACT: &str = "/compact";
 
 /// Why the project manager is woken
 #[derive(Debug, Clone, PartialEq, Eq)]

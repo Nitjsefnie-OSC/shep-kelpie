@@ -43,6 +43,7 @@ mod claude_files;
 mod closed;
 #[cfg(test)]
 mod coderabbit;
+mod compact;
 mod dispatch;
 mod drain;
 mod finishing;
@@ -652,6 +653,7 @@ impl Runner {
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,
+            context: None,
             merge_tried: None,
             merge_queued: None,
             summon_owed: false,
