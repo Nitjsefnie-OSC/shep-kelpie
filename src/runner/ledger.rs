@@ -175,7 +175,7 @@ impl Runner {
             let count = match role {
                 Role::Worker => &mut item.counts.worker_unreported,
                 Role::Reviewer => &mut item.counts.reviewer_unreported,
-                Role::IssueWriter | Role::Pm => continue,
+                Role::IssueWriter | Role::Pm | Role::Advisor | Role::Researcher => continue,
             };
             *count = count.saturating_add(1);
             changed = true;

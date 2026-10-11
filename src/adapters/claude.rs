@@ -313,6 +313,8 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
     let tools = match (call.role, call.tools) {
         (Role::Pm, _) => Some(settings::PM_TOOLS),
         (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
+        (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
+        (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
         (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
         (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
