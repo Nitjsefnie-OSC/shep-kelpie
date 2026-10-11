@@ -60,6 +60,8 @@ pub enum RuleError {
     YesOnly(u64),
     /// The `ready-for-human` label could not come off this pull request
     Unlabel(u64, String),
+    /// The threads that held a merge ruling could not be read from the forge
+    Threads(u64, String),
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
     /// The answer could not be saved
@@ -91,6 +93,9 @@ impl fmt::Display for RuleError {
             ),
             Self::Unlabel(number, e) => {
                 write!(f, "cannot take the `{HUMAN}` label off #{number}: {e}")
+            }
+            Self::Threads(number, e) => {
+                write!(f, "cannot read the review threads on #{number}: {e}")
             }
             Self::Adopt(head, e) => {
                 write!(f, "cannot bring the worktree to {}: {e}", short(head))
@@ -161,6 +166,8 @@ impl Runner {
         // A merge ruling's no whose fix goes to CI with no pass of the review.
         // Any answer to a merge ruling replaces what an earlier no left.
         let merge = matches!(ruling.kind, RulingKind::Merge { .. });
+        // A yes merges past the threads that held it, so a catch-up with
+        // `main` that withdraws the yes does not ask about them again.
         let noted_from = match (&answer, &ruling.kind) {
             (Answer::No(_), RulingKind::Merge { head, .. }) if !needs_pass(&ruling.kind) => {
                 Some(head.clone())
@@ -185,6 +192,28 @@ impl Runner {
         let parked = next.work_items.iter().find(|item| parked_on(item));
         // The answer moves only the work item it parks, whichever is open.
         self.focus = parked.map(|item| item.issue);
+        // A ruling raised before the ids were kept (state version 24) names
+        // its threads and holds no ids, so the forge says which hold it now.
+        let accepted = match (&answer, &ruling.kind) {
+            (Answer::Yes, RulingKind::Merge { held_by, .. }) if !held_by.is_empty() => {
+                held_by.clone()
+            }
+            (
+                Answer::Yes,
+                RulingKind::Merge {
+                    open_threads: Some(_),
+                    ..
+                },
+            ) => match ruling.pull_request {
+                Some(number) => {
+                    (self.threads_open(number))
+                        .map_err(|e| RuleError::Threads(number, e))?
+                        .held_by
+                }
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
         let head_moved = match (parked, &ruling.kind) {
             (Some(item), RulingKind::ForeignChange { known: seen, .. }) => {
                 match (&item.known.head, &seen.head) {
@@ -220,6 +249,7 @@ impl Runner {
                 item.claude_files_accepted = accepts;
             }
             if merge {
+                item.threads_accepted.extend(accepted);
                 item.noted_from = noted_from;
                 item.late_from = None;
                 self.late_reads.remove(&item.issue);
@@ -712,6 +742,7 @@ pub(super) fn question(id: u64, issue: u64, number: Option<u64>, kind: &RulingKi
             note_fix,
             late_fix,
             nits,
+            ..
         } => {
             let mut unread = unreviewed.as_ref().map_or_else(String::new, |why| {
                 format!(" No reviewer read it in its last review: {why}.")

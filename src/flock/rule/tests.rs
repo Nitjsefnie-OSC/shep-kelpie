@@ -59,6 +59,7 @@ fn a_merge_ruling_takes_a_rework_and_another_ruling_refuses_one() {
             head: "c0ffee".into(),
             unreviewed: None,
             open_threads: None,
+            held_by: Vec::new(),
             unread_head: false,
             note_fix: false,
             late_fix: false,
