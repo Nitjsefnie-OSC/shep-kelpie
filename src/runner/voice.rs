@@ -359,7 +359,7 @@ pub(super) fn said(kind: &RulingKind) -> String {
 
 mod card;
 
-pub(super) use self::card::{brief, settled_comment, thumbs, ticked};
+pub(super) use self::card::{answer_for, brief, chosen, named, settled_comment, thumbs, ticked};
 
 #[cfg(test)]
 mod tests;

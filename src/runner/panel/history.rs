@@ -11,8 +11,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::panel::{Ballot, Verdict};
 use crate::ports::Timestamp;
 use crate::runner::Answer;
+use crate::settings::RulingName;
 use crate::state::Ruling;
 
 /// How many of the latest answered rulings the researcher is shown
@@ -21,12 +23,23 @@ const LAST: usize = 60;
 /// The most of a ruling's question kept, in characters
 const QUESTION: usize = 1_200;
 
+/// Who answered a ruling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::runner) enum Answerer {
+    /// The maintainer, in its thread, at the terminal or on ntfy
+    Maintainer,
+    /// The project manager, for the maintainer
+    Pm,
+    /// The panel, by its votes
+    Panel,
+}
+
 /// A ruling and how it was answered
 // wire format: changing this is a breaking change to the rulings file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::runner) struct Record {
-    id: u64,
-    at: Timestamp,
+    pub(super) id: u64,
+    pub(super) at: Timestamp,
     issue: Option<u64>,
     pull_request: Option<u64>,
     asked: String,
@@ -34,16 +47,31 @@ pub(in crate::runner) struct Record {
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
+    // Whether the panel decided it
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) by_panel: bool,
+    // The kind of ruling, as `rulings.pm_alone` names it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) kind: Option<RulingName>,
+    // The option the answer is, when it is one of the ruling's
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) chose: Option<char>,
+    // What the panel concluded, and each expert's ballot, once it voted
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) verdict: Option<Verdict>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) ballots: Vec<Ballot>,
 }
 
 impl Record {
-    /// `ruling`, answered with `answer` at `at`, by the project manager when `by_pm`
+    /// `ruling`, answered with `answer` at `at` by `by`
     pub(in crate::runner) fn of(
         ruling: &Ruling,
         answer: &Answer,
         at: Timestamp,
-        by_pm: bool,
+        by: Answerer,
     ) -> Self {
+        let chose = crate::runner::voice::chosen(&ruling.kind, answer);
         let (brief, _) = crate::runner::voice::brief(ruling);
         // What it asks, less the table of options.
         let asked = brief.split("\n\n| | Option").next().unwrap_or_default();
@@ -61,8 +89,18 @@ impl Record {
             pull_request: ruling.pull_request,
             asked: crate::runner::panel::folders::clip(asked, QUESTION),
             answer: crate::runner::panel::folders::clip(&answer, QUESTION),
-            by_pm,
+            by_pm: by == Answerer::Pm,
+            by_panel: by == Answerer::Panel,
+            kind: Some(RulingName::of(&ruling.kind)),
+            chose,
+            verdict: ruling.verdict.clone(),
+            ballots: ruling.panel.clone().unwrap_or_default(),
         }
+    }
+
+    /// Whether the maintainer answered it
+    pub(super) fn by_maintainer(&self) -> bool {
+        !self.by_pm && !self.by_panel
     }
 
     /// Adds the record to the file at `file`
@@ -79,6 +117,15 @@ impl Record {
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
     }
+}
+
+/// Every ruling answered in the file at `file`, oldest first; a line that
+/// does not read is skipped
+pub(super) fn records(file: &Path) -> Vec<Record> {
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    (text.lines())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
 }
 
 /// The latest answered rulings in the file at `file`, as text, oldest first
@@ -103,9 +150,10 @@ pub(super) fn read(file: &Path) -> String {
             true => String::new(),
             false => format!(" ({})", about.join(", ")),
         };
-        let by = match record.by_pm {
-            true => "Answered by the project manager, not the maintainer",
-            false => "Answered by the maintainer",
+        let by = match (record.by_pm, record.by_panel) {
+            (true, _) => "Answered by the project manager, not the maintainer",
+            (_, true) => "Decided by the panel, not the maintainer",
+            _ => "Answered by the maintainer",
         };
         out.push_str(&format!(
             "## Ruling {}{about}, on {}\n\n{}\n\n{by}: {}\n\n",

@@ -10,7 +10,7 @@
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{ListedReviewer, Settings};
+use crate::settings::{ListedReviewer, Settings, SettingsError};
 use crate::skills::Skills;
 use crate::webhook::{KelpieSettings, Webhook};
 
@@ -39,6 +39,13 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
+        }
+        if let Some(reason) = settings.rulings.refusal() {
+            return Err(SettingsError::Invalid {
+                setting: "rulings.pm_alone",
+                reason,
+            }
+            .into());
         }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let book = Agents::load(&self.paths.agents)?;
@@ -128,6 +135,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("worker", old.worker != new.worker),
         ("skills", old.skills != new.skills),
         ("researcher", old.researcher != new.researcher),
+        ("rulings", old.rulings != new.rulings),
         ("webhook", was != now),
     ]
     .into_iter()
@@ -190,6 +198,40 @@ mod tests {
             Some("settings changed: researcher now in effect")
         );
         assert_eq!(runner.settings().researcher.allowed_domains.len(), 1);
+    }
+
+    #[test]
+    fn a_changed_rulings_table_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!(
+                "{s}\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone = [\"still-red\"]\n"
+            )
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: rulings now in effect")
+        );
+        assert_eq!(
+            runner.settings().rulings.decide,
+            crate::settings::Decide::Panel
+        );
+    }
+
+    #[test]
+    fn a_merge_kind_added_to_pm_alone_is_refused_and_the_settings_kept() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(next, rig.kelpie_settings()).unwrap_err();
+        assert!(err.to_string().contains("rulings.pm_alone"), "{err}");
+        assert!(runner.settings().rulings.pm_alone.is_empty());
     }
 
     #[test]

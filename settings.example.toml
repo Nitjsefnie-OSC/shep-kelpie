@@ -197,6 +197,22 @@ compact_window = 200000
 # transcripts = ["~/.claude/projects"]
 # allowed_domains = ["docs.rs"]
 
+# Whether the panel decides a ruling. `shadow` (when absent) has it vote and
+# post on every ruling while you still answer, and `status` counts the run of
+# rulings where its recommendation matched your answer. `panel` has it decide:
+# three experts on one option, with none flagging `design`, or a smaller panel
+# all agreeing, as the work item's type sets (`docs` asks the project manager;
+# `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
+# manager and the advisor; `feat`, a breaking `!` or no type all four). A split,
+# a merge under `git.merging = "ask"` and any `design` flag come to you with
+# every vote. `pm_alone` lists kinds of ruling the project manager decides with
+# its own vote on any type of work (`question`, `still-red`, `turn-timeout`,
+# `turn-failed` ...); a `design` flag or an abstention calls the type's panel,
+# and `merge` is refused. Empty when absent.
+# [app.dogs.kelpie.rulings]
+# decide = "panel"
+# pm_alone = ["turn-timeout", "still-red"]
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
 # lists each step and its default. `path` is a skill folder of your own,

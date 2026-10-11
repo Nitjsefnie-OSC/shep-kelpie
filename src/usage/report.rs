@@ -86,6 +86,7 @@ pub fn report(
     out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
     out.extend(votes(&calls));
+    out.extend(super::panel::split(&calls));
     let recorded: BTreeSet<u64> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out

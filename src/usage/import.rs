@@ -95,6 +95,7 @@ fn call_of(line: &str) -> Option<CallLine> {
         gpu_seconds: None,
         pacer: Default::default(),
         imported: true,
+        votes: Vec::new(),
     })
 }
 

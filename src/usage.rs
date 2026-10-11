@@ -16,12 +16,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
+use crate::settings::RulingName;
 use crate::work_item::{QwenTally, RoleTally, Tally};
 
 pub mod baselines;
 mod draft;
 mod import;
+mod panel;
 mod report;
 
 pub use draft::{Draft, Spent, ended};
@@ -118,6 +121,27 @@ pub struct PacerLine {
     pub week_resets_at: Option<Timestamp>,
 }
 
+/// A vote on a ruling that a call cast, or, for the project manager's wake,
+/// one of the votes it cast
+// wire format: changing this is a breaking change to the usage ledger
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoteMark {
+    /// The ruling's id
+    pub ruling: u64,
+    /// The kind of ruling it is
+    pub ruling_kind: RulingName,
+    /// The expert who voted
+    pub voter: Voter,
+    /// The panel the work item's type set
+    pub panel: Tier,
+    /// The work item's type, from its pull request's title: `fix`, `feat`,
+    /// `breaking` or `untyped`
+    pub work: String,
+    /// The option it chose, or none when it abstained
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<char>,
+}
+
 /// A model call, as it ended
 // wire format: changing this is a breaking change to the usage ledger
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,6 +199,10 @@ pub struct CallLine {
     /// Whether it was read from a runner's log, not written as it ended
     #[serde(default, skip_serializing_if = "is_false")]
     pub imported: bool,
+    /// The votes on rulings it cast: one for an expert's call, and one for
+    /// each ruling a project manager's wake voted on
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub votes: Vec<VoteMark>,
 }
 
 fn is_false(b: &bool) -> bool {

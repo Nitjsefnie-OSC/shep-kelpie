@@ -4,9 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use super::{Pick, Wake};
+use super::{Pick, Wake, answer};
+use crate::panel::{Tier, Voter};
+use crate::ports::{AgentError, AgentReply};
 use crate::runner::Runner;
+use crate::settings::RulingName;
 use crate::state::{ProjectState, RulingKind, Stuck};
+use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
 impl Runner {
@@ -33,6 +37,48 @@ impl Runner {
         for wake in wakes {
             self.pm_due(wake);
         }
+    }
+
+    /// The votes the wake in flight casts, for its line in the usage ledger:
+    /// one for each ruling it was asked to vote on, with its choice where
+    /// `result` holds one and none where the project manager abstained. A
+    /// wake that failed, or whose reply is unread, casts none: it is asked
+    /// again, and its retry writes them.
+    pub(in crate::runner) fn pm_vote_marks(
+        &self,
+        result: &Result<AgentReply, AgentError>,
+    ) -> Vec<VoteMark> {
+        let Some(flying) = &self.pm.flying else {
+            return Vec::new();
+        };
+        let asked = flying.wakes.iter().filter_map(|w| match w {
+            Wake::Vote { id, .. } => Some(*id),
+            _ => None,
+        });
+        let Some(answer) = result.as_ref().ok().and_then(|r| answer::read(&r.text)) else {
+            return Vec::new();
+        };
+        asked
+            .map(|id| {
+                let fields = answer.votes.iter().find(|(ruling, _)| *ruling == id);
+                let choice = fields
+                    .and_then(|(_, f)| crate::panel::from_fields(f, self.panel_options(id)).ok())
+                    .map(|vote| vote.choice);
+                match self.panel.plan(id) {
+                    Some(plan) => plan.mark(id, Voter::Pm, choice),
+                    // Its ruling is settled or gone, so only what it was is known.
+                    None => VoteMark {
+                        ruling: id,
+                        ruling_kind: (self.state.rulings.iter().find(|r| r.id == id))
+                            .map_or(RulingName::Question, |r| RulingName::of(&r.kind)),
+                        voter: Voter::Pm,
+                        panel: Tier::Full,
+                        work: "untyped".to_owned(),
+                        choice,
+                    },
+                }
+            })
+            .collect()
     }
 
     /// Notes what saving `now` changes that wakes the project manager: a

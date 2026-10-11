@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
 use super::super::Runner;
-use super::super::panel::CEILING;
+use super::super::panel::{CEILING, Plan, vote_of};
 use super::super::turn_hooks::TurnHooks;
 use super::News;
 use crate::pacer::Scope;
@@ -32,6 +32,8 @@ pub(in crate::runner) struct Panelling {
     worker_of: Option<u64>,
     calls: Vec<Called>,
     drafts: Vec<(Voter, Draft)>,
+    // How the ruling's panel is asked, which each vote's ledger line says
+    plan: Option<Plan>,
 }
 
 // One expert's call, and when it is due to be ended: its ceiling counts from
@@ -271,12 +273,14 @@ impl Runner {
             .then(|| self.state.rulings.iter().find(|r| r.id == id))
             .flatten()
             .and_then(|r| r.issue);
+        let plan = self.panel.plan(id);
         self.flights.panel = Some(Panelling {
             id,
             options,
             worker_of,
             calls,
             drafts,
+            plan,
         });
     }
 
@@ -302,7 +306,11 @@ impl Runner {
             let before = (draft.session())
                 .and_then(|session| self.ledger.session_cost(session))
                 .unwrap_or(Cost(0));
-            let line = draft.line(now, ended, spent, before, self.pacer_lines());
+            let mut line = draft.line(now, ended, spent, before, self.pacer_lines());
+            if let Some(plan) = &flight.plan {
+                let choice = vote_of(result, flight.options).ok().map(|v| v.choice);
+                line.votes = vec![plan.mark(id, *voter, choice)];
+            }
             self.append_call(line, false);
         }
         // The worker's vote ran in its work item's session, whose cost counts

@@ -76,6 +76,10 @@ pub struct Status<'a> {
     pub skipped: &'a [Skip],
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: &'a [Ruling],
+    /// How the panel stands against the maintainer's answers, when the
+    /// project has one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub panel: Option<super::panel::Standing>,
     /// Leases held
     pub leases: &'a [LeaseHeld],
     /// The most recent finished work items, oldest first

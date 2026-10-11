@@ -60,6 +60,8 @@ pub(crate) struct FakeForge {
     created: Arc<Mutex<Vec<CreatedIssue>>>,
     // What the failed CI runs' logs say, or why reading them fails
     ci_log: Arc<Mutex<Result<String, String>>>,
+    // The title a pull request is read with, where a test names one
+    titles: Arc<Mutex<HashMap<u64, String>>>,
     // The title and body of each pull request kelpie opened or edited, by number
     texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
@@ -139,6 +141,7 @@ impl FakeForge {
             queue: Arc::default(),
             labels_down: Arc::default(),
             unreadable: Arc::default(),
+            titles: Arc::default(),
             viewer_reads: Arc::default(),
             lagging: Arc::default(),
             lagging_drafts: Arc::default(),
@@ -180,49 +183,6 @@ impl FakeForge {
     /// Removes `label` from pull request `number`, as someone other than kelpie would
     pub(crate) fn unlabel_pull_request(&self, number: u64, label: &str) {
         self.coderabbit.put_label(number, label, false);
-    }
-
-    pub(crate) fn set_visibility(&self, visibility: Visibility) {
-        *self.visibility.lock().unwrap() = visibility;
-    }
-
-    /// Makes `repo` alone `visibility`, whatever the rest are
-    pub(crate) fn set_visibility_of(&self, repo: &ForgeSlug, visibility: Visibility) {
-        let key = repo.as_str().to_lowercase();
-        self.visibilities.lock().unwrap().insert(key, visibility);
-    }
-
-    /// Whether the account may push to the repo, which it may until a test says not
-    pub(crate) fn set_can_push(&self, pushes: bool) {
-        self.pushes.store(pushes, Ordering::SeqCst);
-    }
-
-    /// Whether a review bot has ever commented on the repo, which it has until a test says not
-    pub(crate) fn set_review_bot_seen(&self, seen: bool) {
-        self.bot_seen.store(seen, Ordering::SeqCst);
-    }
-
-    /// Makes asking who the account is fail with `error`, as `gh` does when it is logged out
-    pub(crate) fn set_viewer_down(&self, error: ForgeError) {
-        *self.viewer_down.lock().unwrap() = Some(error);
-    }
-
-    /// Lets asking who the account is succeed again, after [`Self::set_viewer_down`]
-    pub(crate) fn set_viewer_up(&self) {
-        *self.viewer_down.lock().unwrap() = None;
-    }
-
-    pub(crate) fn set_default_branch(&self, branch: &str) {
-        *self.default_branch.lock().unwrap() = branch.to_owned();
-    }
-
-    /// The repo's labels, those it started with and those made since
-    pub(crate) fn repo_labels_now(&self) -> Vec<String> {
-        self.repo_labels.lock().unwrap().clone()
-    }
-
-    pub(crate) fn set_repo_labels(&self, labels: &[&str]) {
-        *self.repo_labels.lock().unwrap() = labels.iter().map(|&l| l.to_owned()).collect();
     }
 
     pub(crate) fn remove_issue(&self, number: u64) {
@@ -426,6 +386,11 @@ impl FakeForge {
     /// Makes changing a pull request's or an issue's labels fail, or work again
     pub(crate) fn set_labels_down(&self, down: bool) {
         self.labels_down.store(down, Ordering::SeqCst);
+    }
+
+    /// Makes pull request `number` read with `title`
+    pub(crate) fn set_title(&self, number: u64, title: &str) {
+        self.titles.lock().unwrap().insert(number, title.to_owned());
     }
 
     /// The title and body pull request `number` was opened or edited with
@@ -680,7 +645,8 @@ impl Forge for FakeForge {
         };
         Ok(Reviewed {
             state: pr.state,
-            title: format!("Title of pull request #{number}"),
+            title: (self.titles.lock().unwrap().get(&number).cloned())
+                .unwrap_or_else(|| format!("Title of pull request #{number}")),
             body: format!("Body of pull request #{number}.\n"),
             closes,
             base: pr.base,
@@ -990,4 +956,5 @@ mod down;
 mod handed;
 mod issues;
 mod queue;
+mod repo;
 mod thread;
