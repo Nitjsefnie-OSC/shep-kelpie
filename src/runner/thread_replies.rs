@@ -549,13 +549,24 @@ impl Runner {
         if matches!(item.phase, Phase::Ruling { .. } | Phase::Done { .. }) {
             return Err(not("its work item waits on another ruling or is done"));
         }
-        let mut next = self.state.clone();
+        let before = self.state.clone();
+        let mut next = before.clone();
         if let Some(item) = next.item_mut(issue) {
             item.phase = Phase::Ruling { id };
         }
         next.rulings.push(ruling);
         self.save(next).map_err(RuleError::State)?;
-        self.rule_by(id, answer, Settler::Thread)
+        let ruled = self.rule_by(id, answer, Settler::Thread);
+        if ruled.is_err() {
+            // The ruling stays pending when its answer fails, so put the
+            // work item back as it was: the reply says it was not reopened.
+            if let Err(e) = self.save(before) {
+                self.notes.push(format!(
+                    "cannot put ruling {id} back after a failed reopen: {e}"
+                ));
+            }
+        }
+        ruled
     }
 
     // Posts `text` on `thread` as the App, and notes why it could not.

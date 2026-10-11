@@ -14,7 +14,9 @@
 //! abstention, and is logged. An expert the project does not name is not on
 //! the panel, and the worker abstains when its work item has no worker.
 //!
-//! The votes are kept on the ruling. Nothing decides by them yet (#466).
+//! The votes and the verdict they reach are kept on the ruling. Under
+//! `rulings.decide = "panel"` the verdict decides it; under `"shadow"` it
+//! only informs the maintainer's comment and the measurements (#466).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
