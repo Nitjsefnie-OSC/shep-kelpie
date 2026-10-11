@@ -3,14 +3,19 @@
 
 use std::sync::Mutex;
 
-use super::{now, phase, summoned};
+use super::{now, phase, summoned_with};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
 // CodeRabbit's review of the head opens a thread for each title, and both go
 // to the worker.
 fn sent(titles: &[&str]) -> (Rig, Mutex<Runner>) {
-    let (rig, runner, head) = summoned("shep");
+    sent_with(titles, |_| {})
+}
+
+// As `sent`, `setup` having changed the project's settings before its runner opens.
+fn sent_with(titles: &[&str], setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>) {
+    let (rig, runner, head) = summoned_with("shep", setup);
     rig.forge
         .coderabbit
         .review(71, &head, now(&rig) + 60, titles);
@@ -122,6 +127,39 @@ fn a_reason_naming_a_local_path_is_not_posted_and_blocks_no_other_thread() {
         ]
     );
     assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_1"]);
+    assert_eq!(phase(&rig, &runner)["state"], "ci");
+}
+
+// A project's publish hook refuses the same text every time, so a decline's
+// reason it refuses is replied to without the reason, and the thread after it
+// is answered all the same.
+#[test]
+fn a_reason_a_publish_hook_refuses_is_not_posted_and_blocks_no_other_thread() {
+    let (rig, runner) = sent_with(&["Name the flag.", "Guard the index."], |rig| {
+        rig.forbid_word(&["publish"], "Acme");
+    });
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        "thread 1: declined: Acme asked for the long name\nthread 2: fixed",
+    )]);
+    step(&runner).unwrap(); // the fix turn
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+    assert_eq!(
+        rig.forge.coderabbit.replies(),
+        [
+            (
+                "PRRT_71_0".to_owned(),
+                "Declined: the worker's reason was refused by a hook of the project's, so it is \
+                 not posted."
+                    .to_owned()
+            ),
+            ("PRRT_71_1".to_owned(), "Fixed.".to_owned()),
+        ]
+    );
     assert_eq!(phase(&rig, &runner)["state"], "ci");
 }
 

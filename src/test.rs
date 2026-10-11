@@ -545,6 +545,29 @@ impl Rig {
         });
     }
 
+    /// Gives the project a hook at each of `points` that refuses any text
+    /// naming `word`, exit 2 with a reason that does not repeat it, read
+    /// when a runner next opens
+    pub(crate) fn forbid_word(&self, points: &[&str], word: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let script = self.home.path().join("forbid-word.sh");
+        let body = format!(
+            "#!/bin/sh\nif grep -q '{word}'; then echo 'it names a word the project keeps private' >&2; exit 2; fi\n"
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let hooks: String = points
+            .iter()
+            .map(|point| {
+                format!(
+                    "\n[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"{}\"\n",
+                    script.display()
+                )
+            })
+            .collect();
+        self.edit_settings(|s| s + &hooks);
+    }
+
     /// Has the project block on CI, read when a runner next opens
     pub(crate) fn ci_on(&self) {
         self.edit_settings(|s| s.replace("block = false", "block = true"));

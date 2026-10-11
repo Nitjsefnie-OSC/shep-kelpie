@@ -135,21 +135,29 @@ impl Runner {
             self.save(next)?;
             return self.begin_item(false);
         }
-        let (prompt, why) = if pushed_nothing {
-            (PUSHED_NOTHING, PUSHED_NOTHING_TWICE)
-        } else {
-            (STOPPED_SHORT, STOPPED_TWICE)
+        // A pull request file a project's hook refused is the worker's to fix.
+        let refused = (self.file_refused.borrow_mut()).remove(&item.branch);
+        let (prompt, why) = match (pushed_nothing, refused) {
+            (true, _) => (PUSHED_NOTHING.to_owned(), PUSHED_NOTHING_TWICE.to_owned()),
+            (false, Some(refusal)) => (
+                format!(
+                    "Your last turn ended with no pull request: kelpie could not open one from \
+                     `pull-request.md`. {refusal}. Change the file so the hook accepts it, and \
+                     end your turn. If only the maintainer can unblock you, end your reply with \
+                     a <kelpie-question> block."
+                ),
+                format!("kelpie could not open its pull request from `pull-request.md`: {refusal}"),
+            ),
+            (false, None) => (STOPPED_SHORT.to_owned(), STOPPED_TWICE.to_owned()),
         };
-        item.turn = Turn::Next {
-            prompt: prompt.to_owned(),
-        };
+        item.turn = Turn::Next { prompt };
         if !sent_back {
             item.sent_back = true;
             self.save(next)?;
             return self.begin_item(false);
         }
         let now = self.ports.clock.now();
-        let mut report = failed(self.names(), &mut next, issue, now, why.to_owned());
+        let mut report = failed(self.names(), &mut next, issue, now, why);
         self.save(next)?;
         self.fill_comment_failed(&mut report);
         Ok(Begin::Report(report))

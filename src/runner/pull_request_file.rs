@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Runner;
+use crate::ports::ForgeError;
 use crate::worker_folder;
 use crate::worktree::BASE;
 
@@ -73,6 +74,10 @@ impl Runner {
                 Some(number)
             }
             Err(e) => {
+                // The worker can fix its own file, so it is told why.
+                if matches!(e, ForgeError::Hook { .. }) {
+                    (self.file_refused.borrow_mut()).insert(branch.to_owned(), e.to_string());
+                }
                 self.notes
                     .push(format!("cannot open a pull request from {branch}: {e}"));
                 None

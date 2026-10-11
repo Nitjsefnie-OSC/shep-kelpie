@@ -249,8 +249,8 @@ fn every_old_top_level_key_is_refused_at_once_naming_what_replaces_it() {
              - `max_items`, {grouped}: move its value to `concurrency.active_items`\n\
              - `max_parked`, {grouped}: move its value to `concurrency.pending_rulings`\n\
              - `private_names`, because kelpie no longer checks text for the project's own \
-             words: guard a worker's commits and posts with a hook in \
-             `worker.guard_hooks`, and delete it\n\
+             words: check text for the project's own words with a hook in `hooks`, \
+             which kelpie runs for every harness and role, and delete it\n\
              - `skills.ci`, because the step is named for what it does, apart from the \
              `[ci]` table: move its value to `skills.ci_fix`"
         )

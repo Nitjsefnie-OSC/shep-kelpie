@@ -3,6 +3,7 @@
 use std::fmt;
 
 use super::{Timestamp, rate_limit};
+use crate::hooks::Refusal;
 use crate::local_paths::Leak;
 
 /// Why a forge call failed
@@ -21,6 +22,14 @@ pub enum ForgeError {
         /// What it names
         leak: Leak,
     },
+    /// A project's hook refused a field of the post, or failed to run, so
+    /// kelpie never sent it
+    Hook {
+        /// The field, such as "the comment"
+        what: &'static str,
+        /// The hook, and what it said
+        refusal: Refusal,
+    },
     /// The forge said its rate limit was used up, so no call is made until it resets then
     Held(Timestamp),
     /// The GitHub App's write failed, with why
@@ -37,6 +46,7 @@ impl fmt::Display for ForgeError {
             Self::Failed(stderr) => write!(f, "gh failed: {}", stderr.trim()),
             Self::Unreadable(output) => write!(f, "unreadable gh output: {}", output.trim()),
             Self::LocalPath { what, leak } => write!(f, "not posted: {what} names {leak}"),
+            Self::Hook { what, refusal } => write!(f, "not posted: {what}: {refusal}"),
             Self::Held(until) => write!(
                 f,
                 "not asked: the forge's rate limit is used up until {}",
