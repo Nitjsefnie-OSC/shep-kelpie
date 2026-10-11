@@ -47,6 +47,8 @@ pub(super) struct WorkerAgent {
     pub(super) model: String,
     /// How hard the model thinks
     pub(super) effort: Effort,
+    /// The tools its agent file names, in place of a worker's own
+    pub(super) tools: Option<String>,
     /// Its agent file's body, added to kelpie's own instructions
     pub(super) prompt: Option<String>,
 }
@@ -319,6 +321,7 @@ impl Runner {
             limit,
             model,
             effort,
+            tools: agent_tools,
             prompt: agent_prompt,
         } = self.worker_agent(item)?;
         // Where the App covers the repo, the worker holds its token and never
@@ -378,6 +381,7 @@ impl Runner {
             prompt,
             plugin_dirs: self.skills.plugin_dirs().to_vec(),
             tools: Tools::Work,
+            agent_tools,
             reach,
             lease: limit.lease().cloned(),
         })
@@ -468,6 +472,7 @@ impl Runner {
             limit: limit.clone(),
             model: model.model.as_str().to_owned(),
             effort: model.effort,
+            tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
             prompt: agent.prompt.clone(),
         })
     }

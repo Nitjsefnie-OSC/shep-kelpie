@@ -314,6 +314,11 @@ pub struct RoleModel {
     #[serde(skip)]
     #[schemars(skip)]
     pub harness: AgentHarness,
+    /// The tools its agent file names for a Claude Code session, as
+    /// `claude --tools` takes them, in place of the role's own
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub tools: Option<NonBlank>,
 }
 
 /// A Claude effort level

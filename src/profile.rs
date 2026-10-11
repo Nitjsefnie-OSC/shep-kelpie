@@ -663,10 +663,10 @@ mod tests {
             "disableWorkflows",
             "disableClaudeAiConnectors",
             "disableArtifact",
+            "disableRemoteControl",
         ] {
             assert_eq!(s[key], true, "{key}");
         }
-        assert!(s.get("disableRemoteControl").is_none());
         let deny = strings(&s["permissions"]["deny"]).join(" ");
         for tool in [
             "EnterPlanMode",

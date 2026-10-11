@@ -51,6 +51,7 @@ pub(in crate::runner) fn build_call(
         prompt,
         plugin_dirs: Vec::new(),
         tools: Tools::Answer,
+        agent_tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
         reach: Reach::default(),
         lease: limit.lease().cloned(),
     })

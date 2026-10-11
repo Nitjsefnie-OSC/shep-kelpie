@@ -66,6 +66,7 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
+            agent_tools: None,
             reach: profile.reach(),
             lease: None,
         }
@@ -310,6 +311,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         ),
         plugin_dirs: Vec::new(),
         tools: Tools::Work,
+        agent_tools: None,
         reach: profile.reach(),
         lease: None,
     };

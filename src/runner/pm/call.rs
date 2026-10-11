@@ -78,6 +78,7 @@ impl Runner {
             prompt,
             plugin_dirs: Vec::new(),
             tools: Tools::Pm,
+            agent_tools: None,
             lease: agent.limit.lease().cloned(),
             reach: self.pm_reach(),
         })
