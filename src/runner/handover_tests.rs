@@ -106,9 +106,8 @@ fn a_pull_request_found_after_the_turn_is_handed_over_before_review() {
 
     step(&runner).unwrap(); // pushes, and no pull request is open yet
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    step(&runner).unwrap(); // finds it, and the hook refuses the branch
-    assert_eq!(phase(&rig, &runner), "implement", "no review reads it");
-
+    // Finding it sends the worker back in the same step, since the hook refuses
+    // the branch, and the turn pushes the fix.
     step(&runner).unwrap(); // sent back with the hook's reason, and pushes again
     let prompts: Vec<String> = (rig.claude.seen().into_iter())
         .map(|s| s.call.prompt)
@@ -130,8 +129,7 @@ fn a_pull_request_found_after_the_turn_that_the_hook_refuses_twice_parks() {
 
     step(&runner).unwrap(); // pushes, and no pull request is open yet
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    step(&runner).unwrap(); // found, and refused
-    step(&runner).unwrap(); // sent back, and pushes again
+    step(&runner).unwrap(); // found, refused, sent back, and refused again
     assert_eq!(phase(&rig, &runner), "ruling");
 }
 
