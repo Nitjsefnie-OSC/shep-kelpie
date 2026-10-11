@@ -16,6 +16,9 @@ use crate::state::Ruling;
 /// What a settled ruling's comment says after its first line
 const NOTHING_WAITS: &str = "Nothing waits on the maintainer.";
 
+/// Why an answer about a head that is gone withdraws its ruling
+const MOVED: &str = "the branch moved while it waited, so kelpie looks at what stands now";
+
 /// Who settled a ruling
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::runner) enum Settler {
@@ -81,6 +84,14 @@ impl Outcome {
             told: format!("is withdrawn: {why}"),
         }
     }
+
+    /// This outcome, with its comment left as it is where `left` is set
+    fn in_thread(self, left: bool) -> Self {
+        match left {
+            true => Self { line: None, ..self },
+            false => self,
+        }
+    }
 }
 
 /// A ruling that ended while its comment was up, kept until its end is said
@@ -108,10 +119,9 @@ impl Runner {
         let outcome = Outcome::answered(&by, &answer);
         let outcome = match self.apply(id, answer)? {
             true => outcome,
-            // The answer was about a head that is gone, so none was taken.
-            false => Outcome::withdrawn(
-                "the branch moved while it waited, so kelpie looks at what stands now",
-            ),
+            // The answer was about a head that is gone, so none was taken. An
+            // answer in the ruling's own thread leaves its comment as it is.
+            false => Outcome::withdrawn(MOVED).in_thread(by == Settler::Thread),
         };
         self.say_settled(id, outcome);
         Ok(())
@@ -134,8 +144,25 @@ impl Runner {
         let body = settled_comment(&ended.ruling, &line);
         if let Err(e) = (self.ports.voice).edit_comment(&self.remote, ended.comment, &body) {
             self.notes.push(format!(
-                "cannot edit the comment of ruling {id} to say it is settled: {e}"
+                "cannot edit the comment of ruling {id} to say it is settled, and will try \
+                 again while its thread is watched: {e}"
             ));
+            self.threads.unedited.insert(id, (ended.comment, body));
+        }
+    }
+
+    /// Tries again each edit of a settled ruling's comment that failed, and
+    /// lets go of the ones that went through
+    pub(super) fn retry_edits(&mut self) {
+        let wanted = std::mem::take(&mut self.threads.unedited);
+        for (id, (comment, body)) in wanted {
+            // The failure was told when it first happened, not at each poll.
+            if (self.ports.voice)
+                .edit_comment(&self.remote, comment, &body)
+                .is_err()
+            {
+                self.threads.unedited.insert(id, (comment, body));
+            }
         }
     }
 }

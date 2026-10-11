@@ -91,6 +91,10 @@ pub(super) struct Reading {
     /// The rulings the last save took out of the state while their comments
     /// were up, until what became of them is said
     ended: BTreeMap<u64, Ended>,
+    /// The edit of a settled ruling's comment that failed, by ruling: the
+    /// comment's id and its new body, tried again at each poll while the
+    /// ruling is watched
+    unedited: BTreeMap<u64, (u64, String)>,
 }
 
 /// What a comment on a watched thread is a reply to
@@ -343,6 +347,10 @@ impl Runner {
             now < until
         });
         self.threads.told.retain(|id, _| threads.contains_key(id));
+        self.threads
+            .unedited
+            .retain(|id, _| threads.contains_key(id));
+        self.retry_edits();
     }
 
     // Moves the place read to forward to `comment` for each ruling on its

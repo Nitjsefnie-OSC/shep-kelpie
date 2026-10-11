@@ -2,6 +2,8 @@
 //! thread, has settled it
 
 use super::*;
+use crate::github::ApiError;
+use crate::runner::StepReport;
 
 const NOTHING_WAITS: &str = "Nothing waits on the maintainer.";
 
@@ -55,5 +57,54 @@ fn a_ruling_answered_by_a_reaction_on_its_comment_is_left_as_it_is() {
     step(&runner).unwrap();
 
     assert_eq!(pending(&rig, &runner), none());
+    assert_eq!(rig.github.edits(), []);
+}
+
+#[test]
+fn an_edit_that_failed_is_tried_again_at_the_next_poll() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    let comment = ruling_comment(&rig);
+    rig.github.fail_next(ApiError::Refused(502));
+
+    rig.ask(&runner, "rule", Some("1 no not yet"));
+    assert_eq!(rig.github.edits().len(), 1, "the first try");
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let [(first, said), (again, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!((first, again), (comment, comment));
+    assert_eq!(said, body);
+    assert!(
+        body.starts_with("**Settled.** Answered at the terminal"),
+        "{body}"
+    );
+
+    // Once it went through, it is not sent again.
+    rig.next_look();
+    step(&runner).unwrap();
+    assert_eq!(rig.github.edits().len(), 2);
+}
+
+#[test]
+fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as_it_is() {
+    let (rig, runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+    rig.forge.threads.grant_write("octocat");
+    rig.push_by_hand("kelpie/7", "first.txt");
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::Ruling { id: 1, .. })
+    ));
+    rig.push_by_hand("kelpie/7", "second.txt");
+    rig.clock.advance(5);
+    rig.writes_on(71, "octocat", "1 yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), [2]);
     assert_eq!(rig.github.edits(), []);
 }
