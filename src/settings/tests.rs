@@ -187,8 +187,12 @@ fn a_table_written_before_the_worker_keys_loads_with_their_defaults() {
         )
         .replace("build_env = {}\n", "")
         .replace("turn_timeout = 60\n", "");
+    // A commented example of another table's `allowed_domains` is no setting.
+    let set: String = (before.lines().filter(|line| !line.starts_with('#')))
+        .collect::<Vec<_>>()
+        .join("\n");
     for key in ["turn_timeout =", "allowed_domains =", "build_env ="] {
-        assert!(!before.contains(key), "{key}");
+        assert!(!set.contains(key), "{key}");
     }
     let s = parse(&before).unwrap();
     assert_eq!(s.worker.turn_timeout.get(), 60);

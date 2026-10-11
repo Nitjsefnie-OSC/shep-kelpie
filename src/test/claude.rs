@@ -80,6 +80,9 @@ pub(crate) enum Scripted {
     HoldThenFail(Hold, AgentError),
 }
 
+/// What is queued for one role's calls
+type RoleScript = (Role, VecDeque<Scripted>);
+
 /// A call in flight that a test lets go of when it chooses
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Hold(Arc<(Mutex<Held>, Condvar)>);
@@ -162,6 +165,9 @@ pub(crate) struct Seen {
 pub(crate) struct FakeClaude {
     seen: Arc<Mutex<Vec<Seen>>>,
     script: Arc<Mutex<VecDeque<Scripted>>>,
+    // Answers kept for one role's calls, which no other role's call takes, so
+    // calls that run at once answer the same however their threads are timed
+    by_role: Arc<Mutex<Vec<RoleScript>>>,
     meter: Option<FakeMeter>,
     stopped: Arc<AtomicBool>,
     // What every call in flight last showed, as a transcript would say;
@@ -211,6 +217,16 @@ impl FakeClaude {
     /// Queues answers for its next calls, oldest first
     pub(crate) fn script(&self, steps: impl IntoIterator<Item = Scripted>) {
         self.script.lock().unwrap().extend(steps);
+    }
+
+    /// Queues answers for the next calls of `role`, which take them before
+    /// any answer queued by [`FakeClaude::script`]
+    pub(crate) fn script_for(&self, role: Role, steps: impl IntoIterator<Item = Scripted>) {
+        let mut kept = self.by_role.lock().unwrap();
+        match kept.iter_mut().find(|(r, _)| *r == role) {
+            Some((_, queue)) => queue.extend(steps),
+            None => kept.push((role, steps.into_iter().collect())),
+        }
     }
 
     /// Ends every held call with [`AgentError::Stopped`], so a test's held
@@ -285,7 +301,12 @@ impl Agents for FakeClaude {
             sandbox,
             build_existed,
         });
-        let next = self.script.lock().unwrap().pop_front();
+        let own = {
+            let mut kept = self.by_role.lock().unwrap();
+            let queue = kept.iter_mut().find(|(r, _)| *r == call.role);
+            queue.and_then(|(_, queue)| queue.pop_front())
+        };
+        let next = own.or_else(|| self.script.lock().unwrap().pop_front());
         let next = match next {
             Some(Scripted::Spend(account, usage, cost)) => {
                 if let Some(meter) = &self.meter {

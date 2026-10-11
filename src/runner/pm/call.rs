@@ -23,7 +23,7 @@ const GH_CONFIG: &str = "~/.config/gh/**";
 /// The files under the checkout and the worktrees that it never reads,
 /// since each is where a secret is kept: a remote's URL in `.git/config`
 /// can carry a token, and the rest hold keys and tokens by convention
-pub(super) const SECRET_SHAPED: [&str; 7] = [
+pub(in crate::runner) const SECRET_SHAPED: [&str; 7] = [
     ".git/config",
     "**/.env",
     "**/.env.*",
@@ -91,6 +91,20 @@ impl Runner {
     pub(super) fn pm_reach(&self) -> Reach {
         let folder = self.paths.pm.clone();
         let code = [self.paths.worktrees(), self.settings.git.checkout.clone()];
+        self.fenced_reach(&folder, &code, vec![folder.clone()], Vec::new())
+    }
+
+    // A session that reads its `folder` and the `code` trees, writes `write`
+    // and reaches `hosts` besides the model's; of kelpie's and the shepherd's
+    // homes it reads its folder alone, and in the code trees no secret-shaped file.
+    pub(in crate::runner) fn fenced_reach(
+        &self,
+        folder: &std::path::Path,
+        code: &[std::path::PathBuf],
+        write: Vec<std::path::PathBuf>,
+        hosts: Vec<String>,
+    ) -> Reach {
+        let folder = folder.to_owned();
         let (shep, kelpie) = (&self.paths.shep_home, &self.paths.kelpie_home);
         let homes = [shep.clone()]
             .into_iter()
@@ -111,11 +125,13 @@ impl Runner {
             // Outside its folder, so its file tools may read them under `-p`.
             read: code.to_vec(),
             fence: Some(Box::new(Fence {
-                write: vec![folder.clone()],
+                write,
                 no_write: Vec::new(),
                 no_read,
-                read: std::iter::once(folder.clone()).chain(code).collect(),
-                hosts: Vec::new(),
+                read: std::iter::once(folder.clone())
+                    .chain(code.iter().cloned())
+                    .collect(),
+                hosts,
                 no_commands: Vec::new(),
                 env: BTreeMap::new(),
                 sockets: Vec::new(),

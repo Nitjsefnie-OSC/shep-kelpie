@@ -178,7 +178,7 @@ impl Runner {
                 .map(|item| (item.issue, item.branch.clone()))
                 .collect(),
             bodies: self.brief.bodies.clone(),
-            patches: self.agents.pm.is_some().then(|| {
+            patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
                 (self.state.work_items.iter())
                     .map(|item| (item.issue, self.paths.worktree(item.issue)))
                     .collect()

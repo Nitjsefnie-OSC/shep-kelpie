@@ -8,6 +8,7 @@ fn url(text: &str) -> EndpointUrl {
 }
 
 mod bots;
+mod experts;
 mod issue_writer;
 mod pm;
 mod tools;
@@ -286,7 +287,9 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "cubic",
             "codex",
             "issue-writer",
-            "pm"
+            "pm",
+            "advisor",
+            "researcher"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());

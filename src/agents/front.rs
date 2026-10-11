@@ -30,6 +30,8 @@ enum Front {
     Reviewer(Reviewer),
     IssueWriter(OnClaude),
     Pm(OnClaude),
+    Advisor(Expert),
+    Researcher(Expert),
 }
 
 // The first pass: the role alone, whatever else is there
@@ -71,6 +73,28 @@ struct OnClaude {
     harness: Harness,
     model: NonBlank,
     effort: Effort,
+}
+
+// The advisor's and the researcher's keys: a session on any harness. Neither
+// takes `tools`: each is held to its reads by the kind of call kelpie makes.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Expert {
+    #[serde(rename = "role")]
+    _role: Role,
+    harness: Harness,
+    model: NonBlank,
+    effort: Effort,
+    #[serde(default)]
+    usage: Option<UsageReader>,
+    #[serde(default)]
+    lease: Option<LeaseName>,
+    #[serde(default)]
+    url: Option<EndpointUrl>,
+    #[serde(default)]
+    gateway: Option<GatewayName>,
+    #[serde(default)]
+    context: Option<ContextSize>,
 }
 
 // What runs a reviewer: a session on a harness, a command, an endpoint or a
@@ -160,6 +184,8 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
+        Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
+        Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
     };
     let body = body.trim();
     let prompt = (!body.is_empty()).then(|| body.to_owned());
@@ -208,6 +234,36 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 "a Claude Code hook is what holds its writes to its notes",
             ),
         ),
+        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
+        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
+    }
+}
+
+impl Expert {
+    /// The agent of `role` these keys and `prompt` make, or why not: `who`
+    /// names it
+    fn agent(&self, role: Role, prompt: Option<String>, who: &str) -> Result<Agent, String> {
+        if prompt.is_none() {
+            return Err(format!(
+                "{who}'s prompt is the file's body: write it below the closing `---`"
+            ));
+        }
+        Ok(Agent {
+            role,
+            runs: session(&SessionKeys {
+                harness: self.harness,
+                model: &self.model,
+                effort: self.effort,
+                usage: self.usage,
+                lease: self.lease.as_ref(),
+                host: host(self.url.as_ref(), self.gateway.as_ref())?,
+                context: self.context,
+                tools: None,
+            })?,
+            prompt,
+            paths: Vec::new(),
+            second_look: false,
+        })
     }
 }
 

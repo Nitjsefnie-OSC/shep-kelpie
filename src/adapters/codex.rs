@@ -483,7 +483,15 @@ fn argv(
         [
             // Codex's levels share Claude Code's names; a model refuses one it lacks.
             config("model_reasoning_effort", call.effort.as_str()),
-            config("web_search", "disabled"),
+            // Only the researcher searches the web, which reads and writes nothing here.
+            config(
+                "web_search",
+                if call.tools == Tools::Research {
+                    "live"
+                } else {
+                    "disabled"
+                },
+            ),
             config("check_for_update_on_startup", false),
             config(
                 "sqlite_home",
@@ -506,9 +514,10 @@ fn argv(
     for feature in off {
         argv.extend(["--disable".into(), feature.into()]);
     }
-    // A retro changes nothing, so no `apply_patch` of it is let through.
+    // A retro, an advisor and a researcher change nothing, so no `apply_patch` of theirs is let through.
+    let reads_only = matches!(call.tools, Tools::Retro | Tools::Advise | Tools::Research);
     let hooks = match &call.reach.fence {
-        Some(fence) if call.tools != Tools::Retro => hooks(fence),
+        Some(fence) if !reads_only => hooks(fence),
         _ => no_writes(),
     };
     // Codex runs a hook only once it is trusted; kelpie wrote these itself.

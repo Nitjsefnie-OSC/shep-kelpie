@@ -248,6 +248,8 @@ impl Runner {
             pull_request: None,
             kind,
             alerted: false,
+            panel: None,
+            unposted: false,
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {

@@ -85,6 +85,7 @@ pub fn report(
     out.push(totals("project manager", &calls, Role::Pm));
     out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
+    out.extend(votes(&calls));
     let recorded: BTreeSet<u64> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
     out
@@ -233,9 +234,17 @@ fn totals(name: &str, calls: &[&CallLine], role: Role) -> String {
 // The retros of finished work items, totalled apart from the builds they
 // followed, if any ran
 fn retros(calls: &[&CallLine]) -> Option<String> {
-    let mine: Vec<&&CallLine> = (calls.iter())
-        .filter(|call| call.kind == CallKind::Retro)
-        .collect();
+    of_kind("retro", CallKind::Retro, calls)
+}
+
+// The panel's votes on rulings, totalled apart from the work items, if any ran
+fn votes(calls: &[&CallLine]) -> Option<String> {
+    of_kind("panel votes", CallKind::Vote, calls)
+}
+
+// The calls of `kind`, totalled as `name`, if any ran
+fn of_kind(name: &str, kind: CallKind, calls: &[&CallLine]) -> Option<String> {
+    let mine: Vec<&&CallLine> = (calls.iter()).filter(|call| call.kind == kind).collect();
     if mine.is_empty() {
         return None;
     }
@@ -243,7 +252,7 @@ fn retros(calls: &[&CallLine]) -> Option<String> {
     let dollars = mine.iter().filter_map(|call| call.cost_usd).sum();
     let unpriced = mine.iter().filter(|call| call.unpriced).count();
     Some(format!(
-        "retro: {}, {} units, {}{}",
+        "{name}: {}, {} units, {}{}",
         count(mine.len(), "call"),
         thousands(units),
         money(dollars),

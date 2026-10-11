@@ -20,6 +20,9 @@ use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, St
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree;
 
+mod prompts;
+use prompts::{answer_prompt, declined_prompt, note_prompt, rework_prompt};
+
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
 const TIMEOUT_CONTINUE: &str = "Kelpie stopped your last turn: it ran past its ceiling. \
@@ -147,12 +150,21 @@ impl Runner {
     }
 
     // Applies an answer, and says whether it was taken, not after the branch moved.
-    pub(super) fn apply(&mut self, id: u64, answer: Answer) -> Result<bool, RuleError> {
+    // `by_pm` says the project manager answered for the maintainer, which the
+    // researcher's record of it says.
+    pub(super) fn apply(
+        &mut self,
+        id: u64,
+        answer: Answer,
+        by_pm: bool,
+    ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
+        // Kept for the researcher once the answer is saved.
+        let record = super::panel::Record::of(&ruling, &answer, now, by_pm);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -334,6 +346,10 @@ impl Runner {
             }
         }
         self.save(next).map_err(RuleError::State)?;
+        if let Err(why) = record.append(&self.paths.rulings) {
+            self.notes
+                .push(format!("ruling {id} is not kept for the researcher: {why}"));
+        }
         Ok(true)
     }
 
@@ -397,11 +413,17 @@ impl Runner {
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
     pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
-        // A question the project manager may answer is not the maintainer's
-        // yet, so its comment waits for the hold to end.
+        // A question the project manager may answer, or a ruling the panel has
+        // yet to vote on, is not the maintainer's yet, so its comment waits
+        // for the hold to end.
+        if self.panel_enabled() {
+            self.mark_unposted(id, true);
+        }
+        self.panel_open_all();
         if self.pm_holds_comment(id) {
             return None;
         }
+        self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;
@@ -479,6 +501,8 @@ pub(super) fn park(
         pull_request,
         kind,
         alerted: false,
+        panel: None,
+        unposted: false,
     });
     (id, text)
 }
@@ -955,43 +979,6 @@ fn capitalized(text: &str) -> String {
     chars.next().map_or_else(String::new, |first| {
         first.to_uppercase().chain(chars).collect()
     })
-}
-
-fn note_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!("The maintainer answered no on {about}, with this note:\n\n{note}\n")
-}
-
-fn rework_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "The maintainer asked for a rework of {about}, with this note:\n\n{note}\n\n\
-         Once you push it, the whole review reads your change again.\n"
-    )
-}
-
-fn declined_prompt(number: Option<u64>, head: &str, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your branch".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "Someone other than you pushed commit {} to {about}, and the maintainer \
-         declined it, with this note:\n\n{note}\n\nYour worktree is now at that commit. \
-         Revert or change it with a new commit on top, and push with \
-         `git push origin HEAD`. Do not force-push.\n",
-        short(head)
-    )
-}
-
-fn answer_prompt(text: &str) -> String {
-    format!("The maintainer answered your question:\n\n{text}\n")
 }
 
 #[cfg(test)]

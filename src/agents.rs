@@ -3,7 +3,8 @@
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
 //! frontmatter naming what it is for and what runs it, then a Markdown body.
 //! An implementer's body is added to kelpie's own instructions, and a
-//! reviewer's, the issue writer's or the project manager's is its prompt.
+//! reviewer's, the issue writer's, the project manager's, the advisor's or
+//! the researcher's is its prompt.
 //! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
 //! missing. A file that cannot be read or used stops the runner, naming the
 //! file and what is wrong with it. A `.md` file whose name is no agent's,
@@ -44,6 +45,12 @@ pub const ISSUE_WRITER: &str = "issue-writer";
 /// The project manager kelpie ships, which a project runs with `agents.pm`
 pub const PM: &str = "pm";
 
+/// The advisor kelpie ships, which a project runs with `agents.advisor`
+pub const ADVISOR: &str = "advisor";
+
+/// The researcher kelpie ships, which a project runs with `agents.researcher`
+pub const RESEARCHER: &str = "researcher";
+
 /// The maintainer's qwen-review script, which the `qwen` reviewer runs
 pub const QWEN_REVIEW: &str = "~/.claude/scripts/qwen-review.sh";
 
@@ -57,7 +64,7 @@ enum Written {
 
 // Kelpie's own agents, by name: what `add` writes out, and what a missing
 // file falls back to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 9] = [
+const DEFAULTS: [(&str, &str, Written); 11] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../agents/sonnet-high.md"),
@@ -91,6 +98,16 @@ const DEFAULTS: [(&str, &str, Written); 9] = [
         Written::Always,
     ),
     (PM, include_str!("../agents/pm.md"), Written::Always),
+    (
+        ADVISOR,
+        include_str!("../agents/advisor.md"),
+        Written::Always,
+    ),
+    (
+        RESEARCHER,
+        include_str!("../agents/researcher.md"),
+        Written::Always,
+    ),
 ];
 
 /// What an agent is for
@@ -106,6 +123,12 @@ pub enum Role {
     IssueWriter,
     /// It manages the project's board, once a project names it in `agents.pm`
     Pm,
+    /// It votes on each ruling from the codebase, once a project names it
+    /// in `agents.advisor`
+    Advisor,
+    /// It votes on each ruling from everything outside the codebase, once a
+    /// project names it in `agents.researcher`
+    Researcher,
 }
 
 impl Role {
@@ -116,6 +139,8 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
+            Self::Advisor => "advisor",
+            Self::Researcher => "researcher",
         }
     }
 }

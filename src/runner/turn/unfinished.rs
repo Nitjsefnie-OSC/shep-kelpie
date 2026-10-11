@@ -164,16 +164,17 @@ impl Runner {
             self.save(next)?;
             return self.begin_item(false);
         }
-        // A pull request file a project's hook refused is the worker's to fix.
+        // A pull request file the forge refused is told to the worker, and to
+        // the project manager if it parks.
         let refused = item.pull_request_refused.take();
         let (prompt, why) = match (pushed_nothing, refused) {
             (true, _) => (PUSHED_NOTHING.to_owned(), PUSHED_NOTHING_TWICE.to_owned()),
             (false, Some(refusal)) => (
                 format!(
                     "Your last turn ended with no pull request: kelpie could not open one from \
-                     `pull-request.md`. {refusal}. Change the file so the hook accepts it, and \
-                     end your turn. If only the maintainer can unblock you, end your reply with \
-                     a <kelpie-question> block."
+                     `pull-request.md`: {refusal}. Kelpie tries again when your turn ends. If \
+                     only the maintainer can unblock you, end your reply with a \
+                     <kelpie-question> block."
                 ),
                 format!("kelpie could not open its pull request from `pull-request.md`: {refusal}"),
             ),

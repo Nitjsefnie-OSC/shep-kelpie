@@ -474,6 +474,8 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
         pull_request: Some(thread),
         kind: RulingKind::from(Stuck::Closed),
         alerted: true,
+        panel: None,
+        unposted: false,
     });
     next.heard.insert(
         2,

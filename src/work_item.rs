@@ -224,9 +224,11 @@ pub struct WorkItem {
     /// a ruling. Cleared when a hook passes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub handover_refused: bool,
-    /// Why a `publish` hook refused the pull request kelpie tried to open
-    /// from the worker's `pull-request.md`, until the next step tells the
-    /// worker. Kept in the state, so a restart still names the hook.
+    /// Why the forge refused the pull request kelpie tried to open from the
+    /// worker's `pull-request.md` (the guard, a `publish` hook or the forge
+    /// itself), with how to fix the file where the worker can, until the next
+    /// step tells the worker. Kept in the state, so a restart still names the
+    /// refusal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request_refused: Option<String>,
     /// The head of the last merge under `auto` that answered an error. A
@@ -436,6 +438,16 @@ impl WorkItem {
     /// What its calls have cost so far
     pub fn cost(&self) -> Cost {
         Cost(self.calls.iter().map(|c| c.cost.0).sum())
+    }
+
+    /// Moves what `session` had cost as of its last recorded call up to `to`,
+    /// for a call in it that the work item does not count, so the cost of the
+    /// next call here leaves that one out
+    pub fn advance_session_cost(&mut self, session: &SessionId, to: Cost) {
+        let last = self.calls.iter_mut().rev().find(|c| &c.session == session);
+        if let Some(last) = last.filter(|c| c.session_cost.0 < to.0) {
+            last.session_cost = to;
+        }
     }
 
     /// What `session` had cost as of its last recorded call
@@ -825,5 +837,27 @@ mod tests {
         assert_eq!(item.session_cost(&other), Cost(40));
         assert_eq!(item.session_cost(&SessionId("new".into())), Cost(0));
         assert_eq!(item.cost(), Cost(45));
+    }
+
+    #[test]
+    fn a_call_the_item_does_not_count_moves_its_sessions_cost_without_adding_to_its_own() {
+        let mut item = a_work_item();
+        let session = item.session.clone();
+        let before = item.cost();
+
+        item.advance_session_cost(&session, Cost(30));
+        item.advance_session_cost(&session, Cost(10));
+        item.advance_session_cost(&SessionId("new".into()), Cost(99));
+
+        assert_eq!(item.session_cost(&session), Cost(30));
+        assert_eq!(item.cost(), before);
+        let next = item.record_call(
+            Role::Worker,
+            Timestamp(9),
+            session,
+            Usage::default(),
+            Some(Cost(35)),
+        );
+        assert_eq!(next, Some(Cost(5)));
     }
 }
