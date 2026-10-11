@@ -700,7 +700,8 @@ impl Forge for FakeForge {
 
     fn comment_marks(&self, _repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
         self.ask()?;
-        Ok(self.threads.marks_of(comment))
+        (self.threads.marks_of(comment))
+            .ok_or_else(|| ForgeError::Failed(format!("comment {comment} is unreadable")))
     }
 
     fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {

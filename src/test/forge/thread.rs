@@ -19,6 +19,8 @@ struct Threads {
     asked: Vec<String>,
     // What people did to the comments kelpie posted, by comment id
     marks: HashMap<u64, CommentMarks>,
+    // The comments whose marks cannot be read
+    unreadable: HashSet<u64>,
 }
 
 /// What people wrote on the repo's issues and pull requests
@@ -89,13 +91,22 @@ impl FakeThreads {
         marks.editors.push(editor.to_owned());
     }
 
-    /// What was done to comment `comment`, as the forge tells it
-    pub(super) fn marks_of(&self, comment: u64) -> CommentMarks {
+    /// Makes reading what was done to comment `comment` fail
+    pub(crate) fn cannot_read_marks_of(&self, comment: u64) {
+        self.threads.lock().unwrap().unreadable.insert(comment);
+    }
+
+    /// What was done to comment `comment`, as the forge tells it, or none
+    /// when it cannot be read
+    pub(super) fn marks_of(&self, comment: u64) -> Option<CommentMarks> {
         let threads = self.threads.lock().unwrap();
+        if threads.unreadable.contains(&comment) {
+            return None;
+        }
         let mut marks = threads.marks.get(&comment).cloned().unwrap_or_default();
         // The App wrote it, and GraphQL names an App's login without `[bot]`.
         marks.author = "kelpie-octocat".to_owned();
-        marks
+        Some(marks)
     }
 
     /// The `since` of each read of the repo's comments, in order

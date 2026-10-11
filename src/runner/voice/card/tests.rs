@@ -87,6 +87,27 @@ fn a_ruling_that_mentions_no_one_says_to_answer_it_at_the_terminal() {
 }
 
 #[test]
+fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
+    let kind = RulingKind::Merge {
+        head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
+        unreviewed: Some("the reviewer was down".into()),
+        open_threads: None,
+        unread_head: false,
+        note_fix: false,
+        late_fix: false,
+        nits: None,
+    };
+    let no_rework = ruling_comment(None, &ruling(1, kind));
+    let stuck = RulingKind::Stuck(Stuck::Unlabelled {
+        why: "the writer named no agent".into(),
+    });
+    let only_yes = ruling_comment(None, &ruling(1, stuck));
+
+    assert!(no_rework.ends_with("`shep kelpie rule 1 yes` or `shep kelpie rule 1 no <note>`."));
+    assert!(only_yes.ends_with("the terminal: `shep kelpie rule 1 yes`."));
+}
+
+#[test]
 fn a_question_becomes_the_options_it_lists_plus_an_other_row() {
     let asked = "Should it be `--dry-run` or `--check`?\n\nBoth appear in the docs.\n\
                  PM recommends: `--dry-run`\nPM says: shep uses `--dry-run` everywhere.\n\

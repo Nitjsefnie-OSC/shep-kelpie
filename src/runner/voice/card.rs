@@ -53,7 +53,7 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     blocks.extend(panel(ruling, &card.choices));
     blocks.push(match mention {
         Some(login) => answering(login, ruling.id, &ruling.kind, &card.choices),
-        None => unmentioned(ruling.id, &ruling.kind),
+        None => unmentioned(ruling.id, &ruling.kind, &card.choices),
     });
     blocks.join("\n\n")
 }
@@ -388,11 +388,13 @@ fn answering(login: &str, id: u64, kind: &RulingKind, choices: &[Choice]) -> Str
 }
 
 // A ruling that mentions no one is answered at the terminal only.
-fn unmentioned(id: u64, kind: &RulingKind) -> String {
+fn unmentioned(id: u64, kind: &RulingKind, choices: &[Choice]) -> String {
     let rule = format!("shep kelpie rule {id}");
     let forms = match Wants::of(kind) {
         Wants::Answer => format!("`{rule} <your answer>`"),
+        Wants::Merge if needs_pass(kind) => format!("`{rule} yes` or `{rule} no <note>`"),
         Wants::Merge => format!("`{rule} yes`, `{rule} no <note>` or `{rule} rework <note>`"),
+        Wants::YesOrNo if choices.len() == 1 => format!("`{rule} yes`"),
         Wants::YesOrNo => format!("`{rule} yes` or `{rule} no <note>`"),
     };
     format!(

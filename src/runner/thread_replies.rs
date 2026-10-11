@@ -271,12 +271,12 @@ impl Runner {
     // the maintainer it mentions gave it. Their reaction stays on the comment
     // and is read at every poll, so a refusal is told once.
     fn apply_marks(&mut self, marks: BTreeMap<u64, Result<CommentMarks, String>>) {
-        let mut failed = None;
+        let mut failed = Vec::new();
         for (id, marks) in marks {
             let marks = match marks {
                 Ok(marks) => marks,
                 Err(why) => {
-                    failed = Some(why);
+                    failed.push(why);
                     continue;
                 }
             };
@@ -302,6 +302,9 @@ impl Runner {
                 }
             }
         }
+        // Every comment that could not be read, told together and only when
+        // that set changes.
+        let failed = (!failed.is_empty()).then(|| failed.join("; "));
         if self.threads.marks_failed != failed {
             self.notes.extend(failed.clone());
             self.threads.marks_failed = failed;

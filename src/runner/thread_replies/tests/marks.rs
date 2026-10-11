@@ -148,6 +148,30 @@ fn two_boxes_ticked_answer_nothing() {
 }
 
 #[test]
+fn every_ruling_comment_that_cannot_be_read_is_told_not_only_the_last() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    with_a_second_ruling_on(&runner, &rig, 71);
+    let first = ruling_comment(&rig);
+    let second = first + 50;
+    {
+        let mut runner = runner.lock().unwrap();
+        let mut next = runner.state.clone();
+        next.heard.get_mut(&2).unwrap().ruling_comment = second;
+        runner.save(next).unwrap();
+    }
+    rig.forge.threads.cannot_read_marks_of(first);
+    rig.forge.threads.cannot_read_marks_of(second);
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains(&format!("comment {first}")), "{notes}");
+    assert!(notes.contains(&format!("comment {second}")), "{notes}");
+    assert_eq!(pending(&rig, &runner), [1, 2]);
+}
+
+#[test]
 fn a_box_ticked_on_a_workers_question_is_the_answer_its_option_says() {
     let rig = Rig::new("shep");
     rig.with_app();
