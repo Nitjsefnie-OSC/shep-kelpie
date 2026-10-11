@@ -37,7 +37,7 @@ pub use agents::{
 pub use ci::{Ci, Concurrency, FixAttempts};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
-pub use hooks::{HookPoint, ProjectHook};
+pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
 pub use skills::{SkillChoice, SkillName, StepSkills};
