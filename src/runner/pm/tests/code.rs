@@ -23,14 +23,16 @@ fn with_open_item(
     file: &'static str,
     text: &'static str,
 ) -> (Rig, Mutex<Runner>, Seen) {
+    with_open_commit(project, Scripted::Commit(file, text))
+}
+
+/// [`with_open_item`] for a worker that commits as `commit` says
+fn with_open_commit(project: &str, commit: Scripted) -> (Rig, Mutex<Runner>, Seen) {
     let (rig, runner) = with_pm(project);
     rig.ask(&runner, "add", Some("7"));
     let failed = AgentError::Failed(Harness::ClaudeCode, "it crashed".into());
-    rig.claude.script([
-        Scripted::Commit(file, text),
-        Scripted::Fail(failed),
-        Scripted::Say(NOTHING),
-    ]);
+    rig.claude
+        .script([commit, Scripted::Fail(failed), Scripted::Say(NOTHING)]);
     answered(Some(step_until(&runner, |r| {
         matches!(r, StepReport::PmAnswered { .. })
     })));
@@ -208,7 +210,7 @@ fn an_oversized_diff_is_cut_and_says_how_big_it_was() {
     let text: &'static str = line.repeat(2_000).leak();
     let (rig, _runner, _) = with_open_item("eevee", "generated.txt", text);
     let diff = std::fs::read(rig.paths().pm.join("diffs/7.diff")).unwrap();
-    assert!(diff.len() <= 64 * 1024 + 200, "{} bytes", diff.len());
+    assert!(diff.len() <= 64 * 1024 + 500, "{} bytes", diff.len());
     let diff = String::from_utf8(diff).unwrap();
     let (kept, cut) = diff.rsplit_once("\n[kelpie cut this diff at ").unwrap();
     assert!(kept.ends_with(&format!("+{line}")), "cut at a line's end");
@@ -219,10 +221,40 @@ fn an_oversized_diff_is_cut_and_says_how_big_it_was() {
         total > text.len() + 2_000,
         "{total} names the whole diff's bytes"
     );
+    let worktree = rig.paths().worktree(7).display().to_string();
     assert!(
-        rest.ends_with(" bytes: read the worktree for the rest]\n"),
+        rest.ends_with(&format!(
+            "; files cut or past the cut: generated.txt; read the worktree for the rest at {worktree}]\n"
+        )),
         "{rest}"
     );
+}
+
+#[test]
+fn a_cut_diffs_last_line_names_the_files_past_the_cut_and_the_worktree() {
+    let block: &'static str = "one line of a file that fills the cap\n"
+        .repeat(1_200)
+        .leak();
+    let files: &'static [(&str, &str)] = Box::leak(Box::new([
+        ("a.txt", block),
+        ("b.txt", block),
+        ("c dir/c.txt", "small\n"),
+        ("d.txt", "small\n"),
+    ]));
+    let (rig, _runner, _) = with_open_commit("snorlax", Scripted::CommitFiles(files));
+    let diff = std::fs::read_to_string(rig.paths().pm.join("diffs/7.diff")).unwrap();
+    let last = diff.trim_end().lines().last().unwrap();
+    assert!(
+        last.starts_with("[kelpie cut this diff at 64 KiB"),
+        "{last}"
+    );
+    for past in ["b.txt", "c dir/c.txt", "d.txt"] {
+        assert!(last.contains(past), "{past} is named: {last}");
+    }
+    let worktree = rig.paths().worktree(7).display().to_string();
+    assert!(last.contains(&worktree), "{worktree} is named: {last}");
+    assert!(!last.contains("a.txt"), "a.txt was shown whole: {last}");
+    assert!(diff.contains("+++ b/a.txt\n"), "a.txt is shown");
 }
 
 #[test]
