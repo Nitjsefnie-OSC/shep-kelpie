@@ -292,6 +292,20 @@ impl Voice for GuardedVoice {
         self.voice.create_issue(repo, title, body, labels)
     }
 
+    fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
+        self.voice.resolve_thread(repo, thread)
+    }
+
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check("the reply", body)?;
+        self.voice.reply_to_thread(repo, thread, body)
+    }
+
     // A label's text is kelpie's own constants, which name no folder.
     fn create_label(&self, repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
         self.voice.create_label(repo, label)

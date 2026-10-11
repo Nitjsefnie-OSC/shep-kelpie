@@ -261,3 +261,30 @@ fn a_refused_write_says_what_github_answered() {
         "the GitHub App could not post: GitHub answered HTTP 403"
     );
 }
+
+#[test]
+fn a_thread_is_replied_to_and_resolved_with_the_apps_token() {
+    let (voice, github, _home) = voiced();
+    let repo = slug("shep-pm/koji");
+
+    voice.reply_to_thread(&repo, "PRRT_1", "Fixed.").unwrap();
+    voice.resolve_thread(&repo, "PRRT_1").unwrap();
+
+    let made = writes(&github);
+    assert_eq!(made.len(), 2, "{made:?}");
+    for (token, call) in &made {
+        assert_eq!(token, "ghs_test1");
+        assert_eq!(call.path, "/graphql");
+    }
+    let sent: serde_json::Value = serde_json::from_str(made[0].1.body.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        sent["variables"],
+        serde_json::json!({ "id": "PRRT_1", "body": "Fixed." })
+    );
+    assert!(
+        sent["query"]
+            .as_str()
+            .unwrap()
+            .contains("addPullRequestReviewThreadReply")
+    );
+}

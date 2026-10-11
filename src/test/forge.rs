@@ -923,6 +923,7 @@ impl Forge for FakeForge {
 
     fn resolve_thread(&self, _repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
         self.ask()?;
+        self.coderabbit.made_by_gh();
         self.coderabbit.resolve(thread)
     }
 
@@ -933,6 +934,7 @@ impl Forge for FakeForge {
         body: &str,
     ) -> Result<(), ForgeError> {
         self.ask()?;
+        self.coderabbit.made_by_gh();
         self.coderabbit.reply(thread, body)
     }
 
