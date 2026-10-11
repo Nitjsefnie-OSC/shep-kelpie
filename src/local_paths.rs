@@ -221,7 +221,7 @@ fn names_system_path(text: &str) -> bool {
 /// Case does not matter. A name inside a longer one, `vault-door`, `my_vault` or
 /// `vault.rs`, is not it. A bare name beside a `/` is a folder or another owner's
 /// repo. `owner/name` after a `/` counts only behind a host, as in
-/// `github.com/owner/name`.
+/// `github.com/owner/name`. A `.git` after `owner/name` is a clone URL's suffix.
 pub fn names_repo(text: &str, repo: &ForgeSlug) -> bool {
     let (full, bare) = (repo.as_str().to_lowercase(), repo.name().to_lowercase());
     variants(text)
@@ -238,7 +238,11 @@ fn names_word(text: &str, name: &str, owner_and_name: bool) -> bool {
         let ends = match after.next() {
             None => true,
             Some('/') => owner_and_name,
-            Some('.') => !after.next().is_some_and(is_word),
+            Some('.') => {
+                let rest = after.as_str();
+                let git = owner_and_name && rest.strip_prefix("git").is_some_and(ends_word);
+                git || !rest.chars().next().is_some_and(is_word)
+            }
             Some(c) => !(is_word(c) || c == '-'),
         };
         let starts = match before(text, at) {
@@ -248,6 +252,11 @@ fn names_word(text: &str, name: &str, owner_and_name: bool) -> bool {
         };
         ends && starts
     })
+}
+
+// Whether `rest` does not go on as a word, so `.git` there is a clone URL's suffix.
+fn ends_word(rest: &str) -> bool {
+    !rest.chars().next().is_some_and(|c| is_word(c) || c == '-')
 }
 
 // Whether `head` ends in a host name, such as `https://github.com`.

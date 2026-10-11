@@ -136,6 +136,8 @@ fn the_name_of_a_private_project_is_refused_on_a_public_repo() {
         "the vault project does it",
         "(vault)",
         "see https://github.com/acme/vault/pull/3",
+        "git clone https://github.com/acme/vault.git",
+        "git clone git@github.com:acme/vault.git.",
     ] {
         let (forge, fake) = guarded_in_a_flock();
         let refusal = forge.comment(&slug(), 3, text).unwrap_err();
@@ -178,6 +180,7 @@ fn the_name_of_a_public_project_or_a_longer_word_is_posted() {
         "see vault.rs and the vault.example.com page",
         "ported from other/vault",
         "the vault/foo folder and /other/acme/vault",
+        "ported from acme/vault.github and acme/vault.gitignore",
     ] {
         let (forge, fake) = guarded_in_a_flock();
         forge.create_issue(&slug(), "a title", text, &[]).unwrap();
