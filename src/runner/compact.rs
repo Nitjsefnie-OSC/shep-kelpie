@@ -11,6 +11,7 @@
 use super::Runner;
 use super::report::StepReport;
 use crate::ports::{AgentError, AgentReply, Role};
+use crate::skills::split_command;
 use crate::state::StateError;
 use crate::work_item::{Turn, WorkItem};
 
@@ -50,8 +51,13 @@ impl Runner {
                     reply.session_cost,
                 );
                 let reminder = reminder(item);
+                // A skill's command only runs from the very start of a prompt.
                 if let Turn::Next { prompt } = &mut item.turn {
-                    *prompt = format!("{reminder}\n\n{prompt}");
+                    let (command, then) = split_command(prompt);
+                    *prompt = match command {
+                        Some(command) => format!("{command} {reminder}\n\n{then}"),
+                        None => format!("{reminder}\n\n{then}"),
+                    };
                 }
                 StepReport::WorkerCompacted {
                     issue,

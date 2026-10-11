@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{AgentError, Finding, Session, Severity};
+use crate::ports::{AgentError, Checks, Finding, Session, Severity};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -114,6 +114,45 @@ fn the_ledger_shows_the_compaction_as_its_own_call_with_the_issue_and_pull_reque
         .collect();
     let line = |kind: &str| (kind.into(), 7.into(), 71.into());
     assert_eq!(calls, [line("turn"), line("compact"), line("turn")]);
+}
+
+// A slash command only runs from the very start of a prompt, so the CI fix
+// turn's skill must still lead it once the reminder is added.
+#[test]
+fn a_ci_fix_turn_after_a_compaction_still_starts_with_its_skill_s_command() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::PushAt("work.txt", "work\n", 200_000),
+        Scripted::Text("CLEAN"),
+    ]);
+    step(&runner).unwrap(); // the build turn opens the pull request
+    step(&runner).unwrap(); // review round 1
+    step(&runner).unwrap(); // review round 2
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["lint".to_owned()]));
+    rig.verdict(&runner); // CI is red, so the worker's next turn is a fix
+    rig.claude.script([
+        Scripted::Say("compacted"),
+        Scripted::Push("fix.txt", "fixed\n"),
+    ]);
+    step(&runner).unwrap(); // the compaction
+    step(&runner).unwrap(); // the fix
+
+    let [_, compact, fix] = rig.claude.seen().try_into().unwrap();
+    assert_eq!(compact.call.prompt, "/compact");
+    let prompt = &fix.call.prompt;
+    assert!(
+        prompt.starts_with("/mattpocock:diagnosing-bugs Kelpie compacted your session"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("CI failed on your pull request #71"),
+        "{prompt}"
+    );
 }
 
 #[test]
