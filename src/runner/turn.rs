@@ -587,7 +587,11 @@ impl Runner {
                 // asking nothing and holding no work back, and the project's
                 // hooks judge it before review reads it. A refusal sends the
                 // worker back once, and the next parks the work item.
-                let handed = match commit_first || question.is_some() {
+                let ended = match commit_first || question.is_some() {
+                    true => None,
+                    false => self.turn_end(item, &reply.text),
+                };
+                let handed = match commit_first || question.is_some() || ended.is_some() {
                     true => Handover::NotDue,
                     false => self.handover(item),
                 };
@@ -596,8 +600,9 @@ impl Runner {
                     item.handed_over = Some(head.clone());
                     item.handover_refused = false;
                 }
-                let refusal = match handed {
-                    Handover::Refused(why) => Some(Refused::branch(&why)),
+                let refusal = match (&ended, handed) {
+                    (Some(why), _) => Some(Refused::turn(why)),
+                    (None, Handover::Refused(why)) => Some(Refused::branch(&why)),
                     _ => file_refused.as_deref().map(Refused::pull_request_file),
                 };
                 // A turn no hook refused, with its work all committed, spent the

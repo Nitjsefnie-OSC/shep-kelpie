@@ -80,6 +80,9 @@ mod pace;
 mod parent;
 mod paths;
 mod pm;
+mod points;
+#[cfg(test)]
+mod points_tests;
 mod pull_request_file;
 mod question;
 mod replies;
