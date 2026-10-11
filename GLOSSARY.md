@@ -339,6 +339,32 @@ access to the repo: a bare `yes` answers nothing, and a ruling that mentions
 no one is answered at the terminal only. The first answer, from the thread or
 the terminal, wins.
 
+**Panel**:
+The four experts who vote on a ruling, each blind to the others: the work
+item's own **worker**, resumed once with the ruling (it abstains when the
+item has no worker turn), the **project manager**, the **advisor** and the
+**researcher**. A project has one once it names an advisor or a researcher
+(`agents.advisor`, `agents.researcher`). A **vote** is one JSON object, a
+`choice` that is an option's key, a `why` of at most 350 characters and a
+`design` flag; one kelpie cannot read is an abstention, logged. A ruling's
+comment lists the votes under **Panel** and waits for them, 20 minutes at
+most. Nothing decides by them yet.
+_Avoid_: jury, council, quorum
+
+**Advisor**:
+The panel's expert on the codebase, an agent file whose role is `advisor`.
+It reads the work item's worktree, the checkout, the branch's diff that kelpie
+writes into its folder, and the project's design log, ADRs, glossary and
+README. It runs no git, `gh` or command, and writes nothing but its vote.
+
+**Researcher**:
+The panel's expert on everything outside the codebase, an agent file whose
+role is `researcher`. It reads what kelpie writes into its folder, which is
+earlier rulings and their answers, the issue and pull request threads, the
+worker's session and the maintainer's own agent sessions
+(`researcher.transcripts`, off until named), and it has the web, read only.
+It runs no git, `gh` or command, and writes nothing but its vote.
+
 **Merge authority**:
 Who merges a green, reviewed pull request, a project's `git.merging`. `ask`
 raises a ruling before every merge. `auto` has kelpie merge once every gate

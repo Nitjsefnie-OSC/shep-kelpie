@@ -127,7 +127,7 @@ label `ready-for-agent`: already on shep-pm/shep
 label `ready-for-human`: already on shep-pm/shep
 label `in-progress`: already on shep-pm/shep
 label `review please`: already on shep-pm/shep
-agent files: wrote sonnet-high, opus-high, defect-hunter, coderabbit, cubic, codex, issue-writer, pm in /path/to/.shep/kelpie/agents
+agent files: wrote sonnet-high, opus-high, defect-hunter, coderabbit, cubic, codex, issue-writer, pm, advisor, researcher in /path/to/.shep/kelpie/agents
 runner `scratch`: added with its settings, stopped
 `shep kelpie start scratch` runs it
 ```
@@ -466,9 +466,9 @@ effort: high
 Extra instructions for this agent, added to kelpie's own.
 ```
 
-`role` is what the agent is for: `implementer`, an agent that builds a work item, `reviewer`, one that reads a pull request, a review bot included, `issue-writer`, the one `shep kelpie issue` runs, whose body is its prompt and which runs on `claude-code` alone (see [Writing issues](#writing-issues)), or `pm`, the project manager, likewise (see [The project manager](#the-project-manager)). A key only another role takes, such as a reviewer's `paths` or `second_look`, stops the runner. `harness` is Claude Code, `claude-code`, pi, `pi`, which runs a model on an OpenAI-compatible server such as Ollama, or Codex, `codex`, on a ChatGPT plan. `model` and `effort` are what the harness runs. `tools`, on a `claude-code` implementer or reviewer, is the list `claude --tools` takes, in place of what its role starts with: `Bash,Read,Edit,Write,Glob,Grep,Skill` for an implementer, and `Read,Glob,Grep` for a reviewer. Name it for a project whose workers need more, such as `WebFetch`; the settings file still denies the tools that reach past the worker's fence. Any other key stops the runner, and so does a file that does not parse or misses a key its harness needs, naming the file and the key. A `.md` file whose name is no agent's, such as a `README.md`, is skipped and named in the log. A runner sees an edit to the folder the next time it wakes, as it sees a settings change.
+`role` is what the agent is for: `implementer`, an agent that builds a work item, `reviewer`, one that reads a pull request, a review bot included, `issue-writer`, the one `shep kelpie issue` runs, whose body is its prompt and which runs on `claude-code` alone (see [Writing issues](#writing-issues)), or `pm`, the project manager, likewise (see [The project manager](#the-project-manager)), or `advisor` and `researcher`, the two experts besides the worker and the project manager who vote on each ruling, whose body is their prompt too and which run on any harness (see [The panel](#the-panel)). A key only another role takes, such as a reviewer's `paths` or `second_look`, stops the runner. `harness` is Claude Code, `claude-code`, pi, `pi`, which runs a model on an OpenAI-compatible server such as Ollama, or Codex, `codex`, on a ChatGPT plan. `model` and `effort` are what the harness runs. `tools`, on a `claude-code` implementer or reviewer, is the list `claude --tools` takes, in place of what its role starts with: `Bash,Read,Edit,Write,Glob,Grep,Skill` for an implementer, and `Read,Glob,Grep` for a reviewer. Name it for a project whose workers need more, such as `WebFetch`; the settings file still denies the tools that reach past the worker's fence. Any other key stops the runner, and so does a file that does not parse or misses a key its harness needs, naming the file and the key. A `.md` file whose name is no agent's, such as a `README.md`, is skipped and named in the log. A runner sees an edit to the folder the next time it wakes, as it sees a settings change.
 
-Kelpie ships `sonnet-high`, Sonnet 5.5 at high, the default implementer, `opus-high`, Opus 5.5 at high, for work that is hard to undo, `defect-hunter`, the default reviewer, `qwen`, the reviewer that runs the qwen-review script, the review bots `coderabbit`, `cubic` and `codex`, `issue-writer`, Opus 5.5 at medium, and `pm`, the project manager, Opus 5.5 at medium. `shep kelpie add` writes out any that are missing, `qwen` only where the script exists, and never writes over one you edited, and a file named for one replaces it.
+Kelpie ships `sonnet-high`, Sonnet 5.5 at high, the default implementer, `opus-high`, Opus 5.5 at high, for work that is hard to undo, `defect-hunter`, the default reviewer, `qwen`, the reviewer that runs the qwen-review script, the review bots `coderabbit`, `cubic` and `codex`, `issue-writer`, Opus 5.5 at medium, `pm`, the project manager, Opus 5.5 at medium, `advisor`, Opus 5.5 at high, and `researcher`, Sonnet 5.5 at high. `shep kelpie add` writes out any that are missing, `qwen` only where the script exists, and never writes over one you edited, and a file named for one replaces it.
 
 A project lists the agents that build its work items and the ones that review its pull requests, from those files:
 
@@ -628,7 +628,7 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling's id is unique across projects, so `rule` needs no project. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel holds the project manager's words where it gave any. Here is a merge ruling:
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling:
 
 ```markdown
 ### Merge this pull request at 6b0606e into main?
@@ -663,6 +663,47 @@ On an ntfy webhook, a ruling can be answered from the topic: run `shep kelpie to
 
 With a project manager, it may answer a `stuck` ruling for you with a retry, or add its words to the ruling and post it again (see [The project manager](#the-project-manager)).
 
+### The panel
+
+Four experts vote on each ruling that lists two options or more, each blind to the others, so a ruling reaches you with their reasons beside it:
+
+| Expert | Who | Reads |
+|---|---|---|
+| Worker | the work item's own session, resumed once with the ruling | what it already holds, and its worktree. It abstains when the work item has no worker turn |
+| PM | the project manager, woken as for anything else | the board, the diffs and the CI logs |
+| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design log, ADRs, glossary and README |
+| Researcher | the `researcher` agent file | everything outside the codebase: earlier rulings and their answers, the issue and pull request threads, the worker's session, your own agent sessions, and the web |
+
+A project has a panel once it names an advisor or a researcher:
+
+```toml
+[app.dogs.kelpie.agents]
+advisor = "advisor"
+researcher = "researcher"
+```
+
+Kelpie's own `advisor` is Opus 5.5 at high and its `researcher` Sonnet 5.5 at high, and either runs on any harness kelpie runs. Neither runs git, `gh` or a command, and neither writes anything: its reply is its vote. Kelpie writes what each reads into a folder of its own before it calls it: `<project>/advisor` holds `ruling.md`, `diff.patch` (the branch's diff from `main`, cut at 64 KiB) and `where.md`, and the advisor reads your checkout and the project's worktrees too, under the project manager's fence, with no secret-shaped file. `<project>/researcher` holds `ruling.md`, `rulings.md` (the latest 60 rulings answered, and how, from the file `rulings.jsonl` that kelpie adds to as each is answered, so it holds the rulings answered from this build on), `threads/` (the issue and the pull request, with their latest comments), `worker.md` (the worker's session) and `maintainer/` (your sessions, below). Its file tools read that folder and nothing else. It has web search and fetch, read only; a page it reads can try to steer it, so its vote is one of four and never decides alone. Its fetch reaches the hosts `researcher.allowed_domains` names, and its search needs none.
+
+`researcher.transcripts` names folders of your own agent sessions, read only, and is off until you name one. A folder may be a harness's own place, `~/.claude/projects` for Claude Code, `~/.codex/sessions` for Codex or `~/.pi/agent/sessions` for pi: kelpie reads a session only if it ran in the project's checkout or under it, takes the latest twelve, and keeps only what was asked and said, the last 96 KiB of each and 512 KiB in all.
+
+```toml
+[app.dogs.kelpie.researcher]
+transcripts = ["~/.claude/projects"]
+allowed_domains = ["docs.rs"]
+```
+
+Each vote is one JSON object, `{"choice": "<option key>", "why": "<at most 350 characters>", "design": true|false}`, and `design` is true when the question changes an ADR, the glossary, a public interface or the project's direction. A reply with no such object, or a choice that is no option, is an abstention, and the log says why (`ruling 1: the advisor abstains, since ...`). The experts run at once, and the ruling's comment waits for their votes for 20 minutes at most, then lists the Panel as it stands:
+
+```markdown
+**Panel**
+- **Worker** (A): Both threads were fixed in 6b0606e with tests.
+- **PM** (A): CI green, every reviewer read it.
+- **Researcher** (A): Ruling 125 settled the one open design point.
+- **Advisor** (B): The hook skips a refused write, and no test covers it.
+```
+
+The votes are kept with the ruling and nothing decides by them yet: every ruling still reaches you.
+
 ## Upgrading
 
 ```sh
@@ -679,7 +720,7 @@ Before it restarts a runner, the upgrade drains it, so the restart cuts no worke
 
 If an upgrade stops after the swap (a merge or a call that outlasts the wait, a sheep that does not come back, Ctrl-C), the new build is already installed and the message says so. `shep kelpie upgrade --binary <installed path>` finishes the restarts and touches no file. `--rollback` does not: it swaps the two builds again.
 
-This build writes each project's state file as version 26, and every older build refuses a version 26 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
+This build writes each project's state file as version 27, and every older build refuses a version 27 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
 
 Every sheep it restarts must run the dog's path. If one does not, the upgrade stops before it changes anything and names the sheep and its path. A `--binary` without its executable bits is refused with the `chmod +x` that fixes it, and only one upgrade runs at a time: a second refuses while the first holds `$SHEP_HOME/kelpie/upgrade.lock`. The swap changes the file for every shepherd that adopts the same path, with no check against their shep.
 
@@ -758,7 +799,7 @@ A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in t
 - `git.issues`: what becomes of deferred findings, `ask`, `file` or `skip` (see [The review](#the-review)). `ask` when left out
 - `ci.block`: whether the repo runs CI that a merge waits for, and `ci.fix_attempts`: how many fix turns red runs get, `-1` for no cap (see [CI and the merge](#ci-and-the-merge))
 - `concurrency.active_items` and `concurrency.pending_rulings`: how many work items hold a slot, and how many parked on rulings stop the board opening new ones, which is not a cap on rulings (see [The board](#the-board))
-- `agents.implementers`, `agents.reviewers`, `agents.pm` and `agents.fallback_after`: see [Agents](#agents). `agents.issue_writer`: see [Writing issues](#writing-issues)
+- `agents.implementers`, `agents.reviewers`, `agents.pm` and `agents.fallback_after`: see [Agents](#agents). `agents.advisor`, `agents.researcher`, `researcher.transcripts` and `researcher.allowed_domains`: see [The panel](#the-panel). `agents.issue_writer`: see [Writing issues](#writing-issues)
 - `pacing.enabled` and `pacing.kickoff_hours`: whether usage holds work, and the hours a day the per-hour figure in `status` divides the day's allowance by
 - `worker.allowed_domains`, `worker.build_env` (variables that point tool caches into the build folder), `worker.instructions_file`, `worker.guard_hooks` (Claude Code hooks of the project's own, after kelpie's guard) and `worker.turn_timeout`
 - `hooks` is a list of `{ point, command }`: your own checks, which kelpie runs itself for every harness and role. A point is a gate, which can refuse, or a notice, which only tells. The gates are `publish` (any text before it goes to the forge, kelpie's own included), `commit` (a worker's message and staged diff), `push` (the commits being pushed), `handover` (a worker's finished branch, before review), `command` (every shell command an agent runs, with its `command` line and `cwd`), `write` (every file an agent writes or edits, with its `path`, `tool` and `content` or `patch`), `after_command` (a shell command's `exit` and output tail, once it has run), `turn_start` (a prompt kelpie is about to send a worker, reviewer or the project manager) and `turn_end` (a worker's turn, with its `last_message`). The notices are `reset` (before kelpie compacts a session), `ruling` (a ruling raised, with its `kind`, `question` and `choices`), `ci` (CI settled on a `head`, with its `conclusion` and `failed` checks) and `done` (a work item ended, with its `history` entry). The command gets a JSON payload on stdin. `commit`, `push`, `command`, `write`, `after_command` and a worker's `publish` run inside kelpie's sandbox, in the worker's fence, so they read only what the worker can; the rest run in the runner, outside it. At a gate, exit 0 passes, 2 refuses with stderr as the reason, and anything else, a hook that runs past 30 seconds included, refuses as a hook that failed. At a notice, a non-zero exit or a hang is logged by hook name and kelpie goes on. A refused commit, push, command, write or `gh` post goes back to the agent as the tool's error, a refused `after_command` as feedback on the result, a refused pull request file, branch or `turn_end` back to the worker once, and a refused `turn_start` or post of kelpie's own parks on a ruling naming the hook. Each command must resolve when the runner starts. A point that is not one of these stops the runner at load, naming the points there are. Use `hooks` for a check that must hold on every harness (a git gate is a `command` hook that reads `command` from the payload and exits 2 to refuse), and `worker.guard_hooks` for a Claude Code hook on a tool call kelpie has no point for
