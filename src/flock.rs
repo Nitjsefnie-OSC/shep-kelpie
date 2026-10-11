@@ -52,9 +52,7 @@ impl Checkout {
     pub fn of(folder: &Path) -> Result<Self, String> {
         // Git's answer, or none when it ran and refused; a git that cannot run is an error.
         let git = |args: &[&str]| {
-            let output = crate::spawn::command("git")
-                .arg("-C")
-                .arg(folder)
+            let output = git_in(folder)
                 .args(args)
                 .stdin(Stdio::null())
                 .output()
@@ -73,6 +71,26 @@ impl Checkout {
             forge,
         })
     }
+}
+
+/// `git` run in `folder`, with the variables that pick a repo in place of the
+/// folder's own unset, as they are when a hook or a script runs `shep kelpie`
+pub(crate) fn git_in(folder: &Path) -> std::process::Command {
+    let mut git = crate::spawn::command("git");
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_PREFIX",
+    ] {
+        git.env_remove(var);
+    }
+    git.arg("-C").arg(folder);
+    git
 }
 
 /// The GitHub repo a remote's URL names, over HTTPS or SSH
