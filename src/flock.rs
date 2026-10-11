@@ -221,6 +221,18 @@ pub(crate) async fn kelpie_sheep(
     }
 }
 
+/// The names `name`'s entry sets in its `env`, never their values
+pub(crate) async fn env_keys(client: &Client, name: &str) -> Result<Vec<String>, String> {
+    let request = Request::SheepConfig {
+        name: name.to_owned(),
+    };
+    match client.request(request).await {
+        Ok(Response::SheepConfig(view)) => Ok(view.env_keys),
+        Ok(other) => Err(format!("the shepherd answered {other:?} for `{name}`")),
+        Err(e) => Err(format!("cannot read `{name}`'s config: {e}")),
+    }
+}
+
 /// The program `name`'s entry runs
 pub(crate) async fn script(client: &Client, name: &str) -> Result<String, String> {
     let request = Request::SheepConfig {

@@ -112,7 +112,7 @@ claude setup-token
 shep secret set CLAUDE_CODE_OAUTH_TOKEN
 ```
 
-Then give the runner's sheep `CLAUDE_CODE_OAUTH_TOKEN = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}"` in its `env`. The runner hands the token to `claude` alone, in every role: the worker, the reviewers and the project manager. No other process it starts has the variable, and a Codex or pi call never gets it. It is one token the worker can read, where the keychain holds the full login. A covered call whose runner has no token does not start: it fails with the two commands, not with Claude Code's own "not logged in". `doctor` says MISSING for a covered project when the variable is not set in the shell you run it from; run `CLAUDE_CODE_OAUTH_TOKEN=<token> shep kelpie doctor` to check it.
+Then give the runner's sheep `CLAUDE_CODE_OAUTH_TOKEN = "{{secret:CLAUDE_CODE_OAUTH_TOKEN}}"` in its `env`. The runner hands the token to `claude` alone, in every role: the worker, the reviewers and the project manager. No other process it starts has the variable, and a Codex or pi call never gets it. It is one token the worker can read, where the keychain holds the full login. A covered call whose runner has no token does not start: it fails with the two commands, not with Claude Code's own "not logged in". `doctor` says MISSING for a covered project when the variable is set in neither the runner's `env` nor the shell you run it from. It reads only the names in the runner's `env` from shep, never the token.
 
 ### 4. Add your project
 
