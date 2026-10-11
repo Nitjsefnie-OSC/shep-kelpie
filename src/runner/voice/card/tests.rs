@@ -262,6 +262,29 @@ fn a_vote_cannot_mention_anyone_in_the_comment() {
 }
 
 #[test]
+fn a_vote_cannot_link_or_format_the_comment() {
+    let mut voted_on = ruling(1, merge());
+    voted_on.panel = Some(vec![voted(
+        Voter::Advisor,
+        Some((
+            'A',
+            "[Merge now](https://evil.example/x) **sure** <img src=x> `run` ![i](u) www.evil.example",
+        )),
+    )]);
+
+    let comment = rendered(&voted_on);
+    let line = comment
+        .lines()
+        .find(|l| l.starts_with("- **Advisor**"))
+        .expect("the advisor's line");
+    assert_eq!(
+        line,
+        "- **Advisor** (A): \\[Merge now\\]\\(https:\u{200b}//evil.example/x\\) \\*\\*sure\\*\\* \
+         \\<img src=x\\> \\`run\\` \\!\\[i\\]\\(u\\) www\u{200b}.evil.example"
+    );
+}
+
+#[test]
 fn an_abstaining_project_manager_keeps_the_words_it_left() {
     let mut voted_on = said_by_the_pm(ruling(1, merge()), "I could not tell.");
     voted_on.panel = Some(vec![voted(Voter::Pm, None)]);

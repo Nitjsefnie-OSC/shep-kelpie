@@ -692,7 +692,7 @@ transcripts = ["~/.claude/projects"]
 allowed_domains = ["docs.rs"]
 ```
 
-Each vote is one JSON object, `{"choice": "<option key>", "why": "<at most 350 characters>", "design": true|false}`, and `design` is true when the question changes an ADR, the glossary, a public interface or the project's direction. A reply with no such object, or a choice that is no option, is an abstention, and the log says why (`ruling 1: the advisor abstains, since ...`). The experts run at once, and the ruling's comment waits for their votes for 20 minutes at most, then lists the Panel as it stands:
+Each vote is one JSON object, `{"choice": "<option key>", "why": "<at most 350 characters>", "design": true|false}`, and `design` is true when the question changes an ADR, the glossary, a public interface or the project's direction. A reply with no such object, or a choice that is no option, is an abstention, and the log says why (`ruling 1: the advisor abstains, since ...`). The experts run at once, and the ruling's comment waits for their votes for 20 minutes at most from when they are asked, then lists the Panel as it stands:
 
 ```markdown
 **Panel**

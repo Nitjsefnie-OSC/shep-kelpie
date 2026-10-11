@@ -47,6 +47,18 @@ impl Panelling {
 }
 
 impl Runner {
+    /// Whether the experts of ruling `id` are in flight
+    pub(in crate::runner) fn panel_in_flight(&self, id: u64) -> bool {
+        self.flights.panel.as_ref().is_some_and(|p| p.id == id)
+    }
+
+    /// Ends every call of the experts in flight; their end comes back as news
+    pub(in crate::runner) fn panel_end_flight(&self) {
+        if let Some(panel) = &self.flights.panel {
+            panel.endings.iter().for_each(Ending::end);
+        }
+    }
+
     /// Asks the experts of the oldest ruling waiting for them, unless a
     /// panel's experts are in flight or the runner drains, and says whether
     /// any started
@@ -54,7 +66,7 @@ impl Runner {
         if self.flights.panel.is_some() || self.draining {
             return false;
         }
-        while let Some(id) = self.panel.queue_pop() {
+        while let Some(id) = self.panel.queue_pop(self.ports.clock.now()) {
             if self.ask_experts(id) {
                 return true;
             }

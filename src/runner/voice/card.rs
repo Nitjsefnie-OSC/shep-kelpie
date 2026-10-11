@@ -329,11 +329,7 @@ fn panel(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
             let ballot = ballots.iter().find(|b| b.voter == voter)?;
             let name = voter.name();
             Some(match &ballot.vote {
-                Some(vote) => format!(
-                    "- **{name}** ({}): {}",
-                    vote.choice,
-                    mentions_off(&vote.why)
-                ),
+                Some(vote) => format!("- **{name}** ({}): {}", vote.choice, inert(&vote.why)),
                 // An abstaining project manager may still have left its words.
                 None if voter == Voter::Pm => pm_words(ruling, choices)
                     .and_then(|words| words.lines().nth(1).map(str::to_owned))
@@ -345,10 +341,26 @@ fn panel(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
     Some(format!("**Panel**\n{}", lines.join("\n")))
 }
 
-// `text` with its `@` followed by a zero-width space, so a vote a page steered
-// cannot mention anyone in a comment kelpie posts
-fn mentions_off(text: &str) -> String {
-    text.replace('@', "@\u{200b}")
+// `text` as plain words in a comment kelpie posts, so a vote a page steered
+// cannot mention anyone, link anywhere or format the line: markdown's marks
+// are escaped, a link's `://` and `www.` are broken and an `@` is followed by
+// a zero-width space
+fn inert(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '#' | '|' | '~' | '&'
+            | '!' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '@' => out.push_str("@\u{200b}"),
+            _ => out.push(c),
+        }
+    }
+    out.replace("://", ":\u{200b}//")
+        .replace("www.", "www\u{200b}.")
+        .replace("WWW.", "WWW\u{200b}.")
 }
 
 // The project manager's words alone, where it gave any

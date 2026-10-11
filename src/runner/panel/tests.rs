@@ -321,6 +321,49 @@ fn a_restarted_runner_does_not_ask_the_panel_again_of_a_ruling_that_has_voted() 
 }
 
 #[test]
+fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
+    use super::{Desk, HOLD, Open};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut desk = Desk::default();
+    desk.open.insert(
+        2,
+        Open {
+            since: crate::ports::Timestamp(100),
+            waiting: BTreeSet::new(),
+            ballots: BTreeMap::new(),
+        },
+    );
+    desk.queue.push_back(2);
+
+    let now = crate::ports::Timestamp(100 + HOLD + 5);
+    assert_eq!(desk.queue_pop(now), Some(2));
+    assert_eq!(desk.open[&2].since, now);
+}
+
+#[test]
+fn a_panel_the_settings_dropped_no_longer_holds_its_ruling() {
+    let (rig, runner) = parked("jigglypuff", false);
+    assert_eq!(
+        ruling_comment(&rig),
+        None,
+        "the comment waits for the panel"
+    );
+    {
+        let mut runner = runner.lock().unwrap();
+        runner.agents.advisor = None;
+        runner.agents.researcher = None;
+    }
+
+    let comment = settle(&rig, &runner);
+
+    assert!(
+        comment.starts_with("### Merge this pull request"),
+        "{comment}"
+    );
+}
+
+#[test]
 fn a_ruling_whose_work_item_is_dropped_while_the_panel_votes_is_never_posted() {
     let (rig, runner) = parked("snorlax", false);
     script_all(&rig, false);

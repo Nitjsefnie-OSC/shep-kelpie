@@ -63,9 +63,15 @@ struct Open {
 }
 
 impl Desk {
-    // The next ruling whose experts are to be asked.
-    pub(super) fn queue_pop(&mut self) -> Option<u64> {
-        self.queue.pop_front()
+    // The next ruling whose experts are to be asked. Its hold runs from now,
+    // not from when it was taken up, since only one panel's experts run at a
+    // time and a ruling queued behind another has not had its turn.
+    pub(super) fn queue_pop(&mut self, now: Timestamp) -> Option<u64> {
+        let id = self.queue.pop_front()?;
+        if let Some(open) = self.open.get_mut(&id) {
+            open.since = now;
+        }
+        Some(id)
     }
 
     // Who is still to vote on ruling `id`.
@@ -82,7 +88,7 @@ impl Runner {
 
     /// Whether ruling `id`'s comment waits on its panel
     pub(super) fn panel_holds_ruling(&self, id: u64) -> bool {
-        !self.draining && self.panel.open.contains_key(&id)
+        !self.draining && self.panel_enabled() && self.panel.open.contains_key(&id)
     }
 
     /// Takes up each ruling that needs its panel, settles each whose time ran
@@ -98,6 +104,11 @@ impl Runner {
     /// time ran out, so a ruling raised is held before its comment is posted
     pub(super) fn panel_open_all(&mut self) {
         if !self.panel_enabled() {
+            // The settings dropped both experts since a ruling was taken up:
+            // nothing waits on a panel that is no longer there.
+            self.panel.open.clear();
+            self.panel.queue.clear();
+            self.panel_end_flight();
             return;
         }
         self.panel_forget_answered();
@@ -143,12 +154,20 @@ impl Runner {
     fn panel_settle_overdue(&mut self) {
         let now = self.ports.clock.now();
         let overdue: Vec<u64> = (self.panel.open.iter())
-            .filter(|(_, open)| now.0 >= open.since.0.saturating_add(HOLD))
+            .filter(|(id, open)| {
+                !self.panel.queue.contains(id) && now.0 >= open.since.0.saturating_add(HOLD)
+            })
             .map(|(&id, _)| id)
             .collect();
         for id in overdue {
+            // Experts still in flight are ended, and abstain through their
+            // calls' end, so no call runs on after its ruling is settled.
+            let flying = self.panel_in_flight(id);
+            if flying {
+                self.panel_end_flight();
+            }
             let waiting: Vec<Voter> = self.panel.open[&id].waiting.iter().copied().collect();
-            for voter in waiting {
+            for voter in waiting.into_iter().filter(|v| !flying || *v == Voter::Pm) {
                 self.panel_abstains(id, voter, "it did not answer in time".into());
             }
         }
