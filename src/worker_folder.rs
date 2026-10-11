@@ -41,7 +41,7 @@ pub(crate) const MAX: u64 = 1 << 20;
 /// None of its text holds a file's content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Error {
-    /// It is a link, a FIFO, a device, a folder, or owned by someone else
+    /// It is a link or hard link, a FIFO, a device, a folder, or owned by someone else
     NotRegular,
     /// A folder on the way to it is a link or not a folder
     NotFolder,
@@ -101,7 +101,10 @@ pub(crate) fn read(root: &Path, rel: &Path) -> Result<Option<String>, Error> {
     };
     let stat = fstat(&fd)?;
     let regular = FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile;
-    if !regular || stat.st_uid != nix::unistd::geteuid().as_raw() {
+    // A file with another name too is a hard link, which O_NOFOLLOW cannot see: the
+    // worker could link a file of the maintainer's into its folder.
+    let ours = stat.st_uid == nix::unistd::geteuid().as_raw() && stat.st_nlink == 1;
+    if !regular || !ours {
         return Err(Error::NotRegular);
     }
     if u64::try_from(stat.st_size).map_or(true, |size| size > MAX) {
@@ -156,8 +159,6 @@ fn put(root: &Path, rel: &Path, text: &str, mode: Mode) -> Result<(), Error> {
         Err(e) => return Err(e.into()),
     };
     let mut file = File::from(fd);
-    // Made again, so a umask cannot loosen it and the user's can only tighten.
-    rustix::fs::fchmod(&file, mode)?;
     let written = file.write_all(text.as_bytes());
     drop(file);
     written
@@ -264,6 +265,30 @@ mod tests {
 
         assert_eq!(refused, Err(Error::NotRegular));
         assert!(!refused.unwrap_err().to_string().contains("key"));
+    }
+
+    // A hard link is a regular file with the user's name on it, which O_NOFOLLOW
+    // does not see.
+    #[test]
+    fn a_hard_link_to_a_file_outside_the_folder_is_refused_without_its_content() {
+        let (_dir, build, secret) = folders();
+        fs::hard_link(&secret, build.join("a.md")).unwrap();
+
+        let refused = read(&build, Path::new("a.md"));
+
+        assert_eq!(refused, Err(Error::NotRegular));
+        assert!(!refused.unwrap_err().to_string().contains("key"));
+    }
+
+    #[test]
+    fn a_written_file_has_the_mode_an_ordinary_write_gives_under_the_same_umask() {
+        let (_dir, build, _) = folders();
+        fs::write(build.join("ordinary.md"), "x").unwrap();
+
+        write(&build, Path::new("a.md"), "x").unwrap();
+
+        let mode = |name: &str| fs::metadata(build.join(name)).unwrap().permissions().mode();
+        assert_eq!(mode("a.md"), mode("ordinary.md"));
     }
 
     #[test]
