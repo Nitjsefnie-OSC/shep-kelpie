@@ -58,6 +58,8 @@ pub(crate) struct FakeForge {
     created: Arc<Mutex<Vec<CreatedIssue>>>,
     // What the failed CI runs' logs say
     ci_log: Arc<Mutex<String>>,
+    // Why reading them fails, while it does
+    ci_log_error: Arc<Mutex<Option<String>>>,
     // The title and body of each pull request kelpie opened or edited, by number
     texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
@@ -146,6 +148,7 @@ impl FakeForge {
             created: Arc::default(),
             texts: Arc::default(),
             ci_log: Arc::default(),
+            ci_log_error: Arc::default(),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -862,6 +865,9 @@ impl Forge for FakeForge {
         _merge_group: bool,
     ) -> Result<String, ForgeError> {
         self.ask()?;
+        if let Some(why) = &*self.ci_log_error.lock().unwrap() {
+            return Err(ForgeError::Failed(why.clone()));
+        }
         Ok(self.ci_log.lock().unwrap().clone())
     }
 

@@ -2,6 +2,8 @@
 //! folder before it wakes, since it runs no git, and the board section that
 //! names them beside each work item's worktree
 //!
+//! A work item parked on red CI has its failed run's log named beside its diff.
+//!
 //! The diffs are those the board's last write read, with the runner's lock
 //! let go, so a wake runs no git. The folder is emptied first, so a diff
 //! never outlives its work item or a write whose git failed for it.
@@ -39,6 +41,7 @@ impl Runner {
         if self.state.work_items.is_empty() {
             out.push_str("(none)\n");
         }
+        let mut logs = self.pm_ci_logs(folder);
         let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         for issue in issues {
             let file = format!("{DIFFS}/{issue}.diff");
@@ -58,7 +61,11 @@ impl Runner {
                 }
             };
             let worktree = self.paths.worktree(issue);
-            let _ = writeln!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
+            let _ = write!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
+            if let Some(log) = logs.remove(&issue) {
+                let _ = write!(out, ", {log}");
+            }
+            out.push('\n');
         }
         out
     }

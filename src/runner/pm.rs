@@ -26,6 +26,7 @@ use crate::work_item::new_session_id;
 mod act;
 mod answer;
 mod call;
+mod ci_logs;
 mod diffs;
 mod maintainer;
 mod prompt;
