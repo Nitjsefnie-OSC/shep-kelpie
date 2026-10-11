@@ -72,6 +72,15 @@ impl Runner {
             since,
             green: false,
         };
+        let conclusion = match &pr.checks {
+            Checks::Failed(_) => "failed",
+            Checks::Skipped => "skipped",
+            _ => "passed",
+        };
+        let failed = match &pr.checks {
+            Checks::Failed(checks) => checks.clone(),
+            _ => Vec::new(),
+        };
         let verdict = match pr.checks {
             _ if !settled(since, now) => None,
             Checks::None | Checks::Pending => None,
@@ -92,6 +101,9 @@ impl Runner {
                     review.ci = Some(Box::new(ci));
                 }
             })?;
+        }
+        if verdict.is_some() {
+            self.ci_settled(issue, number, &head, conclusion, &failed);
         }
         match verdict {
             None => Ok(Some(Begin::Idle)),

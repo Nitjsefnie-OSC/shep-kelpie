@@ -46,6 +46,17 @@ impl Refused {
         }
     }
 
+    /// A `turn_end` hook refused the turn
+    pub(super) fn turn(refusal: &str) -> Self {
+        Self {
+            prompt: format!(
+                "Your turn is not accepted: {refusal}. Fix it, and end your turn again. If only \
+                 the maintainer can unblock you, end your reply with a <kelpie-question> block."
+            ),
+            parked: format!("the project's turn_end hook refused the turn twice: {refusal}"),
+        }
+    }
+
     /// A `publish` hook refused the title and body the worker changed in
     /// `pull-request.md`
     pub(super) fn pull_request_file(refusal: &str) -> Self {

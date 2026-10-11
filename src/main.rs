@@ -27,8 +27,9 @@
 //! `kelpie version [--json]`: the build's version and the shep version it is
 //! made with, which `upgrade` reads from a build before it installs it.
 //!
-//! `kelpie confine <folder>...`: the hook that holds a worker's file tools
-//! to its folders. Claude Code runs it; it is not for the maintainer. With
+//! `kelpie confine <folder>... [--hooks=<json>]`: the hook that holds a worker's
+//! file tools to its folders, and runs the project's `write` hooks. Claude Code
+//! runs it; it is not for the maintainer. With
 //! `--append <file>` it is the project manager's, which may only add to the
 //! end of that file.
 //!
@@ -40,7 +41,8 @@
 //! With `--issues=<label>`, an `--agent=<name>` per implementer and
 //! `--ledger=<file>` it is the issue writer's hook instead, which runs only
 //! the commands it lists. With `--record` too it is the PostToolUse hook
-//! that records what the session filed and read in that ledger.
+//! that records what the session filed and read in that ledger. With `--after`
+//! it is the PostToolUse hook that runs the project's `after_command` hooks.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an
@@ -61,9 +63,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use shep_kelpie::confine::{APPEND, Verdict, judge, judge_append};
+use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
-use shep_kelpie::hooks::Hooks;
+use shep_kelpie::hooks::{Hooks, Role};
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -85,6 +87,7 @@ fn main() -> ExitCode {
             let (record, local) = guard::record_flag(&local);
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
+            let (after, local) = guard::after_flag(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -103,6 +106,18 @@ fn main() -> ExitCode {
             if let Some(rules) = issues.as_ref().filter(|_| record) {
                 guard::record_issues(&input[..], rules);
                 return ExitCode::SUCCESS;
+            }
+            if after {
+                let role = match issues {
+                    Some(_) => Role::IssueWriter,
+                    None => Role::Worker,
+                };
+                return hook(guard::judge_after(
+                    &input[..],
+                    &hooks,
+                    role,
+                    Path::new(worktree),
+                ));
             }
             if let Some(rules) = issues {
                 return hook(guard::judge_issues_with(
@@ -160,8 +175,13 @@ fn main() -> ExitCode {
             hook(judge_append(std::io::stdin().lock(), Path::new(file)))
         }
         [role, folders @ ..] if role == "confine" && !folders.is_empty() => {
+            // The project's `write` hooks ride on the command line after the folders.
+            let (hooks, folders) = match Hooks::take(folders) {
+                Ok(taken) => taken,
+                Err(why) => return hook(Verdict::Refuse(why)),
+            };
             let folders: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
-            hook(judge(std::io::stdin().lock(), &folders))
+            hook(judge_with(std::io::stdin().lock(), &folders, &hooks))
         }
         [command, sub] if command == "tools" && sub == "install" => install_tools(),
         [command] if command == "totp" => totp(false),

@@ -752,6 +752,15 @@ fn a_projects_own_hooks_are_read_at_each_point() {
         ("commit", HookPoint::Commit),
         ("push", HookPoint::Push),
         ("handover", HookPoint::Handover),
+        ("command", HookPoint::Command),
+        ("write", HookPoint::Write),
+        ("after_command", HookPoint::AfterCommand),
+        ("turn_start", HookPoint::TurnStart),
+        ("turn_end", HookPoint::TurnEnd),
+        ("reset", HookPoint::Reset),
+        ("ruling", HookPoint::Ruling),
+        ("ci", HookPoint::Ci),
+        ("done", HookPoint::Done),
     ] {
         let [hook] = parse(&with_project_hook(word))
             .unwrap()
@@ -767,6 +776,23 @@ fn a_projects_own_hooks_are_read_at_each_point() {
 fn a_hook_at_a_point_kelpie_has_none_of_is_refused_naming_it() {
     let err = parse_err(&with_project_hook("merge"));
     assert!(err.contains("`hooks.point = \"merge\"`"), "{err}");
+    for point in [
+        "publish",
+        "commit",
+        "push",
+        "handover",
+        "command",
+        "write",
+        "after_command",
+        "turn_start",
+        "turn_end",
+        "reset",
+        "ruling",
+        "ci",
+        "done",
+    ] {
+        assert!(err.contains(&format!("`{point}`")), "{point}: {err}");
+    }
 }
 
 #[test]

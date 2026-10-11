@@ -80,6 +80,9 @@ mod pace;
 mod parent;
 mod paths;
 mod pm;
+mod points;
+#[cfg(test)]
+mod points_tests;
 mod pull_request_file;
 mod question;
 mod replies;
@@ -101,6 +104,7 @@ mod timings;
 mod token_wait;
 mod trigger;
 mod turn;
+mod turn_hooks;
 mod voice;
 mod words;
 mod worker_files;
@@ -304,6 +308,8 @@ pub struct Runner {
     // The project's own hooks, which the forge port, the workers' guard and
     // the handover run
     hooks: Hooks,
+    // What the notice points have told, in memory only
+    told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
     pm: pm::Desk,
     // Whether `drain` holds back every new call, in memory only, so a
@@ -431,6 +437,7 @@ impl Runner {
         if timings::reload(&mut state, ports.clock.now()) {
             store.save(&state)?;
         }
+        let spoken = points::Told::of(&state);
         let mut runner = Self {
             project,
             settings,
@@ -465,6 +472,7 @@ impl Runner {
             brief: briefing::BoardCache::default(),
             local,
             hooks,
+            told_points: spoken,
             pm: pm::Desk::default(),
             draining: false,
             finish: finishing::Finish::default(),

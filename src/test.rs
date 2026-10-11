@@ -720,7 +720,9 @@ impl Rig {
         action: &str,
         params: Option<&str>,
     ) -> serde_json::Value {
-        serde_json::from_str(&answer(runner, action, params)).expect("a JSON reply")
+        let reply = answer(runner, action, params);
+        runner.lock().unwrap().settle_notices();
+        serde_json::from_str(&reply).expect("a JSON reply")
     }
 
     /// A running project whose worker's first turn pushed `work.txt` on
