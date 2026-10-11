@@ -407,6 +407,10 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
             "kelpie finished it, and the forge has not closed it".into(),
             false,
         ),
+        Skip::Dropped { issue } => (
+            format!("dropped, and `shep kelpie add {issue}` takes it back"),
+            false,
+        ),
         Skip::Assigned { .. } => ("someone is assigned to it".into(), false),
         Skip::Split { open, .. } => (
             format!("its {open} open sub-issues are worked instead"),

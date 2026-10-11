@@ -42,11 +42,26 @@ pub(super) struct Looks {
     board_read: Option<Timestamp>,
     // Whether something changed what the board would see since its last read
     board_moved: bool,
+    // When the labels of dropped issues were last read on their own
+    dropped_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
 }
 
 impl Looks {
+    /// Whether the labels of dropped issues are due a read at `now`, which
+    /// records the read: at most one in each [`BOARD_POLL`], and none in one
+    /// where the board itself was read, since that reads them
+    pub(super) fn dropped_due(&mut self, now: Timestamp) -> bool {
+        let poll = BOARD_POLL.as_secs();
+        let recent = |at: Option<Timestamp>| at.is_some_and(|at| now.0 < at.0.saturating_add(poll));
+        if recent(self.dropped_read) || recent(self.board_read) {
+            return false;
+        }
+        self.dropped_read = Some(now);
+        true
+    }
+
     /// Whether `slot`'s step may run at `now`
     pub(super) fn due(&self, slot: Slot, now: Timestamp) -> bool {
         let waited = (self.retries.get(&slot)).is_none_or(|&(_, at)| now >= at);

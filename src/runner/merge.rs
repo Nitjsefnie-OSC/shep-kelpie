@@ -109,7 +109,7 @@ impl Runner {
         if matches!(&item.phase, Phase::Review(review) if summoning(review)) {
             self.leave_round();
         }
-        match self.cleanup(false).map_err(DropError::State)? {
+        match self.cleanup(false, true).map_err(DropError::State)? {
             Begin::Report(StepReport::GateFailed { reason, .. }) => Err(DropError::Cleanup(reason)),
             _ => Ok(()),
         }
@@ -354,14 +354,14 @@ impl Runner {
     pub(super) fn finish(&mut self, merged: bool) -> Result<Begin, StateError> {
         match self.retro()? {
             Some(begin) => Ok(begin),
-            None => self.cleanup(merged),
+            None => self.cleanup(merged, false),
         }
     }
 
     // Removes the worktree, branch and build folder, then the work
     // item, and records its issue so the board never takes it again. A pull
     // request left unmerged is handed back to the maintainer first.
-    fn cleanup(&mut self, merged: bool) -> Result<Begin, StateError> {
+    fn cleanup(&mut self, merged: bool, dropped: bool) -> Result<Begin, StateError> {
         // First, since the findings sit in the build folder this removes.
         if merged && let Some(begin) = self.follow_ups()? {
             return Ok(begin);
@@ -414,8 +414,15 @@ impl Runner {
         // Rulings about this work item go with it, a question asked before
         // its pull request included.
         next.rulings.retain(|r| r.issue != Some(item.issue));
-        if !next.finished.contains(&item.issue) {
-            next.finished.push(item.issue);
+        // A dropped issue stays open, unlike a merged one the forge closes, so it
+        // goes on its own list, which a label put back clears.
+        let (listed, other) = match dropped {
+            true => (&mut next.dropped, &mut next.finished),
+            false => (&mut next.finished, &mut next.dropped),
+        };
+        other.retain(|n| *n != item.issue);
+        if !listed.contains(&item.issue) {
+            listed.push(item.issue);
         }
         next.record_finished(record);
         self.save(next)?;

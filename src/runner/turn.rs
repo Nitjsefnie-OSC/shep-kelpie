@@ -92,6 +92,7 @@ impl Runner {
             }
             return self.begin_item(true);
         }
+        self.recheck_dropped()?;
         self.seat_waiting()?;
         let mut waiting = None;
         let now = self.ports.clock.now();

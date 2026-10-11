@@ -347,7 +347,7 @@ fn a_dropped_rework_leaves_its_issue_off_the_board() {
     assert_eq!(status["work_item"], json!(null));
     assert_eq!(
         status["skipped"],
-        json!([{ "reason": "finished", "issue": 7 }])
+        json!([{ "reason": "dropped", "issue": 7 }])
     );
     assert!(
         rig.forge.head_of("kelpie/7").is_some(),

@@ -254,6 +254,13 @@ impl FakeForge {
         });
     }
 
+    /// Takes `ready-for-agent` off issue `number`, so the board no longer lists it
+    pub(crate) fn unlist_ready(&self, number: u64) {
+        self.ready.lock().unwrap().retain(|i| i.number != number);
+        let mut labels = self.labels.lock().unwrap();
+        labels.entry(number).or_default().retain(|l| l != READY);
+    }
+
     /// Gives ready issue `number` the body `body`, as its author wrote it
     pub(crate) fn set_ready_body(&self, number: u64, body: &str) {
         let mut ready = self.ready.lock().unwrap();

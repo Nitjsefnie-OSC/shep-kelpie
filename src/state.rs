@@ -27,7 +27,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 29 added a ruling's `verdict`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -41,7 +41,7 @@ use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, Wor
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 29;
+const VERSION: u32 = 30;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -82,6 +82,10 @@ pub struct ProjectState {
     /// Issues whose work items kelpie finished, which the board never takes again
     #[serde(default)]
     pub finished: Vec<u64>,
+    /// Issues whose work items `drop` ended, which the board leaves be until
+    /// the forge stops listing them as ready, so a label put back returns one
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<u64>,
     /// The last [`HISTORY_CAP`] work items kelpie finished, oldest first
     #[serde(default)]
     pub history: Vec<Finished>,
@@ -185,6 +189,7 @@ impl ProjectState {
             rulings: Vec::new(),
             last_ruling: 0,
             finished: Vec::new(),
+            dropped: Vec::new(),
             history: Vec::new(),
             reworked: Vec::new(),
             adopted: Vec::new(),
