@@ -2,6 +2,8 @@
 //! folder before it wakes, since it runs no git, and the board section that
 //! names them beside each work item's worktree
 //!
+//! A work item parked on red CI has its failed run's log named beside its diff.
+//!
 //! The diffs are those the board's last write read, with the runner's lock
 //! let go, so a wake runs no git. The folder is emptied first, so a diff
 //! never outlives its work item or a write whose git failed for it.
@@ -29,11 +31,18 @@ impl Runner {
             "## Code\n\nEach open work item's worktree, which you may read, and its branch's \
              diff from main, written in your folder as you woke.\n\n",
         );
+        // Only `pm_call` reaches here, as a wake or `shep kelpie pm` starts,
+        // so the logs are read once per call and not on every board write.
+        // They do not depend on the diffs folder, so they are written first.
+        let mut logs = self.pm_ci_logs(folder);
         if let Err(e) = cleared {
             let why = format!("cannot clear {}: {}", diffs.display(), e.kind());
             self.notes
                 .push(format!("the project manager's diffs: {why}"));
             let _ = writeln!(out, "(no diffs: {why})");
+            for (issue, log) in logs {
+                let _ = writeln!(out, "- #{issue}: {log}");
+            }
             return out;
         }
         if self.state.work_items.is_empty() {
@@ -58,7 +67,11 @@ impl Runner {
                 }
             };
             let worktree = self.paths.worktree(issue);
-            let _ = writeln!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
+            let _ = write!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
+            if let Some(log) = logs.remove(&issue) {
+                let _ = write!(out, ", {log}");
+            }
+            out.push('\n');
         }
         out
     }

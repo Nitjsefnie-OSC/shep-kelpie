@@ -113,8 +113,19 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
             }
         }
     }
+    if wakes.iter().any(|w| matches!(w, Wake::Stuck(..))) {
+        out.push_str(RED);
+    }
     out
 }
+
+/// What a wake for a stuck item says of its CI log
+const RED: &str = "\nWhere a stuck item's line under `## Code` in `board.md` names a CI log, \
+    `ci/<issue>.log`, kelpie wrote the end of its failed run's log there. Read it before \
+    you pass the item to the maintainer. If it shows what failed, `retry` the item with a \
+    `why` that names the failing test or step and what to change, since kelpie sends the \
+    worker your `why` as its next turn. If it says no log could be read, say so in your \
+    `why` when you pass the item on.\n";
 
 /// One reason for a wake, in words
 pub(super) fn reason(wake: &Wake) -> String {
@@ -186,6 +197,18 @@ mod tests {
         assert!(text.contains("the same JSON object as before"));
         assert!(!text.contains("\"pick\""));
         assert!(!text.contains("\"answer\""));
+    }
+
+    #[test]
+    fn a_wake_for_a_stuck_item_says_to_read_its_ci_log_before_passing_it_on() {
+        let stuck = Wake::Stuck(7, "CI failed".into());
+        for fresh in [true, false] {
+            let text = wake("koji", std::slice::from_ref(&stuck), &[], fresh);
+            assert!(text.contains("`ci/<issue>.log`"), "{text}");
+            assert!(text.contains("names the failing test or step"), "{text}");
+        }
+        let text = wake("koji", &[Wake::Pick(2)], &[], true);
+        assert!(!text.contains("ci/<issue>.log"), "{text}");
     }
 
     #[test]

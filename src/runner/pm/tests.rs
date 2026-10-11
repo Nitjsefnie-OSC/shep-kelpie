@@ -15,6 +15,7 @@ use crate::test::{Hold, Rig, Scripted, Seen};
 mod attach;
 mod code;
 mod question;
+mod red;
 
 /// How long a test waits on a call in flight
 const PATIENCE: Duration = Duration::from_secs(60);
