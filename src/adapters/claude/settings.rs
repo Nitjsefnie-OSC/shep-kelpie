@@ -273,6 +273,12 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
     }))
 }
 
+/// Where the prompt that [`compacting`] hands back is kept, beside the call's
+/// `settings` file
+pub(crate) fn prompt_file(settings: &Path) -> PathBuf {
+    settings.with_extension("prompt.md")
+}
+
 /// Has Claude Code compact the session at `window` tokens of context, and
 /// print `prompt_file` into it after it does
 ///

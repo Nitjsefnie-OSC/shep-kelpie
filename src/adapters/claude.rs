@@ -250,7 +250,7 @@ impl Agents for ClaudeCli {
 pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), AgentError> {
     let mut value = settings::settings(call.tools, &call.reach);
     // The prompt beside the settings file, for the hook that hands it back.
-    let again = call.settings.with_extension("prompt.md");
+    let again = settings::prompt_file(&call.settings);
     if let Some(window) = call.compact_window {
         settings::compacting(&mut value, window, &again);
     }

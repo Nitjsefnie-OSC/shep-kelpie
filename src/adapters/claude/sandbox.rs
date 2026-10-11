@@ -155,6 +155,12 @@ pub(crate) fn policy(
             .chain(&call.reach.read)
             .cloned(),
     );
+    // The hook that hands the prompt back after a compaction reads it inside the sandbox.
+    if call.compact_window.is_some() {
+        policy
+            .read
+            .push(super::settings::prompt_file(&call.settings));
+    }
     policy.hosts.push(MODEL_HOST.to_owned());
     Ok(policy)
 }
@@ -340,6 +346,20 @@ mod tests {
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
         assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
         assert!(policy.verify_tls);
+    }
+
+    // The hook that hands a compacted turn's prompt back runs `cat` on it
+    // inside the sandbox, which denies the whole of kelpie's home but for
+    // what the call reads.
+    #[test]
+    fn a_worker_with_a_compact_window_reads_back_the_prompt_its_hook_prints() {
+        let w = World::new();
+        let mut call = w.worker();
+        let without = policy(&call, &w.path("home"), &[]).unwrap();
+        assert!(!without.read.contains(&w.path("worker/settings.prompt.md")));
+        call.compact_window = std::num::NonZeroU32::new(200_000);
+        let with = policy(&call, &w.path("home"), &[]).unwrap();
+        assert!(with.read.contains(&w.path("worker/settings.prompt.md")));
     }
 
     #[test]
