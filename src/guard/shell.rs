@@ -14,12 +14,31 @@ use std::ops::Range;
 pub(super) struct Command {
     /// Its words with quotes removed, after any keyword or assignment in front
     pub words: Vec<String>,
+    /// How each word was written, one for each of `words`
+    pub quoting: Vec<Quoting>,
     /// The heredoc bodies its text reads
     pub heredocs: Vec<String>,
     /// Whether it defines a shell function, as `name() { ... }`
     pub defines_function: bool,
     /// Whether a `|` feeds it the output of the command before
     pub piped: bool,
+}
+
+/// How one word was written, which its text with quotes removed no longer says
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Quoting {
+    /// For each character of the word, whether a quote or a backslash holds it
+    /// literal
+    pub quoted: Vec<bool>,
+    /// Whether a `(` follows the word with no space between: the shell may read
+    /// both as one extended glob, as `--comment@(|x)`
+    pub glued: bool,
+}
+
+// A word as `words` scans it.
+struct Word {
+    text: String,
+    quoting: Quoting,
 }
 
 // A heredoc's place in the lifted text: `<<`, then its index between these.
@@ -70,11 +89,11 @@ pub(super) fn commands(line: &str) -> Result<Vec<Command>, Unreadable> {
             let piped = piped(&chars, range.start);
             let segment = &chars[range];
             // A word keeps its `<<`, not the mark after it.
-            let words: Vec<String> = words(segment)
+            let (words, quoting): (Vec<String>, Vec<Quoting>) = lead_stripped(words(segment))
                 .into_iter()
-                .map(|w| w.split(MARK).step_by(2).collect())
-                .collect();
-            let words = lead_stripped(words);
+                .map(unmarked)
+                .map(|w| (w.text, w.quoting))
+                .unzip();
             let text: String = segment.iter().collect();
             (!words.is_empty()).then(|| Command {
                 defines_function: defines_function(&text),
@@ -84,6 +103,7 @@ pub(super) fn commands(line: &str) -> Result<Vec<Command>, Unreadable> {
                     .filter_map(|i| bodies.get(i).cloned())
                     .collect(),
                 words,
+                quoting,
             })
         })
         .collect())
@@ -344,9 +364,10 @@ fn marks(segment: &[char]) -> Vec<usize> {
 }
 
 // A segment's words, with quotes removed. A `$( )` stays whole inside its word.
-fn words(segment: &[char]) -> Vec<String> {
+fn words(segment: &[char]) -> Vec<Word> {
     let mut out = Vec::new();
     let mut word = String::new();
+    let mut quoted: Vec<bool> = Vec::new();
     let mut started = false;
     let mut i = 0;
     while i < segment.len() {
@@ -356,7 +377,13 @@ fn words(segment: &[char]) -> Vec<String> {
             '#' if !started => break,
             c if c.is_whitespace() || c == '(' || c == ')' => {
                 if started {
-                    out.push(std::mem::take(&mut word));
+                    out.push(Word {
+                        text: std::mem::take(&mut word),
+                        quoting: Quoting {
+                            quoted: std::mem::take(&mut quoted),
+                            glued: c == '(',
+                        },
+                    });
                     started = false;
                 }
                 i += 1;
@@ -368,6 +395,7 @@ fn words(segment: &[char]) -> Vec<String> {
                     .position(|c| *c == '\'')
                     .map_or(segment.len(), |n| i + 1 + n);
                 word.extend(&segment[i + 1..end]);
+                quoted.resize(quoted.len() + (end - i - 1), true);
                 i = end + 1;
             }
             '"' => {
@@ -377,6 +405,7 @@ fn words(segment: &[char]) -> Vec<String> {
                         i += 1;
                     }
                     word.push(segment[i]);
+                    quoted.push(true);
                     i += 1;
                 }
                 i += 1;
@@ -384,27 +413,57 @@ fn words(segment: &[char]) -> Vec<String> {
             '\\' => {
                 if let Some(&next) = segment.get(i + 1) {
                     word.push(next);
+                    quoted.push(true);
                 }
                 i += 2;
             }
             _ => {
                 word.push(ch);
+                quoted.push(false);
                 i += 1;
             }
         }
         started = true;
     }
     if started {
-        out.push(word);
+        out.push(Word {
+            text: word,
+            quoting: Quoting {
+                quoted,
+                glued: false,
+            },
+        });
     }
     out
 }
 
+// A word without its `<<` marks' heredoc numbers, which `words` read as text.
+fn unmarked(word: Word) -> Word {
+    let mut text = String::new();
+    let mut quoted = Vec::new();
+    let mut in_mark = false;
+    for (ch, held) in word.text.chars().zip(word.quoting.quoted) {
+        if ch == MARK {
+            in_mark = !in_mark;
+        } else if !in_mark {
+            text.push(ch);
+            quoted.push(held);
+        }
+    }
+    Word {
+        text,
+        quoting: Quoting {
+            quoted,
+            glued: word.quoting.glued,
+        },
+    }
+}
+
 // Drops the keywords in front of a command. Assignments stay, for `wrap`.
-fn lead_stripped(mut words: Vec<String>) -> Vec<String> {
+fn lead_stripped(mut words: Vec<Word>) -> Vec<Word> {
     let lead = words
         .iter()
-        .take_while(|w| LEADS.contains(&w.as_str()))
+        .take_while(|w| LEADS.contains(&w.text.as_str()))
         .count();
     words.drain(..lead);
     words
