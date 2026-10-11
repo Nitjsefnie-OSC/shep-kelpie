@@ -35,6 +35,8 @@ mod question;
 mod tests;
 mod wakes;
 
+#[cfg(test)]
+pub(super) use call::SECRET_SHAPED;
 pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
@@ -90,6 +92,13 @@ pub(super) enum Wake {
         /// The worker's question, verbatim
         asked: String,
     },
+    /// A ruling is before the panel, and the project manager votes on it
+    Vote {
+        /// The ruling
+        id: u64,
+        /// What it asks and the options, as the experts are shown it
+        asked: String,
+    },
 }
 
 impl Wake {
@@ -100,6 +109,7 @@ impl Wake {
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
+            (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -329,8 +339,16 @@ impl Runner {
                 Wake::Question { id, .. } => {
                     self.pm.asking.remove(&id);
                 }
+                // The panel votes without it.
+                Wake::Vote { id, .. } => self.panel_pm_gone(id),
             }
         }
+    }
+
+    /// Whether ruling `id`'s comment waits on the project manager's answer or
+    /// on the panel's votes, and so is not posted yet
+    pub(super) fn ruling_held(&self, id: u64) -> bool {
+        self.pm_holds_ruling(id) || self.panel_holds_ruling(id)
     }
 
     /// Whether question ruling `id` waits on the project manager's answer,
@@ -344,7 +362,7 @@ impl Runner {
     /// Holds ruling `id`'s comment on its thread back while the project
     /// manager may answer it, and says whether it did
     pub(super) fn pm_holds_comment(&mut self, id: u64) -> bool {
-        let held = self.pm_holds_ruling(id);
+        let held = self.ruling_held(id);
         if held {
             self.pm.unposted.insert(id);
         }
@@ -354,8 +372,10 @@ impl Runner {
     /// Posts the comment of each held ruling whose hold has ended and which
     /// still waits on the maintainer, as the project manager left it
     pub(super) fn post_released(&mut self) {
+        // A ruling the project manager's hold has let go of may be the panel's now.
+        self.panel_pass();
         let released: Vec<u64> = (self.pm.unposted.iter().copied())
-            .filter(|&id| !self.pm_holds_ruling(id))
+            .filter(|&id| !self.ruling_held(id))
             .collect();
         for id in released {
             self.pm.unposted.remove(&id);
@@ -486,6 +506,26 @@ impl Runner {
         let woke_for = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
         let (acted, dropped) = self.act(&answer, picking)?;
+        // Its votes on the rulings it was asked about; one it gave none on abstains.
+        let asked: Vec<u64> = (flying.wakes.iter())
+            .filter_map(|w| match w {
+                Wake::Vote { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        if !asked.is_empty() {
+            let votes = answer
+                .votes
+                .iter()
+                .map(|(id, fields)| {
+                    (
+                        *id,
+                        crate::panel::from_fields(fields, self.panel_options(*id)),
+                    )
+                })
+                .collect();
+            self.panel_pm_answered(&asked, votes);
+        }
         // A question it did not settle goes to the maintainer as it stands.
         for wake in &flying.wakes {
             if let Wake::Question { id, .. } = wake {

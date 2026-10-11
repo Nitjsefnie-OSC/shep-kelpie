@@ -77,6 +77,7 @@ mod older_bots;
 #[cfg(test)]
 mod overlap_tests;
 mod pace;
+mod panel;
 mod parent;
 mod paths;
 mod pm;
@@ -312,6 +313,8 @@ pub struct Runner {
     told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
     pm: pm::Desk,
+    // The panel's votes on the rulings, in memory only
+    panel: panel::Desk,
     // Whether `drain` holds back every new call, in memory only, so a
     // restart ends it
     draining: bool,
@@ -380,7 +383,8 @@ impl Runner {
         let lineup = settings.lineup(&book, home)?;
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
-        (kelpie_settings.gateways()).check_listed(&book, listed.chain(reviewers))?;
+        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+        (kelpie_settings.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -474,6 +478,7 @@ impl Runner {
             hooks,
             told_points: spoken,
             pm: pm::Desk::default(),
+            panel: panel::Desk::default(),
             draining: false,
             finish: finishing::Finish::default(),
             left: left::Seen::default(),

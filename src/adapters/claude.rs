@@ -712,6 +712,24 @@ mod tests {
     }
 
     #[test]
+    fn the_advisor_and_the_researcher_run_on_allow_lists_of_reading_tools_and_no_mcp_server() {
+        let tools = |role, tools| {
+            let mut vote = call(role, fresh());
+            vote.tools = tools;
+            let argv = strings(&vote);
+            let at = argv.iter().position(|a| a == "--tools").unwrap();
+            assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+            assert!(!argv.iter().any(|a| a == "bypassPermissions"));
+            argv[at + 1].clone()
+        };
+        assert_eq!(tools(Role::Advisor, Tools::Advise), "Read,Glob,Grep");
+        assert_eq!(
+            tools(Role::Researcher, Tools::Research),
+            "Read,Glob,Grep,WebFetch,WebSearch"
+        );
+    }
+
+    #[test]
     fn a_worker_runs_on_the_tools_its_skills_use_and_no_mcp_server() {
         for worker in [
             strings(&call(Role::Worker, fresh())),

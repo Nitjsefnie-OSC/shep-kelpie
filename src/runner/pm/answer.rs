@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 5] = ["pick", "hold", "unstick", "answer", "reply"];
+const KEYS: [&str; 6] = ["pick", "hold", "unstick", "answer", "votes", "reply"];
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
@@ -24,6 +24,8 @@ pub(super) struct Answer {
     pub(super) unstick: Option<Unstick>,
     /// What to do about one worker's question
     pub(super) answer: Option<Settle>,
+    /// Its votes on rulings before the panel: each ruling, and the object it voted with
+    pub(super) votes: Vec<(u64, Map<String, Value>)>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
     /// Why, in its own words
@@ -133,6 +135,23 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                         .unread
                         .push(unread("`item`, then `text` or `escalate`, and `why`")),
                 },
+            },
+            "votes" => match &value {
+                Value::Null => {}
+                Value::Array(items) => {
+                    for item in items {
+                        let vote = item.as_object().and_then(|fields| {
+                            Some((number(fields.get("ruling")?)?, fields.clone()))
+                        });
+                        match vote {
+                            Some(vote) => answer.votes.push(vote),
+                            None => answer
+                                .unread
+                                .push(format!("`votes`: a `ruling` and its vote, not {item}")),
+                        }
+                    }
+                }
+                _ => answer.unread.push(unread("a list of votes")),
             },
             "reply" | "why" => match value {
                 Value::Null => {}
@@ -263,6 +282,7 @@ mod tests {
                     why: "split the parser out".into(),
                 }),
                 answer: None,
+                votes: Vec::new(),
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
                 unread: Vec::new(),

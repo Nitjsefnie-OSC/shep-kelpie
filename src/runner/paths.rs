@@ -88,6 +88,13 @@ pub struct ProjectPaths {
     /// The project manager's folder: the board as it stood at its last wake,
     /// and its notes
     pub pm: PathBuf,
+    /// The advisor's folder: the ruling it votes on, and the diff of its branch
+    pub advisor: PathBuf,
+    /// The researcher's folder: the ruling it votes on, the rulings before it,
+    /// the threads, the worker's transcript and the maintainer's
+    pub researcher: PathBuf,
+    /// Every ruling answered, one JSON object a line, which the researcher reads
+    pub rulings: PathBuf,
     /// The folder for the worker's settings file and instructions
     pub worker: PathBuf,
     /// The folder for the plugins that hold each step's skill
@@ -123,6 +130,9 @@ impl ProjectPaths {
             board: folder.join("board.md"),
             answers: folder.join("answers"),
             pm: folder.join("pm"),
+            advisor: folder.join("advisor"),
+            researcher: folder.join("researcher"),
+            rulings: folder.join("rulings.jsonl"),
             worker: folder.join("worker"),
             skills: folder.join("skills"),
             retro_reports: kelpie_home.join("retro-reports/unverified"),

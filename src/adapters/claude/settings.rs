@@ -255,12 +255,9 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
             permissions["allow"] = json!([rule("Edit", &notes)]);
             pm_hooks(fence)
         }
-        Tools::Work
-        | Tools::Review
-        | Tools::Answer
-        | Tools::Retro
-        | Tools::Advise
-        | Tools::Research => hooks(fence),
+        // Their reply is the vote, so a file tool that got past the allow-list is refused.
+        Tools::Advise | Tools::Research => refusing_hooks(),
+        Tools::Work | Tools::Review | Tools::Answer | Tools::Retro => hooks(fence),
     };
     trimmed(json!({
         // Kelpie's sandbox holds the whole process, and on macOS Claude Code's
@@ -494,6 +491,12 @@ fn pm_hooks(fence: &Fence) -> Value {
     .map(|p| shell_quote(&p.to_string_lossy()))
     .join(" ");
     json!({ "PreToolUse": [entry(Some(FILE_TOOLS), &command)] })
+}
+
+// The advisor's and the researcher's: every file tool is refused before it runs.
+fn refusing_hooks() -> Value {
+    let refuse = "echo 'kelpie: this call writes no files' >&2; exit 2";
+    json!({ "PreToolUse": [entry(Some(FILE_TOOLS), refuse)] })
 }
 
 fn entry(matcher: Option<&str>, command: &str) -> Value {

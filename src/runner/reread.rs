@@ -46,7 +46,8 @@ impl Runner {
         let lineup = settings.lineup(&book, &self.home)?;
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
-        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers))?;
+        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);

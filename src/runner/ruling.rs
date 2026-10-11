@@ -147,6 +147,8 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
+        // Kept for the researcher once the answer is saved.
+        let record = super::panel::Record::of(&ruling, &answer, now);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -325,7 +327,12 @@ impl Runner {
                 }
             }
         }
-        self.save(next).map_err(RuleError::State)
+        self.save(next).map_err(RuleError::State)?;
+        if let Err(why) = record.append(&self.paths.rulings) {
+            self.notes
+                .push(format!("ruling {id} is not kept for the researcher: {why}"));
+        }
+        Ok(())
     }
 
     // The branch moved again while the ruling waited, so the answer was about
@@ -388,8 +395,10 @@ impl Runner {
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
     pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
-        // A question the project manager may answer is not the maintainer's
-        // yet, so its comment waits for the hold to end.
+        // A question the project manager may answer, or a ruling the panel has
+        // yet to vote on, is not the maintainer's yet, so its comment waits
+        // for the hold to end.
+        self.panel_open_all();
         if self.pm_holds_comment(id) {
             return None;
         }

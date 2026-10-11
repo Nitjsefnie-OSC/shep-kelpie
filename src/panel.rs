@@ -80,6 +80,15 @@ pub struct Ballot {
 /// Why the reply holds no vote kelpie reads.
 pub fn read(text: &str, options: usize) -> Result<Vote, String> {
     let fields = last_object(text).ok_or("its reply held no JSON object with a `choice`")?;
+    from_fields(&fields, options)
+}
+
+/// The vote the `fields` of a JSON object make, as [`read`] has it
+///
+/// # Errors
+///
+/// Why the object is no vote kelpie reads.
+pub fn from_fields(fields: &Map<String, Value>, options: usize) -> Result<Vote, String> {
     let choice = match fields.get("choice") {
         Some(Value::String(key)) => key.trim().to_ascii_uppercase(),
         other => return Err(format!("`choice` is not a string: {other:?}")),
