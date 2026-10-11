@@ -56,10 +56,8 @@ pub(crate) struct FakeForge {
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
-    // What the failed CI runs' logs say
-    ci_log: Arc<Mutex<String>>,
-    // Why reading them fails, while it does
-    ci_log_error: Arc<Mutex<Option<String>>>,
+    // What the failed CI runs' logs say, or why reading them fails
+    ci_log: Arc<Mutex<Result<String, String>>>,
     // The title and body of each pull request kelpie opened or edited, by number
     texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
@@ -147,8 +145,7 @@ impl FakeForge {
             issues: Arc::default(),
             created: Arc::default(),
             texts: Arc::default(),
-            ci_log: Arc::default(),
-            ci_log_error: Arc::default(),
+            ci_log: Arc::new(Mutex::new(Ok(String::new()))),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -865,10 +862,7 @@ impl Forge for FakeForge {
         _merge_group: bool,
     ) -> Result<String, ForgeError> {
         self.ask()?;
-        if let Some(why) = &*self.ci_log_error.lock().unwrap() {
-            return Err(ForgeError::Failed(why.clone()));
-        }
-        Ok(self.ci_log.lock().unwrap().clone())
+        (self.ci_log.lock().unwrap().clone()).map_err(ForgeError::Failed)
     }
 
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
