@@ -302,7 +302,12 @@ Resolves #7"
     }
 
     const HOME_PATH_REFUSED: &str =
-        "not posted: the pull request's body names a path under the home folder";
+        "not posted: the pull request's body names a path on this machine, which names its user";
+
+    // A path in the maintainer's home, which the guard refuses by name.
+    fn leak(rig: &Rig) -> String {
+        rig.home.path().join("notes/plan.md").display().to_string()
+    }
 
     fn prompts(rig: &Rig) -> Vec<String> {
         (rig.claude.seen().into_iter())
@@ -310,14 +315,14 @@ Resolves #7"
             .collect()
     }
 
-    // The guard refuses a body naming a path under the home folder. The
+    // The guard refuses a body naming a path that names its user. The
     // worker cannot see that, so the turn after tells it why and how to fix it.
     #[test]
     fn a_file_the_guard_refuses_is_told_to_the_worker_and_opens_once_it_is_fixed() {
         let (rig, runner) = with_issue_7(true);
         std::fs::write(
             path(&rig.build_7()),
-            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+            format!("feat: x\n\nSee {}.\n\nResolves #7\n", leak(&rig)),
         )
         .unwrap();
         rig.claude.script([Scripted::Push("work.txt", "work\n")]);
@@ -339,7 +344,7 @@ Resolves #7"
         assert!(told.contains("pull-request.md"), "{told}");
         assert!(told.contains(HOME_PATH_REFUSED), "{told}");
         assert!(told.contains("without the path it names"), "{told}");
-        assert!(!told.contains("~/notes"), "{told}");
+        assert!(!told.contains(&leak(&rig)), "{told}");
         assert_eq!(
             rig.forge.text_of(500),
             Some(("feat: x".to_owned(), "Why.\n\nResolves #7".to_owned())),
@@ -355,7 +360,7 @@ Resolves #7"
         let (rig, runner) = with_issue_7(true);
         std::fs::write(
             path(&rig.build_7()),
-            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+            format!("feat: x\n\nSee {}.\n\nResolves #7\n", leak(&rig)),
         )
         .unwrap();
         let asks = format!(
@@ -389,7 +394,7 @@ Resolves #7"
         let (rig, runner) = with_issue_7(true);
         std::fs::write(
             path(&rig.build_7()),
-            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+            format!("feat: x\n\nSee {}.\n\nResolves #7\n", leak(&rig)),
         )
         .unwrap();
         rig.claude.script([
@@ -405,7 +410,7 @@ Resolves #7"
 
         assert_eq!(rig.forge.text_of(500), None);
         assert!(question.contains(HOME_PATH_REFUSED), "{question}");
-        assert!(!question.contains("~/notes"), "{question}");
+        assert!(!question.contains(&leak(&rig)), "{question}");
     }
 
     // With no App the worker opens its own pull request, as the maintainer's
