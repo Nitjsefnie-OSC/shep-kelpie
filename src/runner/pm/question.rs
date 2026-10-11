@@ -60,7 +60,7 @@ impl Runner {
         let why = plain(&self.shown(settle.why.clone()), WORDS);
         let (done, outcome, recommends) = match &settle.how {
             How::Text(text) => {
-                match self.rule(id, Ruled::Text(format!("{ANSWERED} {text}"))) {
+                match self.rule_by(id, Ruled::Text(format!("{ANSWERED} {text}")), true) {
                     Ok(()) => {}
                     Err(RuleError::State(e)) => return Err(e),
                     Err(e) => return Ok(Err(format!("answer #{n}: {e}"))),

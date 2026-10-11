@@ -34,7 +34,9 @@ fn the_researcher_is_given_the_history_the_threads_the_workers_session_and_the_m
         &paths.folder,
         "rulings.jsonl",
         "{\"id\":0,\"at\":1790000000,\"issue\":3,\"pull_request\":30,\
-         \"asked\":\"Merge this pull request at abc1234 into main?\",\"answer\":\"yes\"}\n",
+         \"asked\":\"Merge this pull request at abc1234 into main?\",\"answer\":\"yes\"}\n\
+         {\"id\":1,\"at\":1790000100,\"issue\":4,\"pull_request\":40,\
+         \"asked\":\"Retry the failed turn?\",\"answer\":\"yes\",\"by_pm\":true}\n",
     );
     rig.writes_on(71, "reviewer", "THREAD-MARK please add a test");
     // The maintainer's own session in the checkout, and in another project.
@@ -78,7 +80,14 @@ fn the_researcher_is_given_the_history_the_threads_the_workers_session_and_the_m
         history.contains("Ruling 0 (issue #3, pull request #30)"),
         "{history}"
     );
-    assert!(history.contains("Answered: yes"), "{history}");
+    assert!(
+        history.contains("Answered by the maintainer: yes"),
+        "{history}"
+    );
+    assert!(
+        history.contains("Answered by the project manager, not the maintainer: yes"),
+        "{history}"
+    );
     let pull_request = read(&researcher.join("threads/pull-request-71.md"));
     assert!(
         pull_request.contains("THREAD-MARK please add a test"),

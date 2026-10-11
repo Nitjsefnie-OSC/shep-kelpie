@@ -31,11 +31,19 @@ pub(in crate::runner) struct Record {
     pull_request: Option<u64>,
     asked: String,
     answer: String,
+    // Whether the project manager answered for the maintainer
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    by_pm: bool,
 }
 
 impl Record {
-    /// `ruling`, answered with `answer` at `at`
-    pub(in crate::runner) fn of(ruling: &Ruling, answer: &Answer, at: Timestamp) -> Self {
+    /// `ruling`, answered with `answer` at `at`, by the project manager when `by_pm`
+    pub(in crate::runner) fn of(
+        ruling: &Ruling,
+        answer: &Answer,
+        at: Timestamp,
+        by_pm: bool,
+    ) -> Self {
         let (brief, _) = crate::runner::voice::brief(ruling);
         // What it asks, less the table of options.
         let asked = brief.split("\n\n| | Option").next().unwrap_or_default();
@@ -53,6 +61,7 @@ impl Record {
             pull_request: ruling.pull_request,
             asked: crate::runner::panel::folders::clip(asked, QUESTION),
             answer: crate::runner::panel::folders::clip(&answer, QUESTION),
+            by_pm,
         }
     }
 
@@ -94,8 +103,12 @@ pub(super) fn read(file: &Path) -> String {
             true => String::new(),
             false => format!(" ({})", about.join(", ")),
         };
+        let by = match record.by_pm {
+            true => "Answered by the project manager, not the maintainer",
+            false => "Answered by the maintainer",
+        };
         out.push_str(&format!(
-            "## Ruling {}{about}, on {}\n\n{}\n\nAnswered: {}\n\n",
+            "## Ruling {}{about}, on {}\n\n{}\n\n{by}: {}\n\n",
             record.id,
             day(record.at),
             record.asked,

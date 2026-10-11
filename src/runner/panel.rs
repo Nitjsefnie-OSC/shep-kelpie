@@ -132,11 +132,13 @@ impl Runner {
 
     // Whether `ruling` needs a panel that has not been taken up: it has no
     // votes, lists two options or more, no hold of the project manager's is
-    // still on it, and it is not posted already, since a comment posted
-    // without the votes is not edited to hold them.
+    // still on it, and its comment is still to be posted, since one posted
+    // without the votes is not edited to hold them and a restart must not
+    // ask the experts again for a vote nobody would see.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         ruling.panel.is_none()
+            && ruling.unposted
             && !posted
             && !self.panel.open.contains_key(&ruling.id)
             && !self.pm_holds_ruling(ruling.id)
@@ -146,6 +148,11 @@ impl Runner {
     // Drops what the panel keeps of a ruling that is answered or gone.
     fn panel_forget_answered(&mut self) {
         let pending: BTreeSet<u64> = self.state.rulings.iter().map(|r| r.id).collect();
+        // Experts in flight for a ruling that is gone are ended, so a call
+        // does not run on in a session the answer moves on.
+        if (self.flights.panel_ruling()).is_some_and(|id| !pending.contains(&id)) {
+            self.panel_end_flight();
+        }
         self.panel.open.retain(|id, _| pending.contains(id));
         self.panel.queue.retain(|id| pending.contains(id));
     }

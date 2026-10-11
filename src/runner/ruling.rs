@@ -145,13 +145,24 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: u64, answer: Answer) -> Result<(), RuleError> {
+        self.rule_by(id, answer, false)
+    }
+
+    /// [`Runner::rule`], where `by_pm` says the project manager answered for the
+    /// maintainer, which the researcher's record of it says
+    pub(super) fn rule_by(
+        &mut self,
+        id: u64,
+        answer: Answer,
+        by_pm: bool,
+    ) -> Result<(), RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
         // Kept for the researcher once the answer is saved.
-        let record = super::panel::Record::of(&ruling, &answer, now);
+        let record = super::panel::Record::of(&ruling, &answer, now, by_pm);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -401,6 +412,9 @@ impl Runner {
         // A question the project manager may answer, or a ruling the panel has
         // yet to vote on, is not the maintainer's yet, so its comment waits
         // for the hold to end.
+        if self.panel_enabled() {
+            self.mark_unposted(id, true);
+        }
         self.panel_open_all();
         if self.pm_holds_comment(id) {
             return None;

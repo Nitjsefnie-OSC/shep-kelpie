@@ -28,6 +28,8 @@ use crate::usage::{CallKind, Draft, Spent, ended};
 pub(in crate::runner) struct Panelling {
     id: u64,
     options: usize,
+    // The work item whose session the worker's vote resumes, while it votes
+    worker_of: Option<u64>,
     calls: Vec<Called>,
     drafts: Vec<(Voter, Draft)>,
 }
@@ -48,6 +50,17 @@ impl Called {
 }
 
 impl Panelling {
+    // The ruling whose experts are in flight.
+    pub(in crate::runner) fn ruling(&self) -> u64 {
+        self.id
+    }
+
+    // Whether the worker's vote is running in `issue`'s session, which no
+    // turn of the work item may resume until it ends.
+    pub(in crate::runner) fn votes_as(&self, issue: u64) -> bool {
+        self.worker_of == Some(issue)
+    }
+
     // Ends each call that is past its ceiling.
     pub(super) fn end_overdue(&self, now: Timestamp) {
         (self.calls.iter())
@@ -254,9 +267,14 @@ impl Runner {
                 .collect();
             let _ = self.flights.send.send(News::Paneled { id, ends });
         }
+        let worker_of = (drafts.iter().any(|(v, _)| *v == Voter::Worker))
+            .then(|| self.state.rulings.iter().find(|r| r.id == id))
+            .flatten()
+            .and_then(|r| r.issue);
         self.flights.panel = Some(Panelling {
             id,
             options,
+            worker_of,
             calls,
             drafts,
         });
@@ -286,6 +304,21 @@ impl Runner {
                 .unwrap_or(Cost(0));
             let line = draft.line(now, ended, spent, before, self.pacer_lines());
             self.append_call(line, false);
+        }
+        // The worker's vote ran in its work item's session, whose cost counts
+        // up across calls. The vote's own cost is the project's, but the next
+        // turn's must not include it, so the item keeps where the session stands.
+        let session_cost = (ends.iter())
+            .find(|(voter, _)| *voter == Voter::Worker)
+            .and_then(|(_, result)| result.as_ref().ok())
+            .and_then(|reply| reply.session_cost);
+        if let (Some(issue), Some(cost)) = (flight.worker_of, session_cost) {
+            let mut next = self.state.clone();
+            if let Some(item) = next.work_items.iter_mut().find(|i| i.issue == issue) {
+                let session = item.session.clone();
+                item.advance_session_cost(&session, cost);
+                self.save(next)?;
+            }
         }
         self.panel_heard(flight.id, flight.options, ends);
         debug_assert_eq!(flight.id, id);

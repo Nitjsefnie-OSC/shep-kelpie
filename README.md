@@ -720,7 +720,7 @@ Before it restarts a runner, the upgrade drains it, so the restart cuts no worke
 
 If an upgrade stops after the swap (a merge or a call that outlasts the wait, a sheep that does not come back, Ctrl-C), the new build is already installed and the message says so. `shep kelpie upgrade --binary <installed path>` finishes the restarts and touches no file. `--rollback` does not: it swaps the two builds again.
 
-This build writes each project's state file as version 27, and every older build refuses a version 27 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
+This build writes each project's state file as version 28, and every older build refuses a version 28 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
 
 Every sheep it restarts must run the dog's path. If one does not, the upgrade stops before it changes anything and names the sheep and its path. A `--binary` without its executable bits is refused with the `chmod +x` that fixes it, and only one upgrade runs at a time: a second refuses while the first holds `$SHEP_HOME/kelpie/upgrade.lock`. The swap changes the file for every shepherd that adopts the same path, with no check against their shep.
 

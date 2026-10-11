@@ -94,8 +94,14 @@ impl Flights {
     }
 
     /// Whether `issue`'s work item has a call in flight
+    /// A worker's vote on a ruling counts, since it runs in the work item's session
     pub(super) fn flying(&self, issue: u64) -> bool {
-        self.flying.contains_key(&issue)
+        self.flying.contains_key(&issue) || self.panel.iter().any(|p| p.votes_as(issue))
+    }
+
+    /// The ruling whose panel's experts are in flight, while they are
+    pub(super) fn panel_ruling(&self) -> Option<u64> {
+        self.panel.as_ref().map(panel::Panelling::ruling)
     }
 
     /// Whether `issue`'s work item has a worker's turn in flight

@@ -176,7 +176,7 @@ impl Runner {
                 )),
                 _ => Ruled::Yes,
             };
-            return match self.rule(id, answer) {
+            return match self.rule_by(id, answer, true) {
                 Ok(()) => Ok(Ok(())),
                 Err(RuleError::State(e)) => Err(e),
                 Err(e) => Ok(Err(format!("retry #{issue}: {e}"))),
