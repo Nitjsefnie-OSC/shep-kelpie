@@ -45,6 +45,7 @@ pub mod totp;
 mod trim;
 pub mod upgrade;
 pub mod usage;
+pub mod watch;
 pub mod webhook;
 pub mod work_item;
 mod worker_folder;

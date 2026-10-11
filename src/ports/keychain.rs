@@ -8,7 +8,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Voice};
+use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript, Voice};
 use crate::settings::ForgeSlug;
 
 /// Agents whose calls block the keychain while an App covers `repo`
@@ -52,6 +52,10 @@ impl Agents for KeychainBlocked {
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
         self.agents.run(&self.blocking(call), ending)
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        self.agents.transcript(call)
     }
 
     fn last_active(&self, call: &AgentCall) -> CallActivity {

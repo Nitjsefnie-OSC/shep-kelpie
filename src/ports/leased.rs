@@ -7,7 +7,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Wait};
+use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript, Wait};
 use crate::lease::gpu::{GpuHold, LockHolder};
 use crate::settings::LeaseName;
 
@@ -77,6 +77,10 @@ impl Agents for Leased {
             None => None,
         };
         self.agents.run(call, ending)
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        self.agents.transcript(call)
     }
 
     fn last_active(&self, call: &AgentCall) -> CallActivity {

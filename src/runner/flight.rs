@@ -361,6 +361,7 @@ impl Runner {
         let now = self.ports.clock.now();
         let draft = Draft::of(&call, agent, kind, now);
         self.flights.ledger.open(None, draft, self.pacer_lines());
+        self.call_started(&call, agent);
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
@@ -506,6 +507,13 @@ impl Runner {
         self.flights
             .ledger
             .open(Some(issue), draft, self.pacer_lines());
+        match &launch {
+            Launch::Turn { call, .. } => self.call_started(call, &self.ledger_worker(issue)),
+            Launch::Review(ReviewCall::Session(call)) => {
+                self.call_started(call, &self.ledger_reviewer(issue));
+            }
+            Launch::Review(ReviewCall::Local { .. }) => {}
+        }
         let ledger = self.flights.ledger.clone();
         let (agents, reviewer) = (
             Arc::clone(&self.ports.agents),

@@ -5,7 +5,7 @@ use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use super::{Checkout, Launch, add, attach, control, pm, rule, usage};
+use super::{Checkout, Launch, add, attach, control, pm, rule, usage, watch};
 use crate::adapters::{ClaudeCli, Gh, LoginToken};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
@@ -20,10 +20,11 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
 /// registers a checkout, `issue`, which runs the issue writer itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
-/// here, and `usage`, which reads the usage ledger here
-pub const VERBS: [&str; 18] = [
+/// here, `usage`, which reads the usage ledger here, and `watch`, which
+/// follows the runner's log and the sessions' transcripts here
+pub const VERBS: [&str; 19] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
-    "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage",
+    "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch",
 ];
 
 /// What the verbs take, as their help says
@@ -44,6 +45,9 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
        shep kelpie drain | undrain       holds back every new call, or lets them start
+       shep kelpie watch [<issue> | pm] [--back <n>] [--full]
+                                         follows the runner's steps and the sessions'
+                                         transcripts live, from the end or n lines back
        shep kelpie usage [<project>] [--since <date>]
                                          units and dollars per merged pull request
        shep kelpie usage <project> --import <log file>
@@ -87,6 +91,22 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     }
     if command == "usage" {
         return usage::usage(&kelpie_home, named, &args);
+    }
+    if command == "watch" {
+        let ask = watch::read_args(&args)?;
+        let here = std::env::current_dir().map_err(|e| format!("cannot read this folder: {e}"))?;
+        // The shepherd is reached only to find the project from this folder.
+        let project = match named {
+            Some(name) => name,
+            None => {
+                let client = shepherd::connect(shep_home)
+                    .await
+                    .map_err(|e| e.describe(shep_home))?;
+                control::project_here(&client, &here, &home).await?
+            }
+        };
+        watch::follow(shep_home, &project, ask)?;
+        return Ok(Vec::new());
     }
     let here = std::env::current_dir().map_err(|e| format!("cannot read this folder: {e}"))?;
     let client = shepherd::connect(shep_home)

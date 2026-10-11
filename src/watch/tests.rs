@@ -1,0 +1,475 @@
+//! The watch, run over a runner log and transcripts written to a temporary folder
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use jiff::tz::TimeZone;
+
+use super::{Options, Scope, Watch};
+
+struct Rig {
+    dir: tempfile::TempDir,
+}
+
+impl Rig {
+    fn new() -> Self {
+        Self {
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+
+    fn log(&self) -> PathBuf {
+        self.dir.path().join("koji-0-out.log")
+    }
+
+    fn transcripts(&self) -> PathBuf {
+        self.dir.path().join("transcripts")
+    }
+
+    fn append(&self, path: &Path, lines: &[&str]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        for line in lines {
+            writeln!(file, "{line}").unwrap();
+        }
+    }
+
+    fn step(&self, at: &str, json: &str) {
+        self.append(&self.log(), &[&format!("{at} {json}")]);
+    }
+
+    fn transcript(&self, session: &str, lines: &[&str]) {
+        self.append(&self.transcripts().join(format!("{session}.jsonl")), lines);
+    }
+
+    fn options(&self, scope: Scope, back: usize) -> Options {
+        Options {
+            scope,
+            back,
+            full: false,
+            zone: TimeZone::UTC,
+        }
+    }
+
+    // The step that names a Claude Code session, as the runner logs it
+    fn started(&self, session: &str, who: &str) -> String {
+        format!(
+            r#"{{"step":"session-started",{who},"harness":"claude-code","session":"{session}","transcript":{{"folder":{:?}}}}}"#,
+            self.transcripts()
+        )
+    }
+}
+
+// Columns are padded for the eye, so tests compare them squeezed.
+fn shown(lines: &[super::Line]) -> Vec<String> {
+    lines
+        .iter()
+        .map(|line| {
+            line.to_string()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
+#[test]
+fn a_project_manager_wake_shows_its_prompt_and_answer_as_pm() {
+    let rig = Rig::new();
+    let (mut watch, first) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    assert!(first.is_empty());
+
+    rig.step(
+        "2026-10-10T12:00:00.100+00:00",
+        &rig.started("pm-1", r#""role":"pm","agent":"manager""#),
+    );
+    rig.transcript(
+        "pm-1",
+        &[
+            r#"{"type":"user","message":{"role":"user","content":"The board changed: #7 is ready"},"timestamp":"2026-10-10T12:00:01.000Z"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Picking #7."}]},"timestamp":"2026-10-10T12:00:02.000Z"}"#,
+        ],
+    );
+
+    let lines = shown(&watch.poll());
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    assert!(
+        lines[0].starts_with("12:00:00 runner step session-started agent=manager"),
+        "{lines:#?}"
+    );
+    assert_eq!(
+        lines[1],
+        "12:00:01 pm prompt The board changed: #7 is ready"
+    );
+    assert_eq!(lines[2], "12:00:02 pm said Picking #7.");
+}
+
+fn user(at: &str, text: &str) -> String {
+    format!(
+        r#"{{"type":"user","message":{{"role":"user","content":"{text}"}},"timestamp":"{at}"}}"#
+    )
+}
+
+fn said(at: &str, text: &str) -> String {
+    format!(
+        r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"{text}"}}]}},"timestamp":"{at}"}}"#
+    )
+}
+
+// Two work items' workers, a reviewer and the project manager, all written.
+fn busy_project(rig: &Rig) {
+    for (at, who, session) in [
+        (
+            "12:00:00",
+            r#""issue":7,"role":"worker","agent":"opus-high""#,
+            "w7",
+        ),
+        (
+            "12:00:01",
+            r#""issue":8,"role":"worker","agent":"sonnet""#,
+            "w8",
+        ),
+        ("12:00:02", r#""role":"pm","agent":"manager""#, "pm"),
+        (
+            "12:00:03",
+            r#""issue":7,"role":"reviewer","agent":"defect-hunter""#,
+            "r7",
+        ),
+    ] {
+        rig.step(
+            &format!("2026-10-10T{at}.000+00:00"),
+            &rig.started(session, who),
+        );
+    }
+    rig.transcript("w7", &[&user("2026-10-10T12:00:10.000Z", "Build #7")]);
+    rig.transcript("w8", &[&said("2026-10-10T12:00:11.000Z", "Building #8")]);
+    rig.transcript("pm", &[&said("2026-10-10T12:00:12.000Z", "Waiting")]);
+    rig.transcript("r7", &[&said("2026-10-10T12:00:13.000Z", "Looks fine")]);
+    rig.step(
+        "2026-10-10T12:00:14.000+00:00",
+        r#"{"step":"ended","issue":8,"session":"w8"}"#,
+    );
+    rig.step(
+        "2026-10-10T12:00:15.000+00:00",
+        r#"{"step":"pm-answered","session":"pm","woke_for":["tell"],"acted":[]}"#,
+    );
+}
+
+#[test]
+fn watching_one_issue_shows_only_its_sessions_and_steps() {
+    let rig = Rig::new();
+    busy_project(&rig);
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Issue(7), 100));
+    let lines = shown(&lines);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("#7 worker (opus-high) prompt Build #7"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("#7 reviewer (defect-hunter) said Looks fine"))
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.contains("#8") && !l.contains("manager")),
+        "{lines:#?}"
+    );
+    assert_eq!(lines.len(), 4, "{lines:#?}");
+}
+
+#[test]
+fn watching_the_project_manager_shows_its_sessions_and_steps() {
+    let rig = Rig::new();
+    busy_project(&rig);
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Pm, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    assert!(lines[0].starts_with("12:00:02 runner step session-started"));
+    assert_eq!(lines[1], "12:00:12 pm said Waiting");
+    assert!(lines[2].starts_with("12:00:15 runner step pm-answered"));
+}
+
+#[test]
+fn back_shows_the_last_lines_of_all_sources_sorted_by_time() {
+    let rig = Rig::new();
+    busy_project(&rig);
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 4));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 4, "{lines:#?}");
+    assert_eq!(lines[0], "12:00:12 pm said Waiting");
+    assert_eq!(
+        lines[1],
+        "12:00:13 #7 reviewer (defect-hunter) said Looks fine"
+    );
+    assert!(lines[2].starts_with("12:00:14 runner step ended #8"));
+    assert!(lines[3].starts_with("12:00:15 runner step pm-answered"));
+}
+
+#[test]
+fn it_starts_at_the_end_and_follows_a_session_already_running() {
+    let rig = Rig::new();
+    busy_project(&rig);
+    let (mut watch, first) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    assert!(first.is_empty());
+    assert!(watch.poll().is_empty());
+
+    rig.transcript("w7", &[&said("2026-10-10T12:01:00.000Z", "Tests pass")]);
+    assert_eq!(
+        shown(&watch.poll()),
+        ["12:01:00 #7 worker (opus-high) said Tests pass"]
+    );
+}
+
+#[test]
+fn a_line_still_being_written_is_shown_once_it_ends() {
+    let rig = Rig::new();
+    busy_project(&rig);
+    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let path = rig.transcripts().join("pm.jsonl");
+    let line = said("2026-10-10T12:01:00.000Z", "Half");
+    let (head, tail) = line.split_at(line.len() / 2);
+    let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+    write!(file, "{head}").unwrap();
+    assert!(watch.poll().is_empty());
+    writeln!(file, "{tail}").unwrap();
+    assert_eq!(shown(&watch.poll()), ["12:01:00 pm said Half"]);
+}
+
+#[test]
+fn a_session_resumed_shows_only_its_new_call() {
+    let rig = Rig::new();
+    rig.step(
+        "2026-10-10T12:00:00.000+00:00",
+        &rig.started("w7", r#""issue":7,"role":"worker","agent":"opus-high""#),
+    );
+    rig.transcript(
+        "w7",
+        &[
+            &user("2026-10-10T12:00:01.000Z", "First turn"),
+            &said("2026-10-10T12:00:02.000Z", "First answer"),
+        ],
+    );
+    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+
+    // The next call resumes the session, a minute later.
+    rig.step(
+        "2026-10-10T12:01:00.000+00:00",
+        &rig.started("w7", r#""issue":7,"role":"worker","agent":"opus-high""#),
+    );
+    rig.transcript("w7", &[&user("2026-10-10T12:01:01.000Z", "CI failed")]);
+    let lines = shown(&watch.poll());
+    assert_eq!(lines.len(), 2, "{lines:#?}");
+    assert!(lines[0].starts_with("12:01:00 runner step session-started"));
+    assert_eq!(lines[1], "12:01:01 #7 worker (opus-high) prompt CI failed");
+}
+
+#[test]
+fn a_session_started_while_watching_is_read_from_its_first_line() {
+    let rig = Rig::new();
+    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    rig.transcript(
+        "w7",
+        &[
+            &user("2026-10-10T12:00:01.000Z", "Build #7"),
+            &said("2026-10-10T12:00:02.000Z", "On it"),
+        ],
+    );
+    rig.step(
+        "2026-10-10T12:00:00.100+00:00",
+        &rig.started("w7", r#""issue":7,"role":"worker","agent":"opus-high""#),
+    );
+    let lines = shown(&watch.poll());
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    assert_eq!(lines[1], "12:00:01 #7 worker (opus-high) prompt Build #7");
+}
+
+#[test]
+fn tools_and_their_results_show_as_one_clipped_line_each() {
+    let rig = Rig::new();
+    rig.step(
+        "2026-10-10T12:00:00.000+00:00",
+        &rig.started("w7", r#""issue":7,"role":"worker","agent":"opus-high""#),
+    );
+    let long = "x".repeat(300);
+    rig.transcript(
+        "w7",
+        &[
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git log\n  --oneline"}}]},"timestamp":"2026-10-10T12:00:01.000Z"}"#,
+            &format!(
+                r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t1","content":"abc\nline two\n{long}"}}]}},"timestamp":"2026-10-10T12:00:02.000Z"}}"#
+            ),
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":[{"type":"text","text":"no such file"}]}]},"timestamp":"2026-10-10T12:00:03.000Z"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Maybe the path","signature":"s"}]},"timestamp":"2026-10-10T12:00:04.000Z"}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":"s"}]},"timestamp":"2026-10-10T12:00:05.000Z"}"#,
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 5, "{lines:#?}");
+    assert_eq!(
+        lines[1],
+        "12:00:01 #7 worker (opus-high) tool Bash git log --oneline"
+    );
+    assert!(lines[2].starts_with("12:00:02 #7 worker (opus-high) result abc line two xxx"));
+    assert!(lines[2].ends_with('…'), "{}", lines[2]);
+    assert_eq!(
+        lines[3],
+        "12:00:03 #7 worker (opus-high) result error: no such file"
+    );
+    assert_eq!(
+        lines[4],
+        "12:00:04 #7 worker (opus-high) thinking Maybe the path"
+    );
+}
+
+#[test]
+fn full_shows_prompts_and_results_whole() {
+    let rig = Rig::new();
+    rig.step(
+        "2026-10-10T12:00:00.000+00:00",
+        &rig.started("pm", r#""role":"pm","agent":"manager""#),
+    );
+    let long = "y".repeat(300);
+    rig.transcript(
+        "pm",
+        &[&user(
+            "2026-10-10T12:00:01.000Z",
+            &format!("Board:\\n- #7 ready\\n{long}"),
+        )],
+    );
+    let mut options = rig.options(Scope::Project, 100);
+    options.full = true;
+    let (_watch, lines) = Watch::start(rig.log(), options);
+    let prompt = lines[1].to_string();
+    let rows: Vec<&str> = prompt.lines().collect();
+    assert_eq!(rows.len(), 3, "{prompt}");
+    assert!(rows[0].ends_with("Board:"));
+    assert!(rows[1].trim_start() == "- #7 ready");
+    assert!(rows[2].ends_with(&long));
+}
+
+#[test]
+fn a_codex_session_shows_from_its_rollout_once_kelpie_knows_its_thread() {
+    let rig = Rig::new();
+    let home = rig.dir.path().join("codex-home");
+    let threads = rig.dir.path().join("threads");
+    std::fs::create_dir_all(&threads).unwrap();
+    std::fs::write(threads.join("w7.json"), r#"{"id":"0199-thread"}"#).unwrap();
+    let rollout = home.join("sessions/2026/10/10/rollout-2026-10-10T12-00-00-0199-thread.jsonl");
+    rig.step(
+        "2026-10-10T12:00:00.000+00:00",
+        &format!(
+            r#"{{"step":"session-started","issue":7,"role":"worker","agent":"gpt","harness":"codex","session":"w7","transcript":{{"folder":{:?},"threads":{:?}}}}}"#,
+            home.join("sessions"),
+            threads
+        ),
+    );
+    rig.append(
+        &rollout,
+        &[
+            r#"{"timestamp":"2026-10-10T12:00:01.000Z","type":"session_meta","payload":{"id":"0199-thread"}}"#,
+            r#"{"timestamp":"2026-10-10T12:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Build #7"}]}}"#,
+            r#"{"timestamp":"2026-10-10T12:00:03.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"ls\"]}","call_id":"c1"}}"#,
+            r#"{"timestamp":"2026-10-10T12:00:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"{\"output\":\"Cargo.toml\\n\",\"metadata\":{}}"}}"#,
+            r#"{"timestamp":"2026-10-10T12:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}"#,
+            r#"{"timestamp":"2026-10-10T12:00:05.500Z","type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#,
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 5, "{lines:#?}");
+    assert_eq!(lines[1], "12:00:02 #7 worker (gpt) prompt Build #7");
+    assert_eq!(lines[2], "12:00:03 #7 worker (gpt) tool shell bash -lc ls");
+    assert_eq!(lines[3], "12:00:04 #7 worker (gpt) result Cargo.toml");
+    assert_eq!(lines[4], "12:00:05 #7 worker (gpt) said Done");
+}
+
+#[test]
+fn a_codex_first_turn_shows_from_the_rollout_no_session_claims() {
+    let rig = Rig::new();
+    let home = rig.dir.path().join("codex-home");
+    let threads = rig.dir.path().join("threads");
+    std::fs::create_dir_all(&threads).unwrap();
+    // Another session's thread, and its rollout, written before this call.
+    std::fs::write(threads.join("w9.json"), r#"{"id":"other"}"#).unwrap();
+    let sessions = home.join("sessions/2026/10/10");
+    rig.append(
+        &sessions.join("rollout-2020-10-10T11-00-00-other.jsonl"),
+        &[r#"{"timestamp":"2020-10-10T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Not mine"}]}}"#],
+    );
+    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    rig.step(
+        "2020-10-10T12:00:00.000+00:00",
+        &format!(
+            r#"{{"step":"session-started","issue":7,"role":"worker","agent":"gpt","harness":"codex","session":"w7","transcript":{{"folder":{:?},"threads":{:?}}}}}"#,
+            home.join("sessions"),
+            threads
+        ),
+    );
+    rig.append(
+        &sessions.join("rollout-2020-10-10T12-00-00-fresh.jsonl"),
+        &[r#"{"timestamp":"2020-10-10T12:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Mine"}]}}"#],
+    );
+    let lines = shown(&watch.poll());
+    assert_eq!(lines.len(), 2, "{lines:#?}");
+    assert_eq!(lines[1], "12:00:02 #7 worker (gpt) said Mine");
+}
+
+#[test]
+fn a_pi_session_shows_from_its_session_file() {
+    let rig = Rig::new();
+    let sessions = rig.dir.path().join("pi-home/sessions");
+    rig.step(
+        "2026-10-10T12:00:00.000+00:00",
+        &format!(
+            r#"{{"step":"session-started","issue":7,"role":"reviewer","agent":"qwen","harness":"pi","session":"r7","transcript":{{"folder":{:?}}}}}"#,
+            sessions
+        ),
+    );
+    rig.append(
+        &sessions.join("2026-10-10T12-00-00-000Z_r7.jsonl"),
+        &[
+            r#"{"type":"session","version":3,"id":"r7","timestamp":"2026-10-10T12:00:00.500Z","cwd":"/wt"}"#,
+            r#"{"type":"message","id":"a1","timestamp":"2026-10-10T12:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"Review #7"}],"timestamp":1790856001000}}"#,
+            r#"{"type":"message","id":"a2","timestamp":"2026-10-10T12:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Look at the diff"},{"type":"toolCall","id":"c1","name":"read","arguments":{"path":"src/lib.rs"}}]}}"#,
+            r#"{"type":"message","id":"a3","timestamp":"2026-10-10T12:00:03.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"read","content":[{"type":"text","text":"fn main() {}"}],"isError":false}}"#,
+            r#"{"type":"message","id":"a4","timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"CLEAN"}]}}"#,
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 6, "{lines:#?}");
+    assert_eq!(lines[1], "12:00:01 #7 reviewer (qwen) prompt Review #7");
+    assert_eq!(
+        lines[2],
+        "12:00:02 #7 reviewer (qwen) thinking Look at the diff"
+    );
+    assert_eq!(lines[3], "12:00:02 #7 reviewer (qwen) tool read src/lib.rs");
+    assert_eq!(lines[4], "12:00:03 #7 reviewer (qwen) result fn main() {}");
+    assert_eq!(lines[5], "12:00:04 #7 reviewer (qwen) said CLEAN");
+}
+
+#[test]
+fn lines_that_are_not_steps_or_cannot_be_read_are_passed_over() {
+    let rig = Rig::new();
+    rig.append(
+        &rig.log(),
+        &[
+            "2026-10-10T12:00:00.000+00:00 up: {\"project\":\"koji\"}",
+            "not a log line",
+            "2026-10-10T12:00:01.000+00:00 {\"step\":\"finished\",\"issue\":7,\"merged\":true}",
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    assert_eq!(
+        shown(&lines),
+        ["12:00:01 runner step finished #7 merged=true"]
+    );
+}

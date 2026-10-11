@@ -449,7 +449,10 @@ fn work(
         if stop {
             (hooks.finished)(runner);
         }
-        match advance(runner) {
+        let advanced = advance(runner);
+        // A pass that returns a report to wait on may have started a call too.
+        log_started(runner);
+        match advanced {
             Ok(Pass::Report(report)) => {
                 let line = serde_json::to_string(&report).expect("a report serializes to JSON");
                 println!("{line}");
@@ -468,7 +471,21 @@ fn work(
         // A stop has only JOIN_BOUND to be let go, so it skips the wake's work.
         if !stopping.load(Ordering::SeqCst) {
             (hooks.on_wake)(runner);
+            log_started(runner);
         }
+    }
+}
+
+// Logs the `session-started` step of each call started since the last time,
+// as soon as it starts and before any wait, for `shep kelpie watch`.
+fn log_started(runner: &Mutex<Runner>) {
+    let started = runner
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take_started();
+    for report in started {
+        let line = serde_json::to_string(&report).expect("a report serializes to JSON");
+        println!("{line}");
     }
 }
 

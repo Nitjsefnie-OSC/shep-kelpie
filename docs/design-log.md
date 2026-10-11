@@ -294,6 +294,15 @@ How a table, a state file or a home an older kelpie wrote is read now. The maint
 - A failing test a reviewer leaves, run by kelpie before and after the fix in place of a session that asks whether the fix worked (ADR 0006), alongside an execution reviewer.
 - Shots and the preview (shep-pm/shep-kelpie#54, #131), parked by ADR 0006: removed, recoverable from git history, not designed out.
 
+## Watching
+
+- `shep kelpie watch [<issue> | pm] [--back <n>] [--full]` (shep-pm/shep-kelpie#408) is one live stream of a project: its runner steps and the transcripts of the sessions kelpie runs, merged by time. It reads files only, `$SHEP_HOME/logs/<project>-0-out.log` and the transcripts that log names, and asks the shepherd only to find the project from the folder. Polling every 250 ms keeps a line within a second of its write.
+- A session is attributed by id, not by guessing its folder. The runner logs a `session-started` step as each call starts, from the three places that launch one (a worker's or reviewer's turn, the project manager's wake, the issue writer's label call), carrying the work item's issue (none for the project manager), role, agent, harness, session id and `transcript`, where the harness writes it. The step is logged by the runner's loop as it starts the call, not as a pass's result, since a call starts in the middle of a pass. `ended` and `asked` name a session only once its call is over, which is too late to follow it. A local review round has no session and no step.
+- `Agents::transcript` says where a call's transcript is, so the adapter that knows the layout is the one that says: Claude Code's `~/.claude/projects/<cwd, non-alphanumerics as dashes>/<session>.jsonl`, pi's `<call home>/sessions/<time>_<session>.jsonl`, and Codex's `<call home>/sessions/<year>/<month>/<day>/rollout-<time>-<thread>.jsonl`. Codex names its own threads and kelpie learns which only as a call ends, so until then `watch` takes the newest rollout no known session claims that was written since the call began.
+- It starts at the end: the whole log is read to learn the sessions, none of their old lines are shown, and each transcript is followed from its end. `--back <n>` reads the most recently written transcripts first and stops once the n-th newest line is newer than the next file's last write. A session that is resumed shows only the lines written since its new `session-started` step, half a second before it.
+- Scope: `watch <issue>` keeps steps whose `issue` is that issue and sessions started for it, reviewers' and the issue writer's included. `watch pm` keeps the `pm-*` steps and the project manager's sessions.
+- A log that predates the step shows its runner steps and none of its sessions, since the older steps name a session after its call and not where it is.
+
 ## History
 
 What was built and later changed or removed, one line each. Where a section above holds the decision, the line only dates it.
@@ -398,6 +407,7 @@ What was built and later changed or removed, one line each. Where a section abov
 - 2026-10-10: a work item whose issue is closed with no change finishes with no ruling, and an answered question starts the stopped-short count over (#385)
 - 2026-10-10: no reviewer reads a head until CI has passed on it, and `doctor` names CI that skips drafts (ADR 0008, #423)
 - 2026-10-10: `finish` lets the open work items end, picks nothing new, then stops the runner's sheep (#303)
+- 2026-10-10: `shep kelpie watch` follows a project's runner steps and session transcripts live, the runner logging a `session-started` step as each call starts (#408)
 - 2026-10-10: a trigger that only asks or flags no longer wakes the runner's loop, the board is read at most once a minute, a failing step waits longer each time, and a used-up rate limit holds every forge call until it resets (#394)
 - 2026-10-10: a worker's session is compacted before a runner-sent turn once its last turn ended past 150k tokens of context (#426)
 
@@ -503,6 +513,11 @@ Measured 2026-09-30 on codex-cli 0.146.0, for #129. There is no Codex account to
 - `codex app-server generate-json-schema` gives the answer's shape: `rateLimits` with `primary` and `secondary` windows, each `usedPercent` (a whole number), `windowDurationMins` and `resetsAt`, all but the first nullable. `fixtures/codex-rate-limits.json` is written by hand from it.
 - Still unmeasured, until a Codex account exists: a successful answer's real values, whether `resetsAt` is in seconds (kelpie assumes so, and refuses a reset more than eight days from now), whether the windows are always 300 and 10080 minutes and in that order (kelpie places them by length, then by order), how long a successful read takes, and whether `rateLimitsByLimitId` ever carries a window `rateLimits` does not.
 - Measured 2026-10-01 on codex-cli 0.159.3, on kelpie's own login (#233), a Plus plan: the read answered in 0.5 seconds, `resetsAt` is in seconds, and the windows came as 300 and 10,080 minutes in that order, at 0% and 1%. `rateLimitsByLimitId` held the one `codex` limit, the same as `rateLimits`, so whether it ever carries another is still open. Recorded in `fixtures/codex-rate-limits-plus.json`, its account id zeroed.
+
+### Session transcripts
+
+- Claude Code writes one line per content block, so one assistant message with a thought, a sentence and a tool call is three lines, each with its own `timestamp`. A prompt is a `user` line whose `message.content` is a string. A tool's result is a later `user` line whose content is a `tool_result` block, its `content` a string or a list of text blocks and `is_error` set on a failure. A thought's `thinking` is often empty, with only a `signature`, so `watch` shows no line for it. `queue-operation` lines repeat the prompt and `attachment` lines carry reminders, and `watch` skips both. Read from a worker's own transcript on 2026-10-10 (Claude Code 2.1.x).
+- Codex's rollout and pi's session file were written from what each program documents, and no transcript of either was at hand when `watch` was built. Codex: `response_item` lines, whose payload is a `message`, `reasoning`, `function_call` with its arguments as a JSON string, `custom_tool_call` or an output, and `event_msg` lines that repeat them. pi: `message` entries whose role is `user`, `assistant` (text, thinking and `toolCall` blocks) or `toolResult`. A line either parser cannot read is passed over, so a format that differs costs lines, not the stream. A recorded rollout and session file belong in `fixtures/` the first time a codex or pi worker runs.
 
 ### Codex as an agent
 

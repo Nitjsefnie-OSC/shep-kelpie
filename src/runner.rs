@@ -90,6 +90,7 @@ mod several;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
+mod started;
 mod thread_replies;
 mod timings;
 mod token_wait;
@@ -284,6 +285,9 @@ pub struct Runner {
     // What the runner carried on without, kept in memory only until
     // `take_notes` hands it out
     notes: claim::Notes,
+    // The `session-started` steps of the calls just started, kept in memory
+    // only until `take_started` hands them out
+    started: Vec<StepReport>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
     // Where each call is recorded as it ends
@@ -443,6 +447,7 @@ impl Runner {
             focus: None,
             last_acted: None,
             notes: told,
+            started: Vec::new(),
             flights: flight::Flights::default(),
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),

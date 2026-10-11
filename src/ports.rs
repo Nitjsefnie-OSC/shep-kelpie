@@ -35,7 +35,7 @@ mod thread;
 
 pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
-    Reach, Role, Session, SessionId, Tools, Usage, Wait, written_at,
+    Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::ForgeError;
 pub use gpu::{Gpu, GpuError, GpuMetrics};
