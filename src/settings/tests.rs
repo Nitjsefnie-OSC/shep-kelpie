@@ -824,3 +824,48 @@ fn a_forge_slug_s_name_is_the_repo_without_its_owner() {
     let slug = ForgeSlug::try_from("shep-pm/koji-website".to_owned()).unwrap();
     assert_eq!(slug.name(), "koji-website");
 }
+
+#[test]
+fn rulings_default_to_a_shadow_panel_with_no_kind_for_the_project_manager_alone() {
+    let rulings = parse(EXAMPLE).unwrap().rulings;
+    assert_eq!(rulings.decide, Decide::Shadow);
+    assert!(rulings.pm_alone.is_empty());
+}
+
+#[test]
+fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone() {
+    let on = "\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\n\
+              pm_alone = [\"turn-timeout\", \"still-red\"]\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(rulings.decide, Decide::Panel);
+    assert_eq!(
+        rulings.pm_alone,
+        [RulingName::TurnTimeout, RulingName::StillRed]
+    );
+    assert!(rulings.pm_decides(RulingName::StillRed));
+    assert!(!rulings.pm_decides(RulingName::Question));
+}
+
+#[test]
+fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
+    let kind = parse_err(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"coffee\"]\n"
+    ));
+    assert!(kind.contains("rulings.pm_alone"), "{kind}");
+    assert!(kind.contains("coffee"), "{kind}");
+    let mode = parse_err(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n"
+    ));
+    assert!(mode.contains("rulings.decide"), "{mode}");
+}
+
+#[test]
+fn only_a_merge_kind_makes_the_list_refuse() {
+    let merge = parse(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n"
+    ))
+    .unwrap()
+    .rulings;
+    assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
+    assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
+}

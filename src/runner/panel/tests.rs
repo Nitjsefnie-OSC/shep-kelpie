@@ -10,6 +10,7 @@ use crate::runner::{Runner, step};
 use crate::settings::Harness;
 use crate::test::{Rig, Scripted, Seen};
 
+mod deciding;
 mod fences;
 mod folders;
 
@@ -39,15 +40,21 @@ fn parked_with(project: &str, pm: bool, setup: impl FnOnce(&Rig)) -> (Rig, Mutex
         rig.with_app();
         rig.maintainer("octocat");
         setup(rig);
-        rig.edit_settings(|s| {
-            let listed = "\nimplementers = [\"sonnet-high\"]\n";
-            assert!(s.contains(listed), "the example's implementers moved");
-            let pm = if pm { "pm = \"pm\"\n" } else { "" };
-            let named = format!("{listed}advisor = \"advisor\"\nresearcher = \"researcher\"\n{pm}");
-            s.replace(listed, &named)
-        });
+        name_panel(rig, pm);
     });
     (rig, runner)
+}
+
+/// Names an advisor and a researcher in the rig's settings, and a project
+/// manager when `pm`
+fn name_panel(rig: &Rig, pm: bool) {
+    rig.edit_settings(|s| {
+        let listed = "\nimplementers = [\"sonnet-high\"]\n";
+        assert!(s.contains(listed), "the example's implementers moved");
+        let pm = if pm { "pm = \"pm\"\n" } else { "" };
+        let named = format!("{listed}advisor = \"advisor\"\nresearcher = \"researcher\"\n{pm}");
+        s.replace(listed, &named)
+    });
 }
 
 /// The ruling's comment on the pull request, once it is posted
@@ -113,6 +120,7 @@ fn four_votes_fill_the_rulings_panel_in_the_comment_and_in_the_state() {
              - **PM** (A): PM-MARK CI is green\n\
              - **Researcher** (A): RESEARCHER-MARK precedent\n\
              - **Advisor** (B): ADVISOR-MARK the hook skips a write\n\n\
+             **Recommendation: A** (3 of 4)\n\n\
              @octocat"
         ),
         "{comment}"
@@ -322,7 +330,9 @@ fn a_restarted_runner_does_not_ask_the_panel_again_of_a_ruling_that_has_voted() 
 
 #[test]
 fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
-    use super::{Desk, HOLD, Open};
+    use super::{Desk, HOLD, Open, Plan};
+    use crate::panel::work_of;
+    use crate::settings::RulingName;
     use std::collections::{BTreeMap, BTreeSet};
 
     let mut desk = Desk::default();
@@ -332,6 +342,7 @@ fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
             since: crate::ports::Timestamp(100),
             waiting: BTreeSet::new(),
             ballots: BTreeMap::new(),
+            plan: Plan::shadow(RulingName::Merge, work_of(None)),
         },
     );
     desk.queue.push_back(2);

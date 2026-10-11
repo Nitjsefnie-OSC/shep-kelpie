@@ -20,18 +20,25 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::Runner;
 use super::pm::Wake;
-use crate::panel::{Ballot, Vote, Voter};
+use crate::panel::{
+    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, settle, simulate, work_of,
+};
 use crate::ports::{AgentError, AgentReply, Timestamp};
-use crate::state::Ruling;
+use crate::settings::{Decide, Merging, RulingName};
+use crate::state::{Ruling, RulingKind};
+use crate::usage::VoteMark;
 
 mod ask;
 mod calls;
+mod decided;
 mod folders;
 mod history;
+pub use measure::Standing;
+mod measure;
 #[cfg(test)]
 mod tests;
 
-pub(super) use history::Record;
+pub(super) use history::{Answerer, Record};
 
 /// How long one expert's call may run before it is ended, in seconds
 pub(super) const CEILING: u64 = 15 * 60;
@@ -60,6 +67,49 @@ struct Open {
     // Who is still to vote
     waiting: BTreeSet<Voter>,
     ballots: BTreeMap<Voter, Option<Vote>>,
+    plan: Plan,
+}
+
+// How a ruling's panel is asked.
+#[derive(Debug, Clone)]
+pub(super) struct Plan {
+    // The kind of ruling it is
+    kind: RulingName,
+    // The work item's type, and the panel it sets
+    work: Work,
+    // Under `shadow` every expert is asked at once and nothing is decided
+    shadow: bool,
+    // Where the panel starts, and where it is now
+    start: Stage,
+    stage: Stage,
+}
+
+impl Plan {
+    /// A plan that asks all four at once for a ruling of `kind` on work of
+    /// type `work`, as `shadow` does
+    #[cfg(test)]
+    pub(super) fn shadow(kind: RulingName, work: Work) -> Self {
+        let stage = Stage::Tier(Tier::Full);
+        Self {
+            kind,
+            work,
+            shadow: true,
+            start: stage,
+            stage,
+        }
+    }
+
+    /// What the usage ledger says of a vote on this ruling
+    pub(super) fn mark(&self, ruling: u64, voter: Voter, choice: Option<char>) -> VoteMark {
+        VoteMark {
+            ruling,
+            ruling_kind: self.kind,
+            voter,
+            panel: self.work.tier,
+            work: self.work.kind.clone(),
+            choice,
+        }
+    }
 }
 
 impl Desk {
@@ -74,6 +124,11 @@ impl Desk {
         Some(id)
     }
 
+    // How ruling `id`'s panel is being asked.
+    pub(super) fn plan(&self, id: u64) -> Option<Plan> {
+        self.open.get(&id).map(|o| o.plan.clone())
+    }
+
     // Who is still to vote on ruling `id`.
     pub(super) fn waiting(&self, id: u64) -> Vec<Voter> {
         (self.open.get(&id)).map_or_else(Vec::new, |o| o.waiting.iter().copied().collect())
@@ -84,6 +139,15 @@ impl Runner {
     // Whether the project has a panel: it names an advisor or a researcher.
     pub(super) fn panel_enabled(&self) -> bool {
         self.agents.advisor.is_some() || self.agents.researcher.is_some()
+    }
+
+    /// How the panel stands against the maintainer's answers, for `status`;
+    /// none for a project with no panel
+    pub(super) fn panel_status(&self) -> Option<Standing> {
+        self.panel_enabled().then(|| {
+            let records = history::records(&self.paths.rulings);
+            measure::standing(self.settings.rulings.decide, &records)
+        })
     }
 
     /// Whether ruling `id`'s comment waits on its panel
@@ -180,46 +244,103 @@ impl Runner {
         }
     }
 
-    // Opens ruling `id`'s vote: who is on the panel, who abstains at once,
-    // and who is asked.
+    // Opens ruling `id`'s vote: its work item's type, who is on the panel,
+    // who abstains at once, and who is asked.
     fn panel_take_up(&mut self, id: u64) {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
-        let issue = ruling.issue;
-        let (worker, why) = self.panel_worker(issue);
-        let now = self.ports.clock.now();
-        let mut open = Open {
-            since: now,
+        let (kind, issue, number) = (
+            RulingName::of(&ruling.kind),
+            ruling.issue,
+            ruling.pull_request,
+        );
+        let asked = super::voice::brief(ruling).0;
+        let work = self.panel_work(id, number);
+        let shadow = self.settings.rulings.decide == Decide::Shadow;
+        // A kind the project manager decides alone starts with it alone, if it is there.
+        let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some();
+        let first = match alone {
+            true => Stage::Alone,
+            false => Stage::Tier(work.tier),
+        };
+        // Under shadow all four are asked and nothing is decided.
+        let stage = match shadow {
+            true => Stage::Tier(Tier::Full),
+            false => first,
+        };
+        let plan = Plan {
+            kind,
+            work,
+            shadow,
+            start: first,
+            stage,
+        };
+        let open = Open {
+            since: self.ports.clock.now(),
             waiting: BTreeSet::new(),
             ballots: BTreeMap::new(),
+            plan,
         };
-        match worker {
-            true => {
-                open.waiting.insert(Voter::Worker);
-            }
-            false => {
-                open.ballots.insert(Voter::Worker, None);
-                self.notes
-                    .push(format!("ruling {id}: the worker abstains, since {why}"));
-            }
-        }
-        if self.agents.advisor.is_some() {
-            open.waiting.insert(Voter::Advisor);
-        }
-        if self.agents.researcher.is_some() {
-            open.waiting.insert(Voter::Researcher);
-        }
+        let open = self.panel_enlist(id, issue, &asked, open);
         let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
-        if self.agents.pm.is_some() {
-            open.waiting.insert(Voter::Pm);
-            let asked = super::voice::brief(ruling).0;
-            self.pm_due(Wake::Vote { id, asked });
-        }
         self.panel.open.insert(id, open);
         match asks {
             true => self.panel.queue.push_back(id),
             false => self.panel_close_if_done(id),
+        }
+    }
+
+    // Adds who `open`'s stage asks and has not been asked: an expert that is
+    // there is waited for (and the project manager is woken), one that is not
+    // abstains, or, when the project does not name it, is left off the panel.
+    fn panel_enlist(&mut self, id: u64, issue: Option<u64>, asked: &str, mut open: Open) -> Open {
+        for &voter in open.plan.stage.voters() {
+            if open.ballots.contains_key(&voter) || open.waiting.contains(&voter) {
+                continue;
+            }
+            match voter {
+                Voter::Worker => match self.panel_worker(issue) {
+                    (true, _) => {
+                        open.waiting.insert(voter);
+                    }
+                    (false, why) => {
+                        open.ballots.insert(voter, None);
+                        self.notes
+                            .push(format!("ruling {id}: the worker abstains, since {why}"));
+                    }
+                },
+                Voter::Advisor if self.agents.advisor.is_some() => {
+                    open.waiting.insert(voter);
+                }
+                Voter::Researcher if self.agents.researcher.is_some() => {
+                    open.waiting.insert(voter);
+                }
+                Voter::Pm if self.agents.pm.is_some() => {
+                    open.waiting.insert(voter);
+                    let asked = asked.to_owned();
+                    self.pm_due(Wake::Vote { id, asked });
+                }
+                _ => {}
+            }
+        }
+        open
+    }
+
+    // What the pull request's title says of ruling `id`'s work item, which
+    // sets the panel asked; any work with no title read is all four's.
+    fn panel_work(&mut self, id: u64, number: Option<u64>) -> Work {
+        let Some(number) = number else {
+            return work_of(None);
+        };
+        match self.ports.forge.reviewed(&self.remote, number) {
+            Ok(pr) => work_of(Some(&pr.title)),
+            Err(e) => {
+                self.notes.push(format!(
+                    "ruling {id}: cannot read the title of #{number}, so its panel is all four: {e}"
+                ));
+                work_of(None)
+            }
         }
     }
 
@@ -267,26 +388,51 @@ impl Runner {
         self.panel_voted(id, voter, Err(why));
     }
 
-    // Saves ruling `id`'s votes on it once none is still to come.
+    // Settles ruling `id` once none of the experts its stage asks is still to
+    // vote: it goes up a stage when the panel does not decide, else its votes
+    // are saved and it is decided or left to the maintainer.
     fn panel_close_if_done(&mut self, id: u64) {
-        if self
-            .panel
-            .open
-            .get(&id)
-            .is_none_or(|o| !o.waiting.is_empty())
-        {
-            return;
+        loop {
+            let Some(open) = self.panel.open.get(&id).filter(|o| o.waiting.is_empty()) else {
+                return;
+            };
+            let ballots = ballots_of(open);
+            let up = match open.plan.shadow {
+                true => None,
+                false => match settle(open.plan.stage, open.plan.work.tier, &ballots) {
+                    Step::Up(up) => Some(up),
+                    _ => None,
+                },
+            };
+            let Some(up) = up else {
+                let Some(open) = self.panel.open.remove(&id) else {
+                    return;
+                };
+                self.panel_conclude(id, &open.plan, ballots);
+                return;
+            };
+            // Asked again, a stage up: its hold runs from when its turn comes.
+            let Some(mut open) = self.panel.open.remove(&id) else {
+                return;
+            };
+            open.plan.stage = up;
+            let ruling = self.state.rulings.iter().find(|r| r.id == id);
+            let (issue, asked) = ruling.map_or((None, String::new()), |r| {
+                (r.issue, super::voice::brief(r).0)
+            });
+            let open = self.panel_enlist(id, issue, &asked, open);
+            let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
+            self.panel.open.insert(id, open);
+            if asks {
+                self.panel.queue.push_back(id);
+                return;
+            }
         }
-        let Some(open) = self.panel.open.remove(&id) else {
-            return;
-        };
-        let ballots: Vec<Ballot> = Voter::ALL
-            .into_iter()
-            .filter_map(|voter| {
-                let vote = open.ballots.get(&voter)?.clone();
-                Some(Ballot { voter, vote })
-            })
-            .collect();
+    }
+
+    // Saves ruling `id`'s votes and what they come to, and, under `panel`,
+    // applies the option they decide on, unless the maintainer is to be asked.
+    fn panel_conclude(&mut self, id: u64, plan: &Plan, ballots: Vec<Ballot>) {
         let told = ballots
             .iter()
             .map(|b| match &b.vote {
@@ -295,18 +441,45 @@ impl Runner {
             })
             .collect::<Vec<_>>()
             .join(", ");
+        let tier = plan.work.tier;
+        let step = match plan.shadow {
+            true => simulate(plan.start, tier, &ballots).1,
+            false => settle(plan.stage, tier, &ballots),
+        };
+        let advice = match step {
+            Step::Decided(advice) => Some(advice),
+            Step::Maintainer { advice, .. } => advice,
+            Step::Up(_) => None,
+        };
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
             return;
         };
         ruling.panel = Some(ballots);
+        ruling.verdict = Some(Verdict {
+            work: plan.work.kind.clone(),
+            tier,
+            advice,
+        });
+        // A merge under `ask` is the maintainer's whatever the panel says.
+        let asks_merge = matches!(ruling.kind, RulingKind::Merge { .. })
+            && self.settings.git.merging == Merging::Ask;
         match self.save(next) {
             Ok(()) => self
                 .notes
                 .push(format!("ruling {id}: the panel voted: {told}")),
-            Err(e) => self
-                .notes
-                .push(format!("cannot save the panel's votes on ruling {id}: {e}")),
+            Err(e) => {
+                self.notes
+                    .push(format!("cannot save the panel's votes on ruling {id}: {e}"));
+                return;
+            }
+        }
+        match (step, plan.shadow, asks_merge) {
+            (Step::Decided(advice), false, false) => self.panel_decides(id, advice),
+            (Step::Maintainer { design: true, .. }, false, _) => self.notes.push(format!(
+                "ruling {id}: an expert flagged design, so the maintainer decides"
+            )),
+            _ => {}
         }
     }
 
@@ -343,25 +516,44 @@ impl Runner {
         options: usize,
         ends: Vec<(Voter, Result<AgentReply, AgentError>)>,
     ) {
-        for (voter, result) in ends {
-            let vote = match result {
-                Ok(reply) => crate::panel::read(&reply.text, options),
-                Err(e) => Err(format!("its call failed: {e}")),
-            };
-            self.panel_voted(id, voter, vote);
-        }
-        // Whoever did not answer at all abstains.
+        // Whoever this flight was to hear from and gave no end abstains, once
+        // the rest are heard. Found first: a stage up asks others in the meantime.
+        let heard: Vec<Voter> = ends.iter().map(|(voter, _)| *voter).collect();
         let missing: Vec<Voter> = (self.panel.open.get(&id))
             .map(|o| {
-                o.waiting
-                    .iter()
-                    .copied()
-                    .filter(|v| *v != Voter::Pm)
+                (o.waiting.iter().copied())
+                    .filter(|v| *v != Voter::Pm && !heard.contains(v))
                     .collect()
             })
             .unwrap_or_default();
+        for (voter, result) in ends {
+            let vote = vote_of(&result, options);
+            self.panel_voted(id, voter, vote);
+        }
         for voter in missing {
             self.panel_abstains(id, voter, "it was not asked".into());
         }
+    }
+}
+
+// The ballots of `open` in the order the comment lists them.
+fn ballots_of(open: &Open) -> Vec<Ballot> {
+    Voter::ALL
+        .into_iter()
+        .filter_map(|voter| {
+            let vote = open.ballots.get(&voter)?.clone();
+            Some(Ballot { voter, vote })
+        })
+        .collect()
+}
+
+/// The vote an expert's call came back with, or why it gave none
+pub(super) fn vote_of(
+    result: &Result<AgentReply, AgentError>,
+    options: usize,
+) -> Result<Vote, String> {
+    match result {
+        Ok(reply) => crate::panel::read(&reply.text, options),
+        Err(e) => Err(format!("its call failed: {e}")),
     }
 }

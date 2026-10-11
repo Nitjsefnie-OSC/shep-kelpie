@@ -6,9 +6,9 @@
 //! against ([`thumbs`] and [`ticked`]), so what the comment offers and what
 //! kelpie accepts cannot drift apart.
 //!
-//! The panel's list holds each expert's vote once the panel has voted. A
-//! ruling the panel has not voted on holds the project manager's words where
-//! it gave any. There is no recommendation until the panel decides (#466).
+//! The panel's list holds each expert's vote once the panel has voted, and
+//! the option it stood behind as the recommendation. A ruling the panel has
+//! not voted on holds the project manager's words where it gave any.
 
 use super::super::Answer;
 use super::super::gate::short;
@@ -53,6 +53,7 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     blocks.extend(card.facts.clone());
     blocks.push(table(&card.choices, &ruling.kind));
     blocks.extend(panel(ruling, &card.choices));
+    blocks.extend(recommendation(ruling));
     blocks.push(match mention {
         Some(login) => answering(login, ruling.id, &ruling.kind, &card.choices),
         None => unmentioned(ruling.id, &ruling.kind, &card.choices),
@@ -82,6 +83,43 @@ pub(in crate::runner) fn settled_comment(ruling: &Ruling, line: &str) -> String 
     blocks.extend(card.facts.clone());
     blocks.extend(panel(ruling, &card.choices));
     blocks.join("\n\n")
+}
+
+/// The option key a `answer` is to a ruling of `kind`, if it is one of its options
+///
+/// A no or a rework is the option whatever its note says, and an answer in
+/// words is the option that says the same.
+pub(in crate::runner) fn chosen(kind: &RulingKind, answer: &Answer) -> Option<char> {
+    let same = |a: &Answer, b: &Answer| match (a, b) {
+        (Answer::Yes, Answer::Yes)
+        | (Answer::No(_), Answer::No(_))
+        | (Answer::Rework(_), Answer::Rework(_)) => true,
+        (Answer::Text(a), Answer::Text(b)) => a.trim() == b.trim(),
+        _ => false,
+    };
+    let at = Card::of(kind)
+        .choices
+        .iter()
+        .position(|c| same(&c.answer, answer))?;
+    ('A'..='Z').nth(at)
+}
+
+/// The answer option `key` of a ruling of `kind` gives, a no or a rework
+/// carrying `note`; none when the ruling lists no such option
+pub(in crate::runner) fn answer_for(kind: &RulingKind, key: char, note: &str) -> Option<Answer> {
+    let at = ('A'..='Z').position(|letter| letter == key)?;
+    let choice = Card::of(kind).choices.into_iter().nth(at)?;
+    Some(match choice.answer {
+        Answer::No(_) => Answer::No(note.to_owned()),
+        Answer::Rework(_) => Answer::Rework(note.to_owned()),
+        other => other,
+    })
+}
+
+/// What option `key` of a ruling of `kind` is called in its table, if it is listed
+pub(in crate::runner) fn named(kind: &RulingKind, key: char) -> Option<String> {
+    let at = ('A'..='Z').position(|letter| letter == key)?;
+    Card::of(kind).choices.into_iter().nth(at).map(|c| c.name)
 }
 
 /// The answer a 👍 (`up`) or a 👎 gives to a ruling of `kind`, if it takes one
@@ -352,6 +390,16 @@ fn panel(ruling: &Ruling, choices: &[Choice]) -> Option<String> {
         })
         .collect();
     Some(format!("**Panel**\n{}", lines.join("\n")))
+}
+
+// The option the panel stood behind, once it has voted, as the comment ends
+// its list: `**Recommendation: A** (3 of 4)`.
+fn recommendation(ruling: &Ruling) -> Option<String> {
+    let advice = ruling.verdict.as_ref()?.advice?;
+    Some(format!(
+        "**Recommendation: {}** ({} of {})",
+        advice.choice, advice.agree, advice.of
+    ))
 }
 
 // `text` as plain words in a comment kelpie posts, so a vote a page steered

@@ -249,6 +249,7 @@ impl Runner {
             kind,
             alerted: false,
             panel: None,
+            verdict: None,
             unposted: false,
         });
         self.save(next)?;

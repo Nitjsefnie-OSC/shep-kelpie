@@ -60,6 +60,8 @@ pub(crate) struct FakeForge {
     created: Arc<Mutex<Vec<CreatedIssue>>>,
     // What the failed CI runs' logs say, or why reading them fails
     ci_log: Arc<Mutex<Result<String, String>>>,
+    // The title a pull request is read with, where a test names one
+    titles: Arc<Mutex<HashMap<u64, String>>>,
     // The title and body of each pull request kelpie opened or edited, by number
     texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
@@ -139,6 +141,7 @@ impl FakeForge {
             queue: Arc::default(),
             labels_down: Arc::default(),
             unreadable: Arc::default(),
+            titles: Arc::default(),
             viewer_reads: Arc::default(),
             lagging: Arc::default(),
             lagging_drafts: Arc::default(),
@@ -421,6 +424,11 @@ impl FakeForge {
         self.labels_down.store(down, Ordering::SeqCst);
     }
 
+    /// Makes pull request `number` read with `title`
+    pub(crate) fn set_title(&self, number: u64, title: &str) {
+        self.titles.lock().unwrap().insert(number, title.to_owned());
+    }
+
     /// The title and body pull request `number` was opened or edited with
     pub(crate) fn pull_request_text(&self, number: u64) -> Option<(String, String)> {
         self.texts.lock().unwrap().get(&number).cloned()
@@ -673,7 +681,8 @@ impl Forge for FakeForge {
         };
         Ok(Reviewed {
             state: pr.state,
-            title: format!("Title of pull request #{number}"),
+            title: (self.titles.lock().unwrap().get(&number).cloned())
+                .unwrap_or_else(|| format!("Title of pull request #{number}")),
             body: format!("Body of pull request #{number}.\n"),
             closes,
             base: pr.base,

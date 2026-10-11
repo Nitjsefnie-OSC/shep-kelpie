@@ -28,6 +28,7 @@ mod hooks;
 mod local;
 mod removed;
 mod reviewers;
+mod rulings;
 mod skills;
 
 pub use agents::{
@@ -40,6 +41,7 @@ pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
+pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
 
 /// Everything kelpie reads about one project
@@ -68,6 +70,10 @@ pub struct Settings {
     /// What the researcher may read besides what kelpie writes for it
     #[serde(default)]
     pub researcher: Researcher,
+    /// Whether the panel decides a ruling, and which kinds the project
+    /// manager decides alone. Its defaults when absent.
+    #[serde(default)]
+    pub rulings: Rulings,
     /// The project's own hooks, which kelpie runs at its own points for
     /// every harness and role. Each must resolve when the runner starts.
     /// Empty when absent.

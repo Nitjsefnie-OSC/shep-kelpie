@@ -145,6 +145,7 @@ mod tests {
                 kind: Stuck::Closed.into(),
                 alerted: false,
                 panel: None,
+                verdict: None,
                 unposted: false,
             })
             .collect();

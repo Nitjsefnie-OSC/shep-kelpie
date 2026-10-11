@@ -15,6 +15,7 @@ fn ruling(id: u64, kind: RulingKind) -> Ruling {
         kind,
         alerted: false,
         panel: None,
+        verdict: None,
         unposted: false,
     }
 }

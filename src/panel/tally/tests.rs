@@ -26,10 +26,20 @@ fn advice(choice: char, agree: u32, of: u32) -> Advice {
 fn a_type_sets_who_is_asked() {
     let tier = |title: &str| work_of(Some(title)).tier;
     assert_eq!(tier("docs(readme): say more"), Tier::Docs);
-    for fix in ["fix: x", "refactor(runner): x", "perf: x", "test: x", "ci: x"] {
+    for fix in [
+        "fix: x",
+        "refactor(runner): x",
+        "perf: x",
+        "test: x",
+        "ci: x",
+    ] {
         assert_eq!(tier(fix), Tier::Fix, "{fix}");
     }
-    for fix in ["chore: x", "style: x", "fix(guard): let a project say its name"] {
+    for fix in [
+        "chore: x",
+        "style: x",
+        "fix(guard): let a project say its name",
+    ] {
         assert_eq!(tier(fix), Tier::Fix, "{fix}");
     }
     assert_eq!(tier("feat(panel): decide"), Tier::Full);

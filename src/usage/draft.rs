@@ -80,6 +80,11 @@ impl Draft {
         }
     }
 
+    /// The role it was made for
+    pub fn role(&self) -> Role {
+        self.role
+    }
+
     /// Its session, if it has one
     pub fn session(&self) -> Option<&SessionId> {
         self.session.as_ref()
@@ -120,6 +125,7 @@ impl Draft {
             gpu_seconds: None,
             pacer,
             imported: false,
+            votes: Vec::new(),
         }
     }
 }

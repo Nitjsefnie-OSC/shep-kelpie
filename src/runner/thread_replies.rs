@@ -43,14 +43,18 @@ pub(super) use self::settled::{Outcome, Settler};
 use super::looks::BOARD_POLL;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
-use super::{Answer, Runner, voice};
+use super::{Answer, RuleError, Runner, voice};
 use crate::ports::{CommentMarks, Forge, ThreadComment, Timestamp};
 use crate::settings::ForgeSlug;
 use crate::state::{Heard, ProjectState, Ruling, RulingKind, StateError};
+use crate::work_item::Phase;
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
 /// came before the answer is told it is settled
 const LATE: u64 = 60 * 60;
+
+/// Seconds a ruling the panel decided is watched for a `no <note>`
+const DECIDED: u64 = 24 * 60 * 60;
 
 /// How far behind a read the next one reaches, in seconds, for a comment the
 /// forge was slow to list
@@ -95,6 +99,9 @@ pub(super) struct Reading {
     /// comment's id and its new body, and when it is given up, tried again at
     /// each poll until then
     unedited: BTreeMap<u64, (u64, String, Timestamp)>,
+    /// The rulings the panel decided while they are watched, as they stood
+    /// when they were decided, so a `no <note>` can reopen one
+    decided: BTreeMap<u64, Ruling>,
 }
 
 /// What a comment on a watched thread is a reply to
@@ -347,6 +354,9 @@ impl Runner {
             now < until
         });
         self.threads.told.retain(|id, _| threads.contains_key(id));
+        self.threads
+            .decided
+            .retain(|id, _| threads.contains_key(id));
         // What a ruling's end said is said by the call that ended it, before
         // any poll, so a ruling still here at a poll ended another way.
         self.threads.ended.clear();
@@ -402,6 +412,7 @@ impl Runner {
         match aimed {
             Aimed::Nothing => {}
             Aimed::At(id, named) => self.answer(comment, id, named, words),
+            Aimed::Settled(id) if self.reopens(comment, id, words) => {}
             Aimed::Settled(id) => {
                 let told =
                     (self.threads.told.get(&id)).map_or("is already answered", String::as_str);
@@ -458,6 +469,93 @@ impl Runner {
             ),
         };
         self.say(thread, &said);
+    }
+
+    /// What became of ruling `id` as a reply in its thread is told, if it ended
+    pub(super) fn threads_told(&self, id: u64) -> Option<&String> {
+        self.threads.told.get(&id)
+    }
+
+    /// Watches the comment that posted the panel's decision on ruling
+    /// `decided`, so `login`'s `no <note>` in `thread` reopens it
+    pub(super) fn watch_decided(
+        &mut self,
+        decided: Ruling,
+        thread: u64,
+        login: &str,
+        posted: crate::ports::PostedComment,
+    ) {
+        let until = Timestamp(self.ports.clock.now().0.saturating_add(DECIDED));
+        let id = decided.id;
+        let heard = Heard {
+            mentions: login.to_owned(),
+            time: posted.created,
+            comment: posted.id,
+            ruling_comment: 0,
+        };
+        let watch = Watch {
+            ruling: id,
+            thread,
+            heard,
+            settled: Some(until),
+        };
+        self.threads.watching.insert(id, watch);
+        self.threads.decided.insert(id, decided);
+    }
+
+    // Reopens a ruling the panel decided when `words`, a reply to it, are a
+    // `no <note>`: it is raised again as it stood, its work item is parked on
+    // it again, and the note answers it. Says why when it cannot, and
+    // returns whether the ruling was one the panel decided.
+    fn reopens(&mut self, comment: &ThreadComment, id: u64, words: &str) -> bool {
+        let Some(ruling) = self.threads.decided.get(&id).cloned() else {
+            return false;
+        };
+        let (who, thread) = (&comment.author, comment.thread);
+        let answer = read_answer(Wants::of(&ruling.kind), words);
+        let reopened = match answer {
+            Ok(answer @ (Answer::No(_) | Answer::Rework(_))) => {
+                self.reopen(ruling, answer).map_err(|e| e.to_string())
+            }
+            Ok(_) => Err("only a `no <note>` reopens it".to_owned()),
+            Err(why) => Err(why),
+        };
+        match reopened {
+            Ok(()) => {
+                self.threads.decided.remove(&id);
+                if let Err(e) = self.ports.voice.thumbs_up(&self.remote, comment.id) {
+                    self.notes
+                        .push(format!("cannot react to {who}'s answer on #{thread}: {e}"));
+                }
+            }
+            Err(why) => {
+                let said = format!("@{who} Ruling {id} was not reopened: {why}.");
+                self.say(thread, &said);
+            }
+        }
+        true
+    }
+
+    // Puts `ruling` back where its work item waits on it, and answers it.
+    fn reopen(&mut self, ruling: Ruling, answer: Answer) -> Result<(), RuleError> {
+        let id = ruling.id;
+        let not = |why: &str| RuleError::Reopen(id, why.to_owned());
+        let issue = ruling.issue.ok_or_else(|| not("it has no work item"))?;
+        let item = self.state.item(issue);
+        let item = item.ok_or_else(|| not("its work item has finished"))?;
+        if self.flights.flying(issue) {
+            return Err(not("its worker is running"));
+        }
+        if matches!(item.phase, Phase::Ruling { .. } | Phase::Done { .. }) {
+            return Err(not("its work item waits on another ruling or is done"));
+        }
+        let mut next = self.state.clone();
+        if let Some(item) = next.item_mut(issue) {
+            item.phase = Phase::Ruling { id };
+        }
+        next.rulings.push(ruling);
+        self.save(next).map_err(RuleError::State)?;
+        self.rule_by(id, answer, Settler::Thread)
     }
 
     // Posts `text` on `thread` as the App, and notes why it could not.

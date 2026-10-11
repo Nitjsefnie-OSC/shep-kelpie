@@ -10,7 +10,7 @@
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{ListedReviewer, Settings};
+use crate::settings::{ListedReviewer, Settings, SettingsError};
 use crate::skills::Skills;
 use crate::webhook::{KelpieSettings, Webhook};
 
@@ -39,6 +39,13 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
+        }
+        if let Some(reason) = settings.rulings.refusal() {
+            return Err(SettingsError::Invalid {
+                setting: "rulings.pm_alone",
+                reason,
+            }
+            .into());
         }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let book = Agents::load(&self.paths.agents)?;
@@ -128,6 +135,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("worker", old.worker != new.worker),
         ("skills", old.skills != new.skills),
         ("researcher", old.researcher != new.researcher),
+        ("rulings", old.rulings != new.rulings),
         ("webhook", was != now),
     ]
     .into_iter()

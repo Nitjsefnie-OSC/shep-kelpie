@@ -21,7 +21,7 @@ fn a_version_6_file_loads_with_nothing_attached_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn a_version_7_file_loads_with_no_project_manager_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn a_version_9_file_saved_paused_loads_and_saves_with_no_run_state() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
 }
 
@@ -77,7 +77,7 @@ fn a_version_12_file_loads_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
 }
 
 // A version 14 file has no `late_from` on its work items and no `late_fix`
@@ -123,7 +123,7 @@ fn a_version_14_file_loads_with_no_late_fix_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
 }
 
 // A version 15 file has no `ci_fix_turns` in a work item's counts and no
@@ -167,7 +167,7 @@ fn a_version_15_file_loads_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
     assert_eq!(saved["work_items"][0]["counts"], item["counts"]);
     assert_eq!(saved["rulings"][0]["kind"], still_red);
 }
@@ -192,7 +192,7 @@ fn a_version_20_file_loads_with_no_thread_answers_and_saves_them_pinned() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
     assert_eq!(
         saved["work_items"][0]["thread_answers"],
         serde_json::json!([

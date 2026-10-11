@@ -26,6 +26,7 @@ fn big_state(n: u64) -> ProjectState {
             kind: RulingKind::from(Stuck::Closed),
             alerted: false,
             panel: None,
+            verdict: None,
             unposted: false,
         })
         .collect();
@@ -66,6 +67,7 @@ fn a_saved_state_loads_back_whole() {
         },
         alerted: true,
         panel: None,
+        verdict: None,
         unposted: false,
     });
     state.last_ruling = 1;
@@ -115,7 +117,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], saved.get("work_item")),
-        (&serde_json::json!(28), None)
+        (&serde_json::json!(29), None)
     );
     assert_eq!(store.load().unwrap(), Some(state));
 
@@ -154,6 +156,7 @@ fn the_file_format_is_pinned() {
         kind,
         alerted: id.is_multiple_of(2),
         panel: None,
+        verdict: None,
         unposted: false,
     };
     state.rulings = vec![
@@ -272,7 +275,7 @@ fn the_file_format_is_pinned() {
     assert_eq!(
         value,
         serde_json::json!({
-            "version": 28,
+            "version": 29,
             "work_items": [],
             "rulings": [
                 pinned(1, serde_json::json!({
@@ -442,7 +445,7 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
     assert_eq!(saved["history"], old["history"]);
     assert_eq!(
         saved["work_items"][0]["phase"],
@@ -466,7 +469,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_28() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (saved["version"].clone(), saved.get("finishing")),
-        (28.into(), None)
+        (29.into(), None)
     );
 
     loaded.finishing = true;
@@ -520,7 +523,7 @@ fn a_version_9_file_loads_with_nothing_counted_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
 }
 
 #[test]
@@ -554,7 +557,7 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_28() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 28);
+    assert_eq!(saved["version"], 29);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
     assert_eq!(
         saved["work_items"][0]["counts"],

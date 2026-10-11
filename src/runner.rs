@@ -395,6 +395,13 @@ impl Runner {
         }
         let totp = replies::authenticator(webhook.as_ref(), &paths.totp)?;
         let remote = check_checkout(&settings)?;
+        if let Some(reason) = settings.rulings.refusal() {
+            return Err(SettingsError::Invalid {
+                setting: "rulings.pm_alone",
+                reason,
+            }
+            .into());
+        }
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
         let clock = Arc::clone(&ports.clock);
@@ -563,6 +570,7 @@ impl Runner {
             adopted: &self.state.adopted,
             skipped: &self.skipped,
             rulings: &self.state.rulings,
+            panel: self.panel_status(),
             leases: &self.state.leases,
             history: &self.state.history[self
                 .state

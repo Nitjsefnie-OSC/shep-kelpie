@@ -68,6 +68,8 @@ pub enum RuleError {
     Threads(u64, String),
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
+    /// A ruling the panel decided could not be reopened
+    Reopen(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -104,6 +106,7 @@ impl fmt::Display for RuleError {
             Self::Adopt(head, e) => {
                 write!(f, "cannot bring the worktree to {}: {e}", short(head))
             }
+            Self::Reopen(id, why) => write!(f, "ruling {id} cannot be reopened: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -150,13 +153,13 @@ impl Runner {
     }
 
     // Applies an answer, and says whether it was taken, not after the branch moved.
-    // `by_pm` says the project manager answered for the maintainer, which the
-    // researcher's record of it says.
+    // `by` says who gave it, which the record of it says: the researcher reads
+    // it, and the panel's measurements count only the maintainer's.
     pub(super) fn apply(
         &mut self,
         id: u64,
         answer: Answer,
-        by_pm: bool,
+        by: super::panel::Answerer,
     ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
@@ -164,7 +167,7 @@ impl Runner {
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
         // Kept for the researcher once the answer is saved.
-        let record = super::panel::Record::of(&ruling, &answer, now, by_pm);
+        let record = super::panel::Record::of(&ruling, &answer, now, by);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -502,6 +505,7 @@ pub(super) fn park(
         kind,
         alerted: false,
         panel: None,
+        verdict: None,
         unposted: false,
     });
     (id, text)
