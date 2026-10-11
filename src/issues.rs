@@ -406,6 +406,7 @@ fn call(
         agent_tools: None,
         reach,
         lease: None,
+        compact_window: None,
     })
 }
 

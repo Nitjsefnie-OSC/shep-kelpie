@@ -106,6 +106,7 @@ mod tests {
             agent_tools: None,
             lease: None,
             reach: Reach::default(),
+            compact_window: None,
         }
     }
 

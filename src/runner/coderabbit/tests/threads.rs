@@ -75,6 +75,26 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     ));
 }
 
+// Claude Code compacts a long turn on its own, and the summary may have lost
+// the prompt's last line: the reply's format, which kelpie reads at the end.
+#[test]
+fn a_fix_turn_compacted_partway_still_ends_with_its_thread_lines_read() {
+    let (rig, runner, head) = summoned("shep");
+    hold_a_finding(&rig, &runner, &head, "Name the flag.");
+    rig.claude.script([Scripted::PushSayCompacted(
+        "flag.txt",
+        "named\n",
+        "thread 1: fixed",
+    )]);
+    step(&runner).unwrap(); // the fix turn
+    rig.next_look();
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::FixPushed { .. })
+    ));
+    assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0"]);
+}
+
 #[test]
 fn one_refusal_then_a_resolve_goes_on_as_usual() {
     let (rig, runner, head) = summoned("rotom");

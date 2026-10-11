@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -228,6 +229,10 @@ pub struct AgentCall {
     pub lease: Option<LeaseName>,
     /// What it may reach
     pub reach: Reach,
+    /// Tokens of context at which the harness compacts the session in the
+    /// middle of the turn, if it is to. A compaction summarizes the turn's
+    /// own prompt, so the harness is set to hand `prompt` back after one.
+    pub compact_window: Option<NonZeroU32>,
 }
 
 impl AgentCall {

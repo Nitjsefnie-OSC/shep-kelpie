@@ -146,6 +146,13 @@ build_env = {}
 # busy: kelpie stops it, parks it and asks. A yes resumes the same session.
 turn_timeout = 60
 
+# Tokens of context at which Claude Code compacts a worker's session in the
+# middle of a turn. Left alone it waits for the model's whole window, and a
+# long turn can read hundreds of thousands of tokens on every call by then.
+# After a compaction the worker is handed the turn's prompt again. 0 leaves
+# Claude Code's own point.
+compact_window = 200000
+
 # A project's own hooks, run after kelpie's guard, which every worker gets.
 # Each command must resolve when the runner starts: its program on `PATH`
 # or at its path, and every argument that is a path must exist.
