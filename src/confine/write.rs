@@ -59,9 +59,12 @@ fn content(input: &Value) -> Option<String> {
     if let Some(text) = CONTENT.iter().find_map(|k| input[k].as_str()) {
         return Some(text.to_owned());
     }
-    // pi's edit lists its changes.
+    // pi's edit and Claude Code's MultiEdit list their changes.
     let edits = input["edits"].as_array()?;
-    let news: Vec<&str> = edits.iter().filter_map(|e| e["newText"].as_str()).collect();
+    let news: Vec<&str> = edits
+        .iter()
+        .filter_map(|e| CONTENT.iter().find_map(|k| e[k].as_str()))
+        .collect();
     (!news.is_empty()).then(|| news.join("\n"))
 }
 
@@ -218,6 +221,24 @@ mod tests {
 
         let contents: Vec<_> = w.payloads().iter().map(|p| p["content"].clone()).collect();
         assert_eq!(contents, [json!("one"), json!("b\nd")]);
+    }
+
+    #[test]
+    fn a_write_hook_reads_the_new_text_of_each_edit_in_a_multi_edit() {
+        let w = world();
+        let hooks = w.recorder();
+
+        let multi = json!({
+            "file_path": w.file("wt/a.rs"),
+            "edits": [
+                { "old_string": "a", "new_string": "b" },
+                { "old_string": "c", "new_string": "d" },
+            ],
+        });
+        assert_eq!(w.judge(&hooks, "MultiEdit", multi), Verdict::Allow);
+
+        let contents: Vec<_> = w.payloads().iter().map(|p| p["content"].clone()).collect();
+        assert_eq!(contents, [json!("b\nd")]);
     }
 
     #[test]
