@@ -24,6 +24,21 @@ fn ledger(rig: &Rig) -> Vec<Value> {
         .collect()
 }
 
+// The first step that reports, once the held call has ended
+//
+// A call answers before its flight is recorded as ended, and a pass in between
+// is idle, so an idle step is retried until the flight ends.
+fn step_once_ended(runner: &std::sync::Mutex<crate::runner::Runner>) -> Option<StepReport> {
+    let deadline = std::time::Instant::now() + PATIENCE;
+    loop {
+        let report = step(runner).unwrap();
+        if report.is_some() || std::time::Instant::now() > deadline {
+            return report;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn dispatched_on(report: Option<StepReport>) -> String {
     match report {
         Some(StepReport::Dispatched {
@@ -276,10 +291,9 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
         "the board waits too"
     );
     hold.release();
-    assert!(hold.answered(PATIENCE), "the call never answered");
     rig.claude.script([Scripted::Say("done")]);
     assert_eq!(
-        dispatched_on(step(&runner).unwrap()),
+        dispatched_on(step_once_ended(&runner)),
         "sonnet-high",
         "the hand label stands"
     );
