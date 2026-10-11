@@ -28,11 +28,13 @@ impl Runner {
     }
 
     // Puts the label right after a start: on for each work item held, off
-    // for each finished issue, whose own removal a refusal may have missed
+    // for each finished or dropped issue with no work item open, whose own
+    // removal a refusal may have missed
     pub(super) fn settle_labels(&mut self) {
         let held = self.state.open_issues();
         let state = &self.state;
         let finished: Vec<u64> = (state.finished.iter().chain(&state.dropped))
+            .filter(|n| !held.contains(n))
             .copied()
             .collect();
         for issue in held {
@@ -122,6 +124,21 @@ mod tests {
         rig.ask(&runner, "drop", None);
         assert!(!held(&rig, 7));
         assert_eq!(notes(&runner), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_dropped_issue_added_again_keeps_the_label_through_a_start() {
+        let (rig, runner) = running("koji");
+        rig.ask(&runner, "add", Some("7"));
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", None);
+        rig.ask(&runner, "add", Some("7"));
+        assert!(held(&rig, 7));
+
+        runner.lock().unwrap().settle_labels();
+        assert!(held(&rig, 7));
     }
 
     #[test]
