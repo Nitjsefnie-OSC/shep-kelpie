@@ -27,6 +27,7 @@ use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport
 use super::retro;
 use super::review::run_review_call;
 use super::trigger::lock;
+use super::turn_hooks::TurnHooks;
 use crate::ports::{AgentCall, AgentError, AgentReply, Ending, RoundStage, Timestamp, Wait};
 use crate::settings::Harness;
 use crate::state::StateError;
@@ -366,7 +367,12 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = Arc::clone(&self.ports.agents);
+        let agents = TurnHooks::around(
+            Arc::clone(&self.ports.agents),
+            &self.hooks,
+            &self.notes,
+            None,
+        );
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
@@ -515,10 +521,14 @@ impl Runner {
             Launch::Review(ReviewCall::Local { .. }) => {}
         }
         let ledger = self.flights.ledger.clone();
-        let (agents, reviewer) = (
+        let item = self.state.work_items.iter().find(|i| i.issue == issue);
+        let agents = TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            Arc::clone(&self.ports.reviewer),
+            &self.hooks,
+            &self.notes,
+            item,
         );
+        let reviewer = Arc::clone(&self.ports.reviewer);
         let held = ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let run = move || {
@@ -650,6 +660,8 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 #[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     let pass = one_pass(runner);
+    // After the pass, so a ruling it raised is told in the pass that raised it.
+    lock(runner).tell_rulings();
     brief(runner);
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
@@ -696,8 +708,15 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).begin(None)
 }
 
-// Records one piece of news from a call in flight.
+// Records one piece of news from a call in flight, and tells the project's `ruling`
+// hooks the ruling it may have raised.
 fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
+    let heard = hear_news(runner, news);
+    lock(runner).tell_rulings();
+    heard
+}
+
+fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
     let mut runner = lock(runner);
     let (issue, end) = match news {
         News::Stage { issue, stage, .. } => {
@@ -815,6 +834,8 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
 pub fn step(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     let stepped = step_once(runner);
     brief(runner);
+    // A notice hook runs off the runner's lock, so a test waits for what it told.
+    lock(runner).settle_notices();
     stepped
 }
 

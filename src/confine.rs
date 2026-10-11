@@ -14,8 +14,10 @@ use std::path::{Component, Path, PathBuf};
 use serde::Deserialize;
 
 use crate::fence;
+use crate::hooks::Hooks;
 
 mod append;
+mod write;
 
 pub use append::{APPEND, judge_append};
 
@@ -44,6 +46,13 @@ const PATCH_PATHS: [&str; 4] = [
 /// Claude Code's file tools name one path. Codex's `apply_patch` names
 /// each file in its patch, and every one must pass.
 pub fn judge(input: impl Read, folders: &[PathBuf]) -> Verdict {
+    judge_with(input, folders, &Hooks::default())
+}
+
+/// Judges the tool call in `input` as [`judge`] does, and also by the
+/// project's `write` hooks, which see each file a call writes inside
+/// `folders`, its path from the first of them
+pub fn judge_with(input: impl Read, folders: &[PathBuf], hooks: &Hooks) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
         cwd: PathBuf,
@@ -60,25 +69,37 @@ pub fn judge(input: impl Read, folders: &[PathBuf]) -> Verdict {
         Ok(call) => call,
         Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
     };
-    if call.tool_name == APPLY_PATCH {
+    let targets: Vec<PathBuf> = if call.tool_name == APPLY_PATCH {
         let targets = patch_paths(&call.tool_input);
         if targets.is_empty() {
             return Verdict::Refuse("kelpie cannot find the files this patch writes".into());
         }
-        return targets
-            .iter()
-            .map(|target| judge_path(&call.cwd.join(target), folders))
-            .find(|verdict| *verdict != Verdict::Allow)
-            .unwrap_or(Verdict::Allow);
+        targets
+    } else {
+        let input: ToolInput = match serde_json::from_value(call.tool_input.clone()) {
+            Ok(input) => input,
+            Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
+        };
+        let Some(target) = input.file_path.or(input.notebook_path) else {
+            return Verdict::Allow;
+        };
+        vec![target]
+    };
+    let targets: Vec<PathBuf> = targets.iter().map(|t| call.cwd.join(t)).collect();
+    if let Some(refused) = targets
+        .iter()
+        .map(|target| judge_path(target, folders))
+        .find(|verdict| *verdict != Verdict::Allow)
+    {
+        return refused;
     }
-    let input: ToolInput = match serde_json::from_value(call.tool_input) {
-        Ok(input) => input,
-        Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
-    };
-    let Some(target) = input.file_path.or(input.notebook_path) else {
-        return Verdict::Allow;
-    };
-    judge_path(&call.cwd.join(target), folders)
+    write::check(
+        hooks,
+        &call.tool_name,
+        &call.tool_input,
+        folders.first().map(PathBuf::as_path),
+        &targets,
+    )
 }
 
 // Every file a patch anywhere in `input` names, however its lines are

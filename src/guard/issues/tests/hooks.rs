@@ -56,3 +56,35 @@ fn the_hook_reads_the_issue_writer_as_the_role() {
     assert_eq!(payload["role"], "issue-writer");
     assert_eq!(payload["point"], "publish");
 }
+
+// A `command` hook sees each command the issue writer runs, under its own role.
+#[test]
+fn a_command_hook_judges_the_issue_writer_s_commands_too() {
+    let session = Session::new(HUMAN);
+    let dir = tempfile::tempdir().unwrap();
+    let seen = dir.path().join("seen.json");
+    let record = format!("cat > {}; exit 2", seen.display());
+    let hook = ProjectHook {
+        point: HookPoint::Command,
+        command: NonBlank::try_from(record).unwrap(),
+    };
+    let hooks = Hooks::new("koji", "acme/koji", Path::new("/"), &[hook]);
+
+    let verdict = file(&session, &hooks, BODY);
+
+    refused(
+        verdict,
+        "this command: the `command` hook `cat` refused: it gave no reason",
+    );
+    let payload: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&seen).unwrap()).unwrap();
+    assert_eq!(payload["point"], "command");
+    assert_eq!(payload["role"], "issue-writer");
+    assert_eq!(payload["cwd"], "/k/acme/issues/one");
+    assert!(
+        payload["command"]
+            .as_str()
+            .unwrap()
+            .starts_with("gh issue create")
+    );
+}
