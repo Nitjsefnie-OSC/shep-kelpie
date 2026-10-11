@@ -219,6 +219,44 @@ fn a_wake_that_fails_sends_the_question_to_the_maintainer_as_it_is() {
 }
 
 #[test]
+fn an_answer_after_the_maintainer_was_alerted_is_dropped() {
+    let (rig, runner) = asking("raichu", ASKS);
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+
+    rig.clock.advance(11 * 60);
+    rig.ask(&runner, "tell", Some("Use --check"));
+    rig.claude.script([Scripted::Say(
+        "{\"answer\": {\"item\": 7, \"text\": \"Use --check.\", \"why\": \"told\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(acted, Vec::<String>::new());
+    assert_eq!(
+        dropped,
+        ["answer #7: ruling 1 already went to the maintainer"]
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["id"], 1, "the ruling still waits");
+    assert_eq!(rig.claude.calls().len(), 1, "the worker is not resumed");
+}
+
+#[test]
+fn a_recommendation_naming_this_machine_is_withheld_from_the_post() {
+    let (rig, runner) = asking("meowth", CHOICES);
+    let home = rig.paths().pm.display().to_string();
+    let answer = format!("{{\"answer\": {{\"item\": 7, \"escalate\": \"{home}\"}}}}");
+    let text = passed_on(&rig, &runner, Box::leak(answer.into_boxed_str()));
+    assert!(!text.contains(&home), "{text}");
+    assert!(
+        text.contains("PM recommends: (withheld: it names"),
+        "{text}"
+    );
+}
+
+#[test]
 fn a_question_waits_at_most_one_wake_for_its_answer() {
     let (rig, runner) = asking("wartortle", ASKS);
     let hold = Hold::default();

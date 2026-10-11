@@ -22,6 +22,16 @@ const KEPT: usize = 5;
 /// What leads the text of an answer the project manager gave
 const ANSWERED: &str = "PM answered:";
 
+// What a work item is parked on
+enum Asked {
+    /// A question ruling not yet posted to the maintainer
+    On(u64),
+    /// A question ruling the maintainer was alerted of
+    Alerted(u64),
+    /// Nothing that asks a question
+    Not,
+}
+
 impl Runner {
     /// Settles the question `settle` names, and says what it did, or why
     /// it was dropped
@@ -34,10 +44,18 @@ impl Runner {
         settle: &Settle,
     ) -> Result<Result<String, String>, StateError> {
         let n = settle.item;
-        let Some(id) = self.asked_on(n) else {
-            return Ok(Err(format!(
-                "answer #{n}: not a work item parked on a question ruling"
-            )));
+        let id = match self.asked_on(n) {
+            Asked::On(id) => id,
+            Asked::Alerted(id) => {
+                return Ok(Err(format!(
+                    "answer #{n}: ruling {id} already went to the maintainer"
+                )));
+            }
+            Asked::Not => {
+                return Ok(Err(format!(
+                    "answer #{n}: not a work item parked on a question ruling"
+                )));
+            }
         };
         let why = plain(&self.shown(settle.why.clone()), WORDS);
         let (done, outcome, recommends) = match &settle.how {
@@ -50,7 +68,7 @@ impl Runner {
                 (format!("answered ruling {id} on #{n}"), "answered", None)
             }
             How::Escalate(choice) => {
-                let choice = choice.as_deref().map(|c| plain(c, WORDS));
+                let choice = (choice.as_deref()).map(|c| plain(&self.shown(c.to_owned()), WORDS));
                 self.recommend(id, choice.as_deref(), &why)?;
                 (
                     format!("put ruling {id} on #{n} to the maintainer"),
@@ -75,13 +93,20 @@ impl Runner {
         Ok(Ok(done))
     }
 
-    // The ruling the work item for `issue` is parked on, if it asks a question.
-    fn asked_on(&self, issue: u64) -> Option<u64> {
-        let Phase::Ruling { id } = self.state.item(issue)?.phase else {
-            return None;
+    // The question ruling the work item for `issue` is parked on, if any. One
+    // the maintainer was alerted of is theirs to answer, however late the
+    // project manager's word comes.
+    fn asked_on(&self, issue: u64) -> Asked {
+        let Some(Phase::Ruling { id }) = self.state.item(issue).map(|i| i.phase.clone()) else {
+            return Asked::Not;
         };
-        let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
-        matches!(ruling.kind, RulingKind::Question { .. }).then_some(id)
+        match self.state.rulings.iter().find(|r| r.id == id) {
+            Some(r) if matches!(r.kind, RulingKind::Question { .. }) && r.alerted => {
+                Asked::Alerted(id)
+            }
+            Some(r) if matches!(r.kind, RulingKind::Question { .. }) => Asked::On(id),
+            _ => Asked::Not,
+        }
     }
 
     // Adds the recommendation to ruling `id`, to be posted as it is.
