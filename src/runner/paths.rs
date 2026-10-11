@@ -136,6 +136,12 @@ impl ProjectPaths {
         }
     }
 
+    /// The project's name, which names its folder
+    pub fn name(&self) -> String {
+        let name = self.folder.file_name();
+        name.map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    }
+
     /// Whether the door, and the longest socket a call opens (a 128-bit
     /// random name in the worker folder), are short enough to bind
     ///

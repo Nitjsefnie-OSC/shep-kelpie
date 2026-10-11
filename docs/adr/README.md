@@ -12,6 +12,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0006 [One agent builds, reviewers run once in series](0006-one-agent-builds-reviewers-run-once.md): the issue says what done means, one agent builds it, and each listed reviewer reads once with one fix turn, with no loop and no judge.
 - 0007 [Review rules for a live pull request](0007-review-rules-for-a-live-pull-request.md): nits and a merge ruling's `no` get a fix turn, a late bot is read, and a parked item frees its slot.
 - 0008 [No reviewer reads a head until CI has passed on it](0008-no-reviewer-reads-a-head-until-ci-has-passed-on-it.md): a reviewer starts, or a bot is summoned, only on a pushed head that is green, and a red run is the worker's CI fix turn first.
+- 0009 [A project's own hooks run at kelpie's points](0009-a-projects-own-hooks-run-at-kelpies-points.md): `hooks` runs a project's commands at `publish`, `commit`, `push` and `handover`, for every harness and role, with `worker.guard_hooks` kept as the Claude Code-only layer.
 
 ## Decided against
 
@@ -38,3 +39,8 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - review first and CI after it, as 0006 ordered (0008)
 - run CI and the first reviewer at once (0008)
 - skip the wait for a local reviewer (0008)
+- run a project's checks as Claude Code hooks for every harness (0009)
+- let `hooks` replace `worker.guard_hooks` (0009)
+- let a hook rewrite the text it judges (0009)
+- let a slow hook pass (0009)
+- have `publish` cover only the text an agent wrote (0009)

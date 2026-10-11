@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::guard::{FOLDER_FLAG, RECORD_FLAG};
+use crate::hooks::GUARD_BUDGET;
 use crate::ports::{Fence, PM_NOTES, Reach, Tools};
 use crate::settings::HookEvent;
 use crate::trim::trimmed;
@@ -81,6 +82,17 @@ const RETRO_DENY: [&str; 14] = [
     "ExitWorktree",
 ];
 
+/// The only tools a worker's session starts with, as `--tools` takes them
+///
+/// `Skill` stays because a vendored skill calls another (`tdd` calls
+/// `codebase-design`). With the five `disable*` settings, a trivial call's
+/// context is 8,265 tokens, from 18,385.
+pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
+
+/// The only tools a reviewer's session starts with, as `--tools` takes them:
+/// it reads the worktree and runs no command, which [`REVIEW_DENY`] holds it to
+pub(crate) const REVIEW_TOOLS: &str = "Read,Glob,Grep";
+
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
 
@@ -122,6 +134,9 @@ pub(crate) const NO_TOOLS: [&str; 12] = [
 
 // What `kelpie guard` judges: every command, and a subagent's isolation.
 const GUARDED_TOOLS: &str = "Bash|Agent|Task";
+
+// Seconds past the guard's budget for hooks that Claude Code waits for the guard.
+const GUARD_MARGIN: u64 = 10;
 
 /// The Read rules that keep a call with no fence, working in `cwd`, out of
 /// `unfenced` but for `cwd` and the folders it reads
@@ -345,11 +360,21 @@ fn hooks(fence: &Fence) -> Value {
     let issues = (guard.issues.iter())
         .flat_map(|rules| rules.flags())
         .map(|flag| shell_quote(&flag));
+    // The project's own hooks, which the guard runs on a commit, a push and a post.
+    let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
         .chain(issues)
+        .chain(hooks)
         .collect();
-    pre.push(entry(Some(GUARDED_TOOLS), &commands.join(" ")));
+    let mut guarded = entry(Some(GUARDED_TOOLS), &commands.join(" "));
+    // Claude Code lets a call through when its hook outlasts the hook's
+    // timeout, so the project's hooks get a timeout past the guard's own budget
+    // for them, which refuses the call first.
+    if !guard.hooks.is_empty() {
+        guarded["hooks"][0]["timeout"] = (GUARD_BUDGET.as_secs() + GUARD_MARGIN).into();
+    }
+    pre.push(guarded);
     let mut post = Vec::new();
     // The issue writer's ledger of what it filed and read, kept after each command.
     if guard.issues.is_some() {
@@ -406,6 +431,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::hooks::Hooks;
     use crate::ports::{Fence, Guard};
     use crate::trim::deny_with_trim;
 
@@ -469,6 +495,7 @@ mod tests {
                     git_common_dir: "/k/git".into(),
                     folders: Vec::new(),
                     issues: None,
+                    hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
             })),
@@ -480,6 +507,65 @@ mod tests {
         }
         let review = settings(Tools::Review, &Reach::default());
         assert!(review["permissions"].get("allow").is_none());
+    }
+
+    // Claude Code lets a call through when its guard outlasts the hook's
+    // timeout, so with the project's hooks the guard's entry waits longer than
+    // the guard spends on them, and without them it keeps the default.
+    #[test]
+    fn the_guard_waits_longer_than_it_spends_on_the_projects_hooks() {
+        use crate::settings::{HookPoint, NonBlank, ProjectHook};
+        let reach = |hooks: Hooks| Reach {
+            read: Vec::new(),
+            fence: Some(Box::new(Fence {
+                write: Vec::new(),
+                no_write: Vec::new(),
+                no_read: Vec::new(),
+                read: Vec::new(),
+                hosts: Vec::new(),
+                no_commands: Vec::new(),
+                env: Default::default(),
+                sockets: Vec::new(),
+                guard: Guard {
+                    kelpie: "/k/kelpie".into(),
+                    worktree: "/k/wt".into(),
+                    build: "/k/build".into(),
+                    git_common_dir: "/k/git".into(),
+                    folders: Vec::new(),
+                    issues: None,
+                    hooks,
+                },
+                hooks: Vec::new(),
+            })),
+            ..Reach::default()
+        };
+        let guard_entry = |reach: &Reach| {
+            let pre = settings(Tools::Work, reach)["hooks"]["PreToolUse"].clone();
+            let bash = pre
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["matcher"] == GUARDED_TOOLS);
+            bash.unwrap()["hooks"][0].clone()
+        };
+        let command = NonBlank::try_from("exit 0".to_owned()).unwrap();
+        let hooks = Hooks::new(
+            "koji",
+            "acme/koji",
+            Path::new("/"),
+            &[ProjectHook {
+                point: HookPoint::Commit,
+                command,
+            }],
+        );
+
+        let with = guard_entry(&reach(hooks));
+        assert_eq!(with["timeout"], GUARD_BUDGET.as_secs() + GUARD_MARGIN);
+        assert!(
+            guard_entry(&reach(Hooks::default()))
+                .get("timeout")
+                .is_none()
+        );
     }
 
     #[test]
@@ -570,10 +656,10 @@ mod tests {
                 "disableWorkflows",
                 "disableClaudeAiConnectors",
                 "disableArtifact",
+                "disableRemoteControl",
             ] {
                 assert_eq!(s[key], true, "{tools:?} {key}");
             }
-            assert!(s.get("disableRemoteControl").is_none(), "{tools:?}");
             assert_eq!(s["enableArtifact"], false, "{tools:?}");
             let own: &[&str] = match tools {
                 Tools::Work => &WORK_DENY,

@@ -57,6 +57,8 @@ struct Implementer {
     gateway: Option<GatewayName>,
     #[serde(default)]
     context: Option<ContextSize>,
+    #[serde(default)]
+    tools: Option<NonBlank>,
 }
 
 // The issue writer's and the project manager's keys: a Claude Code
@@ -127,6 +129,8 @@ struct Reviewer {
     reviews_on_ready: Option<bool>,
     #[serde(default)]
     rounds: Option<NonZeroU32>,
+    #[serde(default)]
+    tools: Option<NonBlank>,
 }
 
 // A session's keys, whichever role runs it
@@ -138,6 +142,7 @@ struct SessionKeys<'a> {
     lease: Option<&'a LeaseName>,
     host: Option<ModelHost>,
     context: Option<ContextSize>,
+    tools: Option<&'a NonBlank>,
 }
 
 /// The agent an agent file's `text` defines, or what is wrong with it
@@ -169,6 +174,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 lease: keys.lease.as_ref(),
                 host: host(keys.url.as_ref(), keys.gateway.as_ref())?,
                 context: keys.context,
+                tools: keys.tools.as_ref(),
             })?,
             prompt,
             paths: Vec::new(),
@@ -238,6 +244,7 @@ impl OnClaude {
                 lease: None,
                 host: None,
                 context: None,
+                tools: None,
             })?,
             prompt,
             paths: Vec::new(),
@@ -299,6 +306,7 @@ impl Reviewer {
             lease: self.lease.as_ref(),
             host: host(self.url.as_ref(), self.gateway.as_ref())?,
             context: self.context,
+            tools: self.tools.as_ref(),
         })
     }
 
@@ -310,11 +318,12 @@ impl Reviewer {
             || self.effort.is_some()
             || self.url.is_some()
             || self.gateway.is_some()
-            || self.context.is_some();
+            || self.context.is_some()
+            || self.tools.is_some();
         if session_keys {
             return Err(
-                "runs a command, which takes no `model`, `effort`, `url`, `gateway` \
-                        or `context`"
+                "runs a command, which takes no `model`, `effort`, `url`, `gateway`, \
+                        `context` or `tools`"
                     .into(),
             );
         }
@@ -345,10 +354,11 @@ impl Reviewer {
         let other = self.effort.is_some()
             || self.command.is_some()
             || self.ollama.is_some()
-            || self.ollama_model.is_some();
+            || self.ollama_model.is_some()
+            || self.tools.is_some();
         if other {
             return Err("runs on an endpoint, which takes no `effort`, `command`, \
-                        `ollama` or `ollama_model`: its url is the Ollama host"
+                        `ollama`, `ollama_model` or `tools`: its url is the Ollama host"
                 .into());
         }
         let host = host(self.url.as_ref(), self.gateway.as_ref())?;
@@ -418,6 +428,12 @@ fn host(
 const NO_LEASE: &str = "names a `gateway`, which queues its calls itself, so it takes no `lease`";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
+    if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {
+        let name = keys.harness.as_str();
+        return Err(format!(
+            "runs on {name}, which takes no `tools`: only claude-code has an allow-list to name"
+        ));
+    }
     let harness = match (keys.harness, &keys.host, keys.context) {
         (Harness::ClaudeCode, None, None) => AgentHarness::ClaudeCode,
         (Harness::ClaudeCode, ..) => {
@@ -452,6 +468,7 @@ fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
         model: keys.model.clone(),
         effort: keys.effort,
         harness,
+        tools: keys.tools.cloned(),
     })
 }
 

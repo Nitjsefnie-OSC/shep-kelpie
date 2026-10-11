@@ -32,8 +32,18 @@ fn coderabbit() -> AgentName {
 // whose worker opened pull request 71, and whose qwen and Claude rounds read
 // it clean. CodeRabbit's round, the pass's third, is next.
 pub(in crate::runner) fn reviewed_by_qwen(project: &str) -> (Rig, Mutex<Runner>, String) {
+    reviewed_by_qwen_with(project, |_| {})
+}
+
+// As `reviewed_by_qwen`, `setup` having changed the project's settings
+// before its runner opens.
+pub(in crate::runner) fn reviewed_by_qwen_with(
+    project: &str,
+    setup: impl FnOnce(&Rig),
+) -> (Rig, Mutex<Runner>, String) {
     let rig = Rig::new(project);
     rig.coderabbit_on();
+    setup(&rig);
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -51,7 +61,16 @@ pub(in crate::runner) fn reviewed_by_qwen(project: &str) -> (Rig, Mutex<Runner>,
 // CodeRabbit's round: the pass that marks the draft ready, and the summon
 // that follows it.
 pub(in crate::runner) fn summoned(project: &str) -> (Rig, Mutex<Runner>, String) {
-    let (rig, runner, head) = reviewed_by_qwen(project);
+    summoned_with(project, |_| {})
+}
+
+// As `summoned`, `setup` having changed the project's settings before its
+// runner opens.
+pub(in crate::runner) fn summoned_with(
+    project: &str,
+    setup: impl FnOnce(&Rig),
+) -> (Rig, Mutex<Runner>, String) {
+    let (rig, runner, head) = reviewed_by_qwen_with(project, setup);
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {

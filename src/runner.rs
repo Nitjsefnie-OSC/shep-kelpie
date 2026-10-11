@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use crate::agents::{Agents, AgentsError};
 use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
+use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
@@ -54,6 +55,10 @@ mod gpu;
 #[cfg(test)]
 mod gpu_tests;
 mod guard_hooks;
+#[cfg(test)]
+mod handover_tests;
+#[cfg(test)]
+mod hooks_tests;
 mod in_flight;
 mod instructions;
 mod kept;
@@ -296,6 +301,9 @@ pub struct Runner {
     brief: briefing::BoardCache,
     // What the board withholds, as the forge does
     local: LocalPaths,
+    // The project's own hooks, which the forge port, the workers' guard and
+    // the handover run
+    hooks: Hooks,
     // The project manager's wakes and decisions, in memory only
     pm: pm::Desk,
     // Whether `drain` holds back every new call, in memory only, so a
@@ -350,14 +358,6 @@ impl Runner {
         let local = LocalPaths::new([home, paths.kelpie_home.as_path(), checkout]);
         let forge_hold = ForgeHold::default();
         let told = claim::Notes::default();
-        ports.voice = Arc::new(GuardedVoice::new(ports.voice, local.clone()));
-        let guarded = Arc::new(Guarded::new(ports.forge, local.clone()));
-        let clock = Arc::clone(&ports.clock);
-        let say: Say = {
-            let told = told.clone();
-            Box::new(move |line| told.push(line))
-        };
-        ports.forge = Arc::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
         let leases = Arc::clone(&ports.local_leases);
         ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
         let gpu = gpu::GpuWatch::start(
@@ -384,6 +384,18 @@ impl Runner {
         }
         let totp = replies::authenticator(webhook.as_ref(), &paths.totp)?;
         let remote = check_checkout(&settings)?;
+        // What the project's `publish` hooks judge is every text bound for the forge.
+        let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
+        let voice = GuardedVoice::new(ports.voice, local.clone()).with_hooks(hooks.clone());
+        ports.voice = Arc::new(voice);
+        let guarded = Guarded::new(ports.forge, local.clone()).with_hooks(hooks.clone());
+        let guarded = Arc::new(guarded);
+        let clock = Arc::clone(&ports.clock);
+        let say: Say = {
+            let told = told.clone();
+            Box::new(move |line| told.push(line))
+        };
+        ports.forge = Arc::new(RateHeld::new(guarded, clock, forge_hold.clone(), say));
         let voice = Arc::clone(&ports.voice);
         ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
@@ -452,6 +464,7 @@ impl Runner {
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),
             local,
+            hooks,
             pm: pm::Desk::default(),
             draining: false,
             finish: finishing::Finish::default(),
@@ -658,6 +671,9 @@ impl Runner {
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,
+            handed_over: None,
+            handover_refused: false,
+            pull_request_refused: None,
             context: None,
             merge_tried: None,
             merge_queued: None,

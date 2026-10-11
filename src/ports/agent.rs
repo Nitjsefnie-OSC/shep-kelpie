@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Timestamp;
 use crate::guard::IssueRules;
+use crate::hooks::Hooks;
 use crate::settings::{AgentHarness, Effort, GuardHook, Harness, LeaseName};
 
 /// Which role an agent call is made for
@@ -166,6 +167,9 @@ pub struct Guard {
     /// For the issue writer, what it may file. The guard then runs only the
     /// commands that file, label and link issues, and git's read-only ones.
     pub issues: Option<IssueRules>,
+    /// The project's own hooks, which the guard runs on a commit, a push and
+    /// the text of a `gh` command, whatever the harness
+    pub hooks: Hooks,
 }
 
 /// One session call to an agent
@@ -199,6 +203,10 @@ pub struct AgentCall {
     pub plugin_dirs: Vec<PathBuf>,
     /// The kinds of tool it may use
     pub tools: Tools,
+    /// The tools its agent file names, as `claude --tools` takes them, in
+    /// place of what a worker's or a reviewer's own kind starts with. A
+    /// retro, the project manager and the issue writer keep their own.
+    pub agent_tools: Option<String>,
     /// The lease the call holds from start to end, for a local agent
     pub lease: Option<LeaseName>,
     /// What it may reach

@@ -24,6 +24,7 @@ mod agents;
 mod ci;
 mod gateway;
 mod git;
+mod hooks;
 mod local;
 mod removed;
 mod reviewers;
@@ -36,6 +37,7 @@ pub use agents::{
 pub use ci::{Ci, Concurrency, FixAttempts};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
+pub use hooks::{HookPoint, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
 pub use skills::{SkillChoice, SkillName, StepSkills};
@@ -63,6 +65,11 @@ pub struct Settings {
     pub pacing: Pacing,
     /// What every worker is started with
     pub worker: Worker,
+    /// The project's own hooks, which kelpie runs at its own points for
+    /// every harness and role. Each must resolve when the runner starts.
+    /// Empty when absent.
+    #[serde(default)]
+    pub hooks: Vec<ProjectHook>,
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
@@ -289,8 +296,8 @@ const REMOVED: &[Removed] = &[
     Removed {
         key: "private_names",
         because: "kelpie no longer checks text for the project's own words",
-        fix: "guard a worker's commits and posts with a hook in `worker.guard_hooks`, \
-              and delete it",
+        fix: "check text for the project's own words with a hook in `hooks`, which \
+              kelpie runs for every harness and role, and delete it",
     },
     Removed {
         key: "skills.ci",
@@ -314,6 +321,11 @@ pub struct RoleModel {
     #[serde(skip)]
     #[schemars(skip)]
     pub harness: AgentHarness,
+    /// The tools its agent file names for a Claude Code session, as
+    /// `claude --tools` takes them, in place of the role's own
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub tools: Option<NonBlank>,
 }
 
 /// A Claude effort level
@@ -390,9 +402,10 @@ pub struct Worker {
     /// None when absent.
     #[serde(default)]
     pub instructions_file: Option<PathBuf>,
-    /// The project's own hooks, copied into each worker's settings file
-    /// after kelpie's guard. Each must resolve when the runner starts.
-    /// Empty when absent.
+    /// The project's own Claude Code hooks, copied into each worker's
+    /// settings file after kelpie's guard. Only a worker on Claude Code runs
+    /// them; `hooks` runs for every harness and role. Each must resolve when
+    /// the runner starts. Empty when absent.
     #[serde(default)]
     pub guard_hooks: Vec<GuardHook>,
     /// Minutes a worker's turn may run before kelpie stops it and parks it

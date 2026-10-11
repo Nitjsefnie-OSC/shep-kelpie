@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::fence;
 use crate::github::InstallationToken;
+use crate::hooks::Hooks;
 use crate::lease::door;
 use crate::ports::{Fence, Guard, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
@@ -242,6 +243,7 @@ impl WorkerProfile<'_> {
                 git_common_dir: self.git_common_dir.to_owned(),
                 folders: vec![self.kelpie_home.to_owned(), self.repo.to_owned()],
                 issues: None,
+                hooks: Hooks::default(),
             },
             hooks: self.guard_hooks.to_vec(),
         };
@@ -663,10 +665,10 @@ mod tests {
             "disableWorkflows",
             "disableClaudeAiConnectors",
             "disableArtifact",
+            "disableRemoteControl",
         ] {
             assert_eq!(s[key], true, "{key}");
         }
-        assert!(s.get("disableRemoteControl").is_none());
         let deny = strings(&s["permissions"]["deny"]).join(" ");
         for tool in [
             "EnterPlanMode",

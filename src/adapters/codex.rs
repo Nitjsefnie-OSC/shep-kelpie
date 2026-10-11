@@ -309,7 +309,7 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
         .is_some_and(|f| !f.hooks.is_empty())
     {
         return Err(AgentError::Setup(
-            "kelpie does not run `worker.guard_hooks` on codex: remove them or put \
+            "kelpie does not run `worker.guard_hooks` on codex: remove them, move the check to `hooks`, or put \
              the worker on Claude Code"
                 .into(),
         ));
@@ -579,6 +579,7 @@ fn hooks(fence: &Fence) -> toml::Value {
             .iter()
             .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display()))),
     )
+    .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
     .collect();
     toml::Value::Array(vec![
         hook_entry("^apply_patch$", confine),

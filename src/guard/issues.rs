@@ -20,6 +20,7 @@ use super::shell::{self, Command};
 use super::wrap::FUNCTION;
 use super::{Home, MAX_COMMANDS};
 use crate::confine::Verdict;
+use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use gh::Gh;
 use ledger::Ledger;
@@ -111,6 +112,18 @@ pub fn judge_issues(
     local: LocalPaths,
     rules: &IssueRules,
 ) -> Verdict {
+    judge_issues_with(input, home, local, &Hooks::default(), rules)
+}
+
+/// Judges the issue writer's tool call in `input` as [`judge_issues`] does,
+/// and also by the project's `publish` `hooks`, run on each issue it files
+pub fn judge_issues_with(
+    input: impl Read,
+    home: Option<&Path>,
+    local: LocalPaths,
+    hooks: &Hooks,
+    rules: &IssueRules,
+) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
         tool_name: String,
@@ -153,7 +166,7 @@ pub fn judge_issues(
              <<'EOF' ...)\"`."
         ));
     }
-    let home = Home::new(home, local);
+    let home = Home::new(home, local).with_hooks(hooks.clone());
     let ledger = Ledger::read(rules.ledger.as_deref());
     let mut refusals: Vec<String> = Vec::new();
     for command in &commands {

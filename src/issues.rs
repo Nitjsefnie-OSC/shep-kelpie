@@ -30,6 +30,7 @@ use crate::adapters::{SystemClock, claude_settings, claude_write_only};
 use crate::agents::{Agents, Role, Runs};
 use crate::board::{AGENT_LABEL, READY, agent_label};
 use crate::guard::{IssueRules, filed_in};
+use crate::hooks::Hooks;
 use crate::ports::Clock;
 use crate::ports::{
     self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
@@ -257,6 +258,12 @@ fn reach(
             git_common_dir: PathBuf::from(common),
             folders: vec![paths.kelpie_home.clone(), settings.git.checkout.clone()],
             issues: Some(rules),
+            hooks: Hooks::new(
+                &paths.name(),
+                project.remote.as_str(),
+                &settings.git.checkout,
+                &settings.hooks,
+            ),
         },
         hooks: Vec::new(),
     };
@@ -396,6 +403,7 @@ fn call(
         prompt: format!("The maintainer's request:\n\n{}", request.trim()),
         plugin_dirs: Vec::new(),
         tools: Tools::Issues,
+        agent_tools: None,
         reach,
         lease: None,
     })
@@ -525,7 +533,8 @@ impl Interactive {
     ///
     /// # Errors
     ///
-    /// A message naming what failed, which [`Docs::land`] details.
+    /// A message naming what failed: a file besides the glossary and decision records, a
+    /// push or pull request that did not go through, or a link that did not.
     pub fn end(&self, project: &Project<'_>, forge: &dyn Forge) -> Result<Vec<String>, String> {
         let filed = filed_in(&self.ledger);
         for file in &self.files {

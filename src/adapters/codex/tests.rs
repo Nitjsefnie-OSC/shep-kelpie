@@ -122,6 +122,31 @@ fn a_new_worker_session_loads_nothing_of_the_maintainers_and_runs_kelpies_checks
     assert_eq!(&argv[argv.len() - 2..], ["--", "implement #7"]);
 }
 
+// The project's hooks are not Claude Code's, so Codex gets them as `kelpie
+// guard` runs them.
+#[test]
+fn the_projects_hooks_reach_a_codex_workers_guard() {
+    let w = World::new();
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let hook = crate::settings::ProjectHook {
+        point: crate::settings::HookPoint::Commit,
+        command: "check-words".to_owned().try_into().unwrap(),
+    };
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &[hook]);
+    let flag = hooks.flag().unwrap();
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+
+    let argv = strings(&call, None, None);
+
+    let hooks = argv
+        .iter()
+        .find_map(|a| a.strip_prefix("hooks.PreToolUse="))
+        .unwrap();
+    let hooks: toml::Value = toml::from_str(&format!("h = {hooks}")).unwrap();
+    let guard = hooks["h"][1]["hooks"][0]["command"].as_str().unwrap();
+    assert!(guard.contains(&format!("'{flag}'")), "{guard}");
+}
+
 #[test]
 fn a_resumed_session_names_codexs_own_id_after_the_options() {
     let w = World::new();
@@ -618,6 +643,7 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Answer,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
         }
@@ -656,6 +682,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
     AgentCall {
         role: Role::Worker,
         tools: Tools::Work,
+        agent_tools: None,
         reach: profile.reach(),
         ..call
     }

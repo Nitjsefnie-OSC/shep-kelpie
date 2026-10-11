@@ -63,6 +63,7 @@ use std::process::ExitCode;
 
 use shep_kelpie::confine::{APPEND, Verdict, judge, judge_append};
 use shep_kelpie::guard::{self, Checkout};
+use shep_kelpie::hooks::Hooks;
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -84,7 +85,12 @@ fn main() -> ExitCode {
             let (record, local) = guard::record_flag(&local);
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
-            let paths = match guard::local_paths(home.as_deref(), &local) {
+            // `local` keeps the hooks' flag, which a pinned command judges with again.
+            let (hooks, folders) = match Hooks::take(&local) {
+                Ok(taken) => taken,
+                Err(why) => return hook(Verdict::Refuse(why)),
+            };
+            let paths = match guard::local_paths(home.as_deref(), &folders) {
                 Ok(paths) => paths,
                 Err(why) => return hook(Verdict::Refuse(why)),
             };
@@ -99,10 +105,11 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             if let Some(rules) = issues {
-                return hook(guard::judge_issues(
+                return hook(guard::judge_issues_with(
                     &input[..],
                     home.as_deref(),
                     paths,
+                    &hooks,
                     &rules,
                 ));
             }
@@ -128,7 +135,7 @@ fn main() -> ExitCode {
                     .chain([guard::HERE_FLAG.to_owned()])
                     .collect())
             };
-            match guard::judge(&input[..], home.as_deref(), paths, checkout) {
+            match guard::judge_with(&input[..], home.as_deref(), paths, &hooks, checkout) {
                 Verdict::Allow if pin => match again()
                     .and_then(|again| guard::pinned(&input, Path::new(worktree), &again))
                 {

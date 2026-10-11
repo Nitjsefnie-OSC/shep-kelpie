@@ -23,6 +23,7 @@ pub mod forwarder;
 pub mod github;
 pub mod guard;
 pub mod home;
+pub mod hooks;
 pub mod issues;
 pub mod lease;
 pub mod local_paths;
