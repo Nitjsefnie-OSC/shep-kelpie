@@ -75,6 +75,30 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
 }
 
 #[test]
+fn a_turn_logs_its_work_item_role_agent_and_session_as_its_call_starts() {
+    let (rig, runner) = with_issue_7("shep");
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+    step(&runner).unwrap();
+
+    let [seen] = rig.claude.seen().try_into().unwrap();
+    let started = runner.lock().unwrap().take_started();
+    assert_eq!(started.len(), 1, "{started:?}");
+    assert_eq!(
+        serde_json::to_value(&started[0]).unwrap(),
+        json!({
+            "step": "session-started",
+            "issue": 7,
+            "role": "worker",
+            "agent": "sonnet-high",
+            "harness": "claude-code",
+            "session": seen.call.session.id().0,
+            "transcript": {"folder": seen.call.settings.with_extension("transcripts")},
+        })
+    );
+}
+
+#[test]
 fn the_branch_is_cut_from_the_latest_origin_main() {
     let rig = Rig::new("reactmap");
     let landed = rig.land_on_origin("landed.txt");

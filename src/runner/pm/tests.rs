@@ -147,6 +147,36 @@ fn it_reads_its_folder_appends_to_its_notes_and_runs_nothing() {
 }
 
 #[test]
+fn a_wake_logs_its_session_and_where_its_transcript_is_as_its_call_starts() {
+    let (rig, runner) = with_pm("koji");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    rig.claude.script([Scripted::Say(PICK_12)]);
+    step(&runner).unwrap();
+
+    let [wake] = pm_seen(&rig).try_into().unwrap();
+    let started = runner.lock().unwrap().take_started();
+    let session = wake.call.session.id().0.clone();
+    let folder = wake.call.settings.with_extension("transcripts");
+    assert_eq!(started.len(), 1, "{started:?}");
+    assert_eq!(
+        serde_json::to_value(&started[0]).unwrap(),
+        json!({
+            "step": "session-started",
+            "role": "pm",
+            "agent": "pm",
+            "harness": "claude-code",
+            "session": session,
+            "transcript": {"folder": folder},
+        })
+    );
+    assert!(
+        runner.lock().unwrap().take_started().is_empty(),
+        "each start is logged once"
+    );
+}
+
+#[test]
 fn an_answer_naming_what_is_not_on_the_board_is_dropped_and_the_rule_picks() {
     let (rig, runner) = with_pm("rotom");
     rig.forge.list_ready(9, false);

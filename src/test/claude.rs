@@ -239,6 +239,14 @@ impl Agents for FakeClaude {
         Ok(command)
     }
 
+    // Beside the settings file, where a test can read what it would watch.
+    fn transcript(&self, call: &AgentCall) -> Option<crate::ports::Transcript> {
+        Some(crate::ports::Transcript {
+            folder: call.settings.with_extension("transcripts"),
+            threads: None,
+        })
+    }
+
     fn last_active(&self, _call: &AgentCall) -> CallActivity {
         self.active
             .lock()

@@ -12,7 +12,7 @@ use super::process::{Processes, RunError};
 use super::srt::SandboxRuntime;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox, Session,
-    SessionId, Unreadable, Usage, written_at,
+    SessionId, Transcript, Unreadable, Usage, written_at,
 };
 use crate::settings::Harness;
 use crate::tools::Tools;
@@ -222,6 +222,14 @@ impl Agents for ClaudeCli {
             RunError::TimedOut => AgentError::TimedOut(CLAUDE),
         })?;
         parse_result(&output, &call.session)
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let folder = sandbox::transcripts(&self.home, &call.cwd).ok()?;
+        Some(Transcript {
+            folder,
+            threads: None,
+        })
     }
 
     // Claude Code appends to the session's transcript at each message and
@@ -468,6 +476,23 @@ mod tests {
             crate::ports::written_at(&transcript)
         );
         assert!(matches!(claude.last_active(&call), CallActivity::At(_)));
+    }
+
+    #[test]
+    fn a_calls_transcript_is_in_the_folder_claude_code_names_for_its_working_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let claude = ClaudeCli::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone());
+        let mut call = call(Role::Worker, fresh());
+        call.cwd = dir.path().join("wt");
+        std::fs::create_dir_all(&call.cwd).unwrap();
+        assert_eq!(
+            claude.transcript(&call),
+            Some(crate::ports::Transcript {
+                folder: sandbox::transcripts(&home, &call.cwd).unwrap(),
+                threads: None,
+            })
+        );
     }
 
     // Recorded from Claude Code 2.1.283 on Haiku: a call asked to say ok.

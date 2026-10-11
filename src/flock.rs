@@ -14,6 +14,7 @@ mod pm;
 pub mod rule;
 mod usage;
 mod verbs;
+mod watch;
 
 pub use verbs::{USAGE, VERBS, main, split_project, verb_first};
 

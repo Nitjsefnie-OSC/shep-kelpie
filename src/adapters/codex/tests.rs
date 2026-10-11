@@ -400,6 +400,20 @@ fn every_call_runs_on_a_codex_home_of_its_own_with_the_login_linked_in() {
 }
 
 #[test]
+fn a_calls_transcript_is_in_its_codex_home_with_the_threads_kelpie_keeps_beside_it() {
+    let w = World::new();
+    let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    let codex = stand_in(&w, FRESH);
+    assert_eq!(
+        codex.transcript(&call),
+        Some(crate::ports::Transcript {
+            folder: w.path("worker/settings.codex/sessions"),
+            threads: Some(w.path("worker/settings.threads")),
+        })
+    );
+}
+
+#[test]
 fn codexs_databases_and_logs_go_in_folders_the_call_may_write() {
     let w = World::new();
     let call = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));

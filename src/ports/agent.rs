@@ -304,6 +304,13 @@ pub trait Agents: Send + Sync {
     /// [`AgentError::TimedOut`] when `ending` ended it.
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError>;
 
+    /// Where `call`'s session writes its transcript, for `shep kelpie watch`
+    /// to follow, or `None` for a harness that keeps none kelpie can read
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let _ = call;
+        None
+    }
+
     /// When `call`, in flight, last showed something: a tool call or a line
     /// of output, as its transcript or its output file was last written
     fn last_active(&self, call: &AgentCall) -> CallActivity {
@@ -324,6 +331,18 @@ pub trait Agents: Send + Sync {
             call.harness.harness().command()
         )))
     }
+}
+
+/// Where a harness writes a session's transcript
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Transcript {
+    /// The folder the harness writes its transcripts in, which the session's
+    /// own file is found in once it is written
+    pub folder: PathBuf,
+    /// For a harness that names its own sessions, the folder where kelpie
+    /// keeps which of them each of its session ids is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threads: Option<PathBuf>,
 }
 
 /// What a harness can say of a call's activity

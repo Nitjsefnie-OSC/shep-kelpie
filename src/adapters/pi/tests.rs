@@ -387,6 +387,19 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
 }
 
 #[test]
+fn a_calls_transcript_is_in_pis_sessions_folder() {
+    let w = World::new();
+    let call = w.call(URL, Role::Reviewer, Session::New(id(WORKER_ID)));
+    assert_eq!(
+        stand_in(&w, "").transcript(&call),
+        Some(crate::ports::Transcript {
+            folder: w.path("worker/settings.pi/sessions"),
+            threads: None,
+        })
+    );
+}
+
+#[test]
 fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));

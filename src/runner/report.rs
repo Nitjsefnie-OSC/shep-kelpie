@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::board::Skip;
 use crate::pacer::HoldKind;
-use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Usage};
+use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Transcript, Usage};
 use crate::settings::{AgentName, LocalRound};
 use crate::work_item::{QwenTally, Spend, Split};
 
@@ -635,6 +635,25 @@ pub enum StepReport {
     PmCompacted {
         /// Its session
         session: SessionId,
+    },
+    /// A call started in a session, before it ends: what `shep kelpie watch`
+    /// reads to tell whose a transcript is and where to find it
+    SessionStarted {
+        /// The work item's issue, or none for the project manager
+        #[serde(skip_serializing_if = "Option::is_none")]
+        issue: Option<u64>,
+        /// The role the call is made for
+        role: Role,
+        /// The agent it runs on
+        agent: String,
+        /// The harness it runs on, as settings name it
+        harness: &'static str,
+        /// The session it runs in, new or resumed
+        session: SessionId,
+        /// Where the harness writes the session's transcript, if kelpie can
+        /// read it
+        #[serde(skip_serializing_if = "Option::is_none")]
+        transcript: Option<Transcript>,
     },
 }
 

@@ -31,7 +31,7 @@ use crate::fence;
 use crate::guard::{FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy, Sandbox,
-    Session, SessionId, Tools, Usage, written_at,
+    Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::profile::CREDENTIALS;
 use crate::settings::{AgentHarness, Harness};
@@ -214,6 +214,14 @@ impl Agents for CodexCli {
             usage: turn.spent.since(before),
             session_cost: None,
             context: None,
+        })
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let files = Files::of(call);
+        Some(Transcript {
+            folder: files.home.join("sessions"),
+            threads: Some(files.threads),
         })
     }
 

@@ -439,10 +439,19 @@ fn work(
     stopping: &AtomicBool,
 ) {
     while !stopping.load(Ordering::SeqCst) {
-        let (notes, stop) = {
+        let (notes, started, stop) = {
             let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
-            (runner.take_notes(), runner.take_stop())
+            (
+                runner.take_notes(),
+                runner.take_started(),
+                runner.take_stop(),
+            )
         };
+        // Logged as soon as the call starts, for `shep kelpie watch`.
+        for report in started {
+            let line = serde_json::to_string(&report).expect("a report serializes to JSON");
+            println!("{line}");
+        }
         for note in notes {
             eprintln!("{note}");
         }

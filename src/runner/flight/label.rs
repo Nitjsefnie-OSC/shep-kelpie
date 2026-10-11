@@ -92,6 +92,7 @@ impl Runner {
         draft.issue = Some(issue.number);
         let key = Some(issue.number);
         self.flights.ledger.open(key, draft, self.pacer_lines());
+        self.call_started(&call, name.as_str());
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();

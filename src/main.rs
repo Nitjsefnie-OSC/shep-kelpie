@@ -10,6 +10,10 @@
 //! whose repo holds the folder it runs in. `usage` with no project reports
 //! every project that has a usage ledger instead.
 //!
+//! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: the runner's
+//! log and the transcripts of the sessions it names, followed live. Run as
+//! `shep kelpie watch`.
+//!
 //! `shep kelpie doctor [<project>] [--test-alert]`: checks what the projects need
 //! on this machine, and changes nothing. Run as `shep kelpie doctor`.
 //!
