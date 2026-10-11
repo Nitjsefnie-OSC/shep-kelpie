@@ -23,6 +23,22 @@ mod vendored;
 
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
 
+/// The skill `shep kelpie issue --interactive` starts with: it runs
+/// `grilling` with `domain-modeling`
+pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
+
+/// Writes kelpie's copy of mattpocock/skills into `dir` as a plugin, for a
+/// session the maintainer runs rather than a runner, and returns `skill`'s
+/// slash command in it
+///
+/// # Errors
+///
+/// The first file or folder that could not be removed or written.
+pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
+    vendored::write(dir)?;
+    Ok(format!("/{PLUGIN}:{skill}"))
+}
+
 /// A step kelpie drives an agent through
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]

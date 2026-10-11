@@ -35,8 +35,8 @@ mod wrap;
 
 pub use after::{AFTER_FLAG, after_flag, judge_after};
 pub use issues::{
-    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, issue_rules, judge_issues,
-    judge_issues_with, record_issues,
+    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
+    judge_issues, judge_issues_with, record_issues,
 };
 
 use std::fs;
