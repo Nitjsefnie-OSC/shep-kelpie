@@ -60,7 +60,13 @@ pub(super) struct Desk {
     queue: VecDeque<u64>,
     // Whether experts started since the loop last asked
     launched: bool,
+    // How the last rulings were asked once they left `open`, for the votes
+    // of a project manager wake that outlasts its ruling
+    closed: BTreeMap<u64, Plan>,
 }
+
+// How many closed rulings' plans are kept.
+const CLOSED_KEPT: usize = 32;
 
 // One ruling's vote so far.
 #[derive(Debug)]
@@ -126,9 +132,18 @@ impl Desk {
         Some(id)
     }
 
-    // How ruling `id`'s panel is being asked.
+    // How ruling `id`'s panel is being asked, or was when it closed.
     pub(super) fn plan(&self, id: u64) -> Option<Plan> {
-        self.open.get(&id).map(|o| o.plan.clone())
+        let open = self.open.get(&id).map(|o| &o.plan);
+        open.or_else(|| self.closed.get(&id)).cloned()
+    }
+
+    // Keeps how ruling `id` was asked, now that its panel is done.
+    fn retire(&mut self, id: u64, plan: Plan) {
+        self.closed.insert(id, plan);
+        while self.closed.len() > CLOSED_KEPT {
+            self.closed.pop_first();
+        }
     }
 
     // Who is still to vote on ruling `id`.
@@ -219,7 +234,15 @@ impl Runner {
         if (self.flights.panel_ruling()).is_some_and(|id| !pending.contains(&id)) {
             self.panel_end_flight();
         }
-        self.panel.open.retain(|id, _| pending.contains(id));
+        let gone: Vec<u64> = (self.panel.open.keys())
+            .copied()
+            .filter(|id| !pending.contains(id))
+            .collect();
+        for id in gone {
+            if let Some(open) = self.panel.open.remove(&id) {
+                self.panel.retire(id, open.plan);
+            }
+        }
         self.panel.queue.retain(|id| pending.contains(id));
     }
 
@@ -411,6 +434,7 @@ impl Runner {
                     return;
                 };
                 self.panel_conclude(id, &open.plan, ballots);
+                self.panel.retire(id, open.plan);
                 return;
             };
             // Asked again, a stage up: its hold runs from when its turn comes.

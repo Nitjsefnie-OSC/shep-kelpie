@@ -69,3 +69,21 @@ fn a_decision_whose_work_item_has_finished_cannot_be_reopened() {
     assert!(said.contains("Ruling 1 was not reopened"), "{said}");
     assert!(said.contains("finished"), "{said}");
 }
+
+#[test]
+fn a_no_that_names_no_ruling_says_how_to_reopen_it() {
+    let (rig, runner) = ruling("unnamed", "feat: add it", Merging::Auto, PANEL);
+    rig.forge.threads.grant_write("octocat");
+    script(&rig, ["A", "A", "A", "A"]);
+    voted(&rig, &runner);
+    rig.clock.advance(5);
+
+    rig.writes_on(71, "octocat", "no add a test");
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let said = super::comments(&rig).pop().expect("kelpie replied");
+    assert!(said.contains("Ruling 1 was not reopened"), "{said}");
+    assert!(said.contains("`1 no <note>`"), "{said}");
+    assert!(rig.github.reactions().is_empty(), "nothing was taken");
+}

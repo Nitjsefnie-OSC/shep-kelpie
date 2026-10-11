@@ -114,6 +114,8 @@ enum Aimed {
     Elsewhere(u64, u64),
     /// Several rulings wait on the thread and the reply names none
     Unnamed(Vec<u64>),
+    /// A `no` that names no ruling, on the comment of one the panel decided
+    Undecided(u64),
     /// Nothing to answer
     Nothing,
 }
@@ -403,7 +405,10 @@ impl Runner {
             },
             None => match waiting.as_slice() {
                 [id] => Aimed::At(*id, false),
-                [] => Aimed::Nothing,
+                [] => match self.undecided(aimed, words) {
+                    Some(id) => Aimed::Undecided(id),
+                    None => Aimed::Nothing,
+                },
                 several => Aimed::Unnamed(several.to_vec()),
             },
         };
@@ -417,6 +422,13 @@ impl Runner {
                 let told =
                     (self.threads.told.get(&id)).map_or("is already answered", String::as_str);
                 let said = format!("@{who} Ruling {id} {told}.");
+                self.say(thread, &said);
+            }
+            Aimed::Undecided(id) => {
+                let said = format!(
+                    "@{who} Ruling {id} was not reopened: start your reply with its id, as \
+                     `{id} no <note>`."
+                );
                 self.say(thread, &said);
             }
             Aimed::Elsewhere(id, there) => {
@@ -434,6 +446,15 @@ impl Runner {
                 self.say(thread, &said);
             }
         }
+    }
+
+    // The ruling the panel decided that `words`, a `no` naming none, reply to.
+    fn undecided(&self, aimed: &[u64], words: &str) -> Option<u64> {
+        let first = words.split_whitespace().next()?;
+        if !first.eq_ignore_ascii_case("no") {
+            return None;
+        }
+        (aimed.iter().copied()).find(|id| self.threads.decided.contains_key(id))
     }
 
     // Answers ruling `id` with `words`, reacting if it took, or says why not.
@@ -512,9 +533,14 @@ impl Runner {
             return false;
         };
         let (who, thread) = (&comment.author, comment.thread);
-        let answer = read_answer(Wants::of(&ruling.kind), words);
+        // A worker's question takes text, so its `no <note>` sends the note.
+        let answer = match Wants::of(&ruling.kind) {
+            Wants::Answer => (no_note(words).map(Answer::Text))
+                .ok_or_else(|| "only a `no <note>` reopens it".to_owned()),
+            wants => read_answer(wants, words),
+        };
         let reopened = match answer {
-            Ok(answer @ (Answer::No(_) | Answer::Rework(_))) => {
+            Ok(answer @ (Answer::No(_) | Answer::Rework(_) | Answer::Text(_))) => {
                 self.reopen(ruling, answer).map_err(|e| e.to_string())
             }
             Ok(_) => Err("only a `no <note>` reopens it".to_owned()),
@@ -575,6 +601,13 @@ impl Runner {
             self.notes.push(format!("cannot reply on #{thread}: {e}"));
         }
     }
+}
+
+// The note of a `no <note>`, if `words` are one.
+fn no_note(words: &str) -> Option<String> {
+    let (first, note) = words.trim().split_once(char::is_whitespace)?;
+    let note = note.trim();
+    (first.eq_ignore_ascii_case("no") && !note.is_empty()).then(|| note.to_owned())
 }
 
 impl Reading {

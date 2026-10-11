@@ -535,3 +535,15 @@ fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only
     assert_eq!(rig.forge.threads.reads().len(), 0);
     assert!(rig.github.reactions().is_empty());
 }
+
+#[test]
+fn a_no_note_is_read_in_any_case_and_a_bare_no_is_none() {
+    assert_eq!(
+        super::no_note(" No use B instead "),
+        Some("use B instead".into())
+    );
+    assert_eq!(super::no_note("no"), None);
+    assert_eq!(super::no_note("no   "), None);
+    assert_eq!(super::no_note("nope, use B"), None);
+    assert_eq!(super::no_note("yes"), None);
+}
