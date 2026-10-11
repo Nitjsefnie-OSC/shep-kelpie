@@ -711,7 +711,62 @@ Each vote is one JSON object, `{"choice": "<option key>", "why": "<at most 350 c
 - **Advisor** (B): The hook skips a refused write, and no test covers it.
 ```
 
-The votes are kept with the ruling and nothing decides by them yet: every ruling still reaches you.
+The votes are kept with the ruling, and what they decide is below.
+
+#### Deciding
+
+Three experts on one option decide it, unless one flagged `design`. Anything less is a split, and you are the tie-breaker. You get a split, a merge on a project under `git.merging = "ask"` and any `design` flag, each with every vote, and the last two with the panel's recommendation:
+
+```markdown
+**Recommendation: A** (3 of 4)
+```
+
+Everything else is applied at once and posted on the ruling's thread headed `Decided by the panel`, with the votes beneath. A reply there of `<id> no <note>` reopens it: the ruling comes back for its work item and your note is the answer, so the worker takes it as it takes any `no`. It needs the work item to be open and its worker not running, and says why when it is not; a decision is watched for 24 hours.
+
+`rulings.decide` sets whether the panel decides:
+
+```toml
+[app.dogs.kelpie.rulings]
+decide = "shadow"
+```
+
+- `shadow`, when absent: the panel votes and posts on every ruling and you still answer. Every expert votes on every ruling under it. `status` reports a `panel` with the project's current run of rulings where the panel's recommendation was your answer (`streak`). A ruling the panel had no recommendation for, a split, leaves the run as it is, and an answer that differs, or is no option, ends it. Switch to `panel` when the run is long enough.
+- `panel`: the panel decides as above.
+
+Only your own answers count: the project manager's and the panel's are left out of the run.
+
+#### Who votes
+
+Not every ruling needs four votes. The work item's type, from its pull request's conventional title, sets the panel under `panel`:
+
+| Type | Asked |
+|---|---|
+| `docs` | the project manager |
+| `fix`, `refactor`, `perf`, `test`, `ci`, `chore`, `style` | the project manager and the advisor |
+| `feat`, a type marked breaking with `!`, or no type | the project manager, the advisor and the researcher, with the worker: all four |
+
+A smaller panel decides only when everyone it asked picks the same option and nobody flags `design`. Otherwise kelpie asks the next panel up, and the full panel decides on three votes of four. A vote the experts of the smaller panel already gave is not asked again. A merge under `git.merging = "ask"` goes to you whatever the panel says. A pull request whose title cannot be read is all four's.
+
+`rulings.pm_alone` lists kinds of ruling the project manager decides with its own vote on any type of work, for the kinds whose answer turns on facts it reads from the board. It is empty when absent:
+
+```toml
+[app.dogs.kelpie.rulings]
+decide = "panel"
+pm_alone = ["turn-timeout", "still-red"]
+```
+
+The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `merge-refused`, `closed`, `local-model-spilled`, `fix-not-pushed`, `unpushed`, `turn-timeout`, `turn-failed` and `unlabelled`. `merge` is refused: the runner does not start, naming `rulings.pm_alone`, and a change that adds it while the runner runs is refused too, keeping the settings it has. A `design` flag from the project manager, or an abstention, calls the panel the item's type sets. Under `shadow` every expert still votes, and `status` reports, for each kind of ruling, the run of rulings where the project manager's vote was your answer (`pm_alone`), the way to see which kinds to list. A vote that flagged `design` or abstained leaves a kind's run as it is.
+
+An expert's agent can be off the panel: an advisor or researcher the project does not name is never asked, and counts as an abstention, so a project without a researcher decides a `feat` on three of three.
+
+#### Measuring
+
+The panel costs up to four agent calls on every ruling, one of them Opus at high effort, so each expert has to show it is worth its cost.
+
+- Every vote is a line in the usage ledger (`usage.jsonl`) with `votes`: the ruling's id and kind, the expert, the panel the item's type set (`pm`, `pm+advisor` or `all`), the type, and its choice, left out for an abstention. The line holds the call's tokens, cost and wall time as any call's does. The project manager's wake is counted the same way: its line has a vote for each ruling it voted on, and shares its cost between them.
+- `shep kelpie usage` splits the panel's votes by expert, by kind of ruling and by type: calls, cost, median wall time, abstentions, and the cost per ruling. A wake that also served another reason counts in full.
+- `status` reports, as `panel`, each expert's votes, abstentions, `agreed` (votes that were your answer) and `lone` (times it alone was right, such as the one vote for a `no` you then gave), and what each smaller panel, asked alone, would have decided against your answers (`panels`: how many, and how many as you answered). It comes from `rulings.jsonl`, which holds the rulings answered from this build on. An expert that is never the only one right adds cost and no decisions.
+- After a project's first 30 panel rulings (`facts_due` in `status`) the design log gets a Facts entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, and what each smaller panel would have decided against your answers. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, or list more kinds under `rulings.pm_alone`.
 
 ## Upgrading
 
@@ -808,6 +863,7 @@ A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in t
 - `git.issues`: what becomes of deferred findings, `ask`, `file` or `skip` (see [The review](#the-review)). `ask` when left out
 - `ci.block`: whether the repo runs CI that a merge waits for, and `ci.fix_attempts`: how many fix turns red runs get, `-1` for no cap (see [CI and the merge](#ci-and-the-merge))
 - `concurrency.active_items` and `concurrency.pending_rulings`: how many work items hold a slot, and how many parked on rulings stop the board opening new ones, which is not a cap on rulings (see [The board](#the-board))
+- `rulings.decide` and `rulings.pm_alone`: see [Deciding](#deciding) and [Who votes](#who-votes)
 - `agents.implementers`, `agents.reviewers`, `agents.pm` and `agents.fallback_after`: see [Agents](#agents). `agents.advisor`, `agents.researcher`, `researcher.transcripts` and `researcher.allowed_domains`: see [The panel](#the-panel). `agents.issue_writer`: see [Writing issues](#writing-issues)
 - `pacing.enabled` and `pacing.kickoff_hours`: whether usage holds work, and the hours a day the per-hour figure in `status` divides the day's allowance by
 - `worker.allowed_domains`, `worker.build_env` (variables that point tool caches into the build folder), `worker.instructions_file`, `worker.guard_hooks` (Claude Code hooks of the project's own, after kelpie's guard), `worker.turn_timeout` and `worker.compact_window` (the tokens of context at which Claude Code compacts a worker's session in the middle of a turn, 200000 by default, where it would otherwise wait for the model's whole window; `0` leaves it out. After a compaction the worker is handed the turn's prompt again. Reviewers and the project manager are not bounded)
