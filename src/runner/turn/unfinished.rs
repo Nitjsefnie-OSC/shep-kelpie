@@ -165,7 +165,7 @@ impl Runner {
             return self.begin_item(false);
         }
         // A pull request file a project's hook refused is the worker's to fix.
-        let refused = (self.file_refused.borrow_mut()).remove(&item.branch);
+        let refused = item.pull_request_refused.take();
         let (prompt, why) = match (pushed_nothing, refused) {
             (true, _) => (PUSHED_NOTHING.to_owned(), PUSHED_NOTHING_TWICE.to_owned()),
             (false, Some(refusal)) => (

@@ -97,6 +97,29 @@ fn a_slow_hook_is_stopped_and_refuses_as_one_that_failed() {
     assert!(started.elapsed() < Duration::from_secs(10));
 }
 
+// A guard process spends a budget on all its hooks, so Claude Code's timeout
+// on the guard never lets a call through unchecked.
+#[test]
+fn hooks_that_outrun_the_guards_budget_are_stopped_and_the_rest_refuse() {
+    let hooks = hooks(&[
+        hook(HookPoint::Commit, "sleep 30"),
+        hook(HookPoint::Commit, "exit 0"),
+    ])
+    .with_budget(Duration::from_millis(200));
+    let started = Instant::now();
+
+    let first = hooks.check(HookPoint::Commit, Role::Worker, None, json!({}));
+
+    let refusal = first.unwrap_err();
+    assert!(refusal.failed);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    // The budget is spent, so the next check refuses without running anything.
+    let again = hooks.check(HookPoint::Commit, Role::Worker, None, json!({}));
+    let refusal = again.unwrap_err();
+    assert!(refusal.failed);
+    assert!(refusal.reason.contains("ran out"), "{refusal}");
+}
+
 #[test]
 fn a_hook_reads_the_point_the_project_the_role_and_the_text() {
     let folder = tempfile::tempdir().unwrap();

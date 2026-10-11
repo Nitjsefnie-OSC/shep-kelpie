@@ -53,7 +53,15 @@ impl Runner {
     ///
     /// None when there is no file, or when the forge refused, which is told
     /// in the log: the turn is then judged as one that opened no pull request.
-    pub(super) fn open_handed_over(&self, build: &Path, branch: &str) -> Option<u64> {
+    ///
+    /// A project's hook that refused the file is told in `refused`, which the
+    /// worker can act on; an opened one clears it.
+    pub(super) fn open_handed_over(
+        &self,
+        build: &Path,
+        branch: &str,
+        refused: &mut Option<String>,
+    ) -> Option<u64> {
         let file = self.read_handed_over(build)?;
         let text = parse(&file).or_else(|| {
             self.notes.push(format!(
@@ -71,12 +79,13 @@ impl Runner {
         ) {
             Ok(number) => {
                 self.keep_applied(build, &file);
+                *refused = None;
                 Some(number)
             }
             Err(e) => {
                 // The worker can fix its own file, so it is told why.
                 if matches!(e, ForgeError::Hook { .. }) {
-                    (self.file_refused.borrow_mut()).insert(branch.to_owned(), e.to_string());
+                    *refused = Some(e.to_string());
                 }
                 self.notes
                     .push(format!("cannot open a pull request from {branch}: {e}"));
@@ -411,13 +420,13 @@ body
         let file = path(&build);
 
         nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRWXU).unwrap();
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), None);
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7", &mut None), None);
         runner.edit_handed_over(&build, 500);
         std::fs::remove_file(&file).unwrap();
 
         let two_mib = format!("feat: x\n\n{}", "y".repeat(2 << 20));
         std::fs::write(&file, two_mib).unwrap();
-        assert_eq!(runner.open_handed_over(&build, "kelpie/7"), None);
+        assert_eq!(runner.open_handed_over(&build, "kelpie/7", &mut None), None);
         runner.edit_handed_over(&build, 500);
 
         assert_eq!(rig.forge.text_of(500), None);

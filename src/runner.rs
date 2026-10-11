@@ -333,9 +333,6 @@ pub struct Runner {
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
-    // Why a hook refused the pull request a worker handed over, by its
-    // branch, until the next step tells the worker, in memory only
-    file_refused: std::cell::RefCell<BTreeMap<String, String>>,
 }
 
 impl Runner {
@@ -480,7 +477,6 @@ impl Runner {
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),
             posted: std::cell::RefCell::default(),
-            file_refused: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -677,6 +673,7 @@ impl Runner {
             asked_to_commit: false,
             handed_over: None,
             handover_refused: false,
+            pull_request_refused: None,
             context: None,
             merge_tried: None,
             merge_queued: None,

@@ -82,6 +82,31 @@ fn a_worker_s_pull_request_body_naming_the_word_is_not_posted_and_the_worker_is_
     );
 }
 
+// The reason is kept in the state, so a restart between the turn and the next
+// step still tells the worker which hook refused and why.
+#[test]
+fn a_restart_keeps_the_hooks_reason_for_the_worker() {
+    let (rig, runner) = handing_over();
+    hand_over(
+        &rig,
+        &format!("feat: x\n\nBuilt for {WORD}.\n\nResolves #7\n"),
+    );
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the turn pushes, and the body is refused
+    drop(runner);
+
+    let runner = rig.open().unwrap();
+    hand_over(&rig, "feat: x\n\nBuilt for a customer.\n\nResolves #7\n");
+    rig.claude.script([Scripted::Say("fixed the file")]);
+    step(&runner).unwrap(); // sent back with the hook's reason
+
+    let prompts: Vec<String> = (rig.claude.seen().into_iter())
+        .map(|s| s.call.prompt)
+        .collect();
+    let told = prompts.last().unwrap();
+    assert!(told.contains(REFUSED), "{told}");
+}
+
 #[test]
 fn a_pull_request_the_hook_keeps_refusing_parks_on_a_ruling_naming_the_hook() {
     let (rig, runner) = handing_over();

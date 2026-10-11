@@ -541,7 +541,11 @@ impl Runner {
                     // A worker whose token opens no pull request wrote its text
                     // for kelpie to open it from, once the branch is pushed.
                     if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
-                        item.pull_request = self.open_handed_over(&item.build, &item.branch);
+                        item.pull_request = self.open_handed_over(
+                            &item.build,
+                            &item.branch,
+                            &mut item.pull_request_refused,
+                        );
                     }
                 }
                 // A later turn that rewrote the file changes the title and body,
@@ -596,6 +600,12 @@ impl Runner {
                     Handover::Refused(why) => Some(Refused::branch(&why)),
                     _ => file_refused.as_deref().map(Refused::pull_request_file),
                 };
+                // A turn no hook refused, with its work all committed, spent the
+                // worker's send-back: the next refusal, of whatever hook, is
+                // a new one and sends it back again.
+                if refusal.is_none() && !commit_first {
+                    item.handover_refused = false;
+                }
                 let hook_parks = refusal.clone().filter(|_| already);
                 let hook_first = refusal.as_ref().filter(|_| !already);
                 let to_worker = commit_first || refusal.is_some();

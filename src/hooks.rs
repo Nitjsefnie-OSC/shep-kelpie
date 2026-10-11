@@ -33,6 +33,13 @@ use crate::worktree::{BASE, WorktreeError};
 /// How long a hook may run before it is killed and counts as failed
 pub const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long one `kelpie guard` process may spend on all its hooks
+///
+/// Claude Code lets a call through when its guard hook outlasts the hook's
+/// timeout, so the guard stops running hooks before that, and the hooks left
+/// count as failed and refuse. The adapter sets the hook's timeout above this.
+pub const GUARD_BUDGET: Duration = Duration::from_secs(120);
+
 /// How `kelpie guard`'s command line carries the project's hooks, as JSON
 pub const FLAG: &str = "--hooks=";
 
@@ -77,6 +84,9 @@ pub struct Hooks {
     /// How long a hook may run
     #[serde(skip, default = "timeout")]
     timeout: Duration,
+    /// When all hooks must be done, set for a guard process by [`Hooks::take`]
+    #[serde(skip)]
+    deadline: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +107,7 @@ impl Default for Hooks {
             list: Vec::new(),
             folder: None,
             timeout: TIMEOUT,
+            deadline: None,
         }
     }
 }
@@ -117,6 +128,7 @@ impl Hooks {
                 .collect(),
             folder: Some(folder.to_owned()),
             timeout: TIMEOUT,
+            deadline: None,
         }
     }
 
@@ -170,7 +182,17 @@ impl Hooks {
                 None => rest.push(arg.clone()),
             }
         }
-        Ok((hooks, rest))
+        Ok((hooks.with_budget(GUARD_BUDGET), rest))
+    }
+
+    /// These hooks, which together may run for `budget` from now on: a hook
+    /// that would run past it is stopped, and any left after it fail
+    #[must_use]
+    pub fn with_budget(self, budget: Duration) -> Self {
+        Self {
+            deadline: Some(Instant::now() + budget),
+            ..self
+        }
     }
 
     /// Runs every hook for `point`, stopping at the first that refuses
@@ -200,7 +222,13 @@ impl Hooks {
         let payload = payload.to_string();
         let folder = folder.or(self.folder.as_deref());
         for entry in self.list.iter().filter(|e| e.point == point) {
-            let ran = run(&entry.command, payload.as_bytes(), folder, self.timeout);
+            let ran = match self.allowed() {
+                Some(timeout) => run(&entry.command, payload.as_bytes(), folder, timeout),
+                None => Err((
+                    true,
+                    "the guard's time for hooks ran out before it could run".to_owned(),
+                )),
+            };
             if let Err((failed, reason)) = ran {
                 return Err(Refusal {
                     point,
@@ -211,6 +239,16 @@ impl Hooks {
             }
         }
         Ok(())
+    }
+
+    // How long the next hook may run: its own timeout, or what is left of the
+    // budget, whichever is less. None when nothing is left.
+    fn allowed(&self) -> Option<Duration> {
+        let Some(deadline) = self.deadline else {
+            return Some(self.timeout);
+        };
+        let left = deadline.checked_duration_since(Instant::now())?;
+        (!left.is_zero()).then_some(left.min(self.timeout))
     }
 
     /// Checks text bound for the forge: `field` names what it is, such as

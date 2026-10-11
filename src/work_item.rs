@@ -220,6 +220,11 @@ pub struct WorkItem {
     /// a ruling. Cleared when a hook passes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub handover_refused: bool,
+    /// Why a `publish` hook refused the pull request kelpie tried to open
+    /// from the worker's `pull-request.md`, until the next step tells the
+    /// worker. Kept in the state, so a restart still names the hook.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request_refused: Option<String>,
     /// The head of the last merge under `auto` that answered an error. A
     /// pull request later found merged at it is kelpie's merge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
