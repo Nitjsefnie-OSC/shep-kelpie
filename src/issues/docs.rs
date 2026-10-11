@@ -88,7 +88,8 @@ impl Docs {
     ///
     /// A message naming what failed. A session that wrote a file other than
     /// the glossary and ADRs, or whose commit, push or pull request failed,
-    /// keeps its worktree and branch, and the message names them.
+    /// keeps its worktree and local branch, and the message names them. A
+    /// pushed branch whose pull request failed is deleted from the remote.
     pub(super) fn land(
         &self,
         project: &Project<'_>,
@@ -117,7 +118,8 @@ impl Docs {
         let title = format!("docs: record what planning \"{head}\" settled");
         let body = pull_request_body(&head, &files, filed);
         let git = worktree::trusted(repo, &self.worktree).map_err(|e| self.kept(e.to_string()))?;
-        let target = format!("HEAD:refs/heads/{}", self.branch);
+        let full_ref = format!("refs/heads/{}", self.branch);
+        let target = format!("HEAD:{full_ref}");
         let pushed = git(&["add", "--all"])
             .and_then(|_| git(&["commit", "--quiet", "-m", &title, "-m", &body]))
             .and_then(|_| git(&["push", "--quiet", "origin", &target]));
@@ -126,8 +128,15 @@ impl Docs {
         let number = forge
             .create_pull_request(remote, &self.branch, BASE, &title, &body)
             .map_err(|e| {
+                // Nothing links the pushed branch, so take it off the remote
+                // again; the commit stays in the local branch.
+                let removed = git(&["push", "--quiet", "origin", "--delete", &full_ref]);
+                let remote_branch = match removed {
+                    Ok(_) => "removed it from the remote again".to_owned(),
+                    Err(e) => format!("could not remove it from the remote: {e}"),
+                };
                 self.kept(format!(
-                    "pushed {} but cannot open a pull request: {e}",
+                    "pushed {} but cannot open a pull request: {e}, and {remote_branch}",
                     self.branch
                 ))
             })?;

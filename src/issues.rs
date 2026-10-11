@@ -533,8 +533,9 @@ impl Interactive {
     ///
     /// # Errors
     ///
-    /// A message naming what failed: a file besides the glossary and decision records, a
-    /// push or pull request that did not go through, or a link that did not.
+    /// A message naming what failed: a file besides the glossary and
+    /// decision records, a push or pull request that did not go through, or
+    /// a link that did not.
     pub fn end(&self, project: &Project<'_>, forge: &dyn Forge) -> Result<Vec<String>, String> {
         let filed = filed_in(&self.ledger);
         for file in &self.files {
@@ -570,9 +571,23 @@ pub fn interactive(
     let docs = Docs::open(project, &run.0)?;
     let started = start(project, writer, request, program, &run, &docs);
     if started.is_err() {
+        let (file, ledger, plugin) = session_files(project, &run);
+        let _ = std::fs::remove_file(file);
+        let _ = std::fs::remove_file(ledger);
+        let _ = std::fs::remove_dir_all(plugin);
         docs.discard(project);
     }
     started
+}
+
+// The session's settings file, ledger and plugin folder.
+fn session_files(project: &Project<'_>, run: &SessionId) -> (PathBuf, PathBuf, PathBuf) {
+    let folder = project.paths.issues();
+    (
+        folder.join(format!("interactive-{}.json", run.0)),
+        folder.join(format!("interactive-{}.ledger.json", run.0)),
+        folder.join(format!("interactive-{}.plugin", run.0)),
+    )
 }
 
 // The session's files and command, once its docs branch is cut.
@@ -584,10 +599,7 @@ fn start(
     run: &SessionId,
     docs: &Docs,
 ) -> Result<Interactive, String> {
-    let folder = project.paths.issues();
-    let file = folder.join(format!("interactive-{}.json", run.0));
-    let ledger = folder.join(format!("interactive-{}.ledger.json", run.0));
-    let plugin = folder.join(format!("interactive-{}.plugin", run.0));
+    let (file, ledger, plugin) = session_files(project, run);
     let grill = skills::write_vendored(&plugin, skills::GRILL_WITH_DOCS)
         .map_err(|e| format!("cannot write the skills to {}: {e}", plugin.display()))?;
     let reach = reach(
@@ -608,7 +620,7 @@ fn start(
     }
     claude_write_only(&mut settings, project.kelpie, &docs.writable());
     let text = serde_json::to_string_pretty(&settings).expect("settings are JSON");
-    std::fs::create_dir_all(&folder)
+    std::fs::create_dir_all(project.paths.issues())
         .and_then(|()| std::fs::write(&file, text))
         .map_err(|e| format!("cannot write {}: {}", file.display(), e.kind()))?;
     let mut command = crate::spawn::command(program);

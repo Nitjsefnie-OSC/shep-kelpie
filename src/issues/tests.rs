@@ -599,6 +599,25 @@ fn a_file_besides_the_glossary_and_adrs_is_never_committed() {
 }
 
 #[test]
+fn a_pull_request_that_fails_to_open_leaves_no_branch_on_the_remote_but_keeps_the_work() {
+    let s = Setup::new();
+    s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
+    s.rig.forge.set_down(true);
+
+    let (claude, said) = ran_to_the_end(&s, &["GLOSSARY.md"], &[41]);
+
+    let err = said.unwrap_err();
+    assert!(err.contains("cannot open a pull request"), "{err}");
+    assert!(err.contains("removed it from the remote again"), "{err}");
+    assert!(err.contains(claude.docs.branch()), "{err}");
+    assert_eq!(s.rig.forge.head_of(claude.docs.branch()), None);
+    // The commit is still in the local branch, in the checkout named.
+    let repo = &s.settings.git.checkout;
+    assert_ne!(git(repo, &["branch", "--list", claude.docs.branch()]), "");
+    assert!(claude.docs.worktree().is_dir());
+}
+
+#[test]
 fn a_link_that_fails_is_named_beside_the_pull_request_that_opened() {
     let s = Setup::new();
     s.filed(41, "Pause a project", BODY, &[READY, "agent:sonnet-high"]);
