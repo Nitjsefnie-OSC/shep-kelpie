@@ -4,6 +4,7 @@ use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use crate::adapters::{LOGIN_VAR, LoginToken};
 use crate::doctor::host::{Host, gaps, sandbox_needs};
 
 /// The machine kelpie is running on
@@ -13,6 +14,14 @@ pub struct SystemHost;
 impl Host for SystemHost {
     fn sandbox_gaps(&self) -> Vec<&'static str> {
         gaps(sandbox_needs(env::consts::OS), on_path)
+    }
+
+    fn has_keychain(&self) -> bool {
+        env::consts::OS == "macos"
+    }
+
+    fn login_token(&self) -> bool {
+        env::var(LOGIN_VAR).is_ok_and(|token| LoginToken::new(token).is_some())
     }
 }
 

@@ -182,8 +182,9 @@ fn an_older_owed_summon_is_owed_by_the_listed_bot() {
         item["summon_owed"] = json!(true);
         item["phase"] = json!({ "state": "coderabbit", "stage": "lease", "head": head });
     });
+    rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
-        step(&runner).unwrap(),
+        rig.verdict(&runner),
         Some(StepReport::MarkedReady { .. })
     ));
     assert!(matches!(

@@ -27,7 +27,7 @@ pub use bots::BotSkipped;
 pub use follow_ups::FollowUps;
 pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
-pub use review::{Review, ReviewStage};
+pub use review::{Awaited, Review, ReviewStage};
 pub use seat::Seat;
 pub use spend::{QwenTally, RoleSpend, Spend};
 pub use tally::{Counts, RoleTally, Tally};

@@ -65,6 +65,7 @@ impl Flow<'_> {
             "public": false,
             "hook_attributes": { "url": HOMEPAGE, "active": false },
             "default_permissions": {
+                "contents": "write",
                 "issues": "write",
                 "pull_requests": "write",
                 "metadata": "read",

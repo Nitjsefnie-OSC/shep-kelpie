@@ -206,6 +206,36 @@ impl Forge for RateHeld {
         self.call(|f| f.close_issue(repo, number))
     }
 
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.call(|f| f.create_pull_request(repo, head, base, title, body))
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.call(|f| f.edit_pull_request(repo, number, title, body))
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.call(|f| f.failed_run_logs(repo, head, merge_group))
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(|f| f.mark_ready(repo, number))
     }

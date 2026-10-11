@@ -54,6 +54,18 @@ impl Voice for AppVoice {
         )
     }
 
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError> {
+        match self.tokens.worker_token(repo) {
+            Ok(token) => Ok(Some(token)),
+            Err(TokenError::Owner(_) | TokenError::NoApp(_) | TokenError::NotInstalled { .. }) => {
+                Ok(None)
+            }
+            // GitHub out of reach, busy or rate limited: asking again later may work.
+            Err(TokenError::Api(e)) if e.passes() => Err(ForgeError::AppBusy(e.to_string())),
+            Err(e) => Err(ForgeError::App(e.to_string())),
+        }
+    }
+
     fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {
         self.write(repo, &Call::comment(repo, thread, body))
             .map(drop)

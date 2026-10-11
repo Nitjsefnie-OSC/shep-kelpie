@@ -115,6 +115,9 @@ pub struct Reach {
     /// The fence on its writes, reads, hosts and commands. Without one,
     /// its tools alone hold it.
     pub fence: Option<Box<Fence>>,
+    /// Whether its sandbox keeps it from the maintainer's keychain, as it does
+    /// on a repo kelpie's App covers, which the runner sets on each call
+    pub block_keychain: bool,
 }
 
 /// Where a session may write and connect, and what it may not run
@@ -136,7 +139,7 @@ pub struct Fence {
     /// Commands it may not run, as prefixes where `*` matches any text
     pub no_commands: Vec<String>,
     /// Variables set for every command it runs
-    pub env: BTreeMap<String, PathBuf>,
+    pub env: BTreeMap<String, String>,
     /// Unix sockets it may connect to: the kelpie dog's lease socket,
     /// where a worker takes the lease it runs tests under
     pub sockets: Vec<PathBuf>,

@@ -13,6 +13,82 @@ async fn an_installed_app_that_mints_a_token_is_ok() {
     );
 }
 
+// The copy of srt that `tools install` makes, with no keychain service in it
+fn patched_srt(scene: &Scene) {
+    let cli = Tools::under(&scene.kelpie_home).sandbox_without_keychain();
+    let sandbox = cli.parent().unwrap().join("sandbox");
+    std::fs::create_dir_all(&sandbox).unwrap();
+    std::fs::write(&cli, "").unwrap();
+    std::fs::write(
+        sandbox.join("macos-sandbox-utils.js"),
+        "(allow ipc-posix-shm)\n",
+    )
+    .unwrap();
+}
+
+// With the keychain blocked in the project's calls, `claude` has no login but
+// the one the maintainer made with `claude setup-token`.
+#[tokio::test]
+async fn a_covered_project_on_a_keychain_needs_the_login_token_and_names_the_two_commands() {
+    let mut scene = Scene::new().await;
+    scene.host.keychain = true;
+    patched_srt(&scene);
+
+    scene.host.token = false;
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "koji: claude login");
+    assert!(what.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{what}");
+    assert!(fix.contains("`claude setup-token`"), "{fix}");
+    assert!(
+        fix.contains("`shep secret set CLAUDE_CODE_OAUTH_TOKEN`"),
+        "{fix}"
+    );
+    assert!(!report.passed());
+
+    scene.host.token = true;
+    let report = scene.report().await;
+    let found = ok(&report, "koji: claude login");
+    assert!(found.contains("CLAUDE_CODE_OAUTH_TOKEN"), "{found}");
+}
+
+// A repo the App does not cover pushes with the keychain's login, so its
+// calls keep the keychain and `claude` keeps the login it has there.
+#[tokio::test]
+async fn a_project_the_app_does_not_cover_needs_no_login_token() {
+    let mut scene = Scene::new().await;
+    scene.host.keychain = true;
+    scene.runs("golbat", |t| {
+        t["git"]["remote"] = json!("someone-else/golbat");
+    });
+
+    let report = scene.report().await;
+
+    assert!(!subjects(&report).contains(&"golbat: claude login"));
+    assert!(subjects(&report).contains(&"koji: claude login"));
+}
+
+#[tokio::test]
+async fn a_machine_without_a_keychain_needs_no_login_token() {
+    let scene = Scene::new().await;
+
+    let report = scene.report().await;
+
+    assert!(!subjects(&report).contains(&"koji: claude login"));
+}
+
+// The copy of srt without the keychain's services is what blocks it.
+#[tokio::test]
+async fn a_keychain_machine_without_the_patched_srt_is_told_to_install_the_tools() {
+    let mut scene = Scene::new().await;
+    scene.host.keychain = true;
+
+    let report = scene.report().await;
+
+    let (what, fix) = missing(&report, "sandbox");
+    assert!(what.contains("keychain"), "{what}");
+    assert_eq!(fix, "run `shep kelpie tools install`");
+}
+
 // No App is unsure: kelpie falls back to the user's own `gh` login, so it does not fail the run.
 #[tokio::test]
 async fn an_owner_with_no_app_is_unsure_and_names_setup() {
@@ -124,4 +200,49 @@ async fn a_maintainer_that_is_set_or_an_app_that_does_not_cover_the_repo_needs_n
     scene.runs("rotom", |_| {});
     let report = scene.report().await;
     assert!(!subjects(&report).contains(&"rotom: maintainer"));
+}
+
+#[tokio::test]
+async fn a_worker_on_a_covered_repo_pushes_with_a_token_for_that_repo_alone() {
+    let scene = Scene::new().await;
+
+    let report = scene.report().await;
+
+    let said = ok(&report, "koji: workers");
+    assert!(said.contains("a token for shep-pm/koji alone"), "{said}");
+    assert!(said.contains("protect `main` on GitHub"), "{said}");
+}
+
+// With no App a worker holds the maintainer's login, and doctor says so, but
+// the App is optional, so it does not fail the run.
+#[tokio::test]
+async fn without_an_app_doctor_says_a_worker_holds_the_maintainers_login() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["git"]["remote"] = json!("someone-else/golbat");
+    });
+
+    let report = scene.report().await;
+
+    let Verdict::Unsure { what, next } = verdict(&report, "golbat: workers") else {
+        panic!("{:#?}", report.render());
+    };
+    assert!(what.contains("holds your own gh login"), "{what}");
+    assert!(next.contains("shep kelpie github setup"), "{next}");
+    assert!(report.passed());
+}
+
+// An App registered before workers held its tokens lacks the permission.
+#[tokio::test]
+async fn an_app_without_the_contents_permission_is_missing_and_names_the_fix() {
+    let scene = Scene::new().await;
+    scene.github.refuse_workers(ApiError::Refused(422));
+
+    let report = scene.report().await;
+
+    let (what, fix) = missing(&report, "koji: workers");
+    assert!(what.contains("Contents permission"), "{what}");
+    assert!(fix.contains("Contents, to Read and write"), "{fix}");
+    ok(&report, "koji: github app");
+    assert!(!report.passed());
 }

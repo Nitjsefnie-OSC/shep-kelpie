@@ -35,6 +35,8 @@ fn passed_over(rig: &Rig) -> (Mutex<Runner>, String) {
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped { round: 3, .. })
     ));
+    // The pass is over, so CI is what the work item waits at.
+    rig.ci_on_now(&runner);
     (runner, head)
 }
 
@@ -277,11 +279,17 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
         Scripted::Push("eight.txt", "eight\n"),
         Scripted::Text("CLEAN"),
     ]);
-    // #8's turn, its qwen and Claude reads, and its draft marked ready.
-    for _ in 0..4 {
+    // #8's turn, its qwen and Claude reads once its run is green, and its
+    // draft marked ready.
+    assert_eq!(issue_of(step(&runner).unwrap()), 8);
+    let eight = rig.forge.head_of("kelpie/8").unwrap();
+    rig.forge.set_checks(&eight, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None, "#8's run is waited for");
+    rig.clock.advance(crate::runner::CHECKS_SETTLE);
+    for _ in 0..3 {
         assert_eq!(issue_of(step(&runner).unwrap()), 8);
     }
-    let eight = rig.forge.head_of("kelpie/8").unwrap();
+    rig.forge.set_checks(&eight, Checks::Pending);
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Summoned { issue: 8, .. })
@@ -336,6 +344,7 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
         step(&runner).unwrap(),
         Some(StepReport::ReviewerSkipped { round: 4, .. })
     ));
+    rig.ci_on_now(&runner);
     step(&runner).unwrap(); // the pass's last round step: neither bot has reviewed
     assert_eq!(status(&rig, &runner)["work_item"]["phase"]["state"], "ci");
 

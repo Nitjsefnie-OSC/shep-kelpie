@@ -11,18 +11,38 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::fence;
+use crate::github::InstallationToken;
 use crate::lease::door;
 use crate::ports::{Fence, Guard, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
 use crate::worktree::BASE;
 
+mod login;
+
+pub use login::write as write_login;
+
 /// Kelpie's instructions to every worker, appended to its system prompt
 pub const INSTRUCTIONS: &str = include_str!("worker-instructions.md");
 
+// How a worker is told to get its pull request opened: by itself, as the
+// maintainer's login, or by writing its text where kelpie opens it from.
+const OPEN_YOURSELF: &str = "When the work is done, push the branch with `git push origin HEAD`. Unless the branch already has a pull request, open a draft one with `gh pr create --draft`, giving it your own body and a `--title` that is a conventional commit subject. End the body with the line `Resolves #<issue>`, naming your work item's issue.";
+
+const HAND_OVER: &str = "When the work is done, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject. The rest is the body, which ends with the line `Resolves #<issue>`, naming your work item's issue. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
+
 /// Kelpie's own worker instructions, naming `kelpie`, the binary a worker
 /// runs its tests under the machine's test lease with
-pub fn instructions(kelpie: &Path) -> String {
-    INSTRUCTIONS.replace("{kelpie}", &kelpie.display().to_string())
+///
+/// With `pull_request_file`, the worker holds a credential that opens no
+/// pull request, and is told to write its text there for kelpie to open.
+pub fn instructions(kelpie: &Path, pull_request_file: Option<&Path>) -> String {
+    let pull_request = match pull_request_file {
+        Some(file) => HAND_OVER.replace("{file}", &file.display().to_string()),
+        None => OPEN_YOURSELF.to_owned(),
+    };
+    INSTRUCTIONS
+        .replace("{pull_request}", &pull_request)
+        .replace("{kelpie}", &kelpie.display().to_string())
 }
 
 // Claude Code opens a worktree's whole common git dir to sandboxed writes.
@@ -40,8 +60,10 @@ const GIT_DENY: [&str; 8] = [
     "refs/tags",
 ];
 
-// Read and written by no worker. `~/.config/gh` stays readable: `gh` will
-// not start without its config, and the worker opens its own pull request.
+// Read and written by no worker. `~/.config/gh` stays readable for a worker
+// that runs as the maintainer: `gh` will not start without its config, and
+// the worker opens its own pull request. A worker holding the App's token has
+// a config folder of its own.
 pub(crate) const CREDENTIALS: [&str; 12] = [
     "~/.ssh/**",
     "~/.aws/**",
@@ -91,6 +113,25 @@ const PUSH_FLAGS: [&str; 9] = [
     "git push * +*",
 ];
 
+// What a worker holding the App's token may not read: `gh`'s own config
+// folder, which can hold the maintainer's token, and the keychain files. `gh`
+// runs on its own config folder then, so it needs neither.
+const MAINTAINERS_LOGIN: [&str; 2] = ["~/.config/gh/**", "~/Library/Keychains/**"];
+
+// `security` reads the keychain `gh` and git's osxkeychain helper keep the
+// maintainer's token in, and so does the helper itself, run by hand or with
+// `git credential`. Nothing a worker holding the App's token needs any of
+// them, git asks its helpers itself. These are a guardrail against a mistake,
+// not the boundary: the sandbox closes the keychain itself (#429).
+const KEYCHAIN_COMMANDS: [&str; 6] = [
+    "security",
+    "security *",
+    "git credential",
+    "git credential *",
+    "git credential-*",
+    "git -c credential*",
+];
+
 // What `git push` and `gh` reach. A project adds its own, such as a registry.
 const GITHUB: [&str; 2] = ["github.com", "api.github.com"];
 
@@ -124,6 +165,11 @@ pub struct WorkerProfile<'a> {
     pub shep_home: &'a Path,
     /// The dog's door, the one Unix socket the worker may connect to
     pub door: &'a Path,
+    /// The token of kelpie's App for the project's repo, on a repo the App
+    /// covers: the worker's only credential for GitHub, and the
+    /// maintainer's login is then out of its reach. Without one the worker
+    /// runs as the maintainer's login.
+    pub token: Option<&'a InstallationToken>,
 }
 
 impl WorkerProfile<'_> {
@@ -159,6 +205,7 @@ impl WorkerProfile<'_> {
             .map(|(_, home)| format!("{}/**", home.display()));
         let no_read = CREDENTIALS
             .iter()
+            .chain(self.token.iter().flat_map(|_| &MAINTAINERS_LOGIN))
             .map(|&p| p.to_owned())
             .chain(homes)
             .collect();
@@ -169,6 +216,7 @@ impl WorkerProfile<'_> {
         let no_commands = PM_ONLY
             .iter()
             .chain(&GH_DENY)
+            .chain(self.token.iter().flat_map(|_| &KEYCHAIN_COMMANDS))
             .map(|&c| c.to_owned())
             .chain(push_to_base())
             .chain(PUSH_FLAGS.iter().map(|&c| c.to_owned()))
@@ -200,17 +248,26 @@ impl WorkerProfile<'_> {
         Reach {
             read: Vec::new(),
             fence: Some(Box::new(fence)),
+            block_keychain: false,
         }
     }
 
-    fn env(&self) -> BTreeMap<String, PathBuf> {
-        let cargo = ("CARGO_TARGET_DIR".to_owned(), self.build.to_owned());
-        let door = (door::SOCKET_VAR.to_owned(), self.door.to_owned());
-        let project = self
-            .build_env
-            .iter()
-            .map(|(name, dir)| (name.as_str().to_owned(), self.build.join(dir.as_path())));
-        [cargo, door].into_iter().chain(project).collect()
+    fn env(&self) -> BTreeMap<String, String> {
+        let path = |p: &Path| p.to_string_lossy().into_owned();
+        let cargo = ("CARGO_TARGET_DIR".to_owned(), path(self.build));
+        let door = (door::SOCKET_VAR.to_owned(), path(self.door));
+        let project = self.build_env.iter().map(|(name, dir)| {
+            (
+                name.as_str().to_owned(),
+                path(&self.build.join(dir.as_path())),
+            )
+        });
+        let github = self.token.into_iter().flat_map(|_| login::env(self.build));
+        [cargo, door]
+            .into_iter()
+            .chain(project)
+            .chain(github)
+            .collect()
     }
 }
 
@@ -263,6 +320,12 @@ mod tests {
     }
 
     fn with_domains(hooks: &[GuardHook], domains: &[NonBlank]) -> Value {
+        profile(hooks, domains).settings()
+    }
+
+    static NO_BUILD_ENV: BTreeMap<EnvName, BuildDir> = BTreeMap::new();
+
+    fn profile<'a>(hooks: &'a [GuardHook], domains: &'a [NonBlank]) -> WorkerProfile<'a> {
         WorkerProfile {
             worktree: Path::new("/k/wt/shep/7"),
             build: Path::new("/k/targets/shep/7"),
@@ -274,11 +337,80 @@ mod tests {
             repo: Path::new("/k/repos/shep"),
             guard_hooks: hooks,
             allowed_domains: domains,
-            build_env: &BTreeMap::new(),
+            build_env: &NO_BUILD_ENV,
             shep_home: Path::new("/srv/shep"),
             door: Path::new("/k/dog/lease.sock"),
+            token: None,
         }
-        .settings()
+    }
+
+    fn covered_fence(token: &InstallationToken) -> Fence {
+        let profile = WorkerProfile {
+            token: Some(token),
+            ..profile(&[], &[])
+        };
+        *profile.reach().fence.expect("a worker is fenced")
+    }
+
+    // On a repo kelpie's App covers, the worker's credential is a token for
+    // that repo alone, and the maintainer's login, `gh`'s config folder and
+    // the keychain are out of its reach. The guard parses commands and can
+    // miss one, so this is the boundary.
+    #[test]
+    fn on_a_repo_the_app_covers_a_worker_holds_the_apps_token_and_never_the_maintainers_login() {
+        let fence = covered_fence(&InstallationToken::new("ghs_scoped".to_owned()));
+
+        assert_eq!(
+            fence.env,
+            BTreeMap::from([
+                ("CARGO_TARGET_DIR".to_owned(), "/k/targets/shep/7".to_owned()),
+                ("KELPIE_LEASE_SOCKET".to_owned(), "/k/dog/lease.sock".to_owned()),
+                ("GH_CONFIG_DIR".to_owned(), "/k/targets/shep/7/gh".to_owned()),
+                ("GH_PROMPT_DISABLED".to_owned(), "1".to_owned()),
+                ("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()),
+                (
+                    // Git's helpers are emptied, which drops the keychain's, and
+                    // github.com's is gh's, which answers from the config folder.
+                    // The sandbox's own proxy setting, which this replaces, stays.
+                    "GIT_CONFIG_PARAMETERS".to_owned(),
+                    "'http.proxyAuthMethod'='basic' 'credential.helper'='' 'credential.https://github.com.helper'='!gh auth git-credential'"
+                        .to_owned()
+                ),
+            ])
+        );
+        // Codex drops a variable named for a key, a secret or a token.
+        let names = fence.env.keys().map(|n| n.to_ascii_uppercase());
+        for name in names {
+            assert!(
+                !["KEY", "SECRET", "TOKEN"].iter().any(|w| name.contains(w)),
+                "{name}"
+            );
+        }
+        assert!(
+            !format!("{fence:?}").contains("ghs_scoped"),
+            "the token is in no variable"
+        );
+        for path in ["~/.config/gh/**", "~/Library/Keychains/**"] {
+            assert!(fence.no_read.contains(&path.to_owned()), "{path}");
+        }
+        for command in [
+            "security",
+            "security *",
+            "git credential *",
+            "git credential-*",
+            "git -c credential*",
+        ] {
+            assert!(fence.no_commands.contains(&command.to_owned()), "{command}");
+        }
+    }
+
+    #[test]
+    fn with_no_app_a_worker_runs_as_the_maintainer_as_before() {
+        let fence = profile(&[], &[]).reach().fence.expect("a worker is fenced");
+        let names: Vec<&str> = fence.env.keys().map(String::as_str).collect();
+        assert_eq!(names, ["CARGO_TARGET_DIR", "KELPIE_LEASE_SOCKET"]);
+        assert!(!fence.no_read.iter().any(|p| p.contains(".config/gh")));
+        assert!(!fence.no_commands.contains(&"security".to_owned()));
     }
 
     // A `KELPIE_HOME` set outside the shepherd's home holds the TOTP secret
@@ -314,6 +446,7 @@ mod tests {
             build_env: &BTreeMap::new(),
             shep_home: &shep,
             door: Path::new("/s/kelpie/dog/lease.sock"),
+            token: None,
         }
         .settings();
 
@@ -433,6 +566,7 @@ mod tests {
             build_env: &build_env,
             shep_home: Path::new("/srv/shep"),
             door: Path::new("/k/dog/lease.sock"),
+            token: None,
         }
         .settings();
         assert_eq!(

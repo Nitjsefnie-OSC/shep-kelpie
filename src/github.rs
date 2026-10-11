@@ -17,7 +17,7 @@ pub mod setup;
 pub mod tokens;
 pub mod voice;
 
-pub use api::{ApiError, Call, Conversion, GithubApi, IssuedToken, Pem, Signer, Verb};
+pub use api::{ApiError, Call, Conversion, GithubApi, Grant, IssuedToken, Pem, Signer, Verb};
 pub use tokens::{AppTokens, GithubApp, InstallationToken, TokenError};
 pub use voice::AppVoice;
 

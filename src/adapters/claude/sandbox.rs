@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, argv, terminal_argv};
+use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Fence, Policy};
 use crate::profile::CREDENTIALS;
@@ -33,6 +33,14 @@ impl ClaudeCli {
     // `claude` with `argv`, its scratch folder emptied and its transcript
     // folder made. A scratch folder swapped for a link is removed, not followed.
     fn command(&self, call: &AgentCall, argv: Vec<OsString>) -> Result<Command, AgentError> {
+        // `claude` would start and fail with its own "not logged in", which a ruling
+        // would carry, in place of the fix.
+        if call.reach.block_keychain && self.macos && self.login.is_none() {
+            return Err(AgentError::Setup(format!(
+                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
+                 runner's environment, so claude has no login: {LOGIN_FIX}"
+            )));
+        }
         let scratch = scratch(call);
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
@@ -59,6 +67,9 @@ impl ClaudeCli {
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+        if let Some(login) = &self.login {
+            command.env(LOGIN_VAR, login.expose());
+        }
         Ok(command)
     }
 
@@ -99,6 +110,7 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
         denied_addresses: Vec::new(),
         // Without it, `gh` fails TLS verification on macOS: x509 OSStatus -26276.
         verify_tls: true,
+        no_keychain: false,
     }
 }
 
@@ -129,6 +141,7 @@ pub(crate) fn policy(
         }
     };
     policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_keychain = call.reach.block_keychain;
     let transcripts = transcripts(home, &call.cwd)?;
     // Auto memory there loads into every session in the folder, a review's too.
     policy.no_write.push(transcripts.join("memory"));
@@ -187,7 +200,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::adapters::{ClaudeCli, SandboxRuntime};
+    use crate::adapters::{ClaudeCli, LoginToken, SandboxRuntime};
     use crate::ports::Ending;
     use crate::ports::{Agents, Reach, Role, Session, SessionId, Tools};
     use crate::profile::WorkerProfile;
@@ -258,6 +271,7 @@ mod tests {
                 build_env: &BTreeMap::new(),
                 shep_home: Path::new("/k/shep"),
                 door: Path::new("/k/dog/lease.sock"),
+                token: None,
             };
             AgentCall {
                 tools: Tools::Work,
@@ -323,6 +337,17 @@ mod tests {
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
         assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
         assert!(policy.verify_tls);
+    }
+
+    #[test]
+    fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+        let w = World::new();
+        for mut call in [w.worker(), w.call(Role::Reviewer)] {
+            let home = w.path("home");
+            assert!(!policy(&call, &home, &[]).unwrap().no_keychain);
+            call.reach.block_keychain = true;
+            assert!(policy(&call, &home, &[]).unwrap().no_keychain);
+        }
     }
 
     #[test]
@@ -423,6 +448,88 @@ mod tests {
             );
             assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
         }
+    }
+
+    type Cmd = fn(&ClaudeCli, &AgentCall) -> Result<Command, AgentError>;
+
+    // With the keychain blocked, a call's login is the token the maintainer
+    // made with `claude setup-token`. It is a variable of the command inside
+    // the sandbox and never an argument, which `ps` shows.
+    #[test]
+    fn every_role_s_claude_gets_the_login_token_and_none_without_one() {
+        let w = World::new();
+        let token = "sk-ant-oat01-for-the-test";
+        let with = w
+            .cli(Arc::new(OpenSandbox::default()))
+            .with_login(LoginToken::new(token.to_owned()));
+        let without = w.cli(Arc::new(OpenSandbox::default()));
+        assert!(
+            !format!("{with:?}").contains(token),
+            "Debug shows the token"
+        );
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+            let role = call.role;
+            let login = |cli: &ClaudeCli, command: Cmd| {
+                let command = command(cli, &call).unwrap();
+                let set = command.get_envs().find(|(n, _)| *n == LOGIN_VAR);
+                let args: Vec<_> = command.get_args().collect();
+                assert!(!args.iter().any(|a| a.to_string_lossy().contains(token)));
+                set.map(|(_, value)| value.map(|v| v.to_string_lossy().into_owned()))
+            };
+            let session = ClaudeCli::sandboxed_command;
+            assert_eq!(
+                login(&with, session),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
+            assert_eq!(login(&without, session), None, "{role:?}");
+            let terminal = ClaudeCli::terminal_command;
+            assert_eq!(
+                login(&with, terminal),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
+        }
+    }
+
+    // With the keychain blocked and no token, `claude` would start and fail
+    // with its own "not logged in", which a ruling would carry. The call says
+    // what doctor says instead, and runs nothing.
+    #[test]
+    fn a_blocked_keychain_and_no_login_token_refuses_the_call_with_the_fix() {
+        let w = World::new();
+        let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
+        let cli = |login: Option<LoginToken>, macos: bool| {
+            w.cli(Arc::new(OpenSandbox::default()))
+                .with_login(login)
+                .on_macos(macos)
+        };
+        let blocked = |mut call: AgentCall| {
+            call.reach.block_keychain = true;
+            call
+        };
+        for call in [w.worker(), w.call(Role::Reviewer)] {
+            let call = blocked(call);
+            for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
+                let err = run(&cli(None, true), &call).unwrap_err();
+                let AgentError::Setup(why) = &err else {
+                    panic!("{err:?}")
+                };
+                assert!(why.contains("`claude setup-token`"), "{why}");
+                assert!(
+                    why.contains("`shep secret set CLAUDE_CODE_OAUTH_TOKEN`"),
+                    "{why}"
+                );
+                run(&cli(token.clone(), true), &call).unwrap();
+                // No keychain off macOS, and a call that keeps it logs in there.
+                run(&cli(None, false), &call).unwrap();
+                run(&cli(None, true), &w.worker()).unwrap();
+            }
+            let err = cli(None, true).run(&call, &Ending::default()).unwrap_err();
+            assert!(matches!(err, AgentError::Setup(_)), "{err:?}");
+        }
+        assert!(!w.path("ran").exists(), "claude ran with no login");
     }
 
     #[test]

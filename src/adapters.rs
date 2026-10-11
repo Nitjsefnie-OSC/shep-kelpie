@@ -31,7 +31,7 @@ pub(crate) use claude::sandbox::fence_policy;
 pub(crate) use claude::settings::settings as claude_settings;
 #[cfg(test)]
 pub(crate) use claude::write_settings as write_claude_settings;
-pub use claude::{ClaudeCli, LambLabels};
+pub use claude::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, LambLabels, LoginToken};
 pub use codex::CodexCli;
 pub use codex_usage::CodexMeter;
 pub use curl::Curl;

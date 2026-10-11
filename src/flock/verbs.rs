@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::{Checkout, Launch, add, attach, control, pm, rule, usage};
-use crate::adapters::{ClaudeCli, Gh};
+use crate::adapters::{ClaudeCli, Gh, LoginToken};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
 use crate::ports::SandboxError;
@@ -245,8 +245,9 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let codex_home =
         (loaded.kelpie.codex_home(here.home, here.kelpie_home)).map_err(|e| e.to_string())?;
     let secret_vars = loaded.kelpie.gateways().key_vars();
-    let claude =
-        ClaudeCli::default().in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars);
+    let claude = ClaudeCli::default()
+        .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
+        .with_login(LoginToken::take());
     issues::headless(&project, &writer, &request, &Gh, &claude)
 }
 

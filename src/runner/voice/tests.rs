@@ -54,6 +54,27 @@ fn asking_on_a_pull_request(rig: &Rig) -> (Mutex<Runner>, StepReport) {
     (runner, asked)
 }
 
+// A repo the App covers has no use for the maintainer's keychain: a worker's
+// token is all its push needs. A repo it does not cover pushes with the login there.
+#[test]
+fn a_call_blocks_the_keychain_on_a_repo_the_app_covers_and_on_no_other() {
+    for covered in [true, false] {
+        let rig = Rig::new("shep");
+        if covered {
+            rig.with_app();
+        }
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.claude.script([Scripted::Say("done")]);
+        step(&runner).unwrap();
+        let calls = rig.claude.calls();
+        assert!(!calls.is_empty());
+        for call in calls {
+            assert_eq!(call.reach.block_keychain, covered, "{:?}", call.role);
+        }
+    }
+}
+
 #[test]
 fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the_maintainer() {
     let (rig, _runner, head) = Rig::parked_set("shep", |rig| {

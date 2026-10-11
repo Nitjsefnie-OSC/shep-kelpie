@@ -608,6 +608,7 @@ fn policy(call: &AgentCall, login: &Path, files: &Files) -> Policy {
         },
     };
     policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_keychain = call.reach.block_keychain;
     policy
         .no_read
         .extend([MAINTAINERS_HOME, SKILLS].map(str::to_owned));

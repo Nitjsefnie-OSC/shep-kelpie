@@ -28,6 +28,46 @@ pub(crate) mod settings;
 /// What `claude -p --resume` prints when the session has no transcript
 const NO_SESSION: &str = "No conversation found with session ID";
 
+/// How to give `claude` the login it needs where the keychain is blocked, as doctor and a refused call say it
+pub const LOGIN_FIX: &str = "run `claude setup-token`, then `shep secret set CLAUDE_CODE_OAUTH_TOKEN` and set \
+     `CLAUDE_CODE_OAUTH_TOKEN = \"{{secret:CLAUDE_CODE_OAUTH_TOKEN}}\"` in the runner's `env`";
+
+/// The variable Claude Code reads a login from, in place of the keychain's
+pub const LOGIN_VAR: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// The login `claude setup-token` makes: one token, not the keychain's full login
+///
+/// Where a call's sandbox blocks the keychain, `claude` cannot read its own
+/// login there. The maintainer keeps this one with `shep secret`, and a runner
+/// hands it to `claude` alone.
+#[derive(Clone, PartialEq, Eq)]
+pub struct LoginToken(String);
+
+impl LoginToken {
+    /// The token `value` is, or `None` when it is empty
+    pub fn new(value: String) -> Option<Self> {
+        (!value.trim().is_empty()).then(|| Self(value.trim().to_owned()))
+    }
+
+    /// Takes the token from this process's environment, and keeps the variable
+    /// out of every process started from now on, `claude`'s apart
+    pub fn take() -> Option<Self> {
+        let token = std::env::var(LOGIN_VAR).ok().and_then(Self::new);
+        crate::spawn::hide([LOGIN_VAR.to_owned()]);
+        token
+    }
+
+    pub(super) fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for LoginToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LoginToken(..)")
+    }
+}
+
 /// Names a runner's child process in `shep describe`
 pub trait LambLabels: Send + Sync + fmt::Debug {
     /// Labels the child `pid` with `label`
@@ -56,6 +96,10 @@ pub struct ClaudeCli {
     pub(super) home: PathBuf,
     // What a call with no fence may not read either: the shepherd's home
     pub(super) unfenced_no_read: Vec<String>,
+    // The login `claude` runs with, in place of the maintainer's in the keychain
+    login: Option<LoginToken>,
+    // Whether this is macOS, where a blocked keychain takes `claude`'s own login with it
+    macos: bool,
 }
 
 // The default home and tools are the maintainer's: `$HOME` and kelpie's own tools.
@@ -73,6 +117,8 @@ impl Default for ClaudeCli {
             ))),
             home,
             unfenced_no_read: Vec::new(),
+            login: None,
+            macos: cfg!(target_os = "macos"),
         }
     }
 }
@@ -112,6 +158,20 @@ impl ClaudeCli {
         let unread = vec![format!("{}/**", codex_home.display())];
         let sandbox = Unreadable::new(runtime, unread).unsetting(secret_vars);
         self.sandboxed(Arc::new(sandbox), home)
+    }
+
+    /// Runs `claude` with `login` in its environment, where there is one, in
+    /// place of the keychain's login
+    ///
+    /// pi and Codex made from this get none of it.
+    pub fn with_login(self, login: Option<LoginToken>) -> Self {
+        Self { login, ..self }
+    }
+
+    /// The same, as on macOS or not, which a test runs on either
+    #[cfg(test)]
+    pub(crate) fn on_macos(self, macos: bool) -> Self {
+        Self { macos, ..self }
     }
 
     /// Keeps a call with no fence, such as a reviewer's session, out of

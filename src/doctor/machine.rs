@@ -7,6 +7,7 @@ use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
 use super::host::Host;
+use crate::adapters::LOGIN_FIX;
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::ConnectRefused;
 use crate::tools::Tools;
@@ -144,7 +145,43 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
             "run `shep kelpie tools install`",
         );
     }
+    // `tools install` makes the copy that cuts the keychain out of a call's
+    // profile, and a covered repo's calls run under nothing else.
+    if host.has_keychain() && !tools.keychain_blocked() {
+        return Line::missing(
+            "sandbox",
+            format!(
+                "the sandbox runtime has no copy at {} that keeps a call from the keychain, \
+                 so no call on a repo kelpie's App covers starts",
+                tools.sandbox_without_keychain().display()
+            ),
+            "run `shep kelpie tools install`",
+        );
+    }
     Line::ok("sandbox", "the sandbox runtime can run")
+}
+
+/// The login a project's `claude` calls run with, for a repo the App covers (`covered`)
+/// on a machine with a keychain, where the calls cannot reach the one `claude` keeps there
+///
+/// The runner reads the token from its sheep's `env`, and doctor from this
+/// shell's, so a token only the runner has is missing here too.
+pub(super) fn login(subject: String, covered: bool, host: &dyn Host) -> Option<Line> {
+    if !covered || !host.has_keychain() {
+        return None;
+    }
+    Some(match host.login_token() {
+        true => Line::ok(
+            subject,
+            "claude logs in with CLAUDE_CODE_OAUTH_TOKEN, as the keychain is blocked in its calls",
+        ),
+        false => Line::missing(
+            subject,
+            "the keychain is blocked in this project's calls and CLAUDE_CODE_OAUTH_TOKEN is not \
+             set in this shell, so claude has no login there",
+            format!("{LOGIN_FIX}; to check it here, run doctor once with the variable set"),
+        ),
+    })
 }
 
 /// The shepherd, on the pinned shep line

@@ -132,6 +132,8 @@ fn a_ci_fix_turn_after_a_compaction_still_starts_with_its_skill_s_command() {
     step(&runner).unwrap(); // review round 1
     step(&runner).unwrap(); // review round 2
     let head = rig.forge.head_of("kelpie/7").unwrap();
+    // The gate begins here, so CI blocks from now on.
+    rig.ci_on_now(&runner);
     rig.forge
         .set_checks(&head, Checks::Failed(vec!["lint".to_owned()]));
     rig.verdict(&runner); // CI is red, so the worker's next turn is a fix

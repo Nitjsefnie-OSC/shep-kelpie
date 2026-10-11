@@ -7,6 +7,12 @@ pub trait Host: Send + Sync + fmt::Debug {
     /// The programs the sandbox runtime needs that are not on this machine,
     /// none when it can run
     fn sandbox_gaps(&self) -> Vec<&'static str>;
+
+    /// Whether this machine keeps logins in a keychain a sandboxed command can ask
+    fn has_keychain(&self) -> bool;
+
+    /// Whether this shell's environment holds the login token `claude setup-token` makes
+    fn login_token(&self) -> bool;
 }
 
 /// The programs the sandbox runtime needs on `os`, as `std::env::consts::OS` names it

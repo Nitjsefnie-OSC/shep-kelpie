@@ -20,7 +20,10 @@ _Avoid_: harness (the working name before 2026-09-25), control room
    ends its turn.
 4. **Review.** Each reviewer in the project's list reads the pull request
    once, in order, and one with any finding, nits included, is followed by
-   one fix turn. The pass ends where it ends: no loop, no judge.
+   one fix turn. The pass ends where it ends: no loop, no judge. No
+   reviewer reads a head until CI has passed on it, so the worker's push and
+   each fix turn's head wait for green first, and a red run goes to the
+   worker's CI fix turn before any reviewer reads.
 5. **CI.** A red run goes back to the worker. A second red run on a head the
    worker left alone is a `stuck` ruling.
 6. **Merge.** A ruling under `ask`, kelpie's code under `auto`, as a merge
@@ -292,7 +295,9 @@ private key stays in kelpie's home, and kelpie acts as the App with an
 installation token minted from it, one per repo. Kelpie's rulings, notices
 and review rounds are posted as the App, and the issues and labels it makes.
 Merging, a review bot's summons and a pull request's labels stay on the
-maintainer's own `gh` login.
+maintainer's own `gh` login. On a repo it covers, a **worker** holds a token
+of the App's too, for that repo alone and able to push and nothing more,
+never the maintainer's login.
 _Avoid_: bot account, kelpie's account
 
 **Pacing**:
