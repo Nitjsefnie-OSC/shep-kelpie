@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ports::Forge;
 use crate::settings::ForgeSlug;
-use crate::worktree::{self, BASE, Start};
+use crate::worktree::{self, BASE, Start, WorktreeError};
 
 use super::Project;
 
@@ -48,8 +48,17 @@ impl Docs {
             build: folder.join(format!("docs-{name}.build")),
         };
         let repo = &project.settings.git.checkout;
-        worktree::prepare(repo, &docs.worktree, &docs.branch, Start::Main, &docs.build)
-            .map_err(|e| format!("cannot cut a docs branch from main: {e}"))?;
+        let prepared =
+            worktree::prepare(repo, &docs.worktree, &docs.branch, Start::Main, &docs.build);
+        if let Err(e) = prepared {
+            // A step after the worktree was added may have failed, and the
+            // next run names a branch of its own. A branch or folder that
+            // was already there is not kelpie's to remove.
+            if !matches!(e, WorktreeError::Foreign(_) | WorktreeError::BranchTaken(_)) {
+                docs.discard(project);
+            }
+            return Err(format!("cannot cut a docs branch from main: {e}"));
+        }
         Ok(docs)
     }
 
