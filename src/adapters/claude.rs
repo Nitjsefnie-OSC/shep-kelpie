@@ -260,19 +260,23 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     }
     let text = serde_json::to_string_pretty(&value).expect("settings are JSON");
     let folder = call.settings.parent().unwrap_or(std::path::Path::new("/"));
-    std::fs::create_dir_all(folder)
-        .and_then(|()| std::fs::write(&call.settings, text))
-        .and_then(|()| match call.compact_window {
-            Some(_) => std::fs::write(&again, compacted_prompt(&call.prompt)),
-            None => Ok(()),
+    let write = |path: &std::path::Path, text: String| {
+        std::fs::write(path, text).map_err(|e| {
+            AgentError::Setup(format!("cannot write {}: {}", path.display(), e.kind()))
         })
-        .map_err(|e| {
-            AgentError::Setup(format!(
-                "cannot write {}: {}",
-                call.settings.display(),
-                e.kind()
-            ))
-        })
+    };
+    std::fs::create_dir_all(folder).map_err(|e| {
+        AgentError::Setup(format!(
+            "cannot write {}: {}",
+            call.settings.display(),
+            e.kind()
+        ))
+    })?;
+    write(&call.settings, text)?;
+    match call.compact_window {
+        Some(_) => write(&again, compacted_prompt(&call.prompt)),
+        None => Ok(()),
+    }
 }
 
 // What a compaction's hook prints into the session: the turn's prompt again.
