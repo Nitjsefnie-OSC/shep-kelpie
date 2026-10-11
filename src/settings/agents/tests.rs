@@ -211,7 +211,8 @@ fn an_implementer_off_claude_code_beside_guard_hooks_is_refused_at_load() {
             format!(
                 "setting `agents.implementers`: implementer {name} runs on {harness}, which \
                  cannot run `worker.guard_hooks`, which are Claude Code hooks: turn those \
-                 off, move the check to `hooks`, or build on Claude Code"
+                 off, move the check to a `command` or `write` hook in `hooks`, which runs \
+                 on every harness, or build on Claude Code"
             )
         );
     }

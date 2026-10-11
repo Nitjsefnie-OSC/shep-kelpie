@@ -309,7 +309,8 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
         .is_some_and(|f| !f.hooks.is_empty())
     {
         return Err(AgentError::Setup(
-            "kelpie does not run `worker.guard_hooks` on codex: remove them, move the check to `hooks`, or put \
+            "kelpie does not run `worker.guard_hooks` on codex: remove them, move the check \
+             to a `command` or `write` hook in `hooks`, which runs on every harness, or put \
              the worker on Claude Code"
                 .into(),
         ));

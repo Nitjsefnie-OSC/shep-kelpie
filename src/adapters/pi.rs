@@ -287,7 +287,8 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     {
         return Err(AgentError::Setup(
             "pi cannot run `worker.guard_hooks`, which are Claude Code hooks: \
-             remove them, move the check to `hooks`, or put the worker on Claude Code"
+             remove them, move the check to a `command` or `write` hook in `hooks`, which \
+             runs on every harness, or put the worker on Claude Code"
                 .into(),
         ));
     }

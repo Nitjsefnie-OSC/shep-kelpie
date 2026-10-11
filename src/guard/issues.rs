@@ -20,7 +20,7 @@ use super::shell::{self, Command};
 use super::wrap::FUNCTION;
 use super::{Home, MAX_COMMANDS};
 use crate::confine::Verdict;
-use crate::hooks::Hooks;
+use crate::hooks::{Hooks, Role};
 use crate::local_paths::LocalPaths;
 use gh::Gh;
 use ledger::Ledger;
@@ -128,6 +128,8 @@ pub fn judge_issues_with(
     struct Call {
         tool_name: String,
         #[serde(default)]
+        cwd: std::path::PathBuf,
+        #[serde(default)]
         tool_input: ToolInput,
     }
     #[derive(Deserialize, Default)]
@@ -183,7 +185,8 @@ pub fn judge_issues_with(
         }
     }
     match refusals.is_empty() {
-        true => Verdict::Allow,
+        // What the writer may run is the project's to judge too, whole.
+        true => super::command_hooks(hooks, Role::IssueWriter, &line, &call.cwd, None),
         false => Verdict::Refuse(refusals.join("\n\n")),
     }
 }
