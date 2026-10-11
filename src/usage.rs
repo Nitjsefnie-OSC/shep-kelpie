@@ -24,6 +24,7 @@ use crate::work_item::{QwenTally, RoleTally, Tally};
 pub mod baselines;
 mod draft;
 mod import;
+mod panel;
 mod report;
 
 pub use draft::{Draft, Spent, ended};
