@@ -89,8 +89,8 @@ pub enum TokenError {
     /// The App was never given the Contents permission a worker's token
     /// holds: it was registered before workers held its tokens
     NoContents(App),
-    /// GitHub made a worker's token hold more than the permission to push, or
-    /// not that, with what it holds
+    /// GitHub made a worker's token hold more than the permission to push and
+    /// to change workflow files, or not the push, with what it holds
     TooBroad(String),
     /// The App's files could not be read
     Store(StoreError),
@@ -146,14 +146,24 @@ pub trait GithubApp: Send + Sync {
     fn token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
 
     /// A token for a worker's calls on `repo`: minted fresh, so it has its
-    /// whole hour to run, and holding the permission to push and nothing
-    /// that can comment, review, approve or merge
+    /// whole hour to run, and holding the permission to push, and to change
+    /// workflow files where the App has that permission, and nothing that can
+    /// comment, review, approve or merge
     ///
     /// # Errors
     ///
     /// As [`GithubApp::token`], and also when GitHub refuses the permission
     /// because the App was never given it.
-    fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
+    fn worker(&self, repo: &ForgeSlug) -> Result<WorkerToken, TokenError>;
+
+    /// The token [`GithubApp::worker`] mints, and no more
+    ///
+    /// # Errors
+    ///
+    /// As [`GithubApp::worker`].
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
+        self.worker(repo).map(|worker| worker.token)
+    }
 
     /// A token to resolve a review thread on `repo`: minted fresh and never
     /// kept, since it can push, which the token of [`GithubApp::token`] cannot
@@ -162,6 +172,16 @@ pub trait GithubApp: Send + Sync {
     ///
     /// As [`GithubApp::token`].
     fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
+}
+
+/// A worker's token and what it lets the worker change beyond its branch
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerToken {
+    /// The token
+    pub token: InstallationToken,
+    /// Whether it lets the worker push a change to a workflow file, which
+    /// runs with the repo's secrets
+    pub workflows: bool,
 }
 
 // An App's id and a repo's `owner/name` in lower case
@@ -234,8 +254,8 @@ impl GithubApp for AppTokens {
         self.mint(repo, Grant::Threads).map(|issued| issued.token)
     }
 
-    fn worker_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
-        match self.mint(repo, Grant::Worker).and_then(pushes_only) {
+    fn worker(&self, repo: &ForgeSlug) -> Result<WorkerToken, TokenError> {
+        match (self.mint(repo, Grant::Worker { workflows: false })).and_then(pushes_only) {
             // GitHub answers 422 to a request for a permission the App lacks.
             Err(TokenError::Api(ApiError::Refused(422))) => {
                 let owner = Owner::of(repo).map_err(TokenError::Owner)?;
@@ -244,19 +264,27 @@ impl GithubApp for AppTokens {
                     None => Err(TokenError::NoApp(owner)),
                 }
             }
-            minted => minted.map(|issued| issued.token),
+            minted => minted.map(|issued| WorkerToken {
+                workflows: issued
+                    .permissions
+                    .get("workflows")
+                    .is_some_and(|l| l == "write"),
+                token: issued.token,
+            }),
         }
     }
 }
 
-// What GitHub says a worker's token holds must be the permission to push
-// and the read of metadata every token has, whatever was asked for.
+// What GitHub says a worker's token holds must be the permission to push,
+// the permission to change workflow files where the App has it, and the read
+// of metadata every token has, whatever was asked for.
 fn pushes_only(issued: IssuedToken) -> Result<IssuedToken, TokenError> {
     let holds = |name: &str, level: &str| issued.permissions.get(name).is_some_and(|l| l == level);
-    let only = issued
-        .permissions
-        .keys()
-        .all(|n| n == "contents" || n == "metadata");
+    let only = (issued.permissions.iter()).all(|(name, level)| match name.as_str() {
+        "contents" | "metadata" => true,
+        "workflows" => level == "write",
+        _ => false,
+    });
     match holds("contents", "write") && only {
         true => Ok(issued),
         false => Err(TokenError::TooBroad(
@@ -272,7 +300,8 @@ impl AppTokens {
     // A token of kelpie's kept until it nears its end. A worker's and a
     // thread's are never kept: a worker's has the whole of its hour for the
     // call that gets it, and both can push, so kelpie's own posts must never
-    // be handed them.
+    // be handed them. A worker's `grant` names no `workflows`: the
+    // installation says whether to ask for it.
     fn mint(&self, repo: &ForgeSlug, grant: Grant) -> Result<IssuedToken, TokenError> {
         let owner = Owner::of(repo).map_err(TokenError::Owner)?;
         let app = (self.apps.get(&owner).map_err(TokenError::Store)?)
@@ -308,13 +337,16 @@ impl AppTokens {
                     repo: repo.clone(),
                 });
             }
-            installation
+            // A worker's token asks for what the installation holds now, so
+            // the installation is read afresh, and a permission the
+            // maintainer accepted since takes effect on the next call.
+            installation.filter(|_| !matches!(grant, Grant::Worker { .. }))
         };
         let jwt = self.jwt(&app, &owner, now)?;
-        let id = match installation {
-            Some(id) => id,
+        let (id, workflows) = match installation {
+            Some(id) => (id, false),
             None => match self.api.installation(&jwt, repo)? {
-                Some(id) => id,
+                Some(found) => (found.id, found.workflows),
                 None => {
                     // Believed for a while, so a repo the App does not cover costs no
                     // JWT and no call each time it is asked about.
@@ -327,6 +359,10 @@ impl AppTokens {
                     });
                 }
             },
+        };
+        let grant = match grant {
+            Grant::Worker { .. } => Grant::Worker { workflows },
+            kelpie => kelpie,
         };
         let issued = match self.api.access_token(&jwt, id, repo, grant) {
             Ok(issued) => issued,
