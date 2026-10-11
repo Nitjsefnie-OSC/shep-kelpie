@@ -161,6 +161,12 @@ impl Runner {
         // A merge ruling's no whose fix goes to CI with no pass of the review.
         // Any answer to a merge ruling replaces what an earlier no left.
         let merge = matches!(ruling.kind, RulingKind::Merge { .. });
+        // A yes merges past the threads that held it, so a catch-up with
+        // `main` that withdraws the yes does not ask about them again.
+        let accepted = match (&answer, &ruling.kind) {
+            (Answer::Yes, RulingKind::Merge { held_by, .. }) => held_by.clone(),
+            _ => Vec::new(),
+        };
         let noted_from = match (&answer, &ruling.kind) {
             (Answer::No(_), RulingKind::Merge { head, .. }) if !needs_pass(&ruling.kind) => {
                 Some(head.clone())
@@ -220,6 +226,7 @@ impl Runner {
                 item.claude_files_accepted = accepts;
             }
             if merge {
+                item.threads_accepted.extend(accepted);
                 item.noted_from = noted_from;
                 item.late_from = None;
                 self.late_reads.remove(&item.issue);
@@ -712,6 +719,7 @@ pub(super) fn question(id: u64, issue: u64, number: Option<u64>, kind: &RulingKi
             note_fix,
             late_fix,
             nits,
+            ..
         } => {
             let mut unread = unreviewed.as_ref().map_or_else(String::new, |why| {
                 format!(" No reviewer read it in its last review: {why}.")

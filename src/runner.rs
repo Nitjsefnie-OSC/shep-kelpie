@@ -684,6 +684,7 @@ impl Runner {
             threads_sent: Vec::new(),
             thread_answers: Vec::new(),
             resolve_failures: 0,
+            threads_accepted: Vec::new(),
             reviewers_skipped: Vec::new(),
             unreviewed: None,
             local_failures: Default::default(),

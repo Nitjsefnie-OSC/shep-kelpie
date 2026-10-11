@@ -26,7 +26,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -40,7 +40,7 @@ use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, Wor
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 24;
+const VERSION: u32 = 25;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -392,6 +392,9 @@ pub enum RulingKind {
         /// when any are
         #[serde(default, skip_serializing_if = "Option::is_none")]
         open_threads: Option<String>,
+        /// The forge's ids of those threads, which a yes accepts
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        held_by: Vec<String>,
         /// Whether no review round read the head, and no fix turn kelpie
         /// sent pushed it
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]

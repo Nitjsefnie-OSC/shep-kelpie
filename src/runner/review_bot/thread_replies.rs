@@ -122,6 +122,46 @@ fn a_thread_the_workers_reply_leaves_out_is_replied_to_as_not_addressed_and_stay
     );
 }
 
+// Under `auto` a yes merges past the threads that held the ruling, so a
+// catch-up with `main` that withdraws the yes does not ask about them again.
+#[test]
+fn a_yes_merges_past_its_open_threads_after_main_moves() {
+    let rig = listing("shep", &["cubic"]);
+    rig.merge_auto();
+    let (rig, runner, _) = sent_in(rig, &[FINDING]);
+    rig.claude
+        .script([Scripted::Push("strip.txt", "stripped\n")]);
+    step(&runner).unwrap(); // the worker's fix turn, which leaves the thread open
+    step(&runner).unwrap(); // the thread is replied to as not addressed
+    let fixed = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&fixed, Checks::Passed);
+    let Some(StepReport::Ruling { id, question, .. }) = rig.verdict(&runner) else {
+        panic!("no merge ruling");
+    };
+    assert!(question.contains("1 from cubic"), "{question}");
+
+    rig.land_on_origin("landed.txt");
+    rig.ask(&runner, "rule", Some(&format!("{id} yes")));
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::YesWithdrawn { reason, .. }) if reason == "main moved since the question"
+    ));
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Rebased { .. })
+    ));
+    let rebased = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&rebased, Checks::Passed);
+    assert!(
+        matches!(
+            rig.verdict(&runner),
+            Some(StepReport::Finished { merged: true, .. })
+        ),
+        "the open thread asked again"
+    );
+    assert_eq!(rig.forge.coderabbit.resolved(), Vec::<String>::new());
+}
+
 // A reply the parser cannot read says nothing of any thread, so each is
 // replied to as not addressed and none is resolved, whatever it pushed.
 #[test]

@@ -253,6 +253,7 @@ pub(super) fn said(kind: &RulingKind) -> String {
             note_fix,
             late_fix,
             nits,
+            ..
         } => {
             let mut said = format!("Merge this pull request at {} into main?", short(head));
             let flags = [

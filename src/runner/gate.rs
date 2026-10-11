@@ -174,6 +174,7 @@ impl Runner {
             head,
             unreviewed,
             open_threads: open.holding,
+            held_by: open.held_by,
             unread_head,
             note_fix,
             late_fix,
