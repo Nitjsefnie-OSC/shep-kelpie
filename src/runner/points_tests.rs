@@ -401,6 +401,37 @@ fn a_reviewer_s_prompt_the_turn_start_hook_refuses_is_not_sent() {
     assert_eq!(phase(&rig, &runner), "review");
 }
 
+#[test]
+fn a_reviewer_skipped_after_the_turn_start_hook_refused_it_names_the_hook_in_the_skip() {
+    let rig = Rig::new("shep");
+    rig.hook(
+        "gate.sh",
+        &["turn_start"],
+        "grep -q '\"recipient\":\"reviewer\"' && { echo 'no reviewers today' >&2; exit 2; }; exit 0",
+    );
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Text("CLEAN"),
+    ]);
+
+    step(&runner).unwrap(); // the worker's turn
+    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    step(&runner).unwrap(); // round 2, claude: refused, tried again
+    step(&runner).unwrap(); // refused again
+    let report = step(&runner).unwrap(); // refused a third time: skipped
+
+    let Some(StepReport::ReviewerSkipped { reason, .. }) = report else {
+        panic!("a reviewer the hook keeps refusing was not skipped: {report:?}");
+    };
+    assert!(
+        reason.contains("the `turn_start` hook `gate.sh` refused: no reviewers today"),
+        "{reason}"
+    );
+}
+
 // Issue 7's build turn opened pull request 71 with its session at 200k tokens of
 // context, and round 1 found one thing, so a fix turn is next, behind a `/compact`.
 fn compact_due(rig: &Rig) -> Mutex<Runner> {
