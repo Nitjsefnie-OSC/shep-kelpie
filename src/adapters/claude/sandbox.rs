@@ -582,6 +582,9 @@ mod tests {
                 "project",
                 "--settings",
                 settings.to_str().unwrap(),
+                "--tools",
+                "Bash,Read,Edit,Write,Glob,Grep,Skill",
+                "--strict-mcp-config",
                 "--resume",
                 "s",
             ]
