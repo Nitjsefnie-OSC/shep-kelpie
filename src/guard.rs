@@ -21,6 +21,7 @@
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
 //! only the commands it lists.
 
+mod after;
 mod gh;
 mod git;
 mod issues;
@@ -29,6 +30,7 @@ mod script;
 mod shell;
 mod wrap;
 
+pub use after::{AFTER_FLAG, after_flag, judge_after};
 pub use issues::{
     AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, issue_rules, judge_issues,
     judge_issues_with, record_issues,
@@ -43,6 +45,7 @@ use serde::Deserialize;
 use crate::confine::Verdict;
 use crate::hooks::{Hooks, Role};
 use crate::local_paths::{Leak, LocalPaths, Surface};
+use crate::settings::HookPoint;
 use judging::{CallState, Judging};
 
 /// Where the worker's own git lives
@@ -256,11 +259,32 @@ pub fn judge_with(
         checkout,
     };
     let mut call_state = CallState::default();
-    judging.line(&line, Some(call.cwd), 0, &mut call_state);
+    judging.line(&line, Some(call.cwd.clone()), 0, &mut call_state);
     if call_state.refusals.is_empty() {
-        return Verdict::Allow;
+        // What kelpie lets through is the project's to judge too, whole.
+        return command_hooks(hooks, Role::Worker, &line, &call.cwd, Some(checkout.worktree));
     }
     Verdict::Refuse(call_state.refusals.join("\n\n"))
+}
+
+// The project's `command` hooks on a shell command an agent is about to run.
+fn command_hooks(
+    hooks: &Hooks,
+    role: Role,
+    line: &str,
+    cwd: &Path,
+    folder: Option<&Path>,
+) -> Verdict {
+    if !hooks.has(HookPoint::Command) {
+        return Verdict::Allow;
+    }
+    let details = serde_json::json!({ "command": line, "cwd": cwd });
+    match hooks.check(HookPoint::Command, role, folder, details) {
+        Ok(()) => Verdict::Allow,
+        Err(refusal) => Verdict::Refuse(format!(
+            "this command: {refusal}. Change it so the hook accepts it, then try again."
+        )),
+    }
 }
 
 // The `isolation` a project subagent's definition in the worktree sets.
