@@ -250,6 +250,7 @@ mod tests {
                 prompt: "go".into(),
                 plugin_dirs: Vec::new(),
                 tools: Tools::Answer,
+                agent_tools: None,
                 reach: Reach::default(),
                 lease: None,
             }
@@ -275,6 +276,7 @@ mod tests {
             };
             AgentCall {
                 tools: Tools::Work,
+                agent_tools: None,
                 reach: profile.reach(),
                 ..self.call(Role::Worker)
             }

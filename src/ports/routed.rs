@@ -103,6 +103,7 @@ mod tests {
             prompt: "go".into(),
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
+            agent_tools: None,
             lease: None,
             reach: Reach::default(),
         }

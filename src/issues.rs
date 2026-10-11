@@ -383,6 +383,7 @@ fn call(
         prompt: format!("The maintainer's request:\n\n{}", request.trim()),
         plugin_dirs: Vec::new(),
         tools: Tools::Issues,
+        agent_tools: None,
         reach,
         lease: None,
     })

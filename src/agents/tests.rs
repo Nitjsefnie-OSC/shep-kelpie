@@ -10,6 +10,7 @@ fn url(text: &str) -> EndpointUrl {
 mod bots;
 mod issue_writer;
 mod pm;
+mod tools;
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                     url: http://box:11434/v1\ncontext: 65536\n---\n";

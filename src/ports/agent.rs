@@ -199,6 +199,10 @@ pub struct AgentCall {
     pub plugin_dirs: Vec<PathBuf>,
     /// The kinds of tool it may use
     pub tools: Tools,
+    /// The tools its agent file names, as `claude --tools` takes them, in
+    /// place of what a worker's or a reviewer's own kind starts with. A
+    /// retro, the project manager and the issue writer keep their own.
+    pub agent_tools: Option<String>,
     /// The lease the call holds from start to end, for a local agent
     pub lease: Option<LeaseName>,
     /// What it may reach

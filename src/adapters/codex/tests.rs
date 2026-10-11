@@ -618,6 +618,7 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Answer,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
         }
@@ -656,6 +657,7 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
     AgentCall {
         role: Role::Worker,
         tools: Tools::Work,
+        agent_tools: None,
         reach: profile.reach(),
         ..call
     }

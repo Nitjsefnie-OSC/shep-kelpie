@@ -81,6 +81,17 @@ const RETRO_DENY: [&str; 14] = [
     "ExitWorktree",
 ];
 
+/// The only tools a worker's session starts with, as `--tools` takes them
+///
+/// `Skill` stays because a vendored skill calls another (`tdd` calls
+/// `codebase-design`). With the five `disable*` settings, a trivial call's
+/// context is 8,265 tokens, from 18,385.
+pub(crate) const WORK_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep,Skill";
+
+/// The only tools a reviewer's session starts with, as `--tools` takes them:
+/// it reads the worktree and runs no command, which [`REVIEW_DENY`] holds it to
+pub(crate) const REVIEW_TOOLS: &str = "Read,Glob,Grep";
+
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
 
@@ -545,10 +556,10 @@ mod tests {
                 "disableWorkflows",
                 "disableClaudeAiConnectors",
                 "disableArtifact",
+                "disableRemoteControl",
             ] {
                 assert_eq!(s[key], true, "{tools:?} {key}");
             }
-            assert!(s.get("disableRemoteControl").is_none(), "{tools:?}");
             assert_eq!(s["enableArtifact"], false, "{tools:?}");
             let own: &[&str] = match tools {
                 Tools::Work => &WORK_DENY,

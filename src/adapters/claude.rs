@@ -304,12 +304,18 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         "--settings".into(),
         call.settings.clone().into(),
     ];
-    // The project manager's and a retro's tools are allow-lists, and neither
-    // loads an MCP server, so what a project's settings allow adds nothing.
+    // Every kind of call but an answer or the issue writer's runs on an
+    // allow-list and loads no MCP server, so what a project's settings allow
+    // adds nothing. An agent file's own list replaces a worker's and a
+    // reviewer's, and no other's.
+    use crate::ports::Tools as Kind;
+    let own = call.agent_tools.as_deref();
     let tools = match (call.role, call.tools) {
         (Role::Pm, _) => Some(settings::PM_TOOLS),
-        (_, crate::ports::Tools::Retro) => Some(settings::RETRO_TOOLS),
-        _ => None,
+        (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
+        (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
+        (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
+        (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
     };
     if let Some(tools) = tools {
         argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
@@ -534,6 +540,7 @@ mod tests {
             prompt: "implement #6".into(),
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
         }
@@ -561,6 +568,9 @@ mod tests {
                 "project",
                 "--settings",
                 "/k/worker/settings.json",
+                "--tools",
+                "Bash,Read,Edit,Write,Glob,Grep,Skill",
+                "--strict-mcp-config",
                 "--output-format",
                 "json",
                 "--permission-mode",
@@ -697,12 +707,50 @@ mod tests {
             assert!(pm.iter().any(|a| a == "--strict-mcp-config"));
             assert!(!pm.iter().any(|a| a == "bypassPermissions"));
         }
-        let worker = argv(&call(Role::Worker, fresh()));
-        assert!(
-            !worker
-                .iter()
-                .any(|a| a == "--tools" || a == "--strict-mcp-config")
+    }
+
+    #[test]
+    fn a_worker_runs_on_the_tools_its_skills_use_and_no_mcp_server() {
+        for worker in [
+            strings(&call(Role::Worker, fresh())),
+            strings(&call(Role::Worker, resume("abc"))),
+        ] {
+            let at = worker.iter().position(|a| a == "--tools").unwrap();
+            assert_eq!(worker[at + 1], "Bash,Read,Edit,Write,Glob,Grep,Skill");
+            assert!(worker.iter().any(|a| a == "--strict-mcp-config"));
+        }
+    }
+
+    #[test]
+    fn a_reviewer_runs_on_the_tools_a_read_only_review_uses_and_no_mcp_server() {
+        let mut review = call(Role::Reviewer, fresh());
+        review.tools = Tools::Review;
+        let argv = strings(&review);
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(argv[at + 1], "Read,Glob,Grep");
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn an_agent_files_tools_replace_a_workers_and_a_reviewers_but_no_others() {
+        let tools_of = |call: &AgentCall| {
+            let argv = strings(call);
+            let at = argv.iter().position(|a| a == "--tools")?;
+            Some(argv[at + 1].clone())
+        };
+        let mut worker = call(Role::Worker, fresh());
+        worker.agent_tools = Some("Bash,Read,Edit,Write,Glob,Grep,Skill,WebFetch".into());
+        assert_eq!(
+            tools_of(&worker).as_deref(),
+            Some("Bash,Read,Edit,Write,Glob,Grep,Skill,WebFetch")
         );
+        let mut review = call(Role::Reviewer, fresh());
+        review.tools = Tools::Review;
+        review.agent_tools = Some("Read,Glob,Grep,Skill".into());
+        assert_eq!(tools_of(&review).as_deref(), Some("Read,Glob,Grep,Skill"));
+        // A retro resumes the worker's session, and stays read-only.
+        worker.tools = Tools::Retro;
+        assert_eq!(tools_of(&worker).as_deref(), Some("Read,Glob,Grep,Skill"));
     }
 
     #[test]
