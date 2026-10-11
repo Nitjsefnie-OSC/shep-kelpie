@@ -17,8 +17,8 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    Checks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, PullRequestState,
-    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    Checks, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
+    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -137,6 +137,10 @@ impl Forge for Gh {
 
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         thread::can_write(repo, login)
+    }
+
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        thread::comment_marks(repo, comment)
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {

@@ -14,8 +14,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment, PullRequest, QueueStanding,
-    Reviewed, ThreadComment, Timestamp, Visibility, Voice,
+    CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment, PullRequest,
+    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -136,6 +136,10 @@ impl Forge for Guarded {
 
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.forge.can_write(repo, login)
+    }
+
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.forge.comment_marks(repo, comment)
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {

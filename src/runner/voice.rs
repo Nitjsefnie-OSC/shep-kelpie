@@ -8,13 +8,13 @@
 //! belongs to. Where no App covers the repo nothing here posts, and the
 //! runner writes as it did before.
 
+use self::card::ruling_comment;
 use super::Runner;
 use super::gate::short;
 use super::ruling::stuck_comment;
-use super::words::Wants;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
-use crate::state::{Heard, Notice, RulingKind};
+use crate::state::{Heard, Notice, Ruling, RulingKind};
 
 impl Runner {
     /// Whether kelpie's App covers the project's repo
@@ -47,9 +47,9 @@ impl Runner {
     pub(super) fn post_app_ruling(
         &self,
         thread: u64,
-        id: u64,
-        kind: &RulingKind,
+        ruling: &Ruling,
     ) -> (Option<String>, Option<Heard>) {
+        let id = ruling.id;
         // A ruling still goes up when no one can be named to mention, as the
         // record on the thread, but it notifies no one and only the terminal
         // answers it, so that is told.
@@ -57,7 +57,7 @@ impl Runner {
             Ok(login) => (Some(login), None),
             Err(e) => (None, Some(e)),
         };
-        let body = ruling_comment(mention.as_deref(), id, kind);
+        let body = ruling_comment(mention.as_deref(), ruling);
         let posted = match self.ports.voice.post(&self.remote, thread, &body) {
             Err(e) => return (Some(e.to_string()), None),
             Ok(posted) => posted,
@@ -67,6 +67,7 @@ impl Runner {
             mentions,
             time: posted.created,
             comment: posted.id,
+            ruling_comment: posted.id,
         });
         let told = unasked.map(|why| {
             // Said in the log once a run, and only for a ruling that went up.
@@ -238,6 +239,54 @@ pub(super) fn merged_notice(notice: &Notice) -> String {
     )
 }
 
+/// What a merge ruling warns of, in words fit for any reader of its thread
+///
+/// Nothing for any other kind of ruling.
+pub(super) fn merge_notes(kind: &RulingKind) -> Vec<&'static str> {
+    let RulingKind::Merge {
+        unreviewed,
+        open_threads,
+        unread_head,
+        note_fix,
+        late_fix,
+        nits,
+        ..
+    } = kind
+    else {
+        return Vec::new();
+    };
+    let flags = [
+        (
+            unreviewed.is_some(),
+            "No reviewer read it in its last review.",
+        ),
+        (
+            open_threads.is_some(),
+            "Review bot threads are still open on it.",
+        ),
+        (
+            *unread_head,
+            "No review round is on record as reading this head.",
+        ),
+        (
+            *note_fix,
+            "This head is the worker's fix for your note, and no reviewer read it.",
+        ),
+        (
+            *late_fix,
+            "This head is the worker's fix for a review bot's late review, and no \
+             reviewer read it.",
+        ),
+        (
+            nits.is_some(),
+            "Review bots left nits on it, which never hold a merge.",
+        ),
+    ];
+    (flags.into_iter())
+        .filter_map(|(set, line)| set.then_some(line))
+        .collect()
+}
+
 /// What a ruling says to a reader of its thread
 ///
 /// Nothing the forge or a reviewer said, which is not written for strangers.
@@ -245,49 +294,11 @@ pub(super) fn merged_notice(notice: &Notice) -> String {
 /// App every kind does, since the thread is where the maintainer answers.
 pub(super) fn said(kind: &RulingKind) -> String {
     match kind {
-        RulingKind::Merge {
-            head,
-            unreviewed,
-            open_threads,
-            unread_head,
-            note_fix,
-            late_fix,
-            nits,
-            ..
-        } => {
+        RulingKind::Merge { head, .. } => {
             let mut said = format!("Merge this pull request at {} into main?", short(head));
-            let flags = [
-                (
-                    unreviewed.is_some(),
-                    "No reviewer read it in its last review.",
-                ),
-                (
-                    open_threads.is_some(),
-                    "Review bot threads are still open on it.",
-                ),
-                (
-                    *unread_head,
-                    "No review round is on record as reading this head.",
-                ),
-                (
-                    *note_fix,
-                    "This head is the worker's fix for your note, and no reviewer read it.",
-                ),
-                (
-                    *late_fix,
-                    "This head is the worker's fix for a review bot's late review, and no \
-                     reviewer read it.",
-                ),
-                (
-                    nits.is_some(),
-                    "Review bots left nits on it, which never hold a merge.",
-                ),
-            ];
-            for (set, line) in flags {
-                if set {
-                    said.push(' ');
-                    said.push_str(line);
-                }
+            for line in merge_notes(kind) {
+                said.push(' ');
+                said.push_str(line);
             }
             said
         }
@@ -320,56 +331,9 @@ pub(super) fn said(kind: &RulingKind) -> String {
     }
 }
 
-/// A ruling's comment through the App: what waits on the maintainer, then how to answer
-fn ruling_comment(mention: Option<&str>, id: u64, kind: &RulingKind) -> String {
-    let said = said(kind);
-    let said = match mention {
-        Some(login) => format!("@{login} {said}"),
-        None => said,
-    };
-    format!("{said}\n\n{}", how_to_answer(mention, id, kind))
-}
+mod card;
 
-// Exactly what to type, and who may type it: a reply that names its id, from
-// the login mentioned. A ruling that mentions no one is answered at the terminal.
-fn how_to_answer(mention: Option<&str>, id: u64, kind: &RulingKind) -> String {
-    let rule = format!("shep kelpie rule {id}");
-    let Some(login) = mention else {
-        let forms = match Wants::of(kind) {
-            Wants::Answer => format!("`{rule} <your answer>`"),
-            Wants::Merge => {
-                format!("`{rule} yes`, `{rule} no <note>` or `{rule} rework <note>`")
-            }
-            Wants::YesOrNo => format!("`{rule} yes` or `{rule} no <note>`"),
-        };
-        return format!(
-            "This ruling mentions no one, so a reply here answers nothing. Answer it at the \
-             terminal: {forms}."
-        );
-    };
-    match Wants::of(kind) {
-        Wants::Answer => format!(
-            "Reply in this thread to answer ruling {id}: @{login}'s reply is the answer.\n\n\
-             If other rulings wait on this thread, start your reply with `{id}`. At the \
-             terminal: `{rule} <your answer>`."
-        ),
-        Wants::Merge => format!(
-            "Reply in this thread to answer ruling {id}. Only @{login}'s reply counts, and it \
-             starts with the ruling's id:\n\
-             - `{id} yes` merges it\n\
-             - `{id} no <note>` sends the worker your note for a fix that goes to CI and back \
-             to you\n\
-             - `{id} rework <note>` sends it your note for a change the whole review reads \
-             again\n\n\
-             A bare `yes` answers nothing. At the terminal: `{rule} yes`."
-        ),
-        Wants::YesOrNo => format!(
-            "Reply `{id} yes` or `{id} no <note>` in this thread to answer ruling {id}. Only \
-             @{login}'s reply counts, and it starts with the ruling's id.\n\n\
-             At the terminal: `{rule} yes`."
-        ),
-    }
-}
+pub(super) use self::card::{thumbs, ticked};
 
 #[cfg(test)]
 mod tests;

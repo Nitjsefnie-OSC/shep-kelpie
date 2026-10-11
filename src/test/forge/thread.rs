@@ -1,9 +1,9 @@
 //! The comments on the fake forge's threads, and who may write to its repo
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::ports::{Clock, ThreadComment, Timestamp};
+use crate::ports::{Clock, CommentMarks, ThreadComment, Thumb, Timestamp};
 use crate::test::FakeClock;
 
 /// The first id a comment on the fake forge gets
@@ -17,6 +17,10 @@ struct Threads {
     reads: Vec<Timestamp>,
     // The login of each ask whether it may write
     asked: Vec<String>,
+    // What people did to the comments kelpie posted, by comment id
+    marks: HashMap<u64, CommentMarks>,
+    // The comments whose marks cannot be read
+    unreadable: HashSet<u64>,
 }
 
 /// What people wrote on the repo's issues and pull requests
@@ -70,6 +74,39 @@ impl FakeThreads {
             created,
         });
         id
+    }
+
+    /// `login` gives comment `comment` a thumbs up, or a thumbs down
+    pub(crate) fn thumbs(&self, comment: u64, login: &str, up: bool) {
+        let mut threads = self.threads.lock().unwrap();
+        let login = login.to_owned();
+        (threads.marks.entry(comment).or_default().thumbs).push(Thumb { login, up });
+    }
+
+    /// `editor` edits comment `comment` to say `body`
+    pub(crate) fn edits(&self, comment: u64, editor: &str, body: &str) {
+        let mut threads = self.threads.lock().unwrap();
+        let marks = threads.marks.entry(comment).or_default();
+        marks.body = body.to_owned();
+        marks.editors.push(editor.to_owned());
+    }
+
+    /// Makes reading what was done to comment `comment` fail
+    pub(crate) fn cannot_read_marks_of(&self, comment: u64) {
+        self.threads.lock().unwrap().unreadable.insert(comment);
+    }
+
+    /// What was done to comment `comment`, as the forge tells it, or none
+    /// when it cannot be read
+    pub(super) fn marks_of(&self, comment: u64) -> Option<CommentMarks> {
+        let threads = self.threads.lock().unwrap();
+        if threads.unreadable.contains(&comment) {
+            return None;
+        }
+        let mut marks = threads.marks.get(&comment).cloned().unwrap_or_default();
+        // The App wrote it, and GraphQL names an App's login without `[bot]`.
+        marks.author = "kelpie-octocat".to_owned();
+        Some(marks)
     }
 
     /// The `since` of each read of the repo's comments, in order

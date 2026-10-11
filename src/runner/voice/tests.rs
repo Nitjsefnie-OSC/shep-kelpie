@@ -9,14 +9,17 @@ const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-
                     `--check`?\n</kelpie-question>\n";
 const QUESTION: &str = "Should it be `--dry-run` or `--check`?";
 
-// The reply a question ruling is answered with, as its comment ends
-const HOW_TO_ANSWER: &str = "Reply in this thread to answer ruling 1: @octocat's reply is the answer.\n\n\
-     If other rulings wait on this thread, start your reply with `1`. \
-     At the terminal: `shep kelpie rule 1 <your answer>`.";
+// A question that lists no options, as its comment reads up to who answers it
+const OPEN_QUESTION: &str = "### Should it be `--dry-run` or `--check`?\n\n\
+     | | Option | What it does |\n|---|---|---|\n| | Other | Reply with your own answer |\n\n";
+
+// ... and how it is answered when someone is mentioned
+const REPLY: &str =
+    "- Reply with your answer, and start it with `1` if other rulings wait on this thread";
 
 // ... and when no one is mentioned
-const HOW_UNMENTIONED: &str = "This ruling mentions no one, so a reply here answers nothing. \
-     Answer it at the terminal: `shep kelpie rule 1 <your answer>`.";
+const HOW_UNMENTIONED: &str = "This ruling mentions no one, so a reaction, a tick or a reply \
+     here answers nothing. Answer it at the terminal: `shep kelpie rule 1 <your answer>`.";
 
 // A running project with issue 7 in flight, whose worker's first turn asks
 // before any pull request is open
@@ -84,15 +87,18 @@ fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the
 
     let short = &head[..7];
     let body = format!(
-        "@octocat Merge this pull request at {short} into main?\n\n\
-         Reply in this thread to answer ruling 1. Only @octocat's reply counts, and it \
-         starts with the ruling's id:\n\
-         - `1 yes` merges it\n\
-         - `1 no <note>` sends the worker your note for a fix that goes to CI and back to \
-         you\n\
-         - `1 rework <note>` sends it your note for a change the whole review reads \
-         again\n\n\
-         A bare `yes` answers nothing. At the terminal: `shep kelpie rule 1 yes`."
+        "### Merge this pull request at {short} into main?\n\n\
+         | | Option | What it does |\n\
+         |---|---|---|\n\
+         | **A** | Merge | Merges it into main |\n\
+         | **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |\n\
+         | **C** | Rework | Sends the worker back for a change the whole review reads again |\n\n\
+         @octocat\n\
+         - 👍 or 👎 answers, or tick one:\n\
+         - [ ] A\n\
+         - [ ] B\n\
+         - [ ] C\n\
+         - Or reply `1 no <note>` or `1 rework <note>`"
     );
     // The two review rounds that came first are on the thread too.
     let comments = rig.github.comments();
@@ -124,7 +130,7 @@ fn a_ruling_before_any_pull_request_is_posted_on_the_issue() {
     assert!(matches!(asked, StepReport::Asked { .. }), "{asked:?}");
     assert_eq!(
         rig.github.comments(),
-        [(7, format!("@octocat {QUESTION}\n\n{HOW_TO_ANSWER}"))]
+        [(7, format!("{OPEN_QUESTION}@octocat\n{REPLY}"))]
     );
     assert_eq!(rig.forge.comments(), []);
 }
@@ -137,7 +143,7 @@ fn with_no_maintainer_set_a_ruling_mentions_the_login_gh_acts_as_asked_once_a_ru
     step(&runner).unwrap(); // the fix turn asks a question: a second ruling
 
     let mentions = (rig.github.comments().into_iter())
-        .filter(|(_, body)| body.starts_with("@the-maintainer "))
+        .filter(|(_, body)| body.contains("\n@the-maintainer\n"))
         .count();
     assert_eq!(mentions, 2, "the merge ruling and the question");
     assert_eq!(rig.forge.viewer_reads(), 1);
@@ -156,7 +162,7 @@ fn a_maintainer_that_is_set_wins_over_the_login_gh_acts_as() {
     });
 
     let comments = rig.github.comments();
-    assert!(comments.last().unwrap().1.starts_with("@octocat "));
+    assert!(comments.last().unwrap().1.contains("\n@octocat\n"));
     assert_eq!(rig.forge.viewer_reads(), 0, "gh is not asked");
 }
 
@@ -180,7 +186,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
     assert!(why.contains("not logged in"), "{why}");
     assert_eq!(
         rig.github.comments(),
-        [(7, format!("{QUESTION}\n\n{HOW_UNMENTIONED}"))]
+        [(7, format!("{OPEN_QUESTION}{HOW_UNMENTIONED}"))]
     );
     assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
 
@@ -191,7 +197,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
     step(&runner).unwrap();
     let comments = rig.github.comments();
     assert!(
-        comments.last().unwrap().1.starts_with("@the-maintainer "),
+        comments.last().unwrap().1.contains("\n@the-maintainer\n"),
         "{comments:?}"
     );
 }

@@ -628,7 +628,36 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling's id is unique across projects, so `rule` needs no project. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling can also be answered by replying in its thread, and its comment says exactly what to type. Only the login the comment mentions (`git.maintainer`, else the login `gh` acts as) answers, and it needs write access to the repo. Start the reply with the ruling's id, as `shep kelpie rule` does: `14 yes`, `14 no <note>`, `14 rework <note>` for a merge ruling. A bare `yes` answers nothing, so a conversational one never merges. A worker's question takes free text, with the id first only when several rulings wait on the thread. A ruling that mentions no one, because `git.maintainer` is unset and `gh` cannot say who it acts as, is answered at the terminal only, and its comment says so. Anyone else's reply, a bot's and a comment kelpie posted itself are left alone. Kelpie reacts with a thumbs up to the reply it took as the answer, and replies once to one it could not read, saying what to type. It reads the thread about once a minute. The first answer wins, whether it comes from the thread, the terminal or ntfy, and the other is told the ruling is already answered. A worker's own `gh` may not comment: `gh pr comment`, `gh issue comment`, and any `gh pr` or `gh issue` verb but `create` and `edit` that carries a body or `--comment` (a `close` with a comment, a `review` with a body) are refused, as is any flag but `-R` before the verb and any `gh` word a shell expands (`$`, a backtick, `{`, `~`, a glob character) outside a `--body` or `--title`, since its `gh` is your login.
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel holds the project manager's words where it gave any. Here is a merge ruling:
+
+```markdown
+### Merge this pull request at 6b0606e into main?
+
+| | Option | What it does |
+|---|---|---|
+| **A** | Merge | Merges it into main |
+| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |
+| **C** | Rework | Sends the worker back for a change the whole review reads again |
+
+@octocat
+- 👍 or 👎 answers, or tick one:
+- [ ] A
+- [ ] B
+- [ ] C
+- Or reply `14 no <note>` or `14 rework <note>`
+```
+
+You answer it in the thread, from the comment itself or a reply:
+
+- A ruling that takes a yes or a no (`stuck`, `agent-files`, `foreign-change`, `follow-up`) takes your 👍 or 👎 on its comment. A merge ruling takes them too, as A and B.
+- A merge ruling, and a worker's question that lists options, list them as task-list boxes. Tick one. A worker's question becomes the table from the options it lists, plus an `Other` row for a reply.
+- A 👎, or a ticked `Send back` or `Rework`, carries no note, so the worker is told you gave none. Reply `14 no <note>` to send one.
+- A tick counts only when every edit of the comment was by you or by the App that wrote it, which GraphQL's `userContentEdits` says. Anyone with write access can edit a comment, so one edit by someone else leaves the boxes dead and your 👍 or 👎 or a reply answers instead. A 👍 with a 👎 from you, or two ticked boxes, answers nothing.
+- A reply works as it did. Only the login the comment mentions (`git.maintainer`, else the login `gh` acts as) answers, and it needs write access to the repo. Start the reply with the ruling's id, as `shep kelpie rule` does: `14 yes`, `14 no <note>`, `14 rework <note>` for a merge ruling. A bare `yes` answers nothing, so a conversational one never merges. A worker's question takes free text, with the id first only when several rulings wait on the thread.
+
+Every answer, however given, is applied the same way, and the project manager reads that the ruling was answered in the board's events at its next wake.
+
+A ruling that mentions no one, because `git.maintainer` is unset and `gh` cannot say who it acts as, is answered at the terminal only, and its comment says so. Anyone else's reply, reaction or tick, a bot's and a comment kelpie posted itself are left alone. Kelpie reacts with a thumbs up to the reply it took as the answer, and replies once to one it could not read, saying what to type. It reads the thread and each waiting ruling's comment about once a minute. The first answer wins, whether it comes from the thread, the terminal or ntfy, and the other is told the ruling is already answered. A worker's own `gh` may not comment: `gh pr comment`, `gh issue comment`, and any `gh pr` or `gh issue` verb but `create` and `edit` that carries a body or `--comment` (a `close` with a comment, a `review` with a body) are refused, as is any flag but `-R` before the verb and any `gh` word a shell expands (`$`, a backtick, `{`, `~`, a glob character) outside a `--body` or `--title`, since its `gh` is your login.
 
 On an ntfy webhook, a ruling can be answered from the topic: run `shep kelpie totp` once and scan the QR code into an authenticator app, then reply with the line the alert ends on, such as `14 yes <code>`, with the app's code last. A reply takes the same answers as `shep kelpie rule`. Anyone who can read the topic can read rulings, but only a reply with the code of the moment answers one, and each code answers once. Five wrong codes turn answers off until `shep kelpie totp --unlock`, and `shep kelpie totp --rotate` replaces a secret that may have leaked.
 
@@ -650,7 +679,7 @@ Before it restarts a runner, the upgrade drains it, so the restart cuts no worke
 
 If an upgrade stops after the swap (a merge or a call that outlasts the wait, a sheep that does not come back, Ctrl-C), the new build is already installed and the message says so. `shep kelpie upgrade --binary <installed path>` finishes the restarts and touches no file. `--rollback` does not: it swaps the two builds again.
 
-This build writes each project's state file as version 25, and every older build refuses a version 25 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
+This build writes each project's state file as version 26, and every older build refuses a version 26 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
 
 Every sheep it restarts must run the dog's path. If one does not, the upgrade stops before it changes anything and names the sheep and its path. A `--binary` without its executable bits is refused with the `chmod +x` that fixes it, and only one upgrade runs at a time: a second refuses while the first holds `$SHEP_HOME/kelpie/upgrade.lock`. The swap changes the file for every shepherd that adopts the same path, with no check against their shep.
 
