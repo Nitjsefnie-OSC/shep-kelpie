@@ -31,19 +31,23 @@ impl Runner {
             "## Code\n\nEach open work item's worktree, which you may read, and its branch's \
              diff from main, written in your folder as you woke.\n\n",
         );
+        // Only `pm_call` reaches here, as a wake or `shep kelpie pm` starts,
+        // so the logs are read once per call and not on every board write.
+        // They do not depend on the diffs folder, so they are written first.
+        let mut logs = self.pm_ci_logs(folder);
         if let Err(e) = cleared {
             let why = format!("cannot clear {}: {}", diffs.display(), e.kind());
             self.notes
                 .push(format!("the project manager's diffs: {why}"));
             let _ = writeln!(out, "(no diffs: {why})");
+            for (issue, log) in logs {
+                let _ = writeln!(out, "- #{issue}: {log}");
+            }
             return out;
         }
         if self.state.work_items.is_empty() {
             out.push_str("(none)\n");
         }
-        // Only `pm_call` reaches here, as a wake or `shep kelpie pm` starts,
-        // so the logs are read once per call and not on every board write.
-        let mut logs = self.pm_ci_logs(folder);
         let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         for issue in issues {
             let file = format!("{DIFFS}/{issue}.diff");

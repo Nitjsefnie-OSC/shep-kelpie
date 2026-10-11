@@ -82,6 +82,26 @@ fn a_log_that_cannot_be_read_is_noted_and_the_wake_still_happens() {
 }
 
 #[test]
+fn a_diffs_folder_that_cannot_be_cleared_does_not_cost_the_wake_its_ci_log() {
+    let (rig, runner, _) = parked_red("snorlax", |rig| rig.forge.set_ci_log("--- run 9\nboom\n"));
+    let pm = rig.paths().pm;
+    std::fs::remove_dir_all(pm.join("diffs")).unwrap();
+    std::fs::write(pm.join("diffs"), "in the way").unwrap();
+    std::fs::remove_file(pm.join("ci/7.log")).unwrap();
+
+    rig.ask(&runner, "tell", Some("how is #7?"));
+    rig.claude.script([Scripted::Say(NOTHING)]);
+    answered(Some(step_until(&runner, |r| {
+        matches!(r, StepReport::PmAnswered { .. })
+    })));
+
+    let board = std::fs::read_to_string(pm.join("board.md")).unwrap();
+    assert!(board.contains("(no diffs: cannot clear"), "{board}");
+    assert!(board.contains("- #7: CI log `ci/7.log`\n"), "{board}");
+    assert!(pm.join("ci/7.log").is_file());
+}
+
+#[test]
 fn a_log_does_not_outlive_its_ruling() {
     let (rig, runner, _) = parked_red("ditto", |rig| rig.forge.set_ci_log("--- run 9\nboom\n"));
     let pm = rig.paths().pm;
