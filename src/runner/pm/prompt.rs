@@ -27,6 +27,26 @@ macro_rules! questions {
     };
 }
 
+/// The `votes` key as the answer shows it, which a wake with a ruling to
+/// vote on shows again to a session that has seen the answer without it
+macro_rules! votes_key {
+    () => {
+        "\"votes\": [] or [{\"ruling\": <the ruling's number>, \"choice\": \"<the option's key, such as A>\", \"why\": \"<at most 350 characters, one line>\", \"design\": true|false}]"
+    };
+}
+
+/// How a ruling before the panel is voted on, shown with the `votes` key
+macro_rules! voting {
+    () => {
+        "A ruling before the panel waits on your vote, with the worker, an advisor \
+         and a researcher. You vote alone: you are not shown theirs, and they are not \
+         shown yours. Vote for the option you would answer with, and read the board, \
+         the diffs and the CI logs for it as you would for any decision. `design` is \
+         true when the question changes an ADR, the glossary, a public interface or the \
+         project's direction. A ruling you give no vote on counts as an abstention."
+    };
+}
+
 /// The answer kelpie reads, as the first wake of a session shows it
 const ANSWER: &str = concat!(
     "\
@@ -36,6 +56,8 @@ const ANSWER: &str = concat!(
  \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"},
  ",
     answer_key!(),
+    ",\n ",
+    votes_key!(),
     ",
  \"reply\": null or \"<a message to the maintainer, if one is due>\",
  \"why\": \"<two sentences at most>\"}
@@ -48,7 +70,9 @@ logs any part that names an issue the board does not show as ready, or an item \
 that is not stuck.
 
 ",
-    questions!()
+    questions!(),
+    "\n\n",
+    voting!()
 );
 
 /// The prompt for a wake for `wakes`, carrying `told`: in full for a new
@@ -111,6 +135,14 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
                     questions!()
                 );
             }
+            if wakes.iter().any(|w| matches!(w, Wake::Vote { .. })) {
+                let _ = write!(
+                    out,
+                    "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
+                    votes_key!(),
+                    voting!()
+                );
+            }
         }
     }
     if wakes.iter().any(|w| matches!(w, Wake::Stuck(..))) {
@@ -140,6 +172,18 @@ pub(super) fn reason(wake: &Wake) -> String {
         ),
         Wake::Stuck(issue, what) => format!("#{issue} is stuck: {what}"),
         Wake::Told => "the maintainer told you something".to_owned(),
+        Wake::Vote { id, asked } => {
+            let mut out = format!("ruling {id} is before the panel, and your vote is due:\n");
+            for line in asked.lines() {
+                match line.is_empty() {
+                    true => out.push_str("\n>"),
+                    false => {
+                        let _ = write!(out, "\n> {line}");
+                    }
+                }
+            }
+            out
+        }
         Wake::Question { issue, id, asked } => {
             let mut out = format!("#{issue}'s worker asks, on ruling {id}:\n");
             for line in asked.lines() {
@@ -222,5 +266,30 @@ mod tests {
         assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
+    }
+
+    #[test]
+    fn a_wake_for_a_ruling_before_the_panel_shows_it_and_asks_for_a_vote_alone() {
+        let vote = Wake::Vote {
+            id: 4,
+            asked: "### Merge #455 into main?\n\n| | Option | What it does |".into(),
+        };
+        let fresh = wake("koji", std::slice::from_ref(&vote), &[], true);
+        assert!(
+            fresh.contains(
+                "- ruling 4 is before the panel, and your vote is due:\n  \n  > ### Merge #455 \
+                 into main?\n  >\n  > | | Option | What it does |"
+            ),
+            "{fresh}"
+        );
+        assert!(fresh.contains("\"votes\": [] or [{\"ruling\""), "{fresh}");
+        let resumed = wake("koji", &[vote], &[], false);
+        assert!(
+            resumed.contains("\"votes\": [] or [{\"ruling\""),
+            "{resumed}"
+        );
+        assert!(resumed.contains("You vote alone"), "{resumed}");
+        let other = wake("koji", &[Wake::Pick(2)], &[], false);
+        assert!(!other.contains("\"votes\""), "{other}");
     }
 }

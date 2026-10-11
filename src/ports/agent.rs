@@ -31,6 +31,10 @@ pub enum Role {
     IssueWriter,
     /// The project manager's session, resumed across its wakes
     Pm,
+    /// The advisor's one-shot session, which votes on a ruling
+    Advisor,
+    /// The researcher's one-shot session, which votes on a ruling
+    Researcher,
 }
 
 #[cfg(test)]
@@ -46,6 +50,8 @@ mod role_tests {
         assert_eq!(Role::Reviewer.as_str(), "reviewer");
         assert_eq!(name(Role::IssueWriter), "issue-writer");
         assert_eq!(Role::IssueWriter.as_str(), "issue-writer");
+        assert_eq!(name(Role::Advisor), "advisor");
+        assert_eq!(name(Role::Researcher), "researcher");
     }
 }
 
@@ -57,6 +63,8 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
+            Self::Advisor => "advisor",
+            Self::Researcher => "researcher",
         }
     }
 }
@@ -100,9 +108,18 @@ pub enum Tools {
     /// The project manager's: reading its working folder, and adding to
     /// the end of [`PM_NOTES`] there, which a hook holds it to
     Pm,
-    /// A finished worker's retro: reading and searching its worktree, with
-    /// no file written, no command and no crew. Its reply is the report.
+    /// A finished worker's retro, or its vote on a ruling: reading and
+    /// searching its worktree, with no file written, no command and no
+    /// crew. Its reply is the report, or the vote.
     Retro,
+    /// The advisor's vote on a ruling: reading its folder, the worktrees and
+    /// the checkout, with no file written, no command and no crew. Its reply
+    /// is the vote.
+    Advise,
+    /// The researcher's vote on a ruling: reading its folder, and the web,
+    /// fetch and search, read only, with no file written, no command and no
+    /// crew. Its reply is the vote.
+    Research,
 }
 
 /// The project manager's own notes, the one file in its folder it may change

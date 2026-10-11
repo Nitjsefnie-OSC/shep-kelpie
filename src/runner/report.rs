@@ -204,6 +204,15 @@ pub enum StepReport {
         /// Why the question could not be posted on the pull request, if it could not
         comment_failed: Option<String>,
     },
+    /// A turn pushed its branch, but kelpie could not open the pull request
+    /// from the worker's `pull-request.md`, and the refusal is the worker's
+    /// next turn
+    PullRequestNotOpened {
+        /// The work item's issue
+        issue: u64,
+        /// Why, as the forge, the guard or a project's hook refused it
+        reason: String,
+    },
     /// CI failed, and the failure is the worker's next turn
     CiFailed {
         /// The work item's issue

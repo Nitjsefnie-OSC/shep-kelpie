@@ -99,6 +99,18 @@ implementers = ["sonnet-high"]
 # Absent, the board's rule picks (priority, then age) and a stuck item
 # waits on its ruling, as it does whenever the project manager is down.
 # pm = "pm"
+# The panel that votes on each ruling before you are asked (the worker and the
+# project manager are the other two): an advisor, from a file whose role is
+# `advisor`, which reads the codebase, and a researcher, from a file whose role
+# is `researcher`, which reads everything outside it: earlier rulings and
+# their answers, the issue and pull request threads, the worker's session,
+# your own agent sessions (`[researcher]` below) and the web. Kelpie's own are
+# Opus 5.5 at high and Sonnet 5.5 at high. Neither runs git, gh or a
+# command, or writes anything but its vote. A ruling that lists two options or
+# more waits up to 20 minutes for the votes, then lists them as the panel.
+# Absent, no panel votes.
+# advisor = "advisor"
+# researcher = "researcher"
 # The issue writer's agent file, which `shep kelpie issue` runs and which
 # labels an unlabelled issue. `issue-writer` when absent.
 # issue_writer = "issue-writer"
@@ -166,6 +178,17 @@ turn_timeout = 60
 # [[app.dogs.kelpie.hooks]]
 # point = "command"
 # command = "~/bin/git-gate"
+
+# What the researcher may read beyond what kelpie writes into its folder.
+# `transcripts` names folders of your own agent sessions (Claude Code's
+# `~/.claude/projects`, Codex's `~/.codex/sessions`, pi's
+# `~/.pi/agent/sessions`), read only and off while empty; only a session that
+# ran in this project's checkout is read, the latest dozen, and only what was
+# asked and said. `allowed_domains` are the hosts its web fetch may reach, such
+# as a library's docs; its web search needs none.
+# [app.dogs.kelpie.researcher]
+# transcripts = ["~/.claude/projects"]
+# allowed_domains = ["docs.rs"]
 
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README

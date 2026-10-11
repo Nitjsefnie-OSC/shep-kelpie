@@ -52,6 +52,8 @@ pub(super) struct Flights {
     pm: Option<(Timestamp, Ending)>,
     // The issue writer's call labelling an issue
     labelling: Option<label::Labelling>,
+    // The experts of one ruling, voting
+    panel: Option<panel::Panelling>,
     // Every call's line in the usage ledger, as it started
     ledger: InFlight,
     send: Sender<News>,
@@ -67,6 +69,7 @@ impl Default for Flights {
             flying: BTreeMap::new(),
             pm: None,
             labelling: None,
+            panel: None,
             ledger: InFlight::default(),
             send,
             news,
@@ -79,7 +82,10 @@ impl Flights {
     /// Whether no call is in flight, the project manager's included
     #[cfg(test)]
     fn idle(&self) -> bool {
-        self.flying.is_empty() && self.pm.is_none() && self.labelling.is_none()
+        self.flying.is_empty()
+            && self.pm.is_none()
+            && self.labelling.is_none()
+            && self.panel.is_none()
     }
 
     /// The issue the issue writer is labelling, while it is
@@ -88,8 +94,14 @@ impl Flights {
     }
 
     /// Whether `issue`'s work item has a call in flight
+    /// A worker's vote on a ruling counts, since it runs in the work item's session
     pub(super) fn flying(&self, issue: u64) -> bool {
-        self.flying.contains_key(&issue)
+        self.flying.contains_key(&issue) || self.panel.iter().any(|p| p.votes_as(issue))
+    }
+
+    /// The ruling whose panel's experts are in flight, while they are
+    pub(super) fn panel_ruling(&self) -> Option<u64> {
+        self.panel.as_ref().map(panel::Panelling::ruling)
     }
 
     /// Whether `issue`'s work item has a worker's turn in flight
@@ -111,6 +123,11 @@ impl Flights {
     /// Whether `issue`'s call in flight is a `/compact` of its worker's session
     pub(super) fn runs_compact(&self, issue: u64) -> bool {
         self.flying.get(&issue).is_some_and(|f| f.compact)
+    }
+
+    /// Whether the panel's experts are in flight
+    pub(super) fn panel_running(&self) -> bool {
+        self.panel.is_some()
     }
 
     /// Whether any work item has its retro in flight
@@ -148,7 +165,11 @@ impl Flights {
             issue: Some(l.issue),
             role: CallRole::IssueWriter,
         });
-        items.chain(pm).chain(labelling).collect()
+        let panel = self.panel.iter().map(|_| CallRunning {
+            issue: None,
+            role: CallRole::Panel,
+        });
+        items.chain(pm).chain(labelling).chain(panel).collect()
     }
 
     /// The calls in flight as the usage ledger knows them
@@ -207,6 +228,11 @@ enum News {
     Labelled {
         issue: u64,
         end: End,
+    },
+    // The experts of a ruling ended, each as its own call did
+    Paneled {
+        id: u64,
+        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
     },
     // A local round queued for the GPU or began to run. The call waits until
     // `_seen` drops, once the stage is saved, so its time is charged right.
@@ -329,9 +355,11 @@ impl Runner {
             .filter(|(_, ending)| !ending.asked())
             .map(|(deadline, _)| *deadline);
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
+        let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
+            .chain(panel)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
             .min()
     }
@@ -352,6 +380,9 @@ impl Runner {
         }
         if let Some(labelling) = &self.flights.labelling {
             labelling.end_overdue(now);
+        }
+        if let Some(panel) = &self.flights.panel {
+            panel.end_overdue(now);
         }
     }
 
@@ -666,7 +697,16 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
     match pass {
-        Ok(Pass::Idle) if lock(runner).wake_pm() => Ok(Pass::Started),
+        // Experts that just started, or a wake, are calls in flight: the loop goes on.
+        Ok(Pass::Idle) => {
+            let woke = lock(runner).wake_pm();
+            let asked = lock(runner).panel_launched();
+            Ok(if woke || asked {
+                Pass::Started
+            } else {
+                Pass::Idle
+            })
+        }
         Ok(Pass::Report(report)) if report.waits() => {
             lock(runner).wake_pm();
             Ok(Pass::Report(report))
@@ -740,6 +780,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             return Ok(None);
         }
         News::Labelled { issue, end } => return runner.label_ended(issue, end),
+        News::Paneled { id, ends } => return runner.panel_ended(id, ends),
         News::Ended { issue, end } => (issue, end),
         News::Pm(end) => {
             runner.flights.pm = None;
@@ -867,6 +908,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
 }
 
 pub(super) mod label;
+pub(super) mod panel;
 #[cfg(test)]
 mod tests;
 mod waiting;

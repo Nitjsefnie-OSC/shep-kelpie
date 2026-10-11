@@ -46,7 +46,8 @@ impl Runner {
         let lineup = settings.lineup(&book, &self.home)?;
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
-        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers))?;
+        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);
@@ -126,6 +127,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("pacing", old.pacing != new.pacing),
         ("worker", old.worker != new.worker),
         ("skills", old.skills != new.skills),
+        ("researcher", old.researcher != new.researcher),
         ("webhook", was != now),
     ]
     .into_iter()
@@ -172,6 +174,22 @@ mod tests {
         assert_eq!(runner.settings().ci.fix_attempts.cap(), Some(2));
         assert_eq!(runner.settings().pacing.kickoff_hours.get(), 6);
         assert_eq!(runner.status().merging, Merging::Auto);
+    }
+
+    #[test]
+    fn a_changed_researcher_table_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"docs.rs\"]\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: researcher now in effect")
+        );
+        assert_eq!(runner.settings().researcher.allowed_domains.len(), 1);
     }
 
     #[test]

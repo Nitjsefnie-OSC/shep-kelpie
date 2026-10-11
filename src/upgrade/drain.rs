@@ -90,6 +90,7 @@ fn call(call: &Value) -> String {
     let issue = call["issue"].as_u64();
     match (call["role"].as_str(), issue) {
         (Some("pm"), _) => "the project manager's wake".to_owned(),
+        (Some("panel"), _) => "the panel's votes on a ruling".to_owned(),
         (Some("worker"), Some(issue)) => format!("#{issue}'s worker turn"),
         (Some("reviewer"), Some(issue)) => format!("#{issue}'s review"),
         (_, Some(issue)) => format!("a call for #{issue}"),

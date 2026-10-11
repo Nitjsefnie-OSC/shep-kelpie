@@ -25,8 +25,33 @@ use jiff::{Span, Timestamp};
 
 pub use line::Line;
 use line::{Event, Kind};
-use log::{Format, Started};
+use log::Started;
 use tail::Tail;
+
+pub(crate) use line::{Event as Said, Kind as SaidKind};
+pub(crate) use log::Format;
+
+/// What one line of a `format` transcript records, in the words the stream
+/// shows it
+pub(crate) fn said_in(format: Format, line: &str) -> Vec<Said> {
+    match format {
+        Format::Claude => claude::events(line),
+        Format::Codex => codex::events(line),
+        Format::Pi => pi::events(line),
+    }
+}
+
+/// The file the `session` of `format` wrote its transcript in, once it has,
+/// searched for in `folder` as `threads` says
+pub(crate) fn session_file(
+    format: Format,
+    session: &str,
+    folder: PathBuf,
+    threads: Option<PathBuf>,
+    at: Timestamp,
+) -> Option<PathBuf> {
+    locate::find(&Started::of(format, session, folder, threads, at))
+}
 
 /// How far before its `session-started` step a transcript line may be and
 /// still belong to the call it starts
