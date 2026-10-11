@@ -25,6 +25,7 @@ use crate::adapters::{SystemClock, claude_settings};
 use crate::agents::{Agents, Role, Runs};
 use crate::board::{AGENT_LABEL, READY, agent_label};
 use crate::guard::IssueRules;
+use crate::hooks::Hooks;
 use crate::ports::Clock;
 use crate::ports::{
     self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
@@ -245,6 +246,12 @@ fn reach(
             git_common_dir: PathBuf::from(common),
             folders: vec![paths.kelpie_home.clone(), settings.git.checkout.clone()],
             issues: Some(rules),
+            hooks: Hooks::new(
+                &paths.name(),
+                project.remote.as_str(),
+                &settings.git.checkout,
+                &settings.hooks,
+            ),
         },
         hooks: Vec::new(),
     };

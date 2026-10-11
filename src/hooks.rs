@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::settings::{HookPoint, ProjectHook};
+use crate::worktree::{BASE, WorktreeError};
 
 /// How long a hook may run before it is killed and counts as failed
 pub const TIMEOUT: Duration = Duration::from_secs(30);
@@ -114,6 +115,15 @@ impl Hooks {
                 .collect(),
             folder: Some(folder.to_owned()),
             timeout: TIMEOUT,
+        }
+    }
+
+    /// These hooks, run in `folder` unless a call names another
+    #[must_use]
+    pub fn in_folder(self, folder: &Path) -> Self {
+        Self {
+            folder: Some(folder.to_owned()),
+            ..self
         }
     }
 
@@ -214,6 +224,50 @@ impl Hooks {
         let details = json!({ "field": field, "text": text });
         self.check(HookPoint::Publish, role, None, details)
     }
+}
+
+// Plain patches: no colour, and no program the repo's config names.
+const PLAIN: [&str; 4] = [
+    "--unified=0",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+];
+
+/// The fields of a `push` or `handover` payload for the commits `source`
+/// holds past `origin`'s base branch, read with `run`, a trusted git of the
+/// worktree: `None` when it holds none
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub(crate) fn commits_past_base(
+    run: &dyn Fn(&[&str]) -> Result<String, WorktreeError>,
+    source: &str,
+) -> Result<Option<Value>, WorktreeError> {
+    let base = format!("refs/remotes/origin/{BASE}");
+    let log = run(&["log", "--format=%H%x1f%B%x1e", source, "--not", &base])?;
+    let commits: Vec<Value> = log
+        .split('\x1e')
+        .filter_map(|entry| {
+            let (sha, message) = entry.trim_start().split_once('\x1f')?;
+            Some(json!({ "sha": sha, "message": message.trim_end() }))
+        })
+        .collect();
+    if commits.is_empty() {
+        return Ok(None);
+    }
+    let patch = ["log", "-p", "--format=", source, "--not", &base];
+    let diff = run(&[&patch[..], &PLAIN].concat())?;
+    let head = run(&["rev-parse", source])?.trim().to_owned();
+    let base = run(&["rev-parse", &base])?.trim().to_owned();
+    Ok(Some(json!({
+        "range": format!("{base}..{head}"),
+        "base": base,
+        "head": head,
+        "commits": commits,
+        "diff": diff,
+    })))
 }
 
 /// A hook that refused, or that could not run and so refuses

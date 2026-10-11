@@ -230,6 +230,31 @@ fn a_fenced_call_gets_a_guard_that_runs_kelpies_checks() {
     assert_eq!(checks["guard"][2], json!(wt));
 }
 
+// The project's hooks are not Claude Code's, so pi gets them as `kelpie
+// guard` runs them.
+#[test]
+fn the_projects_hooks_reach_a_pi_workers_guard() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let hook = crate::settings::ProjectHook {
+        point: crate::settings::HookPoint::Commit,
+        command: "check-words".to_owned().try_into().unwrap(),
+    };
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &[hook]);
+    let flag = hooks.flag().unwrap();
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+
+    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let line = guard
+        .lines()
+        .find(|l| l.starts_with("const CHECKS"))
+        .unwrap();
+    let checks: serde_json::Value =
+        serde_json::from_str(line.split_once(" = ").unwrap().1.trim_end_matches(';')).unwrap();
+    assert!(checks["guard"].as_array().unwrap().contains(&json!(flag)));
+}
+
 // Loads the guard extension the way pi does, into a stand-in `pi`, and hands
 // its `tool_call` handler each of `events` in turn.
 const GUARD_RUNNER: &str = r#"

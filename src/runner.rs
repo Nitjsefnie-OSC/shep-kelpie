@@ -56,6 +56,8 @@ mod gpu;
 mod gpu_tests;
 mod guard_hooks;
 #[cfg(test)]
+mod handover_tests;
+#[cfg(test)]
 mod hooks_tests;
 mod in_flight;
 mod instructions;
@@ -673,6 +675,8 @@ impl Runner {
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,
+            handed_over: None,
+            handover_refused: false,
             context: None,
             merge_tried: None,
             merge_queued: None,

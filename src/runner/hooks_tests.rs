@@ -7,10 +7,20 @@
 
 use std::sync::Mutex;
 
+use serde_json::json;
+
+use crate::confine::Verdict;
+use crate::guard::{Checkout, judge_with};
+use crate::local_paths::LocalPaths;
+use crate::ports::Role;
 use crate::runner::{Runner, StepReport, step};
-use crate::test::{Rig, Scripted};
+use crate::settings::AgentHarness;
+use crate::test::{Rig, Scripted, git, write_in};
 
 const WORD: &str = "Acme";
+
+const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                  url: http://box:11434/v1\ncontext: 65536\n---\n";
 
 const REFUSED: &str = "the `publish` hook `forbid-word.sh` refused: it names a word the project \
                        keeps private";
@@ -162,4 +172,74 @@ fn a_hook_that_fails_to_run_refuses_the_post_and_says_so() {
     assert!(why.contains("`forbid-word.sh` failed"), "{why}");
     assert!(why.contains("it exited with 1"), "{why}");
     assert_eq!(rig.forge.comments(), []);
+}
+
+// The call a harness makes of `kelpie guard` for a Bash command in `fence`.
+fn guarded(fence: &crate::ports::Fence, command: &str) -> Verdict {
+    let guard = &fence.guard;
+    let call = json!({
+        "tool_name": "Bash",
+        "cwd": guard.worktree,
+        "tool_input": { "command": command },
+    });
+    let checkout = Checkout {
+        git_common_dir: &guard.git_common_dir,
+        worktree: &guard.worktree,
+    };
+    judge_with(
+        call.to_string().as_bytes(),
+        None,
+        LocalPaths::new(None::<&std::path::Path>),
+        &guard.hooks,
+        checkout,
+    )
+}
+
+#[test]
+fn a_pi_implementer_with_a_commit_hook_is_not_refused_at_load_and_its_commit_is_refused_by_the_hook()
+ {
+    let rig = Rig::new("shep");
+    rig.write_agent("pi-box", PI);
+    rig.implementers(&["pi-box"]);
+    rig.forbid_word(&["commit"], WORD);
+    let runner = rig.open().expect("a hook is not a Claude Code hook");
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say("done")]);
+
+    step(&runner).unwrap();
+
+    let [seen] = rig.claude.seen().try_into().unwrap();
+    assert_eq!(
+        (
+            seen.call.role,
+            matches!(seen.call.harness, AgentHarness::Pi(_))
+        ),
+        (Role::Worker, true)
+    );
+    let fence = seen
+        .call
+        .reach
+        .fence
+        .as_deref()
+        .expect("a worker is fenced");
+    let worktree = &fence.guard.worktree;
+    write_in(worktree, "notes.md", "built for Acme\n");
+    git(worktree, &["add", "notes.md"]);
+    let Verdict::Refuse(why) = guarded(fence, "git commit -m 'docs: notes'") else {
+        panic!("the commit was let through");
+    };
+    assert!(
+        why.contains(
+            "this commit: the `commit` hook `forbid-word.sh` refused: it names a word the \
+             project keeps private"
+        ),
+        "{why}"
+    );
+    git(worktree, &["reset", "--quiet"]);
+    write_in(worktree, "notes.md", "built for a customer\n");
+    git(worktree, &["add", "notes.md"]);
+    assert_eq!(
+        guarded(fence, "git commit -m 'docs: notes'"),
+        Verdict::Allow
+    );
 }

@@ -287,7 +287,7 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     {
         return Err(AgentError::Setup(
             "pi cannot run `worker.guard_hooks`, which are Claude Code hooks: \
-             remove them or put the worker on Claude Code"
+             remove them, move the check to `hooks`, or put the worker on Claude Code"
                 .into(),
         ));
     }
@@ -477,6 +477,7 @@ fn guard_extension(fence: &Fence) -> String {
             .iter()
             .map(|p| format!("{FOLDER_FLAG}{}", p.display())),
     );
+    commands.extend(guard.hooks.flag());
     let checks = json!({
         "kelpie": text(&guard.kelpie),
         "confine": ["confine", text(&guard.worktree), text(&guard.build)],

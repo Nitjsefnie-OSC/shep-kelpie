@@ -11,6 +11,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::hooks::Hooks;
 use crate::ports::{AgentCall, Fence, Guard, PM_NOTES, Reach, Role, Session, Tools};
 use crate::runner::Runner;
 use crate::settings::PmAgent;
@@ -124,6 +125,7 @@ impl Runner {
                     git_common_dir: folder,
                     folders: vec![kelpie.clone(), self.settings.git.checkout.clone()],
                     issues: None,
+                    hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
             })),

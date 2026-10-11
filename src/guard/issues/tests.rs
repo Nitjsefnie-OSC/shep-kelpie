@@ -5,6 +5,8 @@ use super::*;
 use crate::board::READY;
 use crate::runner::HUMAN;
 
+mod hooks;
+
 const HOME: &str = "/home/me";
 
 const BODY: &str = "Build the thing.\n\n## Acceptance criteria\n\n- [ ] It works\n";

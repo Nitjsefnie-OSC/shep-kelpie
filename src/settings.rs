@@ -402,9 +402,10 @@ pub struct Worker {
     /// None when absent.
     #[serde(default)]
     pub instructions_file: Option<PathBuf>,
-    /// The project's own hooks, copied into each worker's settings file
-    /// after kelpie's guard. Each must resolve when the runner starts.
-    /// Empty when absent.
+    /// The project's own Claude Code hooks, copied into each worker's
+    /// settings file after kelpie's guard. Only a worker on Claude Code runs
+    /// them; `hooks` runs for every harness and role. Each must resolve when
+    /// the runner starts. Empty when absent.
     #[serde(default)]
     pub guard_hooks: Vec<GuardHook>,
     /// Minutes a worker's turn may run before kelpie stops it and parks it

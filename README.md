@@ -491,7 +491,7 @@ context: 65536
 ---
 ```
 
-Kelpie runs pi with a home of its own, so your `~/.pi` is never read. pi runs no Claude Code hooks, so a worker on pi can't have `worker.guard_hooks`, and the runner refuses to start with them. Kelpie's own checks still run on every command and file write.
+Kelpie runs pi with a home of its own, so your `~/.pi` is never read. pi runs no Claude Code hooks, so a worker on pi can't have `worker.guard_hooks`, and the runner refuses to start with them. Kelpie's own checks still run on every command and file write, and so do your `hooks`.
 
 A pi call's sandbox allows no host of the model's, since the sandbox opens every port of an allowed host and Ollama's admin calls (pull, delete, create) answer beside chat. Kelpie runs a forwarder outside the sandbox for each call, and the sandbox allows only that. It passes `POST` to the server's `/v1/chat/completions` and refuses every other path and method, naming what was asked. The worker never sees the model's address. The forwarder dials `http://`, so `url` is the server's `http://` address: an `https://` one is refused when settings load.
 
@@ -724,6 +724,7 @@ A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in t
 - `agents.implementers`, `agents.reviewers`, `agents.pm` and `agents.fallback_after`: see [Agents](#agents). `agents.issue_writer`: see [Writing issues](#writing-issues)
 - `pacing.enabled` and `pacing.kickoff_hours`: whether usage holds work, and the hours a day the per-hour figure in `status` divides the day's allowance by
 - `worker.allowed_domains`, `worker.build_env` (variables that point tool caches into the build folder), `worker.instructions_file`, `worker.guard_hooks` (Claude Code hooks of the project's own, after kelpie's guard) and `worker.turn_timeout`
+- `hooks` is a list of `{ point, command }`: your own checks, which kelpie runs itself for every harness and role. The `point` is `publish` (any text before it goes to the forge, kelpie's own included), `commit` (a worker's message and staged diff), `push` (the commits being pushed) or `handover` (a worker's finished branch, before review). The command gets a JSON payload on stdin and runs outside the agent's sandbox. Exit 0 passes, 2 refuses with stderr as the reason, and anything else, a hook that runs past 30 seconds included, refuses as a hook that failed. A refused commit, push or `gh` post goes back to the agent as the tool's error, a refused pull request file or branch goes back to the worker, and a refused post of kelpie's own parks on a ruling naming the hook. Each command must resolve when the runner starts. Use `hooks` for a check on what is written, committed, pushed or posted, and `worker.guard_hooks` for a Claude Code hook on a tool call
 - `skills.<step>`: see [Skills](#skills)
 
 shep-kelpie's own settings, shared by every project, are the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Start from `kelpie-settings.example.toml`, and keep `dogs.toml` private: the webhook's URL is a credential.
@@ -735,7 +736,7 @@ shep-kelpie's own settings, shared by every project, are the `[kelpie]` section 
 - `[kelpie.gateways.<name>]` is a model gateway such as paddock, with its `url` and `key_env` (see [Gateways](#gateways)). A runner reads them when it starts
 - A change reaches a running runner at its next wake, within a minute when idle. `git.checkout` and `git.remote` wait for its next start. The dog reads `[kelpie.leases]`, and each review bot's window from its agent file, only when it starts, so after a change to either run `shep restart kelpie`
 
-A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `planning`, stops the runner, naming the key and what replaces it. So does each top-level key from before the tables: `repo`, `forge`, `merge_authority`, `ci`, `max_items`, `max_parked` and `skills.ci` name the key that took each over, and `private_names` says to guard a worker's commits and posts with a hook in `worker.guard_hooks` instead. That works for a Claude Code worker only: hooks are refused for pi and Codex implementers, and the issue writer's and kelpie's own posts never ran through them, so for those nothing replaces `private_names`.
+A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `planning`, stops the runner, naming the key and what replaces it. So does each top-level key from before the tables: `repo`, `forge`, `merge_authority`, `ci`, `max_items`, `max_parked` and `skills.ci` name the key that took each over, and `private_names` says to check text for your own words with a hook in `hooks` instead, which kelpie runs for every harness and role.
 
 ### shep-kelpie's home
 

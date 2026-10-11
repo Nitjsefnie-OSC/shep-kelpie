@@ -331,9 +331,12 @@ fn hooks(fence: &Fence) -> Value {
     let issues = (guard.issues.iter())
         .flat_map(|rules| rules.flags())
         .map(|flag| shell_quote(&flag));
+    // The project's own hooks, which the guard runs on a commit, a push and a post.
+    let hooks = guard.hooks.flag().map(|flag| shell_quote(&flag));
     let commands: Vec<String> = (commands.into_iter())
         .chain(folders)
         .chain(issues)
+        .chain(hooks)
         .collect();
     pre.push(entry(Some(GUARDED_TOOLS), &commands.join(" ")));
     let mut post = Vec::new();
@@ -392,6 +395,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::hooks::Hooks;
     use crate::ports::{Fence, Guard};
     use crate::trim::deny_with_trim;
 
@@ -455,6 +459,7 @@ mod tests {
                     git_common_dir: "/k/git".into(),
                     folders: Vec::new(),
                     issues: None,
+                    hooks: Hooks::default(),
                 },
                 hooks: Vec::new(),
             })),

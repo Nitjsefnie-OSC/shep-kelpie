@@ -465,6 +465,37 @@ fn a_forge_that_keeps_refusing_is_retried_for_hours_and_then_the_maintainer_is_a
     assert!(finished(after_merge(&runner)));
 }
 
+// Kelpie's own issue is its text, but a project's hook may refuse the finding
+// it carries, so the maintainer is asked, naming the hook and its reason.
+#[test]
+fn a_finding_a_publish_hook_refuses_is_not_filed_and_the_maintainer_is_asked_naming_the_hook() {
+    let rig = Rig::new("shep");
+    rig.forbid_word(&["publish"], "racy");
+    let found = [racy()];
+    let (rig, runner) = ready_in(rig, &found, &lines(&found));
+
+    let Some(StepReport::GateFailed { reason, .. }) = after_merge(&runner) else {
+        panic!("the refused issue did not hold the work item");
+    };
+    assert!(
+        reason.contains("the `publish` hook `forbid-word.sh` refused"),
+        "{reason}"
+    );
+    rig.clock.advance(6 * 60 * 60);
+    let Some(StepReport::Ruling { question, .. }) = after_merge(&runner) else {
+        panic!("the maintainer was not asked after the window");
+    };
+    assert!(
+        question.contains("the `publish` hook `forbid-word.sh` refused"),
+        "{question}"
+    );
+    assert!(
+        question.contains("it names a word the project keeps private"),
+        "{question}"
+    );
+    assert_eq!(rig.forge.created(), [], "nothing is filed");
+}
+
 #[test]
 fn a_yes_while_the_forge_still_refuses_starts_a_fresh_window_not_an_instant_ruling() {
     let found = [racy()];
