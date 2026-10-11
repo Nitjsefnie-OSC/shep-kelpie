@@ -53,6 +53,7 @@ impl Runner {
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
         let opened = (now.work_items.iter()).any(|i| was.item(i.issue).is_none());
+        self.pm_asked(now);
         for wake in stuck {
             self.pm_due(wake);
         }
@@ -68,6 +69,32 @@ impl Runner {
             let open = now.open_issues();
             self.pm.after_end.retain(|issue, _| open.contains(issue));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
+        }
+    }
+
+    // Wakes the project manager for each question ruling `now` raises, and
+    // holds the ruling back from the maintainer for its answer, unless it is
+    // held by the maintainer's terminal or down, when the ruling goes out as
+    // it is. Its pace is checked when the wake starts.
+    fn pm_asked(&mut self, now: &ProjectState) {
+        let at = self.ports.clock.now();
+        let passed = (self.pm.down_until).is_some_and(|until| at < until);
+        if passed || now.pm_attached.is_some() {
+            return;
+        }
+        for ruling in &now.rulings {
+            let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
+            let (RulingKind::Question { asked, .. }, Some(issue), true) =
+                (&ruling.kind, ruling.issue, new)
+            else {
+                continue;
+            };
+            self.pm.asking.insert(ruling.id, at);
+            self.pm_due(Wake::Question {
+                issue,
+                id: ruling.id,
+                asked: asked.clone(),
+            });
         }
     }
 

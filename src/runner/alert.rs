@@ -77,10 +77,12 @@ impl Runner {
     ///
     /// With no webhook no ruling is due, and a notice is due to be logged.
     pub(super) fn alert_due(&mut self) -> Option<Due> {
+        self.post_released();
         let now = self.ports.clock.now();
         let waiting = |retry: Option<Retry>, of| retry.is_some_and(|r| r.of == of && now < r.at);
         if self.webhook.is_some()
-            && let Some(ruling) = self.state.rulings.iter().find(|r| !r.alerted)
+            && let Some(ruling) =
+                (self.state.rulings.iter()).find(|r| !r.alerted && !self.pm_holds_ruling(r.id))
         {
             let (id, kind) = (ruling.id, ruling.kind.clone());
             if waiting(self.retry, Posting::Ruling(id)) {

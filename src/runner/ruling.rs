@@ -357,6 +357,11 @@ impl Runner {
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
     pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
+        // A question the project manager may answer is not the maintainer's
+        // yet, so its comment waits for the hold to end.
+        if self.pm_holds_comment(id) {
+            return None;
+        }
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
             let thread = number.or(ruling.issue)?;

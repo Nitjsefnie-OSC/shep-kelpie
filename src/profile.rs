@@ -371,8 +371,9 @@ mod tests {
                 (
                     // Git's helpers are emptied, which drops the keychain's, and
                     // github.com's is gh's, which answers from the config folder.
+                    // The sandbox's own proxy setting, which this replaces, stays.
                     "GIT_CONFIG_PARAMETERS".to_owned(),
-                    "'credential.helper'='' 'credential.https://github.com.helper'='!gh auth git-credential'"
+                    "'http.proxyAuthMethod'='basic' 'credential.helper'='' 'credential.https://github.com.helper'='!gh auth git-credential'"
                         .to_owned()
                 ),
             ])

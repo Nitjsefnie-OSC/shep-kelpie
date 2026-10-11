@@ -70,7 +70,8 @@ pub enum CallKind {
     LocalRound,
     /// The project manager's wake
     Wake,
-    /// `/compact` on the project manager's session
+    /// `/compact` on the project manager's session, or on a worker's before
+    /// a turn
     Compact,
     /// The issue writer's run
     Issues,
