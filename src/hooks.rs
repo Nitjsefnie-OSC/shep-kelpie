@@ -210,6 +210,45 @@ impl Hooks {
         folder: Option<&Path>,
         details: Value,
     ) -> Result<(), Refusal> {
+        let payload = self.payload(point, role, details);
+        let folder = folder.or(self.folder.as_deref());
+        for entry in self.list.iter().filter(|e| e.point == point) {
+            self.run_entry(entry, &payload, folder)?;
+        }
+        Ok(())
+    }
+
+    /// Runs every hook for `point` as a notice: one that exits non-zero or
+    /// hangs stops neither the rest nor the caller
+    ///
+    /// Returns a line for the log naming each hook that did not exit 0, or
+    /// `None` when every one did.
+    pub fn notify(
+        &self,
+        point: HookPoint,
+        role: Role,
+        folder: Option<&Path>,
+        details: Value,
+    ) -> Option<String> {
+        let payload = self.payload(point, role, details);
+        let folder = folder.or(self.folder.as_deref());
+        let told: Vec<String> = (self.list.iter())
+            .filter(|e| e.point == point)
+            .filter_map(|entry| self.run_entry(entry, &payload, folder).err())
+            .map(|refusal| {
+                let Refusal {
+                    program, reason, ..
+                } = refusal;
+                let point = point.as_str();
+                format!("the `{point}` hook `{program}` did not exit 0 ({reason}); kelpie went on")
+            })
+            .collect();
+        (!told.is_empty()).then(|| told.join("\n"))
+    }
+
+    // The JSON a hook reads: the point, project, role and repo, then the
+    // point's own fields.
+    fn payload(&self, point: HookPoint, role: Role, details: Value) -> String {
         let mut payload = json!({
             "point": point.as_str(),
             "project": self.project,
@@ -219,26 +258,29 @@ impl Hooks {
         if let (Some(payload), Value::Object(details)) = (payload.as_object_mut(), details) {
             payload.extend(details);
         }
-        let payload = payload.to_string();
-        let folder = folder.or(self.folder.as_deref());
-        for entry in self.list.iter().filter(|e| e.point == point) {
-            let ran = match self.allowed() {
-                Some(timeout) => run(&entry.command, payload.as_bytes(), folder, timeout),
-                None => Err((
-                    true,
-                    "the guard's time for hooks ran out before it could run".to_owned(),
-                )),
-            };
-            if let Err((failed, reason)) = ran {
-                return Err(Refusal {
-                    point,
-                    program: program_of(&entry.command),
-                    failed,
-                    reason,
-                });
-            }
-        }
-        Ok(())
+        payload.to_string()
+    }
+
+    // Runs one hook on `payload`, within what is left of the budget.
+    fn run_entry(
+        &self,
+        entry: &Entry,
+        payload: &str,
+        folder: Option<&Path>,
+    ) -> Result<(), Refusal> {
+        let ran = match self.allowed() {
+            Some(timeout) => run(&entry.command, payload.as_bytes(), folder, timeout),
+            None => Err((
+                true,
+                "the guard's time for hooks ran out before it could run".to_owned(),
+            )),
+        };
+        ran.map_err(|(failed, reason)| Refusal {
+            point: entry.point,
+            program: program_of(&entry.command),
+            failed,
+            reason,
+        })
     }
 
     // How long the next hook may run: its own timeout, or what is left of the

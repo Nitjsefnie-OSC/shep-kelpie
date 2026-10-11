@@ -224,3 +224,50 @@ fn a_hook_is_named_by_its_program_and_never_by_a_path() {
     assert_eq!(program_of("MODE=strict /opt/acme/check.sh"), "check.sh");
     assert_eq!(program_of("sh ~/hooks/guard.sh"), "sh");
 }
+
+fn tell(hooks: &Hooks, point: HookPoint) -> Option<String> {
+    hooks.notify(point, Role::Kelpie, None, json!({ "head": "abc" }))
+}
+
+#[test]
+fn a_notice_that_exits_zero_says_nothing() {
+    let hooks = hooks(&[hook(HookPoint::Ruling, "exit 0")]);
+    assert_eq!(tell(&hooks, HookPoint::Ruling), None);
+}
+
+#[test]
+fn a_notice_that_exits_non_zero_is_told_with_its_name_and_kelpie_goes_on() {
+    for command in ["echo no >&2; exit 1", "exit 2", "kill -9 $$"] {
+        let hooks = hooks(&[hook(HookPoint::Done, command)]);
+
+        let line = tell(&hooks, HookPoint::Done).expect(command);
+
+        assert!(line.contains("`done` hook"), "{command}: {line}");
+        assert!(line.contains("went on"), "{command}: {line}");
+    }
+}
+
+#[test]
+fn a_notice_that_hangs_is_stopped_and_told() {
+    let hooks = hooks(&[hook(HookPoint::Ci, "sleep 30")]).with_timeout(Duration::from_millis(100));
+
+    let line = tell(&hooks, HookPoint::Ci).unwrap();
+
+    assert!(line.contains("`ci` hook `sleep`"), "{line}");
+    assert!(line.contains("ran past"), "{line}");
+}
+
+#[test]
+fn every_notice_hook_for_the_point_runs_even_after_one_fails() {
+    let folder = tempfile::tempdir().unwrap();
+    let hooks = hooks(&[
+        hook(HookPoint::Reset, "exit 1"),
+        hook(HookPoint::Reset, "touch ran"),
+    ])
+    .in_folder(folder.path());
+
+    let line = tell(&hooks, HookPoint::Reset).unwrap();
+
+    assert!(line.contains("`reset` hook"), "{line}");
+    assert!(folder.path().join("ran").exists());
+}
