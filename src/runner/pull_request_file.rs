@@ -346,6 +346,42 @@ Resolves #7"
         );
     }
 
+    // A refusal kept past the turn it was told in would name a cause that no
+    // longer holds, such as for a worker who answered a question and then
+    // deleted the file.
+    #[test]
+    fn a_refusal_from_an_earlier_turn_is_not_told_after_the_file_is_gone() {
+        let (rig, runner) = with_issue_7(true);
+        std::fs::write(
+            path(&rig.build_7()),
+            "feat: x\n\nSee ~/notes/plan.md.\n\nResolves #7\n",
+        )
+        .unwrap();
+        let asks = format!(
+            "{}which file?{}",
+            crate::runner::question::OPEN,
+            crate::runner::question::CLOSE
+        );
+        rig.claude.script([Scripted::PushSay(
+            "work.txt",
+            "work\n",
+            Box::leak(asks.into_boxed_str()),
+        )]);
+        step(&runner).unwrap(); // the push is refused, and the turn asks
+
+        std::fs::remove_file(path(&rig.build_7())).unwrap();
+        rig.ask(&runner, "rule", Some("1 answer go on"));
+        rig.claude
+            .script([Scripted::Say("done"), Scripted::Say("done")]);
+        step(&runner).unwrap(); // the answered turn ends with no file
+        step(&runner).unwrap(); // sent back
+
+        let prompts = prompts(&rig);
+        let told = prompts.last().unwrap();
+        assert!(told.contains("no pull request"), "{told}");
+        assert!(!told.contains(HOME_PATH_REFUSED), "{told}");
+    }
+
     // The same refusal twice parks on a ruling the project manager reads.
     #[test]
     fn a_file_the_guard_keeps_refusing_parks_on_a_ruling_naming_the_refusal() {
