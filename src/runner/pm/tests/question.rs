@@ -256,6 +256,65 @@ fn a_recommendation_naming_this_machine_is_withheld_from_the_post() {
     );
 }
 
+// Issue 7's worker asking `ASKS` on its pull request 71
+fn asking_on_a_pull_request(project: &str) -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = with_pm(project);
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Say(ASKS)]);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Asked {
+            pull_request: Some(71),
+            ..
+        })
+    ));
+    (rig, runner)
+}
+
+#[test]
+fn a_question_it_answers_is_never_commented_on_its_pull_request() {
+    let (rig, runner) = asking_on_a_pull_request("lapras");
+    assert_eq!(rig.forge.comments(), [], "held for the project manager");
+    rig.claude.script([Scripted::Say(
+        "{\"answer\": {\"item\": 7, \"text\": \"Use --check.\", \"why\": \"the docs\"}}",
+    )]);
+    step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    rig.claude.script([Scripted::Say("renamed")]);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { .. })
+    ));
+    assert_eq!(rig.forge.comments(), []);
+}
+
+#[test]
+fn a_question_it_passes_on_is_commented_with_its_recommendation() {
+    let (rig, runner) = asking_on_a_pull_request("snorlax");
+    assert_eq!(rig.forge.comments(), [], "held for the project manager");
+    passed_on(
+        &rig,
+        &runner,
+        "{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"why\": \"shep uses it\"}}",
+    );
+    let [(number, body)] = rig.forge.comments().try_into().unwrap();
+    assert_eq!(number, 71);
+    assert!(body.contains("PM recommends: --check"), "{body}");
+}
+
+#[test]
+fn a_question_whose_wake_fails_is_commented_as_it_stands() {
+    let (rig, runner) = asking_on_a_pull_request("eevee");
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    step(&runner).unwrap();
+    let [(number, body)] = rig.forge.comments().try_into().unwrap();
+    assert_eq!(number, 71);
+    assert!(body.contains("Should it be `--dry-run`"), "{body}");
+    assert!(!body.contains("PM recommends"), "{body}");
+}
+
 #[test]
 fn a_question_waits_at_most_one_wake_for_its_answer() {
     let (rig, runner) = asking("wartortle", ASKS);

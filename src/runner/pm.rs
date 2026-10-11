@@ -12,7 +12,7 @@
 //! While it is not set up, down, over its pace, or its answer is dropped,
 //! the board rule picks and stuck items keep the rulings they raised.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::Runner;
 use super::report::StepReport;
@@ -171,6 +171,8 @@ pub(super) struct Desk {
     // Each question ruling held back from the maintainer for its answer, with
     // when it was raised
     asking: BTreeMap<u64, Timestamp>,
+    // Each of those whose comment on its thread waits for the hold to end
+    unposted: BTreeSet<u64>,
     // The last few questions it settled, newest last
     settled: Vec<Settled>,
     flying: Option<Flying>,
@@ -336,6 +338,36 @@ impl Runner {
         let now = self.ports.clock.now();
         let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
         !self.draining && self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
+    }
+
+    /// Holds ruling `id`'s comment on its thread back while the project
+    /// manager may answer it, and says whether it did
+    pub(super) fn pm_holds_comment(&mut self, id: u64) -> bool {
+        let held = self.pm_holds_ruling(id);
+        if held {
+            self.pm.unposted.insert(id);
+        }
+        held
+    }
+
+    /// Posts the comment of each held ruling whose hold has ended and which
+    /// still waits on the maintainer, as the project manager left it
+    pub(super) fn post_released(&mut self) {
+        let released: Vec<u64> = (self.pm.unposted.iter().copied())
+            .filter(|&id| !self.pm_holds_ruling(id))
+            .collect();
+        for id in released {
+            self.pm.unposted.remove(&id);
+            let Some(number) =
+                (self.state.rulings.iter().find(|r| r.id == id)).map(|ruling| ruling.pull_request)
+            else {
+                continue;
+            };
+            if let Some(why) = self.post_ruling(number, id) {
+                self.notes
+                    .push(format!("cannot post ruling {id} on its thread: {why}"));
+            }
+        }
     }
 
     fn launch_wake(&mut self, agent: &PmAgent) -> Result<(), String> {

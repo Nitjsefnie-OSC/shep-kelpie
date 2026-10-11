@@ -6,13 +6,37 @@ use std::fmt::Write as _;
 use super::Wake;
 use crate::ports::PM_NOTES;
 
+/// The `answer` key as the answer shows it, which a wake with a question
+/// shows again to a session that has seen the answer without it
+macro_rules! answer_key {
+    () => {
+        "\"answer\": null or {\"item\": <the work item whose worker asked>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"why\": \"<one sentence>\"}"
+    };
+}
+
+/// How a worker's question is answered, shown with the `answer` key
+macro_rules! questions {
+    () => {
+        "A worker's question waits on you for one wake at most. Answer it with `text` \
+         only where the issue, the docs or an ADR settle it: kelpie sends the worker \
+         `PM answered: ` and your text as its next turn, and the maintainer is not \
+         asked. For a decision only the maintainer can make, give `escalate` with the \
+         choice you recommend, which is added to the question as `PM recommends: \
+         <choice>`; kelpie checks that the item is parked on a question, and drops the \
+         answer if not, when the question goes to the maintainer as it stands."
+    };
+}
+
 /// The answer kelpie reads, as the first wake of a session shows it
-const ANSWER: &str = "\
+const ANSWER: &str = concat!(
+    "\
 ```
 {\"pick\": <the ready issue to start next, or null to start nothing now>,
  \"hold\": [<every ready issue that should wait until an open work item closes; [] holds none>],
  \"unstick\": null or {\"item\": <a stuck work item's issue>, \"action\": \"retry\" | \"re-scope\" | \"ask\" | \"none\", \"why\": \"<one sentence>\"},
- \"answer\": null or {\"item\": <the work item whose worker asked>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"why\": \"<one sentence>\"},
+ ",
+    answer_key!(),
+    ",
  \"reply\": null or \"<a message to the maintainer, if one is due>\",
  \"why\": \"<two sentences at most>\"}
 ```
@@ -23,13 +47,9 @@ resolve itself. Kelpie checks every answer against the board, and drops and \
 logs any part that names an issue the board does not show as ready, or an item \
 that is not stuck.
 
-A worker's question waits on you for one wake at most. Answer it with `text` \
-only where the issue, the docs or an ADR settle it: kelpie sends the worker \
-`PM answered: ` and your text as its next turn, and the maintainer is not \
-asked. For a decision only the maintainer can make, give `escalate` with the \
-choice you recommend, which is added to the question as `PM recommends: \
-<choice>`; kelpie checks that the item is parked on a question, and drops the \
-answer if not, when the question goes to the maintainer as it stands.";
+",
+    questions!()
+);
 
 /// The prompt for a wake for `wakes`, carrying `told`: in full for a new
 /// session, shorter for one resumed
@@ -82,6 +102,15 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
                  `{PM_NOTES}`, adding to its end what a later wake must remember. Then \
                  reply with the same JSON object as before and nothing after it.\n"
             );
+            // A session from before the key was added has not seen it.
+            if wakes.iter().any(|w| matches!(w, Wake::Question { .. })) {
+                let _ = write!(
+                    out,
+                    "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
+                    answer_key!(),
+                    questions!()
+                );
+            }
         }
     }
     out
@@ -156,5 +185,19 @@ mod tests {
         );
         assert!(text.contains("the same JSON object as before"));
         assert!(!text.contains("\"pick\""));
+        assert!(!text.contains("\"answer\""));
+    }
+
+    #[test]
+    fn a_resumed_wake_for_a_question_shows_the_answer_key_again() {
+        let ask = Wake::Question {
+            issue: 7,
+            id: 1,
+            asked: "Which flag?".into(),
+        };
+        let text = wake("koji", &[ask], &[], false);
+        assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
+        assert!(text.contains("`PM recommends: <choice>`"), "{text}");
+        assert!(!text.contains("\"pick\""), "{text}");
     }
 }
