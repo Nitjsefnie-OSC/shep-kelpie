@@ -178,6 +178,12 @@ fn serve(project: &str) -> Result<(), Exit> {
         Box::new(Openssl),
         Box::new(SystemClock),
     ));
+    let flock = shepherd::block_on(async {
+        let client = shepherd::connect(&shep_home)
+            .await
+            .map_err(|e| e.describe(&shep_home))?;
+        control::repos(&client, &home).await
+    })?;
     let ports = Ports {
         agents: Arc::new(Routed::new(
             Arc::new(claude.clone()),
@@ -195,6 +201,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         alerts: Arc::new(Curl),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
+        flock,
     };
     let finished: OnFinished = {
         let (shep_home, project) = (shep_home.clone(), project.clone());

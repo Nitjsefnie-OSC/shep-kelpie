@@ -21,6 +21,8 @@ use crate::settings::ForgeSlug;
 #[derive(Debug, Clone)]
 pub(crate) struct FakeForge {
     visibility: Arc<Mutex<Visibility>>,
+    // What the repos a test named are, in place of `visibility`; keyed by lowercase slug
+    visibilities: Arc<Mutex<HashMap<String, Visibility>>>,
     missing: Arc<Mutex<HashSet<u64>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
@@ -113,6 +115,7 @@ impl FakeForge {
     pub(crate) fn new(origin: PathBuf) -> Self {
         Self {
             visibility: Arc::new(Mutex::new(Visibility::Public)),
+            visibilities: Arc::default(),
             missing: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
@@ -181,6 +184,12 @@ impl FakeForge {
 
     pub(crate) fn set_visibility(&self, visibility: Visibility) {
         *self.visibility.lock().unwrap() = visibility;
+    }
+
+    /// Makes `repo` alone `visibility`, whatever the rest are
+    pub(crate) fn set_visibility_of(&self, repo: &ForgeSlug, visibility: Visibility) {
+        let key = repo.as_str().to_lowercase();
+        self.visibilities.lock().unwrap().insert(key, visibility);
     }
 
     /// Whether the account may push to the repo, which it may until a test says not
@@ -529,10 +538,12 @@ impl FakeForge {
 }
 
 impl Forge for FakeForge {
-    fn visibility(&self, _repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
+    fn visibility(&self, repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
         self.ask()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(*self.visibility.lock().unwrap())
+        let key = repo.as_str().to_lowercase();
+        let own = self.visibilities.lock().unwrap().get(&key).copied();
+        Ok(own.unwrap_or_else(|| *self.visibility.lock().unwrap()))
     }
 
     fn default_branch(&self, _repo: &ForgeSlug) -> Result<String, ForgeError> {

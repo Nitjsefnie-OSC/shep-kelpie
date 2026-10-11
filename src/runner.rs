@@ -392,9 +392,13 @@ impl Runner {
         let remote = check_checkout(&settings)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
-        let voice = GuardedVoice::new(ports.voice, local.clone()).with_hooks(hooks.clone());
+        let voice = GuardedVoice::new(ports.voice, local.clone())
+            .with_flock(ports.flock.clone(), Arc::clone(&ports.forge))
+            .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);
-        let guarded = Guarded::new(ports.forge, local.clone()).with_hooks(hooks.clone());
+        let guarded = Guarded::new(ports.forge, local.clone())
+            .with_flock(ports.flock.clone())
+            .with_hooks(hooks.clone());
         let guarded = Arc::new(guarded);
         let clock = Arc::clone(&ports.clock);
         let say: Say = {

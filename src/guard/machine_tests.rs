@@ -77,9 +77,8 @@ fn a_symlinked_home_is_refused_in_its_canonical_form() {
 }
 
 #[test]
-fn a_home_path_and_a_lan_address_are_refused_in_prose() {
+fn a_lan_address_is_refused_in_prose() {
     for (text, what) in [
-        ("see ~/.ssh/config", "a path under the home folder"),
         (LAN_URL, "an address on a local network"),
         ("ssh alex@mac.local", "an address on a local network"),
     ] {
@@ -102,6 +101,7 @@ fn ordinary_text_goes_through() {
         concat!("fixes the page at src/ho", "me/mod.rs"),
         LOOPBACK_URL,
         concat!("see https://example.com/ho", "me/page"),
+        "settings live in ~/.shep",
         "the acme of it",
     ] {
         assert_eq!(judged(&comment(text), HOME), Verdict::Allow, "{text}");
@@ -218,9 +218,8 @@ fn the_folders_the_hook_is_given_are_kept_off_the_forge_too() {
 #[test]
 fn a_refusal_says_what_to_fix() {
     let said = |text: &str| refusal(judged(&comment(text), HOME));
-    for text in ["see /Users/me/x", "see ~/.ssh/config"] {
-        assert!(said(text).contains("from its root"), "{text}");
-    }
+    let text = "see /Users/me/x";
+    assert!(said(text).contains("from its root"), "{text}");
     let why = said(LAN_URL);
     assert!(why.contains("Take it out"), "{why}");
     assert!(!why.contains("from its root"), "{why}");

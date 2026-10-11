@@ -29,7 +29,6 @@ fn every_encoding_of_a_local_path_is_refused_at_every_post() {
         "in /private/tmp/kelpie-1/x",
         "in /var/folders/zz/abc123/T/out.log",
         "in /private/var/folders/zz/abc123/T/out.log",
-        "see ~/.ssh/config",
         concat!("open http://192.", "168.1.20:3000"),
         "ssh alex@mac.local",
     ] {
@@ -54,8 +53,8 @@ fn a_refusal_names_the_field_and_what_it_found() {
     let (forge, _) = guarded();
     let refusal = |result: Result<u64, ForgeError>| result.unwrap_err().to_string();
     assert_eq!(
-        refusal(forge.create_issue(&slug(), "a title", "see ~/notes", &[])),
-        "not posted: the issue's body names a path under the home folder"
+        refusal(forge.create_issue(&slug(), "a title", "see /private/tmp/x", &[])),
+        "not posted: the issue's body names a path on this machine, which names its user"
     );
     assert_eq!(
         refusal(forge.create_issue(&slug(), "at mac.local:80", "a body", &[])),
@@ -106,4 +105,99 @@ fn ordinary_text_is_posted() {
     forge.create_issue(&slug(), "a title", text, &[]).unwrap();
     let [issue] = fake.created().try_into().unwrap();
     assert_eq!(issue.body, text);
+}
+
+#[test]
+fn a_path_under_the_home_folder_is_posted() {
+    let (forge, fake) = guarded();
+    let text = "the settings live in ~/.shep";
+    forge.create_issue(&slug(), "a title", text, &[]).unwrap();
+    let [issue] = fake.created().try_into().unwrap();
+    assert_eq!(issue.body, text);
+}
+
+fn repo(slug: &str) -> ForgeSlug {
+    ForgeSlug::try_from(slug.to_owned()).unwrap()
+}
+
+// A public destination, in a flock with a private project and a public one.
+fn guarded_in_a_flock() -> (Guarded, FakeForge) {
+    let (forge, fake) = guarded();
+    fake.set_visibility_of(&repo("acme/vault"), Visibility::Private);
+    let flock = vec![repo("shep-pm/lab"), repo("acme/vault"), repo("acme/site")];
+    (forge.with_flock(flock), fake)
+}
+
+#[test]
+fn the_name_of_a_private_project_is_refused_on_a_public_repo() {
+    for text in [
+        "ported from acme/vault",
+        "ported from ACME/Vault.",
+        "the vault project does it",
+        "(vault)",
+        "see https://github.com/acme/vault/pull/3",
+    ] {
+        let (forge, fake) = guarded_in_a_flock();
+        let refusal = forge.comment(&slug(), 3, text).unwrap_err();
+        assert!(matches!(refusal, ForgeError::LocalPath { .. }), "{text}");
+        assert_eq!(
+            refusal.to_string(),
+            "not posted: the comment names a repo GitHub marks private, and this repo is public"
+        );
+        assert_eq!(fake.comments(), [], "{text}");
+    }
+}
+
+#[test]
+fn the_name_of_a_private_project_is_refused_in_every_field_of_a_post() {
+    let (forge, fake) = guarded_in_a_flock();
+    let text = "ported from acme/vault";
+    assert!(forge.create_issue(&slug(), text, "a body", &[]).is_err());
+    assert!(forge.create_issue(&slug(), "a title", text, &[]).is_err());
+    assert!(forge.reply_to_thread(&slug(), "PRRT_1_0", text).is_err());
+    let open = |title, body| forge.create_pull_request(&slug(), "kelpie/1", "main", title, body);
+    assert!(open(text, "a body").is_err());
+    assert!(open("a title", text).is_err());
+    assert!(fake.created().is_empty());
+}
+
+#[test]
+fn the_name_of_a_private_project_is_posted_on_a_repo_that_is_private_too() {
+    let (forge, fake) = guarded_in_a_flock();
+    fake.set_visibility_of(&slug(), Visibility::Private);
+    let text = "ported from acme/vault";
+    forge.create_issue(&slug(), "a title", text, &[]).unwrap();
+    assert_eq!(fake.created().len(), 1);
+}
+
+#[test]
+fn the_name_of_a_public_project_or_a_longer_word_is_posted() {
+    for text in [
+        "ported from acme/site",
+        "the vaulted ceiling, vault-door and my_vault",
+        "see vault.rs and the vault.example.com page",
+        "ported from other/vault",
+    ] {
+        let (forge, fake) = guarded_in_a_flock();
+        forge.create_issue(&slug(), "a title", text, &[]).unwrap();
+        assert_eq!(fake.created().len(), 1, "{text}");
+    }
+}
+
+#[test]
+fn a_post_naming_a_flock_repo_is_refused_when_the_forge_cannot_say_who_sees_it() {
+    let (forge, fake) = guarded_in_a_flock();
+    fake.set_down(true);
+    let refusal = forge.comment(&slug(), 3, "ported from acme/vault");
+    assert!(matches!(refusal, Err(ForgeError::Failed(_))));
+    fake.set_down(false);
+    assert_eq!(fake.comments(), []);
+}
+
+#[test]
+fn a_post_naming_no_flock_repo_never_asks_the_forge_who_sees_one() {
+    let (forge, fake) = guarded_in_a_flock();
+    let text = "a plain comment";
+    forge.create_issue(&slug(), "a title", text, &[]).unwrap();
+    assert_eq!(fake.calls(), 0);
 }
