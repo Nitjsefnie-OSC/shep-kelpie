@@ -215,6 +215,37 @@ impl Runner {
         self.save(next)
     }
 
+    // The board is read only while it may open a work item, so a dropped
+    // issue's label is read on its own when it has not been, at most once a poll. One
+    // that is closed or lost `ready-for-agent` is forgotten, so putting the
+    // label back returns it. One the forge cannot answer for stays.
+    pub(super) fn recheck_dropped(&mut self) -> Result<(), StateError> {
+        if self.state.dropped.is_empty() {
+            return Ok(());
+        }
+        if !self.looks.dropped_due(self.ports.clock.now()) {
+            return Ok(());
+        }
+        let repo = &self.remote;
+        let unlabelled = |issue: &crate::ports::Issue| {
+            !issue.open || !issue.labels.iter().any(|l| l == board::READY)
+        };
+        let gone: Vec<u64> = (self.state.dropped.iter().copied())
+            .filter(|&n| {
+                self.ports
+                    .forge
+                    .issue(repo, n)
+                    .is_ok_and(|i| unlabelled(&i))
+            })
+            .collect();
+        if gone.is_empty() {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.dropped.retain(|n| !gone.contains(n));
+        self.save(next)
+    }
+
     // The board leaves a dropped issue be while the forge lists it ready, so an
     // entry goes once the forge stops listing it: a label put back is then new.
     fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
@@ -273,6 +304,35 @@ mod tests {
             step(&runner).unwrap(),
             Some(StepReport::Dispatched { issue: 7, .. })
         ));
+    }
+
+    #[test]
+    fn a_dropped_item_labelled_ready_again_while_the_board_is_shut_is_picked_when_it_opens() {
+        // #7 is open and the runner finishes it, so the board is not read.
+        let (rig, runner, _) = Rig::with_pull_request_set("acme", |rig| {
+            rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+        });
+        rig.forge.list_ready(8, false);
+        rig.ask(&runner, "add", Some("8"));
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", Some("8"));
+        rig.ask(&runner, "finish", None);
+
+        rig.forge.unlist_ready(8);
+        rig.clock.advance(600);
+        step(&runner).unwrap();
+        rig.forge.list_ready(8, false);
+        rig.clock.advance(600);
+        step(&runner).unwrap();
+
+        rig.ask(&runner, "start", None);
+        let picked = (0..3).find_map(|_| match step(&runner).unwrap() {
+            Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+            _ => None,
+        });
+        assert_eq!(picked, Some(8));
     }
 
     #[test]
