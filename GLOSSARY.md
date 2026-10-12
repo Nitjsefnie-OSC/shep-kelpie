@@ -94,8 +94,9 @@ run as a `command`, an `endpoint` or a `bot`.
 One endpoint in front of a host's model servers, such as paddock,
 named once in kelpie's own settings with the variable holding its key. A
 pi agent or an endpoint reviewer names one in place of its server's URL.
-It queues its calls, so kelpie takes no GPU lock for them, and a worker's
-turn on one holds a lease of the gateway's own on its model.
+It queues its calls, so kelpie takes no GPU lock for them. A worker's turn
+on one holds a lease of the gateway's own on its model, so the gateway
+evicts nothing it runs on midway; a reviewer's round takes no lease at all.
 _Avoid_: proxy, router
 
 **Implementer**:

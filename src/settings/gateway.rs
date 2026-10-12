@@ -82,14 +82,23 @@ impl KeyVar {
     }
 }
 
+/// Variables the children kelpie starts need, which hiding a key would strip from them
+const RESERVED: [&str; 4] = ["HOME", "PATH", "GH_TOKEN", "GITHUB_TOKEN"];
+
 impl TryFrom<String> for KeyVar {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let allowed = |c: char| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_';
-        match value.starts_with(|c: char| !c.is_ascii_digit()) && value.chars().all(allowed) {
-            true => Ok(Self(value)),
-            false => Err("must be an environment variable's name, such as PADDOCK_KEY"),
+        if !(value.starts_with(|c: char| !c.is_ascii_digit()) && value.chars().all(allowed)) {
+            return Err("must be an environment variable's name, such as PADDOCK_KEY".to_owned());
+        }
+        match RESERVED.contains(&value.as_str()) {
+            true => Err(format!(
+                "{value} is a variable kelpie's children need, which a key's variable is \
+                 hidden from: use a name of its own, such as PADDOCK_KEY"
+            )),
+            false => Ok(Self(value)),
         }
     }
 }
@@ -234,11 +243,12 @@ impl Gateways {
     }
 
     /// Refuses a start or a change whose `listed` agents name a gateway that
-    /// cannot be routed to, as an endpoint that does not answer is refused
+    /// cannot be routed to or dialed, as an endpoint that does not answer is refused
     ///
     /// # Errors
     ///
-    /// [`SettingsError::Invalid`] naming the agent and the reason.
+    /// [`SettingsError::Invalid`] naming the agent and the reason, which for an
+    /// `https://` gateway is that the forwarder speaks plain `http://`.
     pub fn check_listed<'a>(
         &self,
         book: &Agents,
@@ -249,10 +259,11 @@ impl Gateways {
                 continue;
             };
             let host = ModelHost::Gateway(gateway.clone());
-            self.route(&host).map_err(|reason| SettingsError::Invalid {
-                setting: "agents",
-                reason: format!("{name}: {reason}"),
-            })?;
+            self.upstream(&host)
+                .map_err(|reason| SettingsError::Invalid {
+                    setting: "agents",
+                    reason: format!("{name}: {reason}"),
+                })?;
         }
         Ok(())
     }
@@ -310,5 +321,36 @@ mod tests {
         for bad in ["paddock_key", "1KEY", "KEY-1", ""] {
             assert!(KeyVar::try_from(bad.to_owned()).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_name_the_children_need_is_refused_as_a_key_variable() {
+        for reserved in ["HOME", "PATH", "GH_TOKEN", "GITHUB_TOKEN"] {
+            let err = KeyVar::try_from(reserved.to_owned()).unwrap_err();
+            assert!(err.contains(reserved), "{reserved}: {err}");
+        }
+        let kept = KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap();
+        assert_eq!(kept.as_str(), "PADDOCK_KEY");
+    }
+
+    #[test]
+    fn a_listed_agent_on_an_https_gateway_is_refused_saying_the_forwarder_speaks_http() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("local.md"),
+            "---\nrole: implementer\nharness: pi\nmodel: m\neffort: low\n\
+             gateway: paddock\ncontext: 65536\n---\n",
+        )
+        .unwrap();
+        let book = Agents::load(dir.path()).unwrap();
+        let listed = [AgentName::try_from("local".to_owned()).unwrap()];
+        let check = |url: &str| {
+            let gateways = Gateways::reading(paddock(url), |_| Some("pk-1".into()));
+            gateways.check_listed(&book, &listed)
+        };
+        check("http://gpu:8700").unwrap();
+        let err = check("https://gpu:8700").unwrap_err().to_string();
+        assert!(err.contains("local"), "{err}");
+        assert!(err.contains("plain `http://`"), "{err}");
     }
 }

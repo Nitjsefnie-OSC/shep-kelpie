@@ -300,6 +300,7 @@ fn exchange(
             .map_err(gone)?;
     }
     let body = head.body(&mut reader)?;
+    let sent = request(upstream, &head, body.len())?;
     let mut server = connect(upstream).map_err(|e| {
         Reply::new(
             502,
@@ -319,7 +320,7 @@ fn exchange(
     let unsent =
         |e: io::Error| Reply::new(502, format!("kelpie lost the model server: {}", e.kind()));
     server
-        .write_all(&request(upstream, &head, body.len()))
+        .write_all(&sent)
         .and_then(|()| server.write_all(&body))
         .map_err(unsent)?;
     io::copy(&mut server, client).map_err(unsent)?;
@@ -339,8 +340,18 @@ fn connect(upstream: &Upstream) -> io::Result<TcpStream> {
 
 // The chat call as the model server gets it: its own path, and only the
 // headers a chat client needs, with a length the forwarder counted itself.
-// A gateway gets its own key, never the one the worker sent.
-fn request(upstream: &Upstream, head: &Head, length: usize) -> Vec<u8> {
+// A gateway gets its own key, never the one the worker sent. A key holding a
+// line break would start a header of the worker's choosing, so it is refused
+// before anything is sent.
+fn request(upstream: &Upstream, head: &Head, length: usize) -> Result<Vec<u8>, Reply> {
+    if let Some(key) = upstream.key()
+        && key.expose().contains(['\r', '\n'])
+    {
+        return Err(Reply::new(
+            502,
+            "kelpie will not send the gateway's key, which holds a line break",
+        ));
+    }
     let mut text = format!(
         "POST {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {length}\r\n",
         upstream.chat_path(),
@@ -356,7 +367,7 @@ fn request(upstream: &Upstream, head: &Head, length: usize) -> Vec<u8> {
         text.push_str(&format!("authorization: Bearer {}\r\n", key.expose()));
     }
     text.push_str("\r\n");
-    text.into_bytes()
+    Ok(text.into_bytes())
 }
 
 // 128 random bits as hex, from the system's own source.
