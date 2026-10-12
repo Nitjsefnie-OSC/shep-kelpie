@@ -4,7 +4,7 @@ use std::fs;
 use std::sync::Mutex;
 
 use super::{Runner, TemplateSource, step};
-use crate::ports::{Cost, Usage};
+use crate::ports::{Cost, Usage, Visibility};
 use crate::test::{Rig, Scripted};
 
 // The rig's project is `shep-pm/shep`, so its owner's repository is this
@@ -108,6 +108,35 @@ fn an_owners_repository_without_a_template_gives_none() {
     let text = first_instructions(&rig, &runner);
     assert!(!text.contains("pull request template"), "{text}");
     assert!(text.contains("/mattpocock:pr"), "{text}");
+}
+
+#[test]
+fn a_private_github_repository_gives_no_template() {
+    let rig = Rig::new("koji");
+    rig.forge
+        .put_file(OWNERS, "pull_request_template.md", "Secret words\n");
+    rig.forge
+        .set_visibility_of(&OWNERS.to_owned().try_into().unwrap(), Visibility::Private);
+    let runner = rig.open().unwrap();
+    let text = first_instructions(&rig, &runner);
+    assert!(!text.contains("Secret words"), "{text}");
+    assert!(text.contains("/mattpocock:pr"), "{text}");
+}
+
+#[test]
+fn the_dot_github_folder_outranks_the_root_and_docs() {
+    let rig = Rig::new("koji");
+    rig.forge
+        .put_file(OWNERS, "pull_request_template.md", "Root words\n");
+    rig.forge
+        .put_file(OWNERS, "docs/pull_request_template.md", "Docs words\n");
+    rig.forge
+        .put_file(OWNERS, ".github/pull_request_template.md", "Github words\n");
+    let runner = rig.open().unwrap();
+    let text = first_instructions(&rig, &runner);
+    assert!(text.contains("Github words"), "{text}");
+    assert!(!text.contains("Root words"), "{text}");
+    assert!(!text.contains("Docs words"), "{text}");
 }
 
 #[test]

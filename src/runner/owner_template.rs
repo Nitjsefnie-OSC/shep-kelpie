@@ -10,15 +10,12 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Runner;
-use super::instructions::{Template, pick, template};
-use crate::ports::{Forge, ForgeError};
+use super::instructions::{PLACES, Template, pick, template};
+use crate::ports::{Forge, ForgeError, Visibility};
 use crate::settings::ForgeSlug;
 
 /// How much template text the instructions carry, over which it is cut
 const KEPT: usize = 8 * 1024;
-
-/// The places GitHub reads a template from in a repo, the root first
-const PLACES: [&str; 3] = ["", ".github", "docs"];
 
 /// Where a repo's pull request template comes from
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -120,7 +117,8 @@ fn fitted(texts: String) -> String {
 
 /// The template in `owner`'s `.github` repository, if it has one
 ///
-/// Looks where [`super::instructions`] looks in a worktree, for the same names.
+/// Looks where [`super::instructions`] looks in a worktree, for the same names,
+/// in a public repository only.
 ///
 /// # Errors
 ///
@@ -130,12 +128,21 @@ pub(super) fn read(forge: &dyn Forge, owner: &str) -> Result<Option<OwnerTemplat
     let Ok(repo) = ForgeSlug::try_from(format!("{owner}/.github")) else {
         return Ok(None);
     };
+    // A root that is not there means no repo, so no place in it is either.
+    let Some(root) = forge.folder(&repo, "")? else {
+        return Ok(None);
+    };
+    // GitHub applies the defaults of a public `.github` repository only.
+    if forge.visibility(&repo)? != Visibility::Public {
+        return Ok(None);
+    }
     for place in PLACES {
-        let Some(entries) = forge.folder(&repo, place)? else {
-            // A root that is not there means no repo, so no place in it is either.
-            if place.is_empty() {
-                return Ok(None);
-            }
+        let entries = if place.is_empty() {
+            Some(root.clone())
+        } else {
+            forge.folder(&repo, place)?
+        };
+        let Some(entries) = entries else {
             continue;
         };
         let named = entries.iter().map(|e| (e.name.as_str(), e.is_dir));

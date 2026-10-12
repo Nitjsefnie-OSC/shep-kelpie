@@ -133,13 +133,17 @@ pub(super) enum Template {
     Folder(String),
 }
 
+/// Where GitHub reads a template from, in the order it prefers: `.github/`, the
+/// root, then `docs/`
+pub(super) const PLACES: [&str; 3] = [".github", "", "docs"];
+
 /// The template GitHub would offer for a pull request from this worktree
 ///
-/// GitHub reads `pull_request_template.md` (or `.txt`) from the root, `.github/` or
+/// GitHub reads `pull_request_template.md` (or `.txt`) from `.github/`, the root or
 /// `docs/`, in any case, and a `PULL_REQUEST_TEMPLATE` folder of several from
 /// the same places.
 pub(super) fn template(worktree: &Path) -> Option<Template> {
-    for place in ["", ".github", "docs"] {
+    for place in PLACES {
         let Ok(entries) = fs::read_dir(worktree.join(place)) else {
             continue;
         };
@@ -411,5 +415,17 @@ mod tests {
         );
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(template(empty.path()), None);
+        let both = tempfile::tempdir().unwrap();
+        fs::create_dir_all(both.path().join(".github")).unwrap();
+        fs::write(both.path().join("pull_request_template.md"), "Root\n").unwrap();
+        fs::write(
+            both.path().join(".github/pull_request_template.md"),
+            "Github\n",
+        )
+        .unwrap();
+        assert_eq!(
+            template(both.path()),
+            Some(Template::File(".github/pull_request_template.md".into()))
+        );
     }
 }
