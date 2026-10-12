@@ -346,6 +346,10 @@ pub struct Ruling {
     /// a runner that restarts posts it once the hold ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unposted: bool,
+    /// When it was raised. None in a file from before, and then an answer
+    /// by number is never refused as stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised: Option<Timestamp>,
 }
 
 /// Where a ruling is answered in its thread: the one login whose reply

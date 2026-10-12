@@ -222,6 +222,7 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     });
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 29.into();
@@ -251,6 +252,39 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
             "advice": { "choice": "A", "agree": 2, "of": 2 },
         })
     );
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A ruling saved before `raised` loads with no time, and one raised since
+// keeps its time through a save and a load.
+#[test]
+fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        id: 1,
+        issue: Some(7),
+        question: "q".into(),
+        pull_request: Some(71),
+        kind: RulingKind::Stuck(Stuck::Closed),
+        alerted: true,
+        panel: None,
+        verdict: None,
+        unposted: false,
+        raised: None,
+    });
+    let old = serde_json::to_value(&state).unwrap();
+    assert!(old["rulings"][0].get("raised").is_none());
+    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.rulings[0].raised, None);
+    loaded.rulings[0].raised = Some(Timestamp(1_700_000_000));
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["rulings"][0]["raised"], 1_700_000_000);
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 

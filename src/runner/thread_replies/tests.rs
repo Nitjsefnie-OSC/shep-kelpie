@@ -72,6 +72,74 @@ fn a_yes_naming_the_ruling_from_the_login_it_mentions_merges_the_pull_request() 
 }
 
 #[test]
+fn the_number_of_the_pull_request_or_its_issue_names_the_ruling_too() {
+    for named in ["71 yes", "#71 yes", "7 yes"] {
+        let (rig, runner, head) = a_merge_ruling_on_71();
+        let comment = rig.writes_on(71, "octocat", named);
+
+        rig.next_look();
+        step(&runner).unwrap();
+        rig.clock.advance(CHECKS_SETTLE);
+        step(&runner).unwrap();
+
+        assert_eq!(rig.forge.merges(), [(71, head)], "{named}");
+        assert_eq!(rig.github.reactions(), [comment], "{named}");
+    }
+}
+
+// A settled ruling with the id 71 is still watched, as a pull request's
+// number may come up as the id of a ruling that ended not long ago.
+#[test]
+fn a_settled_ruling_with_the_number_as_its_id_does_not_shadow_the_pending_one() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    // A first look has the ruling's thread watched.
+    rig.next_look();
+    step(&runner).unwrap();
+    {
+        let mut runner = runner.lock().unwrap();
+        let mut old = runner.threads.watching[&1].clone();
+        old.ruling = 71;
+        old.settled = Some(Timestamp(rig.clock.now().0 + 3600));
+        runner.threads.watching.insert(71, old);
+    }
+    let comment = rig.writes_on(71, "octocat", "71 yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
+#[test]
+fn a_reply_by_number_from_before_the_ruling_was_raised_is_told_it_changed() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    let written = rig.clock.now();
+    rig.writes_on(71, "octocat", "71 yes");
+    {
+        // The ruling was raised again after the comment was written.
+        let mut runner = runner.lock().unwrap();
+        let mut next = runner.state.clone();
+        next.rulings[0].raised = Some(Timestamp(written.0 + 1));
+        runner.save(next).unwrap();
+    }
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let [told] = replies_on_71(&rig).try_into().unwrap();
+    assert!(
+        told.starts_with("@octocat Ruling 1 was not answered: the ruling changed since that comment was written, and it asks now:"),
+        "{told}"
+    );
+    assert!(rig.forge.merges().is_empty());
+    assert!(rig.github.reactions().is_empty());
+    assert_eq!(pending(&rig, &runner), [1]);
+}
+
+#[test]
 fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     rig.writes_on(71, "octocat", "yes");
@@ -281,6 +349,24 @@ fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
     assert_eq!(rig.github.reactions(), [comment, answer]);
 }
 
+// A question takes any text, so a number that opens it is part of the answer.
+#[test]
+fn a_number_opening_a_question_s_answer_is_not_taken_for_its_name() {
+    let (rig, runner) = a_question_on_7_mentioning("octocat");
+    let answer = "7 is the wrong issue, patch 8 instead";
+    let comment = rig.writes_on(7, "octocat", answer);
+    rig.claude.script([Scripted::Say("Done.")]);
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), none());
+    assert_eq!(rig.github.reactions(), [comment]);
+    let calls = rig.claude.calls();
+    let resumed = &calls.last().unwrap().prompt;
+    assert!(resumed.contains(answer), "{resumed}");
+}
+
 #[test]
 fn comment_reads_stay_within_one_per_board_poll_however_often_the_loop_wakes() {
     let (rig, runner, _) = a_merge_ruling_on_71();
@@ -477,6 +563,7 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     });
     next.heard.insert(
         2,

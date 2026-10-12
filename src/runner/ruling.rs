@@ -545,6 +545,7 @@ pub(super) fn park(
         panel: None,
         verdict: None,
         unposted: false,
+        raised: Some(names.now),
     });
     (id, text)
 }

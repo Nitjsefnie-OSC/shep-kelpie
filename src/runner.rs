@@ -555,6 +555,7 @@ impl Runner {
         Names {
             project: self.project.as_str(),
             ids: RulingIds::under(&self.paths.kelpie_home),
+            now: self.ports.clock.now(),
         }
     }
 
@@ -867,11 +868,13 @@ fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsE
     Ok(())
 }
 
-// What a ruling's question names: its project, and where its id comes from.
+// What a ruling's question names: its project, where its id comes from, and
+// when it is raised.
 #[derive(Debug, Clone)]
 struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
+    now: Timestamp,
 }
 
 // Every listed review bot needs a profile.
