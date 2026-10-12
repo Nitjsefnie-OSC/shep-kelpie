@@ -326,7 +326,7 @@ fn a_failed_turn_wakes_it_and_its_retry_runs_the_turn_again() {
     assert_eq!(
         woke_for,
         [
-            "#7 is stuck: its worker's turn failed or stopped short twice, and ruling 1 asks \
+            "#7 is stuck: its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice, and ruling 1 asks \
           the maintainer"
         ]
     );

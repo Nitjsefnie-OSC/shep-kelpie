@@ -147,6 +147,7 @@ impl StepReport {
         | Self::ReplyToSettled { line_failed, .. }
         | Self::ReplyCodeUsed { line_failed, .. }
         | Self::RepliesLocked { line_failed }
+        | Self::ReplyUnreadable { line_failed }
         | Self::ReplyTooLong { line_failed } = &mut self
         {
             *line_failed = failed.map(|e| e.to_string());
@@ -402,7 +403,14 @@ impl Runner {
             }
         };
         let Some((named, id, words)) = read_reply(rest) else {
-            return ignored;
+            // Every project reads the one topic and finds the code claimed by
+            // this very reply, so each posts the line under its own title, as
+            // `too_long` does.
+            let text = "That reply named no ruling kelpie could read, so it answered nothing \
+                        and its code is spent. Send `<ruling> <answer> <code>` with a new code."
+                .to_owned();
+            let report = StepReport::ReplyUnreadable { line_failed: None };
+            return (report, self.line(None, text));
         };
         let whose = self.whose(named, id);
         if whose == Whose::Theirs {

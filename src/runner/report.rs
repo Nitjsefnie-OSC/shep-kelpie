@@ -391,6 +391,12 @@ pub enum StepReport {
         /// Why the line for the topic could not be posted, if it could not
         line_failed: Option<String>,
     },
+    /// A reply carried a right code but named no ruling kelpie could read:
+    /// it answered nothing, its code is spent, and the topic was told so
+    ReplyUnreadable {
+        /// Why the line for the topic could not be posted, if it could not
+        line_failed: Option<String>,
+    },
     /// A message on the webhook's topic carried no right code, and was
     /// ignored. Its text is not logged, since anyone holding the topic can
     /// write it.

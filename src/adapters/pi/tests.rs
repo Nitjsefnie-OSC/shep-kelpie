@@ -25,7 +25,7 @@ pub(super) const FRESH_ID: &str = "0b6f3c1e-7d2a-4f4e-9a51-3c8d2e6f1a07";
 pub(super) const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
 const URL: &str = "http://192.0.2.9:11434/v1";
 
-fn output(code: i32, stdout: &str, stderr: &str) -> Output {
+pub(super) fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
         status: ExitStatus::from_raw(code << 8),
         stdout: stdout.into(),
@@ -783,12 +783,12 @@ fn a_failed_call_says_why() {
 
     let errored = FRESH.replace(
         r#""stopReason":"stop""#,
-        r#""stopReason":"error","errorMessage":"connection refused""#,
+        r#""stopReason":"error","errorMessage":"model not found""#,
     );
     let err = parse_result(&output(0, &errored, ""), &id(FRESH_ID)).unwrap_err();
     assert_eq!(
         err,
-        AgentError::Failed(Harness::Pi, "connection refused".into())
+        AgentError::Failed(Harness::Pi, "model not found".into())
     );
 
     let err = parse_result(&output(0, "hello", ""), &id(FRESH_ID)).unwrap_err();

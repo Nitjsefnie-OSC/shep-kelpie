@@ -341,6 +341,8 @@ pub struct Runner {
     unmentioned_told: std::cell::Cell<bool>,
     // Whether a worker's turn waits for a token GitHub is not giving, in memory only
     token_wait: token_wait::TokenWait,
+    // The turns waiting for a model host that cannot be reached, in memory only
+    unreachable: turn::unreachable::Unreachable,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -504,6 +506,7 @@ impl Runner {
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),
+            unreachable: turn::unreachable::Unreachable::default(),
             posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
@@ -569,6 +572,7 @@ impl Runner {
             parked: self.parked_issues(),
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
+            order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             rulings: &self.state.rulings,
             panel: self.panel_status(),

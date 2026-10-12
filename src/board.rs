@@ -1,9 +1,12 @@
 //! The board: which ready issue becomes the next work item
 //!
 //! The board's input is the project's open issues labelled `ready-for-agent`.
-//! The one with the highest priority is dispatched next: `priority: P0`, then
-//! `P1`, `P2`, `P3`, then an issue with no priority label. Within a priority
-//! the oldest goes first, by issue number. An issue that already
+//! The board keeps them in an order and dispatches the first that is free. A
+//! newly ready issue joins it after the last issue of its priority: `priority: P0`,
+//! then `P1`, `P2`, `P3`, then an issue with no priority label, and within a
+//! priority the oldest first, by issue number. An issue whose priority label
+//! changes moves the same way. An issue that closes or loses the label leaves
+//! it. An issue that already
 //! has an open pull request or an assignee is someone's work in progress, and
 //! is skipped. So is one whose `agent:` label names no implementer the
 //! project lists, since kelpie would not know which agent to run it on. An
@@ -13,6 +16,7 @@
 //! too, so it cannot stall the issues behind it. An issue with sub-issues is
 //! never worked itself: its sub-issues are.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::Serialize;
@@ -251,8 +255,10 @@ pub struct Pick {
     pub skipped: Vec<Skip>,
 }
 
-/// Picks the ready issue that nobody is working on, highest priority first and
-/// oldest first within a priority
+/// Picks the ready issue that nobody is working on, first in `order`
+///
+/// `order` is the order the board keeps. An issue it omits comes after those
+/// it lists, highest priority first and oldest first within a priority.
 ///
 /// A ready issue labelled `in-progress` is passed over as held by an earlier
 /// worker. The caller drops the issues its own work items hold before it asks,
@@ -271,9 +277,10 @@ pub fn pick(
     finished: &[u64],
     dropped: &[u64],
     implementers: &[AgentName],
+    order: &[u64],
 ) -> Pick {
     let mut ready: Vec<&ReadyIssue> = ready.iter().collect();
-    ready.sort_by_key(|i| (priority_rank(&i.labels), i.number));
+    ready.sort_by_key(|i| order_key(order, i));
     let mut skipped = Vec::new();
     for issue in ready {
         let number = issue.number;
@@ -335,9 +342,68 @@ pub fn priority(labels: &[String]) -> Option<&'static str> {
     label.strip_prefix("priority: ")
 }
 
-/// Sorts `ready` into the board rule's order: priority, then oldest by number
-pub fn rule_order(ready: &mut [ReadyIssue]) {
-    ready.sort_by_key(|i| (priority_rank(&i.labels), i.number));
+/// Sorts `ready` into the board's order: `order` first, then an issue it
+/// omits by the board rule, which is priority, then oldest by number
+pub fn rule_order(ready: &mut [ReadyIssue], order: &[u64]) {
+    ready.sort_by_key(|i| order_key(order, i));
+}
+
+/// The priority rank each listed issue had when the board last read it, by
+/// issue number, so a changed label is seen
+pub type Ranked = BTreeMap<u64, usize>;
+
+/// The order and the ranks on record after a read of the board that listed
+/// `ready`, given those before it
+///
+/// An issue the forge no longer lists, because it closed or lost
+/// `ready-for-agent`, leaves the order. A newly ready issue goes after the
+/// last issue of its priority that the order holds, wherever the maintainer
+/// put it, or before every issue of a lower priority when it holds none. An
+/// issue whose priority label changed since `ranked` has it moves the same
+/// way, as if it were new. Several moves go in oldest first. An issue with no
+/// rank on record keeps its place. With no order kept, the result is the board
+/// rule's order.
+pub fn keep_order(order: &[u64], ranked: &Ranked, ready: &[ReadyIssue]) -> (Vec<u64>, Ranked) {
+    let rank = |n: u64| {
+        let issue = ready.iter().find(|i| i.number == n);
+        issue.map(|i| priority_rank(&i.labels))
+    };
+    let mut kept: Vec<u64> = Vec::with_capacity(ready.len());
+    for &n in order {
+        let same = rank(n).is_some_and(|r| ranked.get(&n).is_none_or(|&was| was == r));
+        if same && !kept.contains(&n) {
+            kept.push(n);
+        }
+    }
+    let mut moving: Vec<&ReadyIssue> = ready.iter().filter(|i| !kept.contains(&i.number)).collect();
+    moving.sort_by_key(|i| i.number);
+    for issue in moving {
+        if kept.contains(&issue.number) {
+            continue;
+        }
+        let mine = priority_rank(&issue.labels);
+        let at = kept
+            .iter()
+            .rposition(|&n| rank(n).is_some_and(|r| r <= mine))
+            .map_or(0, |p| p + 1);
+        kept.insert(at, issue.number);
+    }
+    let ranks = kept
+        .iter()
+        .filter_map(|&n| rank(n).map(|r| (n, r)))
+        .collect();
+    (kept, ranks)
+}
+
+// Where the board puts an issue: where `order` lists it, an issue it omits
+// after those it lists, then by the board rule.
+fn order_key(order: &[u64], issue: &ReadyIssue) -> (usize, usize, u64) {
+    let listed = order.iter().position(|&n| n == issue.number);
+    (
+        listed.unwrap_or(order.len()),
+        priority_rank(&issue.labels),
+        issue.number,
+    )
 }
 
 // Where an issue's priority label puts it: 0 for P0 to 3 for P3, and 4 with
@@ -478,7 +544,14 @@ mod tests {
 
     #[test]
     fn the_oldest_ready_issue_is_picked_whatever_order_they_are_listed_in() {
-        let pick = pick(&[ready(16), ready(12), ready(14)], &[], &[], &[], &listed());
+        let pick = pick(
+            &[ready(16), ready(12), ready(14)],
+            &[],
+            &[],
+            &[],
+            &listed(),
+            &[],
+        );
         assert_eq!(pick.issue, Some(12));
         assert_eq!(pick.skipped, []);
     }
@@ -490,6 +563,128 @@ mod tests {
     }
 
     #[test]
+    fn pick_follows_the_order_over_the_priority_labels() {
+        let issues = [prioritised(9, "priority: P0"), ready(2), ready(5)];
+        let pick = pick(&issues, &[], &[], &[], &listed(), &[5, 9, 2]);
+        assert_eq!(pick.issue, Some(5));
+        assert_eq!(pick.skipped, []);
+    }
+
+    #[test]
+    fn pick_passes_a_skipped_issue_over_to_the_next_in_the_order() {
+        let issues = [
+            ready(3),
+            blocked(8, &[(32, true)]),
+            prioritised(9, "priority: P3"),
+        ];
+        let pick = pick(&issues, &[], &[], &[], &listed(), &[8, 9, 3]);
+        assert_eq!(pick.issue, Some(9));
+        assert_eq!(pick.skipped.len(), 1);
+    }
+
+    #[test]
+    fn rule_order_follows_the_order_and_puts_an_issue_it_omits_last_by_the_rule() {
+        let mut issues = vec![
+            ready(1),
+            prioritised(2, "priority: P0"),
+            prioritised(3, "priority: P0"),
+            ready(4),
+        ];
+        rule_order(&mut issues, &[4, 3]);
+        let numbers: Vec<u64> = issues.iter().map(|i| i.number).collect();
+        assert_eq!(numbers, [4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn with_no_order_kept_the_order_is_the_board_rule() {
+        let issues = [
+            ready(1),
+            prioritised(2, "priority: P3"),
+            prioritised(3, "priority: P1"),
+            ready(4),
+            prioritised(5, "priority: P0"),
+            prioritised(6, "priority: P2"),
+            prioritised(7, "priority: P1"),
+            prioritised(8, "priority: P0"),
+        ];
+        assert_eq!(kept(&[], &issues), [5, 8, 3, 7, 6, 2, 1, 4]);
+    }
+
+    #[test]
+    fn a_newly_ready_p0_lands_after_the_last_p0_and_before_the_first_p1() {
+        let issues = [
+            prioritised(1, "priority: P0"),
+            prioritised(2, "priority: P0"),
+            prioritised(3, "priority: P1"),
+            prioritised(7, "priority: P0"),
+        ];
+        assert_eq!(kept(&[1, 2, 3], &issues), [1, 2, 7, 3]);
+    }
+
+    #[test]
+    fn a_newly_ready_issue_goes_after_the_last_of_its_priority_wherever_the_order_put_it() {
+        let issues = [
+            prioritised(1, "priority: P0"),
+            prioritised(2, "priority: P1"),
+            prioritised(3, "priority: P0"),
+            ready(4),
+            prioritised(9, "priority: P0"),
+        ];
+        // #1 sits below #2, so it is the last P0, and #3 and #9 follow it.
+        assert_eq!(kept(&[2, 1, 4], &issues), [2, 1, 3, 9, 4]);
+    }
+
+    #[test]
+    fn a_closed_or_unlabelled_issue_leaves_the_order() {
+        // The forge lists only open issues labelled `ready-for-agent`, so #2
+        // is missing from `issues` once it closes or loses the label.
+        let issues = [ready(1), ready(3)];
+        assert_eq!(kept(&[1, 2, 3], &issues), [1, 3]);
+    }
+
+    // The order after a read, when no issue has a priority on record yet.
+    fn kept(order: &[u64], issues: &[ReadyIssue]) -> Vec<u64> {
+        keep_order(order, &Ranked::new(), issues).0
+    }
+
+    // The order and the priorities on record after a first read of `issues`.
+    fn first_read(issues: &[ReadyIssue]) -> (Vec<u64>, Ranked) {
+        keep_order(&[], &Ranked::new(), issues)
+    }
+
+    #[test]
+    fn a_relabelled_issue_moves_to_after_the_last_issue_of_its_new_priority() {
+        let mut issues = vec![
+            prioritised(1, "priority: P0"),
+            prioritised(2, "priority: P0"),
+            prioritised(3, "priority: P1"),
+            prioritised(4, "priority: P1"),
+        ];
+        let (order, ranked) = first_read(&issues);
+        assert_eq!(order, [1, 2, 3, 4]);
+
+        // #4 is bumped to P0 and #1 dropped to P2.
+        issues[3].labels = labels(&[READY, "priority: P0"]);
+        issues[0].labels = labels(&[READY, "priority: P2"]);
+        let (order, ranked) = keep_order(&order, &ranked, &issues);
+        assert_eq!(order, [2, 4, 3, 1]);
+
+        // Read again with nothing changed, the order stands.
+        assert_eq!(keep_order(&order, &ranked, &issues).0, [2, 4, 3, 1]);
+    }
+
+    #[test]
+    fn an_issue_whose_priority_is_not_on_record_keeps_its_place() {
+        let issues = [
+            prioritised(1, "priority: P3"),
+            prioritised(2, "priority: P0"),
+        ];
+        let (order, ranked) = keep_order(&[1, 2], &Ranked::new(), &issues);
+        assert_eq!(order, [1, 2]);
+        assert_eq!(ranked.len(), 2);
+    }
+
+    #[test]
     fn a_p0_issue_is_picked_before_an_older_unlabelled_one() {
         let pick = pick(
             &[ready(3), prioritised(9, "priority: P0")],
@@ -497,6 +692,7 @@ mod tests {
             &[],
             &[],
             &listed(),
+            &[],
         );
         assert_eq!(pick.issue, Some(9));
         assert_eq!(pick.skipped, []);
@@ -515,7 +711,7 @@ mod tests {
             prioritised(7, "priority: P1"),
             prioritised(8, "priority: P0"),
         ];
-        while let Some(next) = pick(&issues, &[], &[], &[], &listed()).issue {
+        while let Some(next) = pick(&issues, &[], &[], &[], &listed(), &[]).issue {
             order.push(next);
             issues.retain(|i| i.number != next);
         }
@@ -532,6 +728,7 @@ mod tests {
             &[],
             &[],
             &listed(),
+            &[],
         );
         assert_eq!(pick.issue, Some(9));
     }
@@ -540,7 +737,7 @@ mod tests {
     fn a_blocked_p0_issue_waits_and_the_next_priority_is_picked() {
         let mut p0 = blocked(9, &[(4, true)]);
         p0.labels.push("priority: P0".into());
-        let pick = pick(&[p0, ready(1)], &[], &[], &[], &listed());
+        let pick = pick(&[p0, ready(1)], &[], &[], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(1));
         assert_eq!(pick.skipped.len(), 1);
     }
@@ -554,7 +751,7 @@ mod tests {
         };
         let mut piece = ready(5);
         piece.parent = Some(4);
-        let pick = pick(&[parent, piece], &[], &[], &[], &listed());
+        let pick = pick(&[parent, piece], &[], &[], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(5));
         assert_eq!(pick.skipped, [Skip::Split { issue: 4, open: 2 }]);
     }
@@ -562,7 +759,7 @@ mod tests {
     #[test]
     fn nothing_ready_picks_nothing() {
         assert_eq!(
-            pick(&[], &[], &[], &[], &listed()),
+            pick(&[], &[], &[], &[], &listed(), &[]),
             Pick {
                 issue: None,
                 skipped: vec![]
@@ -580,7 +777,14 @@ mod tests {
             closes: vec![2],
             labels: vec![],
         }];
-        let pick = pick(&[ready(2), taken, ready(5)], &open, &[], &[], &listed());
+        let pick = pick(
+            &[ready(2), taken, ready(5)],
+            &open,
+            &[],
+            &[],
+            &listed(),
+            &[],
+        );
         assert_eq!(pick.issue, Some(5));
         assert_eq!(
             pick.skipped,
@@ -598,21 +802,21 @@ mod tests {
     fn an_issue_an_earlier_worker_labelled_in_progress_is_passed_over_for_the_next_oldest() {
         let mut held = ready(2);
         held.labels.push(IN_PROGRESS.into());
-        let pick = pick(&[held, ready(5)], &[], &[], &[], &listed());
+        let pick = pick(&[held, ready(5)], &[], &[], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(5));
         assert_eq!(pick.skipped, [Skip::InProgress { issue: 2 }]);
     }
 
     #[test]
     fn an_issue_kelpie_finished_is_passed_over_while_the_forge_still_lists_it() {
-        let pick = pick(&[ready(22), ready(23)], &[], &[22], &[], &listed());
+        let pick = pick(&[ready(22), ready(23)], &[], &[22], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(23));
         assert_eq!(pick.skipped, [Skip::Finished { issue: 22 }]);
     }
 
     #[test]
     fn an_issue_kelpie_dropped_is_passed_over_as_dropped_and_not_as_finished() {
-        let pick = pick(&[ready(22), ready(23)], &[], &[], &[22], &listed());
+        let pick = pick(&[ready(22), ready(23)], &[], &[], &[22], &listed(), &[]);
         assert_eq!(pick.issue, Some(23));
         assert_eq!(pick.skipped, [Skip::Dropped { issue: 22 }]);
     }
@@ -622,7 +826,7 @@ mod tests {
         let mut taken = ready(3);
         taken.assigned = true;
         assert_eq!(
-            pick(&[taken], &[], &[], &[], &listed()),
+            pick(&[taken], &[], &[], &[], &listed(), &[]),
             Pick {
                 issue: None,
                 skipped: vec![Skip::Assigned { issue: 3 }]
@@ -634,7 +838,7 @@ mod tests {
     fn an_issue_labelled_for_an_agent_the_project_does_not_list_is_passed_over() {
         let mut odd = ready(1);
         odd.labels.push("agent:haiku-low".into());
-        let pick = pick(&[odd, ready(2)], &[], &[], &[], &listed());
+        let pick = pick(&[odd, ready(2)], &[], &[], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(2));
         assert_eq!(
             pick.skipped,
@@ -661,7 +865,7 @@ mod tests {
         let mut old = ready(1);
         old.labels.push("worker:gpt-high".into());
         assert_eq!(
-            pick(&[old, ready(2)], &[], &[], &[], &listed()).issue,
+            pick(&[old, ready(2)], &[], &[], &[], &listed(), &[]).issue,
             Some(1)
         );
     }
@@ -674,6 +878,7 @@ mod tests {
             &[],
             &[],
             &listed(),
+            &[],
         );
         assert_eq!(pick.issue, Some(9));
         assert_eq!(
@@ -694,6 +899,7 @@ mod tests {
             &[],
             &[],
             &listed(),
+            &[],
         );
         assert_eq!(pick.issue, Some(8));
         assert_eq!(pick.skipped, []);
@@ -703,7 +909,7 @@ mod tests {
     fn a_skip_for_blockers_names_only_the_open_ones_lowest_first() {
         let mixed = blocked(27, &[(40, true), (24, false), (19, true), (37, true)]);
         assert_eq!(
-            pick(&[mixed], &[], &[], &[], &listed()),
+            pick(&[mixed], &[], &[], &[], &listed(), &[]),
             Pick {
                 issue: None,
                 skipped: vec![Skip::Blocked {
@@ -719,7 +925,7 @@ mod tests {
     fn blockers_the_forge_did_not_list_count_as_open() {
         let mut long = blocked(8, &[(12, false)]);
         long.unlisted_blockers = 3;
-        let pick = pick(&[long, ready(9)], &[], &[], &[], &listed());
+        let pick = pick(&[long, ready(9)], &[], &[], &[], &listed(), &[]);
         assert_eq!(pick.issue, Some(9));
         assert_eq!(
             pick.skipped,

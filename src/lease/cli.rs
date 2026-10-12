@@ -545,6 +545,10 @@ mod tests {
             .args(["-INT", &std::process::id().to_string()])
             .status()
             .unwrap();
+        // `kill` returns once the signal is queued, and under load the OS
+        // handler can run on another thread a moment later. Sleeping here
+        // without yielding lets it run while the runtime's driver stays idle.
+        std::thread::sleep(std::time::Duration::from_millis(200));
         let command = ["touch", marker.to_str().unwrap()];
         let ended = run_command(&command, &mut signals).await;
         assert_eq!(ended, Ok(ExitCode::from(130)));
