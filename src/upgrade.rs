@@ -247,7 +247,8 @@ pub async fn run(
                 },
             );
             say(format!(
-                "`--rollback` has no copy of the build cargo replaced: {kept}. `--ref`, \
+                "`--rollback` has no copy of the build cargo replaced: {kept} (unless the last \
+                 upgrade stopped after its own swap, which kept the build it replaced). `--ref`, \
                  `--release` and `--binary` keep one"
             ));
         }
@@ -298,10 +299,14 @@ pub async fn run(
     )
     .await
     .map_err(|e| {
+        // A bare upgrade swapped nothing, so there is no swap for `--rollback` to undo.
+        let swapped = match action {
+            Action::Installed => String::new(),
+            _ => " `--rollback` would swap the builds back, not finish them".to_owned(),
+        };
         format!(
             "{e}\nThe new build is installed at {installed}, and a sheep not yet restarted \
-                 may still run the old one. To finish the restarts: {finish}. `--rollback` \
-                 would swap the builds back, not finish them"
+                 may still run the old one. To finish the restarts: {finish}.{swapped}"
         )
     })?;
     // Only a finished restart is recorded, so a bare run after a stop finishes it.

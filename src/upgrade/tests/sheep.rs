@@ -344,6 +344,25 @@ async fn a_bare_upgrade_with_no_record_counts_as_changed() {
 }
 
 #[tokio::test]
+async fn a_bare_upgrade_that_stops_in_its_restarts_does_not_offer_rollback_as_an_undo() {
+    let mut rig = Rig::new().await;
+    rig.shepherd.says("koji", &[MERGING]);
+    rig.cargo_installs("0.3.0", "0.12.0");
+    let patience = Patience {
+        merge: Duration::from_millis(100),
+        ..FAST
+    };
+    let err = rig
+        .upgrade_within(Action::Installed, patience)
+        .await
+        .0
+        .unwrap_err();
+    assert!(err.contains("To finish the restarts"), "{err}");
+    assert!(!err.contains("--rollback"), "{err}");
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+}
+
+#[tokio::test]
 async fn a_file_replaced_while_a_bare_upgrade_waits_is_not_recorded_as_restarted_onto() {
     let mut rig = Rig::new().await;
     // The restart waits on a merge, and `cargo install` runs meanwhile.
