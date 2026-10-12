@@ -904,7 +904,7 @@ fn a_per_item_budget_is_ten_dollars_when_the_table_does_not_say() {
 
 #[test]
 fn a_negative_or_non_numeric_per_item_budget_is_refused() {
-    for bad in ["-1", "0", "0.004", "\"ten\"", "true"] {
+    for bad in ["-1", "0", "0.004", "0.005", "0.0099", "\"ten\"", "true"] {
         let text = with_budget(&format!("[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n"));
         let err = parse_err(&text);
         assert!(err.contains("per_item_usd"), "{bad}: {err}");

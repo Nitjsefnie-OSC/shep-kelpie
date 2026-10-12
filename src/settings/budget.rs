@@ -54,11 +54,11 @@ impl TryFrom<f64> for PerItemUsd {
     type Error = &'static str;
 
     fn try_from(usd: f64) -> Result<Self, Self::Error> {
-        let cents = (usd * 100.0).round();
         // A cap below a cent would rule on the first call and double to
-        // nothing, and the cast saturates, so an absurd figure cannot wrap.
-        match usd.is_finite() && cents >= 1.0 {
-            true => Ok(Self(cents as u64)),
+        // nothing, so it is refused before rounding, which would lift 0.005 to
+        // a cent. The cast saturates, so an absurd figure cannot wrap.
+        match usd.is_finite() && usd >= 0.01 {
+            true => Ok(Self((usd * 100.0).round() as u64)),
             false => Err("must be a number of dollars above 0, such as 10 or 2.5"),
         }
     }
