@@ -65,17 +65,42 @@ impl Layout {
 
     fn staged(&self) -> PathBuf {
         let target = self.target();
-        let name = target.file_name().map_or_else(
-            || "shep-kelpie".into(),
-            |name| name.to_string_lossy().into_owned(),
-        );
         // One per upgrade process, so two upgrades of one file never share it.
-        target.with_file_name(format!(".{name}.staged.{}", std::process::id()))
+        target.with_file_name(format!("{}{}", staged_prefix(&target), std::process::id()))
+    }
+
+    // Removes the staged copies beside the installed file whose process is
+    // gone: one killed mid-stage leaves its copy for good. A live process's
+    // copy is a second upgrade's, which is left to finish.
+    fn clear_stale(&self) {
+        let target = self.target();
+        let prefix = staged_prefix(&target);
+        let Some(Ok(entries)) = target.parent().map(fs::read_dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(tail) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            if !tail.parse::<u32>().is_ok_and(super::lock::alive) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
     }
 
     fn held(&self) -> PathBuf {
         self.builds.join(".shep-kelpie.held")
     }
+}
+
+// What a staged copy's name starts with, before the pid of the upgrade that made it.
+fn staged_prefix(target: &Path) -> String {
+    let name = target.file_name().map_or_else(
+        || "shep-kelpie".into(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    format!(".{name}.staged.")
 }
 
 /// A build copied next to the installed one, ready to rename into place
@@ -125,6 +150,7 @@ pub fn stage(layout: &Layout, source: &Path) -> Result<Staged, String> {
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder).map_err(|e| failed("make the folder of", &e))?;
     }
+    layout.clear_stale();
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -283,6 +309,40 @@ mod tests {
     fn layout(dir: &Path) -> Layout {
         fs::create_dir_all(dir.join("bin")).unwrap();
         Layout::new(&dir.join("home"), &dir.join("bin/shep-kelpie"))
+    }
+
+    // A process killed mid-stage leaves its pid-named copy for good.
+    #[test]
+    fn staging_clears_the_staged_copies_a_killed_upgrade_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = layout(dir.path());
+        let bin = dir.path().join("bin");
+        let mut dead = Command::new("true").spawn().unwrap();
+        dead.wait().unwrap();
+        let mut running = Command::new("sleep").arg("30").spawn().unwrap();
+        let stale = file(&bin, &format!(".shep-kelpie.staged.{}", dead.id()), b"half");
+        let odd = file(&bin, ".shep-kelpie.staged.junk", b"half");
+        let live = file(
+            &bin,
+            &format!(".shep-kelpie.staged.{}", running.id()),
+            b"busy",
+        );
+        let other = file(&bin, ".other.staged.1", b"theirs");
+        let installed = file(&bin, "shep-kelpie", b"old");
+
+        let staged = stage(&layout, &file(dir.path(), "src", b"new")).unwrap();
+
+        let (stale_gone, odd_gone) = (!stale.exists(), !odd.exists());
+        let (live_kept, other_kept) = (live.exists(), other.exists());
+        let installed_kept = fs::read(&installed).unwrap() == b"old";
+        running.kill().unwrap();
+        running.wait().unwrap();
+        assert!(stale_gone, "a dead process's copy is cleared");
+        assert!(odd_gone, "a copy that names no process is cleared");
+        assert!(live_kept, "a live process's copy is kept");
+        assert!(other_kept, "another file's staged copy is left");
+        assert!(installed_kept);
+        assert!(staged.path().exists());
     }
 
     #[test]
