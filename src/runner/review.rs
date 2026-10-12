@@ -15,6 +15,8 @@
 
 mod attached;
 mod awaited;
+#[cfg(test)]
+mod axes;
 pub(super) mod calls;
 mod checks;
 mod criteria;
