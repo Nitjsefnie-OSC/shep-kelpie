@@ -7,7 +7,8 @@
 //! in its own words: a line the worker invents or rewrites files nothing.
 //! `git.issues` decides what follows: under `file` each finding is filed at
 //! once as `needs-triage`, under `ask` the maintainer is asked first and a
-//! yes files them `ready-for-agent`, and under `skip` nothing is filed and the
+//! yes files them `ready-for-agent` (the project manager's too, though it may
+//! ask for `needs-triage`), and under `skip` nothing is filed and the
 //! findings stay in the review. A finding an open issue already holds
 //! gets a comment on that issue instead of a second one.
 
@@ -95,7 +96,7 @@ impl Runner {
     fn file_follow_ups(&mut self, number: u64) -> Result<Begin, StateError> {
         let item = self.current().expect("a follow-up is of a work item");
         let issue = item.issue;
-        let triaged = item.follow_ups.as_ref().is_some_and(|p| p.ruled);
+        let triaged = (item.follow_ups.as_ref()).is_some_and(|p| p.ruled && !p.unread);
         let label = if triaged { READY } else { TRIAGE };
         // READY is on every repo `add` set up, so only TRIAGE may need making.
         let mut labelled = triaged;

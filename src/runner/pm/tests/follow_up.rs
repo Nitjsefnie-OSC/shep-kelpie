@@ -3,7 +3,10 @@
 
 use std::sync::Mutex;
 
-use super::{answered, name_pm, pm_seen, step_until};
+use serde_json::json;
+
+use super::{answered, name_pm, pm_seen, question, step_until};
+use crate::board::{READY, TRIAGE};
 use crate::ports::AgentError;
 use crate::runner::follow_up::tests::{after_merge, auto_merging_on};
 use crate::runner::{Runner, StepReport, step};
@@ -82,6 +85,138 @@ fn passing_it_on_leaves_the_ruling_open_with_its_recommendation_and_reason() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["kind"]["kind"], "follow-up");
     assert_eq!(rig.forge.created(), [], "nothing is filed before the yes");
+}
+
+#[test]
+fn a_yes_from_it_files_the_findings_ready_for_agent_as_the_maintainers_yes_does() {
+    let (rig, runner) = merged_with_a_finding("raichu", "work\n");
+    rig.claude.script([Scripted::Say(
+        "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"why\": \"the diff shows the race\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(
+        acted,
+        ["filing 1 finding of ruling 1 on #7 as ready-for-agent: src/lib.rs:9"],
+        "{dropped:?}"
+    );
+    assert_eq!(
+        alerted_of_the_ruling(&rig),
+        None,
+        "the maintainer was not asked"
+    );
+
+    let Some(StepReport::FollowUpsFiled { opened, .. }) = after_merge(&runner) else {
+        panic!("the findings were not filed");
+    };
+    assert_eq!(opened.len(), 1);
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [READY]);
+    assert!(
+        !issue.body.contains("Nobody has read this"),
+        "{}",
+        issue.body
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"], json!([]));
+}
+
+#[test]
+fn a_yes_asking_for_needs_triage_files_them_unread() {
+    let (rig, runner) = merged_with_a_finding("jolteon", "work\n");
+    rig.claude.script([Scripted::Say(
+        "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"needs-triage\", \
+         \"why\": \"the maintainer wants to read them\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(
+        acted,
+        ["filing 1 finding of ruling 1 on #7 as needs-triage: src/lib.rs:9"],
+        "{dropped:?}"
+    );
+
+    assert!(matches!(
+        after_merge(&runner),
+        Some(StepReport::FollowUpsFiled { .. })
+    ));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [TRIAGE]);
+    assert!(
+        issue.body.contains("Nobody has read this yet"),
+        "{}",
+        issue.body
+    );
+}
+
+#[test]
+fn a_no_from_it_files_nothing_and_says_which_findings_it_dropped_and_why() {
+    let (rig, runner) = merged_with_a_finding("flareon", "work\n");
+    rig.claude.script([Scripted::Say(
+        "{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"why\": \"the diff already \
+         locks the field\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(
+        acted,
+        ["dropping 1 finding of ruling 1 on #7: src/lib.rs:9"],
+        "{dropped:?}"
+    );
+    assert_eq!(alerted_of_the_ruling(&rig), None);
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"], json!([]));
+    assert_eq!(status["pm"]["settled"][0]["how"], "dropped");
+    assert_eq!(
+        status["pm"]["settled"][0]["why"],
+        "the diff already locks the field"
+    );
+    assert!(matches!(
+        after_merge(&runner),
+        Some(StepReport::Finished { merged: true, .. })
+    ));
+    assert_eq!(rig.forge.created(), []);
+}
+
+#[test]
+fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_waits() {
+    let (rig, runner) = merged_with_a_finding("umbreon", "work\n");
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude.script([Scripted::Fail(down)]);
+    step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+
+    rig.clock.advance(11 * 60);
+    rig.ask(&runner, "tell", Some("File them."));
+    rig.claude.script([Scripted::Say(
+        "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"why\": \"told\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(acted, Vec::<String>::new());
+    assert_eq!(
+        dropped,
+        ["follow_up #7: ruling 1 already went to the maintainer"]
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["id"], 1, "the ruling still waits");
+    assert_eq!(rig.forge.created(), []);
+}
+
+#[test]
+fn a_follow_up_answer_for_a_workers_question_is_dropped() {
+    let (rig, runner) = question::asking("vaporeon", question::ASKS);
+    rig.claude.script([Scripted::Say(
+        "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\"}}",
+    )]);
+    let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+    let (_, acted, dropped) = answered(Some(report));
+    assert_eq!(acted, Vec::<String>::new());
+    assert_eq!(
+        dropped,
+        ["follow_up #7: ruling 1 is a worker's question, not a follow-up"]
+    );
 }
 
 #[test]
