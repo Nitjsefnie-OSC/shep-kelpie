@@ -316,6 +316,7 @@ async fn a_bare_upgrade_after_the_file_changed_says_rollback_has_no_copy() {
     assert_eq!(rig.installed_says(), "0.10.0 for shep 0.12.0");
     assert!(
         said.iter().any(|l| l.contains("`--rollback` has no copy")
+            && l.contains("the previous build kept, kelpie 0.1.0, is the one before it")
             && l.contains("`--ref`, `--release` and `--binary` keep one")),
         "{said:?}"
     );
@@ -335,10 +336,32 @@ async fn a_bare_upgrade_with_no_record_counts_as_changed() {
     ran.unwrap();
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
     assert!(
-        said.iter().any(|l| l.contains("`--rollback` has no copy")),
+        said.iter().any(|l| l.contains("`--rollback` has no copy")
+            && l.contains("no earlier build is kept either")),
         "{said:?}"
     );
     assert!(rig.home.join("builds/installed.seen").exists());
+}
+
+#[tokio::test]
+async fn a_file_replaced_while_a_bare_upgrade_waits_is_not_recorded_as_restarted_onto() {
+    let mut rig = Rig::new().await;
+    // The restart waits on a merge, and `cargo install` runs meanwhile.
+    let mut looks = vec![MERGING; 30];
+    looks.push(IDLE);
+    rig.shepherd.says("koji", &looks);
+    let installing = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        rig.cargo_installs("0.10.0", "0.12.0");
+    };
+    let ((ran, _), ()) = tokio::join!(rig.upgrade(Action::Installed), installing);
+    ran.unwrap();
+    rig.restarts();
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(said.iter().any(|l| l.contains("kelpie 0.10.0")), "{said:?}");
 }
 
 #[tokio::test]
