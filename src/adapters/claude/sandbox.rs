@@ -53,15 +53,20 @@ impl ClaudeCli {
             std::fs::create_dir_all(folder).map_err(|e| setup(folder, e))?;
         }
         // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
-        // sandbox refuses, and a heredoc cannot make its temp file there. Only
-        // `claude` is given one, through `env`: `srt` puts its proxy socket
+        // sandbox refuses, and a heredoc cannot make its temp file there. zsh
+        // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
+        // that zsh appends to, so it gets one in the same folder. Only
+        // `claude` is given them, through `env`: `srt` puts its proxy socket
         // under its own `TMPDIR`, where a path past 104 bytes keeps it from
         // starting and a folder the call writes lets the call delete the socket.
         let mut temp = OsString::from("TMPDIR=");
         temp.push(&scratch);
+        let mut prefix = OsString::from("TMPPREFIX=");
+        prefix.push(scratch.join("zsh"));
         let mut command = crate::spawn::command("/usr/bin/env");
         command
             .arg(temp)
+            .arg(prefix)
             .arg(&self.program)
             .args(argv)
             .current_dir(&call.cwd)
@@ -481,7 +486,9 @@ mod tests {
     // and the sandbox refuses a write there. `srt` makes its own proxy socket
     // under its `TMPDIR`: past 104 bytes it cannot start, and in a folder the
     // call writes the call could delete the socket. So only the command
-    // inside `srt` gets it, as `env TMPDIR=<folder> claude ...`.
+    // inside `srt` gets it, as `env TMPDIR=<folder> TMPPREFIX=<folder>/zsh
+    // claude ...`. zsh ignores `TMPDIR` for a heredoc and writes under
+    // `TMPPREFIX`, `/tmp/zsh` by default, which the sandbox refuses.
     #[test]
     fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
         let w = World::new();
@@ -508,6 +515,10 @@ mod tests {
                 "{role:?}: TMPDIR {folder:?} is not in {:?}",
                 policy.write
             );
+            // zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+            let prefix = words.next().unwrap().to_str().unwrap();
+            let prefix = PathBuf::from(prefix.strip_prefix("TMPPREFIX=").expect(prefix));
+            assert_eq!(prefix, folder.join("zsh"), "{role:?}");
             assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
         }
     }
@@ -627,12 +638,14 @@ mod tests {
         let args: Vec<&str> = command.get_args().map(|a| a.to_str().unwrap()).collect();
         let settings = w.path("worker/settings.json");
         let temp = format!("TMPDIR={}", w.path("worker/settings.tmp").display());
+        let prefix = format!("TMPPREFIX={}", w.path("worker/settings.tmp/zsh").display());
         let claude = w.path("claude");
         assert_eq!(command.get_program(), "/usr/bin/env");
         assert_eq!(
             args,
             [
                 temp.as_str(),
+                prefix.as_str(),
                 claude.to_str().unwrap(),
                 "--model",
                 "claude-sonnet-5",

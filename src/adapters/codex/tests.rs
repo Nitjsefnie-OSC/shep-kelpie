@@ -53,9 +53,10 @@ fn strings(call: &AgentCall, resumed: Option<&Thread>, instructions: Option<&str
 fn stand_in(world: &World, stdout: &str) -> CodexCli {
     std::fs::write(world.path("stdout.jsonl"), stdout).unwrap();
     let script = format!(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s' \"$CODEX_HOME\" > {}\ncat {}\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s' \"$CODEX_HOME\" > {}\nprintf '%s' \"$TMPPREFIX\" > {}\ncat {}\n",
         world.path("argv").display(),
         world.path("codex_home").display(),
+        world.path("tmpprefix").display(),
         world.path("stdout.jsonl").display()
     );
     if !world.path("codex").exists() {
@@ -470,6 +471,21 @@ fn a_fenced_call_reads_its_codex_home_inside_the_shepherds() {
             path.display()
         );
     }
+}
+
+// zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+#[test]
+fn a_calls_zsh_makes_its_heredoc_files_in_the_calls_scratch_folder() {
+    let w = World::new();
+    let cli = stand_in(&w, "");
+    let call = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
+    cli.prepare(&call).unwrap();
+    let _ = cli.run(&call, &Ending::default());
+    let prefix = std::fs::read_to_string(w.path("tmpprefix")).unwrap();
+    assert_eq!(
+        prefix,
+        format!("{}/zsh", w.path("worker/settings.tmp").display())
+    );
 }
 
 #[test]
