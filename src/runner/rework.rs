@@ -428,11 +428,12 @@ pub(super) fn first_prompt(item: &WorkItem) -> String {
         "Your work item reworks your pull request #{number} for issue #{}: {}\n\n\
          Its latest review asks for changes, and is in {}. \
          Make the changes it asks for, then commit and push with `git push origin HEAD`. \
-         Your branch is the pull request's as `origin` holds it, with any commits the \
+         {} Your branch is the pull request's as `origin` holds it, with any commits the \
          maintainer pushed. The pull request is already open, so do not open another.\n",
         item.issue,
         item.title,
-        review_path(&item.build).display()
+        review_path(&item.build).display(),
+        turn::KEEP_BODY_TRUE
     )
 }
 
