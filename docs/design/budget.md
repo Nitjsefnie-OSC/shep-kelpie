@@ -53,7 +53,7 @@ Pacing, leases, forge limits, time, usage, settings.
 
 ## Not built
 
-- Hour-of-day pacing + utilization logging, to catch a peak-hour effect. design-log Decided, not built
+- Hour-of-day pacing + utilization logging, to catch a peak-hour effect. `docs/design-log.md` Decided, not built
 - GPU busy vs idle waits; need sampling and new phases. #251
 
 ## Watching

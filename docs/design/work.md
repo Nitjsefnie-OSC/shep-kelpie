@@ -57,5 +57,5 @@ Projects, the board, work items, slots, issue writer, project manager.
 
 ## Not built
 
-- Overlapping items bundled when small, chained otherwise; today overlap shows as a conflict turn. design-log Decided, not built
+- Overlapping items bundled when small, chained otherwise; today overlap shows as a conflict turn. `docs/design-log.md` Decided, not built
 - Oversized work split into chained items by the worker; today issue writer scopes first. ADR 0006

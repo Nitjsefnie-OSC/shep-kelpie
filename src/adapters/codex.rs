@@ -77,7 +77,7 @@ const LOGS: &str = "log";
 /// A list of those would miss the next one Codex adds, so the call writes
 /// only these. Not `tmp`: Codex puts a folder in it first on every hook's
 /// PATH, so a `git` planted there would run inside `kelpie guard`. Codex
-/// runs on without it (Facts).
+/// runs on without it (`docs/facts/codex-as-an-agent.md`).
 const WRITTEN: [&str; 5] = [
     "sessions",
     "archived_sessions",
@@ -94,7 +94,8 @@ const INSTALLATION_ID: &str = "installation_id";
 /// its hooks or its sandbox
 ///
 /// `unified_exec` is not among them: Codex turns it back on unless an
-/// administrator's `requirements.toml` pins it off (Facts).
+/// administrator's `requirements.toml` pins it off
+/// (`docs/facts/codex-as-an-agent.md`).
 const FEATURES_OFF: [&str; 16] = [
     // A crew of Codex's own, whose calls kelpie's checks were not measured on
     "multi_agent",
@@ -178,7 +179,8 @@ impl Agents for CodexCli {
                 lambs.label(pid, &label);
             }
         };
-        // Codex dies of a full stdout pipe the sandbox's Node made non-blocking (Facts).
+        // Codex dies of a full stdout pipe the sandbox's Node made non-blocking
+        // (`docs/facts/codex-as-an-agent.md`).
         let outputs = [files.stdout.as_path(), files.stderr.as_path()];
         let run = self
             .processes
@@ -683,7 +685,8 @@ fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) ->
             .chain(call.reach.read.iter().cloned()),
     );
     policy.hosts.push(MODEL_HOST.to_owned());
-    // Codex verifies the model's certificate through macOS, as `gh` does (Facts).
+    // Codex verifies the model's certificate through macOS, as `gh` does
+    // (`docs/facts/codex-as-an-agent.md`).
     policy.verify_tls = true;
     policy
 }
@@ -715,8 +718,9 @@ struct Turn {
 // `codex exec --json` prints one event per line: the session it runs in,
 // each item as it starts and ends, and the turn's end with its tokens or
 // its failure. The answer is the last agent message. Its tokens are the
-// session's so far, a resumed session's earlier turns included (Facts). A
-// ChatGPT plan has no price per call, so kelpie records each one as unpriced.
+// session's so far, a resumed session's earlier turns included
+// (`docs/facts/codex-as-an-agent.md`). A ChatGPT plan has no price per call,
+// so kelpie records each one as unpriced.
 fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentError> {
     #[derive(Deserialize)]
     struct Event {

@@ -37,7 +37,7 @@ pub const FILE: &str = "usage.jsonl";
 
 /// A call's tokens in the control room's units, rounded to the nearest
 ///
-/// Weighted by cache pricing, as the design log measured the control room:
+/// Weighted by cache pricing, as the control room weighs it (#347):
 /// uncached input 1, a one-hour cache write 2, a five-minute one 1.25, a
 /// cache read 0.1, output 5.
 pub fn units(usage: Usage) -> u64 {

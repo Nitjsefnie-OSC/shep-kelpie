@@ -724,7 +724,7 @@ Four experts vote on each ruling that lists two options or more, each blind to t
 |---|---|---|
 | Worker | the work item's own session, resumed once with the ruling | what it already holds, and its worktree. It abstains when the work item has no worker turn |
 | PM | the project manager, woken as for anything else | the board, the diffs and the CI logs |
-| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design log, ADRs, glossary and README |
+| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design docs, ADRs, glossary and README |
 | Researcher | the `researcher` agent file | everything outside the codebase: earlier rulings and their answers, the issue and pull request threads, the worker's session, your own agent sessions, and the web |
 
 A project has a panel once it names an advisor or a researcher:

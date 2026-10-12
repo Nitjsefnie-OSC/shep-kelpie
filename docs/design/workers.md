@@ -61,5 +61,5 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 ## Not built
 
 - Claude Code through a gateway: needs per-harness forwarding + pacing decision. #352
-- Usage calculator handing workers decisions, never cost figures (budget talk makes models stop). design-log Decided, not built
+- Usage calculator handing workers decisions, never cost figures (budget talk makes models stop). `docs/design-log.md` Decided, not built
 - Shots and preview parked, recoverable from git history. ADR 0006, #54, #131
