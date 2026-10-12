@@ -9,16 +9,22 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rustix::fs::{OFlags, fcntl_setfl};
+
 use crate::ports::Ending;
 
 /// How often a running child is checked for its exit
 const POLL: Duration = Duration::from_millis(50);
+
+/// How often a write to a full stdin pipe is tried again
+const WRITE_POLL: Duration = Duration::from_millis(10);
 
 // Time for an ended call's group to exit on SIGTERM before it gets SIGKILL.
 const END_GRACE: Duration = Duration::from_secs(3);
@@ -147,14 +153,12 @@ impl Processes {
             .map_err(RunError::Io)?;
         let pid = child.id();
         // Written off this thread: a child that never reads leaves the write
-        // blocked, and the wait below is what ends it at its deadline. The
-        // write then fails with the child gone, and the thread exits.
-        if let Some(mut stdin) = child.stdin.take() {
-            let input = input.to_vec();
-            thread::spawn(move || {
-                let _ = stdin.write_all(&input);
-            });
-        }
+        // waiting, and the wait below is what ends the child at its deadline.
+        // Dropped on every way out, which stops the write whoever holds the pipe.
+        let _feeder = child
+            .stdin
+            .take()
+            .map(|stdin| Feeder::start(stdin, input.to_vec()));
         let stdout = drain(child.stdout.take());
         let stderr = drain(child.stderr.take());
         let id = {
@@ -408,6 +412,50 @@ fn stop_child(child: &mut Child, grace: Duration) {
     let _ = child.wait();
 }
 
+// A child's stdin being written, off the calling thread, until all of it is
+// in or the feeder is dropped. The pipe is non-blocking, so the thread
+// notices a drop between tries, and a drop returns once the thread is gone.
+struct Feeder {
+    cancel: Arc<AtomicBool>,
+    writer: Option<thread::JoinHandle<()>>,
+}
+
+impl Feeder {
+    fn start(mut stdin: ChildStdin, input: Vec<u8>) -> Self {
+        // If it cannot be set the write blocks, as a plain one does.
+        let _ = fcntl_setfl(&stdin, OFlags::NONBLOCK);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&cancel);
+        let writer = thread::spawn(move || {
+            let mut left = input.as_slice();
+            while !left.is_empty() && !stop.load(Ordering::Relaxed) {
+                match stdin.write(left) {
+                    Ok(0) => return,
+                    Ok(n) => left = &left[n..],
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(WRITE_POLL);
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => return,
+                }
+            }
+        });
+        Self {
+            cancel,
+            writer: Some(writer),
+        }
+    }
+}
+
+impl Drop for Feeder {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
+    }
+}
+
 fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<u8>> {
     thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -548,6 +596,38 @@ mod tests {
             .expect("the call hung on writing to a child that never reads");
         assert!(matches!(result, Err(RunError::TimedOut)), "{result:?}");
         assert!(processes.lock().children.is_empty());
+    }
+
+    #[test]
+    fn a_child_that_reads_gets_all_of_an_input_bigger_than_a_pipe() {
+        let processes = Processes::default();
+        let input = vec![b'x'; 1024 * 1024];
+        let output = processes
+            .output_within_fed(&mut Command::new("cat"), Duration::from_secs(30), &input)
+            .unwrap();
+        assert_eq!(output.stdout, input);
+    }
+
+    // Real time: the child outlives the feeder, as one whose stdin another
+    // process holds open does, so only the feeder's own drop can end the write.
+    #[test]
+    fn a_dropped_feeder_gives_up_a_write_the_child_never_reads() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let feeder = Feeder::start(child.stdin.take().unwrap(), vec![b'x'; 4 * 1024 * 1024]);
+        thread::sleep(Duration::from_millis(100));
+        let (done, dropped) = mpsc::channel();
+        thread::spawn(move || {
+            drop(feeder);
+            let _ = done.send(());
+        });
+        let ended = dropped.recv_timeout(Duration::from_secs(5));
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(ended.is_ok(), "the writer thread was left blocked");
     }
 
     // Real time: models a worker whose build or test process outlives it.
