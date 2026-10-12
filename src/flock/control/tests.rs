@@ -459,13 +459,100 @@ async fn status_reports_every_project() {
     runner(&shepherd, "reactmap", Path::new("/src/reactmap"), false);
     shepherd.holds_dog("kelpie", true);
     let client = client(&shepherd).await;
-    let lines = in_time(status(&client)).await.unwrap();
+    let lines = in_time(status(&client, Format::Json)).await.unwrap();
     assert_eq!(
         lines,
         [
             r#"koji: {"action":"status","sheep":"koji"}"#,
             "reactmap: not running",
         ]
+    );
+}
+
+// What a runner finishing two work items, one parked on a merge ruling,
+// answered `status` with
+const RECORDED: &str = r#"{"project":"koji","merging":"ask","run":"finishing",
+    "work_item":null,
+    "work_items":[
+        {"issue":7,"title":"Add a thing","phase":{"state":"ruling","id":1},
+         "turn":{"state":"ended","at":100},"pull_request":71},
+        {"issue":9,"title":"Fix the other","phase":{"state":"implement"},
+         "turn":{"state":"running","since":200},"pull_request":null}],
+    "rulings":[{"id":1,"issue":7,"pull_request":71,
+        "question":"Merge pull request #71 at abc1234 into main?",
+        "kind":{"kind":"merge","head":"abc1234def"},"alerted":false}],
+    "pacer":{"enabled":true,"claude":{
+        "reading":{"at":300,"session":{"used_pct":3,"resets_at":400},
+            "week":{"used_pct":15,"resets_at":500},"allowance_pct":14.3,
+            "spent_today_pct":15,"per_hour_pct":1.8},
+        "holding":{"kind":"allowance","reason":"today's allowance is spent","until":600}}}}"#;
+
+#[test]
+fn a_plain_status_names_what_the_maintainer_looks_for() {
+    assert_eq!(
+        plain_status("koji", RECORDED),
+        [
+            "koji (finishing)",
+            "  run: finishing",
+            "  work items:",
+            "    #7 Add a thing: phase ruling, turn ended, PR #71",
+            "    #9 Fix the other: phase implement, turn running, no PR",
+            "  rulings waiting: 1",
+            "    ruling 1: merge, #7, PR #71",
+            "  pacer: on",
+            "    claude: session 3%, week 15%, 15% of the week spent today of 14.3% allowed",
+            "    claude holding (allowance): today's allowance is spent",
+        ]
+    );
+}
+
+#[test]
+fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
+    let body = r#"{"project":"koji","work_items":[],"rulings":[
+        {"id":1,"issue":null,"pull_request":null,"kind":{"kind":"question"}}]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..5],
+        [
+            "  rulings waiting: 1",
+            "    ruling 1: question, no issue, no PR"
+        ]
+    );
+}
+
+#[test]
+fn a_plain_status_of_an_idle_runner_says_so() {
+    let idle = r#"{"project":"koji","work_items":[],"rulings":[],
+        "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;
+    assert_eq!(
+        plain_status("koji", idle),
+        [
+            "koji",
+            "  run: running",
+            "  work items: none",
+            "  rulings waiting: none",
+            "  pacer: off",
+            "    claude: not read",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_plain_status_keeps_a_project_that_is_not_running_to_a_line() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), false);
+    shepherd.holds_dog("kelpie", true);
+    let client = client(&shepherd).await;
+    assert_eq!(
+        in_time(status(&client, Format::Plain)).await.unwrap(),
+        ["koji: not running"]
+    );
+}
+
+#[test]
+fn a_json_status_is_the_runner_s_object_as_it_came() {
+    assert_eq!(
+        json_status("koji", RECORDED),
+        format!("koji (finishing): {RECORDED}")
     );
 }
 
@@ -477,7 +564,7 @@ async fn status_marks_a_draining_runner() {
     shepherd.says("koji", &[draining]);
     let client = client(&shepherd).await;
     assert_eq!(
-        in_time(status(&client)).await.unwrap(),
+        in_time(status(&client, Format::Json)).await.unwrap(),
         [format!("koji (draining): {draining}")]
     );
 }
@@ -530,7 +617,10 @@ async fn a_runner_still_taking_its_actions_is_starting() {
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let client = client(&shepherd).await;
     shepherd.just_started("koji");
-    assert_eq!(in_time(status(&client)).await.unwrap(), ["koji: starting"]);
+    assert_eq!(
+        in_time(status(&client, Format::Json)).await.unwrap(),
+        ["koji: starting"]
+    );
     // Each answer from a runner still starting uses the flag up.
     shepherd.just_started("koji");
     let err = in_time(send(&client, &project("koji"), "drop", None))
