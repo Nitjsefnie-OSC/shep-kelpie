@@ -71,6 +71,12 @@ impl Runner {
         if item.conflict.as_ref().is_some_and(|sent| {
             sent.head == head || sent.main == main || sent.turns >= CONFLICT_TURNS
         }) {
+            // No turn goes out for the merge kelpie just started, and a worktree
+            // left in it could not be caught up again after the maintainer's yes.
+            let (repo, tree) = (&self.settings.git.checkout, &item.worktree);
+            if let Err(e) = worktree::abort_merge(repo, tree) {
+                eprintln!("cannot abort the merge in #{number}'s worktree: {e}");
+            }
             let reason = format!("it conflicts with main in {}", files.join(", "));
             return self.raise(number, Stuck::Rebase { why: reason }.into());
         }
@@ -411,6 +417,16 @@ mod tests {
             "{question}"
         );
         assert_eq!(rig.claude.calls().len(), 2, "no third turn, no loop");
+        // The merge kelpie started for a turn it will not send is undone, so
+        // the maintainer's yes finds a worktree it can catch up again.
+        let worktree = rig.worktree_7();
+        assert_eq!(git(&worktree, &["status", "--porcelain"]), "");
+        assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), pushed);
+        let merge_head = git(&worktree, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+        assert!(
+            !worktree.join(&merge_head).exists(),
+            "the merge was left in progress"
+        );
     }
 
     #[test]

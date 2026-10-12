@@ -451,6 +451,15 @@ pub fn head(repo: &Path, worktree: &Path) -> Result<String, WorktreeError> {
     trusted(repo, worktree)?(&["rev-parse", "HEAD"])
 }
 
+/// Abandons the merge in progress in `worktree`, putting it back at its head
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn abort_merge(repo: &Path, worktree: &Path) -> Result<(), WorktreeError> {
+    trusted(repo, worktree)?(&["merge", "--abort"]).map(drop)
+}
+
 /// The files `worktree` holds that its last commit does not: changed, staged
 /// or new and not ignored
 ///
