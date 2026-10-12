@@ -272,7 +272,8 @@ async fn serve() -> Result<(), String> {
         Ok((socket, listener)) => {
             println!("the door is {}, {capacity} at a time", socket.display());
             let grace = door::REJOIN_GRACE;
-            let home = home::kelpie_home_of(&shep_home);
+            // Never `KELPIE_HOME`: shep starts the adopted dog without it.
+            let home = home::under(&shep_home);
             tokio::spawn(door::serve(listener, Arc::clone(&desk), grace, home));
         }
         Err(e) => {
