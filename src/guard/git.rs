@@ -47,10 +47,12 @@ pub(super) struct Git<'a> {
 
 // `words` without the redirections a shell reads: `2>&1`, `>out`, `&>out`, and the
 // target word after a bare `>` or `2>`. A quoted `>` is text. A heredoc's `<<` stays,
-// since `git commit -F -` reads it. `quoting` has no entry for a word it does not know,
-// and that word is bare.
-fn without_redirects(words: &[String], quoting: &[Quoting]) -> Vec<String> {
+// since `git commit -F -` reads it. The quoting of the words left comes back with them,
+// so the two stay aligned. `quoting` has no entry for a word it does not know, and that
+// word is bare.
+fn without_redirects(words: &[String], quoting: &[Quoting]) -> (Vec<String>, Vec<Quoting>) {
     let mut kept = Vec::with_capacity(words.len());
+    let mut kept_quoting = Vec::with_capacity(quoting.len());
     let mut target = false;
     for (at, word) in words.iter().enumerate() {
         if std::mem::take(&mut target) {
@@ -63,10 +65,13 @@ fn without_redirects(words: &[String], quoting: &[Quoting]) -> Vec<String> {
         };
         match (at > 0).then(|| redirect(word, held)).flatten() {
             Some(bare) => target = bare,
-            None => kept.push(word.clone()),
+            None => {
+                kept.push(word.clone());
+                kept_quoting.extend(quoting.get(at).cloned());
+            }
         }
     }
-    kept
+    (kept, kept_quoting)
 }
 
 // Whether `word` is a redirection to an output file, and if so, whether it is bare, so
@@ -89,9 +94,10 @@ pub(super) fn judge(
     reads: &mut Reads,
 ) -> Vec<String> {
     // A redirect is the shell's, and git is never given it.
-    let words = without_redirects(git.words, git.quoting);
+    let (words, quoting) = without_redirects(git.words, git.quoting);
     let git = Git {
         words: &words,
+        quoting: &quoting,
         ..git
     };
     let runs = git.reach == Reach::Runs;
