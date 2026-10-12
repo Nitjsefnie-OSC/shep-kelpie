@@ -22,7 +22,7 @@ use crate::ports::{
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
-    Account, AgentName, ForgeSlug, ListedReviewer, RoleAgents, Settings, SettingsError,
+    Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
 use crate::skills::Skills;
 use crate::state::ids::RulingIds;
@@ -275,6 +275,8 @@ pub struct Runner {
     home: PathBuf,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,
+    // The gateways the adapters were built with, which a change waits to replace
+    gateways: Gateways,
     // None when kelpie's settings set no webhook
     webhook: Option<Webhook>,
     // The last failed webhook post, kept in memory so a restart tries at once
@@ -388,7 +390,8 @@ impl Runner {
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
         let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
-        (kelpie_settings.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        let gateways = kelpie_settings.gateways();
+        gateways.check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -478,6 +481,7 @@ impl Runner {
             book,
             home: home.to_owned(),
             gpu,
+            gateways,
             webhook,
             retry: None,
             reading: replies::Reading::default(),
@@ -519,6 +523,11 @@ impl Runner {
     /// The project's settings, as read when the runner started
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Kelpie's gateways, as read when the runner started
+    pub fn gateways(&self) -> &Gateways {
+        &self.gateways
     }
 
     /// The project's repo on the forge, as read when the runner started

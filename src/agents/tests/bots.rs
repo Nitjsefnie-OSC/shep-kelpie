@@ -101,6 +101,10 @@ fn a_bot_whose_keys_its_harness_cannot_use_is_refused_naming_why() {
             "runs a review bot, which takes no `model`, `effort`, `lease`",
         ),
         (
+            CUBIC.replace("hours: 24\n", "hours: 24\ngateway: paddock\n"),
+            "runs a review bot, which takes no `model`, `effort`, `lease`, `url`, `gateway`",
+        ),
+        (
             CUBIC.replace("hours: 24\n", ""),
             "runs a review bot, which needs which one as `bot`",
         ),

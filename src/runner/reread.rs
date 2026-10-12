@@ -1,10 +1,10 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout`, `git.remote` and `hooks`: a work item's
-//! worktree and pull request belong to the first two, and the forge and
-//! voice ports hold the hooks built at start, so those wait for the
-//! runner's next start. The agent files are read again with them, and a
+//! it, except `git.checkout`, `git.remote`, `hooks` and kelpie's gateways: a
+//! work item's worktree and pull request belong to the first two, and the
+//! forge and voice ports hold the hooks built at start, as the adapters hold
+//! the gateways, so those wait for the runner's next start. The agent files are read again with them, and a
 //! change to those alone is a change too. A change is checked as a start
 //! checks it, and one that fails keeps the settings the runner has.
 
@@ -46,6 +46,10 @@ impl Runner {
             waiting.push("hooks");
             settings.hooks.clone_from(&self.settings.hooks);
         }
+        // The adapters were built with the gateways at start.
+        if !kelpie.gateways().iter().eq(self.gateways.iter()) {
+            waiting.push("gateways");
+        }
         if let Some(reason) = settings.rulings.refusal() {
             return Err(SettingsError::Invalid {
                 setting: "rulings.pm_alone",
@@ -60,7 +64,7 @@ impl Runner {
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
         let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
-        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        (self.gateways).check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);
@@ -198,7 +202,7 @@ mod tests {
     use std::path::Path;
 
     use crate::ports::Visibility;
-    use crate::settings::{Filing, HookPoint, Merging};
+    use crate::settings::{Filing, GatewayName, HookPoint, Merging};
     use crate::test::Rig;
     use crate::webhook::{KelpieSettings, WebhookKind};
 
@@ -370,6 +374,48 @@ mod tests {
         let restarted = restarted.lock().unwrap();
         assert_eq!(restarted.settings().hooks.len(), 1);
         assert!(restarted.hooks.has(HookPoint::Publish));
+    }
+
+    fn paddock_at(rig: &Rig, url: &str) {
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        let gateway = format!("[gateways.paddock]\nurl = \"{url}\"\nkey_env = \"PADDOCK_KEY\"\n");
+        rig.set_kelpie_settings(&format!("{webhook}{gateway}"));
+    }
+
+    fn url_of_paddock(runner: &crate::runner::Runner) -> String {
+        let name = GatewayName::try_from("paddock".to_owned()).unwrap();
+        runner
+            .gateways()
+            .get(&name)
+            .unwrap()
+            .url
+            .as_str()
+            .to_owned()
+    }
+
+    #[test]
+    fn a_changed_gateway_alone_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        paddock_at(&rig, "http://gpu:8700");
+        let runner = rig.open().unwrap();
+        paddock_at(&rig, "http://elsewhere:8700");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; gateways from the runner's next start")
+        );
+        assert_eq!(url_of_paddock(&runner), "http://gpu:8700");
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        assert_eq!(
+            url_of_paddock(&restarted.lock().unwrap()),
+            "http://elsewhere:8700"
+        );
     }
 
     #[test]

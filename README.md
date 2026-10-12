@@ -953,7 +953,7 @@ shep-kelpie's own settings, shared by every project, are the `[kelpie]` section 
 - `gpu_metrics_url` is the GPU's Prometheus metrics page, such as `nvidia_gpu_exporter`'s `/metrics`. `status` then shows the GPU's load, memory, power and temperature under `gpu`, read every 15 seconds
 - `codex_home` is where shep-kelpie's own Codex login lives (see [Agents](#agents))
 - `[kelpie.gateways.<name>]` is a model gateway such as paddock, with its `url` and `key_env` (see [Gateways](#gateways)). A runner reads them when it starts
-- A change reaches a running runner at its next wake, within a minute when idle. `git.checkout` and `git.remote` wait for its next start. The dog reads `[kelpie.leases]`, and each review bot's window from its agent file, only when it starts, so after a change to either run `shep restart kelpie`
+- A change reaches a running runner at its next wake, within a minute when idle. `git.checkout`, `git.remote`, `hooks` and kelpie's gateways wait for its next start, and the log says so. The dog reads `[kelpie.leases]`, and each review bot's window from its agent file, only when it starts, so after a change to either run `shep restart kelpie`
 
 A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `planning`, stops the runner, naming the key and what replaces it. So does each top-level key from before the tables: `repo`, `forge`, `merge_authority`, `ci`, `max_items`, `max_parked` and `skills.ci` name the key that took each over, and `private_names` says to check text for your own words with a hook in `hooks` instead, which kelpie runs for every harness and role.
 
