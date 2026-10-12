@@ -278,7 +278,9 @@ impl CodexCli {
             )?)
             .current_dir(&call.cwd)
             .env("CODEX_HOME", &files.home)
-            .env("TMPDIR", &files.scratch);
+            .env("TMPDIR", &files.scratch)
+            // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
+            .env("TMPPREFIX", files.scratch.join("zsh"));
         if let Some(fence) = &call.reach.fence {
             command.envs(&fence.env);
         }
