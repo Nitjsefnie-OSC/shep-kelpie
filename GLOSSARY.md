@@ -176,6 +176,35 @@ Kelpie taking over an open pull request it didn't open, as a work item for
 the issue that pull request closes.
 _Avoid_: takeover, import
 
+**Contribution**:
+An open pull request whose author is not the maintainer, not kelpie and not
+a bot. Kelpie reviews it and talks with its **contributor**, and the pull
+request stays theirs until an **adoption**.
+_Avoid_: outside PR, external PR, community PR
+
+**Contributor**:
+The author of a **contribution**.
+_Avoid_: outside contributor, external author
+
+**Security review**:
+A read of each head a **contributor** pushes, before anything of theirs
+runs, for lines that could reach the maintainer's machine, secrets or
+agents. A head it flags runs only after the maintainer trusts it in a
+ruling.
+_Avoid_: trust check, safety scan
+
+**Release**:
+A **contributor**'s OK for kelpie to finish their **contribution**, said
+out loud or given by staying quiet once asked. A released contribution is
+kelpie's, and its next step is an **adoption**.
+_Avoid_: handover, consent, abandonment
+
+**Representative**:
+The agent that writes kelpie's prose for GitHub in one personality,
+starting with everything a **contributor** reads. Others draft the facts,
+and the representative words them.
+_Avoid_: rep (reads as repo), liaison, voice
+
 **Phase**:
 A stage of a work item: `implement`, `review`, `ci`, `ruling`, `merge` and
 `done`. A fix turn is a stage of the review phase.

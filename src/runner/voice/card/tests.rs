@@ -17,6 +17,7 @@ fn ruling(id: u64, kind: RulingKind) -> Ruling {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     }
 }
@@ -294,4 +295,100 @@ fn an_abstaining_project_manager_keeps_the_words_it_left() {
     voted_on.panel = Some(vec![voted(Voter::Pm, None)]);
 
     assert!(rendered(&voted_on).contains("**Panel**\n- **PM**: I could not tell.\n"));
+}
+
+#[test]
+fn a_questions_card_opens_with_the_problem_and_shows_each_options_effect_and_the_boards_note() {
+    let asked = "Problem: The push hook refuses two commits, and the worker cannot change the hook.\n\
+                 Should the worker bypass the hook?\n\n\
+                 It names #495.\n\
+                 PM recommends: Wait\n\
+                 PM board: #495 stays parked and 9 ready issues stay held behind it.\n\
+                 PM says: the hook is the maintainer's.\n\
+                 - Wait => The worker stops and the push waits for your fix of the hook\n\
+                 - `Bypass` => The two commits publish as they are";
+
+    let comment = rendered(&ruling(1, asking(asked)));
+
+    assert_eq!(
+        comment,
+        "The push hook refuses two commits, and the worker cannot change the hook.\n\n\
+         ### Should the worker bypass the hook?\n\n\
+         It names #495.\n\n\
+         | | Option | If you pick it |\n\
+         |---|---|---|\n\
+         | **A** | Wait | The worker stops and the push waits for your fix of the hook |\n\
+         | **B** | `Bypass` | The two commits publish as they are |\n\
+         | | Other | Reply with your own answer |\n\n\
+         **On the board**\n\
+         #495 stays parked and 9 ready issues stay held behind it.\n\n\
+         **Panel**\n\
+         - **PM** (A): the hook is the maintainer's.\n\n\
+         @octocat\n\
+         - Tick one:\n\
+         - [ ] A\n\
+         - [ ] B\n\
+         - Or reply with your answer, and start it with `1` if other rulings wait on this thread"
+    );
+}
+
+#[test]
+fn an_option_the_worker_gave_no_effect_keeps_the_phrase_it_always_had() {
+    let asked = "Which flag?\n- `--dry-run` => Renames the flag everywhere\n- `--check`";
+
+    let comment = rendered(&ruling(1, asking(asked)));
+
+    assert!(
+        comment.contains("| **A** | `--dry-run` | Renames the flag everywhere |"),
+        "{comment}"
+    );
+    assert!(
+        comment.contains("| **B** | `--check` | Sends the worker this answer |"),
+        "{comment}"
+    );
+    assert!(!comment.contains("On the board"), "{comment}");
+}
+
+#[test]
+fn the_effect_beside_an_option_is_no_part_of_the_answer_it_gives() {
+    let kind = asking("Which flag?\n- `--dry-run` => Renames the flag\n- `--check` => Keeps it");
+
+    assert_eq!(
+        answer_for(&kind, 'A', ""),
+        Some(Answer::Text("--dry-run".into()))
+    );
+    assert_eq!(named(&kind, 'B').as_deref(), Some("`--check`"));
+    assert_eq!(chosen(&kind, &Answer::Text("--check".into())), Some('B'));
+}
+
+#[test]
+fn a_ruling_kelpie_wrote_effects_for_shows_them_in_place_of_the_fixed_phrases() {
+    let mut merge = ruling(1, merge());
+    merge.effects = vec![
+        "Merges it into main. CI passed and 2 reviewers read it. 3 work items wait for a slot."
+            .into(),
+        "Sends the worker back. Another round costs about $0.40.".into(),
+    ];
+
+    let comment = rendered(&merge);
+
+    assert!(
+        comment.contains(
+            "| **A** | Merge | Merges it into main. CI passed and 2 reviewers read it. \
+             3 work items wait for a slot. |"
+        ),
+        "{comment}"
+    );
+    assert!(
+        comment.contains(
+            "| **B** | Send back | Sends the worker back. Another round costs about $0.40. |"
+        ),
+        "{comment}"
+    );
+    assert!(
+        comment.contains(
+            "| **C** | Rework | Sends the worker back for a change the whole review reads again |"
+        ),
+        "{comment}"
+    );
 }

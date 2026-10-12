@@ -362,14 +362,24 @@ impl Runner {
         }
     }
 
-    fn ready_lines(&self) -> Option<Ready> {
-        let (read, ready) = self.brief.ready.as_ref()?;
+    /// The ready issues as last read, none of them open, in the order the
+    /// board takes them
+    pub(super) fn ready_in_order(&self) -> Vec<ReadyIssue> {
+        let Some((_, ready)) = &self.brief.ready else {
+            return Vec::new();
+        };
         let mut ready: Vec<ReadyIssue> = (ready.iter())
             .filter(|i| self.state.item(i.number).is_none())
             .cloned()
             .collect();
         rule_order(&mut ready, &self.state.order);
-        let issues = ready
+        ready
+    }
+
+    fn ready_lines(&self) -> Option<Ready> {
+        let (read, _) = self.brief.ready.as_ref()?;
+        let issues = self
+            .ready_in_order()
             .into_iter()
             .map(|issue| {
                 let skip = self.skipped.iter().find(|s| s.issue() == issue.number);

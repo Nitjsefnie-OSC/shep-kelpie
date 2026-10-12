@@ -209,6 +209,31 @@ fn passing_a_question_on_puts_its_recommended_choice_first_in_the_list() {
     );
 }
 
+const EFFECTS: &str = "<kelpie-question>\nProblem: The hook refuses two commits.\n\
+                       Which flag?\n- `--dry-run` => The worker renames the flag\n\
+                       - `--check` => The worker keeps it\n</kelpie-question>\n";
+
+#[test]
+fn passing_a_question_on_rewrites_its_problem_and_adds_the_boards_note_over_the_workers_effects() {
+    let (rig, runner) = asking("squirtle", EFFECTS);
+    let text = passed_on(
+        &rig,
+        &runner,
+        "{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"why\": \"shep uses it\", \
+         \"problem\": \"The push hook refuses two commits.\", \
+         \"board\": \"#9 stays parked and 3 ready issues wait behind it.\"}}",
+    );
+    assert_eq!(
+        text,
+        "The worker on issue #7 asks:\n\nProblem: The push hook refuses two commits.\n\
+         Which flag?\nPM recommends: `--check`\n\
+         PM board: #9 stays parked and 3 ready issues wait behind it.\n\
+         PM says: shep uses it\n\
+         - `--check` => The worker keeps it\n- `--dry-run` => The worker renames the flag\n\n\
+         `shep kelpie rule 1 <text>` sends the worker your answer."
+    );
+}
+
 #[test]
 fn a_recommendation_outside_the_list_is_added_as_its_first_line() {
     let (rig, runner) = asking("ivysaur", CHOICES);

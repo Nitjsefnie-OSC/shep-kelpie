@@ -2,7 +2,7 @@
 
 This pull request was changed: labels added: `ready-for-human`.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Yes | Accepts the change and kelpie carries on |
 | **B** | No | Sends the worker back with a note, and the review reads its change again |

@@ -147,6 +147,7 @@ mod tests {
                 panel: None,
                 verdict: None,
                 unposted: false,
+                effects: Vec::new(),
                 raised: None,
             })
             .collect();

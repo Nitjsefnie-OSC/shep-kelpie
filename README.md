@@ -321,6 +321,7 @@ Issues labelled `ready-for-agent` are the board. What decides whether, and when,
 - The board also skips a ready issue labelled `in-progress` that this runner holds no work item for, since an earlier worker holds it, and `status` lists it under `skipped` as `in-progress`. Take the label off to release it. A restart still resumes the runner's own items
 - An issue with sub-issues is never worked itself: its sub-issues are, and shep-kelpie closes it once every sub-issue is closed
 - The board keeps the rest in an order, and takes the first it can start. A newly ready issue joins after the last issue of its priority, `priority: P0` to `P3` then none, and the oldest goes first when several join at once. An issue that closes or loses `ready-for-agent` leaves the order. With no label changes, that is the rule of priority then age, and `status` lists the first five under `order`. Changing the priority label of an issue already in the order moves it to just after the last issue of its new priority. An `agent:<name>` label, such as `agent:opus-high`, picks the agent that works it from those the project lists in `agents.implementers` (see [Agents](#agents)), and a label naming one it does not list keeps the issue off the board. With a `!` at its end, as `agent:opus-high!`, it also pins the work item to that agent, which never falls back. An issue with no `agent:` label goes to the issue writer first when the project lists more than one implementer (see [Writing issues](#writing-issues)). An old `worker:` label is no longer read: that issue counts as unlabelled, and the runner's log says so as its work item opens
+- You order that list. `shep kelpie board` prints it numbered, each issue with its title, its priority, and `blocked` or `held` when the board cannot take it yet. `board move <issue> <position>` puts an issue at that place, counting from 1, and `board top <issue>` puts it first; the issues between shift by one, and the runner takes the new order from its next pick, restarts included. Only a ready issue is in the list. A move of any other, or to a position past the last or before the first, is refused and changes nothing. `board` lists what the runner last read, so it is empty until the first read of the board. With `--json` each prints the runner's object, the list under `board`
 - With a project manager set up (see [The project manager](#the-project-manager)), it picks among two or more issues the board could start, and may hold some back. Without one, or while it is down, the order above picks
 - A slot under `concurrency.active_items` bounds model calls. A work item takes one when it opens and keeps it through CI and the merge, but one parked on a ruling gives it up, so the board opens the next issue while it waits. Once `concurrency.pending_rulings` work items are parked, the board opens nothing new, and the alert for the ruling that filled it says so. It is the point where the board stops, not a hard limit: items already working can still park past it, and `add` ignores it. `concurrency.pending_rulings = 0` stops the board while any ruling waits, and with none waiting the board opens work as ever. A merged pull request parked on its follow-up ruling counts toward neither cap. An issue whose body names a file the branch of a parked item not yet merged changes waits for that item, and `status` lists it under `skipped` as `overlap`. One whose paths the board has not read yet, or every one while such a branch's files are not known, waits a pass and is listed as `paths-unread`
 - Once you answer its ruling, a work item goes on without a slot through anything that calls no model: CI, a merge, or its end. When it needs a worker's turn or a review again, such as for your `no <note>` or a red CI run, it waits for the next slot to free, ahead of any new issue. `status` lists the open items' issues under `working`, `waiting_for_slot` and `parked`
@@ -681,16 +682,16 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling's id is unique across projects, so `rule` needs no project. You can name a ruling by the number of its pull request or its issue instead: `rule 427 yes` and `rule 407 yes` answer the same ruling when 427 is the pull request and 407 its issue. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` always means a number, and a bare `427` is a ruling's id when one is waiting under it. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling:
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
 
 ```markdown
 ### Merge this pull request at 6b0606e into main?
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
-| **A** | Merge | Merges it into main |
-| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |
-| **C** | Rework | Sends the worker back for a change the whole review reads again |
+| **A** | Merge | Merges it into main and closes #567: the worker retro is off unless a project names it. CI passed. 2 review rounds read it. |
+| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you, with no new review round. |
+| **C** | Rework | Sends the worker back for a change the whole review reads again. Another review round costs about $0.80. |
 
 @octocat
 - 👍 or 👎 answers, or tick one:
@@ -698,6 +699,23 @@ Where an App covers the repo, a ruling's comment is one short format, whatever i
 - [ ] B
 - [ ] C
 - Or reply `14 no <note>` or `14 rework <note>`
+```
+
+A worker's question opens with the problem, and each option carries its effect. The worker writes both in its `<kelpie-question>` block: a first line `Problem: ` of one or two plain sentences, then each option as `- label => what picking it leads to`. The project manager rewrites the problem when it passes the question on, and adds a `board` note of what the board shows (items held behind this one, a slot freed or kept), which the card shows under the table. An option the worker gave no effect keeps the phrase its kind always had ("Sends the worker this answer"). The effect is no part of the answer the option gives.
+
+```markdown
+The push hook rejects two commits, and nothing says why.
+
+### Which way should the push go?
+
+| | Option | If you pick it |
+|---|---|---|
+| **A** | Wait | #495 stays parked until the hook is fixed. |
+| **B** | Push anyway | Publishes both commits to main, and the hook stays broken. |
+| **C** | Other | Reply with your own answer |
+
+**On the board**
+Nine ready issues are held behind #495.
 ```
 
 You answer it in the thread, from the comment itself or a reply:
@@ -920,7 +938,7 @@ koji (finishing)
 
 `status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
-Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works. `add <issue>`, `gate`, `drop`, `timings`, `tell`, `drain`, `undrain` and `finish` print plain text, and the runner's JSON with `--json`, as `status` does; a refused answer prints its reason and fails either way. Where the runner gave no object to print, a `finish` on a stopped runner or a `tell` that timed out, `--json` prints `{"sheep": ..., "message": ...}` with the sentence the plain form prints.
+Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `board`, `board move <issue> <position>`, `board top <issue>`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works. `add <issue>`, `gate`, `drop`, `timings`, `board`, `tell`, `drain`, `undrain` and `finish` print plain text, and the runner's JSON with `--json`, as `status` does; a refused answer prints its reason and fails either way. Where the runner gave no object to print, a `finish` on a stopped runner or a `tell` that timed out, `--json` prints `{"sheep": ..., "message": ...}` with the sentence the plain form prints.
 
 - `drain` holds back every call the runner would start next, and answers the status with the calls still running under `draining`. `undrain`, or a restart, lets calls start again. `shep kelpie upgrade` drains each runner itself: see [Upgrading](#upgrading)
 - `drop [<issue>]` ends a work item without merging it. Its worktree, local branch and build folder go, and its pull request stays, labelled `ready-for-human`. The board leaves the dropped issue be while it is labelled `ready-for-agent`, and says in its briefing and in `status` that it was dropped. Once the runner has read the issue without the label (at most once a minute, even while the board is shut), putting the label back returns it to the board; `shep kelpie add <issue>` takes it back at once

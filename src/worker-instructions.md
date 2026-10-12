@@ -48,3 +48,12 @@ You are the worker for one work item: the issue in your first message, or the pu
   - `--dry-run`
   - `--check`
   </kelpie-question>
+
+  Open the block with a line that starts `Problem: `, one or two plain sentences on what is wrong, for a maintainer who has not followed this work item. Write after each choice ` => ` and what picking it leads to, in plain words: what happens next, what it gives up, what it leaves undone. The card shows both. For example:
+
+  <kelpie-question>
+  Problem: The push hook rejects two commits, and I cannot change the hook.
+  Should I bypass the hook?
+  - Wait => I stop here, and the push waits for you to fix the hook
+  - Bypass => The two commits publish as they are, with the hook's complaint unfixed
+  </kelpie-question>

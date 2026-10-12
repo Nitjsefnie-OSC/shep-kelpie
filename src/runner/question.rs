@@ -134,6 +134,15 @@ mod tests {
     }
 
     #[test]
+    fn the_worker_instructions_ask_for_the_problem_and_what_each_choice_leads_to() {
+        assert!(
+            INSTRUCTIONS.contains("starts `Problem: `"),
+            "{INSTRUCTIONS}"
+        );
+        assert!(INSTRUCTIONS.contains("` => `"), "{INSTRUCTIONS}");
+    }
+
+    #[test]
     fn the_worker_instructions_describe_the_block() {
         assert!(INSTRUCTIONS.contains(OPEN), "{INSTRUCTIONS}");
         assert!(INSTRUCTIONS.contains(CLOSE), "{INSTRUCTIONS}");
