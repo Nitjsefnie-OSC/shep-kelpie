@@ -54,7 +54,8 @@ jobs:
 
   # The whole suite on macOS, where the APFS case folding in `src/fence.rs`,
   # the GPU lock's temp folder and the Seatbelt policy `src/adapters/srt.rs`
-  # writes run for real. Apart from the runner it is the `test` job.
+  # writes run for real. Apart from the runner and the timeout it is the
+  # `test` job.
   # The 20 minutes comes from a local macOS run (about 5 minutes of tests
   # after the build), to be tightened from this job's first run.
   test-macos:
