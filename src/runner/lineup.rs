@@ -135,7 +135,8 @@ impl Runner {
 
 // `order` with `listed`'s issues in `listed`'s sequence, each in the places the
 // listed ones held, so an issue the list leaves out, one a work item holds,
-// keeps its own place between them. A listed issue `order` omits goes last.
+// keeps its own place between them. When `order` holds fewer places than
+// `listed` has issues, the sequence's last issues are appended.
 fn refill(order: &[u64], listed: &[u64]) -> Vec<u64> {
     let mut sequence = listed.iter().copied();
     let mut refilled: Vec<u64> = order
