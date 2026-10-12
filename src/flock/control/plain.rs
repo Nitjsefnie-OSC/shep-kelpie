@@ -57,10 +57,12 @@ fn rulings(status: &Value, lines: &mut Vec<String>) {
     lines.push(format!("  rulings waiting: {}", rulings.len()));
     for ruling in rulings {
         lines.push(format!(
-            "    ruling {}: {}, #{}, {}",
+            "    ruling {}: {}, {}, {}",
             ruling["id"],
             ruling["kind"]["kind"].as_str().unwrap_or("?"),
-            ruling["issue"],
+            ruling["issue"]
+                .as_u64()
+                .map_or("no issue".to_owned(), |issue| format!("#{issue}")),
             pull_request(&ruling["pull_request"]),
         ));
     }

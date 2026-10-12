@@ -507,6 +507,19 @@ fn a_plain_status_names_what_the_maintainer_looks_for() {
 }
 
 #[test]
+fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
+    let body = r#"{"project":"koji","work_items":[],"rulings":[
+        {"id":1,"issue":null,"pull_request":null,"kind":{"kind":"question"}}]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..5],
+        [
+            "  rulings waiting: 1",
+            "    ruling 1: question, no issue, no PR"
+        ]
+    );
+}
+
+#[test]
 fn a_plain_status_of_an_idle_runner_says_so() {
     let idle = r#"{"project":"koji","work_items":[],"rulings":[],
         "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;
