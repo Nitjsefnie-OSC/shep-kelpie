@@ -119,6 +119,9 @@ impl Runner {
         bot: BotReviewer,
         review: Review,
     ) -> Result<Begin, StateError> {
+        if let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
+        }
         let head = match self.origin_head() {
             Ok(head) => head,
             Err(reason) => return Ok(self.gate_failed(reason)),
