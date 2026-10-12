@@ -132,11 +132,16 @@ impl Draft {
 
 /// How a call that came back as `result` ended, or `None` when no model
 /// was called: its settings could not be written, its harness could not
-/// start, or its session had never begun
+/// start, its session had never begun, or its model host could not be reached
 pub fn ended(result: &Result<AgentReply, AgentError>) -> Option<Ended> {
     match result {
         Ok(_) => Some(Ended::Answered),
-        Err(AgentError::Setup(_) | AgentError::Spawn(..) | AgentError::NoSession(..)) => None,
+        Err(
+            AgentError::Setup(_)
+            | AgentError::Spawn(..)
+            | AgentError::NoSession(..)
+            | AgentError::Unreachable(..),
+        ) => None,
         Err(AgentError::Stopped) => Some(Ended::Stopped),
         Err(AgentError::TimedOut(_)) => Some(Ended::TimedOut),
         Err(AgentError::Failed(..)) => Some(Ended::Failed),

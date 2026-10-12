@@ -574,6 +574,22 @@ fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
 /// How much of pi's output an error carries: its end, where the reason is
 const ERROR_TAIL: usize = 2048;
 
+// Whether pi's error says its model host could not be reached: a 502 or 503
+// as the SDK leads its message with the status, or a connection refused or
+// reset. Any other error is the call's own.
+fn reaches_no_host(detail: &str) -> bool {
+    let lower = detail.trim_start().to_ascii_lowercase();
+    let status = ["502", "503"].iter().any(|code| {
+        lower
+            .strip_prefix(code)
+            .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_alphanumeric()))
+    });
+    status
+        || ["econnrefused", "econnreset", "connection refused", "connection reset"]
+            .iter()
+            .any(|sign| lower.contains(sign))
+}
+
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
 // megabytes and an error reaches a ruling, the state file and the webhook.
 fn tail(text: &str) -> &str {
@@ -657,7 +673,13 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             _ => {}
         }
     }
-    let failed = |detail: &str| AgentError::Failed(PI, detail.to_owned());
+    let failed = |detail: &str| {
+        if reaches_no_host(detail) {
+            AgentError::Unreachable(PI, detail.to_owned())
+        } else {
+            AgentError::Failed(PI, detail.to_owned())
+        }
+    };
     if !output.status.success() {
         let why = last.as_ref().and_then(|m| m.error_message.clone());
         return Err(failed(why.as_deref().unwrap_or(tail(&stderr))));
