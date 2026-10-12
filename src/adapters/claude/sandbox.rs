@@ -238,7 +238,7 @@ mod tests {
     impl World {
         fn new() -> Self {
             let w = Self {
-                dir: tempfile::tempdir_in("/tmp").unwrap(),
+                dir: crate::test::short_tempdir(),
             };
             for folder in ["home", "wt", "build", "worker"] {
                 std::fs::create_dir_all(w.path(folder)).unwrap();
