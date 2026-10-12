@@ -88,6 +88,11 @@ pub struct Webhook {
     #[serde(default)]
     #[shep(secret)]
     pub token: Option<WebhookToken>,
+    /// The maintainer's word that only their `token` can post to this ntfy
+    /// topic, so a reply on it is theirs without a code. Needs a `token`. A
+    /// yes on a merge ruling still takes the code.
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 /// The path of a CA certificate file: it names where the maintainer keeps
@@ -258,9 +263,14 @@ fn is_tailnet_name(host: &str) -> bool {
 /// What a malformed file is told, since the parser's own message could quote the URL
 const SHAPE: &str = "it takes a `[webhook]` table with `kind` (`discord` or `ntfy`) \
                      and an `https://` `url` (`http://` on a tailnet), an optional absolute \
-                     `ca_cert` path and an optional one-word `token`, a `[leases]` table with a \
+                     `ca_cert` path, an optional one-word `token` and `trusted = true` with one, \
+                     a `[leases]` table with a \
                      `cargo-test` count, a `gpu_metrics_url`, a `codex_home` path, \
                      `[gateways.<name>]` tables with `url` and `key_env`, and nothing else";
+
+/// Why `trusted` is refused without a `token`
+const NEEDS_TOKEN: &str = "needs a `token`: without one anyone who learns the topic's name \
+                           can post to it, so a reply on it proves nothing";
 
 impl KelpieSettings {
     /// Checks the webhook's `ca_cert` in the section's text: an absolute path
@@ -298,6 +308,42 @@ impl KelpieSettings {
             return Err(invalid("must be a PEM file with a certificate in it"));
         }
         Ok(())
+    }
+
+    /// Checks in the section's text that a webhook with `trusted = true` has
+    /// a valid `token`: a non-empty word of printable characters
+    ///
+    /// Kelpie cannot see the server's access rules, so `trusted` is the
+    /// maintainer's word that the topic is locked to the token. It reads the
+    /// text and not the parsed settings, so a mistake elsewhere in the section
+    /// cannot hide it.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `webhook.trusted`.
+    pub fn check_trusted(section: &str) -> Result<(), SettingsError> {
+        let trusted =
+            section
+                .parse::<toml::Table>()
+                .ok()
+                .and_then(|table| match table.get("webhook") {
+                    Some(toml::Value::Table(webhook)) => Some((
+                        webhook.get("trusted") == Some(&toml::Value::Boolean(true)),
+                        matches!(
+                            webhook.get("token"),
+                            Some(toml::Value::String(token))
+                                if WebhookToken::try_from(token.clone()).is_ok()
+                        ),
+                    )),
+                    _ => None,
+                });
+        match trusted {
+            Some((true, false)) => Err(SettingsError::Invalid {
+                setting: "webhook.trusted",
+                reason: NEEDS_TOKEN.into(),
+            }),
+            _ => Ok(()),
+        }
     }
 
     /// The gateways, with each key read from kelpie's environment
@@ -391,6 +437,13 @@ impl KelpieSettings {
                 None => SHAPE.to_owned(),
             }
         })?;
+        if read
+            .webhook
+            .as_ref()
+            .is_some_and(|w| w.trusted && w.token.is_none())
+        {
+            return Err(format!("`webhook.trusted` {NEEDS_TOKEN}"));
+        }
         // Every call to a gateway goes through kelpie's forwarder or comes from kelpie itself.
         for (name, gateway) in &read.gateways {
             Upstream::new(&gateway.base())
@@ -625,6 +678,49 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("`webhook.ca_cert`"), "{err}");
+    }
+
+    #[test]
+    fn trusted_without_a_token_is_refused_naming_the_key() {
+        let trusted = SELF_HOSTED.replace("token =", "trusted = true\ntoken =");
+        let webhook = KelpieSettings::parse(&trusted).unwrap().webhook.unwrap();
+        assert!(webhook.trusted);
+        let bare = KelpieSettings::parse(&example()).unwrap().webhook.unwrap();
+        assert!(
+            !bare.trusted,
+            "a topic is trusted only when the maintainer says so"
+        );
+
+        let no_token = format!("{}trusted = true\n", example());
+        for text in [
+            no_token.clone(),
+            format!("{no_token}[leases]\ncargo-test = 0\n"),
+        ] {
+            let err = KelpieSettings::check_trusted(&text)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("`webhook.trusted`"), "{err}");
+            assert!(err.contains("`token`"), "{err}");
+        }
+        let err = KelpieSettings::from_section(&no_token)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("`webhook.trusted`"), "{err}");
+
+        // A token that is empty, not a string or not one word is no token.
+        for bad in ["\"\"", "7", "\"a b\""] {
+            let text = format!("{}token = {bad}\ntrusted = true\n", example());
+            let err = KelpieSettings::check_trusted(&text)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("`webhook.trusted`"), "{bad}: {err}");
+            assert!(KelpieSettings::from_section(&text).is_err(), "{bad}");
+        }
+
+        KelpieSettings::check_trusted(&trusted).unwrap();
+        KelpieSettings::check_trusted(&example()).unwrap();
+        KelpieSettings::check_trusted(&format!("{}trusted = false\n", example())).unwrap();
+        KelpieSettings::check_trusted("").unwrap();
     }
 
     #[test]

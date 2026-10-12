@@ -613,6 +613,9 @@ pub enum Takes {
     Answer,
     /// The merge ruling: a yes, or a no or a rework with a note
     Merge,
+    /// The merge ruling, alerted while coded answers are off: a no or a
+    /// rework with a note, and a yes only after the terminal turns them on
+    MergeCodedOff,
     /// A yes, or a no with a note
     YesOrNo,
 }

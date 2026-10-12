@@ -62,6 +62,20 @@ pub(super) fn channel(subject: String, kelpie: &KelpieSettings) -> Line {
     }
 }
 
+/// The line saying replies on the topic need no code, when the maintainer
+/// has marked the webhook `trusted`
+///
+/// Only an ntfy webhook is read for replies, so a Discord one says nothing.
+pub(super) fn trusted(kelpie: &KelpieSettings) -> Option<Line> {
+    let ntfy = |w: &&crate::webhook::Webhook| w.kind == WebhookKind::Ntfy && w.trusted;
+    kelpie.webhook.as_ref().filter(ntfy)?;
+    Some(Line::ok(
+        "replies",
+        "replies are trusted without a code on this ntfy topic, except a yes on a merge \
+         ruling: only your token can post to it, as you say",
+    ))
+}
+
 /// Posts one test alert to the webhook, and reports whether it was taken
 pub(super) fn test_alert(kelpie: Option<&KelpieSettings>, alerts: &dyn Alerts) -> Line {
     let subject = "test alert";

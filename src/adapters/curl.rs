@@ -145,7 +145,7 @@ fn config(webhook: &Webhook, alert: &Alert) -> String {
             let mut text = alert.text.clone();
             if let Some(reply) = &alert.reply {
                 // The reply line goes last, where a cut keeps it.
-                text.push_str(&ntfy::reply_line(reply));
+                text.push_str(&ntfy::reply_line(reply, webhook.trusted));
             }
             (headers, fit(&text, NTFY_MAX))
         }
@@ -228,6 +228,7 @@ mod tests {
             url: WebhookUrl::try_from(url.to_owned()).unwrap(),
             ca_cert: None,
             token: None,
+            trusted: false,
         }
     }
 

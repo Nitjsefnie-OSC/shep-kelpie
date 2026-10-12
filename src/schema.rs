@@ -217,6 +217,7 @@ mod tests {
             .replace("# gpu_metrics_url =", "gpu_metrics_url =")
             .replace("# ca_cert =", "ca_cert =")
             .replace("# token =", "token =")
+            .replace("# trusted =", "trusted =")
             .replace("# [kelpie.gateways.paddock]", "[kelpie.gateways.paddock]")
             .replace(
                 "# url = \"http://gpu-box:8700\"",
