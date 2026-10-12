@@ -29,9 +29,14 @@ struct FakeHost {
     gaps: Vec<&'static str>,
     keychain: bool,
     token: bool,
+    off_path: Vec<&'static str>,
 }
 
 impl Host for FakeHost {
+    fn on_path(&self, program: &str) -> bool {
+        !self.off_path.contains(&program)
+    }
+
     fn sandbox_gaps(&self) -> Vec<&'static str> {
         self.gaps.clone()
     }
@@ -956,4 +961,5 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
     assert!(!report.passed());
 }
 
+mod e2e;
 mod github;

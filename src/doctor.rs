@@ -5,6 +5,7 @@
 //! it can make is a test alert, and only when asked.
 
 mod ci;
+mod e2e;
 mod gateways;
 mod github;
 pub mod host;

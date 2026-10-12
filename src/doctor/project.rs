@@ -115,6 +115,7 @@ pub(super) fn checks(
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));
     }
+    lines.extend(super::e2e::line(at("e2e"), &settings, probes.host));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.
