@@ -48,15 +48,7 @@ impl Alerts for Curl {
     }
 
     fn replies(&self, webhook: &Webhook, since: &Since) -> Result<Vec<Reply>, AlertError> {
-        let lines = [
-            ("url", ntfy::poll_url(webhook.url.expose(), since)),
-            ("proto", "=https,http".to_owned()),
-            ("connect-timeout", CONNECT_TIMEOUT.to_string()),
-            ("max-time", MAX_TIME.to_string()),
-            // The status goes on a line of its own after the body.
-            ("write-out", "\n%{http_code}".to_owned()),
-        ];
-        match run(&render(&lines))? {
+        match run(&poll_config(webhook, since))? {
             (body, 200..=299) if body.len() <= REPLIES_MAX => {
                 ntfy::parse(&body).ok_or(AlertError::Unreadable)
             }
@@ -92,6 +84,41 @@ pub(super) fn run(config: &str) -> Result<(String, u16), AlertError> {
         .parse()
         .map_err(|_| AlertError::Unreachable(0))?;
     Ok((body.to_owned(), status))
+}
+
+// The config of a read of replies since `since`.
+fn poll_config(webhook: &Webhook, since: &Since) -> String {
+    let mut lines = vec![
+        ("url", ntfy::poll_url(webhook.url.expose(), since)),
+        ("proto", "=https,http".to_owned()),
+        ("connect-timeout", CONNECT_TIMEOUT.to_string()),
+        ("max-time", MAX_TIME.to_string()),
+        // The status goes on a line of its own after the body.
+        ("write-out", "\n%{http_code}".to_owned()),
+    ];
+    lines.extend(access(webhook));
+    render(&lines)
+}
+
+// The options that let curl reach a self-hosted server: its private CA, and
+// its access token as a bearer header. The token is ntfy's, so it goes to no
+// other kind of service, whatever the settings hold.
+fn access(webhook: &Webhook) -> Vec<(&'static str, String)> {
+    let ca = webhook
+        .ca_cert
+        .iter()
+        .map(|ca| ("cacert", ca.path().display().to_string()));
+    let token = webhook
+        .token
+        .iter()
+        .filter(|_| webhook.kind == WebhookKind::Ntfy)
+        .map(|token| {
+            (
+                "header",
+                format!("Authorization: Bearer {}", token.expose()),
+            )
+        });
+    ca.chain(token).collect()
 }
 
 // A curl config: one `option = "value"` per line. No redirects are followed,
@@ -133,6 +160,7 @@ fn config(webhook: &Webhook, alert: &Alert) -> String {
     ];
     // curl reads a literal `\n` in a value as a newline, so no worker text goes in a header.
     lines.extend(headers.into_iter().map(|h| ("header", h)));
+    lines.extend(access(webhook));
     lines.push(("data-raw", body));
     render(&lines)
 }
@@ -192,12 +220,25 @@ mod tests {
 
     use super::*;
     use crate::ports::{Clock, ReplyWith, Takes, Timestamp};
-    use crate::webhook::WebhookUrl;
+    use crate::webhook::{CaCert, WebhookToken, WebhookUrl};
 
     fn webhook(kind: WebhookKind, url: &str) -> Webhook {
         Webhook {
             kind,
             url: WebhookUrl::try_from(url.to_owned()).unwrap(),
+            ca_cert: None,
+            token: None,
+        }
+    }
+
+    // A self-hosted ntfy's webhook: behind a private CA, with an access token.
+    fn self_hosted(url: &str) -> Webhook {
+        Webhook {
+            ca_cert: Some(
+                CaCert::try_from(std::path::PathBuf::from("/etc/kelpie/ca.pem")).unwrap(),
+            ),
+            token: Some(WebhookToken::try_from("tk_s3cr3t0123456789".to_owned()).unwrap()),
+            ..webhook(WebhookKind::Ntfy, url)
         }
     }
 
@@ -316,6 +357,86 @@ mod tests {
         );
         assert_eq!(got.body, text);
         assert!(got.headers.contains(&"Tags: kelpie".to_owned()), "{got:?}");
+    }
+
+    #[test]
+    fn a_self_hosted_posts_and_polls_with_its_ca_and_token() {
+        let webhook = self_hosted("http://ntfy.tail1234.ts.net/topic");
+        let post = config(&webhook, &alert("q"));
+        let poll = poll_config(&webhook, &Since::Time(Timestamp(1)));
+        for text in [post, poll] {
+            assert!(text.contains("cacert = \"/etc/kelpie/ca.pem\"\n"), "{text}");
+            assert!(
+                text.contains("header = \"Authorization: Bearer tk_s3cr3t0123456789\"\n"),
+                "{text}"
+            );
+        }
+        // The token is ntfy's: a Discord webhook never gets it
+        let discord = Webhook {
+            kind: WebhookKind::Discord,
+            ..webhook.clone()
+        };
+        let text = config(&discord, &alert("q"));
+        assert!(!text.contains("Authorization"), "{text}");
+        assert!(!text.contains("s3cr3t"), "{text}");
+        // Without them a plain webhook sends neither
+        let plain = webhook_without(&webhook);
+        for text in [
+            config(&plain, &alert("q")),
+            poll_config(&plain, &Since::Time(Timestamp(1))),
+        ] {
+            assert!(!text.contains("cacert"), "{text}");
+            assert!(!text.contains("Authorization"), "{text}");
+        }
+    }
+
+    fn webhook_without(from: &Webhook) -> Webhook {
+        Webhook {
+            ca_cert: None,
+            token: None,
+            ..from.clone()
+        }
+    }
+
+    #[test]
+    fn the_token_reaches_the_server_as_a_bearer_header_on_the_post_and_the_poll() {
+        let (url, served) = stand_in(200);
+        let webhook = Webhook {
+            ca_cert: None,
+            ..self_hosted(&url)
+        };
+        Curl.post(&webhook, &alert("q")).unwrap();
+        let got = served.join().unwrap();
+        let bearer = "Authorization: Bearer tk_s3cr3t0123456789".to_owned();
+        assert!(got.headers.contains(&bearer), "{got:?}");
+
+        let (url, served) = serving(200, include_str!("../../fixtures/ntfy-poll.jsonl"));
+        let webhook = Webhook {
+            ca_cert: None,
+            ..self_hosted(&url)
+        };
+        Curl.replies(&webhook, &Since::Time(Timestamp(1))).unwrap();
+        let got = served.join().unwrap();
+        assert!(got.headers.contains(&bearer), "{got:?}");
+    }
+
+    #[test]
+    fn an_error_names_neither_the_token_nor_the_ca() {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let webhook = self_hosted(&format!("http://127.0.0.1:{port}/topic"));
+        let post = Curl.post(&webhook, &alert("q")).unwrap_err();
+        let poll = Curl
+            .replies(&webhook, &Since::Time(Timestamp(1)))
+            .unwrap_err();
+        for err in [post, poll] {
+            let shown = format!("{err} {err:?}");
+            assert!(!shown.contains("s3cr3t"), "{shown}");
+            assert!(!shown.contains("ca.pem"), "{shown}");
+        }
     }
 
     #[test]

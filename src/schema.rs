@@ -214,6 +214,8 @@ mod tests {
         let example = include_str!("../kelpie-settings.example.toml")
             .replace("# codex_home =", "codex_home =")
             .replace("# gpu_metrics_url =", "gpu_metrics_url =")
+            .replace("# ca_cert =", "ca_cert =")
+            .replace("# token =", "token =")
             .replace("# [kelpie.gateways.paddock]", "[kelpie.gateways.paddock]")
             .replace(
                 "# url = \"http://gpu-box:8700\"",
@@ -278,11 +280,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_webhook_url_is_a_secret() {
+    fn only_the_webhooks_url_ca_cert_and_token_are_secrets() {
         let root = schema();
         let text = root.to_string();
-        assert_eq!(text.matches(SECRET_KEY).count(), 1, "{text}");
+        assert_eq!(text.matches(SECRET_KEY).count(), 3, "{text}");
         let webhook = resolve(&root, &root["properties"]["webhook"]);
-        assert_eq!(webhook["properties"]["url"][SECRET_KEY], true);
+        for key in ["url", "ca_cert", "token"] {
+            assert_eq!(webhook["properties"][key][SECRET_KEY], true, "{key}");
+        }
     }
 }

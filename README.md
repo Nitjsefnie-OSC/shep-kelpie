@@ -241,6 +241,22 @@ shep kelpie rule 14 no rename the flag
 
 On ntfy you can also reply in the topic, after a one-time `shep kelpie totp`. [Rulings](#rulings) has the six kinds and how to answer each.
 
+A self-hosted ntfy takes three more keys in `[kelpie.webhook]`, each optional:
+
+```toml
+[kelpie.webhook]
+kind = "ntfy"
+url = "http://ntfy.your-tailnet.ts.net/your-private-topic"
+ca_cert = "/etc/kelpie/ca.pem"
+token = "tk_..."
+```
+
+- `url` may be `http://` when its host is a Tailscale address (100.64.0.0/10) or a `.ts.net` name, since the tailnet encrypts it. Any other `http://` host is refused, except this machine, and so is a URL with a user name or password in it.
+- `ca_cert` is the absolute path of your private CA's certificate file, which curl trusts for the post and for reading replies. The dog does not start when the file is missing or unreadable, and says `webhook.ca_cert` is the key.
+- `token` is an ntfy access token, sent as `Authorization: Bearer <token>` on the post and on reading replies. Like the URL, it is a credential and no error, log line or status shows it.
+
+`shep kelpie doctor --test-alert` posts through the same settings. Replies still need the authenticator code.
+
 ### 10. Pause, and find the log
 
 ```sh

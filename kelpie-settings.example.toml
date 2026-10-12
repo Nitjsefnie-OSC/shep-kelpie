@@ -29,9 +29,23 @@
 # authenticator app last. Run `shep kelpie totp` once to get the secret to scan.
 # A reader of the topic can read rulings but not answer them. Five wrong
 # codes turn answers off until `shep kelpie totp --unlock`.
+#
+# A self-hosted ntfy is reached in three more setups. On a tailnet the `url`
+# may be `http://` when its host is a Tailscale address (100.64.0.0/10) or a
+# `.ts.net` name, since the tailnet encrypts it; any other `http://` host
+# (besides this machine) is refused. `ca_cert` is the absolute path of the
+# private CA's certificate file that curl trusts, and the dog will not start
+# when it cannot be read. `token` is an access token (`ntfy token add`), sent
+# as `Authorization: Bearer <token>` on every post and every read of replies
+# (on `kind = "ntfy"` only).
+# The token is a credential like the URL. Replies still need the
+# authenticator code.
 [kelpie.webhook]
 kind = "ntfy"
 url = "https://ntfy.sh/your-private-topic"
+# url = "http://ntfy.your-tailnet.ts.net/your-private-topic"
+# ca_cert = "/etc/kelpie/ca.pem"
+# token = "tk_..."
 
 # A model gateway, such as paddock, by name. An agent file names it as
 # `gateway: paddock` in place of its server's `url`, with the model's name as
