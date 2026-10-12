@@ -2,7 +2,7 @@
 
 CI failed at 6b0606e: test, clippy. The worker has had 2 fix turns on red runs.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Yes | Kelpie looks at CI again |
 | **B** | No | Sends the worker back with a note, and the review reads its change again |

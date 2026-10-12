@@ -66,6 +66,11 @@ pub(super) struct Settle {
     pub(super) how: How,
     /// Why, in its own words
     pub(super) why: String,
+    /// The problem in its own plain words, which replaces the worker's when it
+    /// passes the question on
+    pub(super) problem: Option<String>,
+    /// What the board shows of picking an option, when it passes the question on
+    pub(super) board: Option<String>,
 }
 
 /// The project manager's call on one follow-up ruling
@@ -295,10 +300,16 @@ fn settle(value: &Value) -> Option<Settle> {
         _ => return None,
     };
     let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    let words = |key: &str| {
+        let words = value.get(key).and_then(Value::as_str)?.trim();
+        (!words.is_empty()).then(|| words.to_owned())
+    };
     Some(Settle {
         item,
         how,
         why: why.trim().to_owned(),
+        problem: words("problem"),
+        board: words("board"),
     })
 }
 
@@ -366,8 +377,17 @@ mod tests {
                 item: 7,
                 how: How::Text("Use it.".into()),
                 why: "r".into(),
+                problem: None,
+                board: None,
             })
         );
+        let passed = read(
+            "{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"problem\": \" The flag is \
+             unnamed. \", \"board\": \"#9 waits behind it.\", \"why\": \"r\"}}",
+        );
+        let passed = passed.unwrap().answer.unwrap();
+        assert_eq!(passed.problem.as_deref(), Some("The flag is unnamed."));
+        assert_eq!(passed.board.as_deref(), Some("#9 waits behind it."));
         let escalate =
             read("{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"why\": \"r\"}}");
         assert_eq!(

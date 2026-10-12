@@ -896,6 +896,16 @@ mod tests {
         assert!(INSTRUCTIONS.contains("packed-refs.lock"), "{INSTRUCTIONS}");
     }
 
+    // The first-turn skill names no docs, so a worker read the domain docs in
+    // about a third of its sessions.
+    #[test]
+    fn the_instructions_send_a_worker_to_the_domain_docs_before_code() {
+        assert!(
+            INSTRUCTIONS.contains("`docs/agents/domain.md`"),
+            "{INSTRUCTIONS}"
+        );
+    }
+
     #[test]
     fn the_instructions_never_mention_money_or_limits() {
         let text = INSTRUCTIONS.to_lowercase();

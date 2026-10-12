@@ -473,12 +473,12 @@ pub struct Worker {
     pub compact_window: u32,
 }
 
-/// The design log's default for `worker.compact_window`, in tokens
+/// The design's default for `worker.compact_window`, in tokens
 fn default_compact_window() -> u32 {
     200_000
 }
 
-/// The design log's default for `worker.turn_timeout`, in minutes
+/// The design's default for `worker.turn_timeout`, in minutes
 fn default_turn_timeout() -> NonZeroU32 {
     NonZeroU32::MIN.saturating_add(59)
 }

@@ -1,0 +1,5 @@
+# GitHub's rate limit
+
+- gh says a used-up GraphQL limit as `GraphQL: API rate limit already exceeded for user ID <n>.`, read from the live runner's log on 2026-10-10, where every board read failed that way for as long as the limit stayed used up.
+- `gh api rate_limit` answers `{"resources": {"core": {...}, "graphql": {...}, ...}, "rate": {...}}`, each limit with `limit`, `used`, `remaining` and `reset` in seconds since the epoch; recorded 2026-10-10 as `fixtures/gh-api-rate-limit.json`. GitHub documents the endpoint as counting against no limit. The REST and secondary-limit texts kelpie also matches (`API rate limit exceeded`, `secondary rate limit`) are GitHub's documented messages, not recorded here.
+- During an upgrade on the maintainer's live project, a drain's 500ms poll of `drain` and `status` woke the runner's loop for a full pass each time, so the runner read GitHub about every two seconds instead of once a minute, and a merged item's failing cleanup was retried 408 times in 13 minutes (4454 times during the previous day's upgrade). The account's 5,000-an-hour GraphQL limit ran out, and every runner on it failed its board reads until the reset.

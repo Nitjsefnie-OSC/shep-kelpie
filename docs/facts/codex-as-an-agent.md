@@ -1,0 +1,60 @@
+# Codex as an agent
+
+Measured 2026-10-01 for #233 on codex-cli 0.159.3, on kelpie's own ChatGPT login (a Plus plan), each call under `srt` 0.0.77 with the policy the adapter builds. What Codex does inside was read from its source at `rust-v0.159.3`.
+
+- Run with `CODEX_HOME` at the maintainer's `~/.codex` and its database moved to a fresh folder per call, Codex filled each call's database from every session under `~/.codex/sessions`: on first open a database backfills itself from its home's sessions (`backfill_sessions` in `codex-rs/rollout/src/metadata.rs`). This is why kelpie has its own login and gives each call a home of its own.
+- `codex debug models` lists the plan's models without a model call: `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` and `gpt-5.5`, with efforts from `low` to `max` or `ultra`.
+- Left to itself, a call's home ends up holding its sessions, `state_5.sqlite`, `logs_2.sqlite`, `thread_history_1.sqlite`, `goals_1.sqlite`, `memories_1.sqlite`, `queue_1.sqlite`, `models_cache.json`, `installation_id`, `thread-writer-locks` and `tmp`, beside the linked `auth.json`. With `sqlite_home` set, every database goes there.
+  - Codex also loads `.env` from its home at start (`codex-rs/arg0`) and `AGENTS.override.md` ahead of `AGENTS.md`.
+  - It will not start without writing `installation_id` ("failed to initialize in-process app-server client: Operation not permitted"), and runs on when it cannot write `models_cache.json`, logging it.
+  - Codex reads the login through the link. A refresh would write through it (`FileAuthStorage::save` opens `auth.json` with truncate), which the sandbox refuses.
+- A Codex call may not write `$CODEX_HOME/tmp`.
+  - At every start Codex makes `$CODEX_HOME/tmp/arg0/codex-arg0XXXX/` and puts it first on the PATH its hooks run with, and early on its commands' non-login PATH (`codex-rs/arg0/src/lib.rs`).
+  - With `tmp` writable, a model command planted a `git` there and the next hook's `which git` found it, so `kelpie guard`'s own git call, which runs `git` by name, would run the worker's program (re-review of #255, against a mock model server).
+  - With `tmp` unwritable Codex prints "WARNING: proceeding, even though we could not create PATH aliases", runs commands and applies patches, and nothing else in 0.159.3 uses `tmp`.
+- Codex fails to install its system skills (the sandbox refuses its `skills` folder) and to scan `~/.agents/skills`, logs both to stderr, and runs on. It prints "Reading additional input from stdin..." even with stdin closed.
+- `PreToolUse` hooks from `-c hooks.PreToolUse=[...]` run with `--dangerously-bypass-hook-trust`, which adds two `error` items to every `--json` stream saying so.
+  - The matcher is a regex on the tool's hook name: `Bash` for every command, `apply_patch` for file writes (`Write` and `Edit` also match it). A command's hook gets `tool_input.command` as the command string; `apply_patch`'s gets the whole patch as `tool_input.command`.
+  - A hook refuses by exiting 2 with its reason on stderr, which is what `kelpie confine` and `kelpie guard` do. Any other exit, or a hook that cannot run, lets the tool run, as in Claude Code.
+  - A refused call leaves no item in `--json`; it shows only as an error line on stderr naming the hook's reason, and the model reads the reason.
+- Not measured, from #454: the shape of a `PostToolUse` payload for a shell command on Claude Code and on Codex, since the docs (code.claude.com/docs/en/hooks, developers.openai.com/codex/hooks) were out of reach when it was built.
+  - Kelpie reads `tool_response` as an object (`stdout`, `stderr`, and an exit under `exit_code`, `exitCode`, `exit` or `returncode`) or as text, and a failure event's `error`, whose `Exit code N` first line gives the exit.
+  - Codex's `-c hooks.PostToolUse=[...]` is assumed to take the same entry shape as `hooks.PreToolUse`, and its exit 2 with stderr to reach the model as Claude Code's does. Measure both against a live session before relying on `after_command`'s `exit` and `output`.
+  - pi's `tool_result` handler is assumed to take `{ content, isError }` back as a patch to the result, and a bash result that failed to say `Command exited with code N` in its text.
+- `unified_exec` cannot be turned off from a call: Codex re-enables it unless an administrator's `requirements.toml` (`/etc/codex/requirements.toml`, MDM or the workspace's cloud config) pins it off (`normalize_candidate` in `codex-rs/core/src/config/managed_features.rs`).
+  - Its `write_stdin` feeds a running command with no hook (`write_stdin.rs`), so a worker could type commands into an interpreter it started (`kelpie guard` already refuses a bare shell reading stdin). That gap is the same one a script file the worker writes and runs already leaves, and the OS sandbox is the boundary.
+- On Codex, `kelpie guard --pin-folder` puts a check of the folder a command runs in ahead of every command it allows.
+  - A command's hook payload carries only the command, and the hook's `cwd` is the turn's, while `exec_command` may run the command in a `workdir` of the model's choosing (`unified_exec/exec_command.rs`). So `kelpie guard` would judge a relative script path, `cd` and `git` against the worktree while the command ran elsewhere: `bash x.sh` with another `workdir` runs a different `x.sh` from the one guard read (review of #255).
+  - A hook may answer `permissionDecision: allow` with an `updatedInput`, whose `command` replaces the command and leaves `workdir` as it was. So `kelpie guard --pin-folder` answers every command it allows with a `case` on `$(pwd -P)` in front.
+  - In the folder guard judged it in, the command runs as it is. In another folder of the worktree, the model's `workdir`, the line first pipes the call to `kelpie guard --judge-here` by kelpie's full path, which judges it again in the folder it runs in, and runs it only when that allows it.
+  - Anywhere else the command fails with "kelpie runs a command only inside the worktree", telling the model to leave `workdir` out and `cd` inside the command.
+  - Cutting every command back to the folder it was judged in, the first version, ran a `workdir` of `web` at the worktree's root without a word to the model (re-review of #255).
+  - The trade-off: a command in a subfolder is judged twice, and a refusal the second time reaches the model as the command's own failure (exit 1 with guard's reason on stderr), not as a hook's refusal.
+  - The call goes to guard as one line printed by `printf`, since a heredoc in `zsh` needs a temporary file in `/tmp`, which the sandbox refuses.
+- Codex verifies its model's certificate through macOS. A call whose policy did not allow that (`enableWeakerNetworkIsolation`, which a worker's fence sets for `gh`) failed every request ("Connection failed: error sending request", then "workspace routing discovery failed"), so before #255's review a Codex judge or review round never reached its model. Every Codex call's policy now allows it, and a review-shaped call answered `ok`.
+- A command whose program is `apply_patch` or `applypatch`, alone or in `bash -lc`, Codex applies as a patch in its own process (`intercept_apply_patch`), after the `Bash` hook and never through the `apply_patch` one. `kelpie guard` refuses both names.
+- Commands run as `/bin/zsh -lc '<command>'`, a login shell.
+- `turn.completed`'s usage is the session's running total: a resumed turn reported 64,149 input tokens, 17,711 of them the first turn's. The rollout's `token_count` events carry `total_token_usage`, which runs on across turns, beside each request's `last_token_usage`. `input_tokens` includes `cached_input_tokens`, and `output_tokens` includes `reasoning_output_tokens`.
+- `srt` passes the sandboxed command its own stdout and stderr (`stdio: 'inherit'`), and its Node process makes those pipes non-blocking. Codex's first run on a real issue died 8 seconds in with "failed printing to stdout: Resource temporarily unavailable (os error 35)", a panic, once a tool's output filled the pipe. Claude Code and pi are Node and write again. Given regular files for both, which kelpie opens outside the sandbox's reach, Codex ran to its end.
+- The adapter live (`record_a_turn_a_resumed_turn_and_three_refusals`, ignored, `gpt-6-luna` at low effort). The recordings are `fixtures/codex-exec-*.jsonl`.
+  - A turn added `hello.txt` through `apply_patch` in 7.0 seconds and answered `done`.
+  - Its resume in 20.9 seconds had a patch to `.codex/config.toml` refused by `kelpie confine`, `echo hi` into a folder outside refused by the sandbox ("operation not permitted"), and `gh pr merge 1` refused by `kelpie guard`, and named `hello.txt`.
+  - A usage-limit reply was never seen live; `fixtures/codex-exec-usage-limit.jsonl` is written from `UsageLimitReachedError`'s Plus text in `codex-rs/protocol/src/error.rs`, sent as an `error` event and then `turn.failed`.
+
+One run each of the playground's issue 34 (the `RuleList` component), on the commit before its fix, with the same prompt and no kelpie instructions, each as a worker under the same fence on its own copy with dependencies installed outside: Claude Code 2.1.286 on `claude-sonnet-5` at medium, the playground's worker, and Codex on `gpt-6.1-sol` at medium, the top of the plan's list.
+
+| | Claude Code | Codex |
+|---|---|---|
+| wall time | 89 s | 188 s |
+| tool calls | 28 (15 Bash, 6 Read, 5 Edit, 2 Write) | 14 (11 shell commands, 3 patches) |
+| uncached input | 44 | 33,246 |
+| cache write | 49,591 | 0 |
+| cache read | 811,393 | 213,632 |
+| output | 7,830 | 4,534 |
+| refused by the sandbox | 1 | 3 |
+| refused by kelpie's hooks | 0 | 0 |
+| `bun run test` and `typecheck` | pass (332 tests) | pass (332 tests) |
+
+- Both changed the same five files: a `RuleList` component and its test, and the Bottle Caps rules, test and page. Claude Code put the component in `src/components/guides`, Codex in `src/components/arcade`. Neither touched anything outside its folder.
+- Both had biome's write to `.vscode/settings.json` refused. Codex also had an `npm install` into `/tmp` refused, for Playwright to look at the page, and its dev server's `listen` (EPERM, no preview), then said visual checking was blocked. It searched the folder beside its own, `/tmp/kelpie-measure-233/claude`, since reads are open outside the credential paths, as they are for Claude Code.
+- Codex wrote every file through `apply_patch`, so `kelpie confine` saw every write, which #130's run on qwen could not give it.
