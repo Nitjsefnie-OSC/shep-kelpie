@@ -13,13 +13,12 @@ Measured with `cargo test --lib` in a worker: 335 of 3027 tests fail, 2675 pass,
 
 | Reason | Modules |
 |---|---|
-| Unix socket bind refused (`Operation not permitted`) | `dog::door` (and `::e2e`), `lease::cli::e2e`, `adapters::test_runner`, `adapters::forwarder` (the forwarder's own socket) |
+| Unix socket bind refused (`Operation not permitted`) | `dog::door` (and `::e2e`), `lease::cli::e2e`, `adapters::test_runner`, `adapters::forwarder` (the forwarder's own socket), `adapters::pi::tests` (3 tests that open a forwarder) |
 | Unix socket bind in shep-client's fake shepherd (`shep-client/src/testing/shared.rs`) | `doctor` (and `::github`, `::plugins`, `::e2e`), `flock::add`, `flock::control` (and `::pause`, `::finish`), `flock::verbs`, `upgrade` (`::sheep`, `::refusals`, `::files`, `::drain`), `sheep` (and `::look`), `shepherd`, `dog::left_over`, `dog::link` |
 | Loopback TCP bind refused | `adapters::local::endpoint`, `adapters::forwarder` (the stand-in model server in `src/test/endpoint.rs`), `adapters::gpu`, `adapters::paddock`, `adapters::curl`, `adapters::pi::gateway_tests`, `doctor::gateways`, `runner::gpu_tests`, `runner::review::local`, `github` (2 tests) |
 | `ps` cannot say whether a process runs | `runner::attach`, `runner::pm::tests::attach`, `runner::slots_tests` |
 | Process groups: a group check or signal the sandbox does not allow | `adapters::process` (3 tests), `adapters::local::queue` (2), `adapters::local::watched` (1) |
 | The temp folder is under `~/.shep`, which these tests' fences refuse to read | `issues::tests` (2 tests), `runner::panel::tests::fences` (2), `runner::pm::tests::code` (1) |
-| Socket path too long: `pi`'s test world nests `w/` under the temp folder, and a worker's `TMPDIR` leaves one byte too few | `adapters::pi::tests` (3 tests that open a forwarder) |
 
 ## The tests behind `short_tempdir`
 
@@ -27,7 +26,7 @@ Of the sites that used `tempdir_in("/tmp")`:
 
 - Pass in a worker: `adapters::claude::sandbox`, `adapters::codex`, and the rest of `adapters::pi::tests`.
 - Pass by skipping: the two `adapters::srt::live` tests, which need macOS, kelpie's tools and a keychain, and say so on stderr.
-- Fail in a worker for a reason above: the 18 `adapters::forwarder::tests` that open a forwarder (Unix socket bind or the stand-in model server), and the 3 `adapters::pi::tests` named above.
+- Fail in a worker for a reason above: the 18 `adapters::forwarder::tests` that open a forwarder (Unix socket bind or the stand-in model server), and the 3 `adapters::pi::tests` that open a forwarder (Unix socket bind).
 - `#[ignore]`d, and run by the `sandbox` CI job: `adapters::claude::escapes`.
 
 ## Keeping the list true
