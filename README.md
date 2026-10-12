@@ -206,7 +206,7 @@ nothing a project needs is missing
 A worker's sandbox reaches `github.com`, `api.github.com` and the model's API, and nothing else. `add` leaves `allowed_domains` empty, so a first issue on a repo with a cold cache can't fetch crates or npm packages. The project's table is stored on its runner sheep, so edit it in `shep lookout`:
 
 1. Open the runner's pane: the sheep named for the project, `scratch` here
-2. Put the cursor on the `dogs` row and press `Enter` or `e`
+2. Press `9` for the `dogs` tab, put the cursor on the `dogs` row and press `Enter` or `e`
 3. Open the `kelpie` row, then `worker.allowed_domains`, and add the registries the project builds from
 4. Press `Esc` to write the table
 
