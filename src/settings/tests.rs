@@ -1,5 +1,7 @@
 use super::*;
 
+mod test_command;
+
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
 
 // The example's first table, before which a test writes a key at the top level
@@ -49,6 +51,7 @@ fn the_example_holds_the_first_build_defaults() {
     assert!(s.pacing.enabled);
     assert_eq!(s.pacing.kickoff_hours.get(), 8);
     assert_eq!(s.worker.turn_timeout.get(), 60);
+    assert_eq!(s.worker.compact_window, 200_000);
     assert!(
         s.worker.guard_hooks.is_empty(),
         "kelpie's own guard needs none"
@@ -105,6 +108,27 @@ fn the_remote_may_be_left_to_the_checkout_s_origin() {
     let err = parse_err(&EXAMPLE.replace("\"shep-pm/shep\"", "\"shep\""));
     assert!(err.contains("`git.remote = \"shep\"`"), "{err}");
     assert!(err.contains("must be `owner/name`"), "{err}");
+}
+
+#[test]
+fn the_maintainer_is_a_github_login_and_may_be_left_out() {
+    assert_eq!(parse(EXAMPLE).unwrap().git.maintainer, None);
+    for (written, login) in [("octocat", "octocat"), ("@Octo-Cat", "Octo-Cat")] {
+        let text = EXAMPLE.replace(
+            "issues = \"ask\"\n",
+            &format!("issues = \"ask\"\nmaintainer = \"{written}\"\n"),
+        );
+        let maintainer = parse(&text).unwrap().git.maintainer;
+        assert_eq!(maintainer.unwrap().as_str(), login);
+    }
+    for bad in ["", "-octo", "octo cat", "octo/cat"] {
+        let text = EXAMPLE.replace(
+            "issues = \"ask\"\n",
+            &format!("issues = \"ask\"\nmaintainer = \"{bad}\"\n"),
+        );
+        let err = parse_err(&text);
+        assert!(err.contains("must be a GitHub login"), "{bad:?}: {err}");
+    }
 }
 
 #[test]
@@ -165,8 +189,12 @@ fn a_table_written_before_the_worker_keys_loads_with_their_defaults() {
         )
         .replace("build_env = {}\n", "")
         .replace("turn_timeout = 60\n", "");
+    // A commented example of another table's `allowed_domains` is no setting.
+    let set: String = (before.lines().filter(|line| !line.starts_with('#')))
+        .collect::<Vec<_>>()
+        .join("\n");
     for key in ["turn_timeout =", "allowed_domains =", "build_env ="] {
-        assert!(!before.contains(key), "{key}");
+        assert!(!set.contains(key), "{key}");
     }
     let s = parse(&before).unwrap();
     assert_eq!(s.worker.turn_timeout.get(), 60);
@@ -228,8 +256,8 @@ fn every_old_top_level_key_is_refused_at_once_naming_what_replaces_it() {
              - `max_items`, {grouped}: move its value to `concurrency.active_items`\n\
              - `max_parked`, {grouped}: move its value to `concurrency.pending_rulings`\n\
              - `private_names`, because kelpie no longer checks text for the project's own \
-             words: guard a worker's commits and posts with a hook in \
-             `worker.guard_hooks`, and delete it\n\
+             words: check text for the project's own words with a hook in `hooks`, \
+             which kelpie runs for every harness and role, and delete it\n\
              - `skills.ci`, because the step is named for what it does, apart from the \
              `[ci]` table: move its value to `skills.ci_fix`"
         )
@@ -715,6 +743,65 @@ fn a_projects_own_guard_hooks_are_read() {
     assert_eq!(hook.command.as_str(), "~/bin/lint-guard");
 }
 
+// The example with its commented project hook switched on, at `point`.
+fn with_project_hook(point: &str) -> String {
+    let hook = "# [[app.dogs.kelpie.hooks]]\n# point = \"publish\"\n# command = \"~/";
+    assert!(EXAMPLE.contains(hook), "the example's hook moved");
+    let on = format!("[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"~/");
+    EXAMPLE.replace(hook, &on)
+}
+
+#[test]
+fn a_projects_own_hooks_are_read_at_each_point() {
+    assert!(parse(EXAMPLE).unwrap().hooks.is_empty());
+    for (word, point) in [
+        ("publish", HookPoint::Publish),
+        ("commit", HookPoint::Commit),
+        ("push", HookPoint::Push),
+        ("handover", HookPoint::Handover),
+        ("command", HookPoint::Command),
+        ("write", HookPoint::Write),
+        ("after_command", HookPoint::AfterCommand),
+        ("turn_start", HookPoint::TurnStart),
+        ("turn_end", HookPoint::TurnEnd),
+        ("reset", HookPoint::Reset),
+        ("ruling", HookPoint::Ruling),
+        ("ci", HookPoint::Ci),
+        ("done", HookPoint::Done),
+    ] {
+        let [hook] = parse(&with_project_hook(word))
+            .unwrap()
+            .hooks
+            .try_into()
+            .unwrap();
+        assert_eq!(hook.point, point);
+        assert_eq!(hook.command.as_str(), "~/bin/check-words");
+    }
+}
+
+#[test]
+fn a_hook_at_a_point_kelpie_has_none_of_is_refused_naming_it() {
+    let err = parse_err(&with_project_hook("merge"));
+    assert!(err.contains("`hooks.point = \"merge\"`"), "{err}");
+    for point in [
+        "publish",
+        "commit",
+        "push",
+        "handover",
+        "command",
+        "write",
+        "after_command",
+        "turn_start",
+        "turn_end",
+        "reset",
+        "ruling",
+        "ci",
+        "done",
+    ] {
+        assert!(err.contains(&format!("`{point}`")), "{point}: {err}");
+    }
+}
+
 #[test]
 fn a_table_names_a_malformed_key_in_a_list_of_tables() {
     let err = parse_err(&with_hook("Stop"));
@@ -738,4 +825,173 @@ fn a_relative_instructions_file_is_taken_from_the_project_folder() {
 fn a_forge_slug_s_name_is_the_repo_without_its_owner() {
     let slug = ForgeSlug::try_from("shep-pm/koji-website".to_owned()).unwrap();
     assert_eq!(slug.name(), "koji-website");
+}
+
+#[test]
+fn rulings_default_to_a_shadow_panel_with_no_kind_for_the_project_manager_alone() {
+    let rulings = parse(EXAMPLE).unwrap().rulings;
+    assert_eq!(rulings.decide, Decide::Shadow);
+    assert!(rulings.pm_alone.is_empty());
+}
+
+#[test]
+fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone() {
+    let on = "\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\n\
+              pm_alone = [\"turn-timeout\", \"still-red\"]\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(rulings.decide, Decide::Panel);
+    assert_eq!(
+        rulings.pm_alone,
+        [RulingName::TurnTimeout, RulingName::StillRed]
+    );
+    assert!(rulings.pm_decides(RulingName::StillRed));
+    assert!(!rulings.pm_decides(RulingName::Question));
+}
+
+#[test]
+fn full_panel_paths_default_to_none_and_take_globs() {
+    assert!(parse(EXAMPLE).unwrap().rulings.full_panel_paths.is_empty());
+    let on = "\n[app.dogs.kelpie.rulings]\n\
+              full_panel_paths = [\"src/guard/**\", \".github/workflows/**\"]\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(
+        rulings.full_panel_paths,
+        ["src/guard/**", ".github/workflows/**"]
+    );
+}
+
+#[test]
+fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
+    let kind = parse_err(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"coffee\"]\n"
+    ));
+    assert!(kind.contains("rulings.pm_alone"), "{kind}");
+    assert!(kind.contains("coffee"), "{kind}");
+    let mode = parse_err(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n"
+    ));
+    assert!(mode.contains("rulings.decide"), "{mode}");
+}
+
+#[test]
+fn only_a_merge_kind_makes_the_list_refuse() {
+    let merge = parse(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n"
+    ))
+    .unwrap()
+    .rulings;
+    assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
+    assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
+}
+
+// The example settings, with its budget table taken out and `table` put in its place
+fn with_budget(table: &str) -> String {
+    let (before, rest) = EXAMPLE.split_once("[app.dogs.kelpie.budget]").unwrap();
+    let (_, after) = rest.split_once("per_item_usd = 10\n").unwrap();
+    format!("{before}{table}{after}")
+}
+
+#[test]
+fn a_per_item_budget_is_ten_dollars_when_the_table_does_not_say() {
+    assert_eq!(parse(EXAMPLE).unwrap().budget.per_item_usd.cents(), 1000);
+    let absent = with_budget("");
+    assert_eq!(parse(&absent).unwrap().budget.per_item_usd.cents(), 1000);
+    let empty = with_budget("[app.dogs.kelpie.budget]\n");
+    assert_eq!(parse(&empty).unwrap().budget.per_item_usd.cents(), 1000);
+    let set = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 2.5\n");
+    assert_eq!(parse(&set).unwrap().budget.per_item_usd.cents(), 250);
+    let whole = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 25\n");
+    assert_eq!(parse(&whole).unwrap().budget.per_item_usd.cents(), 2500);
+}
+
+#[test]
+fn a_negative_or_non_numeric_per_item_budget_is_refused() {
+    for bad in ["-1", "0", "0.004", "0.005", "0.0099", "\"ten\"", "true"] {
+        let text = with_budget(&format!("[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n"));
+        let err = parse_err(&text);
+        assert!(err.contains("per_item_usd"), "{bad}: {err}");
+    }
+}
+
+// The example with its commented e2e table taken out and `[e2e]` put in its place
+fn with_e2e(keys: &str) -> String {
+    let off = "# [app.dogs.kelpie.e2e]\n# host = \"e2e-box\"\n# command = \"scripts/e2e-remote.sh\"\n# results = \"test-results\"\n";
+    assert!(EXAMPLE.contains(off), "the example's e2e table moved");
+    EXAMPLE.replace(off, &format!("[app.dogs.kelpie.e2e]\n{keys}\n"))
+}
+
+#[test]
+fn e2e_is_absent_by_default() {
+    assert_eq!(parse(EXAMPLE).unwrap().e2e, None);
+}
+
+#[test]
+fn an_e2e_table_reads_host_command_and_results() {
+    let set = with_e2e("host = \"e2e-box\"\ncommand = \"ci/e2e.sh\"\nresults = \"out/pw\"");
+    let e2e = parse(&set).unwrap().e2e.unwrap();
+    assert_eq!(e2e.host.as_str(), "e2e-box");
+    assert_eq!(e2e.command.as_path(), Path::new("ci/e2e.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("out/pw"));
+    let host_only = with_e2e("host = \"e2e-box\"");
+    let e2e = parse(&host_only).unwrap().e2e.unwrap();
+    assert_eq!(e2e.command.as_path(), Path::new("scripts/e2e-remote.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("test-results"));
+}
+
+#[test]
+fn a_path_with_a_dot_component_is_read_without_it() {
+    let set = with_e2e("host = \"box\"\ncommand = \"./scripts/e2e.sh\"\nresults = \"./out/./pw\"");
+    let e2e = parse(&set).unwrap().e2e.unwrap();
+    assert_eq!(e2e.command.as_path(), Path::new("scripts/e2e.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("out/pw"));
+    for (key, bad) in [("command", "."), ("results", "./.git"), ("results", "./")] {
+        let err = parse_err(&with_e2e(&format!("host = \"box\"\n{key} = {bad:?}")));
+        assert!(err.contains(key), "{key} {bad:?}: {err}");
+    }
+}
+
+#[test]
+fn a_host_that_reads_as_an_ssh_option_is_refused() {
+    for bad in [
+        "-oProxyCommand=x",
+        "-",
+        "",
+        "box name",
+        "box;rm",
+        "me@box",
+        "a/b",
+    ] {
+        let err = parse_err(&with_e2e(&format!("host = {bad:?}")));
+        assert!(err.contains("an ssh alias"), "{bad:?}: {err}");
+    }
+    for good in ["box", "e2e-box.lan", "e2e_box2", "9box"] {
+        assert!(
+            parse(&with_e2e(&format!("host = {good:?}"))).is_ok(),
+            "{good}"
+        );
+    }
+}
+
+#[test]
+fn a_command_or_results_path_that_leaves_the_repo_is_refused() {
+    for (key, bad) in [
+        ("command", "/bin/sh"),
+        ("command", "../run.sh"),
+        ("command", "a/../../run.sh"),
+        ("command", ""),
+        ("results", "/tmp/out"),
+        ("results", "../out"),
+        ("results", ""),
+        ("results", ".git"),
+        ("results", ".git/hooks"),
+    ] {
+        let err = parse_err(&with_e2e(&format!("host = \"box\"\n{key} = {bad:?}")));
+        assert!(err.contains(key), "{key} {bad:?}: {err}");
+    }
+}
+
+#[test]
+fn an_unknown_e2e_key_is_refused() {
+    let err = parse_err(&with_e2e("host = \"box\"\nretries = 2"));
+    assert!(err.contains("retries"), "{err}");
 }

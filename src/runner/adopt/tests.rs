@@ -45,6 +45,7 @@ fn file_5(rig: &Rig) -> PathBuf {
 #[test]
 fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     let rig = Rig::new("shep");
+    rig.ci_on();
     let head = opened_80(&rig);
     let runner = running(&rig);
     let status = rig.ask(&runner, "adopt", Some("80"));
@@ -208,6 +209,28 @@ fn each_refusal_comments_and_adopts_nothing() {
     }
 }
 
+// Where an App covers the repo the refusal is the App's, not the maintainer's.
+#[test]
+fn a_refusal_is_posted_through_the_app_where_one_covers_the_repo() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    opened_80(&rig);
+    rig.forge.set_from_fork(80);
+    let runner = running(&rig);
+
+    rig.ask(&runner, "adopt", Some("80"));
+
+    assert_eq!(rig.forge.comments(), []);
+    let posted = (rig.github.writes().into_iter())
+        .find(|(_, call)| call.path == "/repos/shep-pm/shep/issues/80/comments")
+        .expect("the refusal went through the App");
+    let body = posted.1.body.unwrap_or_default();
+    assert!(
+        body.contains("Kelpie cannot adopt this pull request"),
+        "{body}"
+    );
+}
+
 #[test]
 fn a_labelled_pull_request_refused_loses_the_label_and_gets_the_comment_once() {
     let rig = Rig::new("rotom");
@@ -308,7 +331,7 @@ fn a_review_asking_for_changes_is_the_first_turn_and_the_loop_reviews_only_the_f
     assert!(
         first
             .prompt
-            .ends_with("Make the changes the review asks for, then commit and push with `git push origin HEAD`.\n"),
+            .ends_with("Make the changes the review asks for, then commit and push with `git push origin HEAD`. Update the pull request's body so it matches the head you push: what changed, the files touched, the test evidence, and the decisions you made.\n"),
         "{}",
         first.prompt
     );
@@ -479,6 +502,7 @@ fn foreign_ruling(rig: &Rig, runner: &Mutex<Runner>, pushed: &str) {
 #[test]
 fn a_push_by_the_branchs_owner_during_the_workers_turn_is_not_the_workers() {
     let rig = Rig::new("koji");
+    rig.ci_on();
     let runner = running(&rig);
     red_80(&rig, &runner);
     let hold = Hold::default();
@@ -500,6 +524,7 @@ fn a_push_by_the_branchs_owner_during_the_workers_turn_is_not_the_workers() {
 #[test]
 fn a_push_by_the_branchs_owner_before_the_workers_turn_parks_it_with_no_turn() {
     let rig = Rig::new("rotom");
+    rig.ci_on();
     let runner = running(&rig);
     red_80(&rig, &runner);
     let pushed = rig.push_by_hand("fix/timeline", "owner.txt");
@@ -558,6 +583,7 @@ fn a_start_retried_after_a_failure_begins_at_the_head_origin_holds_now() {
 
     let moved = rig.push_by_hand("fix/timeline", "later.txt");
     rig.forge.coderabbit.set_down(false);
+    rig.next_look();
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::Adopted {
@@ -709,8 +735,11 @@ fn threads_from_before_the_adoption_go_to_the_worker_once_kelpies_own_read_lands
         step(&runner).unwrap(),
         Some(StepReport::ReviewFindingsSent { held: 1, .. })
     ));
-    rig.claude
-        .script([Scripted::Push("bounds.txt", "checked\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "bounds.txt",
+        "checked\n",
+        "thread 1: fixed",
+    )]);
     step(&runner).unwrap(); // the fix turn
     let fixed = rig.forge.head_of("fix/timeline").unwrap();
     assert_ne!(fixed, head);

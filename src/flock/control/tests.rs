@@ -9,6 +9,7 @@ use crate::flock::Launch;
 use crate::shepherd;
 use crate::test::FakeShepherd;
 
+mod finish;
 mod pause;
 
 // Bounds every call against a fake shepherd, so a hang fails by name.
@@ -51,6 +52,17 @@ async fn in_time<T>(call: impl Future<Output = T>) -> T {
 
 fn project(name: &str) -> ProjectName {
     ProjectName::try_from(name).unwrap()
+}
+
+// What a command asked of the shepherd, by action, with a stop as `stop`
+fn asked(writes: &[Request]) -> Vec<String> {
+    (writes.iter())
+        .filter_map(|w| match w {
+            Request::Trigger { action, .. } => Some(action.clone()),
+            Request::Stop { .. } => Some("stop".to_owned()),
+            _ => None,
+        })
+        .collect()
 }
 
 // Real sockets under a real clock: a paused one would time out the
@@ -258,6 +270,127 @@ async fn a_command_reaches_the_project_whose_repo_holds_the_folder() {
     );
 }
 
+// Sets project `name`'s `git.remote`, as a settings file may.
+fn remote(shepherd: &FakeShepherd, name: &str, root: &Path, slug: &str) {
+    let mut table = crate::test::project_table(EXAMPLE);
+    table["git"]["checkout"] = Value::String(root.display().to_string());
+    table["git"]["remote"] = Value::String(slug.to_owned());
+    shepherd.holds(launch(shepherd).runner(&project(name), table), false);
+}
+
+// A plain clone of a repo: not any project's checkout, with `origin` at `url`.
+fn clone_of(shepherd: &FakeShepherd, path: &str, url: &str) -> PathBuf {
+    let folder = shepherd.scratch(path);
+    git(&folder, &["init", "-q"]);
+    git(&folder, &["remote", "add", "origin", url]);
+    folder
+}
+
+#[tokio::test]
+async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
+    let shepherd = FakeShepherd::new().await;
+    let home = PathBuf::from("/home/me");
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    remote(
+        &shepherd,
+        "reactmap",
+        &shepherd.scratch("runner/reactmap"),
+        "shep-pm/reactmap",
+    );
+    let clone = clone_of(
+        &shepherd,
+        "mine/reactmap",
+        "git@github.com:Shep-PM/ReactMap.git",
+    );
+    let deep = shepherd.scratch("mine/reactmap/src/deep");
+    let client = client(&shepherd).await;
+
+    for folder in [&clone, &deep] {
+        let found = in_time(project_here(&client, folder, &home)).await;
+        assert_eq!(found, Ok(project("reactmap")), "{}", folder.display());
+    }
+}
+
+#[tokio::test]
+async fn a_project_with_no_remote_set_matches_on_its_checkouts_origin() {
+    let shepherd = FakeShepherd::new().await;
+    let home = PathBuf::from("/home/me");
+    let runner_checkout = clone_of(&shepherd, "runner/koji", "git@github.com:shep-pm/koji.git");
+    let mut table = crate::test::project_table(EXAMPLE);
+    table["git"]["checkout"] = Value::String(runner_checkout.display().to_string());
+    table["git"].as_object_mut().unwrap().remove("remote");
+    shepherd.holds(launch(&shepherd).runner(&project("koji"), table), false);
+    let clone = clone_of(
+        &shepherd,
+        "mine/koji",
+        "https://github.com/shep-pm/koji.git",
+    );
+    let client = client(&shepherd).await;
+
+    let found = in_time(project_here(&client, &clone, &home)).await;
+    assert_eq!(found, Ok(project("koji")));
+}
+
+#[tokio::test]
+async fn a_clone_whose_origin_is_no_projects_remote_asks_for_a_name() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    let clone = clone_of(&shepherd, "mine/other", "https://github.com/shep-pm/other");
+    let client = client(&shepherd).await;
+
+    let err = in_time(project_here(&client, &clone, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err,
+        format!(
+            "no project's repo holds {}, so name one with `-p <project>`: koji",
+            clone.display()
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_clone_whose_origin_two_projects_share_asks_for_a_name() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "shep-pm/koji",
+    );
+    remote(
+        &shepherd,
+        "koji-fork",
+        &shepherd.scratch("runner/fork"),
+        "shep-pm/koji",
+    );
+    let clone = clone_of(
+        &shepherd,
+        "mine/koji",
+        "https://github.com/shep-pm/koji.git",
+    );
+    let client = client(&shepherd).await;
+
+    let err = in_time(project_here(&client, &clone, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err,
+        "koji, koji-fork all have shep-pm/koji as their remote, so name one with `-p <project>`"
+    );
+}
+
 #[tokio::test]
 async fn with_no_projects_the_folder_names_none() {
     let shepherd = FakeShepherd::new().await;
@@ -326,13 +459,100 @@ async fn status_reports_every_project() {
     runner(&shepherd, "reactmap", Path::new("/src/reactmap"), false);
     shepherd.holds_dog("kelpie", true);
     let client = client(&shepherd).await;
-    let lines = in_time(status(&client)).await.unwrap();
+    let lines = in_time(status(&client, Format::Json)).await.unwrap();
     assert_eq!(
         lines,
         [
             r#"koji: {"action":"status","sheep":"koji"}"#,
             "reactmap: not running",
         ]
+    );
+}
+
+// What a runner finishing two work items, one parked on a merge ruling,
+// answered `status` with
+const RECORDED: &str = r#"{"project":"koji","merging":"ask","run":"finishing",
+    "work_item":null,
+    "work_items":[
+        {"issue":7,"title":"Add a thing","phase":{"state":"ruling","id":1},
+         "turn":{"state":"ended","at":100},"pull_request":71},
+        {"issue":9,"title":"Fix the other","phase":{"state":"implement"},
+         "turn":{"state":"running","since":200},"pull_request":null}],
+    "rulings":[{"id":1,"issue":7,"pull_request":71,
+        "question":"Merge pull request #71 at abc1234 into main?",
+        "kind":{"kind":"merge","head":"abc1234def"},"alerted":false}],
+    "pacer":{"enabled":true,"claude":{
+        "reading":{"at":300,"session":{"used_pct":3,"resets_at":400},
+            "week":{"used_pct":15,"resets_at":500},"allowance_pct":14.3,
+            "spent_today_pct":15,"per_hour_pct":1.8},
+        "holding":{"kind":"allowance","reason":"today's allowance is spent","until":600}}}}"#;
+
+#[test]
+fn a_plain_status_names_what_the_maintainer_looks_for() {
+    assert_eq!(
+        plain_status("koji", RECORDED),
+        [
+            "koji (finishing)",
+            "  run: finishing",
+            "  work items:",
+            "    #7 Add a thing: phase ruling, turn ended, PR #71",
+            "    #9 Fix the other: phase implement, turn running, no PR",
+            "  rulings waiting: 1",
+            "    ruling 1: merge, #7, PR #71",
+            "  pacer: on",
+            "    claude: session 3%, week 15%, 15% of the week spent today of 14.3% allowed",
+            "    claude holding (allowance): today's allowance is spent",
+        ]
+    );
+}
+
+#[test]
+fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
+    let body = r#"{"project":"koji","work_items":[],"rulings":[
+        {"id":1,"issue":null,"pull_request":null,"kind":{"kind":"question"}}]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..5],
+        [
+            "  rulings waiting: 1",
+            "    ruling 1: question, no issue, no PR"
+        ]
+    );
+}
+
+#[test]
+fn a_plain_status_of_an_idle_runner_says_so() {
+    let idle = r#"{"project":"koji","work_items":[],"rulings":[],
+        "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;
+    assert_eq!(
+        plain_status("koji", idle),
+        [
+            "koji",
+            "  run: running",
+            "  work items: none",
+            "  rulings waiting: none",
+            "  pacer: off",
+            "    claude: not read",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_plain_status_keeps_a_project_that_is_not_running_to_a_line() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), false);
+    shepherd.holds_dog("kelpie", true);
+    let client = client(&shepherd).await;
+    assert_eq!(
+        in_time(status(&client, Format::Plain)).await.unwrap(),
+        ["koji: not running"]
+    );
+}
+
+#[test]
+fn a_json_status_is_the_runner_s_object_as_it_came() {
+    assert_eq!(
+        json_status("koji", RECORDED),
+        format!("koji (finishing): {RECORDED}")
     );
 }
 
@@ -344,9 +564,65 @@ async fn status_marks_a_draining_runner() {
     shepherd.says("koji", &[draining]);
     let client = client(&shepherd).await;
     assert_eq!(
-        in_time(status(&client)).await.unwrap(),
+        in_time(status(&client, Format::Json)).await.unwrap(),
         [format!("koji (draining): {draining}")]
     );
+}
+
+#[tokio::test]
+async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() {
+    let mut shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.replies("koji", &[None]);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
+    let lines = told.expect("a note that arrived is no error to retry");
+    let [line] = lines.as_slice() else {
+        panic!("{lines:?}")
+    };
+    assert!(line.contains("did not answer in time"), "{line}");
+    assert!(line.contains("the note may have arrived"), "{line}");
+    assert!(line.contains("do not tell it again"), "{line}");
+    assert!(line.contains("`shep bleats koji`"), "{line}");
+    assert_eq!(asked(&shepherd.writes()), ["tell"]);
+}
+
+#[tokio::test]
+async fn a_tell_the_runner_never_answered_prints_an_object_with_json() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.replies("koji", &[None]);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Json)).await;
+    let [line] = told.unwrap().try_into().unwrap();
+    let object: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(object["sheep"], "koji");
+    let message = object["message"].as_str().unwrap();
+    assert!(message.contains("the note may have arrived"), "{message}");
+}
+
+#[tokio::test]
+async fn a_tell_the_runner_answered_says_it_was_told() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
+    assert_eq!(
+        told,
+        Ok(vec![
+            "told koji's project manager, which reads it on its next wake".to_owned()
+        ])
+    );
+}
+
+#[tokio::test]
+async fn a_runner_that_refuses_a_tell_is_its_error() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[r#"{"error":"koji has no project manager"}"#]);
+    let client = client(&shepherd).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
+    assert_eq!(told, Err("koji has no project manager".into()));
 }
 
 #[tokio::test]
@@ -355,11 +631,56 @@ async fn a_runner_still_taking_its_actions_is_starting() {
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let client = client(&shepherd).await;
     shepherd.just_started("koji");
-    assert_eq!(in_time(status(&client)).await.unwrap(), ["koji: starting"]);
+    assert_eq!(
+        in_time(status(&client, Format::Json)).await.unwrap(),
+        ["koji: starting"]
+    );
     // Each answer from a runner still starting uses the flag up.
     shepherd.just_started("koji");
     let err = in_time(send(&client, &project("koji"), "drop", None))
         .await
         .unwrap_err();
     assert_eq!(err, "koji's runner is starting: ask again in a moment");
+}
+
+#[tokio::test]
+async fn the_flock_s_repos_include_a_project_whose_settings_do_not_parse() {
+    let shepherd = FakeShepherd::new().await;
+    remote(
+        &shepherd,
+        "koji",
+        &shepherd.scratch("runner/koji"),
+        "acme/koji",
+    );
+    let mut broken = crate::test::project_table(EXAMPLE);
+    let checkout = shepherd.scratch("runner/vault").display().to_string();
+    broken["git"]["checkout"] = Value::String(checkout);
+    broken["git"]["remote"] = Value::String("acme/vault".to_owned());
+    broken["git"]["merging"] = Value::String("no such mode".to_owned());
+    shepherd.holds(launch(&shepherd).runner(&project("vault"), broken), false);
+    let client = client(&shepherd).await;
+
+    let found = in_time(repos(&client, Path::new("/home/me")))
+        .await
+        .unwrap();
+    let mut names: Vec<&str> = found.iter().map(ForgeSlug::as_str).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["acme/koji", "acme/vault"]);
+}
+
+#[tokio::test]
+async fn the_flock_s_repos_are_refused_when_a_project_s_repo_cannot_be_told() {
+    let shepherd = FakeShepherd::new().await;
+    // A checkout that is no git checkout, and no `git.remote`.
+    let mut table = crate::test::project_table(EXAMPLE);
+    let checkout = shepherd.scratch("runner/vault").display().to_string();
+    table["git"]["checkout"] = Value::String(checkout);
+    table["git"].as_object_mut().unwrap().remove("remote");
+    shepherd.holds(launch(&shepherd).runner(&project("vault"), table), false);
+    let client = client(&shepherd).await;
+
+    let err = in_time(repos(&client, Path::new("/home/me")))
+        .await
+        .unwrap_err();
+    assert!(err.contains("project vault"), "{err}");
 }

@@ -21,20 +21,19 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::claude::sandbox::fence_policy;
+use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::paddock;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
-use crate::guard::FOLDER_FLAG;
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
-    Sandbox, Session, SessionId, Tools, Usage, Wait, written_at,
+    Sandbox, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-use crate::profile::CREDENTIALS;
-use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
+use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
 #[cfg(test)]
@@ -45,6 +44,9 @@ mod escapes;
 
 #[cfg(test)]
 mod gateway_tests;
+
+#[cfg(test)]
+mod unreachable_tests;
 
 /// This adapter's harness, as its errors and the fence name it
 const PI: Harness = Harness::Pi;
@@ -60,7 +62,10 @@ fn tool_names(tools: Tools, reads: bool) -> Option<&'static str> {
     match tools {
         Tools::Work => Some("read,bash,edit,write,grep,find,ls"),
         // The issue writer runs on Claude Code alone, whose hook is its guard.
-        Tools::Review | Tools::Issues => Some("read,grep,find,ls"),
+        // pi has no web tool, so a researcher on it reads what kelpie wrote it and no more.
+        Tools::Review | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => {
+            Some("read,grep,find,ls")
+        }
         // The project manager runs on Claude Code alone, so pi only ever reads for it.
         Tools::Answer | Tools::Pm if reads => Some("read"),
         Tools::Answer | Tools::Pm => None,
@@ -76,6 +81,8 @@ pub struct PiCli {
     program: OsString,
     lambs: Option<Arc<dyn LambLabels>>,
     sandbox: Arc<dyn Sandbox>,
+    // What a call with no fence may not read: the shepherd's home
+    unfenced_no_read: Vec<String>,
     gateways: Gateways,
 }
 
@@ -88,6 +95,7 @@ impl ClaudeCli {
             program: "pi".into(),
             lambs: self.lambs.clone(),
             sandbox: Arc::clone(&self.sandbox),
+            unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
         }
     }
@@ -166,6 +174,13 @@ impl Agents for PiCli {
             RunError::TimedOut => AgentError::TimedOut(PI),
         })?;
         parse_result(&output, call.session.id())
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        Some(Transcript {
+            folder: Files::of(call).sessions(),
+            threads: None,
+        })
     }
 
     fn last_active(&self, call: &AgentCall) -> CallActivity {
@@ -251,7 +266,13 @@ impl PiCli {
             .arg(&self.program)
             .args(argv(call, &files))
             .current_dir(&call.cwd);
-        let policy = policy(call, &files, &upstream, &forwarder.socket);
+        let policy = policy(
+            call,
+            &files,
+            &upstream,
+            &forwarder.socket,
+            &self.unfenced_no_read,
+        );
         let wrapped = self
             .sandbox
             .wrap(&policy, &files.sandbox_settings, &command)
@@ -280,7 +301,8 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     {
         return Err(AgentError::Setup(
             "pi cannot run `worker.guard_hooks`, which are Claude Code hooks: \
-             remove them or put the worker on Claude Code"
+             remove them, move the check to a `command` or `write` hook in `hooks`, which \
+             runs on every harness, or put the worker on Claude Code"
                 .into(),
         ));
     }
@@ -344,6 +366,8 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
         ("NODE_USE_ENV_PROXY".into(), "1".into()),
         ("PI_CODING_AGENT_DIR".into(), files.home.clone().into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
+        // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
+        ("TMPPREFIX".into(), files.scratch.join("zsh").into()),
     ];
     if let Some(fence) = &call.reach.fence {
         vars.extend(
@@ -470,10 +494,31 @@ fn guard_extension(fence: &Fence) -> String {
             .iter()
             .map(|p| format!("{FOLDER_FLAG}{}", p.display())),
     );
+    commands.extend(guard.hooks.flag());
+    // The project's `write` hooks ride on `confine`, and its `after_command` ones on
+    // the guard again, run on each command's result.
+    let mut confine = vec![
+        "confine".to_owned(),
+        text(&guard.worktree),
+        text(&guard.build),
+    ];
+    if let Some(flag) = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::Write))
+    {
+        confine.push(flag);
+    }
+    let after = guard.hooks.has(HookPoint::AfterCommand).then(|| {
+        let mut after = commands.clone();
+        after.push(AFTER_FLAG.to_owned());
+        after
+    });
     let checks = json!({
         "kelpie": text(&guard.kelpie),
-        "confine": ["confine", text(&guard.worktree), text(&guard.build)],
+        "confine": confine,
         "guard": commands,
+        "after": after,
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
 }
@@ -481,14 +526,15 @@ fn guard_extension(fence: &Fence) -> String {
 /// The whole call's policy: its fence, or none, and what pi itself needs
 ///
 /// The model's host is not in it. The one host pi may dial is the forwarder's.
-fn policy(call: &AgentCall, files: &Files, upstream: &Upstream, forwarder: &Path) -> Policy {
-    let mut policy = match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => Policy {
-            no_read: CREDENTIALS.map(str::to_owned).into(),
-            ..Policy::default()
-        },
-    };
+fn policy(
+    call: &AgentCall,
+    files: &Files,
+    upstream: &Upstream,
+    forwarder: &Path,
+    unfenced: &[String],
+) -> Policy {
+    let mut policy = call_policy(call, unfenced);
+    policy.no_keychain = call.reach.block_keychain;
     // pi logs in nowhere, so no harness's login is its own, the maintainer's pi included.
     let logins = fence::HARNESSES.iter().flat_map(|own| own.credentials);
     policy.no_read.extend(logins.map(|&path| path.to_owned()));
@@ -540,6 +586,28 @@ fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
 
 /// How much of pi's output an error carries: its end, where the reason is
 const ERROR_TAIL: usize = 2048;
+
+// Whether pi's error says its model host could not be reached: a 502 or 503
+// as the SDK leads its message with the status, or a connection refused or
+// reset. Any other error is the call's own, and so is one that leads with
+// another status, whatever its text goes on to mention.
+fn reaches_no_host(detail: &str) -> bool {
+    let lower = detail.trim_start().to_ascii_lowercase();
+    let digits = lower.bytes().take_while(u8::is_ascii_digit).count();
+    let leads_with_status =
+        digits == 3 && !lower[digits..].starts_with(|c: char| c.is_ascii_alphanumeric());
+    if leads_with_status {
+        return matches!(&lower[..digits], "502" | "503");
+    }
+    [
+        "econnrefused",
+        "econnreset",
+        "connection refused",
+        "connection reset",
+    ]
+    .iter()
+    .any(|sign| lower.contains(sign))
+}
 
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
 // megabytes and an error reaches a ruling, the state file and the webhook.
@@ -624,7 +692,13 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             _ => {}
         }
     }
-    let failed = |detail: &str| AgentError::Failed(PI, detail.to_owned());
+    let failed = |detail: &str| {
+        if reaches_no_host(detail) {
+            AgentError::Unreachable(PI, detail.to_owned())
+        } else {
+            AgentError::Failed(PI, detail.to_owned())
+        }
+    };
     if !output.status.success() {
         let why = last.as_ref().and_then(|m| m.error_message.clone());
         return Err(failed(why.as_deref().unwrap_or(tail(&stderr))));

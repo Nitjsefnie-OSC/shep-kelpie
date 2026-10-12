@@ -6,10 +6,15 @@
 //! repo, and its guard runs only the commands that file, label and link
 //! issues, and git's read-only ones. It ends with a list of what it filed,
 //! which kelpie reads back from the forge and checks before printing.
-//! `--interactive` starts `claude` in the maintainer's terminal instead, in
-//! the project's checkout with the same prompt and tool limits, to plan the
-//! request together and file it as `ready-for-agent`. That session is the
-//! maintainer's: kelpie starts it and gets out of the way.
+//! It has no one to grill, so an issue ends with an "Open questions"
+//! section for each decision it could not settle, with a recommended answer.
+//! `--interactive` starts `claude` in the maintainer's terminal instead, with
+//! the same prompt and tool limits, running the `grill-with-docs` skill on
+//! the request, and files what the maintainer agrees as `ready-for-agent`.
+//! The glossary terms and ADRs the skill writes go on a docs branch, in a
+//! checkout of `origin/main` where the session runs, which kelpie opens as a
+//! pull request once the session ends. That session is the maintainer's:
+//! kelpie starts it and cleans up after it.
 //!
 //! Each listed implementer's `agent:` label is made on the repo the first
 //! time the issue writer needs it, since the forge refuses a label the repo
@@ -21,22 +26,27 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::adapters::{SystemClock, claude_settings};
+use crate::adapters::{SystemClock, claude_settings, claude_write_only};
 use crate::agents::{Agents, Role, Runs};
 use crate::board::{AGENT_LABEL, READY, agent_label};
-use crate::guard::IssueRules;
+use crate::guard::{IssueRules, filed_in};
+use crate::hooks::Hooks;
 use crate::ports::Clock;
 use crate::ports::{
-    self, AgentCall, Ending, Fence, Forge, Guard, NewLabel, Reach, Session, SessionId, Tools,
+    self, AgentCall, Ending, Fence, Forge, ForgeError, Guard, NewLabel, Reach, Session, SessionId,
+    Tools,
 };
 use crate::profile::CREDENTIALS;
 use crate::runner::{HUMAN, ProjectPaths};
 use crate::settings::{AgentName, ForgeSlug, RoleAgents, RoleModel, Settings};
+use crate::skills;
 use crate::usage;
 use crate::worktree;
 
+mod docs;
 mod prompt;
 
+pub use docs::Docs;
 pub use prompt::{implementers, instructions};
 
 /// What the issue writer runs on, from its agent file
@@ -166,14 +176,27 @@ pub fn make_missing<'a>(
     repo: &ForgeSlug,
     wanted: impl IntoIterator<Item = NewLabel<'a>>,
 ) -> Result<(), String> {
+    make_missing_with(forge, repo, wanted, |label| forge.create_label(repo, label))
+}
+
+/// [`make_missing`], making each label with `create`, such as through the App
+///
+/// # Errors
+///
+/// A message naming the label the forge would not read or make.
+pub fn make_missing_with<'a>(
+    forge: &dyn Forge,
+    repo: &ForgeSlug,
+    wanted: impl IntoIterator<Item = NewLabel<'a>>,
+    create: impl Fn(&NewLabel<'a>) -> Result<(), ForgeError>,
+) -> Result<(), String> {
     let slug = repo.as_str();
     let have = forge
         .repo_labels(repo)
         .map_err(|e| format!("cannot read {slug}'s labels: {e}"))?;
     let wanted = wanted.into_iter();
     for label in wanted.filter(|l| !have.iter().any(|h| h.eq_ignore_ascii_case(l.name))) {
-        forge
-            .create_label(repo, &label)
+        create(&label)
             .map_err(|e| format!("cannot make the label `{}` on {slug}: {e}", label.name))?;
     }
     Ok(())
@@ -184,12 +207,13 @@ pub fn make_missing<'a>(
 // files they do read, so only its file tools are kept from those.
 const HISTORY: [&str; 3] = ["~/.zsh_history", "~/.bash_history", "~/.zsh_sessions/**"];
 
-// What the issue writer's session may reach: `checkout` to read, GitHub to
-// reach, nothing to write, and the guard that holds its commands, which
-// keeps what the session filed and read in `ledger`.
+// What the issue writer's session may reach: `checkout` and `also` to read,
+// GitHub to reach, nothing to write, and the guard that holds its commands,
+// which keeps what the session filed and read in `ledger`.
 fn reach(
     project: &Project<'_>,
     checkout: &Path,
+    also: &[PathBuf],
     mode: Mode,
     ledger: PathBuf,
 ) -> Result<Reach, String> {
@@ -219,7 +243,10 @@ fn reach(
             .map(|&p| p.to_owned())
             .chain(homes)
             .collect(),
-        read: vec![checkout.to_owned(), project.kelpie.to_owned()],
+        read: [checkout.to_owned(), project.kelpie.to_owned()]
+            .into_iter()
+            .chain(also.iter().cloned())
+            .collect(),
         hosts: vec!["github.com".to_owned(), "api.github.com".to_owned()],
         no_commands: Vec::new(),
         env: Default::default(),
@@ -231,12 +258,19 @@ fn reach(
             git_common_dir: PathBuf::from(common),
             folders: vec![paths.kelpie_home.clone(), settings.git.checkout.clone()],
             issues: Some(rules),
+            hooks: Hooks::new(
+                &paths.name(),
+                project.remote.as_str(),
+                &settings.git.checkout,
+                &settings.hooks,
+            ),
         },
         hooks: Vec::new(),
     };
     Ok(Reach {
-        read: Vec::new(),
+        read: also.to_vec(),
         fence: Some(Box::new(fence)),
+        block_keychain: false,
     })
 }
 
@@ -351,6 +385,7 @@ fn call(
     let mut reach = reach(
         project,
         checkout,
+        &[],
         Mode::Headless,
         scratch.join("ledger.json"),
     )?;
@@ -368,8 +403,10 @@ fn call(
         prompt: format!("The maintainer's request:\n\n{}", request.trim()),
         plugin_dirs: Vec::new(),
         tools: Tools::Issues,
+        agent_tools: None,
         reach,
         lease: None,
+        compact_window: None,
     })
 }
 
@@ -480,33 +517,99 @@ pub struct Interactive {
     pub command: Command,
     /// Its settings file and its ledger, to remove once it ends
     pub files: Vec<PathBuf>,
+    /// The plugin folder holding its skills, to remove once it ends
+    pub plugin: PathBuf,
+    /// The docs branch it works on
+    pub docs: Docs,
+    ledger: PathBuf,
+    request: String,
 }
 
-/// `program`, Claude Code, started on `request` in the project's checkout,
-/// with the issue writer's prompt appended and its tool limits
+impl Interactive {
+    /// Cleans up after the session and lands what it wrote: its files and
+    /// plugin go, and the docs it wrote become a draft pull request, linked
+    /// from each issue it filed
+    ///
+    /// Returns the lines to tell the maintainer.
+    ///
+    /// # Errors
+    ///
+    /// A message naming what failed: a file besides the glossary and
+    /// decision records, a push or pull request that did not go through, or
+    /// a link that did not.
+    pub fn end(&self, project: &Project<'_>, forge: &dyn Forge) -> Result<Vec<String>, String> {
+        let filed = filed_in(&self.ledger);
+        for file in &self.files {
+            let _ = std::fs::remove_file(file);
+        }
+        let _ = std::fs::remove_dir_all(&self.plugin);
+        self.docs.land(project, forge, &self.request, &filed)
+    }
+}
+
+/// `program`, Claude Code, started on `request` with the `grill-with-docs`
+/// skill, in a checkout of a docs branch cut from `origin/main`, with the
+/// issue writer's prompt appended and its tool limits
 ///
 /// Its settings file, written here, carries the deny rules and the guard,
 /// and allows no command outright, so Claude Code asks the maintainer
-/// before each one the guard lets through. The maintainer's own settings
-/// stay in force beside it.
+/// before each one the guard lets through. Its file tools may write
+/// `GLOSSARY.md` and `docs/adr/` in the docs checkout and nothing else. The
+/// maintainer's own settings stay in force beside it.
 ///
 /// # Errors
 ///
 /// A message naming the file that could not be written, or the git command
-/// that could not read the checkout.
+/// that could not cut the docs branch.
 pub fn interactive(
     project: &Project<'_>,
     writer: &Writer,
     request: &str,
     program: &OsStr,
 ) -> Result<Interactive, String> {
-    let folder = project.paths.issues();
-    let checkout = &project.settings.git.checkout;
     let run = crate::work_item::new_session_id()
         .map_err(|e| format!("cannot draw a name for its files: {e}"))?;
-    let file = folder.join(format!("interactive-{}.json", run.0));
-    let ledger = folder.join(format!("interactive-{}.ledger.json", run.0));
-    let reach = reach(project, checkout, Mode::Interactive, ledger.clone())?;
+    let docs = Docs::open(project, &run.0)?;
+    let started = start(project, writer, request, program, &run, &docs);
+    if started.is_err() {
+        let (file, ledger, plugin) = session_files(project, &run);
+        let _ = std::fs::remove_file(file);
+        let _ = std::fs::remove_file(ledger);
+        let _ = std::fs::remove_dir_all(plugin);
+        docs.discard(project);
+    }
+    started
+}
+
+// The session's settings file, ledger and plugin folder.
+fn session_files(project: &Project<'_>, run: &SessionId) -> (PathBuf, PathBuf, PathBuf) {
+    let folder = project.paths.issues();
+    (
+        folder.join(format!("interactive-{}.json", run.0)),
+        folder.join(format!("interactive-{}.ledger.json", run.0)),
+        folder.join(format!("interactive-{}.plugin", run.0)),
+    )
+}
+
+// The session's files and command, once its docs branch is cut.
+fn start(
+    project: &Project<'_>,
+    writer: &Writer,
+    request: &str,
+    program: &OsStr,
+    run: &SessionId,
+    docs: &Docs,
+) -> Result<Interactive, String> {
+    let (file, ledger, plugin) = session_files(project, run);
+    let grill = skills::write_vendored(&plugin, skills::GRILL_WITH_DOCS)
+        .map_err(|e| format!("cannot write the skills to {}: {e}", plugin.display()))?;
+    let reach = reach(
+        project,
+        docs.worktree(),
+        std::slice::from_ref(&plugin),
+        Mode::Interactive,
+        ledger.clone(),
+    )?;
     let mut settings = claude_settings(Tools::Issues, &reach);
     // That session is not in kelpie's sandbox, so the maintainer's own stays
     // as it is, and the maintainer is there to say yes to each command.
@@ -516,12 +619,15 @@ pub fn interactive(
     if let Some(permissions) = settings["permissions"].as_object_mut() {
         permissions.remove("allow");
     }
+    claude_write_only(&mut settings, project.kelpie, &docs.writable());
     let text = serde_json::to_string_pretty(&settings).expect("settings are JSON");
-    std::fs::create_dir_all(&folder)
+    std::fs::create_dir_all(project.paths.issues())
         .and_then(|()| std::fs::write(&file, text))
         .map_err(|e| format!("cannot write {}: {}", file.display(), e.kind()))?;
     let mut command = crate::spawn::command(program);
     command
+        .arg("--plugin-dir")
+        .arg(&plugin)
         .arg("--model")
         .arg(writer.model.model.as_str())
         .arg("--effort")
@@ -530,11 +636,15 @@ pub fn interactive(
         .arg(&file)
         .arg("--append-system-prompt")
         .arg(instructions(writer, project, Mode::Interactive))
-        .arg(request.trim())
-        .current_dir(checkout);
+        .arg(format!("{grill} {}", request.trim()))
+        .current_dir(docs.worktree());
     Ok(Interactive {
         command,
-        files: vec![file, ledger],
+        files: vec![file, ledger.clone()],
+        plugin,
+        docs: docs.clone(),
+        ledger,
+        request: request.trim().to_owned(),
     })
 }
 

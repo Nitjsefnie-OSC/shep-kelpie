@@ -1,17 +1,20 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout` and `git.remote`: a work item's worktree and
-//! pull request belong to them, so those wait for the runner's next start. The agent
-//! files are read again with them, and a change to those alone is a change
-//! too. A change is checked as a start checks it, and one that fails keeps
-//! the settings the runner has.
+//! it, except `git.checkout`, `git.remote`, `hooks` and kelpie's gateways: a
+//! work item's worktree and pull request belong to the first two, and the
+//! forge and voice ports hold the hooks built at start, as the adapters hold
+//! the gateways, so those wait for the runner's next start. The agent files
+//! are read again with them, and a change to those alone is a change too,
+//! but agents that name a gateway the runner lacks wait with it. A change is
+//! checked as a start checks it, and one that fails keeps the settings the
+//! runner has.
 
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{ListedReviewer, Settings};
-use crate::skills::Skills;
+use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
+use crate::skills::{RepoPlugins, Skills, default_head};
 use crate::webhook::{KelpieSettings, Webhook};
 
 impl Runner {
@@ -40,13 +43,37 @@ impl Runner {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
         }
+        // The forge and voice ports hold the hooks built at start.
+        if settings.hooks != self.settings.hooks {
+            waiting.push("hooks");
+            settings.hooks.clone_from(&self.settings.hooks);
+        }
+        // The adapters were built with the gateways at start.
+        if !kelpie.gateways().iter().eq(self.gateways.iter()) {
+            waiting.push("gateways");
+        }
+        if let Some(reason) = settings.rulings.refusal() {
+            return Err(SettingsError::Invalid {
+                setting: "rulings.pm_alone",
+                reason,
+            }
+            .into());
+        }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
-        let book = Agents::load(&self.paths.agents)?;
-        let agents = settings.role_agents(&book)?;
-        let lineup = settings.lineup(&book, &self.home)?;
-        let listed = agents.implementers.iter().map(|i| &i.name);
-        let reviewers = lineup.iter().map(|r| &r.name);
-        (kelpie.gateways()).check_listed(&book, listed.chain(reviewers))?;
+        let mut book = Agents::load(&self.paths.agents)?;
+        let mut agents = settings.role_agents(&book)?;
+        let mut lineup = settings.lineup(&book, &self.home)?;
+        // The gateways must hold as a start checks them.
+        check_gateways(&kelpie.gateways(), &book, &agents, &lineup)?;
+        // Agents the adapters cannot route yet wait with the gateways they name.
+        if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
+            waiting.push("agents");
+            settings.agents.clone_from(&self.settings.agents);
+            book.clone_from(&self.book);
+            // The agents the runner has, under the new settings as a start reads them.
+            agents = settings.role_agents(&book)?;
+            lineup = settings.lineup(&book, &self.home)?;
+        }
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);
@@ -58,7 +85,21 @@ impl Runner {
         if gpu_metrics_url != self.gpu.url() {
             changed.push("gpu_metrics_url");
         }
+        // The default branch may have turned a plugin on or off since the last read.
+        // Planned here and written once the checks below hold, so a reread that
+        // fails leaves the plugin folders the runner is using as they were.
+        let repo_plugins = RepoPlugins::plan(
+            &self.settings.git.checkout,
+            &self.paths.kelpie_home,
+            &self.paths.skills,
+            self.ports.git.as_ref(),
+        );
+        let plugins_head = default_head(&self.settings.git.checkout);
+        if repo_plugins != self.repo_plugins {
+            changed.push("repo plugins");
+        }
         if changed.is_empty() && waiting.is_empty() {
+            self.plugins_head = plugins_head;
             return Ok(None);
         }
         let extra_instructions = instructions::read_extra(&settings)?;
@@ -108,24 +149,124 @@ impl Runner {
             }
             self.skills = skills;
         }
+        self.plugins_head = plugins_head;
+        if repo_plugins != self.repo_plugins {
+            let repo_plugins = repo_plugins.install(&self.paths.skills);
+            for notice in repo_plugins.notices() {
+                line.push_str(&format!("\n{notice}"));
+            }
+            self.repo_plugins = repo_plugins;
+        }
         Ok(Some(line))
     }
+}
+
+impl Runner {
+    /// Loads the repo's plugins again if its default branch moved since they
+    /// were read, which settings of kelpie's own do not announce
+    ///
+    /// Returns a line for the log when the plugins changed.
+    pub fn reread_plugins(&mut self) -> Option<String> {
+        let checkout = &self.settings.git.checkout;
+        if default_head(checkout) == self.plugins_head {
+            return None;
+        }
+        let planned = RepoPlugins::plan(
+            checkout,
+            &self.paths.kelpie_home,
+            &self.paths.skills,
+            self.ports.git.as_ref(),
+        );
+        // The plan fetched the branch, so this is the commit it read.
+        self.plugins_head = default_head(checkout);
+        if planned == self.repo_plugins {
+            return None;
+        }
+        let planned = planned.install(&self.paths.skills);
+        let mut line = String::from("the default branch changed: repo plugins now in effect");
+        for notice in planned.notices() {
+            line.push_str(&format!("\n{notice}"));
+        }
+        self.repo_plugins = planned;
+        Some(line)
+    }
+}
+
+// Whether `gateways` route every listed agent that names one.
+fn check_gateways(
+    gateways: &Gateways,
+    book: &Agents,
+    agents: &RoleAgents,
+    lineup: &[ListedReviewer],
+) -> Result<(), SettingsError> {
+    let listed = agents.implementers.iter().map(|i| &i.name);
+    let reviewers = lineup.iter().map(|r| &r.name);
+    let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+    gateways.check_listed(book, listed.chain(reviewers).chain(experts))
 }
 
 // A project's settings and the webhook.
 type Reach<'a> = (&'a Settings, &'a Option<Webhook>);
 
 // The settings that differ, by key or by table. `webhook` also changes
-// when kelpie's own settings do.
+// when kelpie's own settings do. Both `Settings` are taken apart without
+// `..`, so a field added to one is a compile error until this decides what
+// `reread` does with it: list it here, or leave it out with a reason.
 fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
+    let Settings {
+        git: old_git,
+        ci: old_ci,
+        concurrency: old_concurrency,
+        budget: old_budget,
+        agents: _, // `reread` compares the agents it resolves, with the files
+        pacing: old_pacing,
+        worker: old_worker,
+        researcher: old_researcher,
+        rulings: old_rulings,
+        hooks: _, // waits for the next start, so `reread` keeps the old
+        skills: old_skills,
+        e2e: _, // waits for the next start, when the runner writes it for the dog
+    } = old;
+    let Settings {
+        git: new_git,
+        ci: new_ci,
+        concurrency: new_concurrency,
+        budget: new_budget,
+        agents: _,
+        pacing: new_pacing,
+        worker: new_worker,
+        researcher: new_researcher,
+        rulings: new_rulings,
+        hooks: _,
+        skills: new_skills,
+        e2e: _,
+    } = new;
+    let Git {
+        checkout: _, // waits for the next start
+        remote: _,   // waits for the next start
+        merging: old_merging,
+        issues: old_issues,
+        maintainer: old_maintainer,
+    } = old_git;
+    let Git {
+        checkout: _,
+        remote: _,
+        merging: new_merging,
+        issues: new_issues,
+        maintainer: new_maintainer,
+    } = new_git;
     [
-        ("git.merging", old.git.merging != new.git.merging),
-        ("git.issues", old.git.issues != new.git.issues),
-        ("ci", old.ci != new.ci),
-        ("concurrency", old.concurrency != new.concurrency),
-        ("pacing", old.pacing != new.pacing),
-        ("worker", old.worker != new.worker),
-        ("skills", old.skills != new.skills),
+        ("git.merging", old_merging != new_merging),
+        ("git.issues", old_issues != new_issues),
+        ("git.maintainer", old_maintainer != new_maintainer),
+        ("ci", old_ci != new_ci),
+        ("concurrency", old_concurrency != new_concurrency),
+        ("budget", old_budget != new_budget),
+        ("pacing", old_pacing != new_pacing),
+        ("worker", old_worker != new_worker),
+        ("skills", old_skills != new_skills),
+        ("researcher", old_researcher != new_researcher),
+        ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),
     ]
     .into_iter()
@@ -138,7 +279,7 @@ mod tests {
     use std::path::Path;
 
     use crate::ports::Visibility;
-    use crate::settings::{Filing, Merging};
+    use crate::settings::{Filing, GatewayName, HookPoint, Merging};
     use crate::test::Rig;
     use crate::webhook::{KelpieSettings, WebhookKind};
 
@@ -172,6 +313,94 @@ mod tests {
         assert_eq!(runner.settings().ci.fix_attempts.cap(), Some(2));
         assert_eq!(runner.settings().pacing.kickoff_hours.get(), 6);
         assert_eq!(runner.status().merging, Merging::Auto);
+    }
+
+    #[test]
+    fn a_changed_researcher_table_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"docs.rs\"]\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: researcher now in effect")
+        );
+        assert_eq!(runner.settings().researcher.allowed_domains.len(), 1);
+    }
+
+    #[test]
+    fn a_changed_budget_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| s.replace("per_item_usd = 10", "per_item_usd = 4"));
+        let mut runner = runner.lock().unwrap();
+        assert_eq!(runner.settings().budget.per_item_usd.cents(), 1000);
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: budget now in effect")
+        );
+        assert_eq!(runner.settings().budget.per_item_usd.cents(), 400);
+    }
+
+    #[test]
+    fn a_changed_rulings_table_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!(
+                "{s}\n[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone = [\"still-red\"]\n"
+            )
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: rulings now in effect")
+        );
+        assert_eq!(
+            runner.settings().rulings.decide,
+            crate::settings::Decide::Panel
+        );
+    }
+
+    // A settings file with an entry the sandbox would refuse never becomes
+    // `Settings`, so `reread` is not handed it and the running ones stay.
+    #[test]
+    fn a_reread_with_a_bad_entry_keeps_the_running_settings() {
+        let bad = "productionresultssa*.blob.core.windows.net";
+        let worker = "allowed_domains = [\"crates.io\", \"index.crates.io\", \"static.crates.io\"]";
+        for table in ["worker", "researcher"] {
+            let rig = Rig::new("shep");
+            let runner = rig.open().unwrap();
+            let before = runner.lock().unwrap().settings().clone();
+            rig.edit_settings(|s| match table {
+                "worker" => s.replace(worker, &format!("allowed_domains = [\"{bad}\"]")),
+                _ => format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"{bad}\"]\n"),
+            });
+            let err = rig.try_settings().expect_err("the entry should be refused");
+            assert!(
+                err.to_string().contains(&format!("`{bad}`")),
+                "{table}: {err}"
+            );
+            assert_eq!(runner.lock().unwrap().settings(), &before, "{table}");
+        }
+    }
+
+    #[test]
+    fn a_merge_kind_added_to_pm_alone_is_refused_and_the_settings_kept() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(next, rig.kelpie_settings()).unwrap_err();
+        assert!(err.to_string().contains("rulings.pm_alone"), "{err}");
+        assert!(runner.settings().rulings.pm_alone.is_empty());
     }
 
     #[test]
@@ -209,6 +438,173 @@ mod tests {
         );
         assert_eq!(runner.remote().as_str(), "shep-pm/shep");
         assert_eq!(runner.settings().git.checkout, rig.repo());
+    }
+
+    #[test]
+    fn a_changed_maintainer_alone_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.maintainer("octocat");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed: git.maintainer now in effect")
+        );
+        let login = runner.settings().git.maintainer.clone().unwrap();
+        assert_eq!(login.as_str(), "octocat");
+    }
+
+    #[test]
+    fn a_changed_hook_alone_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.hook("check.sh", &["publish"], "exit 0");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; hooks from the runner's next start")
+        );
+        assert!(runner.settings().hooks.is_empty(), "the old hooks stay");
+        assert!(!runner.hooks.has(HookPoint::Publish));
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        let restarted = restarted.lock().unwrap();
+        assert_eq!(restarted.settings().hooks.len(), 1);
+        assert!(restarted.hooks.has(HookPoint::Publish));
+    }
+
+    fn paddock_at(rig: &Rig, url: &str) {
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        let gateway = format!("[gateways.paddock]\nurl = \"{url}\"\nkey_env = \"PADDOCK_KEY\"\n");
+        rig.set_kelpie_settings(&format!("{webhook}{gateway}"));
+    }
+
+    fn url_of_paddock(runner: &crate::runner::Runner) -> String {
+        let gateway = runner.gateways().get(&paddock()).unwrap();
+        gateway.url.as_str().to_owned()
+    }
+
+    fn paddock() -> GatewayName {
+        GatewayName::try_from("paddock".to_owned()).unwrap()
+    }
+
+    #[test]
+    fn a_changed_gateway_alone_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        paddock_at(&rig, "http://gpu:8700");
+        let runner = rig.open().unwrap();
+        paddock_at(&rig, "http://elsewhere:8700");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; gateways from the runner's next start")
+        );
+        assert_eq!(url_of_paddock(&runner), "http://gpu:8700");
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        assert_eq!(
+            url_of_paddock(&restarted.lock().unwrap()),
+            "http://elsewhere:8700"
+        );
+    }
+
+    // The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
+    const LOCAL: &str = "---\nrole: implementer\nharness: pi\nmodel: m\neffort: low\n\
+                         gateway: paddock\ncontext: 65536\n---\n";
+
+    fn list_local(rig: &Rig) {
+        rig.write_agent("local", LOCAL);
+        rig.implementers(&["sonnet-high", "local"]);
+    }
+
+    fn paddock_keyed_by_cargo(rig: &Rig) {
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        let gateway =
+            "[gateways.paddock]\nurl = \"http://gpu:8700\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+        rig.set_kelpie_settings(&format!("{webhook}{gateway}"));
+    }
+
+    #[test]
+    fn a_gateway_taken_away_from_a_listed_agent_is_refused_as_a_start_refuses_it() {
+        let rig = Rig::new("shep");
+        paddock_keyed_by_cargo(&rig);
+        list_local(&rig);
+        let runner = rig.open().unwrap();
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        rig.set_kelpie_settings(&webhook);
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(rig.settings(), rig.kelpie_settings());
+        let err = err.unwrap_err().to_string();
+        assert!(
+            err.contains("local: gateway paddock is not in kelpie's settings"),
+            "{err}"
+        );
+        assert!(runner.gateways().get(&paddock()).is_some());
+    }
+
+    #[test]
+    fn held_agents_are_checked_against_the_new_settings_as_a_start_checks_them() {
+        let rig = Rig::new("shep");
+        paddock_keyed_by_cargo(&rig);
+        list_local(&rig);
+        let runner = rig.open().unwrap();
+        // `local` runs on pi, which a start refuses beside guard hooks.
+        let hook = "[[app.dogs.kelpie.worker.guard_hooks]]\nevent = \"PreToolUse\"\n\
+                    matcher = \"Bash\"\ncommand = \"~/check.sh\"\n";
+        rig.edit_settings(|s| format!("{s}\n{hook}"));
+        // A reviewer on `other`, a gateway the runner lacks, holds the new
+        // list, which drops `local`.
+        let reviewer = "---\nrole: reviewer\nharness: endpoint\ngateway: other\nmodel: coder\n\
+                        context: 32768\n---\n";
+        rig.write_agent("other", reviewer);
+        rig.implementers(&["sonnet-high"]);
+        rig.reviewers(&["claude", "other"]);
+        let webhook = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+        let other = "[gateways.other]\nurl = \"http://gpu:8701\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+        rig.set_kelpie_settings(&format!("{webhook}{other}"));
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(rig.settings(), rig.kelpie_settings());
+        let err = err.unwrap_err().to_string();
+        assert!(
+            err.contains("implementer local runs on pi, which cannot run `worker.guard_hooks`"),
+            "{err}"
+        );
+        assert!(runner.settings().worker.guard_hooks.is_empty());
+    }
+
+    #[test]
+    fn agents_naming_a_gateway_added_with_them_wait_with_it_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        paddock_keyed_by_cargo(&rig);
+        list_local(&rig);
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; gateways and agents from the runner's next start")
+        );
+        assert_eq!(runner.settings().agents.implementers.len(), 1);
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        let restarted = restarted.lock().unwrap();
+        assert_eq!(restarted.settings().agents.implementers.len(), 2);
+        assert!(restarted.gateways().get(&paddock()).is_some());
     }
 
     #[test]

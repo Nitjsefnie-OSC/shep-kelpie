@@ -253,11 +253,19 @@ pub enum Reading {
         /// decides when it did not.
         opens: Option<Timestamp>,
     },
+    /// The bot said its review failed, and read no commit
+    Failed,
     /// The bot marked the head done and posted nothing that covers it:
     /// it found nothing new to read
     Completed {
         /// When it marked the head done
         at: Timestamp,
+    },
+    /// The bot declined the summon and will not review: its settings do not
+    /// let the summon start a review
+    Declined {
+        /// What it said, as its status reads
+        status: &'static str,
     },
     /// Nothing yet
     Silent,

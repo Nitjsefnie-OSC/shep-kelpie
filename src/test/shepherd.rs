@@ -25,6 +25,8 @@ use crate::shepherd::SHEP_VERSION;
 struct Sheep {
     config: AppConfig,
     online: bool,
+    // Whether it shows as `Starting` rather than `Online` while it runs
+    starting: bool,
     dog: Option<bool>,
     // Whether a runner just started is still taking its actions
     opening: bool,
@@ -96,12 +98,20 @@ impl FakeShepherd {
         let sheep = Sheep {
             config,
             online,
+            starting: false,
             dog: None,
             opening: false,
             heard: Heard::Named,
             says: VecDeque::new(),
         };
         self.flock.lock().unwrap().push(sheep);
+    }
+
+    /// Sets `key` in the `env` of the sheep named `name`
+    pub(crate) fn sets_env(&self, name: &str, key: &str, value: &str) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        sheep.config.env.insert(key.to_owned(), value.to_owned());
     }
 
     /// Holds `toml` as kelpie's own `[kelpie]` section of `dogs.toml`
@@ -114,6 +124,25 @@ impl FakeShepherd {
         let mut flock = self.flock.lock().unwrap();
         let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
         sheep.opening = true;
+    }
+
+    /// Has the running sheep `name` show as starting, as one does before it is up
+    pub(crate) fn starts(&self, name: &str) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        sheep.starting = true;
+    }
+
+    /// A way to have a sheep `name` run `program` from now on, as if it were
+    /// pointed elsewhere, that another thread can hold while an upgrade
+    /// blocks this one waiting on a build
+    pub(crate) fn mover(&self) -> impl Fn(&str, &str) + Send + 'static {
+        let flock = Arc::clone(&self.flock);
+        move |name, program| {
+            let mut flock = flock.lock().unwrap();
+            let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+            program.clone_into(&mut sheep.config.script);
+        }
     }
 
     /// Has `name` answer its `status` triggers with `bodies` in turn, the last one from then on
@@ -129,6 +158,14 @@ impl FakeShepherd {
         sheep.says = answers.iter().map(|b| b.map(str::to_owned)).collect();
     }
 
+    /// How many scripted `status` answers `name` has left, the last one counting
+    /// as it repeats: a test waits on this for the looks it has had so far
+    pub(crate) fn answers_left(&self, name: &str) -> usize {
+        let flock = self.flock.lock().unwrap();
+        let sheep = flock.iter().find(|s| s.config.name == name).unwrap();
+        sheep.says.len()
+    }
+
     /// Puts an adopted dog named `name` in the flock, running, with the
     /// shepherd channel or without
     pub(crate) fn holds_dog(&self, name: &str, channel: bool) {
@@ -140,6 +177,7 @@ impl FakeShepherd {
         let sheep = Sheep {
             config: AppConfig::minimal(name, program),
             online: true,
+            starting: false,
             dog: Some(channel),
             opening: false,
             heard: Heard::Named,
@@ -196,7 +234,9 @@ impl FakeShepherd {
 }
 
 fn info(id: usize, sheep: &Sheep) -> ProcessInfo {
-    let status = if sheep.online {
+    let status = if sheep.online && sheep.starting {
+        ProcStatus::Starting
+    } else if sheep.online {
         ProcStatus::Online
     } else {
         ProcStatus::Stopped
@@ -248,6 +288,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                     flock.push(Sheep {
                         config: app.clone(),
                         online: false,
+                        starting: false,
                         dog: None,
                         opening: false,
                         heard: Heard::Named,
@@ -292,6 +333,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
         Request::Restart { selector } => {
             let at = named(flock, selector).unwrap();
             flock[at].online = true;
+            flock[at].starting = false;
             flock[at].opening = true;
             Response::Restarted {
                 accepted: vec![info(at, &flock[at])],

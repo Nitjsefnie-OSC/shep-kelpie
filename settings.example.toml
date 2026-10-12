@@ -31,16 +31,27 @@ merging = "ask"
 # ruling before filing them as issues, `file` files them at once, and
 # `skip` files nothing and leaves them in the review.
 issues = "ask"
+# The GitHub login kelpie mentions on a ruling it posts through its App, so
+# GitHub notifies you. The login `gh` acts as when absent, so set this when
+# that is not you, such as a bot account.
+# maintainer = "octocat"
 
 [app.dogs.kelpie.ci]
 # Whether the repo runs CI on pull requests, which a merge waits for green
 # on. GitHub cannot tell a repo with no CI from checks not registered yet,
-# so a repo without CI says so. Off, kelpie reads no checks at all.
+# so a repo without CI says so. Off, kelpie reads no checks at all and the
+# review starts at once. On, no reviewer reads a head until CI has passed on
+# it, so CI must run on the draft pull request too.
 block = true
 # How many fix turns the worker gets on red runs for one work item before
 # kelpie raises a ruling. 0 raises it on the first red run, and -1 sets no
 # cap. A head red twice with nothing pushed raises it whatever this is.
 fix_attempts = -1
+# A command that runs one failing test a reviewer wrote, which a reviewer on
+# Claude Code is then asked to leave for each finding it can. It must hold
+# `{test}`, the file's path in the repo, or `{name}`, the file's name without
+# its extension. Absent, no reviewer is asked for a test.
+# test_command = "cargo test --test {name}"
 
 [app.dogs.kelpie.concurrency]
 # How many work items may hold a slot, which a worker's turn or a review
@@ -53,6 +64,14 @@ active_items = 1
 # 0 opens nothing while any ruling waits, and opens work as ever while none
 # does.
 pending_rulings = 2
+
+[app.dogs.kelpie.budget]
+# What one work item may spend, in dollars, on its worker's and reviewers'
+# priced calls together. Past it, the work item raises a ruling before its
+# worker's next turn: a yes doubles the cap, and a no with a note sends the
+# worker the note and doubles it too. A call whose harness reports no dollars
+# counts nothing.
+per_item_usd = 10
 
 # The agents that build the project's work items, by the names of kelpie's
 # agent files, `$SHEP_HOME/kelpie/agents/<name>.md`, which `shep kelpie add`
@@ -93,6 +112,18 @@ implementers = ["sonnet-high"]
 # Absent, the board's rule picks (priority, then age) and a stuck item
 # waits on its ruling, as it does whenever the project manager is down.
 # pm = "pm"
+# The panel that votes on each ruling before you are asked (the worker and the
+# project manager are the other two): an advisor, from a file whose role is
+# `advisor`, which reads the codebase, and a researcher, from a file whose role
+# is `researcher`, which reads everything outside it: earlier rulings and
+# their answers, the issue and pull request threads, the worker's session,
+# your own agent sessions (`[researcher]` below) and the web. Kelpie's own are
+# Opus 5.5 at high and Sonnet 5.5 at high. Neither runs git, gh or a
+# command, or writes anything but its vote. A ruling that lists two options or
+# more waits up to 20 minutes for the votes, then lists them as the panel.
+# Absent, no panel votes.
+# advisor = "advisor"
+# researcher = "researcher"
 # The issue writer's agent file, which `shep kelpie issue` runs and which
 # labels an unlabelled issue. `issue-writer` when absent.
 # issue_writer = "issue-writer"
@@ -110,7 +141,10 @@ enabled = true
 kickoff_hours = 8
 
 # Domains a worker's sandbox may reach besides GitHub: here the crates
-# registry, for a cold cargo cache. `build_env` points tool caches into the
+# registry, for a cold cargo cache. An entry is a host such as `crates.io`,
+# with one optional leading `*.` label (`*.crates.io`) and an optional
+# `:port`; a `*` anywhere else, a scheme or a path is refused when the settings
+# load. `build_env` points tool caches into the
 # worker's build folder, such as `BUN_INSTALL_CACHE_DIR = "bun"` for bun.
 # `CARGO_TARGET_DIR` is always the build folder itself.
 [app.dogs.kelpie.worker]
@@ -128,6 +162,13 @@ build_env = {}
 # busy: kelpie stops it, parks it and asks. A yes resumes the same session.
 turn_timeout = 60
 
+# Tokens of context at which Claude Code compacts a worker's session in the
+# middle of a turn. Left alone it waits for the model's whole window, and a
+# long turn can read hundreds of thousands of tokens on every call by then.
+# After a compaction the worker is handed the turn's prompt again. 0 leaves
+# Claude Code's own point.
+compact_window = 200000
+
 # A project's own hooks, run after kelpie's guard, which every worker gets.
 # Each command must resolve when the runner starts: its program on `PATH`
 # or at its path, and every argument that is a path must exist.
@@ -136,14 +177,86 @@ turn_timeout = 60
 # matcher = "Bash"
 # command = "~/bin/lint-guard"
 
+# The project's own checks, which kelpie runs itself for every harness and
+# role, where `worker.guard_hooks` reach a Claude Code worker alone. A point
+# is one of these. Gates, which can refuse: `publish` (any text before it goes
+# to the forge, kelpie's own included), `commit` (a worker's message and staged
+# diff), `push` (the commits being pushed), `handover` (a worker's finished
+# branch, before review), `command` (every shell command an agent runs),
+# `write` (every file an agent writes or edits), `after_command` (a shell
+# command's result, as feedback to the agent), `turn_start` (a prompt kelpie
+# is about to send) and `turn_end` (a worker's turn that ended). Notices,
+# which only tell: `reset`, `ruling`, `ci` and `done`. The command gets a JSON
+# payload on stdin. At a gate, exit 0 passes, 2 refuses with its stderr as the
+# reason, and anything else is a hook that failed, which also refuses. A
+# notice that exits non-zero is logged by name and kelpie goes on. A hook that
+# runs past 30 seconds has failed. Each command must resolve when the runner
+# starts, as a guard hook's must.
+# [[app.dogs.kelpie.hooks]]
+# point = "publish"
+# command = "~/bin/check-words"
+
+# A git gate is a `command` hook: it reads the whole shell line from the
+# payload's `command`, and refuses what it finds there with exit 2.
+# [[app.dogs.kelpie.hooks]]
+# point = "command"
+# command = "~/bin/git-gate"
+
+# What the researcher may read beyond what kelpie writes into its folder.
+# `transcripts` names folders of your own agent sessions (Claude Code's
+# `~/.claude/projects`, Codex's `~/.codex/sessions`, pi's
+# `~/.pi/agent/sessions`), read only and off while empty; only a session that
+# ran in this project's checkout is read, the latest dozen, and only what was
+# asked and said. `allowed_domains` are the hosts its web fetch may reach, such
+# as a library's docs; its web search needs none. An entry is written as
+# `worker.allowed_domains` is, a host with an optional leading `*.`.
+# [app.dogs.kelpie.researcher]
+# transcripts = ["~/.claude/projects"]
+# allowed_domains = ["docs.rs"]
+
+# The host that runs the project's end-to-end tests, which a worker cannot run
+# in its sandbox. A worker asks for a run with `kelpie lease e2e`: the dog
+# copies the worktree to `host`, runs `command` there and copies `results`
+# back, one run at a time. `host` is an ssh alias from your ssh config, and
+# `command` is a file in the repo and `results` a folder in it, both relative
+# with no `..`. The host must be disposable: the project's script runs there
+# as the alias's account, and a worker edits that script. Left out, a worker's
+# ask is answered that the project has no e2e host.
+# [app.dogs.kelpie.e2e]
+# host = "e2e-box"
+# command = "scripts/e2e-remote.sh"
+# results = "test-results"
+
+# Whether the panel decides a ruling. `shadow` (when absent) has it vote and
+# post on every ruling while you still answer, and `status` counts the run of
+# rulings where its recommendation matched your answer. `panel` has it decide:
+# three experts on one option, with none flagging `design`, or a smaller panel
+# all agreeing, as the work item's type sets (`docs` asks the project manager;
+# `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
+# manager and the advisor; `feat`, a breaking `!` or no type all four). A
+# question, a `design` flag and a diff that touches a `full_panel_paths` glob
+# ask all four whatever the type, and whatever `pm_alone` lists. A split and a
+# merge under `git.merging = "ask"` come to you with every vote. `pm_alone` lists kinds of
+# ruling the project manager decides with its own vote on any type of work
+# (`question`, `still-red`, `turn-timeout`, `turn-failed` ...); an abstention
+# calls the type's panel, a `design` flag all four, and `merge` is refused.
+# Empty when absent. `full_panel_paths` lists globs (`*` stays in a folder,
+# `**` spans folders) of paths too risky for a smaller panel: a work item whose
+# diff from its merge base touches one gets all four. Empty when absent.
+# [app.dogs.kelpie.rulings]
+# decide = "panel"
+# pm_alone = ["turn-timeout", "still-red"]
+# full_panel_paths = ["src/guard/**", ".github/workflows/**"]
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
-# lists each step and its default. `path` is a skill folder of your own,
-# `plugin` a skill in a Claude Code plugin's folder, and `none` runs kelpie's
-# own prompt. A skill that cannot load runs kelpie's prompt too, and the log
+# lists each step and its default. `retro` is the exception: it is off
+# unless named. `path` is a skill folder of your own, `plugin` a skill in a
+# Claude Code plugin's folder, `kelpie` the step's default from kelpie's copy,
+# and `none` runs kelpie's own prompt, or no retro at all. A skill that cannot load runs kelpie's prompt too, and the log
 # and `status` say why. Kelpie rewrites `$SHEP_HOME/kelpie/<project>/skills/`
 # at every start, so a folder of your own inside it stops the runner.
 # [app.dogs.kelpie.skills]
 # implement = { kind = "path", path = "~/skills/implement" }
 # ci_fix = { kind = "plugin", plugin = "~/plugins/house", skill = "debug" }
-# retro = { kind = "none" }
+# retro = { kind = "kelpie" }

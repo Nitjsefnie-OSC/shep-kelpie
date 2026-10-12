@@ -4,9 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use super::{Pick, Wake};
+use super::{Pick, Wake, answer};
+use crate::panel::{Tier, Voter};
+use crate::ports::{AgentError, AgentReply};
 use crate::runner::Runner;
+use crate::settings::RulingName;
 use crate::state::{ProjectState, RulingKind, Stuck};
+use crate::usage::VoteMark;
 use crate::work_item::Phase;
 
 impl Runner {
@@ -35,6 +39,48 @@ impl Runner {
         }
     }
 
+    /// The votes the wake in flight casts, for its line in the usage ledger:
+    /// one for each ruling it was asked to vote on, with its choice where
+    /// `result` holds one and none where the project manager abstained. A
+    /// wake that failed, or whose reply is unread, casts none: it is asked
+    /// again, and its retry writes them.
+    pub(in crate::runner) fn pm_vote_marks(
+        &self,
+        result: &Result<AgentReply, AgentError>,
+    ) -> Vec<VoteMark> {
+        let Some(flying) = &self.pm.flying else {
+            return Vec::new();
+        };
+        let asked = flying.wakes.iter().filter_map(|w| match w {
+            Wake::Vote { id, .. } => Some(*id),
+            _ => None,
+        });
+        let Some(answer) = result.as_ref().ok().and_then(|r| answer::read(&r.text)) else {
+            return Vec::new();
+        };
+        asked
+            .map(|id| {
+                let fields = answer.votes.iter().find(|(ruling, _)| *ruling == id);
+                let choice = fields
+                    .and_then(|(_, f)| crate::panel::from_fields(f, self.panel_options(id)).ok())
+                    .map(|vote| vote.choice);
+                match self.panel.plan(id) {
+                    Some(plan) => plan.mark(id, Voter::Pm, choice),
+                    // Its ruling is settled or gone, so only what it was is known.
+                    None => VoteMark {
+                        ruling: id,
+                        ruling_kind: (self.state.rulings.iter().find(|r| r.id == id))
+                            .map_or(RulingName::Question, |r| RulingName::of(&r.kind)),
+                        voter: Voter::Pm,
+                        panel: Tier::Full,
+                        work: "untyped".to_owned(),
+                        choice,
+                    },
+                }
+            })
+            .collect()
+    }
+
     /// Notes what saving `now` changes that wakes the project manager: a
     /// work item parked on a stuck ruling, or one closing, which lets its
     /// holds go
@@ -53,6 +99,7 @@ impl Runner {
             .collect();
         let closed = (was.work_items.iter()).any(|i| now.item(i.issue).is_none());
         let opened = (now.work_items.iter()).any(|i| was.item(i.issue).is_none());
+        self.pm_asked(now);
         for wake in stuck {
             self.pm_due(wake);
         }
@@ -68,6 +115,48 @@ impl Runner {
             let open = now.open_issues();
             self.pm.after_end.retain(|issue, _| open.contains(issue));
             (self.pm.conflicts).retain(|(a, b), _| open.contains(a) && open.contains(b));
+        }
+    }
+
+    // Wakes the project manager for each question ruling `now` raises, and
+    // each follow-up ruling asking whether to file findings, and holds the
+    // ruling back from the maintainer for its answer, unless it is held by
+    // the maintainer's terminal or down, when the ruling goes out as it is.
+    // Its pace is checked when the wake starts.
+    fn pm_asked(&mut self, now: &ProjectState) {
+        let at = self.ports.clock.now();
+        let passed = (self.pm.down_until).is_some_and(|until| at < until);
+        if passed || now.pm_attached.is_some() {
+            return;
+        }
+        for ruling in &now.rulings {
+            let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
+            let id = ruling.id;
+            let wake = match (&ruling.kind, ruling.issue, ruling.pull_request, new) {
+                (RulingKind::Question { asked, .. }, Some(issue), _, true) => Wake::Question {
+                    issue,
+                    id,
+                    asked: asked.clone(),
+                },
+                // One the forge refused is no call on the diff.
+                (
+                    RulingKind::FollowUp {
+                        findings,
+                        refused: None,
+                    },
+                    Some(issue),
+                    Some(pull_request),
+                    true,
+                ) => Wake::FollowUp {
+                    issue,
+                    id,
+                    pull_request,
+                    findings: findings.clone(),
+                },
+                _ => continue,
+            };
+            self.pm.asking.insert(id, at);
+            self.pm_due(wake);
         }
     }
 
@@ -99,9 +188,9 @@ fn stuck_wake(issue: u64, id: u64, kind: &RulingKind) -> Option<Wake> {
 /// is not about a stuck item
 pub(in crate::runner) fn stuck_on(kind: &RulingKind) -> Option<&'static str> {
     match kind {
-        RulingKind::Stuck(Stuck::TurnFailed { .. }) => {
-            Some("its worker's turn failed or stopped short twice")
-        }
+        RulingKind::Stuck(Stuck::TurnFailed { .. }) => Some(
+            "its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice",
+        ),
         RulingKind::Stuck(Stuck::TurnTimeout { .. }) => {
             Some("its worker's turn ran past its ceiling")
         }

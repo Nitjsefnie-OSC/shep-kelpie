@@ -3,9 +3,11 @@
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
 //! frontmatter naming what it is for and what runs it, then a Markdown body.
 //! An implementer's body is added to kelpie's own instructions, and a
-//! reviewer's, the issue writer's or the project manager's is its prompt.
+//! reviewer's, the issue writer's, the project manager's, the advisor's or
+//! the researcher's is its prompt.
 //! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
-//! missing. A file that cannot be read or used stops the runner, naming the
+//! missing. A file with `extends: <name>` builds on another agent, setting
+//! only the keys it changes. A file that cannot be read or used stops the runner, naming the
 //! file and what is wrong with it. A `.md` file whose name is no agent's,
 //! such as a `README.md`, is skipped and named in the log. A review bot's
 //! file is named for its bot, since the bot's window is its account's.
@@ -24,6 +26,7 @@ use crate::settings::{
     ModelHost, ModelServer, NonBlank, RoleModel,
 };
 
+mod extends;
 mod front;
 
 /// The folder in kelpie's home that holds the agent files
@@ -44,6 +47,12 @@ pub const ISSUE_WRITER: &str = "issue-writer";
 /// The project manager kelpie ships, which a project runs with `agents.pm`
 pub const PM: &str = "pm";
 
+/// The advisor kelpie ships, which a project runs with `agents.advisor`
+pub const ADVISOR: &str = "advisor";
+
+/// The researcher kelpie ships, which a project runs with `agents.researcher`
+pub const RESEARCHER: &str = "researcher";
+
 /// The maintainer's qwen-review script, which the `qwen` reviewer runs
 pub const QWEN_REVIEW: &str = "~/.claude/scripts/qwen-review.sh";
 
@@ -57,7 +66,7 @@ enum Written {
 
 // Kelpie's own agents, by name: what `add` writes out, and what a missing
 // file falls back to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 9] = [
+const DEFAULTS: [(&str, &str, Written); 11] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../agents/sonnet-high.md"),
@@ -91,6 +100,16 @@ const DEFAULTS: [(&str, &str, Written); 9] = [
         Written::Always,
     ),
     (PM, include_str!("../agents/pm.md"), Written::Always),
+    (
+        ADVISOR,
+        include_str!("../agents/advisor.md"),
+        Written::Always,
+    ),
+    (
+        RESEARCHER,
+        include_str!("../agents/researcher.md"),
+        Written::Always,
+    ),
 ];
 
 /// What an agent is for
@@ -106,6 +125,12 @@ pub enum Role {
     IssueWriter,
     /// It manages the project's board, once a project names it in `agents.pm`
     Pm,
+    /// It votes on each ruling from the codebase, once a project names it
+    /// in `agents.advisor`
+    Advisor,
+    /// It votes on each ruling from everything outside the codebase, once a
+    /// project names it in `agents.researcher`
+    Researcher,
 }
 
 impl Role {
@@ -116,6 +141,8 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
+            Self::Advisor => "advisor",
+            Self::Researcher => "researcher",
         }
     }
 }
@@ -248,6 +275,8 @@ impl Agents {
             }
         }
         files.sort();
+        // Every file is read first, since one may extend another that sorts after it.
+        let mut texts = BTreeMap::new();
         for path in files {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let Ok(name) = AgentName::try_from(stem.to_owned()) else {
@@ -255,12 +284,29 @@ impl Agents {
                 continue;
             };
             let text = fs::read_to_string(&path).map_err(|e| failed(&path, e))?;
-            let agent =
-                front::parse_named(name.as_str(), &text).map_err(|message| AgentsError::File {
-                    path: path.clone(),
-                    message,
-                })?;
-            agents.agents.insert(name, agent);
+            texts.insert(name, (path, text));
+        }
+        let parent = |name: &str| {
+            if let Some((_, text)) = AgentName::try_from(name.to_owned())
+                .ok()
+                .and_then(|name| texts.get(&name))
+            {
+                return Some(extends::ParentText::File(text));
+            }
+            DEFAULTS
+                .iter()
+                .find(|(default, ..)| *default == name)
+                .map(|(_, text, _)| extends::ParentText::Default(text))
+        };
+        for (name, (path, text)) in &texts {
+            let file_error = |message| AgentsError::File {
+                path: path.clone(),
+                message,
+            };
+            let merged = extends::merged(name.as_str(), text, &parent).map_err(file_error)?;
+            let agent = front::parse_named(name.as_str(), &merged.text)
+                .map_err(|message| file_error(merged.place(message)))?;
+            agents.agents.insert(name.clone(), agent);
         }
         Ok(agents)
     }

@@ -13,6 +13,7 @@ mod removed;
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use removed::OldWorker;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -21,11 +22,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::pacer::DayStart;
-use crate::ports::{Finding, SessionId, Timestamp};
+use crate::panel::{Ballot, Verdict};
+use crate::ports::{Cost, Finding, SessionId, Timestamp};
 use crate::settings::Account;
-use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
+use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 17 added a work item's `pinned` and the
+/// The state file's format version. 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
 /// the merge ruling's `late_fix` and `nits`, 14 added a work item's `nit_fix_heads`
@@ -38,7 +41,7 @@ use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, Wor
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 17;
+const VERSION: u32 = 35;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -79,6 +82,18 @@ pub struct ProjectState {
     /// Issues whose work items kelpie finished, which the board never takes again
     #[serde(default)]
     pub finished: Vec<u64>,
+    /// Issues whose work items `drop` ended, which the board leaves be until
+    /// the forge stops listing them as ready, so a label put back returns one
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<u64>,
+    /// The ready issues in the order the board takes them, first to go
+    /// first. Each read of the board updates it. Empty until one has.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub order: Vec<u64>,
+    /// The priority rank each issue in `order` had when the board last read it,
+    /// so a changed priority label moves the issue. Empty until a read has.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ranked: crate::board::Ranked,
     /// The last [`HISTORY_CAP`] work items kelpie finished, oldest first
     #[serde(default)]
     pub history: Vec<Finished>,
@@ -124,7 +139,31 @@ pub struct ProjectState {
     /// which pauses its wakes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pm_attached: Option<Attached>,
+    /// Whether `finish` holds the board back until the open work items
+    /// end, when the runner stops its own sheep
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub finishing: bool,
+    /// Each pending ruling kelpie's App posted on a thread that mentions
+    /// someone, by ruling id: who may answer it there, and how far the
+    /// comments on its thread have been read for an answer. A ruling is
+    /// entered when its comment is posted, and leaves when it is answered.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub heard: BTreeMap<u64, Heard>,
+    /// Each pending ruling kelpie's App posted on a thread with no mention,
+    /// since no login could be named, by ruling id: the id of its comment.
+    /// Nothing is read for an answer there, but the comment is edited when
+    /// the ruling is settled.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unmentioned: BTreeMap<u64, u64>,
+    /// The ids of the last [`POSTED_KEPT`] comments kelpie posted as the
+    /// login `gh` acts as, oldest first. A reply in a ruling's thread is
+    /// from that login too, so these are never read as answers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub posted: Vec<u64>,
 }
+
+/// How many ids of kelpie's own comments the state file keeps
+pub const POSTED_KEPT: usize = 500;
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
@@ -137,6 +176,18 @@ impl Default for ProjectState {
 }
 
 impl ProjectState {
+    /// Keeps the ids of comments kelpie posted, each once, the last
+    /// [`POSTED_KEPT`] of them
+    pub fn note_posted(&mut self, ids: &[u64]) {
+        for id in ids {
+            if !self.posted.contains(id) {
+                self.posted.push(*id);
+            }
+        }
+        let extra = self.posted.len().saturating_sub(POSTED_KEPT);
+        self.posted.drain(..extra);
+    }
+
     /// A project with nothing in flight
     pub fn new() -> Self {
         Self {
@@ -146,6 +197,9 @@ impl ProjectState {
             rulings: Vec::new(),
             last_ruling: 0,
             finished: Vec::new(),
+            dropped: Vec::new(),
+            order: Vec::new(),
+            ranked: BTreeMap::new(),
             history: Vec::new(),
             reworked: Vec::new(),
             adopted: Vec::new(),
@@ -160,6 +214,10 @@ impl ProjectState {
             pm_session: None,
             pm_told: Vec::new(),
             pm_attached: None,
+            finishing: false,
+            heard: BTreeMap::new(),
+            unmentioned: BTreeMap::new(),
+            posted: Vec::new(),
         }
     }
 
@@ -228,6 +286,10 @@ pub struct Finished {
     pub pull_request: Option<u64>,
     /// Whether the pull request merged
     pub merged: bool,
+    /// Whether its issue was closed with no change, so it ended with no
+    /// pull request
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
     /// When it finished
     pub at: Timestamp,
     /// Seconds from its creation to `at`
@@ -271,6 +333,60 @@ pub struct Ruling {
     /// webhooks existed is posted once.
     #[serde(default)]
     pub alerted: bool,
+    /// What each expert on the panel did, once the panel has voted. None
+    /// while it has not, and in a file from before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<Vec<Ballot>>,
+    /// What the panel concluded: the work item's type, the panel it set and
+    /// the option the panel stood behind. None until the panel has voted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<Verdict>,
+    /// Whether its comment on its thread is held back, for the panel's votes
+    /// or the project manager's answer, and so is still to be posted. Kept so
+    /// a runner that restarts posts it once the hold ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unposted: bool,
+    /// What each option leads to, in the order the card lists them, as kelpie
+    /// worded it from what it knew when it raised the ruling. An option with
+    /// none, or a ruling with none, shows the phrase its kind always had.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<String>,
+    /// When it was raised. None in a file from before, and then an answer
+    /// by number is never refused as stale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised: Option<Timestamp>,
+}
+
+/// Where a ruling is answered in its thread: the one login whose reply
+/// answers it, and the last comment read for an answer, which is the
+/// ruling's own comment until a reply has been
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Heard {
+    /// The login the ruling's comment mentions, in the case it was written
+    pub mentions: String,
+    /// When the comment was written, as the forge says
+    pub time: Timestamp,
+    /// The forge's id for it
+    pub comment: u64,
+    /// The forge's id for the ruling's own comment, which a reaction or a
+    /// ticked box on it answers, and which `comment` leaves once a reply has
+    /// been read. Zero in a file from before, which then reads no reaction.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ruling_comment: u64,
+}
+
+impl Heard {
+    /// Whether `login` is the one whose reply answers: GitHub reads a login in any case
+    pub fn is_mentioned(&self, login: &str) -> bool {
+        self.mentions.eq_ignore_ascii_case(login)
+    }
+
+    /// Whether a comment written at `time` with this `id` is after this one
+    pub fn before(&self, time: Timestamp, id: u64) -> bool {
+        (self.time, self.comment) < (time, id)
+    }
 }
 
 /// Where reading replies on the webhook's topic has got to
@@ -326,6 +442,9 @@ pub enum RulingKind {
         /// when any are
         #[serde(default, skip_serializing_if = "Option::is_none")]
         open_threads: Option<String>,
+        /// The forge's ids of those threads, which a yes accepts
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        held_by: Vec<String>,
         /// Whether no review round read the head, and no fix turn kelpie
         /// sent pushed it
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -474,6 +593,21 @@ pub enum Stuck {
         phase: Phase,
         /// The turn as it stood before it failed, which a yes puts back
         retry: Turn,
+    },
+    /// A work item's priced calls cost more than its cap, so its worker's
+    /// next turn did not start. A yes doubles the cap, again while it is
+    /// below the spend, and goes back to the phase; a no sends the worker its
+    /// note ahead of the turn that was due, and raises the cap the same.
+    OverBudget {
+        /// The phase the next turn was due in, which an answer goes back to
+        phase: Phase,
+        /// What the work item's priced calls cost
+        spent: Cost,
+        /// The cap it was over: `budget.per_item_usd`, doubled once for each
+        /// ruling like this one that was answered
+        cap: Cost,
+        /// What each role's priced calls cost
+        by_role: Priced,
     },
 }
 

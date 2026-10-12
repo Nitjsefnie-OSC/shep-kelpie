@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{ClaudeCli, argv, terminal_argv};
+use super::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, argv, terminal_argv};
 use crate::fence;
 use crate::ports::{AgentCall, AgentError, Fence, Policy};
 use crate::profile::CREDENTIALS;
@@ -33,6 +33,14 @@ impl ClaudeCli {
     // `claude` with `argv`, its scratch folder emptied and its transcript
     // folder made. A scratch folder swapped for a link is removed, not followed.
     fn command(&self, call: &AgentCall, argv: Vec<OsString>) -> Result<Command, AgentError> {
+        // `claude` would start and fail with its own "not logged in", which a ruling
+        // would carry, in place of the fix.
+        if call.reach.block_keychain && self.macos && self.login.is_none() {
+            return Err(AgentError::Setup(format!(
+                "the keychain is blocked in this repo's calls and {LOGIN_VAR} is not set in the \
+                 runner's environment, so claude has no login: {LOGIN_FIX}"
+            )));
+        }
         let scratch = scratch(call);
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
@@ -44,12 +52,29 @@ impl ClaudeCli {
         for folder in [&scratch, &transcripts(&self.home, &call.cwd)?] {
             std::fs::create_dir_all(folder).map_err(|e| setup(folder, e))?;
         }
-        let mut command = crate::spawn::command(&self.program);
+        // A sheep has no `TMPDIR`, so a shell falls back to `/tmp`, which the
+        // sandbox refuses, and a heredoc cannot make its temp file there. zsh
+        // ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`, a prefix
+        // that zsh appends to, so it gets one in the same folder. Only
+        // `claude` is given them, through `env`: `srt` puts its proxy socket
+        // under its own `TMPDIR`, where a path past 104 bytes keeps it from
+        // starting and a folder the call writes lets the call delete the socket.
+        let mut temp = OsString::from("TMPDIR=");
+        temp.push(&scratch);
+        let mut prefix = OsString::from("TMPPREFIX=");
+        prefix.push(scratch.join("zsh"));
+        let mut command = crate::spawn::command("/usr/bin/env");
         command
+            .arg(temp)
+            .arg(prefix)
+            .arg(&self.program)
             .args(argv)
             .current_dir(&call.cwd)
             .env("CLAUDE_CODE_TMPDIR", &scratch)
             .env("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1");
+        if let Some(login) = &self.login {
+            command.env(LOGIN_VAR, login.expose());
+        }
         Ok(command)
     }
 
@@ -90,6 +115,30 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
         denied_addresses: Vec::new(),
         // Without it, `gh` fails TLS verification on macOS: x509 OSStatus -26276.
         verify_tls: true,
+        no_keychain: false,
+    }
+}
+
+/// What a call is held to before its harness adds its own needs: its fence's
+/// policy, or with no fence the credentials and `unfenced` unread
+///
+/// Every harness starts here, so a call with no fence is denied `unfenced`
+/// whichever one runs it. Its own folder stays readable, since a worktree
+/// can sit inside the shepherd's home.
+pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
+    match &call.reach.fence {
+        Some(fence) => fence_policy(fence),
+        None => {
+            let no_read = CREDENTIALS.iter().map(|&p| p.to_owned());
+            let mut policy = Policy {
+                no_read: no_read.chain(unfenced.iter().cloned()).collect(),
+                ..Policy::default()
+            };
+            if !unfenced.is_empty() {
+                policy.read.push(call.cwd.clone());
+            }
+            policy
+        }
     }
 }
 
@@ -105,21 +154,9 @@ pub(crate) fn policy(
     home: &Path,
     unfenced: &[String],
 ) -> Result<Policy, AgentError> {
-    let mut policy = match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => {
-            let no_read = CREDENTIALS.iter().map(|&p| p.to_owned());
-            let mut policy = Policy {
-                no_read: no_read.chain(unfenced.iter().cloned()).collect(),
-                ..Policy::default()
-            };
-            if !unfenced.is_empty() {
-                policy.read.push(call.cwd.clone());
-            }
-            policy
-        }
-    };
+    let mut policy = call_policy(call, unfenced);
     policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_keychain = call.reach.block_keychain;
     let transcripts = transcripts(home, &call.cwd)?;
     // Auto memory there loads into every session in the folder, a review's too.
     policy.no_write.push(transcripts.join("memory"));
@@ -133,6 +170,12 @@ pub(crate) fn policy(
             .chain(&call.reach.read)
             .cloned(),
     );
+    // The hook that hands the prompt back after a compaction reads it inside the sandbox.
+    if call.compact_window.is_some() {
+        policy
+            .read
+            .push(super::settings::prompt_file(&call.settings));
+    }
     policy.hosts.push(MODEL_HOST.to_owned());
     Ok(policy)
 }
@@ -178,7 +221,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::adapters::{ClaudeCli, SandboxRuntime};
+    use crate::adapters::{ClaudeCli, LoginToken, SandboxRuntime};
     use crate::ports::Ending;
     use crate::ports::{Agents, Reach, Role, Session, SessionId, Tools};
     use crate::profile::WorkerProfile;
@@ -228,8 +271,10 @@ mod tests {
                 prompt: "go".into(),
                 plugin_dirs: Vec::new(),
                 tools: Tools::Answer,
+                agent_tools: None,
                 reach: Reach::default(),
                 lease: None,
+                compact_window: None,
             }
         }
 
@@ -249,16 +294,25 @@ mod tests {
                 build_env: &BTreeMap::new(),
                 shep_home: Path::new("/k/shep"),
                 door: Path::new("/k/dog/lease.sock"),
+                token: None,
             };
             AgentCall {
                 tools: Tools::Work,
+                agent_tools: None,
                 reach: profile.reach(),
                 ..self.call(Role::Worker)
             }
         }
 
+        // The shepherd's home, which the runner denies every call with no fence.
+        fn shep_unread(&self) -> String {
+            format!("{}/**", self.path("shep").display())
+        }
+
         fn cli(&self, sandbox: Arc<dyn crate::ports::Sandbox>) -> ClaudeCli {
-            ClaudeCli::with_program(self.path("claude")).sandboxed(sandbox, self.path("home"))
+            ClaudeCli::with_program(self.path("claude"))
+                .unfenced_unread(&self.path("shep"))
+                .sandboxed(sandbox, self.path("home"))
         }
     }
 
@@ -276,6 +330,27 @@ mod tests {
         for (_, settings) in &wrapped {
             assert_eq!(settings, &w.path("worker/settings.sandbox.json"));
         }
+    }
+
+    // Without the deny in `World::cli`, no test of a call's sandbox would see
+    // the shepherd's home read.
+    #[test]
+    fn the_test_cli_denies_an_unfenced_call_the_shepherds_home() {
+        let w = World::new();
+        let sandbox = OpenSandbox::default();
+        let cli = w.cli(Arc::new(sandbox.clone()));
+        let call = w.call(Role::Reviewer);
+        cli.prepare(&call).unwrap();
+        cli.run(&call, &Ending::default()).unwrap();
+        let wrapped = sandbox.wrapped();
+        let [(open, _)] = wrapped.as_slice() else {
+            panic!("wrapped once, not {wrapped:?}")
+        };
+        assert!(
+            open.no_read.contains(&w.shep_unread()),
+            "{:?}",
+            open.no_read
+        );
     }
 
     #[test]
@@ -307,13 +382,39 @@ mod tests {
         assert!(policy.no_write.contains(&transcripts.join("memory")));
         assert!(policy.no_write.contains(&w.path("wt/.claude")));
         assert!(policy.no_write.contains(&w.path("wt/**/.codex")));
-        assert_eq!(policy.hosts, ["github.com", "api.github.com", MODEL_HOST]);
+        assert_eq!(policy.hosts[..2], ["github.com", "api.github.com"]);
+        assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
         assert!(policy.read.contains(&w.path("worker/settings.json")));
         assert!(policy.no_read.iter().any(|p| p == "~/.ssh/**"));
         // Another harness's login, and none of Claude Code's own, which it reads to run.
         assert!(policy.no_read.iter().any(|p| p == "~/.codex/**"));
         assert!(!policy.no_read.iter().any(|p| p.starts_with("~/.claude")));
         assert!(policy.verify_tls);
+    }
+
+    // The hook that hands a compacted turn's prompt back runs `cat` on it
+    // inside the sandbox, which denies the whole of kelpie's home but for
+    // what the call reads.
+    #[test]
+    fn a_worker_with_a_compact_window_reads_back_the_prompt_its_hook_prints() {
+        let w = World::new();
+        let mut call = w.worker();
+        let without = policy(&call, &w.path("home"), &[]).unwrap();
+        assert!(!without.read.contains(&w.path("worker/settings.prompt.md")));
+        call.compact_window = std::num::NonZeroU32::new(200_000);
+        let with = policy(&call, &w.path("home"), &[]).unwrap();
+        assert!(with.read.contains(&w.path("worker/settings.prompt.md")));
+    }
+
+    #[test]
+    fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+        let w = World::new();
+        for mut call in [w.worker(), w.call(Role::Reviewer)] {
+            let home = w.path("home");
+            assert!(!policy(&call, &home, &[]).unwrap().no_keychain);
+            call.reach.block_keychain = true;
+            assert!(policy(&call, &home, &[]).unwrap().no_keychain);
+        }
     }
 
     #[test]
@@ -381,6 +482,129 @@ mod tests {
         }
     }
 
+    // A shell's heredoc makes a temp file under `TMPDIR`, or `/tmp` with none,
+    // and the sandbox refuses a write there. `srt` makes its own proxy socket
+    // under its `TMPDIR`: past 104 bytes it cannot start, and in a folder the
+    // call writes the call could delete the socket. So only the command
+    // inside `srt` gets it, as `env TMPDIR=<folder> TMPPREFIX=<folder>/zsh
+    // claude ...`. zsh ignores `TMPDIR` for a heredoc and writes under
+    // `TMPPREFIX`, `/tmp/zsh` by default, which the sandbox refuses.
+    #[test]
+    fn every_role_gets_a_temp_folder_its_sandbox_can_write_and_srt_keeps_its_own() {
+        let w = World::new();
+        let cli = w.cli(Arc::new(OpenSandbox::default()));
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+            let command = cli.sandboxed_command(&call).unwrap();
+            let policy = policy(&call, &w.path("home"), &[]).unwrap();
+            let role = call.role;
+            let env = |name: &str| command.get_envs().find(|(n, _)| *n == name);
+            assert!(env("TMPDIR").is_none(), "{role:?}: srt would see TMPDIR");
+            let claude_tmp = env("CLAUDE_CODE_TMPDIR").and_then(|(_, value)| value);
+            let claude_tmp = PathBuf::from(claude_tmp.expect("CLAUDE_CODE_TMPDIR"));
+            assert!(
+                policy.write.contains(&claude_tmp),
+                "{role:?}: {claude_tmp:?}"
+            );
+            assert_eq!(command.get_program(), "/usr/bin/env");
+            let mut words = command.get_args();
+            let temp = words.next().unwrap().to_str().unwrap();
+            let folder = PathBuf::from(temp.strip_prefix("TMPDIR=").expect(temp));
+            assert!(
+                policy.write.contains(&folder),
+                "{role:?}: TMPDIR {folder:?} is not in {:?}",
+                policy.write
+            );
+            // zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+            let prefix = words.next().unwrap().to_str().unwrap();
+            let prefix = PathBuf::from(prefix.strip_prefix("TMPPREFIX=").expect(prefix));
+            assert_eq!(prefix, folder.join("zsh"), "{role:?}");
+            assert_eq!(words.next().unwrap(), w.path("claude").as_os_str());
+        }
+    }
+
+    type Cmd = fn(&ClaudeCli, &AgentCall) -> Result<Command, AgentError>;
+
+    // With the keychain blocked, a call's login is the token the maintainer
+    // made with `claude setup-token`. It is a variable of the command inside
+    // the sandbox and never an argument, which `ps` shows.
+    #[test]
+    fn every_role_s_claude_gets_the_login_token_and_none_without_one() {
+        let w = World::new();
+        let token = "sk-ant-oat01-for-the-test";
+        let with = w
+            .cli(Arc::new(OpenSandbox::default()))
+            .with_login(LoginToken::new(token.to_owned()));
+        let without = w.cli(Arc::new(OpenSandbox::default()));
+        assert!(
+            !format!("{with:?}").contains(token),
+            "Debug shows the token"
+        );
+        let issue_writer = w.call(Role::IssueWriter);
+        for call in [w.worker(), w.call(Role::Reviewer), issue_writer] {
+            let role = call.role;
+            let login = |cli: &ClaudeCli, command: Cmd| {
+                let command = command(cli, &call).unwrap();
+                let set = command.get_envs().find(|(n, _)| *n == LOGIN_VAR);
+                let args: Vec<_> = command.get_args().collect();
+                assert!(!args.iter().any(|a| a.to_string_lossy().contains(token)));
+                set.map(|(_, value)| value.map(|v| v.to_string_lossy().into_owned()))
+            };
+            let session = ClaudeCli::sandboxed_command;
+            assert_eq!(
+                login(&with, session),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
+            assert_eq!(login(&without, session), None, "{role:?}");
+            let terminal = ClaudeCli::terminal_command;
+            assert_eq!(
+                login(&with, terminal),
+                Some(Some(token.to_owned())),
+                "{role:?}"
+            );
+        }
+    }
+
+    // With the keychain blocked and no token, `claude` would start and fail
+    // with its own "not logged in", which a ruling would carry. The call says
+    // what doctor says instead, and runs nothing.
+    #[test]
+    fn a_blocked_keychain_and_no_login_token_refuses_the_call_with_the_fix() {
+        let w = World::new();
+        let token = LoginToken::new("sk-ant-oat01-for-the-test".to_owned());
+        let cli = |login: Option<LoginToken>, macos: bool| {
+            w.cli(Arc::new(OpenSandbox::default()))
+                .with_login(login)
+                .on_macos(macos)
+        };
+        let blocked = |mut call: AgentCall| {
+            call.reach.block_keychain = true;
+            call
+        };
+        for call in [w.worker(), w.call(Role::Reviewer)] {
+            let call = blocked(call);
+            for run in [ClaudeCli::sandboxed_command, ClaudeCli::terminal_command] {
+                let err = run(&cli(None, true), &call).unwrap_err();
+                let AgentError::Setup(why) = &err else {
+                    panic!("{err:?}")
+                };
+                assert!(why.contains("`claude setup-token`"), "{why}");
+                assert!(
+                    why.contains("`shep secret set CLAUDE_CODE_OAUTH_TOKEN`"),
+                    "{why}"
+                );
+                run(&cli(token.clone(), true), &call).unwrap();
+                // No keychain off macOS, and a call that keeps it logs in there.
+                run(&cli(None, false), &call).unwrap();
+                run(&cli(None, true), &w.worker()).unwrap();
+            }
+            let err = cli(None, true).run(&call, &Ending::default()).unwrap_err();
+            assert!(matches!(err, AgentError::Setup(_)), "{err:?}");
+        }
+        assert!(!w.path("ran").exists(), "claude ran with no login");
+    }
+
     #[test]
     fn the_scratch_folder_is_emptied_and_a_link_there_is_not_followed() {
         let w = World::new();
@@ -413,9 +637,16 @@ mod tests {
         let command = cli.foreground(&call).unwrap();
         let args: Vec<&str> = command.get_args().map(|a| a.to_str().unwrap()).collect();
         let settings = w.path("worker/settings.json");
+        let temp = format!("TMPDIR={}", w.path("worker/settings.tmp").display());
+        let prefix = format!("TMPPREFIX={}", w.path("worker/settings.tmp/zsh").display());
+        let claude = w.path("claude");
+        assert_eq!(command.get_program(), "/usr/bin/env");
         assert_eq!(
             args,
             [
+                temp.as_str(),
+                prefix.as_str(),
+                claude.to_str().unwrap(),
                 "--model",
                 "claude-sonnet-5",
                 "--effort",
@@ -424,6 +655,9 @@ mod tests {
                 "project",
                 "--settings",
                 settings.to_str().unwrap(),
+                "--tools",
+                "Bash,Read,Edit,Write,Glob,Grep,Skill",
+                "--strict-mcp-config",
                 "--resume",
                 "s",
             ]

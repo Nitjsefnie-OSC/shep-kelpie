@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::ports::{AgentError, CallActivity, Timestamp};
+use crate::ports::{AgentError, CallActivity, Cost, Timestamp, Usage};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, step};
 use crate::settings::Harness;
@@ -106,12 +106,14 @@ const TWO_BRANCHES: &str = r#"# Board: acme, 2026-09-21 14:18 UTC
 
 - #7 "Title of #7": review round 2; PR #71, opened 5m ago, on sonnet-high; touches 1 file
   - Session: no call in flight; the worker's last turn ended 5m ago
+  - Spend: $0.00 of $10.00
   - Last turn: "pushed"
 - #8 "Title of #8": review round 2; PR #81, opened 5m ago, on sonnet-high; touches 1 file
   - Session: no call in flight; the worker's last turn ended 5m ago
+  - Spend: $0.00 of $10.00
   - Last turn: "pushed"
 
-## Ready queue, read 5m ago (board rule order: priority, then oldest by number)
+## Ready queue, read 5m ago (the board's order, first taken first; a new issue joins after the last of its priority)
 
 1. #9 [P1] "Title of #9"; waits: blocked by #4; names README.md, src/missing.rs
 
@@ -255,4 +257,23 @@ fn a_failure_naming_a_path_on_this_machine_is_withheld_from_the_board() {
     let failed = "] 14:13 #7: worker turn failed: (withheld: it names a path on this machine, \
                   which names its user)\n";
     assert!(text.contains(failed), "{text}");
+}
+
+#[test]
+fn a_dropped_item_still_listed_ready_is_named_as_dropped_with_the_command_that_takes_it_back() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    step(&runner).unwrap();
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    step(&runner).unwrap();
+    rig.ask(&runner, "drop", None);
+    step(&runner).unwrap();
+    rig.clock.advance(5 * 60);
+    super::brief(&runner);
+    let text = board(&rig);
+    let waits = "waits: dropped, and `shep kelpie add 7` takes it back";
+    assert!(text.contains(waits), "{text}");
+    assert!(!text.contains("kelpie finished it"), "{text}");
 }

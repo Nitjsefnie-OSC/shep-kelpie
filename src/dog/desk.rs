@@ -72,6 +72,8 @@ pub struct Desk {
     pub(super) book: LeaseBook,
     pub(super) gpu: GpuLock,
     pub(super) tests: CountedLease,
+    // One lease per e2e host, made at its first ask.
+    pub(super) e2e: BTreeMap<String, CountedLease>,
     runs: HashMap<String, Run>,
     retired: Retired,
 }
@@ -127,6 +129,7 @@ impl Desk {
             book,
             gpu,
             tests: CountedLease::cargo_test(CARGO_TEST_CAPACITY),
+            e2e: BTreeMap::new(),
             runs,
             retired,
         }

@@ -19,9 +19,33 @@ use serde::Serialize;
 
 use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
+mod repo;
 mod vendored;
 
+pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins, default_head, inspect};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
+
+/// The skill `shep kelpie issue --interactive` starts with: it runs
+/// `grilling` with `domain-modeling`
+pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
+
+/// Writes kelpie's copy of mattpocock/skills into `dir` as a plugin, for a
+/// session the maintainer runs rather than a runner, and returns `skill`'s
+/// slash command in it
+///
+/// # Errors
+///
+/// The first file or folder that could not be removed or written.
+pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
+    vendored::write(dir)?;
+    Ok(format!("/{PLUGIN}:{skill}"))
+}
+
+/// Whether a plugin of this name would collide with the plugins kelpie
+/// writes itself: the vendored one and each step's own
+pub(crate) fn is_kelpies_own(name: &str) -> bool {
+    name == PLUGIN || name.starts_with("kelpie-")
+}
 
 /// A step kelpie drives an agent through
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -41,7 +65,7 @@ pub enum Step {
     Pr,
     /// A session reset's handoff
     Reset,
-    /// A retro for the lessons file
+    /// A finished work item's retro
     Retro,
 }
 
@@ -131,10 +155,15 @@ impl Skills {
         let steps: Vec<StepSkill> = Step::ALL
             .into_iter()
             .map(|step| {
-                let loaded = match chosen.choice(step) {
-                    None => written
+                let kelpies = || {
+                    written
                         .clone()
-                        .map(|()| Some(Loaded::new(&vendored, PLUGIN, step.default_skill()))),
+                        .map(|()| Some(Loaded::new(&vendored, PLUGIN, step.default_skill())))
+                };
+                let loaded = match chosen.choice(step) {
+                    // A retro is a call of its own at every work item's end, so it runs only when named.
+                    None if step == Step::Retro => Ok(None),
+                    None | Some(SkillChoice::Kelpie {}) => kelpies(),
                     Some(SkillChoice::None {}) => Ok(None),
                     Some(SkillChoice::Path { path }) => {
                         wrap(path, &folder.join(step.as_str()), step).map(Some)
@@ -189,6 +218,15 @@ impl Skills {
             .then(|| rules(Step::Tests))
     }
 
+    /// Whether the project set `step` to `none`, so it runs no skill and no
+    /// prompt of kelpie's. A skill that failed to load is not off: kelpie's
+    /// own prompt runs in its place.
+    pub fn off(&self, step: Step) -> bool {
+        self.steps
+            .iter()
+            .any(|s| s.step == step && s.skill.is_none() && s.fallback.is_none())
+    }
+
     /// `step`'s slash command, such as `/mattpocock:tdd`, if it has a skill
     pub fn command(&self, step: Step) -> Option<&str> {
         self.steps
@@ -238,7 +276,7 @@ pub fn check(chosen: &StepSkills, folder: &Path) -> Result<(), SettingsError> {
         let path = match chosen.choice(step) {
             Some(SkillChoice::Path { path }) => path,
             Some(SkillChoice::Plugin { plugin, .. }) => plugin,
-            Some(SkillChoice::None {}) | None => continue,
+            Some(SkillChoice::None {} | SkillChoice::Kelpie {}) | None => continue,
         };
         if inside(path) {
             return Err(SettingsError::Invalid {
@@ -277,9 +315,16 @@ fn rules(step: Step) -> String {
              body. One only the maintainer can make still ends your turn in a \
              `<kelpie-question>` block.\n\
              - Run no /code-review or other review of your own: kelpie reviews the pull \
-             request once you push.\n"
+             request once you push.\n\
+             - Run only the tests for what you changed. Where the skill says to run the \
+             full test suite, leave it to CI, which runs it on every push.\n"
         }
-        Step::Triage | Step::Spec | Step::Reset | Step::Retro => IN_REPLY,
+        Step::Triage | Step::Spec | Step::Reset => IN_REPLY,
+        Step::Retro => {
+            "- Record each decision you made in the skill's place in your reply.\n\
+             - Your reply is the retro's report. Edit no file and run no command: kelpie \
+             saves the report unread and applies none of it.\n"
+        }
     };
     format!("{HEADLESS}{own}")
 }
@@ -366,7 +411,7 @@ fn in_plugin(plugin: &Path, skill: &SkillName) -> Result<Loaded, String> {
         .filter(|n| !n.is_empty())
         .ok_or_else(|| format!("{} names no plugin", manifest_path.display()))?;
     // Two plugins of one name would leave Claude Code to pick which skill runs.
-    if name == PLUGIN || name.starts_with("kelpie-") {
+    if is_kelpies_own(name) {
         return Err(format!(
             "the plugin in {} is named {name}, which is kelpie's own",
             plugin.display()
@@ -396,7 +441,7 @@ fn in_plugin(plugin: &Path, skill: &SkillName) -> Result<Loaded, String> {
 
 // Copies `from` into `to`, following links to files and skipping links to
 // folders, which could loop.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;

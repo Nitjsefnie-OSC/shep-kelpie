@@ -1,5 +1,5 @@
-//! `shep kelpie start`, `pause`, `status` and the triggers the other verbs
-//! send, over the shepherd's socket
+//! `shep kelpie start`, `pause`, `finish`, `status` and the triggers the
+//! other verbs send, over the shepherd's socket
 //!
 //! A project runs while its runner's sheep does: shep's own state is the
 //! run state, so `shep start <project>` runs it too. `start` first checks
@@ -7,8 +7,9 @@
 //! not running, then waits for the runner to answer, since a runner just
 //! started reads its settings before it opens its channel. `pause` drains
 //! the runner, waits for its calls and any merge to end, then stops its
-//! sheep. `rule` leaves the answer for a stopped runner to act on when it
-//! starts.
+//! sheep. `finish` lets the open work items end and picks nothing new, and
+//! the runner then stops its own sheep as `pause` does. `rule` leaves the
+//! answer for a stopped runner to act on when it starts.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -19,9 +20,9 @@ use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
 use shep_client::{Client, TRIGGER_DEADLINE};
 
-use super::{flock, halt, kelpie_sheep, resume, tables};
+use super::{Checkout, flock, halt, kelpie_sheep, resume, tables};
 use crate::runner::{ProjectName, leave_answer};
-use crate::settings::Settings;
+use crate::settings::{ForgeSlug, Settings};
 use crate::shepherd;
 use crate::upgrade::drain::{self, Purpose};
 use crate::upgrade::restart::{Interrupt, Patience, interrupted, wait_out_merges};
@@ -34,6 +35,9 @@ const ASK_AGAIN: Duration = Duration::from_millis(500);
 
 /// The project whose repo holds `folder`: its checkout, or a worktree of it
 ///
+/// Failing that, the one project whose `git.remote` is the `origin` of the
+/// clone `folder` is in, so the maintainer's own clone finds its project.
+///
 /// # Errors
 ///
 /// A message when no project, or more than one, has its repo there, listing
@@ -45,17 +49,28 @@ pub async fn project_here(
 ) -> Result<ProjectName, String> {
     let roots = checkout_roots(folder);
     let tables = tables(client).await?;
-    let here: Vec<&String> = tables
+    let settings: Vec<(&String, Settings)> = tables
         .iter()
-        .filter(|(sheep, table)| {
-            Settings::from_table(table, sheep, home, home).is_ok_and(|s| {
-                let repo = s.git.checkout.canonicalize().unwrap_or(s.git.checkout);
-                roots.contains(&repo)
-            })
+        .filter_map(|(sheep, table)| {
+            Settings::from_table(table, sheep, home, home)
+                .ok()
+                .map(|s| (sheep, s))
         })
-        .map(|(sheep, _)| sheep)
+        .collect();
+    let here: Vec<&String> = settings
+        .iter()
+        .filter(|(_, s)| {
+            let repo = s.git.checkout.canonicalize();
+            roots.contains(&repo.unwrap_or_else(|_| s.git.checkout.clone()))
+        })
+        .map(|(sheep, _)| *sheep)
         .collect();
     let projects: Vec<&str> = tables.keys().map(String::as_str).collect();
+    if here.is_empty()
+        && let Some(found) = by_origin(folder, &settings)?
+    {
+        return Ok(found);
+    }
     match here.as_slice() {
         [one] => ProjectName::try_from(one.as_str()).map_err(|e| e.to_string()),
         [] if projects.is_empty() => {
@@ -77,12 +92,96 @@ pub async fn project_here(
     }
 }
 
+// The repo `settings` works: its `git.remote`, or the `origin` of its checkout.
+fn repo_of(settings: &Settings) -> Option<ForgeSlug> {
+    (settings.git.remote.clone())
+        .or_else(|| Checkout::of(&settings.git.checkout).ok().map(|c| c.forge))
+}
+
+/// The repo of every project in the flock
+///
+/// A table that does not parse still gives its repo when it names `git.remote`
+/// or a checkout with an `origin`.
+///
+/// # Errors
+///
+/// A message when the shepherd cannot be asked for the projects' tables, or
+/// when a project's repo cannot be told, since a post could then name a private
+/// repo of the flock unseen.
+pub async fn repos(client: &Client, home: &Path) -> Result<Vec<ForgeSlug>, String> {
+    let tables = tables(client).await?;
+    tables
+        .iter()
+        .map(|(sheep, table)| {
+            let repo = match Settings::from_table(table, sheep, home, home) {
+                Ok(settings) => repo_of(&settings),
+                Err(_) => raw_repo_of(table, home),
+            };
+            repo.ok_or_else(|| {
+                format!(
+                    "cannot tell which repo project {sheep} works, so kelpie cannot keep its \
+                     name off a public repo: fix its settings, or remove the project"
+                )
+            })
+        })
+        .collect()
+}
+
+// The repo a project table names, read without parsing the rest of it.
+fn raw_repo_of(
+    table: &serde_json::Map<String, serde_json::Value>,
+    home: &Path,
+) -> Option<ForgeSlug> {
+    let git = table.get("git")?.as_object()?;
+    let text = |key: &str| git.get(key)?.as_str().map(str::to_owned);
+    if let Some(remote) = text("remote") {
+        return ForgeSlug::try_from(remote).ok();
+    }
+    let checkout = text("checkout")?;
+    let folder = match checkout.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(checkout),
+    };
+    Checkout::of(&folder).ok().map(|c| c.forge)
+}
+
+// The one project whose `git.remote` is `folder`'s `origin`, for a clone that
+// is no project's checkout. A project with no `git.remote` set has its
+// checkout's own `origin` stand in, as its runner reads it. None when `folder`
+// has no GitHub `origin` or no project has it.
+fn by_origin(
+    folder: &Path,
+    settings: &[(&String, Settings)],
+) -> Result<Option<ProjectName>, String> {
+    let Ok(clone) = Checkout::of(folder) else {
+        return Ok(None);
+    };
+    let matching: Vec<&str> = settings
+        .iter()
+        .filter(|(_, s)| {
+            // GitHub owner and repo names are case-insensitive.
+            repo_of(s)
+                .is_some_and(|forge| forge.as_str().eq_ignore_ascii_case(clone.forge.as_str()))
+        })
+        .map(|(sheep, _)| sheep.as_str())
+        .collect();
+    match matching.as_slice() {
+        [] => Ok(None),
+        [one] => ProjectName::try_from(*one)
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        more => Err(format!(
+            "{} all have {} as their remote, so name one with `-p <project>`",
+            more.join(", "),
+            clone.forge.as_str()
+        )),
+    }
+}
+
 // The checkouts `folder` belongs to: its own top folder, and for a worktree
 // the checkout it was made from. None when it is in no git checkout.
 fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
-    let output = crate::spawn::command("git")
-        .arg("-C")
-        .arg(folder)
+    let output = super::git_in(folder)
         .args([
             "rev-parse",
             "--path-format=absolute",
@@ -116,8 +215,10 @@ fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
 /// Starts `project`'s runner when it is down, then waits for it to answer
 /// `status`, which it answers
 ///
-/// A runner still on a build from before the run state went, whose
-/// `status` says it is paused, is sent that build's own `start`.
+/// A runner whose `status` says it is finishing, or finished and not yet
+/// stopped, is sent `start`, so the board picks again. So is one still on a
+/// build from before the run state went whose `status` says it is paused,
+/// which that build's own `start` runs.
 ///
 /// # Errors
 ///
@@ -138,10 +239,10 @@ pub async fn start(client: &Client, project: &ProjectName) -> Result<Vec<String>
     let waited = tokio::time::Instant::now();
     loop {
         match trigger(client, runner, "status", None).await? {
-            Answered::Runner(body) if !paused(&body) => return Ok(vec![body]),
+            Answered::Runner(body) if !held(&body) => return Ok(vec![body]),
             Answered::Runner(_) => {
                 return match trigger(client, runner, "start", None).await? {
-                    Answered::Runner(body) => Ok(vec![body]),
+                    Answered::Runner(body) => refusal(&body).map_or(Ok(vec![body]), Err),
                     other => Err(unanswered(runner, other)),
                 };
             }
@@ -156,11 +257,92 @@ pub async fn start(client: &Client, project: &ProjectName) -> Result<Vec<String>
     }
 }
 
-// Whether a runner's `status` says it is paused, as only a build from
-// before the run state was the sheep's can.
-fn paused(body: &str) -> bool {
-    let status = serde_json::from_str::<serde_json::Value>(body);
-    status.is_ok_and(|status| status["run"] == "paused")
+// Whether a runner's `status` says it picks nothing until `start`: finishing
+// or finished, or paused, as only a build from before the run state was the
+// sheep's can be.
+fn held(body: &str) -> bool {
+    let run = run(body);
+    matches!(run.as_deref(), Some("paused" | "finishing" | "finished"))
+}
+
+// What a runner's `status` says under `run`, if anything.
+fn run(body: &str) -> Option<String> {
+    let status = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    status["run"].as_str().map(str::to_owned)
+}
+
+/// Puts `project`'s runner in finishing: its open work items run to their
+/// end, the board picks nothing new, and the runner then stops its sheep
+///
+/// With no work item open the runner stops at once. A runner still
+/// starting is waited on as `pause` waits on it, saying so to `say`. A
+/// runner that is not running is left alone, since it has nothing to
+/// finish. Pull requests adopted and still waiting for a slot stay waiting
+/// for the next `start`, and are named.
+///
+/// # Errors
+///
+/// A message when the project has no kelpie runner, it does not come up
+/// from starting within `patience`, the runner refused `finish`, with its
+/// reason, or it did not answer. With [`Format::Json`] it returns the runner's
+/// answer as it came, once the runner has taken `finish`.
+pub async fn finish(
+    client: &Client,
+    project: &ProjectName,
+    format: Format,
+    patience: Patience,
+    say: &mut dyn FnMut(String),
+) -> Result<Vec<String>, String> {
+    let runner = kelpie_runner(client, &flock(client).await?, project).await?;
+    let name = project.as_str();
+    if !matches!(runner.status, ProcStatus::Online | ProcStatus::Starting) {
+        let said = format!(
+            "{name}'s runner is {}, so it has nothing to finish",
+            runner.status
+        );
+        return Ok(vec![said_as(format, name, said)]);
+    }
+    come_up(client, name, patience, say).await?;
+    let body = match trigger(client, name, "finish", None).await? {
+        Answered::Runner(body) => body,
+        other => return Err(unanswered(name, other)),
+    };
+    if let Some(why) = refusal(&body) {
+        return Err(why);
+    }
+    if format == Format::Json {
+        return Ok(vec![body]);
+    }
+    let named = |numbers: &[u64]| {
+        let named: Vec<String> = numbers.iter().map(|n| format!("#{n}")).collect();
+        named.join(", ")
+    };
+    let open = listed(&body, "work_items", "issue");
+    let mut lines = vec![match open.as_slice() {
+        [] => format!("{name} has no work item open, so its runner stops now"),
+        open => format!(
+            "{name} is finishing {}: the board picks nothing new, and the runner stops once \
+             they end. `shep kelpie start {name}` picks again",
+            named(open)
+        ),
+    }];
+    let adopted = listed(&body, "adopted", "pull_request");
+    if !adopted.is_empty() {
+        lines.push(format!(
+            "adopted and waiting for a slot, {} stay waiting until `shep kelpie start {name}`",
+            named(&adopted)
+        ));
+    }
+    Ok(lines)
+}
+
+// The `key` of each entry in the `list` a runner's `status` shows.
+fn listed(status: &str, list: &str, key: &str) -> Vec<u64> {
+    let Ok(status) = serde_json::from_str::<serde_json::Value>(status) else {
+        return Vec::new();
+    };
+    let entries = status[list].as_array().into_iter().flatten();
+    entries.filter_map(|entry| entry[key].as_u64()).collect()
 }
 
 /// Lets `project`'s runner end what it has running, then stops its sheep
@@ -170,6 +352,8 @@ fn paused(body: &str) -> bool {
 /// and bounded by `patience` the same way. Each line of what it waits on
 /// goes to `say`. A session the maintainer attached is their own process,
 /// not the runner's: it goes on, and its work item stays held until it ends.
+/// A runner finishing is sent `pausing` just before the stop, so it comes
+/// back picking, and `finish` again if the stop is refused.
 ///
 /// # Errors
 ///
@@ -197,17 +381,20 @@ pub async fn pause(
         drain::drain(client, name, patience, Purpose::Pause, &mut *say).await?;
         wait_out_merges(client, &[name], patience, Purpose::Pause, &mut *say).await?;
         Ok(match trigger(client, name, "status", None).await? {
-            Answered::Runner(body) => Some(attached(&body)),
+            Answered::Runner(body) => {
+                let finishing = run(&body).is_some_and(|run| run == "finishing");
+                Some((attached(&body), finishing))
+            }
             Answered::Down => None,
-            _ => Some(Vec::new()),
+            _ => Some((Vec::new(), false)),
         })
     };
     let drained = tokio::select! {
         drained = drained => drained,
         by = interrupted(interrupt) => Err(format!("stopped by {by} while `{name}` was pausing")),
     };
-    let attached = match drained {
-        Ok(Some(attached)) => attached,
+    let (attached, finishing) = match drained {
+        Ok(Some(found)) => found,
         // Gone while it was waited on, as a stop from elsewhere or a crash leaves it.
         Ok(None) if !up(client, name).await? => {
             return Ok(vec![format!(
@@ -215,15 +402,27 @@ pub async fn pause(
                  runs it again"
             )]);
         }
-        Ok(None) => Vec::new(),
+        Ok(None) => (Vec::new(), false),
         Err(e) => {
             let undrained = drain::undrain(client, name, Purpose::Pause).await;
             return Err(format!("{e}{undrained}"));
         }
     };
-    if let Err(e) = halt(client, name).await {
+    // A pause is the stronger stop: the runner comes back picking.
+    if finishing && let Err(e) = ask(client, name, "pausing").await {
         let undrained = drain::undrain(client, name, Purpose::Pause).await;
         return Err(format!("{e}{undrained}"));
+    }
+    if let Err(e) = halt(client, name).await {
+        let refinished = match finishing {
+            true => match ask(client, name, "finish").await {
+                Ok(()) => ", and it was sent `finish`, so it goes on finishing".to_owned(),
+                Err(why) => format!(", and it could not be sent `finish` again: {why}"),
+            },
+            false => String::new(),
+        };
+        let undrained = drain::undrain(client, name, Purpose::Pause).await;
+        return Err(format!("{e}{refinished}{undrained}"));
     }
     let mut lines: Vec<String> = attached
         .into_iter()
@@ -238,6 +437,14 @@ pub async fn pause(
         "{name}'s runner is stopped: `shep kelpie start {name}` runs it again"
     ));
     Ok(lines)
+}
+
+// Sends `name` `action`, refusing any answer but the runner's own with no error.
+async fn ask(client: &Client, name: &str, action: &str) -> Result<(), String> {
+    match trigger(client, name, action, None).await? {
+        Answered::Runner(body) => refusal(&body).map_or(Ok(()), Err),
+        other => Err(unanswered(name, other)),
+    }
 }
 
 // Whether shep shows `name` running.
@@ -326,22 +533,69 @@ pub async fn rule(
     }
 }
 
-/// Every project's status, one line each: its name and its runner's answer
+// What marks a runner's answer: draining, and its run state when it has one.
+fn marks(body: &str) -> Vec<String> {
+    (draining(body).then(|| "draining".to_owned()))
+        .into_iter()
+        .chain(run(body))
+        .collect()
+}
+
+/// `sheep`'s runner's answer `body` to `status` as the line the JSON form
+/// prints: its name, its marks and the object as it came
+pub fn json_status(sheep: &str, body: &str) -> String {
+    match marks(body).as_slice() {
+        [] => format!("{sheep}: {body}"),
+        marks => format!("{sheep} ({}): {body}", marks.join(", ")),
+    }
+}
+
+/// `sheep`'s runner's answer `body` to `status` as its short block of lines
+pub fn plain_status(sheep: &str, body: &str) -> Vec<String> {
+    match serde_json::from_str(body) {
+        Ok(object) => plain::block(sheep, &marks(body), &object),
+        Err(_) => vec![json_status(sheep, body)],
+    }
+}
+
+/// `sheep`'s runner's answer `body` to `action` with `params` as the plain
+/// lines `timings`, `drain`, `undrain`, `gate`, `drop` and `add` print
+pub fn plain_reply(sheep: &str, action: &str, params: Option<&str>, body: &str) -> Vec<String> {
+    plain::reply(sheep, action, params, body)
+}
+
+/// How a verb prints a runner's answer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// A short line or block of lines
+    Plain,
+    /// The runner's JSON object as it came, which `status` prints on one line
+    /// per project, behind its name
+    Json,
+}
+
+/// Every project's status: a short block each, or with [`Format::Json`] a
+/// line holding its name and its runner's answer
+///
+/// A project whose runner gave no answer is one line either way.
 ///
 /// # Errors
 ///
 /// A message when the shepherd cannot list the projects.
-pub async fn status(client: &Client) -> Result<Vec<String>, String> {
+pub async fn status(client: &Client, format: Format) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for sheep in tables(client).await?.into_keys() {
-        let line = match trigger(client, &sheep, "status", None).await? {
-            Answered::Runner(body) if draining(&body) => format!("{sheep} (draining): {body}"),
-            Answered::Runner(body) => format!("{sheep}: {body}"),
-            Answered::Starting => format!("{sheep}: starting"),
-            Answered::Down => format!("{sheep}: not running"),
-            Answered::TimedOut => format!("{sheep}: running, and did not answer in time"),
-        };
-        lines.push(line);
+        match trigger(client, &sheep, "status", None).await? {
+            Answered::Runner(body) => match format {
+                Format::Plain => lines.extend(plain_status(&sheep, &body)),
+                Format::Json => lines.push(json_status(&sheep, &body)),
+            },
+            Answered::Starting => lines.push(format!("{sheep}: starting")),
+            Answered::Down => lines.push(format!("{sheep}: not running")),
+            Answered::TimedOut => {
+                lines.push(format!("{sheep}: running, and did not answer in time"));
+            }
+        }
     }
     if lines.is_empty() {
         lines.push("no projects: `shep kelpie add` in a checkout sets one up".into());
@@ -369,6 +623,56 @@ pub async fn send(
             None => Ok(vec![body]),
         },
         other => Err(unanswered(runner, other)),
+    }
+}
+
+/// Hands `project`'s project manager `note` for its next wake
+///
+/// A runner busy mid-step can take the note and not answer in time. The
+/// shepherd delivered the trigger then, so the note has most likely arrived,
+/// and an error would invite a retry that wakes the project manager a second
+/// time for one note. It is no error, and says the note may have arrived. The
+/// runner's own refusal, which comes after the deadline, is not seen.
+///
+/// # Errors
+///
+/// A message when the project has no kelpie runner, it is not running, or
+/// it refused the note, with its reason. With [`Format::Json`] it returns the
+/// runner's answer as it came.
+pub async fn tell(
+    client: &Client,
+    project: &ProjectName,
+    note: &str,
+    format: Format,
+) -> Result<Vec<String>, String> {
+    kelpie_runner(client, &flock(client).await?, project).await?;
+    let runner = project.as_str();
+    match trigger(client, runner, "tell", Some(note)).await? {
+        Answered::Runner(body) => match refusal(&body) {
+            Some(why) => Err(why),
+            None if format == Format::Json => Ok(vec![body]),
+            None => Ok(vec![format!(
+                "told {project}'s project manager, which reads it on its next wake"
+            )]),
+        },
+        Answered::TimedOut => {
+            let said = format!(
+                "{runner}'s runner did not answer in time, and the note may have arrived: \
+                 do not tell it again unless the project manager does not wake for it, \
+                 and `shep bleats {runner}` says why"
+            );
+            Ok(vec![said_as(format, runner, said)])
+        }
+        other => Err(unanswered(runner, other)),
+    }
+}
+
+// What kelpie itself says when the runner gave no object to print: the
+// sentence, or under [`Format::Json`] an object that holds it.
+fn said_as(format: Format, sheep: &str, said: String) -> String {
+    match format {
+        Format::Plain => said,
+        Format::Json => serde_json::json!({ "sheep": sheep, "message": said }).to_string(),
     }
 }
 
@@ -463,6 +767,8 @@ pub(crate) async fn trigger(
         _ => Answered::Down,
     })
 }
+
+mod plain;
 
 #[cfg(test)]
 mod tests;

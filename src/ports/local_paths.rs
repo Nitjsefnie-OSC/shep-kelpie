@@ -2,37 +2,134 @@
 //!
 //! Everything kelpie posts to the forge goes through [`Guarded`], which
 //! refuses a text [`LocalPaths`] finds something of this machine's in: its
-//! folders, a path under `~`, an address on a local network, or a name the
-//! project keeps private. A post that names one is never sent.
+//! folders or an address on a local network. A post to a public repo that names
+//! a repo of the flock which GitHub marks private is refused too. A post that
+//! names one is never sent.
+//!
+//! The project's `publish` hooks judge the same text after that, so a post
+//! one refuses is never sent either. A pull request's title and body are the
+//! worker's text, handed over for kelpie to post; every other text is
+//! kelpie's own.
 
 use std::fmt;
+use std::sync::Arc;
 
 use super::{
-    Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding, Reviewed, Visibility,
+    CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment, PullRequest,
+    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::local_paths::{LocalPaths, Surface};
+use crate::github::InstallationToken;
+use crate::hooks::{Hooks, Role};
+use crate::local_paths::{Leak, LocalPaths, Surface, names_repo};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
+// The repos of the flock, and the forge to ask who can see one
+struct Flock {
+    repos: Vec<ForgeSlug>,
+    forge: Arc<dyn Forge>,
+}
+
+impl Flock {
+    fn new(forge: Arc<dyn Forge>) -> Self {
+        Self {
+            repos: Vec::new(),
+            forge,
+        }
+    }
+
+    // Whether `text`, bound for `destination`, names a flock repo GitHub marks
+    // private while `destination` is public. The forge is asked only when the
+    // text names a repo, and a question it cannot answer refuses the post.
+    fn names_private(&self, destination: &ForgeSlug, text: &str) -> Result<bool, ForgeError> {
+        let named: Vec<&ForgeSlug> = (self.repos.iter())
+            .filter(|repo| !repo.as_str().eq_ignore_ascii_case(destination.as_str()))
+            .filter(|repo| {
+                // A repo sharing the destination's bare name is the destination to
+                // the reader, so only its full slug names it.
+                let by_bare_name = !repo.name().eq_ignore_ascii_case(destination.name());
+                names_repo(text, repo, by_bare_name)
+            })
+            .collect();
+        if named.is_empty() || self.forge.visibility(destination)? != Visibility::Public {
+            return Ok(false);
+        }
+        for repo in named {
+            if self.forge.visibility(repo)? != Visibility::Public {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+// `what` names the field, so a refusal says which one to fix.
+fn check(
+    (local, flock, hooks): (&LocalPaths, Option<&Flock>, &Hooks),
+    role: Role,
+    repo: &ForgeSlug,
+    what: &'static str,
+    text: &str,
+) -> Result<(), ForgeError> {
+    if let Some(leak) = local.find(text, Surface::Prose) {
+        return Err(ForgeError::LocalPath { what, leak });
+    }
+    if let Some(flock) = flock
+        && flock.names_private(repo, text)?
+    {
+        let leak = Leak::Private;
+        return Err(ForgeError::LocalPath { what, leak });
+    }
+    (hooks.publish(role, what, text)).map_err(|refusal| ForgeError::Hook { what, refusal })
+}
+
 /// A forge that refuses to post any text naming something of this machine's
 pub struct Guarded {
-    forge: Box<dyn Forge>,
+    forge: Arc<dyn Forge>,
     local: LocalPaths,
+    flock: Flock,
+    hooks: Hooks,
 }
 
 impl Guarded {
     /// `forge`, refusing posts that `local` finds something in
-    pub fn new(forge: Box<dyn Forge>, local: LocalPaths) -> Self {
-        Self { forge, local }
+    pub fn new(forge: Arc<dyn Forge>, local: LocalPaths) -> Self {
+        Self {
+            flock: Flock::new(Arc::clone(&forge)),
+            forge,
+            local,
+            hooks: Hooks::default(),
+        }
     }
 
-    // `what` names the field, so a refusal says which one to fix.
-    fn check(&self, what: &'static str, text: &str) -> Result<(), ForgeError> {
-        match self.local.find(text, Surface::Prose) {
-            Some(leak) => Err(ForgeError::LocalPath { what, leak }),
-            None => Ok(()),
-        }
+    /// This forge, also refusing posts that one of `hooks`' publish hooks refuses
+    #[must_use]
+    pub fn with_hooks(self, hooks: Hooks) -> Self {
+        Self { hooks, ..self }
+    }
+
+    /// This forge, also refusing a post to a public repo that names one of `repos`
+    /// which GitHub marks private
+    #[must_use]
+    pub fn with_flock(mut self, repos: Vec<ForgeSlug>) -> Self {
+        self.flock.repos = repos;
+        self
+    }
+
+    fn check(&self, repo: &ForgeSlug, what: &'static str, text: &str) -> Result<(), ForgeError> {
+        self.check_as(Role::Kelpie, repo, what, text)
+    }
+
+    fn check_as(
+        &self,
+        role: Role,
+        repo: &ForgeSlug,
+        what: &'static str,
+        text: &str,
+    ) -> Result<(), ForgeError> {
+        let checks = (&self.local, Some(&self.flock), &self.hooks);
+        check(checks, role, repo, what, text)
     }
 }
 
@@ -92,14 +189,25 @@ impl Forge for Guarded {
         self.forge.viewer()
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
-        self.check("the comment", body)?;
-        self.forge.comment(repo, number, body)
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.forge.comments_since(repo, since)
     }
 
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.check("the comment", body)?;
-        self.forge.post_comment(repo, number, body)
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.forge.can_write(repo, login)
+    }
+
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.forge.comment_marks(repo, comment)
+    }
+
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+        self.check(repo, "the comment", body)?;
+        self.forge.comment(repo, number, body)
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
@@ -113,14 +221,48 @@ impl Forge for Guarded {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
-        self.check("the issue's title", title)?;
-        self.check("the issue's body", body)?;
+        self.check(repo, "the issue's title", title)?;
+        self.check(repo, "the issue's body", body)?;
         self.forge.create_issue(repo, title, body, labels)
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
-        self.check("the comment", comment)?;
-        self.forge.close_issue(repo, number, comment)
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.forge.close_issue(repo, number)
+    }
+
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.check_as(Role::Worker, repo, "the pull request's title", title)?;
+        self.check_as(Role::Worker, repo, "the pull request's body", body)?;
+        self.forge
+            .create_pull_request(repo, head, base, title, body)
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check_as(Role::Worker, repo, "the pull request's title", title)?;
+        self.check_as(Role::Worker, repo, "the pull request's body", body)?;
+        self.forge.edit_pull_request(repo, number, title, body)
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.forge.failed_run_logs(repo, head, merge_group)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
@@ -160,6 +302,16 @@ impl Forge for Guarded {
         self.forge.resolve_thread(repo, thread)
     }
 
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check(repo, "the reply", body)?;
+        self.forge.reply_to_thread(repo, thread, body)
+    }
+
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.forge.merge(repo, number, head)
     }
@@ -170,6 +322,130 @@ impl Forge for Guarded {
 
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.disable_auto_merge(repo, number)
+    }
+
+    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        self.forge.rate_limit_reset()
+    }
+}
+
+/// A voice that refuses to write any text naming something of this machine's
+pub struct GuardedVoice {
+    voice: Arc<dyn Voice>,
+    local: LocalPaths,
+    flock: Option<Flock>,
+    hooks: Hooks,
+}
+
+impl GuardedVoice {
+    /// `voice`, refusing writes that `local` finds something in
+    pub fn new(voice: Arc<dyn Voice>, local: LocalPaths) -> Self {
+        Self {
+            voice,
+            local,
+            flock: None,
+            hooks: Hooks::default(),
+        }
+    }
+
+    /// This voice, also refusing writes that one of `hooks`' publish hooks refuses
+    #[must_use]
+    pub fn with_hooks(self, hooks: Hooks) -> Self {
+        Self { hooks, ..self }
+    }
+
+    /// This voice, also refusing a write to a public repo that names one of `repos`
+    /// which GitHub marks private, asking `forge` who can see each
+    #[must_use]
+    pub fn with_flock(self, repos: Vec<ForgeSlug>, forge: Arc<dyn Forge>) -> Self {
+        let mut flock = Flock::new(forge);
+        flock.repos = repos;
+        Self {
+            flock: Some(flock),
+            ..self
+        }
+    }
+
+    // Everything the App writes is kelpie's own text.
+    fn check(&self, repo: &ForgeSlug, what: &'static str, text: &str) -> Result<(), ForgeError> {
+        let checks = (&self.local, self.flock.as_ref(), &self.hooks);
+        check(checks, Role::Kelpie, repo, what, text)
+    }
+}
+
+impl fmt::Debug for GuardedVoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GuardedVoice").finish_non_exhaustive()
+    }
+}
+
+impl Voice for GuardedVoice {
+    fn covers(&self, repo: &ForgeSlug) -> bool {
+        self.voice.covers(repo)
+    }
+
+    fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError> {
+        self.voice.worker_token(repo)
+    }
+
+    fn comment(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<(), ForgeError> {
+        self.check(repo, "the comment", body)?;
+        self.voice.comment(repo, thread, body)
+    }
+
+    fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
+        self.check(repo, "the comment", body)?;
+        self.voice.post(repo, thread, body)
+    }
+
+    fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {
+        self.check(repo, "the comment", body)?;
+        self.voice.edit_comment(repo, comment, body)
+    }
+
+    fn thumbs_up(&self, repo: &ForgeSlug, comment: u64) -> Result<(), ForgeError> {
+        self.voice.thumbs_up(repo, comment)
+    }
+
+    fn create_issue(
+        &self,
+        repo: &ForgeSlug,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<u64, ForgeError> {
+        self.check(repo, "the issue's title", title)?;
+        self.check(repo, "the issue's body", body)?;
+        self.voice.create_issue(repo, title, body, labels)
+    }
+
+    fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
+        self.voice.resolve_thread(repo, thread)
+    }
+
+    fn reply_to_thread(
+        &self,
+        repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.check(repo, "the reply", body)?;
+        self.voice.reply_to_thread(repo, thread, body)
+    }
+
+    // A label's text is kelpie's own constants, which name no folder.
+    fn create_label(&self, repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
+        self.voice.create_label(repo, label)
+    }
+
+    fn set_issue_label(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        label: &str,
+        on: bool,
+    ) -> Result<(), ForgeError> {
+        self.voice.set_issue_label(repo, number, label, on)
     }
 }
 

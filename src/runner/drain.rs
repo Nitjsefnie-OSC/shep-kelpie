@@ -44,6 +44,8 @@ pub enum CallRole {
     Pm,
     /// The issue writer, labelling an issue
     IssueWriter,
+    /// The panel's experts, voting on a ruling
+    Panel,
 }
 
 impl Runner {
@@ -64,9 +66,16 @@ impl Runner {
         }
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
         let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
+        let retro = self
+            .flights
+            .retro_running()
+            .then_some(super::retro::CEILING);
+        let panel = (self.flights.panel_running()).then_some(super::panel::CEILING);
         let ceiling = (self.turn_ceiling().as_secs())
             .max(pm.unwrap_or(0))
-            .max(labelling.unwrap_or(0));
+            .max(labelling.unwrap_or(0))
+            .max(retro.unwrap_or(0))
+            .max(panel.unwrap_or(0));
         Some(Draining {
             calls: self.flights.running(),
             ceiling,

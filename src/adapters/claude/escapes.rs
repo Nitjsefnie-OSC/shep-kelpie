@@ -51,6 +51,7 @@ impl World {
             build_env: &BTreeMap::new(),
             shep_home: &self.path("shep"),
             door: &self.path("dog/lease.sock"),
+            token: None,
         };
         AgentCall {
             harness: crate::settings::AgentHarness::ClaudeCode,
@@ -65,8 +66,10 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
+            agent_tools: None,
             reach: profile.reach(),
             lease: None,
+            compact_window: None,
         }
     }
 
@@ -282,6 +285,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         build_env: &BTreeMap::new(),
         shep_home: &root.join("shep"),
         door: &root.join("dog/lease.sock"),
+        token: None,
     };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
     let cli = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone());
@@ -308,8 +312,10 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         ),
         plugin_dirs: Vec::new(),
         tools: Tools::Work,
+        agent_tools: None,
         reach: profile.reach(),
         lease: None,
+        compact_window: None,
     };
     cli.prepare(&call).unwrap();
     // A live call has five minutes, as a worker's turn has its ceiling.
@@ -340,15 +346,32 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     assert!(reply.text.contains("inside"), "{}", reply.text);
 }
 
+// Whether `curl`'s `%{http_connect}` shows the proxy refusing the CONNECT. srt
+// answers one to a host the policy does not list with a 403. A `curl` that
+// could not reach a proxy at all prints `000`, and fails the same way with no
+// network, so only the 403 shows the fence refused it.
+fn refused_by_the_proxy(connect_code: &str) -> bool {
+    connect_code.trim() == "403"
+}
+
+#[test]
+fn a_403_to_the_connect_is_the_proxys_refusal_and_a_failed_connect_is_not() {
+    // `curl -sS -w '%{http_connect}'` against a proxy that refuses, and with none to reach.
+    assert!(refused_by_the_proxy("403"));
+    assert!(!refused_by_the_proxy("000"));
+    assert!(!refused_by_the_proxy(""));
+}
+
 #[test]
 #[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
 fn a_host_not_allowed_and_a_socket_not_listed_are_refused() {
     let w = World::new();
-    let out = w.try_to("curl -sS -m 20 -o /dev/null -w '%{http_code}' https://example.com/");
+    let out = w.try_to("curl -sS -m 20 -o /dev/null -w '%{http_connect}' https://example.com/");
+    let code = String::from_utf8_lossy(&out.stdout);
     assert!(
-        !out.status.success(),
-        "example.com answered {:?}",
-        out.stdout
+        refused_by_the_proxy(&code),
+        "example.com was not refused by the proxy: {code:?}\n{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 
     let socket = w.path("outside/s.sock");

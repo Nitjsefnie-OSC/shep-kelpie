@@ -46,10 +46,16 @@ impl LocalReviewer {
     ) -> Result<Vec<Finding>, ReviewerError> {
         let head = super::head(worktree)?;
         let criteria = write_criteria(out, criteria)?;
+        // The script diffs the ref it is given against the worktree, so it
+        // gets the commit the branch started from, which `main` moving on
+        // leaves alone. A base git cannot resolve goes on as named: the
+        // script's own diff, or the hunk's, reports it.
+        let start = crate::worktree::change_start(worktree.repo, worktree.worktree, base)
+            .unwrap_or_else(|_| base.to_owned());
         let at = Round {
             script: &local.command,
             worktree,
-            base,
+            base: &start,
             head: &head,
             round,
             criteria: criteria.as_deref(),
@@ -70,6 +76,7 @@ impl LocalReviewer {
                     Err(e) => combined.push(Finding {
                         what: format!("not reviewed: {}", first_line(&e.to_string())),
                         why: "the hunk's review failed".into(),
+                        test: None,
                         ..finding
                     }),
                 }
@@ -163,14 +170,9 @@ impl LocalReviewer {
         let Linked { repo, worktree } = at.worktree;
         let diff = crate::worktree::trusted_command(repo, worktree)
             .map_err(|e| ReviewerError::Failed(e.to_string()))?
-            .args([
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                at.base,
-                "-U25",
-                "--",
-            ])
+            .args(["diff", "--no-ext-diff", "--no-textconv", "-U25"])
+            .arg(crate::worktree::change_since(at.base))
+            .arg("--")
             .arg(&skipped.file)
             .stdin(Stdio::null())
             .output()
@@ -475,8 +477,76 @@ esac
                 line: 5,
                 what: "leftover debug print".into(),
                 why: "noisy logs".into(),
+                test: None,
             }]
         );
+    }
+
+    #[test]
+    fn main_gaining_a_commit_after_the_branch_is_cut_leaves_a_skipped_files_hunk_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("review");
+        write_script(
+            &script,
+            "#!/bin/sh\nmkdir -p \"$QWEN_REVIEW_OUT\"\n\
+             case \"$*\" in\n\
+               *--files*) : > \"$QWEN_REVIEW_OUT/round-1.txt\" ;;\n\
+               *) printf 'LOW|big.rs:0|not reviewed: 900 lines exceeds the chunk limit|split it\\n' \\\n\
+                    > \"$QWEN_REVIEW_OUT/round-1.txt\" ;;\n\
+             esac\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+        let (checkout, worktree) = crate::test::linked_worktree(home.path());
+        crate::test::main_commits(&checkout, "big.rs", "fn old() {}\n");
+        crate::test::cut_from_main(&worktree);
+        std::fs::write(worktree.join("big.rs"), "fn old() {}\nfn new_one() {}\n").unwrap();
+        crate::test::git(&worktree, &["commit", "--quiet", "-am", "change"]);
+        crate::test::main_commits(&checkout, "big.rs", "fn only_main() {}\nfn old() {}\n");
+        let wt = (checkout, worktree);
+        let out = home.path().join("out");
+
+        LocalReviewer::default()
+            .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
+            .unwrap();
+
+        let hunk = std::fs::read_to_string(out.join("hunks/1/big.rs")).unwrap();
+        assert!(hunk.contains("+fn new_one() {}"), "{hunk}");
+        assert!(!hunk.contains("only_main"), "{hunk}");
+    }
+
+    // A stand-in that, like the qwen script, diffs the worktree against the
+    // ref it was given as `--diff`, and keeps the names of the files that differ.
+    #[test]
+    fn main_gaining_a_commit_after_the_branch_is_cut_leaves_the_ref_a_script_diffs_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("review");
+        write_script(
+            &script,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n\
+               case \"$1\" in --dir) dir=\"$2\" ;; --diff) ref=\"$2\" ;; esac\n\
+               shift\n\
+             done\n\
+             mkdir -p \"$QWEN_REVIEW_OUT\"\n\
+             git -C \"$dir\" diff --name-only \"$ref\" > \"$QWEN_REVIEW_OUT/changed\"\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt\"\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+        let (checkout, worktree) = crate::test::linked_worktree(home.path());
+        crate::test::main_commits(&checkout, "README.md", "readme\n");
+        crate::test::cut_from_main(&worktree);
+        std::fs::write(worktree.join("work.txt"), "work\n").unwrap();
+        crate::test::git(&worktree, &["add", "."]);
+        crate::test::git(&worktree, &["commit", "--quiet", "-m", "work"]);
+        crate::test::main_commits(&checkout, "only_main.txt", "only main has this\n");
+        let wt = (checkout, worktree);
+        let out = home.path().join("out");
+
+        LocalReviewer::default()
+            .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
+            .unwrap();
+
+        let changed = std::fs::read_to_string(out.join("changed")).unwrap();
+        assert_eq!(changed, "work.txt\n");
     }
 
     // A repo with no `origin/main`, so the `-U25` diff itself fails.
@@ -502,6 +572,7 @@ esac
             line: 0,
             what: "not reviewed: 900 lines exceeds the chunk limit".into(),
             why: "split the file or review it by hand".into(),
+            test: None,
         };
         assert_eq!(
             reviewer
@@ -566,6 +637,7 @@ esac
                     line: 9,
                     what: "a real finding".into(),
                     why: "it matters".into(),
+                    test: None,
                 },
                 Finding {
                     severity: Severity::Low,
@@ -575,6 +647,7 @@ esac
                             gpu.box port 8080"
                         .into(),
                     why: "the hunk's review failed".into(),
+                    test: None,
                 },
             ]
         );
@@ -649,6 +722,7 @@ esac
             line: 0,
             what: "not reviewed: 900 lines exceeds the chunk limit".into(),
             why: "split the file or review it by hand".into(),
+            test: None,
         };
         assert!(skip.is_skipped_for_size());
 

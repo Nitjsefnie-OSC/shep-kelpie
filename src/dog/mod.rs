@@ -11,6 +11,7 @@
 
 pub mod desk;
 mod door;
+mod e2e;
 pub mod left_over;
 mod link;
 pub mod triggers;
@@ -163,7 +164,10 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
 
 // Kelpie's section, for its leases. One that cannot be read holds them at
 // the default capacities.
-async fn settings(client: &ReconnectingClient) -> KelpieSettings {
+// A webhook's `ca_cert` that cannot be read stops the dog, since every
+// ruling's post would fail on it, and so does `trusted` with no `token`,
+// since replies would then be taken on a topic anyone can post to.
+async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
     let section = client.request(Request::DogConfig {
         name: crate::shepherd::DOG.into(),
     });
@@ -171,20 +175,28 @@ async fn settings(client: &ReconnectingClient) -> KelpieSettings {
         Ok(Response::DogSection { toml }) => toml.as_str().to_owned(),
         Ok(other) => {
             println!("no [kelpie] section in the shepherd's answer: {other:?}");
-            return KelpieSettings::default();
+            return Ok(KelpieSettings::default());
         }
         Err(e) => {
             println!("cannot read the [kelpie] section: {e}");
-            return KelpieSettings::default();
+            return Ok(KelpieSettings::default());
         }
     };
+    read_section(&text)
+}
+
+fn read_section(text: &str) -> Result<KelpieSettings, String> {
     if text.trim().is_empty() {
-        return KelpieSettings::default();
+        return Ok(KelpieSettings::default());
     }
-    KelpieSettings::from_section(&text).unwrap_or_else(|e| {
+    // The text is checked, not the settings, so a mistake elsewhere in the
+    // section that salvage works around cannot drop the certificate.
+    KelpieSettings::check_ca_cert(text).map_err(|e| e.to_string())?;
+    KelpieSettings::check_trusted(text).map_err(|e| e.to_string())?;
+    Ok(KelpieSettings::from_section(text).unwrap_or_else(|e| {
         println!("{e}");
-        salvage(&text)
-    })
+        salvage(text)
+    }))
 }
 
 // A section that does not parse whole: the `[leases]` table and the rest
@@ -222,7 +234,8 @@ async fn serve() -> Result<(), String> {
     if !shepherd.is_active() {
         return Err(no_channel());
     }
-    let socket = shep_home::required(shep_home::DOG_FIX)?.join("run/shep.sock");
+    let shep_home = shep_home::required(shep_home::DOG_FIX)?;
+    let socket = shep_home.join("run/shep.sock");
     let identity = link::identity();
     let listener = link::connect(&socket, &identity, "for events").await?;
     let client = link::connect(&socket, &identity, "for requests").await?;
@@ -242,20 +255,33 @@ async fn serve() -> Result<(), String> {
             .map_err(|e| format!("cannot make {}: {e}", folder.display()))?;
     }
     println!("the book is {}", file.path().display());
-    let settings = settings(&client).await;
+    let settings = settings(&client).await?;
     let mut kept = open(file, Box::new(SystemClock), lock, windows());
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
     let desk = Arc::new(Mutex::new(kept));
     // The other leases do not need the door, so the dog runs on without it.
     // It is bound before any handler can start a process that inherits it.
-    let opened = crate::lease::door::socket()
-        .and_then(|socket| door::open(&socket).map(|listener| (socket, listener)));
+    // The runner hands its workers the same door, or the default with this message.
+    let (socket, refused) = crate::lease::door::checked_socket(&shep_home);
+    if let Some(why) = refused {
+        println!("{why}");
+    }
+    let opened = door::open(&socket).map(|listener| (socket, listener));
     match opened {
         Ok((socket, listener)) => {
             println!("the door is {}, {capacity} at a time", socket.display());
             let grace = door::REJOIN_GRACE;
-            tokio::spawn(door::serve(listener, Arc::clone(&desk), grace));
+            // Never `KELPIE_HOME`: shep starts the adopted dog without it.
+            let home = home::under(&shep_home);
+            let remote = e2e::Remote::default();
+            tokio::spawn(door::serve(
+                listener,
+                Arc::clone(&desk),
+                grace,
+                home,
+                remote,
+            ));
         }
         Err(e) => {
             println!("{e}: cargo-test cannot be taken until the dog restarts");
@@ -586,6 +612,35 @@ mod tests {
         let settings = salvage(text);
         assert!(settings.gpu_metrics_url.is_some());
         assert_eq!(settings.leases.cargo_test_capacity().get(), 3);
+    }
+
+    #[test]
+    fn a_ca_cert_that_cannot_be_read_stops_the_dog_naming_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca = dir.path().join("s3cr3t-ca.pem");
+        let section = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"http://ntfy.tail1234.ts.net/t\"\n\
+             ca_cert = {:?}\n[leases]\ncargo-test = 5\n",
+            ca.display().to_string()
+        );
+        let err = read_section(&section).unwrap_err();
+        assert!(err.contains("`webhook.ca_cert`"), "{err}");
+        assert!(!err.contains("s3cr3t"), "{err}");
+
+        std::fs::write(&ca, "-----BEGIN CERTIFICATE-----\n").unwrap();
+        let settings = read_section(&section).unwrap();
+        assert_eq!(settings.leases.cargo_test_capacity().get(), 5);
+    }
+
+    #[test]
+    fn a_trusted_webhook_with_no_token_stops_the_dog_naming_the_key() {
+        let section = "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example/t\"\n\
+                       trusted = true\n[leases]\ncargo-test = 5\n";
+        let err = read_section(section).unwrap_err();
+        assert!(err.contains("`webhook.trusted`"), "{err}");
+
+        let with_token = section.replace("trusted", "token = \"tk_abc\"\ntrusted");
+        assert!(read_section(&with_token).unwrap().webhook.unwrap().trusted);
     }
 
     #[test]

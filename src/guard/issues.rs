@@ -20,6 +20,7 @@ use super::shell::{self, Command};
 use super::wrap::FUNCTION;
 use super::{Home, MAX_COMMANDS};
 use crate::confine::Verdict;
+use crate::hooks::{Hooks, Role};
 use crate::local_paths::LocalPaths;
 use gh::Gh;
 use ledger::Ledger;
@@ -27,7 +28,7 @@ use ledger::Ledger;
 mod gh;
 mod ledger;
 
-pub use ledger::record_issues;
+pub use ledger::{filed_in, record_issues};
 
 /// How the hook's command line names the status label the issue writer files with
 pub const ISSUES_FLAG: &str = "--issues=";
@@ -111,9 +112,23 @@ pub fn judge_issues(
     local: LocalPaths,
     rules: &IssueRules,
 ) -> Verdict {
+    judge_issues_with(input, home, local, &Hooks::default(), rules)
+}
+
+/// Judges the issue writer's tool call in `input` as [`judge_issues`] does,
+/// and also by the project's `publish` `hooks`, run on each issue it files
+pub fn judge_issues_with(
+    input: impl Read,
+    home: Option<&Path>,
+    local: LocalPaths,
+    hooks: &Hooks,
+    rules: &IssueRules,
+) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
         tool_name: String,
+        #[serde(default)]
+        cwd: std::path::PathBuf,
         #[serde(default)]
         tool_input: ToolInput,
     }
@@ -153,7 +168,7 @@ pub fn judge_issues(
              <<'EOF' ...)\"`."
         ));
     }
-    let home = Home::new(home, local);
+    let home = Home::new(home, local).with_hooks(hooks.clone());
     let ledger = Ledger::read(rules.ledger.as_deref());
     let mut refusals: Vec<String> = Vec::new();
     for command in &commands {
@@ -170,7 +185,8 @@ pub fn judge_issues(
         }
     }
     match refusals.is_empty() {
-        true => Verdict::Allow,
+        // What the writer may run is the project's to judge too, whole.
+        true => super::command_hooks(hooks, Role::IssueWriter, &line, &call.cwd, None),
         false => Verdict::Refuse(refusals.join("\n\n")),
     }
 }

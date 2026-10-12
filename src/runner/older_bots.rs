@@ -8,9 +8,10 @@
 //! say. With no bot listed, it owes none.
 
 use super::Runner;
+use super::thread_replies::Outcome;
 use crate::ports::Alert;
 use crate::state::{RulingKind, StateError};
-use crate::work_item::Phase;
+use crate::work_item::{Awaited, Phase};
 
 impl Runner {
     /// Settles what the work items an older state file loaded owe the
@@ -78,6 +79,8 @@ impl Runner {
         );
         let text = format!("Merge ruling {id} on {about} is withdrawn: {why}. Nothing to answer.");
         self.notes.push(text.clone());
+        self.say_settled(id, Outcome::withdrawn(why));
+        self.notice_on(number.unwrap_or(issue), &text);
         let Some(webhook) = self.webhook.clone() else {
             return;
         };
@@ -94,18 +97,25 @@ impl Runner {
 
     /// Whether the work item owes the listed bots a pass before its merge,
     /// and if so starts it, its other reviewers having read it
-    pub(super) fn bots_before_merge(&mut self) -> Result<bool, StateError> {
+    pub(super) fn bots_before_merge(&mut self, head: &str) -> Result<bool, StateError> {
         let owed = self.current().is_some_and(|item| item.bots_after_ci);
         if !owed {
             return Ok(false);
         }
         let listed = !self.listed_bots().is_empty();
+        // CI has just passed on `head`, which the bots wait for no more.
+        let ci = Awaited {
+            head: head.to_owned(),
+            since: self.ports.clock.now(),
+            green: true,
+        };
         self.update(|item| {
             item.bots_after_ci = false;
             if listed {
                 item.phase = Phase::Review(crate::work_item::Review {
                     bots_only: true,
                     unread: false,
+                    ci: Some(Box::new(ci)),
                     ..crate::work_item::Review::first()
                 });
             }

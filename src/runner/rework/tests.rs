@@ -68,6 +68,8 @@ fn a_rework_starts_on_the_pull_requests_branch_with_the_review_as_its_first_turn
             "Your work item reworks your pull request #71 for issue #7: Title of #7\n\n\
              Its latest review asks for changes, and is in {}. \
              Make the changes it asks for, then commit and push with `git push origin HEAD`. \
+             Update the pull request's body so it matches the head you push: what changed, \
+             the files touched, the test evidence, and the decisions you made. \
              Your branch is the pull request's as `origin` holds it, with any commits the \
              maintainer pushed. The pull request is already open, so do not open another.\n",
             path.display()
@@ -347,7 +349,7 @@ fn a_dropped_rework_leaves_its_issue_off_the_board() {
     assert_eq!(status["work_item"], json!(null));
     assert_eq!(
         status["skipped"],
-        json!([{ "reason": "finished", "issue": 7 }])
+        json!([{ "reason": "dropped", "issue": 7 }])
     );
     assert!(
         rig.forge.head_of("kelpie/7").is_some(),

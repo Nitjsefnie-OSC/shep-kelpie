@@ -49,6 +49,12 @@ impl WorkItem {
                     | ReviewStage::Settling { .. },
                 ..
             }) => TimingPhase::Review,
+            // The round waits for the run on the head its reviewer would read.
+            Phase::Review(Review {
+                stage: ReviewStage::Round,
+                ci: Some(ci),
+                ..
+            }) if !ci.green => TimingPhase::Ci,
             Phase::Implement | Phase::Review(_) => TimingPhase::Other,
             Phase::Ci { .. } => TimingPhase::Ci,
             Phase::Merge { .. } | Phase::Done { .. } => TimingPhase::Merge,
@@ -71,6 +77,7 @@ mod tests {
     use super::*;
     use crate::review_bot::Bot;
     use crate::test::a_work_item;
+    use crate::work_item::Awaited;
 
     fn in_phase(phase: Phase) -> WorkItem {
         let mut item = a_work_item();
@@ -154,6 +161,7 @@ mod tests {
             at: Timestamp(1),
             full: false,
             resent: false,
+            failed: false,
         });
         let fixing = bot(ReviewStage::Fixing {
             head: Some("c0ffee".into()),
@@ -169,16 +177,38 @@ mod tests {
             stage: ReviewStage::Round,
             ..Review::first()
         });
+        let awaited = |green| {
+            Phase::Review(Review {
+                ci: Some(Box::new(Awaited {
+                    head: "c0ffee".into(),
+                    since: Timestamp(1),
+                    green,
+                })),
+                ..Review::first()
+            })
+        };
         let of = |phase| in_phase(phase).timing_phase(false);
         let mut waiting = in_phase(merge.clone());
         waiting.seat = crate::work_item::Seat::Waiting;
         assert_eq!(waiting.timing_phase(false), TimingPhase::Other);
         assert_eq!(of(ci), TimingPhase::Ci);
+        assert_eq!(
+            of(awaited(false)),
+            TimingPhase::Ci,
+            "a round waiting for the run its reviewer would read"
+        );
+        assert_eq!(of(awaited(true)), TimingPhase::Other, "between reviewers");
         assert_eq!(of(lease), TimingPhase::Review);
         assert_eq!(of(summoned), TimingPhase::Review);
         assert_eq!(of(Phase::Ruling { id: 1 }), TimingPhase::Ruling);
         assert_eq!(of(merge), TimingPhase::Merge);
-        assert_eq!(of(Phase::Done { merged: true }), TimingPhase::Merge);
+        assert_eq!(
+            of(Phase::Done {
+                merged: true,
+                closed: false
+            }),
+            TimingPhase::Merge
+        );
         for between_steps in [Phase::Implement, review, fixing] {
             assert_eq!(of(between_steps), TimingPhase::Other);
         }

@@ -1,9 +1,10 @@
 //! Each step's skill, `[app.dogs.kelpie.skills]`
 //!
 //! A step left out runs its default from kelpie's vendored copy of
-//! mattpocock/skills. A project points a step at a skill folder of its own,
-//! at a skill in a Claude Code plugin, or at none, which runs kelpie's own
-//! prompt. `crate::skills` says which step is which.
+//! mattpocock/skills, except `retro`, which is off unless named. A project
+//! points a step at a skill folder of its own, at a skill in a Claude Code
+//! plugin, at kelpie's copy, or at none, which runs kelpie's own prompt and
+//! turns the retro off. `crate::skills` says which step is which.
 
 use std::path::PathBuf;
 
@@ -37,7 +38,7 @@ pub struct StepSkills {
     /// A session reset's handoff, `handoff` by default
     #[serde(default)]
     pub reset: Option<SkillChoice>,
-    /// A retro for the lessons file, `retro` by default
+    /// A finished work item's retro, off by default
     #[serde(default)]
     pub retro: Option<SkillChoice>,
 }
@@ -76,7 +77,7 @@ impl StepSkills {
             .filter_map(|choice| match choice {
                 Some(SkillChoice::Path { path }) => Some(path),
                 Some(SkillChoice::Plugin { plugin, .. }) => Some(plugin),
-                Some(SkillChoice::None {}) | None => None,
+                Some(SkillChoice::None {} | SkillChoice::Kelpie {}) | None => None,
             })
     }
 }
@@ -85,8 +86,11 @@ impl StepSkills {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum SkillChoice {
-    /// No skill: kelpie's own prompt
+    /// No skill: kelpie's own prompt, and no retro at all for `retro`
     None {},
+    /// The step's default skill from kelpie's vendored copy, which is what a
+    /// step left out runs, except `retro`, which is off when left out
+    Kelpie {},
     /// A skill folder holding a `SKILL.md`. A leading `~/` is the home
     /// folder, and a relative path is taken from the settings file's folder.
     Path {

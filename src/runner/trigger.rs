@@ -12,17 +12,19 @@ use super::pace::PacerStatus;
 use super::{Answer, Runner};
 use crate::board::Skip;
 use crate::lease::gpu::LockHolder;
-use crate::ports::{ModelSeat, SessionId};
+use crate::ports::{ModelSeat, SessionId, Timestamp};
 use crate::review_bot::Bot;
-use crate::settings::{AgentName, Merging};
-use crate::skills::StepSkill;
+use crate::settings::{AgentName, Merging, PerItemUsd};
+use crate::skills::{RepoPlugin, StepSkill};
 use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
-use crate::work_item::{Attached, BotSkipped, Phase, QwenTally, Spend, Split, Turn, WorkItem};
+use crate::work_item::{
+    Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
+};
 
 /// The triggers a runner answers
-pub const ACTIONS: [&str; 14] = [
+pub const ACTIONS: [&str; 17] = [
     "status", "add", "rework", "adopt", "rule", "gate", "drop", "timings", "attach", "detach",
-    "tell", "pm", "drain", "undrain",
+    "tell", "pm", "drain", "undrain", "finish", "start", "pausing",
 ];
 
 /// How many finished work items `timings` totals when given no count
@@ -30,6 +32,9 @@ const TIMINGS_DEFAULT: usize = 10;
 
 /// How many finished work items `status` lists
 pub(super) const STATUS_HISTORY: usize = 10;
+
+/// How many issues of the board's order `status` lists
+pub(super) const STATUS_ORDER: usize = 5;
 
 /// What `attach` and `detach` take, as their refusals say
 const ATTACH_USAGE: &str = "takes an issue number and the attaching process's pid, and \
@@ -72,10 +77,17 @@ pub struct Status<'a> {
     pub pending_rulings: u32,
     /// Pull requests adopted and waiting for a free slot, oldest first
     pub adopted: &'a [Waiting],
+    /// The first issues in the order the board takes the ready ones, which
+    /// holds those it would pass over too
+    pub order: &'a [u64],
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: &'a [Ruling],
+    /// How the panel stands against the maintainer's answers, when the
+    /// project has one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub panel: Option<super::panel::Standing>,
     /// Leases held
     pub leases: &'a [LeaseHeld],
     /// The most recent finished work items, oldest first
@@ -84,6 +96,10 @@ pub struct Status<'a> {
     pub pacer: PacerStatus<'a>,
     /// The skill each step runs, and why any chosen one could not load
     pub skills: &'a [StepSkill],
+    /// The plugins the repo turns on, with their skills or why each was
+    /// skipped; left out when it turns on none
+    #[serde(skip_serializing_if = "<[RepoPlugin]>::is_empty")]
+    pub plugins: &'a [RepoPlugin],
     /// Where the local model sat when a round last looked, when there was
     /// an Ollama host to ask
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +120,14 @@ pub struct Status<'a> {
     /// The calls still running, while `drain` holds back new ones
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draining: Option<super::Draining>,
+    /// Whether `finish` holds the board back, or the runner finished and
+    /// waits for its sheep to stop
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<super::Run>,
+    /// Until when the runner makes no forge call, the forge's rate limit
+    /// used up, in seconds since the Unix epoch; left out when it makes them
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forge_held_until: Option<Timestamp>,
 }
 
 /// The local model's placement, as Ollama's `/api/ps` last said
@@ -178,6 +202,8 @@ pub struct WorkItemStatus<'a> {
     pub unpriced_calls: usize,
     /// Calls and cost by role
     pub by_role: Spend,
+    /// What its priced calls have cost against its cap, in US dollars
+    pub budget: BudgetStatus,
     /// Its qwen rounds, which cost no money
     pub qwen: QwenTally,
     /// The maintainer's `attach` holding it, while one does
@@ -194,6 +220,10 @@ pub struct WorkItemStatus<'a> {
     /// Why its last review pass ended with no reviewer having read it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unreviewed: Option<&'a str>,
+    /// What kelpie ran of the tests reviewers attached to findings: the
+    /// outcome before the fix and after it, per finding
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub test_checks: &'a [TestCheck],
     /// Where its wall time went, and the phase it is in now
     pub timings: Split,
 }
@@ -203,8 +233,9 @@ fn is_zero(n: &usize) -> bool {
 }
 
 impl<'a> WorkItemStatus<'a> {
-    /// `item` as `status` shows it, with its time read as `timings`
-    pub(super) fn new(item: &'a WorkItem, timings: Split) -> Self {
+    /// `item` as `status` shows it, against a cap of `per_item` before any
+    /// raise, and with its time read as `timings`
+    pub(super) fn new(item: &'a WorkItem, per_item: PerItemUsd, timings: Split) -> Self {
         Self {
             issue: item.issue,
             title: &item.title,
@@ -224,14 +255,28 @@ impl<'a> WorkItemStatus<'a> {
             cost_usd: item.cost().usd(),
             unpriced_calls: item.calls.iter().filter(|c| c.unpriced).count(),
             by_role: item.spend(),
+            budget: BudgetStatus {
+                spent_usd: item.priced().total().usd(),
+                cap_usd: item.budget_cap(per_item).usd(),
+            },
             qwen: item.qwen,
             attached: item.attached.as_ref(),
             local_reviewers_down: item.local_reviewers_down(),
             reviewers_skipped: &item.reviewers_skipped,
             unreviewed: item.unreviewed.as_deref(),
+            test_checks: &item.test_checks,
             timings,
         }
     }
+}
+
+/// A work item's priced spend against its cap, as `status` shows it
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct BudgetStatus {
+    /// What its worker's and reviewers' priced calls have cost
+    pub spent_usd: f64,
+    /// What they may cost before its worker's next turn waits on a ruling
+    pub cap_usd: f64,
 }
 
 /// A trigger, read
@@ -251,6 +296,9 @@ enum Request {
     PmDetach(u32),
     Drain,
     Undrain,
+    Finish,
+    Start,
+    Pausing,
 }
 
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
@@ -268,7 +316,9 @@ enum Request {
 /// same pids and answers [`PmAttaching`](super::PmAttaching) for `attach`,
 /// and every other action takes nothing. `drain` holds back every new call
 /// and answers the status with the calls still running, and `undrain` lets
-/// calls start again.
+/// calls start again. `finish` holds the board back until the open work
+/// items end, `start` lets it pick again, and `pausing`, which `pause` sends
+/// before its stop, clears the saved `finishing` so the runner comes back picking.
 pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> String {
     let error = |message: String| serde_json::json!({ "error": message }).to_string();
     let request = match read(action, params.map(str::trim).filter(|p| !p.is_empty())) {
@@ -307,6 +357,9 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
             runner.undrain();
             Ok(())
         }
+        Request::Finish => runner.begin_finishing().map_err(|e| e.to_string()),
+        Request::Start => runner.cancel_finishing().map_err(|e| e.to_string()),
+        Request::Pausing => runner.pausing().map_err(|e| e.to_string()),
         Request::Add(issue) => runner.add(issue).map(drop).map_err(|e| e.to_string()),
         Request::Rework(number) => runner.rework(number).map(drop).map_err(|e| e.to_string()),
         Request::Adopt(number) => runner.adopt(number).map_err(|e| e.to_string()),
@@ -323,6 +376,15 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
         }
         (Err(e), _) => error(e),
     }
+}
+
+/// Whether `action` asks the runner's loop for a pass
+///
+/// `status` and `timings` only ask, and `drain` only sets what the next
+/// pass reads, so none wakes the loop: a drain's wait asks `drain` and
+/// `status` twice a second. `undrain` wakes it, to start the calls it lets go.
+pub fn wakes(action: &str) -> bool {
+    !matches!(action, "status" | "timings" | "drain")
 }
 
 fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
@@ -391,6 +453,9 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
         ("drop", None) => Ok(Request::Drop(None)),
         ("drain", None) => Ok(Request::Drain),
         ("undrain", None) => Ok(Request::Undrain),
+        ("finish", None) => Ok(Request::Finish),
+        ("start", None) => Ok(Request::Start),
+        ("pausing", None) => Ok(Request::Pausing),
         (_, None) => Ok(Request::Status),
     }
 }
@@ -580,6 +645,7 @@ mod tests {
     #[test]
     fn a_new_project_has_nothing_in_flight() {
         let rig = Rig::new("koji");
+        rig.retro_on();
         let runner = rig.open().unwrap();
         assert_eq!(
             rig.ask(&runner, "status", None),
@@ -594,6 +660,7 @@ mod tests {
                 "parked": [],
                 "pending_rulings": 2,
                 "adopted": [],
+                "order": [],
                 "skipped": [],
                 "rulings": [],
                 "leases": [],
@@ -655,7 +722,7 @@ mod tests {
         );
         assert_eq!(
             rig.ask(&runner, "rule", Some("1 yes")),
-            json!({ "error": "no ruling 1 is pending" })
+            json!({ "error": "ruling 1 is already answered, or was never raised" })
         );
         assert_eq!(
             rig.ask(&runner, "rule", None),

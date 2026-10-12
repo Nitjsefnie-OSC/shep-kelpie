@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Cost, Role, Session, Severity};
+use crate::ports::{Cost, Role, Session, SessionId, Severity, Usage};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -92,6 +92,7 @@ fn a_review_saved_after_its_last_reviewer_goes_on_to_ci() {
     });
     std::fs::write(&state, saved.to_string()).unwrap();
 
+    rig.ci_on();
     let runner = rig.open().unwrap();
     step(&runner).unwrap();
     assert_eq!(
@@ -113,6 +114,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         },
         Finding {
             severity: Severity::Low,
@@ -120,6 +122,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             line: 9,
             what: "unused variable".into(),
             why: "dead code".into(),
+            test: None,
         },
     ])]);
     let report = step(&runner).unwrap(); // round 1's qwen call
@@ -173,6 +176,8 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             pull_request: 71,
             round: 1,
             head: fixed,
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     step(&runner).unwrap(); // round 2, claude: scripted clean above
@@ -523,4 +528,309 @@ fn a_claude_round_stopped_with_the_runner_runs_again_on_restart() {
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
         "ci"
     );
+}
+
+const DOLLAR: u64 = 1_000_000_000;
+
+// Issue 7 in review of pull request 71 under `budget.per_item_usd = 5`, the
+// worker having pushed
+fn in_review_under_a_five_dollar_cap(project: &str) -> (Rig, std::sync::Mutex<Runner>) {
+    let rig = Rig::new(project);
+    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    (rig, runner)
+}
+
+// A priced worker call that cost `usd` dollars, as a turn kelpie ran would leave
+fn spend(runner: &std::sync::Mutex<Runner>, usd: u64) {
+    let session = SessionId("spent".into());
+    let cost = Some(Cost(usd * DOLLAR));
+    let call = |item: &mut WorkItem| {
+        item.record_call(Role::Worker, Timestamp(1), session, Usage::default(), cost);
+    };
+    runner.lock().unwrap().update(call).unwrap();
+}
+
+fn reviewer_calls(rig: &Rig) -> usize {
+    let calls = rig.claude.all_calls();
+    calls.iter().filter(|c| c.role == Role::Reviewer).count()
+}
+
+#[test]
+fn a_local_round_does_not_start_past_the_cap() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+
+    let Some(StepReport::Failed {
+        issue: 7,
+        pull_request: Some(71),
+        id: 1,
+        ..
+    }) = step(&runner).unwrap()
+    else {
+        panic!("the round was not parked");
+    };
+    assert!(
+        rig.reviewer.seen().is_empty(),
+        "the local round did not run"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ruling");
+    let kind = &status["rulings"][0]["kind"];
+    assert_eq!(kind["reason"], "over-budget");
+    let phase = &kind["phase"];
+    assert_eq!(
+        (&phase["state"], &phase["round"], &phase["stage"]),
+        (&json!("review"), &json!(1), &json!({ "stage": "round" })),
+        "the ruling names the review stage the round was in"
+    );
+}
+
+#[test]
+fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    spend(&runner, 6);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Failed { issue: 7, .. })
+    ));
+    assert_eq!(reviewer_calls(&rig), 0, "round 2 did not start");
+
+    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    let phase = &rig.ask(&runner, "status", None)["work_item"]["phase"];
+    assert_eq!(phase["state"], "review", "{phase}");
+    assert_eq!(phase["round"], 2, "the same round is due again: {phase}");
+
+    step(&runner).unwrap();
+    assert_eq!(reviewer_calls(&rig), 1, "round 2 ran at the doubled cap");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "ci"
+    );
+}
+
+#[test]
+fn the_question_for_a_round_past_the_cap_names_the_round_and_not_a_worker_turn() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+        panic!("the round was not parked");
+    };
+    assert_eq!(
+        question,
+        "The work on pull request #71 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
+         the reviewers $0.00, so the review round has not started. \
+         `shep kelpie rule 1 yes` raises the cap to $10.00 and the round starts, and \
+         `shep kelpie rule 1 no <note>` sends the worker your note, raises the cap the same \
+         and has the pull request reviewed again."
+    );
+    drop(rig);
+}
+
+#[test]
+fn a_no_on_a_round_past_the_cap_sends_the_worker_the_note_and_reviews_again() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    step(&runner).unwrap(); // parked before round 1
+    rig.claude.script([Scripted::Push("more.txt", "more\n")]);
+    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+
+    step(&runner).unwrap(); // the worker's fix turn
+    let sent = rig.claude.calls();
+    let note = sent.last().unwrap();
+    assert!(note.prompt.contains("rename the flag"), "{}", note.prompt);
+    assert!(
+        rig.reviewer.seen().is_empty(),
+        "no round ran before the fix"
+    );
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "review",
+        "the pull request goes through the review again"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_round_under_the_cap_starts_as_before() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 5);
+    rig.claude.script([Scripted::Text("CLEAN")]);
+
+    step(&runner).unwrap(); // round 1, qwen
+    step(&runner).unwrap(); // round 2, claude
+    assert_eq!(
+        rig.reviewer.seen().len(),
+        1,
+        "exactly the cap is not over it"
+    );
+    assert_eq!(reviewer_calls(&rig), 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "ci"
+    );
+}
+
+// Round 2, the claude reviewer's, is next, and the project asks for tests.
+fn at_round_2_asking_tests() -> (Rig, std::sync::Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    (rig, runner)
+}
+
+fn kept_tests(rig: &Rig) -> std::path::PathBuf {
+    rig.paths().worker.join("review-tests-7")
+}
+
+// The one finding the claude round holds after its reply, and the findings
+// file the worker is sent.
+fn held_after(rig: &Rig, runner: &std::sync::Mutex<Runner>) -> (Finding, String) {
+    step(runner).unwrap(); // round 2, claude
+    step(runner).unwrap(); // the findings sent
+    let held = runner.lock().unwrap().state.work_items[0].held.clone();
+    assert_eq!(held.len(), 1, "{held:?}");
+    let text = std::fs::read_to_string(rig.build_7().join("review-findings.md")).unwrap();
+    (held[0].clone(), text)
+}
+
+const FLAG_FINDING: &str = "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing";
+
+#[test]
+fn an_attached_file_is_kept_for_its_finding() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::Attach(
+        "tests/flag.rs",
+        "#[test]\nfn flag_is_read() { assert!(false); }\n",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test.as_deref(), Some("tests/flag.rs"));
+    assert_eq!(found.why, "a caller sees nothing");
+    assert!(
+        text.contains(&format!("{FLAG_FINDING}|tests/flag.rs")),
+        "{text}"
+    );
+    let kept = std::fs::read_to_string(kept_tests(&rig).join("tests/flag.rs")).unwrap();
+    assert!(kept.contains("flag_is_read"), "{kept}");
+    let original = rig.build_7().join("review-tests/tests/flag.rs");
+    assert_eq!(std::fs::read_to_string(original).unwrap(), kept);
+}
+
+#[test]
+fn a_later_reviewers_first_look_keeps_the_tests_kept_before() {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    rig.write_agent("second", crate::test::CLAUDE_REVIEWER);
+    rig.reviewers(&["claude", "second"]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Attach(
+            "tests/flag.rs",
+            "#[test]\nfn flag_is_read() { assert!(false); }\n",
+            "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+        ),
+    ]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, the first claude reviewer
+    step(&runner).unwrap(); // its findings sent
+    let kept = kept_tests(&rig).join("tests/flag.rs");
+    assert!(kept.is_file(), "the first reviewer's test is kept");
+
+    rig.claude.script([
+        Scripted::Push("fixed.txt", "fixed\n"),
+        Scripted::Text("CLEAN"),
+    ]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap(); // the fix pushed
+    step(&runner).unwrap(); // round 2, the second claude reviewer
+
+    assert_eq!(
+        rig.claude.all_seen().len(),
+        4,
+        "worker, reviewer, fix, reviewer"
+    );
+    assert!(kept.is_file(), "a later reviewer's first look keeps it");
+    let held = runner.lock().unwrap().state.work_items[0].held.clone();
+    assert_eq!(held[0].test.as_deref(), Some("tests/flag.rs"));
+}
+
+#[test]
+fn a_missing_file_costs_its_finding_only_the_test() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::Text(
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert_eq!(found.what, "the flag is read first");
+    // The reviewer may have meant a pipe in its why, so no word of it is lost.
+    assert_eq!(found.why, "a caller sees nothing|tests/flag.rs");
+    assert!(
+        text.contains(&format!("{FLAG_FINDING}|tests/flag.rs")),
+        "{text}"
+    );
+    assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("tests/flag.rs"), "{notes}");
+    assert!(notes.contains("no such file"), "{notes}");
+}
+
+#[test]
+fn a_path_the_worktree_already_holds_costs_its_finding_only_the_test() {
+    let (rig, runner) = at_round_2_asking_tests();
+    // `work.txt` is on the branch the reviewer reads.
+    rig.claude.script([Scripted::Attach(
+        "work.txt",
+        "not the work\n",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|work.txt",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert_eq!(found.why, "a caller sees nothing");
+    assert!(!text.contains("work.txt"), "{text}");
+    assert!(!kept_tests(&rig).join("work.txt").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("already holds"), "{notes}");
+    let work = std::fs::read_to_string(rig.worktree_7().join("work.txt")).unwrap();
+    assert_eq!(work, "work\n", "the branch's file is as it was");
+}
+
+#[test]
+fn a_linked_test_file_is_refused() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::AttachLinked(
+        "tests/flag.rs",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert!(!text.contains("tests/flag.rs"), "{text}");
+    assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("tests/flag.rs"), "{notes}");
 }

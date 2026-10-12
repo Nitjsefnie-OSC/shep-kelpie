@@ -80,12 +80,14 @@ pub(super) fn old_home(
     lines
 }
 
-/// Every check for the project on `sheep`, whose table is `table`
+/// Every check for the project on `sheep`, whose table is `table` and whose
+/// entry backs the names `env` with secrets in its `env`
 ///
 /// A table that does not load is the one line: nothing else can be read from it.
 pub(super) fn checks(
     sheep: &str,
     table: &Map<String, Value>,
+    env: &[String],
     probes: Probes<'_>,
     here: Here<'_>,
     kelpie: Option<&KelpieSettings>,
@@ -109,15 +111,33 @@ pub(super) fn checks(
     };
     let (line, remote) = checkout(at("checkout"), &settings);
     let mut lines = vec![line];
+    lines.extend(super::ci::drafts(at("ci on drafts"), &settings));
     if settings.worker.instructions_file.is_some() {
         lines.push(instructions(at("instructions"), &settings));
     }
+    lines.extend(super::e2e::line(at("e2e"), &settings, probes.host));
+    lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.
     if let Some(repo) = &remote {
         let coderabbit = coderabbit_listed(&settings, &book, here.home);
         lines.extend(forge_lines(&at, repo, &settings, coderabbit, probes));
+        let (line, covered) = super::github::app(at("github app"), repo, probes.github);
+        lines.push(line);
+        lines.push(super::github::workers(at("workers"), repo, probes.github));
+        lines.extend(super::github::maintainer(
+            at("maintainer"),
+            covered,
+            &settings,
+            probes.forge,
+        ));
+        lines.extend(super::machine::login(
+            at("claude login"),
+            covered,
+            env,
+            probes.host,
+        ));
     }
     lines.push(reviewers(at("reviewers"), &settings, (&book, here), probes));
     if let Some(kelpie) = kelpie.filter(|_| spends_codex(&settings, &book, here)) {
@@ -134,6 +154,31 @@ pub(super) fn checks(
         lines.push(rulings::channel(at("rulings"), kelpie));
     }
     lines
+}
+
+// The plugins the repo turns on, as a runner starting now would load them
+// from the marketplaces it has fetched: nothing where the repo turns on none.
+// A plugin left out never fails the run, since the runner goes on without it.
+fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<Line> {
+    let plugins = crate::skills::inspect(&settings.git.checkout, here.kelpie_home);
+    if plugins.is_empty() {
+        return None;
+    }
+    // Every plugin, so the line shows what a runner would load as well as what it would not.
+    let parts: Vec<String> = (plugins.iter())
+        .map(|p| match &p.skipped {
+            Some(why) => format!("{} is skipped: {why}", p.plugin),
+            None => format!("{} ({})", p.plugin, p.skills.join(", ")),
+        })
+        .collect();
+    if plugins.iter().all(|p| p.skipped.is_none()) {
+        return Some(Line::ok(subject, format!("loads {}", parts.join("; "))));
+    }
+    Some(Line::unsure(
+        subject,
+        parts.join("; "),
+        "correct the repo's .claude/settings.json on its default branch, or let a runner fetch the marketplace by starting it",
+    ))
 }
 
 // Push access, the labels, and the review bot where CodeRabbit is listed:

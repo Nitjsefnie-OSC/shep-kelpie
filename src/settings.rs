@@ -21,23 +21,32 @@ mod table;
 
 pub use table::table_of;
 mod agents;
+mod budget;
 mod ci;
+mod domains;
+mod e2e;
 mod gateway;
 mod git;
+mod hooks;
 mod local;
 mod removed;
 mod reviewers;
+mod rulings;
 mod skills;
 
 pub use agents::{
-    Account, AgentHarness, AgentName, Harness, Implementer, Limit, ModelServer, PmAgent,
-    RoleAgentNames, RoleAgents, UsageReader,
+    Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
+    PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
-pub use ci::{Ci, Concurrency, FixAttempts};
+pub use budget::{Budget, PerItemUsd};
+pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
+pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
-pub use git::{Filing, Git, Merging};
+pub use git::{Filing, Git, GithubLogin, Merging};
+pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
+pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
 
 /// Everything kelpie reads about one project
@@ -55,6 +64,10 @@ pub struct Settings {
     /// before the board opens no more. Its defaults when absent.
     #[serde(default)]
     pub concurrency: Concurrency,
+    /// What one work item may spend before kelpie raises a ruling. Its default
+    /// when absent.
+    #[serde(default)]
+    pub budget: Budget,
     /// The agents that build the project's work items and review its pull
     /// requests, from kelpie's agent files
     #[serde(default)]
@@ -63,9 +76,27 @@ pub struct Settings {
     pub pacing: Pacing,
     /// What every worker is started with
     pub worker: Worker,
+    /// What the researcher may read besides what kelpie writes for it
+    #[serde(default)]
+    pub researcher: Researcher,
+    /// Whether the panel decides a ruling, and which kinds the project
+    /// manager decides alone. Its defaults when absent.
+    #[serde(default)]
+    pub rulings: Rulings,
+    /// The project's own hooks, which kelpie runs at its own points for
+    /// every harness and role. Each must resolve when the runner starts.
+    /// Empty when absent.
+    #[serde(default)]
+    pub hooks: Vec<ProjectHook>,
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
+    /// The host that runs the project's end-to-end tests for a worker, whose
+    /// sandbox cannot. It must be disposable: the project's script runs there
+    /// as the ssh alias's account, and a worker edits that script. None when
+    /// absent, and a worker asking for a run is told the project has none.
+    #[serde(default)]
+    pub e2e: Option<E2e>,
 }
 
 pub use removed::removed_command;
@@ -289,8 +320,8 @@ const REMOVED: &[Removed] = &[
     Removed {
         key: "private_names",
         because: "kelpie no longer checks text for the project's own words",
-        fix: "guard a worker's commits and posts with a hook in `worker.guard_hooks`, \
-              and delete it",
+        fix: "check text for the project's own words with a hook in `hooks`, which \
+              kelpie runs for every harness and role, and delete it",
     },
     Removed {
         key: "skills.ci",
@@ -314,6 +345,11 @@ pub struct RoleModel {
     #[serde(skip)]
     #[schemars(skip)]
     pub harness: AgentHarness,
+    /// The tools its agent file names for a Claude Code session, as
+    /// `claude --tools` takes them, in place of the role's own
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub tools: Option<NonBlank>,
 }
 
 /// A Claude effort level
@@ -371,13 +407,36 @@ fn default_pacing_enabled() -> bool {
     true
 }
 
+/// What the researcher, one of the experts who vote on each ruling, may read
+/// beyond what kelpie writes into its folder
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Researcher {
+    /// Folders of the maintainer's own agent sessions for this project,
+    /// which the researcher reads, read only. Each is a harness's folder of
+    /// sessions, such as one under `~/.claude/projects`; `~/` is the home
+    /// folder, and a relative path is taken from the project's folder in
+    /// kelpie's home. Off while empty, which it is when absent.
+    #[serde(default)]
+    pub transcripts: Vec<PathBuf>,
+    /// Domains the researcher's web fetch may reach, such as a library's
+    /// docs. Its web search needs none. Each is a host with an optional
+    /// leading `*.` and `:port`, as in `worker.allowed_domains`. Empty when
+    /// absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
+    pub allowed_domains: Vec<NonBlank>,
+}
+
 /// What every worker is started with
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Worker {
     /// Domains the worker's sandbox may reach besides GitHub, such as a
-    /// package registry. Empty when absent.
-    #[serde(default)]
+    /// package registry. Each is a host such as `crates.io`, with one
+    /// optional leading `*.` label (`*.crates.io`) and an optional `:port`.
+    /// A `*` anywhere else, a scheme or a path is refused when the settings
+    /// load, since the sandbox would refuse to start. Empty when absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
     /// Environment variables set to a folder inside the worker's build
     /// folder, for tool caches the sandbox would refuse elsewhere. Empty when
@@ -390,18 +449,29 @@ pub struct Worker {
     /// None when absent.
     #[serde(default)]
     pub instructions_file: Option<PathBuf>,
-    /// The project's own hooks, copied into each worker's settings file
-    /// after kelpie's guard. Each must resolve when the runner starts.
-    /// Empty when absent.
+    /// The project's own Claude Code hooks, copied into each worker's
+    /// settings file after kelpie's guard. Only a worker on Claude Code runs
+    /// them; `hooks` runs for every harness and role. Each must resolve when
+    /// the runner starts. Empty when absent.
     #[serde(default)]
     pub guard_hooks: Vec<GuardHook>,
     /// Minutes a worker's turn may run before kelpie stops it and parks it
     /// on a ruling, keeping its session. 60 when absent.
     #[serde(default = "default_turn_timeout")]
     pub turn_timeout: NonZeroU32,
+    /// Tokens of context at which Claude Code compacts a worker's session in
+    /// the middle of a turn. 200000 when absent; 0 leaves Claude Code to
+    /// compact near the model's own window.
+    #[serde(default = "default_compact_window")]
+    pub compact_window: u32,
 }
 
-/// The design log's default for `worker.turn_timeout`, in minutes
+/// The design's default for `worker.compact_window`, in tokens
+fn default_compact_window() -> u32 {
+    200_000
+}
+
+/// The design's default for `worker.turn_timeout`, in minutes
 fn default_turn_timeout() -> NonZeroU32 {
     NonZeroU32::MIN.saturating_add(59)
 }
@@ -522,6 +592,11 @@ impl ForgeSlug {
     /// The repo's name, without its owner
     pub fn name(&self) -> &str {
         self.0.split_once('/').map_or(&self.0, |(_, name)| name)
+    }
+
+    /// The repo's owner, a user or an organization
+    pub fn owner(&self) -> &str {
+        self.0.split_once('/').map_or(&self.0, |(owner, _)| owner)
     }
 }
 
@@ -651,6 +726,7 @@ impl Settings {
         [self.worker.instructions_file.as_mut()]
             .into_iter()
             .flatten()
+            .chain(self.researcher.transcripts.iter_mut())
             .chain(self.skills.paths_mut())
     }
 }

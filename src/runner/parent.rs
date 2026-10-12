@@ -30,7 +30,19 @@ impl Runner {
             i.sub_issues.all_closed() && refused.get(&i.number).is_none_or(|n| *n < TRIES)
         });
         let issue = done?.number;
-        let closed = (self.ports.forge).close_issue(&self.remote, issue, PARENT_CLOSED);
+        // The comment goes first, on the first try only, as the App where one
+        // covers the repo, else as a comment kelpie records: closing with
+        // `--comment` would post it as the login that answers rulings, with no
+        // id to skip. A comment that fails is told in the log, and the close
+        // goes on without it.
+        if !self.close_refused.contains_key(&issue)
+            && let Err(e) = self.comment_on_issue(issue, PARENT_CLOSED)
+        {
+            self.notes.push(format!(
+                "cannot comment on issue #{issue} before closing it: {e}"
+            ));
+        }
+        let closed = (self.ports.forge).close_issue(&self.remote, issue);
         let report = match closed {
             Ok(()) => {
                 self.close_refused.remove(&issue);
@@ -86,8 +98,8 @@ mod tests {
             step(&runner).unwrap(),
             Some(StepReport::ParentClosed { issue: 5 })
         );
-        let [(closed, why)] = rig.forge.closings().try_into().unwrap();
-        assert_eq!((closed, why.as_str()), (5, PARENT_CLOSED));
+        assert_eq!(rig.forge.closings(), [5]);
+        assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
         assert_eq!(step(&runner).unwrap(), None);
     }
 
@@ -122,13 +134,18 @@ mod tests {
             given_up,
         };
         assert_eq!(step(&runner).unwrap(), Some(refused(false)));
+        rig.next_look();
         assert_eq!(step(&runner).unwrap(), Some(refused(false)));
+        rig.next_look();
         assert_eq!(step(&runner).unwrap(), Some(refused(true)));
+        rig.next_look();
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched { issue: 6, .. })
         ));
         assert!(rig.forge.closings().is_empty());
+        // Told once, on the first try, however often the forge refused.
+        assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
 
         // A restarted runner tries it again.
         rig.forge.set_closes_down(false);

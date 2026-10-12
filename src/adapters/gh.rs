@@ -3,9 +3,13 @@
 mod access;
 mod board;
 mod issues;
+mod pulls;
 mod queue;
+mod rate_limit;
 mod review;
 pub(crate) mod review_bot;
+mod runs;
+mod thread;
 
 use std::process::Stdio;
 
@@ -13,8 +17,8 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    Checks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, PullRequestState,
-    QueueStanding, Reviewed, Visibility,
+    Checks, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
+    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -123,21 +127,23 @@ impl Forge for Gh {
         review::viewer()
     }
 
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
-        let number = number.to_string();
-        let args = [
-            "pr",
-            "comment",
-            &number,
-            "--repo",
-            repo.as_str(),
-            "--body",
-            body,
-        ];
-        gh(&args).map(drop)
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        thread::comments_since(repo, since)
     }
 
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        thread::can_write(repo, login)
+    }
+
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        thread::comment_marks(repo, comment)
+    }
+
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
         let path = format!("repos/{}/issues/{number}/comments", repo.as_str());
         let field = format!("body={body}");
         let args = [
@@ -164,8 +170,38 @@ impl Forge for Gh {
         issues::create_issue(repo, title, body, labels)
     }
 
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
-        issues::close_issue(repo, number, comment)
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        issues::close_issue(repo, number)
+    }
+
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        pulls::create(repo, head, base, title, body)
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        pulls::edit(repo, number, title, body)
+    }
+
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        runs::failed_run_logs(repo, head, merge_group)
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
@@ -206,6 +242,15 @@ impl Forge for Gh {
         review_bot::resolve(thread)
     }
 
+    fn reply_to_thread(
+        &self,
+        _repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        review_bot::reply(thread, body)
+    }
+
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         let number = number.to_string();
         gh(&merge_args(repo, &number, head)).map(drop)
@@ -226,6 +271,10 @@ impl Forge for Gh {
             "--disable-auto",
         ];
         gh(&args).map(drop)
+    }
+
+    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        rate_limit::rate_limit_reset()
     }
 }
 
@@ -382,6 +431,7 @@ enum Check {
 enum Outcome {
     Pending,
     Passed,
+    Skipped,
     Failed,
 }
 
@@ -394,7 +444,8 @@ impl Check {
                 conclusion,
             } => {
                 let outcome = match (status.as_deref(), conclusion.as_deref()) {
-                    (Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL" | "SKIPPED")) => Outcome::Passed,
+                    (Some("COMPLETED"), Some("SKIPPED")) => Outcome::Skipped,
+                    (Some("COMPLETED"), Some("SUCCESS" | "NEUTRAL")) => Outcome::Passed,
                     (Some("COMPLETED"), _) => Outcome::Failed,
                     _ => Outcome::Pending,
                 };
@@ -418,15 +469,17 @@ fn checks(rollup: &[Check]) -> Checks {
         return Checks::None;
     }
     let mut failed = Vec::new();
+    let mut ran = false;
     for check in rollup {
         match check.outcome() {
             (_, Outcome::Pending) => return Checks::Pending,
             (name, Outcome::Failed) => failed.push(name.to_owned()),
-            (_, Outcome::Passed) => {}
+            (_, Outcome::Passed) => ran = true,
+            (_, Outcome::Skipped) => {}
         }
     }
     if failed.is_empty() {
-        Checks::Passed
+        if ran { Checks::Passed } else { Checks::Skipped }
     } else {
         Checks::Failed(failed)
     }
@@ -599,6 +652,14 @@ mod tests {
                 Checks::Failed(vec!["lint".into()])
             )
         );
+    }
+
+    #[test]
+    fn skipped_runs_pass_beside_a_run_that_ran_and_are_skipped_alone() {
+        let skipped = r#"{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SKIPPED"}"#;
+        let passed = r#"{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"}"#;
+        assert_eq!(rollup(&format!("[{skipped},{skipped}]")), Checks::Skipped);
+        assert_eq!(rollup(&format!("[{skipped},{passed}]")), Checks::Passed);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::super::tests::Driven;
 use crate::ports::{AgentError, Role, Tools};
@@ -184,6 +184,7 @@ fn a_reply_naming_no_listed_implementer_raises_a_ruling_and_the_board_waits() {
     );
 
     rig.forge.label(7, "agent:sonnet-high");
+    rig.next_look();
     rig.claude.script([Scripted::Say("done")]);
     assert_eq!(dispatched_on(step(&runner).unwrap()), "sonnet-high");
     let status = rig.ask(&runner, "status", None);
@@ -285,8 +286,16 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
         "the hand label stands, so nothing is reported"
     );
     rig.claude.script([Scripted::Say("done")]);
+    // The call answering is not its news arriving: a step in between finds
+    // the writer still labelling and reports nothing, so step until it does.
+    let by = Instant::now() + PATIENCE;
+    let mut report = step(&runner).unwrap();
+    while report.is_none() && Instant::now() < by {
+        std::thread::sleep(Duration::from_millis(10));
+        report = step(&runner).unwrap();
+    }
     assert_eq!(
-        dispatched_on(step(&runner).unwrap()),
+        dispatched_on(report),
         "sonnet-high",
         "the hand label stands"
     );

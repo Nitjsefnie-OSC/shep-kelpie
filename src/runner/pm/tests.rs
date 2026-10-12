@@ -13,6 +13,10 @@ use crate::settings::Harness;
 use crate::test::{Hold, Rig, Scripted, Seen};
 
 mod attach;
+mod code;
+mod follow_up;
+mod question;
+mod red;
 
 /// How long a test waits on a call in flight
 const PATIENCE: Duration = Duration::from_secs(60);
@@ -23,14 +27,23 @@ const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json
 
 /// A running project whose settings name the project manager `pm`
 fn with_pm(project: &str) -> (Rig, Mutex<Runner>) {
-    let rig = Rig::new(project);
+    pm_on(Rig::new(project))
+}
+
+/// ... on `rig`, whose runner is opened here
+fn pm_on(rig: Rig) -> (Rig, Mutex<Runner>) {
+    name_pm(&rig);
+    let runner = rig.open().unwrap();
+    (rig, runner)
+}
+
+/// Names the project manager in `rig`'s settings, before its runner is opened
+fn name_pm(rig: &Rig) {
     rig.edit_settings(|s| {
         let listed = "\nimplementers = [\"sonnet-high\"]\n";
         assert!(s.contains(listed), "the example's implementers moved");
         s.replace(listed, "\nimplementers = [\"sonnet-high\"]\npm = \"pm\"\n")
     });
-    let runner = rig.open().unwrap();
-    (rig, runner)
 }
 
 /// The project manager's calls, in order
@@ -143,9 +156,35 @@ fn it_reads_its_folder_appends_to_its_notes_and_runs_nothing() {
         !sandbox.contains("github.com"),
         "it reaches no forge: {sandbox}"
     );
+}
+
+#[test]
+fn a_wake_logs_its_session_and_where_its_transcript_is_as_its_call_starts() {
+    let (rig, runner) = with_pm("koji");
+    rig.forge.list_ready(9, false);
+    rig.forge.list_ready(12, false);
+    rig.claude.script([Scripted::Say(PICK_12)]);
+    step(&runner).unwrap();
+
+    let [wake] = pm_seen(&rig).try_into().unwrap();
+    let started = runner.lock().unwrap().take_started();
+    let session = wake.call.session.id().0.clone();
+    let folder = wake.call.settings.with_extension("transcripts");
+    assert_eq!(started.len(), 1, "{started:?}");
+    assert_eq!(
+        serde_json::to_value(&started[0]).unwrap(),
+        json!({
+            "step": "session-started",
+            "role": "pm",
+            "agent": "pm",
+            "harness": "claude-code",
+            "session": session,
+            "transcript": {"folder": folder},
+        })
+    );
     assert!(
-        sandbox.contains(&format!("{}/**", rig.repo().display())),
-        "the checkout is unread: {sandbox}"
+        runner.lock().unwrap().take_started().is_empty(),
+        "each start is logged once"
     );
 }
 
@@ -293,7 +332,7 @@ fn a_failed_turn_wakes_it_and_its_retry_runs_the_turn_again() {
     assert_eq!(
         woke_for,
         [
-            "#7 is stuck: its worker's turn failed or stopped short twice, and ruling 1 asks \
+            "#7 is stuck: its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice, and ruling 1 asks \
           the maintainer"
         ]
     );

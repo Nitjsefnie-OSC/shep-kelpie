@@ -14,6 +14,7 @@ mod pm;
 pub mod rule;
 mod usage;
 mod verbs;
+mod watch;
 
 pub use verbs::{USAGE, VERBS, main, split_project, verb_first};
 
@@ -51,9 +52,7 @@ impl Checkout {
     pub fn of(folder: &Path) -> Result<Self, String> {
         // Git's answer, or none when it ran and refused; a git that cannot run is an error.
         let git = |args: &[&str]| {
-            let output = crate::spawn::command("git")
-                .arg("-C")
-                .arg(folder)
+            let output = git_in(folder)
                 .args(args)
                 .stdin(Stdio::null())
                 .output()
@@ -72,6 +71,26 @@ impl Checkout {
             forge,
         })
     }
+}
+
+/// `git` run in `folder`, with the variables that pick a repo in place of the
+/// folder's own unset, as they are when a hook or a script runs `shep kelpie`
+pub(crate) fn git_in(folder: &Path) -> std::process::Command {
+    let mut git = crate::spawn::command("git");
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_PREFIX",
+    ] {
+        git.env_remove(var);
+    }
+    git.arg("-C").arg(folder);
+    git
 }
 
 /// The GitHub repo a remote's URL names, over HTTPS or SSH
@@ -197,6 +216,21 @@ pub(crate) async fn kelpie_sheep(
     match client.request(request).await {
         Ok(Response::SheepConfig(view)) if view.config.args == args => Ok(Some(row.clone())),
         Ok(Response::SheepConfig(_)) => Err(taken()),
+        Ok(other) => Err(format!("the shepherd answered {other:?} for `{name}`")),
+        Err(e) => Err(format!("cannot read `{name}`'s config: {e}")),
+    }
+}
+
+/// The names in `name`'s `env` whose value is a secret reference, never the values
+///
+/// A plain key could hold an empty or blank value, which shep's reply does not
+/// show, so only a reference to the secret store counts as set.
+pub(crate) async fn env_secrets(client: &Client, name: &str) -> Result<Vec<String>, String> {
+    let request = Request::SheepConfig {
+        name: name.to_owned(),
+    };
+    match client.request(request).await {
+        Ok(Response::SheepConfig(view)) => Ok(view.env_secrets),
         Ok(other) => Err(format!("the shepherd answered {other:?} for `{name}`")),
         Err(e) => Err(format!("cannot read `{name}`'s config: {e}")),
     }

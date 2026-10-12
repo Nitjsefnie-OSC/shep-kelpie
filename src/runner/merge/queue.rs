@@ -8,6 +8,7 @@
 use super::super::Runner;
 use super::super::gate::{settled, short};
 use super::super::report::Begin;
+use super::super::turn::KEEP_BODY_TRUE;
 use crate::ports::Checks;
 use crate::skills::Step;
 use crate::state::{StateError, Stuck};
@@ -57,10 +58,18 @@ impl Runner {
         if item.red_head.as_deref() == Some(head.as_str()) {
             return self.raise(number, Stuck::MergeRefused { head, why: reason }.into());
         }
+        let help = self.queue_help(&head);
         let prompt = self
             .skills
-            .invoke(Step::CiFix, &queue_prompt(number, &head, &reason));
-        self.back_to_worker(number, head, vec!["merge queue".to_owned()], prompt, false)
+            .invoke(Step::CiFix, &queue_prompt(number, &head, &reason, &help));
+        self.back_to_worker(
+            number,
+            head,
+            vec!["merge queue".to_owned()],
+            prompt,
+            false,
+            None,
+        )
     }
 
     // Auto-merge queues whatever head the branch has once it can, so one
@@ -91,14 +100,13 @@ impl Runner {
     }
 }
 
-fn queue_prompt(number: u64, head: &str, reason: &str) -> String {
+fn queue_prompt(number: u64, head: &str, reason: &str, help: &str) -> String {
     format!(
         "The merge queue removed your pull request #{number} at {}: {reason}. The queue \
          tests a pull request on top of `main` and the pull requests ahead of it, so \
          this can come from the combination and not from your branch alone. \
-         `gh run list --event merge_group` lists the queue's runs, and \
-         `gh run view <run id> --log-failed` shows what failed. Fix it on this branch, \
-         commit, and push with `git push origin HEAD`.",
+         {help} Fix it on this branch, commit, and push with `git push origin HEAD`. \
+         {KEEP_BODY_TRUE}",
         short(head)
     )
 }
@@ -216,6 +224,22 @@ mod tests {
         assert!(fix.prompt.contains(&named), "{}", fix.prompt);
         assert!(
             !fix.prompt.to_lowercase().contains("budget"),
+            "{}",
+            fix.prompt
+        );
+    }
+
+    #[test]
+    fn a_queue_removal_fix_prompt_asks_for_the_body_to_be_kept_true() {
+        let (rig, runner, _) = queued("chelone");
+        rig.forge.queue_removes(71, REMOVAL);
+        step(&runner).unwrap();
+        rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
+        step(&runner).unwrap();
+        let fix = rig.claude.calls().pop().unwrap();
+        assert!(
+            fix.prompt
+                .contains("Update the pull request's body so it matches the head you push"),
             "{}",
             fix.prompt
         );

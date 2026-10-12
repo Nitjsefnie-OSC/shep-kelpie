@@ -15,15 +15,18 @@
 //!
 //! A [`Surface::Prose`] is text a person reads, so it also refuses
 //! `/home/<name>`, `C:\Users\<name>`, `/private/tmp` and `/var/folders`,
-//! which name a machine's user or scratch space whoever the user is, a path
-//! under `~`, and an address on a local network. Code and its patches are
-//! full of all of them (another user's home in a fixture, `~/` in a doc, `self.local`,
-//! an address in a fixture), so a [`Surface::Code`] leaves them be and holds
+//! which name a machine's user or scratch space whoever the user is, and an
+//! address on a local network. A path under `~` names no one, since it is the
+//! same folder on every machine, so it goes through. Code and its patches are
+//! full of all of them (another user's home in a fixture, `self.local`, an
+//! address in a fixture), so a [`Surface::Code`] leaves them be and holds
 //! only to the folders it was given.
 
 use std::fmt;
 use std::fs;
 use std::path::Path;
+
+use crate::settings::ForgeSlug;
 
 // Rounds of percent-decoding, for text encoded more than once.
 const DECODE_ROUNDS: usize = 3;
@@ -50,8 +53,8 @@ pub enum Surface {
 pub enum Leak {
     /// A path on this machine
     Path,
-    /// A path under the home folder, written `~/...`
-    Tilde,
+    /// A repo GitHub marks private, named in a post to a public one
+    Private,
     /// An address on a local network
     Lan,
 }
@@ -60,7 +63,7 @@ impl fmt::Display for Leak {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Path => "a path on this machine, which names its user",
-            Self::Tilde => "a path under the home folder",
+            Self::Private => "a repo GitHub marks private, and this repo is public",
             Self::Lan => "an address on a local network",
         })
     }
@@ -101,13 +104,8 @@ impl LocalPaths {
         if system || self.folders.iter().any(|f| names_folder(text, f)) {
             return Some(Leak::Path);
         }
-        if surface == Surface::Prose {
-            if has_tilde_path(text) {
-                return Some(Leak::Tilde);
-            }
-            if has_lan(text) {
-                return Some(Leak::Lan);
-            }
+        if surface == Surface::Prose && has_lan(text) {
+            return Some(Leak::Lan);
         }
         None
     }
@@ -218,9 +216,53 @@ fn names_system_path(text: &str) -> bool {
     })
 }
 
-fn has_tilde_path(text: &str) -> bool {
-    text.match_indices("~/")
-        .any(|(at, _)| starts_path(before(text, at)))
+/// Whether `text` names `repo`, by `owner/name` or, if `by_bare_name`, by its bare name
+///
+/// Case does not matter. A name inside a longer one, `vault-door`, `my_vault` or
+/// `vault.rs`, is not it. A bare name beside a `/` is a folder or another owner's
+/// repo. `owner/name` after a `/` counts only behind a host, as in
+/// `github.com/owner/name`. A `.git` after `owner/name` is a clone URL's suffix.
+pub fn names_repo(text: &str, repo: &ForgeSlug, by_bare_name: bool) -> bool {
+    let (full, bare) = (repo.as_str().to_lowercase(), repo.name().to_lowercase());
+    variants(text)
+        .iter()
+        .any(|v| names_word(v, &full, true) || (by_bare_name && names_word(v, &bare, false)))
+}
+
+// `name` as a whole word. A full stop ends a sentence unless a word follows it, and
+// a name in a longer one is no match. A `/` next to it is a path around it, which
+// `owner/name` allows after a host or before more path, and a bare name does not.
+fn names_word(text: &str, name: &str, owner_and_name: bool) -> bool {
+    text.match_indices(name).any(|(at, _)| {
+        let mut after = text[at + name.len()..].chars();
+        let ends = match after.next() {
+            None => true,
+            Some('/') => owner_and_name,
+            Some('.') => {
+                let rest = after.as_str();
+                let git = owner_and_name && rest.strip_prefix("git").is_some_and(ends_word);
+                git || !rest.chars().next().is_some_and(is_word)
+            }
+            Some(c) => !(is_word(c) || c == '-'),
+        };
+        let starts = match before(text, at) {
+            None => true,
+            Some('/') => owner_and_name && behind_host(&text[..at - 1]),
+            Some(c) => !(is_word(c) || matches!(c, '-' | '.')),
+        };
+        ends && starts
+    })
+}
+
+// Whether `rest` does not go on as a word, so `.git` there is a clone URL's suffix.
+fn ends_word(rest: &str) -> bool {
+    !rest.chars().next().is_some_and(|c| is_word(c) || c == '-')
+}
+
+// Whether `head` ends in a host name, such as `https://github.com`.
+fn behind_host(head: &str) -> bool {
+    let last = head.rsplit(|c: char| c == '/' || c.is_whitespace()).next();
+    last.is_some_and(|label| label.contains('.'))
 }
 
 fn has_lan(text: &str) -> bool {

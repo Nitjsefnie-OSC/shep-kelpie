@@ -15,31 +15,46 @@ use crate::board::READY;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
-use crate::local_paths::Leak;
 use crate::review_bot::{Activity, Login, Profile, ReviewWindow};
 use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod forge_error;
+mod git;
 mod gpu;
+mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
+mod rate_limit;
+mod recorded_voice;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod test_runner;
+mod thread;
+mod voice;
 
 pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
-    Reach, Role, Session, SessionId, Tools, Usage, Wait, written_at,
+    Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use forge_error::ForgeError;
+pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
-pub use local_paths::Guarded;
+pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
+pub use rate_limit::{ForgeHold, RateHeld, Say};
+pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
+pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
+pub use voice::Voice;
 
 /// Seconds since the Unix epoch
 // wire format: changing this is a breaking change to the state file
@@ -48,7 +63,7 @@ pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub struct Timestamp(pub u64);
 
 /// Tells the time
-pub trait Clock: Send {
+pub trait Clock: Send + Sync {
     /// The current time
     fn now(&self) -> Timestamp;
 }
@@ -65,7 +80,7 @@ pub enum Visibility {
 }
 
 /// The forge that holds the project's issues and pull requests
-pub trait Forge: Send {
+pub trait Forge: Send + Sync {
     /// Who can see `repo`
     ///
     /// # Errors
@@ -154,19 +169,47 @@ pub trait Forge: Send {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn viewer(&self) -> Result<String, ForgeError>;
 
-    /// Posts `body` as a comment on pull request `number`
+    /// The comments written on any issue or pull request of `repo` since
+    /// `since`, oldest first
+    ///
+    /// The forge counts a comment since its last edit, so one written before
+    /// `since` and edited after it is among them: [`ThreadComment::created`]
+    /// says when it was written.
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the comment cannot be posted.
-    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError>;
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn comments_since(
+        &self,
+        repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError>;
 
-    /// Posts `body` as a comment on pull request `number`, and returns its id
+    /// Whether `login` has write access to `repo`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError>;
+
+    /// The thumbs on comment `comment` of `repo`, what it says now, and who
+    /// edited it
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError>;
+
+    /// Posts `body` as a comment on issue or pull request `number`, as the
+    /// account kelpie acts as, and returns its id
+    ///
+    /// The runner notes the id: a comment of the maintainer's own login that
+    /// kelpie posted is never an answer to a ruling.
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the comment cannot be posted or its id read.
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError>;
+    fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError>;
 
     /// The open issues on `repo`, for telling a finding already filed
     ///
@@ -188,12 +231,54 @@ pub trait Forge: Send {
         labels: &[&str],
     ) -> Result<u64, ForgeError>;
 
-    /// Closes issue `number` with `comment`
+    /// Closes issue `number`, with no comment: a comment would be posted as the
+    /// login `gh` acts as, and only [`Forge::comment`] records the id of one
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
-    fn close_issue(&self, repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError>;
+    fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Opens a draft pull request on `repo` from branch `head` into `base`,
+    /// as the account kelpie acts as, and returns its number
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses, or its answer names no number.
+    fn create_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError>;
+
+    /// Sets the title and body of pull request `number`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn edit_pull_request(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError>;
+
+    /// The end of the logs of the CI runs that failed on `head`, or on the
+    /// merge queue when `merge_group`, for a worker whose token cannot read CI
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn failed_run_logs(
+        &self,
+        repo: &ForgeSlug,
+        head: &str,
+        merge_group: bool,
+    ) -> Result<String, ForgeError>;
 
     /// Marks draft pull request `number` ready for review
     ///
@@ -249,6 +334,18 @@ pub trait Forge: Send {
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError>;
 
+    /// Replies to review thread `thread` with `body`, as the account kelpie
+    /// runs as
+    ///
+    /// A thread the forge no longer has is done, since there is nothing to
+    /// reply to.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn reply_to_thread(&self, repo: &ForgeSlug, thread: &str, body: &str)
+    -> Result<(), ForgeError>;
+
     /// Merges pull request `number` with a merge commit, only while its head is `head`
     ///
     /// Never a squash or a rebase: the branch's history survives the merge.
@@ -275,6 +372,14 @@ pub trait Forge: Send {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// When the forge's used-up rate limits reset: the latest reset of any
+    /// limit with nothing left, or `None` when none is used up
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError>;
 }
 
 /// Where a pull request stands in the merge queue
@@ -378,6 +483,10 @@ pub enum Checks {
     Pending,
     /// Every check finished, and none failed
     Passed,
+    /// Every check finished and was skipped, as a workflow whose jobs all
+    /// skip a draft leaves on one: nothing ran, and it counts as passed once
+    /// the pull request is ready
+    Skipped,
     /// Every check finished, and these failed
     Failed(Vec<String>),
 }
@@ -420,37 +529,6 @@ pub struct OpenIssue {
     /// Its body, as written
     pub body: String,
 }
-
-/// Why a forge call failed
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ForgeError {
-    /// The forge's command line tool could not be started, with the OS's reason
-    Spawn(String),
-    /// The tool ran and exited unsuccessfully, with this on stderr
-    Failed(String),
-    /// The tool succeeded but its output was not what was asked for
-    Unreadable(String),
-    /// A field of the post names something private to this machine, so kelpie never sent it
-    LocalPath {
-        /// The field, such as "the comment"
-        what: &'static str,
-        /// What it names
-        leak: Leak,
-    },
-}
-
-impl fmt::Display for ForgeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Spawn(error) => write!(f, "cannot run gh: {error}"),
-            Self::Failed(stderr) => write!(f, "gh failed: {}", stderr.trim()),
-            Self::Unreadable(output) => write!(f, "unreadable gh output: {}", output.trim()),
-            Self::LocalPath { what, leak } => write!(f, "not posted: {what} names {leak}"),
-        }
-    }
-}
-
-impl core::error::Error for ForgeError {}
 
 /// How much of one usage window the account has spent
 // wire format: changing this is a breaking change to the pacer's status
@@ -541,6 +619,9 @@ pub enum Takes {
     Answer,
     /// The merge ruling: a yes, or a no or a rework with a note
     Merge,
+    /// The merge ruling, alerted while coded answers are off: a no or a
+    /// rework with a note, and a yes only after the terminal turns them on
+    MergeCodedOff,
     /// A yes, or a no with a note
     YesOrNo,
 }
@@ -647,6 +728,13 @@ pub struct Finding {
     pub what: String,
     /// Why it matters
     pub why: String,
+    /// The failing test the reviewer wrote for it, as the path it should have
+    /// in the repo
+    ///
+    /// A relative path with no `..` and no spaces; see [`is_test_path`]. Left out
+    /// of the state file while none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
 }
 
 /// How `what` begins in the line qwen-review.sh writes for a file it did not
@@ -729,8 +817,22 @@ pub fn read_review(text: &str) -> Result<Vec<Finding>, String> {
     Ok(findings)
 }
 
+// A line of a bot's findings starts with its thread number, `thread 2|`, which
+// is no part of the finding: a line copied with it still reads as the finding.
+fn without_thread_number(line: &str) -> &str {
+    let numbered = (line.strip_prefix("thread ")).and_then(|rest| rest.split_once('|'));
+    match numbered {
+        Some((number, rest))
+            if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            rest
+        }
+        _ => line,
+    }
+}
+
 fn parse_finding_line(line: &str) -> Option<Finding> {
-    let mut parts = line.splitn(4, '|');
+    let mut parts = without_thread_number(line).splitn(5, '|');
     let severity = match parts.next()? {
         "LOW" => Severity::Low,
         "MEDIUM" => Severity::Medium,
@@ -739,7 +841,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
     };
     let location = parts.next()?;
     let what = parts.next()?;
-    let why = parts.next()?;
+    let mut why = parts.next()?.to_owned();
+    // A fifth segment that reads as a path is taken as the test here. A round
+    // that finds no such file folds it back into the why, where a pipe may have
+    // put it.
+    let mut test = None;
+    if let Some(fifth) = parts.next() {
+        match is_test_path(fifth) {
+            true => test = Some(fifth.to_owned()),
+            // Not a path, so a pipe in the why.
+            false => why = format!("{why}|{fifth}"),
+        }
+    }
     let (file, line) = location.rsplit_once(':')?;
     let line = line.parse().ok()?;
     Some(Finding {
@@ -747,8 +860,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
         file: file.to_owned(),
         line,
         what: what.to_owned(),
-        why: why.to_owned(),
+        why,
+        test,
     })
+}
+
+/// Whether `path` is one a reviewer may name as its finding's test: not empty,
+/// relative, with no `..` step, no space and no pipe
+pub fn is_test_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains([' ', '|'])
+        && path.split('/').all(|step| step != "..")
 }
 
 /// A runner's side of the dog's book leases
@@ -779,7 +902,9 @@ pub struct Ports {
     /// The agents every role runs on, shared so a turn runs without holding the runner
     pub agents: Arc<dyn Agents>,
     /// The forge
-    pub forge: Box<dyn Forge>,
+    pub forge: Arc<dyn Forge>,
+    /// Kelpie's own voice on the forge, its GitHub App's where one covers the repo
+    pub voice: Arc<dyn Voice>,
     /// The Claude account's usage, from `/usage`
     pub meter: Box<dyn Meter>,
     /// The Codex account's usage
@@ -790,14 +915,21 @@ pub struct Ports {
     pub local_leases: Arc<dyn LocalLeases>,
     /// A profile for each review bot a round may summon
     pub review_bots: Vec<Arc<dyn Profile>>,
+    /// The runner's own git, for the marketplaces a repo's plugins come from
+    pub git: Arc<dyn Git>,
     /// The GPU's figures, for `status`
     pub gpu: Arc<dyn GpuMetrics>,
     /// The maintainer's webhook, shared so a post runs without holding the runner
     pub alerts: Arc<dyn Alerts>,
+    /// Runs a reviewer's test, inside the worker's sandbox
+    pub test_runner: Arc<dyn TestRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
-    /// The clock
-    pub clock: Box<dyn Clock>,
+    /// The clock, shared with the forge's rate-limit hold
+    pub clock: Arc<dyn Clock>,
+    /// The repo of every project in the flock, whose names a post to a public
+    /// repo leaves out when GitHub marks them private
+    pub flock: Vec<ForgeSlug>,
 }
 
 impl Ports {

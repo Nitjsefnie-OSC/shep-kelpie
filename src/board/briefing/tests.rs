@@ -18,6 +18,8 @@ fn item(issue: u64, session: Session, files: Files) -> Item {
         branch: format!("kelpie/{issue}"),
         session,
         summary: None,
+        spent: Cost(0),
+        cap: Cost(10_000_000_000),
         files,
     }
 }
@@ -38,6 +40,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
     );
     twelve.pull_request = Some(30);
     twelve.phase = "review round 1".into();
+    twelve.spent = Cost(2_500_000_000);
     let mut thirteen = item(
         13,
         Session::Still("idle".into()),
@@ -52,6 +55,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
         pending_rulings: 2,
         held: 2,
         parked: 1,
+        run: None,
         main: None,
         items: vec![
             item(
@@ -91,18 +95,21 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
          - #11 \"Issue 11\": implementing; no pull request yet, opened 3h05m ago, on sonnet-high; \
          no commits yet, its body names 1 file\n\
          \x20 - Session: worker turn running for 1h00m, idle: no tool call or output for 50m\n\
+         \x20 - Spend: $0.00 of $10.00\n\
          - #12 \"Issue 12\": review round 1; PR #30, opened 3h05m ago, on sonnet-high; \
          touches 2 files\n\
          \x20 - Session: review call running for 2m\n\
+         \x20 - Spend: $2.50 of $10.00\n\
          - #13 \"Issue 13\": parked on ruling 3; PR #31, opened 3h05m ago, on sonnet-high; \
          touches 1 file\n\
          \x20 - Session: idle\n\
+         \x20 - Spend: $0.00 of $10.00\n\
          \n\
          ## Rulings waiting on the maintainer\n\
          \n\
          - 3 on #13 (PR #31): Merge PR #31?\n\
          \n\
-         ## Ready queue, read 1m ago (board rule order: priority, then oldest by number)\n\
+         ## Ready queue, read 1m ago (the board's order, first taken first; a new issue joins after the last of its priority)\n\
          \n\
          (empty)\n\
          \n\
@@ -182,6 +189,7 @@ fn quoting(body: &str) -> String {
         pending_rulings: 2,
         held: 2,
         parked: 0,
+        run: None,
         main: None,
         items: vec![seven, eight],
         rulings: Vec::new(),

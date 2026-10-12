@@ -13,14 +13,19 @@ use std::sync::Arc;
 
 use crate::agents::{Agents, AgentsError};
 use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
+use crate::forge_ledger::Ledger as ForgeLedger;
+use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
-use crate::ports::{ForgeError, Guarded, Leased, Ports, SessionId, Timestamp, Visibility};
+use crate::ports::{
+    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld,
+    RecordedVoice, Say, SessionId, Timestamp, Visibility,
+};
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
-    Account, AgentName, ForgeSlug, ListedReviewer, RoleAgents, Settings, SettingsError,
+    Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
-use crate::skills::Skills;
+use crate::skills::{RepoPlugins, Skills};
 use crate::state::ids::RulingIds;
 use crate::state::{ProjectState, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
@@ -34,12 +39,19 @@ mod agents_tests;
 mod alert;
 mod attach;
 mod briefing;
+mod ci_help;
 mod claim;
 mod claude_files;
+mod close_merged;
+mod closed;
 #[cfg(test)]
 mod coderabbit;
+mod compact;
 mod dispatch;
 mod drain;
+mod e2e;
+mod effects;
+mod finishing;
 mod flight;
 mod follow_up;
 mod gate;
@@ -47,6 +59,10 @@ mod gpu;
 #[cfg(test)]
 mod gpu_tests;
 mod guard_hooks;
+#[cfg(test)]
+mod handover_tests;
+#[cfg(test)]
+mod hooks_tests;
 mod in_flight;
 mod instructions;
 mod kept;
@@ -58,18 +74,26 @@ mod ledger_tests;
 mod left;
 #[cfg(test)]
 mod limits_tests;
+mod login_refresh;
+mod looks;
 mod merge;
 mod older_bots;
 #[cfg(test)]
 mod overlap_tests;
 mod pace;
+mod panel;
 mod parent;
 mod paths;
 mod pm;
+mod points;
+#[cfg(test)]
+mod points_tests;
+mod pull_request_file;
 mod question;
 mod replies;
 mod report;
 mod reread;
+mod retro;
 mod review;
 mod review_bot;
 mod rework;
@@ -79,9 +103,14 @@ mod several;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
+mod started;
+mod thread_replies;
 mod timings;
+mod token_wait;
 mod trigger;
 mod turn;
+mod turn_hooks;
+mod voice;
 mod words;
 mod worker_files;
 
@@ -90,6 +119,7 @@ pub use adopt::AdoptError;
 pub use attach::{AttachError, Attaching};
 pub use claim::IN_PROGRESS;
 pub use drain::{CallRole, CallRunning, Draining};
+pub use finishing::{Run, StartError};
 #[cfg(test)]
 pub use flight::step;
 pub use flight::{Pass, advance};
@@ -97,6 +127,7 @@ pub use gpu::GpuStatus;
 pub use in_flight::Stopping;
 pub use ledger::count_stopped;
 pub use left::leave as leave_answer;
+pub use looks::BOARD_POLL;
 pub use merge::DropError;
 pub use pace::PacerStatus;
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths};
@@ -107,7 +138,7 @@ pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
 pub use timings::{Totals, settle};
 use trigger::issue_list;
-pub use trigger::{ACTIONS, Status, WorkItemStatus, answer};
+pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, answer, wakes};
 pub use trigger::{GateError, WhichItem};
 pub use words::{Wants, read_answer};
 
@@ -179,6 +210,8 @@ pub enum AddError {
     Label(LabelError),
     /// The issue writer is labelling the issue
     Labelling(u64),
+    /// `finish` holds the board back, so no new work item opens
+    Finishing,
     /// No random session id could be drawn, with the OS's reason
     Session(String),
     /// The work item could not be saved
@@ -200,6 +233,10 @@ impl fmt::Display for AddError {
                 f,
                 "the issue writer is labelling #{issue}: add it once that call ends"
             ),
+            Self::Finishing => f.write_str(
+                "the runner is finishing, so it opens no new work item: `shep kelpie start` \
+                 lets it pick again",
+            ),
             Self::Session(e) => write!(f, "cannot draw a session id: {e}"),
             Self::State(e) => e.fmt(f),
         }
@@ -220,6 +257,10 @@ pub struct Runner {
     extra_instructions: Option<String>,
     // Each step's skill, loaded when the runner starts or its settings change
     skills: Skills,
+    // The plugins the repo turns on, loaded with them
+    repo_plugins: RepoPlugins,
+    // The default branch's commit the plugins were read at
+    plugins_head: Option<String>,
     paths: ProjectPaths,
     kelpie: PathBuf,
     store: StateStore,
@@ -241,6 +282,8 @@ pub struct Runner {
     home: PathBuf,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,
+    // The gateways the adapters were built with, which a change waits to replace
+    gateways: Gateways,
     // None when kelpie's settings set no webhook
     webhook: Option<Webhook>,
     // The last failed webhook post, kept in memory so a restart tries at once
@@ -249,6 +292,8 @@ pub struct Runner {
     reading: replies::Reading,
     // What a reply's code is checked against, on an ntfy webhook
     totp: Option<replies::Authenticator>,
+    // Reading the rulings' threads for answers, kept in memory only
+    threads: thread_replies::Reading,
     // The account kelpie acts as, read once a run when a rework first needs it
     viewer: Option<String>,
     // The issue of the work item a step or trigger is working on, set before
@@ -259,7 +304,11 @@ pub struct Runner {
     last_acted: Option<turn::Slot>,
     // What the runner carried on without, kept in memory only until
     // `take_notes` hands it out
-    notes: Vec<String>,
+    notes: claim::Notes,
+    // The steps logged in the middle of a pass, such as a `session-started`
+    // of a call just started, kept in memory only until `take_started` hands
+    // them out
+    started: Vec<StepReport>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
     // Where each call is recorded as it ends
@@ -268,16 +317,44 @@ pub struct Runner {
     brief: briefing::BoardCache,
     // What the board withholds, as the forge does
     local: LocalPaths,
+    // The project's own hooks, which the forge port, the workers' guard and
+    // the handover run
+    hooks: Hooks,
+    // What the notice points have told, in memory only
+    told_points: points::Told,
     // The project manager's wakes and decisions, in memory only
     pm: pm::Desk,
+    // The panel's votes on the rulings, in memory only
+    panel: panel::Desk,
     // Whether `drain` holds back every new call, in memory only, so a
     // restart ends it
     draining: bool,
+    // What `finish` keeps in memory, beside the state file's `finishing`
+    finish: finishing::Finish,
     // What the answers folder held that was no answer, in memory only
     left: left::Seen,
     // When each work item parked on a merge ruling last read the review bots
     // its pass went on without, kept in memory only
     late_reads: BTreeMap<u64, Timestamp>,
+    // When each work item parked with no pull request last read its issue,
+    // kept in memory only
+    parked_reads: BTreeMap<u64, Timestamp>,
+    // When the board was last read and each failing step runs again, in memory only
+    looks: looks::Looks,
+    // Until when every forge call is held, the forge's rate limit used up
+    forge_hold: ForgeHold,
+    // The login `gh` acts as, which a ruling mentions when `git.maintainer` is unset,
+    // asked once a run, in memory only
+    gh_login: std::cell::OnceCell<String>,
+    // Whether a ruling posted with no one to mention has been told, in memory only
+    unmentioned_told: std::cell::Cell<bool>,
+    // Whether a worker's turn waits for a token GitHub is not giving, in memory only
+    token_wait: token_wait::TokenWait,
+    // The turns waiting for a model host that cannot be reached, in memory only
+    unreachable: turn::unreachable::Unreachable,
+    // The ids of comments kelpie posted as the login `gh` acts as since the
+    // last save, which the state file keeps: none of them is ever an answer
+    posted: std::cell::RefCell<Vec<u64>>,
 }
 
 impl Runner {
@@ -301,7 +378,8 @@ impl Runner {
     ) -> Result<Self, OpenError> {
         let checkout = settings.git.checkout.as_path();
         let local = LocalPaths::new([home, paths.kelpie_home.as_path(), checkout]);
-        ports.forge = Box::new(Guarded::new(ports.forge, local.clone()));
+        let forge_hold = ForgeHold::default();
+        let told = claim::Notes::default();
         let leases = Arc::clone(&ports.local_leases);
         ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
         let gpu = gpu::GpuWatch::start(
@@ -313,11 +391,16 @@ impl Runner {
         let (book, mut notes) = kept::keep_old_agents(&store, &paths.agents, book)?;
         notes.extend(book.skipped());
         notes.extend(worker_files::remove_old(&paths.worker));
+        notes.extend(e2e::record(settings.e2e.as_ref(), &paths.e2e()));
+        notes.extend(e2e::dog_cannot_find(settings.e2e.as_ref(), paths));
+        told.extend(notes);
         let agents = settings.role_agents(&book)?;
         let lineup = settings.lineup(&book, home)?;
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
-        (kelpie_settings.gateways()).check_listed(&book, listed.chain(reviewers))?;
+        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+        let gateways = kelpie_settings.gateways();
+        gateways.check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -327,6 +410,37 @@ impl Runner {
         }
         let totp = replies::authenticator(webhook.as_ref(), &paths.totp)?;
         let remote = check_checkout(&settings)?;
+        if let Some(reason) = settings.rulings.refusal() {
+            return Err(SettingsError::Invalid {
+                setting: "rulings.pm_alone",
+                reason,
+            }
+            .into());
+        }
+        // What the project's `publish` hooks judge is every text bound for the forge.
+        let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
+        let clock = Arc::clone(&ports.clock);
+        let say: Say = {
+            let told = told.clone();
+            Box::new(move |line| told.push(line))
+        };
+        // The guard sits outside the hold, so its own questions to the forge are held too.
+        let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
+        let held: Arc<dyn Forge> = Arc::new(
+            RateHeld::new(ports.forge, Arc::clone(&clock), forge_hold.clone(), say)
+                .with_ledger(Arc::clone(&forge_ledger)),
+        );
+        let recorded = RecordedVoice::new(ports.voice, clock, forge_ledger);
+        let voice = GuardedVoice::new(Arc::new(recorded), local.clone())
+            .with_flock(ports.flock.clone(), Arc::clone(&held))
+            .with_hooks(hooks.clone());
+        ports.voice = Arc::new(voice);
+        let guarded = Guarded::new(held, local.clone())
+            .with_flock(ports.flock.clone())
+            .with_hooks(hooks.clone());
+        ports.forge = Arc::new(guarded);
+        let voice = Arc::clone(&ports.voice);
+        ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
         let env_home = std::env::var_os("HOME").map(PathBuf::from);
         guard_hooks::check(
@@ -337,6 +451,13 @@ impl Runner {
         check_bots(&lineup, &ports)?;
         crate::skills::check(&settings.skills, &paths.skills)?;
         let skills = Skills::load(&settings.skills, &paths.skills);
+        let repo_plugins = RepoPlugins::load(
+            checkout,
+            &paths.kelpie_home,
+            &paths.skills,
+            ports.git.as_ref(),
+        );
+        let plugins_head = crate::skills::default_head(checkout);
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
@@ -360,12 +481,15 @@ impl Runner {
         if timings::reload(&mut state, ports.clock.now()) {
             store.save(&state)?;
         }
+        let spoken = points::Told::of(&state);
         let mut runner = Self {
             project,
             settings,
             remote,
             extra_instructions,
             skills,
+            repo_plugins,
+            plugins_head,
             paths: paths.clone(),
             kelpie: kelpie.to_owned(),
             store,
@@ -379,22 +503,37 @@ impl Runner {
             book,
             home: home.to_owned(),
             gpu,
+            gateways,
             webhook,
             retry: None,
             reading: replies::Reading::default(),
             totp,
+            threads: thread_replies::Reading::default(),
             viewer: None,
             focus: None,
             last_acted: None,
-            notes,
+            notes: told,
+            started: Vec::new(),
             flights: flight::Flights::default(),
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),
             local,
+            hooks,
+            told_points: spoken,
             pm: pm::Desk::default(),
+            panel: panel::Desk::default(),
             draining: false,
+            finish: finishing::Finish::default(),
             left: left::Seen::default(),
             late_reads: BTreeMap::new(),
+            parked_reads: BTreeMap::new(),
+            looks: looks::Looks::default(),
+            forge_hold,
+            gh_login: std::cell::OnceCell::new(),
+            unmentioned_told: std::cell::Cell::new(false),
+            token_wait: token_wait::TokenWait::default(),
+            unreachable: turn::unreachable::Unreachable::default(),
+            posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
         runner.settle_labels();
@@ -406,6 +545,11 @@ impl Runner {
     /// The project's settings, as read when the runner started
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Kelpie's gateways, as read when the runner started
+    pub fn gateways(&self) -> &Gateways {
+        &self.gateways
     }
 
     /// The project's repo on the forge, as read when the runner started
@@ -426,13 +570,14 @@ impl Runner {
 
     /// A log line for each step whose skill could not load
     pub fn skill_notices(&self) -> impl Iterator<Item = String> + '_ {
-        self.skills.notices()
+        self.skills.notices().chain(self.repo_plugins.notices())
     }
 
     fn names(&self) -> Names<'_> {
         Names {
             project: self.project.as_str(),
             ids: RulingIds::under(&self.paths.kelpie_home),
+            now: self.ports.clock.now(),
         }
     }
 
@@ -459,8 +604,10 @@ impl Runner {
             parked: self.parked_issues(),
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
+            order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             rulings: &self.state.rulings,
+            panel: self.panel_status(),
             leases: &self.state.leases,
             history: &self.state.history[self
                 .state
@@ -469,12 +616,15 @@ impl Runner {
                 .saturating_sub(trigger::STATUS_HISTORY)..],
             pacer: self.pacer_status(now),
             skills: self.skills.status(),
+            plugins: self.repo_plugins.status(),
             local_model: self.ports.reviewer.seat().map(Into::into),
             gpu: self.gpu.status(),
             local_leases: self.local_leases(),
             board: &self.paths.board,
             pm: self.pm_status(),
             draining: self.draining_status(),
+            run: self.run_status(),
+            forge_held_until: self.forge_hold.until(now),
         }
     }
 
@@ -482,7 +632,7 @@ impl Runner {
         let split = item.split(now, self.timing_phase(item));
         WorkItemStatus {
             waiting: self.model_wait(item.issue),
-            ..WorkItemStatus::new(item, split)
+            ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
 
@@ -491,10 +641,14 @@ impl Runner {
     ///
     /// # Errors
     ///
-    /// [`AddError`] when the project has `concurrency.active_items` working or one for this
-    /// issue open already, the issue cannot be read or its `agent:` label names
-    /// no listed implementer, or the change cannot be saved. Nothing changes then.
+    /// [`AddError`] when the runner is finishing, the project has
+    /// `concurrency.active_items` working or one for this issue open
+    /// already, the issue cannot be read or its `agent:` label names no
+    /// listed implementer, or the change cannot be saved. Nothing changes then.
     pub fn add(&mut self, issue: u64) -> Result<AgentName, AddError> {
+        if !self.picks() {
+            return Err(AddError::Finishing);
+        }
         if self.state.item(issue).is_some() {
             return Err(AddError::InFlight(vec![issue]));
         }
@@ -580,9 +734,14 @@ impl Runner {
             late_from: None,
             claude_files_accepted: None,
             qwen: QwenTally::default(),
+            budget_raises: 0,
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,
+            handed_over: None,
+            handover_refused: false,
+            pull_request_refused: None,
+            context: None,
             merge_tried: None,
             merge_queued: None,
             summon_owed: false,
@@ -590,7 +749,9 @@ impl Runner {
             bots_after_ci: false,
             seat: Seat::Held,
             threads_sent: Vec::new(),
+            thread_answers: Vec::new(),
             resolve_failures: 0,
+            threads_accepted: Vec::new(),
             reviewers_skipped: Vec::new(),
             unreviewed: None,
             local_failures: Default::default(),
@@ -598,7 +759,9 @@ impl Runner {
             local_unreviewed_by: None,
             rebased: false,
             held: Vec::new(),
+            test_checks: Vec::new(),
             follow_ups: None,
+            retro: false,
             summary: None,
             timings: Some(Timings::starting(self.ports.clock.now())),
             attached: None,
@@ -627,7 +790,23 @@ impl Runner {
         slots::seat(&self.state, &mut next, self.active_items());
         self.charge(&mut next);
         self.note_changes(&mut next);
-        self.store.save(&next)?;
+        // A ruling that is answered takes the place read to in its thread with it.
+        next.heard
+            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
+        next.unmentioned
+            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
+        // The comments kelpie posted since the last save go in with it.
+        let fresh = self.posted.take();
+        next.note_posted(&fresh);
+        if let Err(e) = self.store.save(&next) {
+            self.posted.borrow_mut().extend(fresh);
+            return Err(e);
+        }
+        if looks::board_moved(&self.state, &next) {
+            self.looks.board_moved();
+        }
+        self.threads
+            .settled(&self.state, &next, self.ports.clock.now());
         self.state = next;
         Ok(())
     }
@@ -713,11 +892,13 @@ fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsE
     Ok(())
 }
 
-// What a ruling's question names: its project, and where its id comes from.
+// What a ruling's question names: its project, where its id comes from, and
+// when it is raised.
 #[derive(Debug, Clone)]
 struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
+    now: Timestamp,
 }
 
 // Every listed review bot needs a profile.
@@ -767,217 +948,4 @@ fn check_coderabbit(
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-    use crate::runner::step;
-    use crate::test::{Rig, git};
-
-    // A project saved paused by an older kelpie runs once its runner starts.
-    #[test]
-    fn a_project_saved_paused_reads_the_board_on_its_first_pass() {
-        let rig = Rig::new("reactmap");
-        let epoch = Rig::EPOCH;
-        let old = json!({
-            "version": 9,
-            "run": "paused",
-            "since": epoch,
-            "work_items": [],
-            "rulings": [{
-                "id": 3,
-                "issue": null,
-                "question": "q",
-                "pull_request": 30,
-                "kind": { "kind": "stuck", "reason": "closed" },
-                "alerted": true,
-            }],
-            "last_ruling": 3,
-            "finished": [5],
-            "history": [{
-                "issue": 5,
-                "title": "Five",
-                "pull_request": 50,
-                "merged": true,
-                "at": epoch,
-                "wall": 100,
-                "seconds": { "worker": 60, "review": 0, "ci": 40, "ruling": 0, "merge": 0, "other": 0 },
-            }],
-            "reworked": [],
-            "adopted": [],
-            "leases": [],
-            "pacing": null,
-            "notices": [],
-            "replies": { "last": null },
-            "events": [
-                { "id": 1, "at": epoch, "what": "project started" },
-                { "id": 2, "at": epoch, "what": "#5: PR #50 merged, work item done" },
-                { "id": 3, "at": epoch, "what": "project paused" },
-            ],
-            "last_event": 3,
-            "pm_seen": 2,
-            "pm_session": "0e2c6a52-5b0e-4c5f-9a43-3c1f1d8b7e10",
-        });
-        let state = rig.paths().state;
-        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
-        std::fs::write(&state, old.to_string()).unwrap();
-
-        let runner = rig.open().unwrap();
-        rig.forge.list_ready(7, false);
-        assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 7, .. })
-        ));
-        let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["work_item"]["issue"], 7);
-        assert_eq!((status.get("run"), status.get("since")), (None, None));
-        assert_eq!(status["rulings"][0]["id"], 3);
-        assert_eq!(status["history"][0]["issue"], 5);
-        drop(runner);
-        let saved: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
-        assert_eq!(saved["version"], 17);
-        assert_eq!(
-            saved["events"][2]["what"], "project paused",
-            "old events stay"
-        );
-        assert_eq!(saved["pm_seen"], 2);
-        assert_eq!(saved["pm_session"], "0e2c6a52-5b0e-4c5f-9a43-3c1f1d8b7e10");
-    }
-
-    #[test]
-    fn a_failed_save_is_reported_and_changes_nothing() {
-        let rig = Rig::new("xilriws");
-        let runner = rig.open().unwrap();
-        let folder = rig.paths().state.parent().unwrap().to_owned();
-        std::fs::remove_dir_all(&folder).unwrap();
-        // A file where the folder was, which a save cannot make a folder of.
-        std::fs::write(&folder, "").unwrap();
-        let reply = rig.ask(&runner, "add", Some("7"));
-        assert!(
-            reply["error"]
-                .as_str()
-                .unwrap()
-                .contains("cannot write state file"),
-            "{reply}"
-        );
-        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
-    }
-
-    #[test]
-    fn a_repo_that_is_not_a_git_work_tree_stops_the_runner() {
-        let rig = Rig::new("chelone");
-        let elsewhere = rig.home.path().join("not-a-repo");
-        std::fs::create_dir(&elsewhere).unwrap();
-        rig.edit_settings(|s| {
-            s.replace(
-                &rig.repo().display().to_string(),
-                &elsewhere.display().to_string(),
-            )
-        });
-        let err = rig.open().unwrap_err();
-        assert!(
-            err.to_string().starts_with("setting `git.checkout`: "),
-            "{err}"
-        );
-        assert!(
-            err.to_string()
-                .ends_with("not-a-repo is not a git work tree"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn a_repo_without_an_origin_stops_the_runner() {
-        let rig = Rig::new("koji");
-        git(&rig.repo(), &["remote", "remove", "origin"]);
-        let err = rig.open().unwrap_err().to_string();
-        assert!(err.starts_with("setting `git.checkout`: "), "{err}");
-        assert!(
-            err.ends_with("koji has no `origin` remote to cut branches from"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn with_no_remote_set_the_repo_is_read_from_origin() {
-        for url in [
-            "git@github.com:shep-pm/from-origin.git",
-            "https://github.com/shep-pm/from-origin",
-        ] {
-            let rig = Rig::new("koji");
-            rig.edit_settings(|s| s.replace("remote = \"shep-pm/shep\"\n", ""));
-            git(&rig.repo(), &["remote", "set-url", "origin", url]);
-            let runner = rig.open().unwrap();
-            let runner = runner.lock().unwrap();
-            assert_eq!(runner.remote().as_str(), "shep-pm/from-origin", "{url}");
-            assert_eq!(runner.settings().git.remote, None);
-        }
-    }
-
-    #[test]
-    fn with_no_remote_set_an_origin_off_github_stops_the_runner_naming_the_setting() {
-        let rig = Rig::new("koji");
-        rig.edit_settings(|s| s.replace("remote = \"shep-pm/shep\"\n", ""));
-        let err = rig.open().unwrap_err().to_string();
-        assert_eq!(
-            err,
-            "setting `git.remote`: it is not set, and the checkout's `origin` is not a GitHub \
-             repo over HTTPS or SSH: set it to the repo as `owner/name`"
-        );
-    }
-
-    #[test]
-    fn a_repo_that_does_not_exist_stops_the_runner() {
-        let rig = Rig::new("reactmap");
-        let gone = rig.repo().display().to_string();
-        rig.edit_settings(|s| s.replace(&gone, &format!("{gone}-gone")));
-        let err = rig.open().unwrap_err().to_string();
-        assert!(err.starts_with("setting `git.checkout`: "), "{err}");
-        assert!(err.ends_with("reactmap-gone is not a folder"), "{err}");
-    }
-
-    #[test]
-    fn coderabbit_listed_for_a_repo_that_is_not_public_stops_the_runner() {
-        for (visibility, seen_by) in [
-            (Visibility::Private, "private"),
-            (Visibility::Internal, "internal"),
-        ] {
-            let rig = Rig::new("shep");
-            rig.coderabbit_on();
-            rig.forge.set_visibility(visibility);
-            assert_eq!(
-                rig.open().unwrap_err().to_string(),
-                format!(
-                    "setting `agents.reviewers`: coderabbit: shep-pm/shep is {seen_by}, \
-                     and CodeRabbit's free plan reviews public repos only"
-                )
-            );
-        }
-    }
-
-    #[test]
-    fn coderabbit_listed_for_a_public_repo_asks_the_forge_once() {
-        let rig = Rig::new("shep");
-        rig.coderabbit_on();
-        rig.open().unwrap();
-        assert_eq!(rig.forge.calls(), 1);
-    }
-
-    #[test]
-    fn a_project_listing_no_bot_never_asks_the_forge() {
-        let rig = Rig::new("acme");
-        rig.forge.set_visibility(Visibility::Private);
-        rig.open().unwrap();
-        assert_eq!(rig.forge.calls(), 0);
-    }
-
-    #[test]
-    fn a_repo_github_marks_private_may_list_cubic() {
-        let rig = Rig::new("acme");
-        rig.reviewers(&["qwen", "claude", "cubic"]);
-        rig.forge.set_visibility(Visibility::Private);
-        rig.open().unwrap();
-        assert_eq!(rig.forge.calls(), 0);
-    }
-}
+mod tests;

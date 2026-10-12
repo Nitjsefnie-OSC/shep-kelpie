@@ -25,7 +25,7 @@ pub(super) const FRESH_ID: &str = "0b6f3c1e-7d2a-4f4e-9a51-3c8d2e6f1a07";
 pub(super) const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
 const URL: &str = "http://192.0.2.9:11434/v1";
 
-fn output(code: i32, stdout: &str, stderr: &str) -> Output {
+pub(super) fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
         status: ExitStatus::from_raw(code << 8),
         stdout: stdout.into(),
@@ -69,6 +69,20 @@ fn a_pi_workers_commands_ask_for_the_test_lease_at_the_dogs_door() {
         .collect();
     let door = format!("{}=/k/dog/lease.sock", crate::lease::door::SOCKET_VAR);
     assert!(vars.contains(&door), "{vars:?}");
+}
+
+// zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+#[test]
+fn a_pi_call_s_zsh_makes_its_heredoc_files_in_the_call_s_scratch_folder() {
+    let w = World::new();
+    let call = w.call(URL, Role::Worker, Session::New(id(WORKER_ID)));
+    let files = Files::of(&call);
+    let vars: Vec<String> = env_args(&call, &files)
+        .into_iter()
+        .map(|a| a.into_string().unwrap())
+        .collect();
+    let prefix = format!("TMPPREFIX={}/zsh", files.scratch.display());
+    assert!(vars.contains(&prefix), "{vars:?}");
 }
 
 #[test]
@@ -130,6 +144,12 @@ fn each_kind_of_call_gets_its_own_tools() {
     let at = argv.iter().position(|a| a == "--tools").unwrap();
     assert_eq!(argv[at + 1], "read,grep,find,ls");
     assert!(!argv.iter().any(|a| a == "--extension"));
+
+    let mut retro = w.call(URL, Role::Worker, Session::Resume(id(FRESH_ID)));
+    retro.tools = Tools::Retro;
+    let argv = strings(&retro);
+    let at = argv.iter().position(|a| a == "--tools").unwrap();
+    assert_eq!(argv[at + 1], "read,grep,find,ls");
 
     let mut review = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
     assert!(strings(&review).iter().any(|a| a == "--no-tools"));
@@ -222,6 +242,31 @@ fn a_fenced_call_gets_a_guard_that_runs_kelpies_checks() {
     assert_eq!(checks["confine"], json!(["confine", wt, build]));
     assert_eq!(checks["guard"][0], "guard");
     assert_eq!(checks["guard"][2], json!(wt));
+}
+
+// The project's hooks are not Claude Code's, so pi gets them as `kelpie
+// guard` runs them.
+#[test]
+fn the_projects_hooks_reach_a_pi_workers_guard() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let hook = crate::settings::ProjectHook {
+        point: crate::settings::HookPoint::Commit,
+        command: "check-words".to_owned().try_into().unwrap(),
+    };
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &[hook]);
+    let flag = hooks.flag().unwrap();
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+
+    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let line = guard
+        .lines()
+        .find(|l| l.starts_with("const CHECKS"))
+        .unwrap();
+    let checks: serde_json::Value =
+        serde_json::from_str(line.split_once(" = ").unwrap().1.trim_end_matches(';')).unwrap();
+    assert!(checks["guard"].as_array().unwrap().contains(&json!(flag)));
 }
 
 // Loads the guard extension the way pi does, into a stand-in `pi`, and hands
@@ -327,6 +372,167 @@ fn the_guard_sends_commands_to_guard_and_writes_to_confine_and_refuses_the_rest(
     assert_eq!(edit["tool_input"]["file_path"], json!(wt.join("b.txt")));
 }
 
+fn pi_hooks(points: &[crate::settings::HookPoint]) -> crate::hooks::Hooks {
+    let list: Vec<crate::settings::ProjectHook> = points
+        .iter()
+        .map(|&point| crate::settings::ProjectHook {
+            point,
+            command: "check-words".to_owned().try_into().unwrap(),
+        })
+        .collect();
+    crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &list)
+}
+
+// The checks the guard extension is given for a fenced worker with `hooks`.
+fn checks_for(w: &World, hooks: crate::hooks::Hooks) -> serde_json::Value {
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+    stand_in(w, FRESH).prepare(&call).unwrap();
+    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let line = guard
+        .lines()
+        .find(|l| l.starts_with("const CHECKS"))
+        .unwrap();
+    serde_json::from_str(line.split_once(" = ").unwrap().1.trim_end_matches(';')).unwrap()
+}
+
+#[test]
+fn the_projects_write_and_after_command_hooks_reach_a_pi_workers_checks() {
+    use crate::settings::HookPoint;
+    let hooks = pi_hooks(&[HookPoint::Write, HookPoint::AfterCommand]);
+    let flag = hooks.flag().unwrap();
+
+    let checks = checks_for(&World::new(), hooks);
+
+    let confine = checks["confine"].as_array().unwrap();
+    assert_eq!(confine.last().unwrap(), &json!(flag));
+    let after = checks["after"].as_array().unwrap();
+    assert_eq!(after[0], "guard");
+    assert!(after.contains(&json!(flag)), "{after:?}");
+    assert_eq!(after.last().unwrap(), "--after");
+
+    let plain = checks_for(&World::new(), pi_hooks(&[HookPoint::Commit]));
+    assert_eq!(plain["confine"].as_array().unwrap().len(), 3);
+    assert_eq!(plain["after"], serde_json::Value::Null);
+}
+
+// Loads the guard extension as pi does and hands its `tool_result` handler each of `events`.
+const RESULT_RUNNER: &str = r#"
+import guard from "./guard.mts";
+let handler;
+guard({ on: (name, fn) => { if (name === "tool_result") handler = fn; } });
+const out = [];
+for (const event of JSON.parse(process.argv[2])) {
+  out.push((await handler(event, { cwd: process.argv[3] })) ?? null);
+}
+console.log(JSON.stringify(out));
+"#;
+
+// What the guard extension answers each of `events` with, as pi's `tool_result` handler.
+fn after_results(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_json::Value> {
+    use crate::settings::HookPoint;
+    let mut call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
+    call.reach.fence.as_mut().unwrap().guard.hooks = pi_hooks(&[HookPoint::AfterCommand]);
+    let fence = call.reach.fence.as_deref().unwrap();
+    std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
+    std::fs::write(w.path("run.mjs"), RESULT_RUNNER).unwrap();
+    let out = std::process::Command::new("node")
+        .arg(w.path("run.mjs"))
+        .arg(events.to_string())
+        .arg(w.path("wt"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+// pi has no PostToolUse: its `tool_result` event is where a refused result reaches the model.
+#[test]
+fn an_after_command_refusal_reaches_a_pi_worker_as_feedback_on_the_result() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    // A stand-in for kelpie's check: it logs the result it was handed and refuses `refuse-me`.
+    let log = w.path("checks.log");
+    let script = format!(
+        "#!/bin/sh\necho \"$*\" >> {log}\nin=$(cat)\necho \"$in\" >> {log}\n\
+         case \"$in\" in *refuse-me*) echo 'the build failed' >&2; exit 2;; esac\n",
+        log = log.display()
+    );
+    crate::test::write_script(&w.path("kelpie"), &script);
+    let ok = json!([{ "type": "text", "text": "fine" }]);
+    let bad = json!([{ "type": "text", "text": "refuse-me. Command exited with code 101" }]);
+    let events = json!([
+        { "toolName": "bash", "input": { "command": "ls" }, "content": ok, "isError": false },
+        { "toolName": "bash", "input": { "command": "cargo build" }, "content": bad, "isError": true },
+        { "toolName": "read", "input": { "path": "a" }, "content": ok, "isError": false },
+    ]);
+
+    let results = after_results(&w, &w.path("kelpie"), events);
+
+    assert_eq!(results[0], serde_json::Value::Null);
+    assert_eq!(results[1]["isError"], true);
+    let content = results[1]["content"].as_array().unwrap();
+    assert_eq!(content[0], bad[0]);
+    assert!(
+        content[1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("the build failed"),
+        "{content:?}"
+    );
+    assert_eq!(results[2], serde_json::Value::Null);
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = calls.lines().collect();
+    assert_eq!(lines.len(), 4, "{calls}");
+    assert!(lines[0].starts_with("guard "), "{}", lines[0]);
+    assert!(lines[0].ends_with("--after"), "{}", lines[0]);
+    let second: serde_json::Value = serde_json::from_str(lines[3]).unwrap();
+    assert_eq!(second["tool_name"], "Bash");
+    assert_eq!(second["tool_input"]["command"], "cargo build");
+    assert_eq!(second["tool_response"]["exit_code"], 101);
+    assert!(
+        second["tool_response"]["stdout"]
+            .as_str()
+            .unwrap()
+            .starts_with("refuse-me"),
+    );
+}
+
+#[test]
+fn a_pi_write_hands_confine_the_content_for_the_projects_write_hooks() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    let log = w.path("checks.log");
+    let script = format!(
+        "#!/bin/sh\ncat >> {log}\necho >> {log}\n",
+        log = log.display()
+    );
+    crate::test::write_script(&w.path("kelpie"), &script);
+    let events = json!([
+        { "toolName": "write", "input": { "path": "a.txt", "content": "one" } },
+        { "toolName": "edit", "input": { "path": "b.txt", "edits": [
+            { "oldText": "x", "newText": "y" }, { "oldText": "z", "newText": "w" } ] } },
+    ]);
+
+    guarded(&w, &w.path("kelpie"), events);
+
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let seen: Vec<serde_json::Value> = calls
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(seen[0]["tool_input"]["content"], "one");
+    assert_eq!(seen[1]["tool_input"]["content"], "y\nw");
+}
+
 #[test]
 fn a_guard_whose_checks_cannot_run_refuses() {
     if !has_node() {
@@ -361,6 +567,39 @@ fn what_pi_cannot_give_a_worker_fails_before_the_call() {
 }
 
 #[test]
+fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+    let w = World::new();
+    let socket = w.path("worker/forwarder.sock");
+    let upstream = ClaudeCli::default()
+        .pi()
+        .upstream(server(&w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)))).unwrap())
+        .unwrap();
+    let mut calls = [
+        w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID))),
+        w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))),
+    ];
+    for call in &mut calls {
+        let policy = |call: &AgentCall| policy(call, &Files::of(call), &upstream, &socket, &[]);
+        assert!(!policy(call).no_keychain);
+        call.reach.block_keychain = true;
+        assert!(policy(call).no_keychain);
+    }
+}
+
+#[test]
+fn a_calls_transcript_is_in_pis_sessions_folder() {
+    let w = World::new();
+    let call = w.call(URL, Role::Reviewer, Session::New(id(WORKER_ID)));
+    assert_eq!(
+        stand_in(&w, "").transcript(&call),
+        Some(crate::ports::Transcript {
+            folder: w.path("worker/settings.pi/sessions"),
+            threads: None,
+        })
+    );
+}
+
+#[test]
 fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
@@ -370,7 +609,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         .pi()
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(&call, &files, &upstream, &socket);
+    let policy = policy(&call, &files, &upstream, &socket, &[]);
     let home = w.path("worker/settings.pi");
     assert!(policy.write.contains(&home.join("sessions")));
     assert!(!policy.write.contains(&home));
@@ -401,7 +640,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         );
     }
     let open = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let policy = super::policy(&open, &Files::of(&open), &upstream, &socket);
+    let policy = super::policy(&open, &Files::of(&open), &upstream, &socket, &[]);
     assert_eq!(
         policy.write,
         [
@@ -421,6 +660,31 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         policy.forward.map(|f| f.host),
         Some("model.kelpie.test".into())
     );
+}
+
+// The shepherd's home holds the sheep entries' `env`, a gateway's key with
+// it, and `dogs.toml`. A session with no fence reads none of it, but for
+// its own folder.
+#[test]
+fn an_unfenced_pi_session_is_denied_the_shepherds_home_but_its_own_folder() {
+    let w = World::new();
+    stand_in(&w, FRESH);
+    let sandbox = OpenSandbox::default();
+    let pi = ClaudeCli::default()
+        .unfenced_unread(&w.path("shep"))
+        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
+        .pi()
+        .with_program(w.path("pi"));
+    let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
+    pi.prepare(&call).unwrap();
+    pi.run(&call, &Ending::default()).unwrap();
+    let shep = format!("{}/**", w.path("shep").display());
+    let wrapped = sandbox.wrapped();
+    let [(open, _)] = wrapped.as_slice() else {
+        panic!("wrapped once, not {wrapped:?}")
+    };
+    assert!(open.no_read.contains(&shep), "{:?}", open.no_read);
+    assert!(open.read.contains(&w.path("wt")), "{:?}", open.read);
 }
 
 #[test]
@@ -558,12 +822,12 @@ fn a_failed_call_says_why() {
 
     let errored = FRESH.replace(
         r#""stopReason":"stop""#,
-        r#""stopReason":"error","errorMessage":"connection refused""#,
+        r#""stopReason":"error","errorMessage":"model not found""#,
     );
     let err = parse_result(&output(0, &errored, ""), &id(FRESH_ID)).unwrap_err();
     assert_eq!(
         err,
-        AgentError::Failed(Harness::Pi, "connection refused".into())
+        AgentError::Failed(Harness::Pi, "model not found".into())
     );
 
     let err = parse_result(&output(0, "hello", ""), &id(FRESH_ID)).unwrap_err();
@@ -626,8 +890,10 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Answer,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
+            compact_window: None,
         }
     }
 
@@ -647,10 +913,12 @@ impl World {
             build_env: &BTreeMap::new(),
             shep_home: &self.path("shep"),
             door: Path::new("/k/dog/lease.sock"),
+            token: None,
         };
         AgentCall {
             role: Role::Worker,
             tools: Tools::Work,
+            agent_tools: None,
             reach: profile.reach(),
             ..self.call(url, Role::Worker, session)
         }

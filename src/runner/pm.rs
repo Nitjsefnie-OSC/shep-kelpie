@@ -2,19 +2,23 @@
 //! briefed from the board, and checked against it before kelpie acts
 //!
 //! A wake comes from a free slot with two or more ready issues, two open
-//! branches that conflict, a stuck work item, or the maintainer's `tell`.
+//! branches that conflict, a stuck work item, a worker's question, or the
+//! maintainer's `tell`. A question's ruling is held back from the
+//! maintainer for at most one wake, for the project manager to answer or
+//! pass on with a recommendation, and so is a follow-up ruling, which it
+//! can only pass on.
 //! The reasons gathered since the last wake go in one call, a lamb like any
 //! other, one at a time, which the loop never waits on. Its session is the
 //! project's one, resumed each wake and compacted past [`COMPACT_PAST`].
 //! While it is not set up, down, over its pace, or its answer is dropped,
 //! the board rule picks and stuck items keep the rulings they raised.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::Runner;
 use super::report::StepReport;
 use crate::pacer::Scope;
-use crate::ports::{AgentError, AgentReply, Session, SessionId, Timestamp};
+use crate::ports::{AgentError, AgentReply, Finding, Session, SessionId, Timestamp};
 use crate::settings::PmAgent;
 use crate::state::StateError;
 use crate::usage::CallKind;
@@ -23,13 +27,18 @@ use crate::work_item::new_session_id;
 mod act;
 mod answer;
 mod call;
+mod ci_logs;
+mod diffs;
 mod maintainer;
 mod prompt;
+mod question;
 #[cfg(test)]
 mod tests;
 mod wakes;
 
-pub use maintainer::{PmAttaching, PmError, PmStatus};
+#[cfg(test)]
+pub(super) use call::SECRET_SHAPED;
+pub use maintainer::{PmAttaching, PmError, PmStatus, Settled};
 
 use answer::Action;
 use wakes::stuck_on;
@@ -39,6 +48,16 @@ use wakes::stuck_on;
 /// Measured, one session compacted as it goes was the cheapest shape a day
 /// of wakes ran in, and lost no probe of what it knew.
 pub(super) const COMPACT_PAST: u64 = 100_000;
+
+/// The context, in tokens, past which a worker's session is compacted
+/// before the next turn the runner sends it
+///
+/// Every turn after the build resumes the session and rereads all of it.
+/// On four work items it ended at 284k to 486k tokens, and its turns after
+/// the build cost as much as the build or more, three quarters of it cache
+/// reads. Set above [`COMPACT_PAST`] since a worker's build alone reads a
+/// good deal of the repo.
+pub(super) const WORKER_COMPACT_PAST: u64 = 150_000;
 
 /// How long one call may run before it is ended, in seconds. A wake ran
 /// 12 to 26 seconds when measured.
@@ -52,7 +71,7 @@ const DOWN_FOR: u64 = 10 * 60;
 pub(super) const NOTHING_FOR: u64 = 30 * 60;
 
 /// What `/compact` is sent as
-const COMPACT: &str = "/compact";
+pub(super) const COMPACT: &str = "/compact";
 
 /// Why the project manager is woken
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +84,34 @@ pub(super) enum Wake {
     Stuck(u64, String),
     /// The maintainer told it something, which the state file holds
     Told,
+    /// A worker asked a question, which ruling `id` holds for the maintainer
+    Question {
+        /// The work item's issue
+        issue: u64,
+        /// The ruling
+        id: u64,
+        /// The worker's question, verbatim
+        asked: String,
+    },
+    /// A pull request merged with confirmed findings left unfixed, which
+    /// ruling `id` holds for the maintainer to file or drop
+    FollowUp {
+        /// The work item's issue, whose folder holds the merged diff
+        issue: u64,
+        /// The ruling
+        id: u64,
+        /// The merged pull request
+        pull_request: u64,
+        /// The findings
+        findings: Vec<Finding>,
+    },
+    /// A ruling is before the panel, and the project manager votes on it
+    Vote {
+        /// The ruling
+        id: u64,
+        /// What it asks and the options, as the experts are shown it
+        asked: String,
+    },
 }
 
 impl Wake {
@@ -74,6 +121,9 @@ impl Wake {
             (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
+            (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
+            (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
+            (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -143,6 +193,13 @@ pub(super) struct Desk {
     reply: Option<String>,
     // What it decided for an idle worker whose call it had ended
     after_end: BTreeMap<u64, (Action, String)>,
+    // Each question ruling held back from the maintainer for its answer, with
+    // when it was raised
+    asking: BTreeMap<u64, Timestamp>,
+    // Each of those whose comment on its thread waits for the hold to end
+    unposted: BTreeSet<u64>,
+    // The last few questions it settled, newest last
+    settled: Vec<Settled>,
     flying: Option<Flying>,
 }
 
@@ -151,6 +208,17 @@ impl Runner {
     pub(super) fn pm_due(&mut self, wake: Wake) {
         if self.agents.pm.is_some() && !self.pm.due.iter().any(|w| w.same(&wake)) {
             self.pm.due.push(wake);
+        }
+    }
+
+    /// Forgets a pick wake still due, since the board picks nothing while
+    /// the runner finishes. A wake in flight still answers, and its pick
+    /// waits unused.
+    pub(super) fn pm_forget_pick(&mut self) {
+        let due = self.pm.due.len();
+        self.pm.due.retain(|wake| !matches!(wake, Wake::Pick(_)));
+        if self.pm.due.len() < due {
+            self.pm.asked_pick = false;
         }
     }
 
@@ -281,6 +349,84 @@ impl Runner {
                 }
                 Wake::Told => self.pm_due(Wake::Told),
                 Wake::Conflict(..) | Wake::Stuck(..) => self.pm.lapsed = true,
+                // The ruling goes to the maintainer, who need not wait on it again.
+                Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
+                    self.pm.asking.remove(&id);
+                }
+                // The panel votes without it.
+                Wake::Vote { id, .. } => self.panel_pm_gone(id),
+            }
+        }
+    }
+
+    /// Whether ruling `id`'s comment waits on the project manager's answer or
+    /// on the panel's votes, and so is not posted yet
+    pub(super) fn ruling_held(&self, id: u64) -> bool {
+        self.pm_holds_ruling(id) || self.panel_holds_ruling(id)
+    }
+
+    /// Whether question ruling `id` waits on the project manager's answer,
+    /// at most one wake, and so is not posted to the maintainer yet
+    pub(super) fn pm_holds_ruling(&self, id: u64) -> bool {
+        let now = self.ports.clock.now();
+        let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
+        !self.draining && self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
+    }
+
+    /// Holds ruling `id`'s comment on its thread back while the project
+    /// manager may answer it, and says whether it did
+    pub(super) fn pm_holds_comment(&mut self, id: u64) -> bool {
+        let held = self.ruling_held(id);
+        if held {
+            self.pm.unposted.insert(id);
+            self.mark_unposted(id, true);
+        }
+        held
+    }
+
+    /// Keeps on ruling `id` whether its comment is still to be posted, so a
+    /// runner that restarts mid-hold posts it
+    pub(super) fn mark_unposted(&mut self, id: u64, unposted: bool) {
+        let differs = (self.state.rulings.iter().find(|r| r.id == id))
+            .is_some_and(|r| r.unposted != unposted);
+        if !differs {
+            return;
+        }
+        let mut next = self.state.clone();
+        if let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) {
+            ruling.unposted = unposted;
+        }
+        if let Err(e) = self.save(next) {
+            self.notes.push(format!(
+                "cannot save whether ruling {id}'s comment is posted: {e}"
+            ));
+        }
+    }
+
+    /// Posts the comment of each held ruling whose hold has ended and which
+    /// still waits on the maintainer, as the project manager left it
+    pub(super) fn post_released(&mut self) {
+        // A ruling the project manager's hold has let go of may be the panel's now.
+        self.panel_pass();
+        // A ruling held when the runner last stopped is still to be posted.
+        let kept: Vec<u64> = (self.state.rulings.iter())
+            .filter(|r| r.unposted)
+            .map(|r| r.id)
+            .collect();
+        self.pm.unposted.extend(kept);
+        let released: Vec<u64> = (self.pm.unposted.iter().copied())
+            .filter(|&id| !self.ruling_held(id))
+            .collect();
+        for id in released {
+            self.pm.unposted.remove(&id);
+            let Some(number) =
+                (self.state.rulings.iter().find(|r| r.id == id)).map(|ruling| ruling.pull_request)
+            else {
+                continue;
+            };
+            if let Some(why) = self.post_ruling(number, id) {
+                self.notes
+                    .push(format!("cannot post ruling {id} on its thread: {why}"));
             }
         }
     }
@@ -299,7 +445,7 @@ impl Runner {
         let told = self.state.pm_told.clone();
         let full = fresh || self.pm.full_prompt;
         let text = prompt::wake(self.project.as_str(), &wakes, &told, full);
-        let call = match self.pm_call(agent, session, text) {
+        let call = match self.pm_call(agent, session, text, true) {
             Ok(call) => call,
             Err(why) => {
                 self.pm.due = wakes;
@@ -323,7 +469,12 @@ impl Runner {
         let Some(id) = self.state.pm_session.clone() else {
             return Ok(());
         };
-        let call = self.pm_call(agent, Session::Resume(id.clone()), COMPACT.to_owned())?;
+        let call = self.pm_call(
+            agent,
+            Session::Resume(id.clone()),
+            COMPACT.to_owned(),
+            false,
+        )?;
         self.pm.flying = Some(Flying {
             kind: Kind::Compact,
             wakes: Vec::new(),
@@ -395,6 +546,34 @@ impl Runner {
         let woke_for = flying.wakes.iter().map(prompt::reason).collect();
         let picking = flying.wakes.iter().any(|w| matches!(w, Wake::Pick(_)));
         let (acted, dropped) = self.act(&answer, picking)?;
+        // Its votes on the rulings it was asked about; one it gave none on abstains.
+        let asked: Vec<u64> = (flying.wakes.iter())
+            .filter_map(|w| match w {
+                Wake::Vote { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        if !asked.is_empty() {
+            let votes = answer
+                .votes
+                .iter()
+                .map(|(id, fields)| {
+                    (
+                        *id,
+                        crate::panel::from_fields(fields, self.panel_options(*id)),
+                    )
+                })
+                .collect();
+            self.panel_pm_answered(&asked, votes);
+        }
+        // A ruling it did not settle goes to the maintainer as it stands.
+        for wake in &flying.wakes {
+            if let Wake::Question { id, .. } | Wake::FollowUp { id, .. } = wake {
+                self.pm.asking.remove(id);
+            }
+        }
+        // Its pick or hold is taken on the board's next read.
+        self.looks.board_moved();
         Ok(Some(StepReport::PmAnswered {
             session: flying.session,
             woke_for,

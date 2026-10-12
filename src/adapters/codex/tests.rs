@@ -53,9 +53,10 @@ fn strings(call: &AgentCall, resumed: Option<&Thread>, instructions: Option<&str
 fn stand_in(world: &World, stdout: &str) -> CodexCli {
     std::fs::write(world.path("stdout.jsonl"), stdout).unwrap();
     let script = format!(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s' \"$CODEX_HOME\" > {}\ncat {}\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s' \"$CODEX_HOME\" > {}\nprintf '%s' \"$TMPPREFIX\" > {}\ncat {}\n",
         world.path("argv").display(),
         world.path("codex_home").display(),
+        world.path("tmpprefix").display(),
         world.path("stdout.jsonl").display()
     );
     if !world.path("codex").exists() {
@@ -122,6 +123,97 @@ fn a_new_worker_session_loads_nothing_of_the_maintainers_and_runs_kelpies_checks
     assert_eq!(&argv[argv.len() - 2..], ["--", "implement #7"]);
 }
 
+// The project's hooks are not Claude Code's, so Codex gets them as `kelpie
+// guard` runs them.
+#[test]
+fn the_projects_hooks_reach_a_codex_workers_guard() {
+    let w = World::new();
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let hook = crate::settings::ProjectHook {
+        point: crate::settings::HookPoint::Commit,
+        command: "check-words".to_owned().try_into().unwrap(),
+    };
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &[hook]);
+    let flag = hooks.flag().unwrap();
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+
+    let argv = strings(&call, None, None);
+
+    let hooks = argv
+        .iter()
+        .find_map(|a| a.strip_prefix("hooks.PreToolUse="))
+        .unwrap();
+    let hooks: toml::Value = toml::from_str(&format!("h = {hooks}")).unwrap();
+    let guard = hooks["h"][1]["hooks"][0]["command"].as_str().unwrap();
+    assert!(guard.contains(&format!("'{flag}'")), "{guard}");
+}
+
+fn hook_at(point: crate::settings::HookPoint) -> crate::settings::ProjectHook {
+    crate::settings::ProjectHook {
+        point,
+        command: "check-words".to_owned().try_into().unwrap(),
+    }
+}
+
+// The hook list Codex is given for `event`, if it is given one.
+fn codex_hooks(argv: &[String], event: &str) -> Option<toml::Value> {
+    let hooks = argv
+        .iter()
+        .find_map(|a| a.strip_prefix(&format!("hooks.{event}=")))?;
+    let hooks: toml::Value = toml::from_str(&format!("h = {hooks}")).unwrap();
+    Some(hooks["h"].clone())
+}
+
+// `write` hooks ride on `confine` for `apply_patch`, and `after_command` ones on
+// a second guard entry for `PostToolUse`, as the guard does `PreToolUse`.
+#[test]
+fn the_projects_write_and_after_command_hooks_reach_a_codex_worker() {
+    use crate::settings::HookPoint;
+    let w = World::new();
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let list = [
+        hook_at(HookPoint::Write),
+        hook_at(HookPoint::AfterCommand),
+        hook_at(HookPoint::Command),
+    ];
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &list);
+    let flag = hooks.flag().unwrap();
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+
+    let argv = strings(&call, None, None);
+
+    let pre = codex_hooks(&argv, "PreToolUse").unwrap();
+    let confine = pre[0]["hooks"][0]["command"].as_str().unwrap();
+    assert!(confine.contains("'confine'"), "{confine}");
+    assert!(confine.ends_with(&format!("'{flag}'")), "{confine}");
+    let post = codex_hooks(&argv, "PostToolUse").unwrap();
+    let post = post.as_array().unwrap();
+    assert_eq!(post.len(), 1);
+    assert_eq!(post[0]["matcher"].as_str(), Some("^Bash$"));
+    let after = post[0]["hooks"][0]["command"].as_str().unwrap();
+    assert!(after.starts_with("'/k/kelpie' 'guard' "), "{after}");
+    assert!(after.contains(&format!("'{flag}'")), "{after}");
+    assert!(after.ends_with(" '--after'"), "{after}");
+    assert!(!after.contains("--pin-folder"), "{after}");
+}
+
+#[test]
+fn a_codex_worker_with_no_write_or_after_command_hook_gets_neither() {
+    use crate::settings::HookPoint;
+    let w = World::new();
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let list = [hook_at(HookPoint::Commit)];
+    let hooks = crate::hooks::Hooks::new("koji", "acme/koji", Path::new("/k/wt"), &list);
+    call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
+
+    let argv = strings(&call, None, None);
+
+    assert_eq!(codex_hooks(&argv, "PostToolUse"), None);
+    let pre = codex_hooks(&argv, "PreToolUse").unwrap();
+    let confine = pre[0]["hooks"][0]["command"].as_str().unwrap();
+    assert!(!confine.contains("--hooks="), "{confine}");
+}
+
 #[test]
 fn a_resumed_session_names_codexs_own_id_after_the_options() {
     let w = World::new();
@@ -173,6 +265,25 @@ fn only_a_worker_runs_commands_and_a_call_with_no_fence_writes_no_file() {
 }
 
 #[test]
+fn a_retro_has_no_shell_and_no_apply_patch_even_inside_a_fence() {
+    let w = World::new();
+    let mut retro = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
+    retro.tools = Tools::Retro;
+    let argv = strings(&retro, None, None);
+    assert!(argv.windows(2).any(|w| w == ["--disable", "shell_tool"]));
+    let hooks = argv
+        .iter()
+        .find_map(|a| a.strip_prefix("hooks.PreToolUse="))
+        .unwrap();
+    let hooks: toml::Value = toml::from_str(&format!("h = {hooks}")).unwrap();
+    let hooks = hooks["h"].as_array().unwrap();
+    assert_eq!(hooks.len(), 1);
+    assert_eq!(hooks[0]["matcher"].as_str(), Some("^apply_patch$"));
+    let refuse = hooks[0]["hooks"][0]["command"].as_str().unwrap();
+    assert!(refuse.contains("this call writes no files"), "{refuse}");
+}
+
+#[test]
 fn a_steps_skill_is_a_file_a_worker_reads_and_text_a_call_with_no_shell_is_given() {
     let w = World::new();
     let plugin = w.path("skills/mattpocock");
@@ -216,12 +327,27 @@ fn a_steps_skill_is_a_file_a_worker_reads_and_text_a_call_with_no_shell_is_given
 }
 
 #[test]
+fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
+    let w = World::new();
+    let mut calls = [
+        w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID))),
+        w.call(Role::Reviewer, Session::New(id(WORKER_ID))),
+    ];
+    for call in &mut calls {
+        let policy = |call: &AgentCall| policy(call, &w.path("login"), &Files::of(call), &[]);
+        assert!(!policy(call).no_keychain);
+        call.reach.block_keychain = true;
+        assert!(policy(call).no_keychain);
+    }
+}
+
+#[test]
 fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     let w = World::new();
     let login = w.path("login");
     let call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let files = Files::of(&call);
-    let policy = policy(&call, &login, &files);
+    let policy = policy(&call, &login, &files, &[]);
     for unread in ["~/.codex/**", "~/.agents/**", "~/.claude.json", "~/.ssh/**"] {
         assert!(policy.no_read.iter().any(|p| p == unread), "{unread}");
     }
@@ -275,16 +401,42 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     }
     assert!(!policy.write.contains(&w.path("worker/settings.threads")));
     assert!(policy.no_write.contains(&w.path("wt/**/.codex")));
-    assert_eq!(policy.hosts, ["github.com", "api.github.com", MODEL_HOST]);
+    assert_eq!(policy.hosts[..2], ["github.com", "api.github.com"]);
+    assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
 
     let review = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
-    let unfenced = super::policy(&review, &login, &Files::of(&review));
+    let unfenced = super::policy(&review, &login, &Files::of(&review), &[]);
     assert_eq!(unfenced.hosts, [MODEL_HOST]);
     assert!(
         unfenced.verify_tls,
         "Codex cannot reach its model without it"
     );
     assert!(!unfenced.write.contains(&w.path("wt")));
+}
+
+// The shepherd's home holds the sheep entries' `env`, a gateway's key with
+// it, and `dogs.toml`. A session with no fence reads none of it, but for
+// its own folder.
+#[test]
+fn an_unfenced_codex_session_is_denied_the_shepherds_home_but_its_own_folder() {
+    let w = World::new();
+    stand_in(&w, FRESH);
+    let sandbox = OpenSandbox::default();
+    let codex = ClaudeCli::default()
+        .unfenced_unread(&w.path("shep"))
+        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
+        .codex(w.path("login"))
+        .with_program(w.path("codex"));
+    let call = w.call(Role::Reviewer, Session::New(id(REVIEW_ID)));
+    codex.prepare(&call).unwrap();
+    codex.run(&call, &Ending::default()).unwrap();
+    let shep = format!("{}/**", w.path("shep").display());
+    let wrapped = sandbox.wrapped();
+    let [(open, _)] = wrapped.as_slice() else {
+        panic!("wrapped once, not {wrapped:?}")
+    };
+    assert!(open.no_read.contains(&shep), "{:?}", open.no_read);
+    assert!(open.read.contains(&w.path("wt")), "{:?}", open.read);
 }
 
 // A call's files sit in kelpie's home inside the shepherd's, which a fenced
@@ -295,7 +447,7 @@ fn a_fenced_call_reads_its_codex_home_inside_the_shepherds() {
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.settings = w.path("shep/kelpie/koji/worker/settings.json");
     let files = Files::of(&call);
-    let policy = policy(&call, &w.path("login"), &files);
+    let policy = policy(&call, &w.path("login"), &files, &[]);
     let unread = |path: &Path| {
         policy
             .no_read
@@ -319,6 +471,21 @@ fn a_fenced_call_reads_its_codex_home_inside_the_shepherds() {
             path.display()
         );
     }
+}
+
+// zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+#[test]
+fn a_calls_zsh_makes_its_heredoc_files_in_the_calls_scratch_folder() {
+    let w = World::new();
+    let cli = stand_in(&w, "");
+    let call = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
+    cli.prepare(&call).unwrap();
+    let _ = cli.run(&call, &Ending::default());
+    let prefix = std::fs::read_to_string(w.path("tmpprefix")).unwrap();
+    assert_eq!(
+        prefix,
+        format!("{}/zsh", w.path("worker/settings.tmp").display())
+    );
 }
 
 #[test]
@@ -363,6 +530,20 @@ fn every_call_runs_on_a_codex_home_of_its_own_with_the_login_linked_in() {
         assert!(home.join(folder).is_dir(), "{folder}");
     }
     assert!(!home.join("tmp").exists());
+}
+
+#[test]
+fn a_calls_transcript_is_in_its_codex_home_with_the_threads_kelpie_keeps_beside_it() {
+    let w = World::new();
+    let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
+    let codex = stand_in(&w, FRESH);
+    assert_eq!(
+        codex.transcript(&call),
+        Some(crate::ports::Transcript {
+            folder: w.path("worker/settings.codex/sessions"),
+            threads: Some(w.path("worker/settings.threads")),
+        })
+    );
 }
 
 #[test]
@@ -570,8 +751,10 @@ impl World {
             prompt: String::new(),
             plugin_dirs: Vec::new(),
             tools: Tools::Answer,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
+            compact_window: None,
         }
     }
 
@@ -603,10 +786,12 @@ fn worker_in(wt: &Path, build: &Path, kelpie: &Path, root: &Path, call: AgentCal
         build_env: &BTreeMap::new(),
         shep_home: &root.join("shep"),
         door: Path::new("/k/dog/lease.sock"),
+        token: None,
     };
     AgentCall {
         role: Role::Worker,
         tools: Tools::Work,
+        agent_tools: None,
         reach: profile.reach(),
         ..call
     }

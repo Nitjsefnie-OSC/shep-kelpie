@@ -120,18 +120,18 @@ fn a_symlinked_folder_is_found_in_its_canonical_form_too() {
     assert_eq!(paths.find(&text, Surface::Code), Some(Leak::Path));
 }
 
+// `~` is the same folder on every machine that runs the tool, so it names no one.
 #[test]
-fn a_path_under_the_home_folder_is_refused_in_prose_only() {
-    let paths = LocalPaths::default();
-    for text in ["see ~/.ssh/config", "`~/.kelpie/x`", "at\t~/notes"] {
-        assert_eq!(
-            paths.find(text, Surface::Prose),
-            Some(Leak::Tilde),
-            "{text}"
-        );
+fn a_path_under_the_home_folder_goes_through_but_the_folder_it_stands_for_does_not() {
+    let paths = checking(&["/Users/me"]);
+    for text in ["see ~/.shep/config", "`~/.kelpie/x`", "at\t~/notes"] {
+        assert_eq!(paths.find(text, Surface::Prose), None, "{text}");
         assert_eq!(paths.find(text, Surface::Code), None, "{text}");
     }
-    assert_eq!(paths.find("a~/b and ~ alone", Surface::Prose), None);
+    assert_eq!(
+        paths.find("/Users/me/notes", Surface::Prose),
+        Some(Leak::Path)
+    );
 }
 
 // A dotted address, put together here so no fixture holds one.

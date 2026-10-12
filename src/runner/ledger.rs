@@ -138,9 +138,12 @@ impl Runner {
             .and_then(|session| self.ledger.session_cost(session))
             .unwrap_or(Cost(0));
         let now = self.ports.clock.now();
-        let line = open
+        let mut line = open
             .draft
             .line(now, ended, spent, before, self.pacer_lines());
+        if open.draft.role() == Role::Pm {
+            line.votes = self.pm_vote_marks(result);
+        }
         self.ledger.append(&Line::Call(line));
     }
 
@@ -175,7 +178,7 @@ impl Runner {
             let count = match role {
                 Role::Worker => &mut item.counts.worker_unreported,
                 Role::Reviewer => &mut item.counts.reviewer_unreported,
-                Role::IssueWriter | Role::Pm => continue,
+                Role::IssueWriter | Role::Pm | Role::Advisor | Role::Researcher => continue,
             };
             *count = count.saturating_add(1);
             changed = true;

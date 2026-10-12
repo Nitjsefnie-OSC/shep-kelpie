@@ -7,7 +7,8 @@ use serde_json::json;
 use crate::board::{READY, TRIAGE};
 use crate::ports::{Checks, Finding, Severity};
 use crate::runner::coderabbit::tests::{fixed, hold_a_finding, summoned};
-use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::runner::thread_replies::Settler;
+use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn finding(file: &str, what: &str) -> Finding {
@@ -17,10 +18,11 @@ fn finding(file: &str, what: &str) -> Finding {
         line: 9,
         what: what.into(),
         why: "two threads write the same field".into(),
+        test: None,
     }
 }
 
-fn racy() -> Finding {
+pub(in crate::runner) fn racy() -> Finding {
     finding("src/lib.rs", "looks racy")
 }
 
@@ -38,6 +40,16 @@ fn defer(rig: &Rig, text: &str) {
 // A pull request whose qwen round found `found`, the worker fixed with one
 // push, and a clean Claude round then read. CI has not reported.
 fn reviewed_in(rig: Rig, found: &[Finding], auto: bool) -> (Rig, Mutex<Runner>, String) {
+    reviewed_pushing(rig, found, auto, "work\n")
+}
+
+// ... where the worker's first push writes `work` to `work.txt`
+fn reviewed_pushing(
+    rig: Rig,
+    found: &[Finding],
+    auto: bool,
+    work: &'static str,
+) -> (Rig, Mutex<Runner>, String) {
     if auto {
         rig.merge_auto();
         rig.issues("file");
@@ -48,7 +60,7 @@ fn reviewed_in(rig: Rig, found: &[Finding], auto: bool) -> (Rig, Mutex<Runner>, 
     rig.reviewer
         .script([ScriptedRound::Findings(found.to_vec())]);
     rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
+        Scripted::Push("work.txt", work),
         Scripted::Push("fixed.txt", "fixed\n"),
         Scripted::Text("CLEAN"),
     ]);
@@ -82,7 +94,7 @@ fn auto_ready_to_merge(found: &[Finding], deferred: &str) -> (Rig, Mutex<Runner>
 }
 
 // The next step's report, past the notice a merge under `auto` queues
-fn after_merge(runner: &Mutex<Runner>) -> Option<StepReport> {
+pub(in crate::runner) fn after_merge(runner: &Mutex<Runner>) -> Option<StepReport> {
     match step(runner).unwrap() {
         Some(StepReport::Noticed { .. }) => step(runner).unwrap(),
         other => other,
@@ -134,6 +146,53 @@ fn under_file_an_unfixed_confirmed_finding_files_one_issue_for_triage() {
     );
     assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
     assert_eq!(rig.forge.created().len(), 1, "filed once, not again");
+}
+
+#[test]
+fn with_an_app_the_follow_up_issue_and_the_label_it_needs_are_made_through_it() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    let found = [racy()];
+    let (rig, runner) = ready_in(rig, &found, &lines(&found));
+    rig.forge.set_repo_labels(&["bug"]);
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+
+    assert_eq!(
+        rig.forge.created(),
+        [],
+        "not opened as the maintainer's login"
+    );
+    assert_eq!(rig.forge.repo_labels_now(), ["bug"]);
+    let writes = rig.github.writes();
+    let tokens: Vec<_> = writes.iter().map(|(token, _)| token.as_str()).collect();
+    assert!(tokens.iter().all(|t| *t == "ghs_test1"), "{tokens:?}");
+    let body = |call: &crate::github::Call| call.body.clone().unwrap_or_default();
+    let made = |path: &str| {
+        let at = format!("/repos/shep-pm/shep/{path}");
+        (writes.iter())
+            .filter(|(_, call)| call.path == at)
+            .map(|(_, call)| body(call))
+            .collect::<Vec<_>>()
+    };
+    let labels = made("labels");
+    assert!(
+        labels.last().unwrap().contains(r#""name":"needs-triage""#),
+        "{labels:?}"
+    );
+    let [issue] = made("issues").try_into().unwrap();
+    assert!(issue.contains(r#""labels":["needs-triage"]"#), "{issue}");
+}
+
+#[test]
+fn with_no_app_the_follow_up_issue_is_opened_as_it_always_was() {
+    let found = [racy()];
+    let (rig, runner) = auto_ready_to_merge(&found, &lines(&found));
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+
+    assert_eq!(rig.forge.created().len(), 1);
+    assert_eq!(rig.github.writes(), []);
 }
 
 #[test]
@@ -368,6 +427,7 @@ fn a_forge_that_cannot_open_issues_holds_the_work_item_and_the_retry_files_once(
     );
 
     rig.forge.set_issues_down(false);
+    rig.next_look();
     assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
     assert!(finished(after_merge(&runner)));
     assert_eq!(rig.forge.created().len(), 1);
@@ -388,11 +448,12 @@ fn a_forge_that_keeps_refusing_is_retried_for_hours_and_then_the_maintainer_is_a
     let (rig, runner) = auto_ready_to_merge(&found, &lines(&found));
     rig.forge.set_issues_down(true);
 
-    for _ in 0..20 {
-        assert!(matches!(
-            after_merge(&runner),
-            Some(StepReport::GateFailed { .. })
-        ));
+    assert!(matches!(
+        after_merge(&runner),
+        Some(StepReport::GateFailed { .. })
+    ));
+    for _ in 0..19 {
+        assert_eq!(after_merge(&runner), None, "tried again inside its wait");
     }
     rig.clock.advance(5 * 60 * 60);
     assert!(
@@ -414,6 +475,37 @@ fn a_forge_that_keeps_refusing_is_retried_for_hours_and_then_the_maintainer_is_a
     let [issue] = rig.forge.created().try_into().unwrap();
     assert_eq!(issue.labels, [TRIAGE], "a yes to try again triages nothing");
     assert!(finished(after_merge(&runner)));
+}
+
+// Kelpie's own issue is its text, but a project's hook may refuse the finding
+// it carries, so the maintainer is asked, naming the hook and its reason.
+#[test]
+fn a_finding_a_publish_hook_refuses_is_not_filed_and_the_maintainer_is_asked_naming_the_hook() {
+    let rig = Rig::new("shep");
+    rig.forbid_word(&["publish"], "racy");
+    let found = [racy()];
+    let (rig, runner) = ready_in(rig, &found, &lines(&found));
+
+    let Some(StepReport::GateFailed { reason, .. }) = after_merge(&runner) else {
+        panic!("the refused issue did not hold the work item");
+    };
+    assert!(
+        reason.contains("the `publish` hook `forbid-word.sh` refused"),
+        "{reason}"
+    );
+    rig.clock.advance(6 * 60 * 60);
+    let Some(StepReport::Ruling { question, .. }) = after_merge(&runner) else {
+        panic!("the maintainer was not asked after the window");
+    };
+    assert!(
+        question.contains("the `publish` hook `forbid-word.sh` refused"),
+        "{question}"
+    );
+    assert!(
+        question.contains("it names a word the project keeps private"),
+        "{question}"
+    );
+    assert_eq!(rig.forge.created(), [], "nothing is filed");
 }
 
 #[test]
@@ -571,7 +663,10 @@ fn a_restart_after_the_merge_still_files_what_the_worker_deferred() {
 }
 
 // Under `ask`: the worker parked on merge ruling 1, then a yes, then the merge
-fn ask_after_the_merge(rig: Rig, found: &[Finding]) -> (Rig, Mutex<Runner>, u64, String) {
+pub(in crate::runner) fn ask_after_the_merge(
+    rig: Rig,
+    found: &[Finding],
+) -> (Rig, Mutex<Runner>, u64, String) {
     let (rig, runner, head) = reviewed_in(rig, found, false);
     defer(&rig, &lines(found));
     rig.forge.set_checks(&head, Checks::Passed);
@@ -602,6 +697,7 @@ fn a_merged_item_on_its_follow_up_ruling_holds_back_no_new_work() {
 
     // Neither `concurrency.pending_rulings` nor its merged branch's files hold #8 back.
     rig.forge.list_ready(8, false);
+    rig.next_look();
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Dispatched { issue: 8, .. })
@@ -657,6 +753,45 @@ fn the_question_names_files_by_their_path_in_the_repo() {
     assert!(!question.contains(&worktree), "{question}");
 }
 
+// The project manager's yes to ruling `id`, asking for `needs-triage` if `unread`
+fn pm_says_yes(runner: &Mutex<Runner>, id: u64, unread: bool) {
+    let by = Settler::Pm {
+        answer: "yes".into(),
+        why: "the diff shows the race".into(),
+        unread,
+    };
+    runner.lock().unwrap().rule_by(id, Answer::Yes, by).unwrap();
+}
+
+#[test]
+fn under_ask_a_yes_from_the_project_manager_files_what_the_maintainers_yes_does() {
+    let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
+    rig.forge.set_repo_labels(&["bug", READY]);
+    pm_says_yes(&runner, id, false);
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [READY], "the yes was its triage");
+    assert!(!issue.body.contains("triage"), "{}", issue.body);
+    assert_eq!(rig.forge.repo_labels_now(), ["bug", READY]);
+}
+
+#[test]
+fn under_ask_a_yes_from_the_project_manager_for_needs_triage_files_them_unread() {
+    let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
+    pm_says_yes(&runner, id, true);
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [TRIAGE]);
+    assert!(
+        issue.body.contains("Nobody has read this"),
+        "{}",
+        issue.body
+    );
+    assert!(rig.forge.repo_labels_now().contains(&TRIAGE.to_owned()));
+}
+
 #[test]
 fn under_ask_a_no_drops_the_findings() {
     let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
@@ -673,10 +808,18 @@ fn under_ask_a_no_drops_the_findings() {
 // A project under `auto` with `git.issues` as `filing`, CI green on a
 // reviewed pull request whose worker deferred `racy()`, the next step merging it
 fn auto_merging_with_issues(filing: &str) -> (Rig, Mutex<Runner>) {
-    let rig = Rig::new("shep");
+    auto_merging_on(Rig::new("shep"), filing, "work\n")
+}
+
+// ... on `rig`, whose worker writes `work` to `work.txt`
+pub(in crate::runner) fn auto_merging_on(
+    rig: Rig,
+    filing: &str,
+    work: &'static str,
+) -> (Rig, Mutex<Runner>) {
     rig.merge_auto();
     rig.issues(filing);
-    let (rig, runner, head) = reviewed_in(rig, &[racy()], false);
+    let (rig, runner, head) = reviewed_pushing(rig, &[racy()], false, work);
     defer(&rig, &lines(&[racy()]));
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(

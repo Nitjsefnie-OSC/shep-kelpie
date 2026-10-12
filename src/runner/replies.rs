@@ -11,23 +11,31 @@
 //! reply that first sent it said: a right code is claimed before anything
 //! else about the reply is read. After [`FAILURES`] wrong codes, answers
 //! from the topic are off for every project until `shep kelpie totp --unlock`.
+//!
+//! A webhook the maintainer marks `trusted` (see [`Webhook`]) is one only
+//! their token can post to, so there a reply needs no code: `<id> no
+//! <note>`, `<id> rework <note>`, `<id> yes` on any ruling but a merge, and a
+//! worker's answer. A yes on a merge ruling still takes the code, since the
+//! topic alone never merges. The wrong-code lock turns off coded answers
+//! only.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::Runner;
 use super::alert::backoff;
 use super::report::StepReport;
+use super::thread_replies::Settler;
 use super::trigger::lock;
 use super::words::{Wants, read_answer};
+use super::{Answer, Runner};
 use crate::ports::{Alert, AlertError, Alerts, Reply, ReplyWith, Since, Takes, Timestamp};
 use crate::settings::SettingsError;
 use crate::state::{LastRead, RulingKind, StateError};
 use crate::totp::answers::{Answers, Claim, FAILURES, Failure};
 use crate::totp::{STEP, Secret, steps_near};
 use crate::webhook::{Webhook, WebhookKind};
-use whose::{Whose, read_reply};
+use whose::{Named, Whose, read_reply};
 
 /// Seconds between reads of the topic while a ruling waits on it
 pub const READ_EVERY: u64 = 15;
@@ -146,6 +154,7 @@ impl StepReport {
         | Self::ReplyToSettled { line_failed, .. }
         | Self::ReplyCodeUsed { line_failed, .. }
         | Self::RepliesLocked { line_failed }
+        | Self::ReplyUnreadable { line_failed }
         | Self::ReplyTooLong { line_failed } = &mut self
         {
             *line_failed = failed.map(|e| e.to_string());
@@ -166,12 +175,21 @@ impl Runner {
     // and answers not turned off
     fn replies_on(&self) -> Option<&Webhook> {
         let auth = self.totp.as_ref()?;
-        if !auth.secret.exists() || auth.answers.locked() {
+        let webhook = self
+            .webhook
+            .as_ref()
+            .filter(|w| w.kind == WebhookKind::Ntfy)?;
+        // A trusted topic is still read once coded answers are off, since
+        // the replies that need no code are not.
+        if !auth.secret.exists() || (auth.answers.locked() && !webhook.trusted) {
             return None;
         }
-        self.webhook
-            .as_ref()
-            .filter(|w| w.kind == WebhookKind::Ntfy)
+        Some(webhook)
+    }
+
+    // Whether the wrong-code lock holds: only a trusted topic is read then.
+    fn coded_answers_off(&self) -> bool {
+        self.totp.as_ref().is_some_and(|auth| auth.answers.locked())
     }
 
     /// What ruling `id`'s alert says a reply takes, where replies are read
@@ -179,6 +197,8 @@ impl Runner {
         self.replies_on()?;
         let takes = match Wants::of(kind) {
             Wants::Answer => Takes::Answer,
+            // A coded yes is dropped while answers are off, so the alert does not offer it.
+            Wants::Merge if self.coded_answers_off() => Takes::MergeCodedOff,
             Wants::Merge => Takes::Merge,
             Wants::YesOrNo => Takes::YesOrNo,
         };
@@ -367,47 +387,67 @@ impl Runner {
         if reply.time.0 < now.0.saturating_sub(WINDOW) {
             return ignored;
         }
-        // Only the exact shape acts: six digits, last.
-        let Some((rest, typed)) = text.trim().rsplit_once(char::is_whitespace) else {
-            return ignored;
-        };
-        if typed.len() != 6 || !typed.bytes().all(|b| b.is_ascii_digit()) {
-            return ignored;
-        }
-        let claim = match secret.verify(typed, reply.time) {
-            // Every step `verify` takes was spent above, from this text.
-            Some(step) => {
-                let claim = spent.claims.iter().find(|(claimed, _)| *claimed == step);
-                let Some((_, claim)) = claim else {
-                    return ignored;
-                };
-                *claim
+        let trusted = self.webhook.as_ref().is_some_and(|w| w.trusted);
+        // Only the exact shape carries a code: six digits, last. On a trusted
+        // topic a reply without one is the maintainer's all the same.
+        let typed = match text.trim().rsplit_once(char::is_whitespace) {
+            Some((rest, typed))
+                if typed.len() == 6 && typed.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                Some((rest, typed))
             }
-            None => {
-                return match auth.answers.fail(&reply.id) {
-                    Ok(Failure::LockedNow) => {
-                        let text = format!(
-                            "Answers from ntfy are off after {FAILURES} wrong codes. \
-                             Turn them back on with `shep kelpie totp --unlock` on the terminal. \
-                             Anyone can post to a topic whose name they know, so think \
-                             about moving to a new one."
-                        );
-                        let report = StepReport::RepliesLocked { line_failed: None };
-                        let line = self.line(None, text);
-                        (report, line)
-                    }
-                    Ok(Failure::Counted) | Err(_) => ignored,
-                };
+            _ => None,
+        };
+        let (rest, claim) = match typed {
+            // Coded answers are off, though uncoded ones on a trusted topic are not.
+            Some(_) if auth.answers.locked() => return ignored,
+            Some((rest, typed)) => match secret.verify(typed, reply.time) {
+                // Every step `verify` takes was spent above, from this text.
+                Some(step) => {
+                    let claim = spent.claims.iter().find(|(claimed, _)| *claimed == step);
+                    let Some((_, claim)) = claim else {
+                        return ignored;
+                    };
+                    (rest, Some(*claim))
+                }
+                None => {
+                    return match auth.answers.fail(&reply.id) {
+                        Ok(Failure::LockedNow) => {
+                            let text = self.locked_line(trusted);
+                            let report = StepReport::RepliesLocked { line_failed: None };
+                            (report, self.line(None, text))
+                        }
+                        Ok(Failure::Counted) | Err(_) => ignored,
+                    };
+                }
+            },
+            None if trusted => (text.trim(), None),
+            None => return ignored,
+        };
+        let Some(read) = read_reply(rest) else {
+            // Chatter on a trusted topic is not worth a line from every project.
+            if claim.is_none() {
+                return ignored;
             }
+            // Every project reads the one topic and finds the code claimed by
+            // this very reply, so each posts the line under its own title, as
+            // `too_long` does.
+            let text = "That reply named no ruling kelpie could read, so it answered nothing \
+                        and its code is spent. Send `<ruling> <answer> <code>` with a new code."
+                .to_owned();
+            let report = StepReport::ReplyUnreadable { line_failed: None };
+            return (report, self.line(None, text));
         };
-        let Some((named, id, words)) = read_reply(rest) else {
-            return ignored;
-        };
-        let whose = self.whose(named, id);
+        let Named {
+            whose,
+            id,
+            by_number,
+        } = self.which(&read);
+        let (number, words) = (read.number, read.words);
         if whose == Whose::Theirs {
             return ignored;
         }
-        if claim == Claim::Replayed {
+        if claim == Some(Claim::Replayed) {
             let text = format!(
                 "Ruling {id} was not answered: that code was used already. \
                  Send the reply again with the next one."
@@ -418,11 +458,20 @@ impl Runner {
             };
             return (report, self.line(Some(id), text));
         }
-        let _ = auth.answers.forgive();
-        if let Whose::Unsure(why) = whose {
-            let reason =
-                format!("{why}, so name the project first: `{project} {id} <answer> <code>`");
-            return self.reply_refused(id, reason);
+        // Only a right code forgives the wrong ones before it.
+        if claim.is_some() {
+            let _ = auth.answers.forgive();
+        }
+        match whose {
+            Whose::Unsure(why) => {
+                let code = if claim.is_some() { " <code>" } else { "" };
+                let reason = format!(
+                    "{why}, so name the project first: `{project} {number} <answer>{code}`"
+                );
+                return self.reply_refused(id, reason);
+            }
+            Whose::Several(why) => return self.reply_refused(id, why),
+            Whose::Ours | Whose::Theirs => {}
         }
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let Some(pending) = pending else {
@@ -434,14 +483,56 @@ impl Runner {
             };
             return (report, self.line(Some(id), text));
         };
-        let answer = match read_answer(Wants::of(&pending.kind), words) {
+        // A number can name a new ruling on the same issue or pull request,
+        // so a reply from before this one was raised may answer another question.
+        if by_number && pending.raised.is_some_and(|raised| reply.time < raised) {
+            let asks = pending.question.lines().next().unwrap_or_default();
+            let reason = format!(
+                "the ruling changed since that reply was written, and it asks now: {asks}. \
+                 Reply again to answer it"
+            );
+            return self.reply_refused(id, reason);
+        }
+        let wants = Wants::of(&pending.kind);
+        let answer = match read_answer(wants, words) {
             Ok(answer) => answer,
             Err(reason) => return self.reply_refused(id, reason),
         };
-        match self.rule(id, answer) {
+        // The topic alone never merges: a trusted one still takes a code for that.
+        if claim.is_none() && wants == Wants::Merge && answer == Answer::Yes {
+            // While coded answers are off, the code the line would ask for is dropped too.
+            let reason = if auth.answers.locked() {
+                format!(
+                    "a yes on a merge ruling takes the authenticator code, and coded answers \
+                     are off: turn them back on with `shep kelpie totp --unlock` on the \
+                     terminal, then send `{id} yes <code>`"
+                )
+            } else {
+                format!("a yes on a merge ruling takes the authenticator code: `{id} yes <code>`")
+            };
+            return self.reply_refused(id, reason);
+        }
+        match self.rule_by(id, answer, Settler::Alert) {
             Ok(()) => (StepReport::ReplyAnswered { id }, None),
             Err(e) => self.reply_refused(id, e.to_string()),
         }
+    }
+
+    // The line saying coded answers are off. On a trusted topic the others are not.
+    fn locked_line(&self, trusted: bool) -> String {
+        if trusted {
+            return format!(
+                "Coded answers from ntfy are off after {FAILURES} wrong codes, and replies \
+                 that need no code still work. Turn them back on with \
+                 `shep kelpie totp --unlock` on the terminal."
+            );
+        }
+        format!(
+            "Answers from ntfy are off after {FAILURES} wrong codes. \
+             Turn them back on with `shep kelpie totp --unlock` on the terminal. \
+             Anyone can post to a topic whose name they know, so think \
+             about moving to a new one."
+        )
     }
 
     // A reply that answered nothing, and the line saying why.

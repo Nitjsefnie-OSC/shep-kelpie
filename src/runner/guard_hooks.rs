@@ -1,7 +1,9 @@
-//! A project's own guard hooks, checked when the runner starts
+//! A project's own hooks, checked when the runner starts
 //!
-//! A hook command that is not there fails every tool call it matches, in
-//! every worker, so the runner refuses to start on one and names it. A
+//! A `worker.guard_hooks` command that is not there fails every tool call it
+//! matches, in every worker, and a `hooks` command that is not there refuses
+//! everything at its point, so the runner refuses to start on either and
+//! names it. A
 //! command resolves when its program is on `PATH` or at its path, and every
 //! later word that is an absolute or `~/` path exists. `~/` and `$HOME/` are
 //! the home folder, as the worker's shell reads them: the runner's own `HOME`
@@ -12,23 +14,28 @@ use std::path::{Path, PathBuf};
 
 use crate::settings::{Settings, SettingsError};
 
-/// Checks that every one of the project's guard hooks resolves, with `home`
-/// and `path` the worker's `HOME` and `PATH`
+/// Checks that every one of the project's guard hooks and hooks resolves,
+/// with `home` and `path` the worker's `HOME` and `PATH`
 ///
 /// # Errors
 ///
-/// [`SettingsError::Invalid`] naming `worker.guard_hooks`, the command, and
-/// the word in it that does not resolve.
+/// [`SettingsError::Invalid`] naming `worker.guard_hooks` or `hooks`, the
+/// command, and the word in it that does not resolve.
 pub(super) fn check(
     settings: &Settings,
     home: Option<&Path>,
     path: Option<&OsStr>,
 ) -> Result<(), SettingsError> {
-    for hook in &settings.worker.guard_hooks {
-        let command = hook.command.as_str();
+    let guard = (settings.worker.guard_hooks.iter())
+        .map(|hook| ("worker.guard_hooks", hook.command.as_str()));
+    let own = settings
+        .hooks
+        .iter()
+        .map(|hook| ("hooks", hook.command.as_str()));
+    for (setting, command) in guard.chain(own) {
         if let Some(word) = unresolved(command, home, path) {
             return Err(SettingsError::Invalid {
-                setting: "worker.guard_hooks",
+                setting,
                 reason: format!("`{command}` does not resolve: {word} is not there"),
             });
         }
@@ -85,6 +92,12 @@ mod tests {
         rig.edit_settings(|s| format!("{s}\n{hook}"));
     }
 
+    fn with_project_hook(rig: &Rig, command: &str) {
+        let hook =
+            format!("[[app.dogs.kelpie.hooks]]\npoint = \"commit\"\ncommand = \"{command}\"\n");
+        rig.edit_settings(|s| format!("{s}\n{hook}"));
+    }
+
     // As the runner checks it, with the rig's home as the worker's `HOME`.
     fn checked(rig: &Rig) -> Result<(), String> {
         let path = std::env::var_os("PATH");
@@ -107,6 +120,28 @@ mod tests {
             "setting `worker.guard_hooks`: `kelpie-no-such-guard --strict` does not resolve: \
              kelpie-no-such-guard is not there"
         );
+    }
+
+    #[test]
+    fn a_project_hook_that_does_not_resolve_stops_the_runner_at_start() {
+        let rig = Rig::new("koji");
+        with_project_hook(&rig, "kelpie-no-such-check --strict");
+        let err = rig.open().map(drop).unwrap_err().to_string();
+        assert_eq!(
+            err,
+            "setting `hooks`: `kelpie-no-such-check --strict` does not resolve: \
+             kelpie-no-such-check is not there"
+        );
+    }
+
+    #[test]
+    fn a_project_hook_on_path_or_in_the_home_folder_opens() {
+        let rig = Rig::new("koji");
+        let hooks = rig.home.path().join("hooks");
+        fs::create_dir(&hooks).unwrap();
+        fs::write(hooks.join("check.sh"), "exit 0\n").unwrap();
+        with_project_hook(&rig, "sh ~/hooks/check.sh");
+        assert_eq!(checked(&rig), Ok(()));
     }
 
     #[test]

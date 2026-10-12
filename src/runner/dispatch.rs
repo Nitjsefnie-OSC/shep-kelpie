@@ -32,7 +32,9 @@ impl Runner {
                 }));
             }
         };
+        self.follow_order(&ready)?;
         self.trim_finished(&ready)?;
+        self.trim_dropped(&ready)?;
         // An issue in flight is left out, and not listed in `skipped`: it is
         // being worked on, not passed over.
         ready.retain(|issue| self.state.item(issue.number).is_none());
@@ -58,21 +60,28 @@ impl Runner {
         let overlaps = self.parked_overlap(&ready);
         ready.retain(|issue| !overlaps.iter().any(|s| s.issue() == issue.number));
         let implementers = self.agents.implementer_names();
-        let all = takeable(&ready, &open, &self.state.finished, &implementers);
+        let all = takeable(
+            &ready,
+            &open,
+            &self.state.finished,
+            &self.state.dropped,
+            &implementers,
+        );
         let held = self.pm_holds(&all);
         ready.retain(|issue| !held.contains(&issue.number));
         let mut paced = false;
         let mut unlabelled: Vec<Skip> = Vec::new();
         loop {
             let implementers = self.agents.implementer_names();
-            let finished = &self.state.finished;
-            let pick = board::pick(&ready, &open, finished, &implementers);
+            let (finished, dropped) = (&self.state.finished, &self.state.dropped);
+            let order = &self.state.order;
+            let pick = board::pick(&ready, &open, finished, dropped, &implementers, order);
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
             skipped.extend(unlabelled.iter().cloned());
             skipped.sort_by_key(Skip::issue);
-            let takeable = takeable(&ready, &open, finished, &implementers);
+            let takeable = takeable(&ready, &open, finished, dropped, &implementers);
             let Some(issue) = pick.issue else {
                 let reason = failed
                     .iter()
@@ -172,12 +181,13 @@ fn takeable(
     ready: &[ReadyIssue],
     open: &[board::OpenPullRequest],
     finished: &[u64],
+    dropped: &[u64],
     implementers: &[crate::settings::AgentName],
 ) -> Vec<u64> {
     (ready.iter())
         .filter(|i| {
             let one = std::slice::from_ref(*i);
-            board::pick(one, open, finished, implementers)
+            board::pick(one, open, finished, dropped, implementers, &[])
                 .issue
                 .is_some()
         })
@@ -186,6 +196,20 @@ fn takeable(
 }
 
 impl Runner {
+    // Each read of the board updates the order it takes the ready issues in:
+    // a new issue joins it, one whose priority label changed moves, and one
+    // the forge stopped listing leaves it.
+    fn follow_order(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
+        let (order, ranked) = board::keep_order(&self.state.order, &self.state.ranked, ready);
+        if order == self.state.order && ranked == self.state.ranked {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.order = order;
+        next.ranked = ranked;
+        self.save(next)
+    }
+
     // The board skips a finished issue until the forge closes it, so an entry
     // goes only once its issue reads as closed. One the forge lists ready is
     // open, and one it cannot answer for stays.
@@ -204,6 +228,49 @@ impl Runner {
         }
         let mut next = self.state.clone();
         next.finished.retain(|n| !closed.contains(n));
+        self.save(next)
+    }
+
+    // The board is read only while it may open a work item, so a dropped
+    // issue's label is read on its own when it has not been, at most once a poll. One
+    // that is closed or lost `ready-for-agent` is forgotten, so putting the
+    // label back returns it. One the forge cannot answer for stays.
+    pub(super) fn recheck_dropped(&mut self) -> Result<(), StateError> {
+        if self.state.dropped.is_empty() {
+            return Ok(());
+        }
+        if !self.looks.dropped_due(self.ports.clock.now()) {
+            return Ok(());
+        }
+        let repo = &self.remote;
+        let unlabelled = |issue: &crate::ports::Issue| {
+            !issue.open || !issue.labels.iter().any(|l| l == board::READY)
+        };
+        let gone: Vec<u64> = (self.state.dropped.iter().copied())
+            .filter(|&n| {
+                self.ports
+                    .forge
+                    .issue(repo, n)
+                    .is_ok_and(|i| unlabelled(&i))
+            })
+            .collect();
+        if gone.is_empty() {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.dropped.retain(|n| !gone.contains(n));
+        self.save(next)
+    }
+
+    // The board leaves a dropped issue be while the forge lists it ready, so an
+    // entry goes once the forge stops listing it: a label put back is then new.
+    fn trim_dropped(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
+        let listed = |n: &u64| ready.iter().any(|r| r.number == *n);
+        if self.state.dropped.iter().all(listed) {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.dropped.retain(listed);
         self.save(next)
     }
 }
@@ -225,6 +292,161 @@ mod tests {
         let rig = Rig::new(project);
         let runner = rig.open().unwrap();
         (rig, runner)
+    }
+
+    // Both wait on #32 while the board reads them. #8 is the older issue but
+    // became ready after #9, so it joins after it, where the rule alone
+    // would take #8 first.
+    #[test]
+    fn the_order_the_board_kept_survives_a_runner_restart() {
+        let (rig, runner) = running("shep");
+        rig.forge.list_ready(9, false);
+        rig.forge.block(9, 32);
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.forge.list_ready(8, false);
+        rig.forge.block(8, 32);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(rig.ask(&runner, "status", None)["order"], json!([9, 8]));
+        drop(runner);
+
+        let runner = rig.open().unwrap();
+        rig.forge.close_issue(32);
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 9, .. })
+        ));
+    }
+
+    #[test]
+    fn a_priority_label_changed_between_reads_moves_the_issue_even_across_a_restart() {
+        let (rig, runner) = running("shep");
+        for issue in [8, 9] {
+            rig.forge.list_ready(issue, false);
+            rig.forge.block(issue, 32);
+        }
+        assert_eq!(step(&runner).unwrap(), None);
+        drop(runner);
+
+        // Bumped while the runner was down.
+        rig.forge.label(9, "priority: P0");
+        let runner = rig.open().unwrap();
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(rig.ask(&runner, "status", None)["order"], json!([9, 8]));
+    }
+
+    #[test]
+    fn a_read_of_the_board_puts_a_new_p0_after_the_last_p0_and_status_shows_the_first_five() {
+        let (rig, runner) = running("shep");
+        for issue in [1, 2, 3, 4, 5] {
+            rig.forge.list_ready(issue, false);
+            rig.forge.block(issue, 32);
+        }
+        rig.forge.label(1, "priority: P0");
+        rig.forge.label(2, "priority: P0");
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["order"],
+            json!([1, 2, 3, 4, 5])
+        );
+
+        rig.forge.list_ready(6, false);
+        rig.forge.block(6, 32);
+        rig.forge.label(6, "priority: P0");
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["order"],
+            json!([1, 2, 6, 3, 4])
+        );
+    }
+
+    #[test]
+    fn a_dropped_item_labelled_ready_again_is_picked_again() {
+        let (rig, runner) = running("shep");
+        rig.forge.list_ready(7, false);
+        step(&runner).unwrap();
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", None);
+
+        // Still labelled, so the board leaves it be and says it was dropped.
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["skipped"],
+            json!([{ "reason": "dropped", "issue": 7 }])
+        );
+
+        rig.forge.unlist_ready(7);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.forge.list_ready(7, false);
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 7, .. })
+        ));
+    }
+
+    #[test]
+    fn a_dropped_item_labelled_ready_again_while_the_board_is_shut_is_picked_when_it_opens() {
+        // #7 is open and the runner finishes it, so the board is not read.
+        let (rig, runner, _) = Rig::with_pull_request_set("acme", |rig| {
+            rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+        });
+        rig.forge.list_ready(8, false);
+        rig.ask(&runner, "add", Some("8"));
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", Some("8"));
+        rig.ask(&runner, "finish", None);
+
+        rig.forge.unlist_ready(8);
+        rig.clock.advance(600);
+        step(&runner).unwrap();
+        rig.forge.list_ready(8, false);
+        rig.clock.advance(600);
+        step(&runner).unwrap();
+
+        rig.ask(&runner, "start", None);
+        let picked = (0..3).find_map(|_| match step(&runner).unwrap() {
+            Some(StepReport::Dispatched { issue, .. }) => Some(issue),
+            _ => None,
+        });
+        assert_eq!(picked, Some(8));
+    }
+
+    #[test]
+    fn a_merged_item_the_forge_still_lists_ready_stays_skipped() {
+        let (rig, runner, _) = Rig::parked("acme");
+        // The forge keeps the issue open: the pull request closes nothing and
+        // kelpie's own close is refused.
+        rig.forge.set_closes(71, &[]);
+        rig.forge.set_closes_down(true);
+        rig.ask(&runner, "rule", Some("1 yes"));
+        step(&runner).unwrap();
+        rig.clock.advance(crate::runner::CHECKS_SETTLE);
+        step(&runner).unwrap();
+        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
+
+        // The forge still lists #7 as ready, and it stays skipped as finished
+        // even once a label comes off and goes on again.
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.next_look();
+        rig.forge.unlist_ready(7);
+        step(&runner).unwrap();
+        rig.next_look();
+        rig.forge.list_ready(7, false);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["skipped"],
+            json!([{ "reason": "finished", "issue": 7 }])
+        );
     }
 
     fn sonnet_high() -> AgentName {
@@ -294,6 +516,60 @@ mod tests {
                 ],
             })
         );
+    }
+
+    #[test]
+    fn a_ready_issue_an_earlier_worker_labelled_in_progress_is_skipped_and_listed() {
+        let (rig, runner) = running("kanto");
+        rig.forge.list_ready(3, false);
+        rig.forge.label(3, "in-progress");
+
+        assert_eq!(step(&runner).unwrap(), None);
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"], json!(null));
+        assert_eq!(
+            status["skipped"],
+            json!([{ "reason": "in-progress", "issue": 3 }])
+        );
+    }
+
+    #[test]
+    fn a_reopened_runner_keeps_its_own_in_progress_item_and_opens_no_second() {
+        let (rig, runner) = running("johto");
+        rig.forge.list_ready(3, false);
+        step(&runner).unwrap();
+        assert_eq!(rig.ask(&runner, "status", None)["working"], json!([3]));
+
+        drop(runner);
+        let runner = rig.open().unwrap();
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["working"], json!([3]));
+        assert_eq!(status["skipped"], json!([]));
+        assert_eq!(rig.claude.calls().len(), 1);
+    }
+
+    #[test]
+    fn a_reopened_runner_keeps_its_own_parked_in_progress_item_out_of_skipped() {
+        let (rig, runner) = running("hoenn");
+        rig.forge.list_ready(3, false);
+        step(&runner).unwrap();
+        rig.claude.script([Scripted::Say(
+            "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
+        )]);
+        step(&runner).unwrap();
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+
+        drop(runner);
+        let runner = rig.open().unwrap();
+        assert_eq!(step(&runner).unwrap(), None);
+
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["parked"], json!([3]));
+        assert_eq!(status["skipped"], json!([]));
     }
 
     #[test]
@@ -396,6 +672,7 @@ mod tests {
         assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 
         rig.forge.set_board_down(false);
+        rig.next_look();
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched { issue: 2, .. })
@@ -506,6 +783,7 @@ mod tests {
         rig.forge.open_pull_request(40, "kelpie/32", &[32]);
         assert_eq!(step(&runner).unwrap(), None);
         rig.forge.set_state(40, PullRequestState::Merged);
+        rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(
             rig.ask(&runner, "status", None)["skipped"],
@@ -513,6 +791,7 @@ mod tests {
         );
 
         rig.forge.close_issue(32);
+        rig.next_look();
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched { issue: 8, .. })

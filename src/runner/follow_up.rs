@@ -7,7 +7,8 @@
 //! in its own words: a line the worker invents or rewrites files nothing.
 //! `git.issues` decides what follows: under `file` each finding is filed at
 //! once as `needs-triage`, under `ask` the maintainer is asked first and a
-//! yes files them `ready-for-agent`, and under `skip` nothing is filed and the
+//! yes files them `ready-for-agent` (the project manager's too, though it may
+//! ask for `needs-triage`), and under `skip` nothing is filed and the
 //! findings stay in the review. A finding an open issue already holds
 //! gets a comment on that issue instead of a second one.
 
@@ -91,11 +92,13 @@ impl Runner {
 
     // One finding at a time, each taken off the work item once it is filed,
     // so a failure part way retries only what is left. Only a yes on the
-    // `follow-up` ruling puts them on the board: that yes is their triage.
+    // `follow-up` ruling puts them on the board as `ready-for-agent`: that yes
+    // is their triage. A project manager's yes that asked for `needs-triage`
+    // is not, and files them unread, as `file` does.
     fn file_follow_ups(&mut self, number: u64) -> Result<Begin, StateError> {
         let item = self.current().expect("a follow-up is of a work item");
         let issue = item.issue;
-        let triaged = item.follow_ups.as_ref().is_some_and(|p| p.ruled);
+        let triaged = (item.follow_ups.as_ref()).is_some_and(|p| p.ruled && !p.unread);
         let label = if triaged { READY } else { TRIAGE };
         // READY is on every repo `add` set up, so only TRIAGE may need making.
         let mut labelled = triaged;
@@ -113,23 +116,19 @@ impl Runner {
                 Some(known) => {
                     let body = comment_body(number, &finding);
                     let on = known.number;
-                    let posted = self.ports.forge.post_comment(&repo, on, &body);
-                    posted.map(|_| commented.push(on))
+                    let posted = self.comment_on_issue(on, &body);
+                    posted.map(|()| commented.push(on))
                 }
                 None => {
                     if !labelled {
-                        let forge = self.ports.forge.as_ref();
-                        let made = crate::issues::make_missing(forge, &repo, [TRIAGE_LABEL]);
+                        let made = self.make_missing_labels([TRIAGE_LABEL]);
                         if let Err(reason) = made {
                             return self.forge_refused(number, reason);
                         }
                         labelled = true;
                     }
                     let body = issue_body(number, &finding, triaged);
-                    let made = self
-                        .ports
-                        .forge
-                        .create_issue(&repo, &title, &body, &[label]);
+                    let made = self.open_issue(&title, &body, &[label]);
                     made.map(|made| {
                         opened.push(made);
                         open.push(OpenIssue {
@@ -284,4 +283,4 @@ fn details(finding: &Finding) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

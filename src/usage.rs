@@ -16,16 +16,20 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
+use crate::settings::RulingName;
 use crate::work_item::{QwenTally, RoleTally, Tally};
 
 pub mod baselines;
 mod draft;
 mod import;
+mod panel;
 mod report;
 
 pub use draft::{Draft, Spent, ended};
 pub use import::{Imported, import};
+pub use panel::vote_costs;
 pub use report::report;
 
 /// The ledger's file name in a project's folder
@@ -33,7 +37,7 @@ pub const FILE: &str = "usage.jsonl";
 
 /// A call's tokens in the control room's units, rounded to the nearest
 ///
-/// Weighted by cache pricing, as the design log measured the control room:
+/// Weighted by cache pricing, as the control room weighs it (#347):
 /// uncached input 1, a one-hour cache write 2, a five-minute one 1.25, a
 /// cache read 0.1, output 5.
 pub fn units(usage: Usage) -> u64 {
@@ -70,10 +74,16 @@ pub enum CallKind {
     LocalRound,
     /// The project manager's wake
     Wake,
-    /// `/compact` on the project manager's session
+    /// `/compact` on the project manager's session, or on a worker's before
+    /// a turn
     Compact,
     /// The issue writer's run
     Issues,
+    /// The worker's retro turn, once its work item has finished
+    Retro,
+    /// An expert's vote on a ruling: the worker's resumed session, the
+    /// advisor's or the researcher's
+    Vote,
 }
 
 /// How a call ended
@@ -110,6 +120,27 @@ pub struct PacerLine {
     /// fell between them
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub week_resets_at: Option<Timestamp>,
+}
+
+/// A vote on a ruling that a call cast, or, for the project manager's wake,
+/// one of the votes it cast
+// wire format: changing this is a breaking change to the usage ledger
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoteMark {
+    /// The ruling's id
+    pub ruling: u64,
+    /// The kind of ruling it is
+    pub ruling_kind: RulingName,
+    /// The expert who voted
+    pub voter: Voter,
+    /// The panel the work item's type set
+    pub panel: Tier,
+    /// The work item's type, from its pull request's title: `fix`, `feat`,
+    /// `breaking` or `untyped`
+    pub work: String,
+    /// The option it chose, or none when it abstained
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choice: Option<char>,
 }
 
 /// A model call, as it ended
@@ -169,6 +200,10 @@ pub struct CallLine {
     /// Whether it was read from a runner's log, not written as it ended
     #[serde(default, skip_serializing_if = "is_false")]
     pub imported: bool,
+    /// The votes on rulings it cast: one for an expert's call, and one for
+    /// each ruling a project manager's wake voted on
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub votes: Vec<VoteMark>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -215,7 +250,8 @@ impl From<RoleTally> for RoleLine {
     }
 }
 
-/// A finished work item, merged or dropped, and what it spent
+/// A finished work item, merged, closed with no change or dropped, and what
+/// it spent
 // wire format: changing this is a breaking change to the usage ledger
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FinishedLine {
@@ -229,6 +265,10 @@ pub struct FinishedLine {
     pub pull_request: Option<u64>,
     /// Whether the pull request merged
     pub merged: bool,
+    /// Whether its issue was closed with no change, so it ended with no
+    /// pull request
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
     /// Seconds from its creation to `at`
     pub wall: u64,
     /// Every role's units together
@@ -258,6 +298,7 @@ impl FinishedLine {
             title: record.title.clone(),
             pull_request: record.pull_request,
             merged: record.merged,
+            closed: record.closed,
             wall: record.wall,
             units: tally.units(),
             cost_usd: tally.cost().usd(),

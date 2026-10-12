@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::profile;
-use crate::settings::{Settings, SettingsError};
+use crate::settings::{E2e, Settings, SettingsError};
 use crate::skills::{Skills, Step};
 
 /// Reads the project's extra worker instructions, if its settings name a file
@@ -37,6 +37,16 @@ pub(super) struct Extra<'a> {
     pub(super) agent: Option<&'a str>,
     /// The project's file of extra instructions
     pub(super) project: Option<&'a str>,
+    /// Where the worker writes its pull request's text, when kelpie opens
+    /// the pull request for it
+    pub(super) pull_request_file: Option<&'a Path>,
+    /// The project's e2e host, when it names one
+    pub(super) e2e: Option<&'a E2e>,
+}
+
+/// The command that runs the project's end-to-end tests, for the prompt of a worker told of it
+pub(super) fn e2e_command(kelpie: &Path) -> String {
+    format!("`{} lease e2e`", kelpie.display())
 }
 
 /// The instructions file for one worker turn
@@ -46,7 +56,7 @@ pub(super) struct Extra<'a> {
 /// instructions, then the project's. A pull request template in the
 /// worktree stands in for the body's skill.
 pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
-    let mut text = profile::instructions(kelpie);
+    let mut text = profile::instructions(kelpie, extra.pull_request_file);
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -60,6 +70,16 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
              `Resolves #<issue>`.\n"
         )),
         (None, None) => {}
+    }
+    if let Some(e2e) = extra.e2e {
+        lines.push(format!(
+            "Your sandbox cannot run the project's end-to-end tests: run {} from your \
+             worktree. It waits for the host, streams the output, and leaves the results in \
+             `{}` of your worktree. If it exits without results, such as an exit of 75 or 78, \
+             say so in your final message and report no e2e result.\n",
+            e2e_command(kelpie),
+            e2e.results.as_path().display()
+        ));
     }
     if !lines.is_empty() {
         text.push('\n');
@@ -158,7 +178,7 @@ mod tests {
 
     // Kelpie's own instructions, naming the binary the rig says kelpie is
     fn kelpies() -> String {
-        profile::instructions(Path::new(Rig::KELPIE))
+        profile::instructions(Path::new(Rig::KELPIE), None)
     }
 
     // The instructions file the worker's first turn was started with
@@ -196,18 +216,40 @@ mod tests {
             "{rules}"
         );
         assert!(rules.contains("Run no /code-review"), "{rules}");
+        assert!(rules.contains("leave it to CI"), "{rules}");
     }
 
     #[test]
-    fn the_worker_is_told_to_run_its_tests_under_the_lease_with_kelpie_itself() {
+    fn the_worker_is_told_to_run_its_own_tests_under_the_lease_and_leave_the_suite_to_ci() {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
         assert!(
-            text.contains("`/opt/kelpie/bin/kelpie lease run cargo-test -- cargo test`"),
+            text.contains("`/opt/kelpie/bin/kelpie lease run cargo-test -- cargo test --lib`"),
             "{text}"
         );
         assert!(!text.contains("{kelpie}"), "{text}");
+        assert!(text.contains("leave the whole suite to CI"), "{text}");
+    }
+
+    #[test]
+    fn the_worker_is_told_kelpie_owns_the_draft_and_ready_state() {
+        const TOLD: [&str; 2] = [
+            "Kelpie owns the pull request's draft and ready state",
+            "Never change it and never ask about it.",
+        ];
+        let own = Rig::new("koji");
+        let runner = own.open().unwrap();
+        let text = first_instructions(&own, &runner);
+        assert!(!text.contains("pull-request.md"), "{text}");
+        assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
+
+        let handed_over = Rig::new("koji");
+        handed_over.with_app();
+        let runner = handed_over.open().unwrap();
+        let text = first_instructions(&handed_over, &runner);
+        assert!(text.contains("pull-request.md"), "{text}");
+        assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
     }
 
     #[test]
@@ -242,6 +284,28 @@ mod tests {
     }
 
     #[test]
+    fn a_worker_is_told_of_the_e2e_command_only_when_one_is_configured() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        let without = first_instructions(&rig, &runner);
+        assert!(!without.contains("lease e2e"), "{without}");
+
+        let rig = Rig::new("koji");
+        rig.e2e_on();
+        let runner = rig.open().unwrap();
+        let with = first_instructions(&rig, &runner);
+        let line = "Your sandbox cannot run the project's end-to-end tests: run \
+                    `/opt/kelpie/bin/kelpie lease e2e` from your worktree. It waits for the \
+                    host, streams the output, and leaves the results in `test-results` of \
+                    your worktree. If it exits without results, such as an exit of 75 or 78, \
+                    say so in your final message and report no e2e result.\n";
+        assert!(with.contains(line), "{with}");
+        // Only that line differs, and it comes after the skills' lines.
+        assert_eq!(with.replace(line, ""), without);
+        assert!(with.find("/mattpocock:pr").unwrap() < with.find(line).unwrap());
+    }
+
+    #[test]
     fn the_template_line_comes_before_the_projects_instructions() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("pull_request_template.md"), "## Summary\n").unwrap();
@@ -249,6 +313,7 @@ mod tests {
         let extra = Extra {
             agent: Some("Mind the migrations."),
             project: Some(EXTRA),
+            ..Extra::default()
         };
         let text = compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE));
         let at = |needle: &str| text.find(needle).expect(needle);
@@ -263,6 +328,7 @@ mod tests {
         let blank = Extra {
             agent: Some("\n"),
             project: Some(" \n"),
+            ..Extra::default()
         };
         let (blank, none) = (
             compose(blank, dir.path(), &skills, Path::new(Rig::KELPIE)),

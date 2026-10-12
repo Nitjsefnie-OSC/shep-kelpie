@@ -4,7 +4,10 @@
 //! missing is what a runner would stop on. It changes nothing. The one post
 //! it can make is a test alert, and only when asked.
 
+mod ci;
+mod e2e;
 mod gateways;
+mod github;
 pub mod host;
 mod machine;
 mod project;
@@ -17,10 +20,13 @@ use std::process::ExitCode;
 use shep_client::Client;
 
 use self::host::Host;
-use crate::adapters::{ClaudeCli, Curl, Gh, LocalReviewer, SystemClock, SystemHost};
+use crate::adapters::{
+    ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemClock, SystemHost,
+};
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;
 use crate::flock;
+use crate::github::{AppTokens, Apps, GithubApp};
 use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer};
 use crate::review_bot::Profile;
 use crate::runner::ProjectName;
@@ -149,6 +155,8 @@ pub struct Probes<'a> {
     pub codex_meter: &'a dyn Fn(&Path) -> Box<dyn Meter>,
     /// The forge
     pub forge: &'a dyn Forge,
+    /// Kelpie's GitHub App
+    pub github: &'a dyn GithubApp,
     /// The local round's reviewer
     pub reviewer: &'a dyn Reviewer,
     /// The pull request reviewer a project turns on
@@ -237,6 +245,7 @@ async fn projects(client: &Client, probes: Probes<'_>, here: Here<'_>, ask: Ask<
         }
     };
     lines.extend(rulings::old_file(&section, here.kelpie_home));
+    lines.extend(kelpie.as_ref().and_then(rulings::trusted));
     if let Some(kelpie) = &kelpie {
         // An agents folder that cannot be read is each project's line to report.
         let folder = here.kelpie_home.join(crate::agents::FOLDER);
@@ -257,7 +266,10 @@ async fn projects(client: &Client, probes: Probes<'_>, here: Here<'_>, ask: Ask<
     lines.extend(project::old_home(&tables, here, ask.project));
     for (sheep, table) in &tables {
         if ask.project.is_none_or(|n| n.as_str() == sheep) {
-            lines.extend(project::checks(sheep, table, probes, here, kelpie.as_ref()));
+            // A runner whose config cannot be read is judged by this shell's env alone.
+            let env = flock::env_secrets(client, sheep).await.unwrap_or_default();
+            let checks = project::checks(sheep, table, &env, probes, here, kelpie.as_ref());
+            lines.extend(checks);
         }
     }
     lines
@@ -294,10 +306,17 @@ pub fn main(args: &[String]) -> ExitCode {
         let codex_meter = |codex_home: &Path| {
             Box::new(claude.codex_meter(codex_home.to_owned())) as Box<dyn Meter>
         };
+        let github = AppTokens::new(
+            Apps::under(&kelpie_home),
+            Box::new(CurlGithub),
+            Box::new(Openssl),
+            Box::new(SystemClock),
+        );
         let probes = Probes {
             meter: &meter,
             codex_meter: &codex_meter,
             forge: &Gh,
+            github: &github,
             reviewer: &LocalReviewer::default(),
             review_bot: &CodeRabbit,
             alerts: &Curl,

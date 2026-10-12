@@ -41,6 +41,8 @@ pub(super) const FILES: &[(&str, &[u8])] = vendored![
     "skills/engineering/domain-modeling/agents/openai.yaml",
     "skills/engineering/domain-modeling/GLOSSARY-FORMAT.md",
     "skills/engineering/domain-modeling/SKILL.md",
+    "skills/engineering/grill-with-docs/agents/openai.yaml",
+    "skills/engineering/grill-with-docs/SKILL.md",
     "skills/engineering/implement/agents/openai.yaml",
     "skills/engineering/implement/SKILL.md",
     "skills/engineering/pr/agents/openai.yaml",
@@ -281,6 +283,7 @@ mod tests {
             fs::read(vendor_folder().join("skills/engineering/tdd/tests.md")).unwrap()
         );
         assert!(plugin.join("skills/handoff/SKILL.md").is_file());
+        assert!(plugin.join("skills/grill-with-docs/SKILL.md").is_file());
         let licence = fs::read_to_string(plugin.join("LICENSE")).unwrap();
         assert!(licence.starts_with("MIT License"), "{licence}");
         let manifest = fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap();

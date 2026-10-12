@@ -6,9 +6,19 @@
 
 use serde_json::{Map, Value};
 
+use crate::board::{READY, TRIAGE};
+
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 4] = ["pick", "hold", "unstick", "reply"];
+const KEYS: [&str; 7] = [
+    "pick",
+    "hold",
+    "unstick",
+    "answer",
+    "follow_up",
+    "votes",
+    "reply",
+];
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
@@ -22,6 +32,12 @@ pub(super) struct Answer {
     pub(super) hold: Vec<u64>,
     /// What to do about one stuck work item
     pub(super) unstick: Option<Unstick>,
+    /// What to do about one worker's question
+    pub(super) answer: Option<Settle>,
+    /// What to do about one follow-up ruling's findings
+    pub(super) follow_up: Option<Decide>,
+    /// Its votes on rulings before the panel: each ruling, and the object it voted with
+    pub(super) votes: Vec<(u64, Map<String, Value>)>,
     /// A message for the maintainer
     pub(super) reply: Option<String>,
     /// Why, in its own words
@@ -39,6 +55,51 @@ pub(super) struct Unstick {
     pub(super) action: Action,
     /// Why, which a ruling it raises carries
     pub(super) why: String,
+}
+
+/// The project manager's call on one worker's question
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Settle {
+    /// The work item's issue, parked on the question's ruling
+    pub(super) item: u64,
+    /// Whether it answers or passes the question on
+    pub(super) how: How,
+    /// Why, in its own words
+    pub(super) why: String,
+    /// The problem in its own plain words, which replaces the worker's when it
+    /// passes the question on
+    pub(super) problem: Option<String>,
+    /// What the board shows of picking an option, when it passes the question on
+    pub(super) board: Option<String>,
+}
+
+/// The project manager's call on one follow-up ruling
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Decide {
+    /// The work item's issue, parked on the follow-up ruling
+    pub(super) item: u64,
+    /// Whether the findings are filed or dropped
+    pub(super) call: Call,
+    /// Why, in its own words
+    pub(super) why: String,
+}
+
+/// What the project manager decides about a follow-up ruling's findings
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Call {
+    /// Filed as issues, labelled `needs-triage` if `unread` and `ready-for-agent` if not
+    File { unread: bool },
+    /// Dropped, and nothing is filed
+    Drop,
+}
+
+/// How the project manager settles a worker's question
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum How {
+    /// The worker's next turn, which the maintainer's answer would have been
+    Text(String),
+    /// The maintainer decides, with this choice recommended if it names one
+    Escalate(Option<String>),
 }
 
 /// What the project manager does about a stuck work item
@@ -102,6 +163,42 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                         "`item`, an `action` of retry, re-scope, ask or none, and `why`",
                     )),
                 },
+            },
+            "answer" => match &value {
+                Value::Null => {}
+                value => match settle(value) {
+                    Some(s) => answer.answer = Some(s),
+                    None => answer
+                        .unread
+                        .push(unread("`item`, then `text` or `escalate`, and `why`")),
+                },
+            },
+            "follow_up" => match &value {
+                Value::Null => {}
+                value => match decide(value) {
+                    Some(d) => answer.follow_up = Some(d),
+                    None => answer.unread.push(unread(
+                        "`item`, a `decision` of yes or no, a `label` of ready-for-agent or \
+                         needs-triage with a yes, and `why`",
+                    )),
+                },
+            },
+            "votes" => match &value {
+                Value::Null => {}
+                Value::Array(items) => {
+                    for item in items {
+                        let vote = item.as_object().and_then(|fields| {
+                            Some((number(fields.get("ruling")?)?, fields.clone()))
+                        });
+                        match vote {
+                            Some(vote) => answer.votes.push(vote),
+                            None => answer
+                                .unread
+                                .push(format!("`votes`: a `ruling` and its vote, not {item}")),
+                        }
+                    }
+                }
+                _ => answer.unread.push(unread("a list of votes")),
             },
             "reply" | "why" => match value {
                 Value::Null => {}
@@ -187,6 +284,58 @@ fn unstick(value: &Value) -> Option<Unstick> {
     })
 }
 
+fn settle(value: &Value) -> Option<Settle> {
+    let item = number(value.get("item")?)?;
+    let text = value.get("text").filter(|v| !v.is_null());
+    let escalate = value.get("escalate").filter(|v| !v.is_null());
+    let how = match (text, escalate) {
+        (Some(Value::String(text)), None) => match printable(text.trim()) {
+            text if text.is_empty() => return None,
+            text => How::Text(text),
+        },
+        (None, Some(Value::Bool(true))) => How::Escalate(None),
+        (None, Some(Value::String(choice))) => {
+            How::Escalate(Some(choice.trim().to_owned()).filter(|c| !c.is_empty()))
+        }
+        _ => return None,
+    };
+    let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    let words = |key: &str| {
+        let words = value.get(key).and_then(Value::as_str)?.trim();
+        (!words.is_empty()).then(|| words.to_owned())
+    };
+    Some(Settle {
+        item,
+        how,
+        why: why.trim().to_owned(),
+        problem: words("problem"),
+        board: words("board"),
+    })
+}
+
+fn decide(value: &Value) -> Option<Decide> {
+    let item = number(value.get("item")?)?;
+    let label = match value.get("label") {
+        None | Some(Value::Null) => None,
+        Some(label) => Some(label.as_str()?.trim().to_ascii_lowercase()),
+    };
+    let call = match value.get("decision")?.as_str()?.trim() {
+        yes if yes.eq_ignore_ascii_case("yes") => match label.as_deref() {
+            None | Some(READY) => Call::File { unread: false },
+            Some(TRIAGE) => Call::File { unread: true },
+            Some(_) => return None,
+        },
+        no if no.eq_ignore_ascii_case("no") && label.is_none() => Call::Drop,
+        _ => return None,
+    };
+    let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    Some(Decide {
+        item,
+        call,
+        why: why.trim().to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,11 +357,97 @@ mod tests {
                     action: Action::ReScope,
                     why: "split the parser out".into(),
                 }),
+                answer: None,
+                follow_up: None,
+                votes: Vec::new(),
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
                 unread: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn an_answer_takes_text_or_an_escalation_and_nothing_else() {
+        let text =
+            read("{\"answer\": {\"item\": \"#7\", \"text\": \" Use it. \", \"why\": \"r\"}}");
+        assert_eq!(
+            text.unwrap().answer,
+            Some(Settle {
+                item: 7,
+                how: How::Text("Use it.".into()),
+                why: "r".into(),
+                problem: None,
+                board: None,
+            })
+        );
+        let passed = read(
+            "{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"problem\": \" The flag is \
+             unnamed. \", \"board\": \"#9 waits behind it.\", \"why\": \"r\"}}",
+        );
+        let passed = passed.unwrap().answer.unwrap();
+        assert_eq!(passed.problem.as_deref(), Some("The flag is unnamed."));
+        assert_eq!(passed.board.as_deref(), Some("#9 waits behind it."));
+        let escalate =
+            read("{\"answer\": {\"item\": 7, \"escalate\": \"--check\", \"why\": \"r\"}}");
+        assert_eq!(
+            escalate.unwrap().answer.map(|a| a.how),
+            Some(How::Escalate(Some("--check".into())))
+        );
+        let bare = read("{\"answer\": {\"item\": 7, \"escalate\": true}}");
+        assert_eq!(
+            bare.unwrap().answer.map(|a| a.how),
+            Some(How::Escalate(None))
+        );
+        for bad in [
+            "{\"answer\": {\"item\": 7, \"text\": \"a\", \"escalate\": \"b\"}}",
+            "{\"answer\": {\"item\": 7}}",
+            "{\"answer\": {\"item\": 7, \"text\": \"  \"}}",
+            "{\"answer\": {\"text\": \"a\"}}",
+        ] {
+            let read = read(bad).unwrap();
+            assert_eq!((read.answer, read.unread.len()), (None, 1), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_follow_up_answer_is_a_yes_or_a_no_and_a_yes_may_name_its_label() {
+        let call = |text: &str| {
+            read(text)
+                .unwrap()
+                .follow_up
+                .map(|d| (d.item, d.call, d.why))
+        };
+        assert_eq!(
+            call("{\"follow_up\": {\"item\": \"#7\", \"decision\": \" Yes \", \"why\": \" r \"}}"),
+            Some((7, Call::File { unread: false }, "r".into()))
+        );
+        assert_eq!(
+            call(
+                "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"needs-triage\"}}"
+            ),
+            Some((7, Call::File { unread: true }, String::new()))
+        );
+        assert_eq!(
+            call(
+                "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"ready-for-agent\"}}"
+            ),
+            Some((7, Call::File { unread: false }, String::new()))
+        );
+        assert_eq!(
+            call("{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"why\": \"fixed\"}}"),
+            Some((7, Call::Drop, "fixed".into()))
+        );
+        for bad in [
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"maybe\"}}",
+            "{\"follow_up\": {\"item\": 7}}",
+            "{\"follow_up\": {\"decision\": \"yes\"}}",
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"bug\"}}",
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"label\": \"needs-triage\"}}",
+        ] {
+            let read = read(bad).unwrap();
+            assert_eq!((read.follow_up, read.unread.len()), (None, 1), "{bad}");
+        }
     }
 
     #[test]
@@ -234,6 +469,23 @@ mod tests {
         assert_eq!(read("I would pick #12."), None);
         assert_eq!(read("{\"item\": 7}"), None);
         assert_eq!(read("{\"pick\": 12"), None);
+    }
+
+    #[test]
+    fn votes_name_their_ruling_and_a_bad_one_is_named_while_the_rest_count() {
+        let text = "{\"pick\": null, \"votes\": [{\"ruling\": 4, \"choice\": \"A\", \
+                    \"why\": \"CI is green\", \"design\": false}, {\"ruling\": \"#5\", \
+                    \"choice\": \"B\"}, {\"choice\": \"A\"}, 7]}";
+        let answer = read(text).unwrap();
+        let rulings: Vec<u64> = answer.votes.iter().map(|(id, _)| *id).collect();
+        assert_eq!(rulings, [4, 5]);
+        assert_eq!(
+            crate::panel::from_fields(&answer.votes[0].1, 2).map(|v| v.choice),
+            Ok('A')
+        );
+        assert_eq!(answer.unread.len(), 2, "{:?}", answer.unread);
+        let bad = read("{\"votes\": \"A\"}").unwrap();
+        assert_eq!(bad.unread, ["`votes`: a list of votes, not \"A\""]);
     }
 
     #[test]

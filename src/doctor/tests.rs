@@ -5,11 +5,12 @@ use serde_json::{Map, Value, json};
 
 use super::*;
 use crate::flock::Launch;
+use crate::github::AppTokens;
 use crate::ports::{ForgeError, MeterError, Visibility};
 use crate::shepherd::SHEP_VERSION;
 use crate::test::{
-    FakeAlerts, FakeClock, FakeForge, FakeMeter, FakeReviewer, FakeShepherd, git, project_table,
-    unreachable_url,
+    FakeAlerts, FakeClock, FakeForge, FakeGithub, FakeMeter, FakeReviewer, FakeShepherd, git,
+    project_table, unreachable_url,
 };
 use crate::tools::Tools;
 
@@ -22,21 +23,42 @@ const SECRET: &str = "https://ntfy.example.invalid/kelpie-s3cr3t-topic";
 const WEBHOOK: &str =
     "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example.invalid/kelpie-s3cr3t-topic\"\n";
 
-#[derive(Debug)]
-struct FakeHost(Vec<&'static str>);
+// A machine with no keychain and no gaps, unless it is given them
+#[derive(Debug, Default)]
+struct FakeHost {
+    gaps: Vec<&'static str>,
+    keychain: bool,
+    token: bool,
+    off_path: Vec<&'static str>,
+}
 
 impl Host for FakeHost {
+    fn on_path(&self, program: &str) -> bool {
+        !self.off_path.contains(&program)
+    }
+
     fn sandbox_gaps(&self) -> Vec<&'static str> {
-        self.0.clone()
+        self.gaps.clone()
+    }
+
+    fn has_keychain(&self) -> bool {
+        self.keychain
+    }
+
+    fn login_token(&self) -> bool {
+        self.token
     }
 }
 
 /// A shepherd holding one project, `koji`, on a machine with every piece in
 /// place: a public repo with kelpie's labels, a logged-in `claude` and `gh`,
-/// a sandbox, a webhook, the local round off and no review bot listed
+/// a sandbox, a webhook, kelpie's App installed on koji and golbat, the local round off and
+/// no review bot listed
 struct Scene {
     shepherd: FakeShepherd,
     forge: FakeForge,
+    github: FakeGithub,
+    app: AppTokens,
     meter: FakeMeter,
     codex_meter: FakeMeter,
     reviewer: FakeReviewer,
@@ -63,16 +85,22 @@ impl Scene {
         shepherd.holds_dog("kelpie", true);
         let clock = FakeClock::at(1_000);
         let home = shepherd.scratch("home");
+        let kelpie_home = shepherd.scratch("kelpie");
+        let github = FakeGithub::new(clock.clone(), "shep-pm");
+        github.registered(&kelpie_home, "shep-pm/koji");
+        github.install("shep-pm/golbat", 8);
         let scene = Self {
             old_home: home.join(".kelpie"),
             home,
-            kelpie_home: shepherd.scratch("kelpie"),
+            app: github.tokens(&kelpie_home),
+            github,
+            kelpie_home,
             forge,
             meter: FakeMeter::idle(),
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
             alerts: FakeAlerts::on(clock.clone()),
-            host: FakeHost(Vec::new()),
+            host: FakeHost::default(),
             clock,
             shepherd,
         };
@@ -111,6 +139,7 @@ impl Scene {
             meter: &self.meter,
             codex_meter: &|_: &Path| Box::new(self.codex_meter.clone()) as Box<dyn Meter>,
             forge: &self.forge,
+            github: &self.app,
             reviewer: &self.reviewer,
             review_bot: &CodeRabbit,
             alerts: &self.alerts,
@@ -233,12 +262,18 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: push access",
             "golbat: labels",
             "golbat: coderabbit",
+            "golbat: github app",
+            "golbat: workers",
+            "golbat: maintainer",
             "golbat: reviewers",
             "golbat: rulings",
             "koji: checkout",
             "koji: implementers",
             "koji: push access",
             "koji: labels",
+            "koji: github app",
+            "koji: workers",
+            "koji: maintainer",
             "koji: reviewers",
             "koji: rulings",
         ]
@@ -397,7 +432,7 @@ async fn gh_missing_or_logged_out_is_told_its_fix() {
 #[tokio::test]
 async fn a_sandbox_the_machine_lacks_names_what_it_lacks() {
     let mut scene = Scene::new().await;
-    scene.host = FakeHost(vec!["bwrap", "socat"]);
+    scene.host.gaps = vec!["bwrap", "socat"];
     let report = scene.report().await;
     let (what, fix) = missing(&report, "sandbox");
     assert!(what.contains("bwrap and socat"), "{what}");
@@ -445,6 +480,7 @@ async fn no_shepherd_is_a_missing_shepherd_naming_its_home() {
         meter: &scene.meter,
         codex_meter: &|_: &Path| Box::new(scene.codex_meter.clone()) as Box<dyn Meter>,
         forge: &scene.forge,
+        github: &scene.app,
         reviewer: &scene.reviewer,
         review_bot: &CodeRabbit,
         alerts: &scene.alerts,
@@ -589,6 +625,26 @@ async fn a_checkout_that_moved_is_missing_and_fails_the_run() {
         "{what}"
     );
     assert!(fix.starts_with("add an `origin` remote"), "{fix}");
+}
+
+#[tokio::test]
+async fn ci_that_skips_drafts_is_missing_where_ci_blocks_and_not_where_it_does_not() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["ci"]["block"] = json!(false);
+    });
+    let workflow = "on: pull_request\njobs:\n  test:\n    \
+                    if: github.event.pull_request.draft == false\n";
+    for project in ["koji", "golbat"] {
+        let folder = scene.home.join(project).join(".github/workflows");
+        crate::test::write_in(&folder, "ci.yml", workflow);
+    }
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "koji: ci on drafts");
+    assert!(what.contains("skips a draft (`ci.yml`)"), "{what}");
+    assert!(fix.contains("set `ci.block` to false"), "{fix}");
+    assert!(!report.passed());
+    assert!(!subjects(&report).contains(&"golbat: ci on drafts"));
 }
 
 #[tokio::test]
@@ -767,6 +823,41 @@ async fn a_test_alert_with_no_webhook_says_there_is_none_and_posts_nothing() {
 }
 
 #[tokio::test]
+async fn a_trusted_topic_is_said_to_take_replies_without_a_code() {
+    let scene = Scene::new().await;
+    let report = scene.report().await;
+    assert!(
+        !subjects(&report).contains(&"replies"),
+        "not said unless set"
+    );
+
+    let trusted = format!("{WEBHOOK}token = \"tk_s3cr3t\"\ntrusted = true\n");
+    scene.shepherd.holds_section(&trusted);
+    let report = scene.report().await;
+    let found = ok(&report, "replies");
+    assert!(found.contains("trusted without a code"), "{found}");
+    assert!(found.contains("yes on a merge"), "{found}");
+    assert!(report.passed(), "{:#?}", report.render());
+    let printed = report.render().join("\n");
+    assert!(!printed.contains("s3cr3t"), "{printed}");
+
+    // Discord's webhook is never read for replies, so nothing is trusted there.
+    let discord = "[webhook]\nkind = \"discord\"\nurl = \"https://discord.com/api/webhooks/1/abc\"\n\
+                   token = \"tk_s3cr3t\"\ntrusted = true\n";
+    scene.shepherd.holds_section(discord);
+    let report = scene.report().await;
+    assert!(!subjects(&report).contains(&"replies"));
+
+    // Without a token the settings are refused, not trusted.
+    let no_token = format!("{WEBHOOK}trusted = true\n");
+    scene.shepherd.holds_section(&no_token);
+    let report = scene.report().await;
+    let (what, _) = missing(&report, "kelpie settings");
+    assert!(what.contains("`webhook.trusted`"), "{what}");
+    assert!(!subjects(&report).contains(&"replies"));
+}
+
+#[tokio::test]
 async fn kelpie_settings_that_do_not_parse_are_missing_and_never_quote_the_url() {
     let scene = Scene::new().await;
     scene
@@ -869,3 +960,7 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
     assert!(!subjects(&report).contains(&"golbat: old home"));
     assert!(!report.passed());
 }
+
+mod e2e;
+mod github;
+mod plugins;

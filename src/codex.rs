@@ -78,8 +78,16 @@ impl Profile for Codex {
             .reactions
             .iter()
             .find(|r| r.at.0 >= from && r.content == THUMBS_UP && !late);
+        // A failure counts from the summon itself, with no slack: a summon
+        // sent again seconds after a failure must not read that one as its
+        // answer.
+        let failed = activity
+            .comments
+            .iter()
+            .any(|c| c.at >= since && went_wrong(&c.body));
         match (thumbs, since_summon.next()) {
             (Some(thumbs), _) => Reading::Completed { at: thumbs.at },
+            (None, Some(_)) if failed => Reading::Failed,
             (None, Some(_)) => Reading::Processing,
             (None, None) => Reading::Silent,
         }
@@ -162,6 +170,13 @@ fn refused(body: &str) -> bool {
             .any(|phrase| body.contains(phrase) && body.contains(" limit"))
 }
 
+// Its reply when a review broke off: "Something went wrong. Try again later
+// by commenting "@codex review"." A comment that names the commit it read is
+// a review, whatever else it says.
+fn went_wrong(body: &str) -> bool {
+    commit_of(body).is_none() && says(body, "something went wrong")
+}
+
 /// A thread as a finding the worker is sent
 ///
 /// The severity comes from Codex's badge: P0 and P1 are high, P2 is medium,
@@ -192,6 +207,7 @@ fn finding(thread: &Thread) -> Finding {
         line: thread.line.unwrap_or(0),
         what: one_line(&what),
         why: level.map_or_else(String::new, |l| format!("Codex rates it {l}.")),
+        test: None,
     }
 }
 
@@ -333,6 +349,70 @@ mod tests {
             Codex.read(&then_more, "abc123", Timestamp(100)),
             Reading::Refused { opens: None },
             "a later comment does not hide it"
+        );
+    }
+
+    const WENT_WRONG: &str = "Codex Review: Something went wrong. Try again later by \
+                              commenting \"@codex review\".\n\nUnknown error";
+
+    #[test]
+    fn a_something_went_wrong_reply_is_read_as_a_failed_review() {
+        let failed = Activity {
+            comments: vec![comment(WENT_WRONG, 130)],
+            ..Activity::default()
+        };
+        assert_eq!(
+            Codex.read(&failed, "abc123", Timestamp(100)),
+            Reading::Failed
+        );
+        let after_notice = Activity {
+            comments: vec![
+                comment("To use Codex here, create an environment.", 110),
+                comment(WENT_WRONG, 130),
+            ],
+            ..Activity::default()
+        };
+        assert_eq!(
+            Codex.read(&after_notice, "abc123", Timestamp(100)),
+            Reading::Failed,
+            "the notice before it does not hide it"
+        );
+    }
+
+    #[test]
+    fn a_review_comment_naming_the_commit_is_never_read_as_a_failure() {
+        let seen = Activity {
+            comments: vec![comment(
+                "Codex Review: Something went wrong in `retry.rs`.\n\n**Reviewed commit:** `abc123`",
+                130,
+            )],
+            ..Activity::default()
+        };
+        assert_eq!(
+            Codex.read(&seen, "abc123def", Timestamp(100)),
+            Reading::Reviewed
+        );
+        assert_eq!(
+            Codex.read(&seen, "other", Timestamp(100)),
+            Reading::Processing,
+            "a review of another commit is no failure either"
+        );
+    }
+
+    #[test]
+    fn a_failure_before_the_summon_is_not_its_answer() {
+        let failed = Activity {
+            comments: vec![comment(WENT_WRONG, 95)],
+            ..Activity::default()
+        };
+        assert_eq!(
+            Codex.read(&failed, "abc123", Timestamp(100)),
+            Reading::Processing,
+            "heard within the clock's slack, but no answer to it"
+        );
+        assert_eq!(
+            Codex.read(&failed, "abc123", Timestamp(40)),
+            Reading::Failed
         );
     }
 

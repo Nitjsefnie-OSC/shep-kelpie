@@ -15,12 +15,13 @@ use super::Runner;
 use super::claude_files::Unchecked;
 use super::report::{Begin, StepReport};
 use super::rework::HUMAN;
+use super::turn::KEEP_BODY_TRUE;
 use crate::board::READY;
 use crate::ports::{Checks, PullRequestState, Timestamp};
 use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
-use crate::work_item::{Phase, Turn, foreign_change};
+use crate::work_item::{Phase, Review, Turn, foreign_change};
 use crate::worktree::{self, Base};
 
 // GitHub registers the checks a push or a ready pull request starts within
@@ -109,10 +110,22 @@ impl Runner {
         if !settled(since, now) {
             return Ok(Begin::Idle);
         }
+        let issue = self.current().map_or(0, |item| item.issue);
         match pr.checks {
             Checks::None | Checks::Pending => Ok(Begin::Idle),
-            Checks::Passed => self.passed(number, pr.head),
-            Checks::Failed(checks) => self.ci_failed(number, pr.head, checks),
+            Checks::Passed | Checks::Skipped => {
+                let conclusion = if pr.checks == Checks::Skipped {
+                    "skipped"
+                } else {
+                    "passed"
+                };
+                self.ci_settled(issue, number, &pr.head, conclusion, &[]);
+                self.passed(number, pr.head)
+            }
+            Checks::Failed(checks) => {
+                self.ci_settled(issue, number, &pr.head, "failed", &checks);
+                self.ci_failed(number, pr.head, checks, None)
+            }
         }
     }
 
@@ -125,7 +138,7 @@ impl Runner {
     // bots a pass gets it first, and a bot the pass went on without that
     // has since reviewed the head gets its late round first.
     fn passed(&mut self, number: u64, head: String) -> Result<Begin, StateError> {
-        if self.bots_before_merge()? {
+        if self.bots_before_merge(&head)? {
             return self.review_step();
         }
         if let Some(begin) = self.late_review()? {
@@ -174,6 +187,7 @@ impl Runner {
             head,
             unreviewed,
             open_threads: open.holding,
+            held_by: open.held_by,
             unread_head,
             note_fix,
             late_fix,
@@ -186,12 +200,14 @@ impl Runner {
     // A worker that pushed nothing after its last red run would get the
     // same run again and again, so the second time the maintainer decides.
     // A red run once the work item's fix turns reach `ci.fix_attempts`
-    // raises that ruling too, in place of a fix turn.
-    fn ci_failed(
+    // raises that ruling too, in place of a fix turn. A red run before a
+    // reviewer read the head sends the worker's fix back to that `review`.
+    pub(super) fn ci_failed(
         &mut self,
         number: u64,
         head: String,
         checks: Vec<String>,
+        review: Option<Review>,
     ) -> Result<Begin, StateError> {
         let item = self.current().expect("CI runs on a work item");
         if item.red_head.as_deref() == Some(head.as_str()) {
@@ -225,15 +241,18 @@ impl Runner {
                 .into(),
             );
         }
+        let help = self.red_help(number, &head);
         let prompt = self
             .skills
-            .invoke(Step::CiFix, &red_prompt(number, &head, &checks));
-        self.back_to_worker(number, head, checks, prompt, true)
+            .invoke(Step::CiFix, &red_prompt(number, &head, &checks, &help));
+        self.back_to_worker(number, head, checks, prompt, true, review)
     }
 
     // The failure becomes the worker's next turn, and this head is marked red
     // so a second failure at it goes to the maintainer instead. A red run's
     // turn, `counted`, is one of those `ci.fix_attempts` caps, saved with it.
+    // The turn's end goes on to CI, or back to `review` where one was waiting
+    // for this head to be green.
     pub(super) fn back_to_worker(
         &mut self,
         number: u64,
@@ -241,6 +260,7 @@ impl Runner {
         checks: Vec<String>,
         prompt: String,
         counted: bool,
+        review: Option<Review>,
     ) -> Result<Begin, StateError> {
         let issue = self.current().expect("CI runs on a work item").issue;
         let red = head.clone();
@@ -249,6 +269,9 @@ impl Runner {
                 item.counts.ci_fix_turns = item.counts.ci_fix_turns.saturating_add(1);
             }
             item.red_head = Some(red);
+            if let Some(review) = review {
+                item.resume = Some(Phase::Review(review));
+            }
             item.turn = Turn::Next { prompt };
             item.phase = Phase::Implement;
         })?;
@@ -301,11 +324,11 @@ pub(super) fn short(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
 }
 
-fn red_prompt(number: u64, head: &str, checks: &[String]) -> String {
+fn red_prompt(number: u64, head: &str, checks: &[String], help: &str) -> String {
     format!(
-        "CI failed on your pull request #{number} at {}: {}. `gh pr checks {number}` \
-         lists the checks, and `gh run view <run id> --log-failed` shows what failed. \
-         Fix it on this branch, commit, and push with `git push origin HEAD`.",
+        "CI failed on your pull request #{number} at {}: {}. {help} \
+         Fix it on this branch, commit, and push with `git push origin HEAD`. \
+         {KEEP_BODY_TRUE}",
         short(head),
         checks.join(", ")
     )
@@ -357,6 +380,14 @@ pub(super) mod tests {
                 "pull_request": 71,
                 "kind": { "kind": "merge", "head": head },
                 "alerted": false,
+                "raised": Rig::EPOCH + 120,
+                "effects": [
+                    "Merges it into main and closes #7: Title of #7. CI passed. \
+                     2 review rounds read it.",
+                    "Sends the worker back for a fix that goes to CI and back to you, \
+                     with no new review round.",
+                    "Sends the worker back for a change the whole review reads again.",
+                ],
             }])
         );
         assert_eq!(
@@ -405,6 +436,23 @@ pub(super) mod tests {
         assert!(fix.prompt.contains(&named), "{}", fix.prompt);
 
         assert_fix_landed(&rig, &runner, &head);
+    }
+
+    #[test]
+    fn a_ci_fix_prompt_asks_for_the_body_to_be_kept_true() {
+        let (rig, runner, head) = Rig::with_pull_request("koji");
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        rig.verdict(&runner);
+        rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
+        step(&runner).unwrap();
+        let fix = rig.claude.calls().pop().unwrap();
+        assert!(
+            fix.prompt
+                .contains("Update the pull request's body so it matches the head you push"),
+            "{}",
+            fix.prompt
+        );
     }
 
     #[test]
@@ -704,14 +752,18 @@ pub(super) mod tests {
         assert_eq!(
             noted.prompt,
             "The maintainer answered no on pull request #71, with this note:\n\n\
-             remove that label yourself\n"
+             remove that label yourself\n\nUpdate the pull request's body so it matches \
+             the head you push: what changed, the files touched, the test evidence, and \
+             the decisions you made.\n"
         );
-        assert_ne!(rig.forge.head_of("kelpie/7"), Some(head));
+        let fixed = rig.forge.head_of("kelpie/7");
+        assert_ne!(fixed, Some(head));
 
-        step(&runner).unwrap(); // review round 1, qwen: clean by default
+        rig.forge.set_checks(&fixed.unwrap(), Checks::Passed);
+        rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
         // The label is still there, and unaccepted, so the next look parks again.
-        let (id, _) = ruling_report(step(&runner).unwrap());
+        let (id, _) = ruling_report(rig.verdict(&runner));
         assert_eq!(id, 2);
     }
 

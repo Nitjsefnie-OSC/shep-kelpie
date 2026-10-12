@@ -4,6 +4,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
+use crate::github::api::{REPLY_TO_THREAD, RESOLVE_THREAD};
 use crate::ports::{ForgeError, Timestamp};
 use crate::review_bot::{Activity, Comment, Login, Reaction, Review, Status, Thread};
 use crate::settings::ForgeSlug;
@@ -20,9 +21,6 @@ const THREADS: &str = "query($owner: String!, $name: String!, $number: Int!) { \
 const REACTIONS: &str = "query($owner: String!, $name: String!, $number: Int!) { \
     repository(owner: $owner, name: $name) { pullRequest(number: $number) { \
     reactions(last: 50) { nodes { content createdAt user { login } } } } } }";
-
-const RESOLVE: &str = "mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) \
-    { thread { isResolved } } }";
 
 pub(super) fn activity(
     repo: &ForgeSlug,
@@ -113,7 +111,7 @@ pub(super) fn resolve(thread: &str) -> Result<(), ForgeError> {
         "api",
         "graphql",
         "-f",
-        &format!("query={RESOLVE}"),
+        &format!("query={RESOLVE_THREAD}"),
         "-f",
         &format!("id={thread}"),
     ]) {
@@ -143,6 +141,24 @@ pub(super) fn resolve(thread: &str) -> Result<(), ForgeError> {
         Ok(())
     } else {
         Err(unreadable(&resolved))
+    }
+}
+
+// GitHub answers a thread it no longer has with a not-found error, which
+// leaves nothing to reply to.
+pub(super) fn reply(thread: &str, body: &str) -> Result<(), ForgeError> {
+    match gh(&[
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={REPLY_TO_THREAD}"),
+        "-f",
+        &format!("id={thread}"),
+        "-f",
+        &format!("body={body}"),
+    ]) {
+        Err(e) if gone(&e) => Ok(()),
+        reply => reply.map(drop),
     }
 }
 

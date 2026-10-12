@@ -104,6 +104,31 @@ fn a_pending_merge_ruling_no_bot_read_for_is_withdrawn_for_the_bots_pass() {
 }
 
 #[test]
+fn a_withdrawn_merge_rulings_posted_comment_is_edited_to_say_why() {
+    let (rig, runner, _) = Rig::parked_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+    rig.coderabbit_on();
+    let comment = 99 + rig.github.comments().len() as u64;
+    let runner = as_version_3(&rig, runner, |saved| {
+        saved["work_items"][0]["coderabbit"] = unread_tally();
+    });
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+
+    let [(edited, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!(edited, comment);
+    let first = "**Withdrawn:** no review bot shep lists had read it, so they read it first, \
+                 and the merge ruling is raised again after they have. Nothing waits on the \
+                 maintainer.";
+    assert_eq!(body.lines().next(), Some(first));
+    assert!(body.contains("### Merge this pull request at"), "{body}");
+    for gone in ["@octocat", "- [ ]", "👍", "Reply", "| Option |"] {
+        assert!(!body.contains(gone), "{gone} is still in:\n{body}");
+    }
+}
+
+#[test]
 fn an_item_a_bot_read_or_a_project_with_no_bot_goes_on_to_its_merge() {
     let (rig, runner, _) = Rig::parked("koji");
     let runner = as_version_3(&rig, runner, |saved| {
@@ -129,9 +154,9 @@ fn an_item_a_bot_read_or_a_project_with_no_bot_goes_on_to_its_merge() {
     );
 }
 
-// The cap held the threads it sent: a yes sends them for a fix that resolves them.
+// The cap held the threads it sent: a yes sends them for a fix.
 #[test]
-fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_resolves_them() {
+fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_leaves_them_open() {
     let (rig, runner, head) = summoned("shep");
     hold_a_finding(&rig, &runner, &head, "Name the flag.");
     let runner = as_version_3(&rig, runner, |saved| {
@@ -161,7 +186,12 @@ fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_resolves_th
         step(&runner).unwrap(),
         Some(StepReport::FixPushed { .. })
     ));
-    assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0"]);
+    // The old ruling's prompt asks for no line per thread, so the fix is not
+    // taken as the worker's word on the thread: it is replied to and left open.
+    assert_eq!(rig.forge.coderabbit.resolved(), Vec::<String>::new());
+    let replies = rig.forge.coderabbit.replies();
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    assert!(replies[0].1.starts_with("Not addressed:"), "{replies:?}");
 }
 
 // An adoption's owed summon from an older file is owed by each listed bot.
@@ -177,8 +207,9 @@ fn an_older_owed_summon_is_owed_by_the_listed_bot() {
         item["summon_owed"] = json!(true);
         item["phase"] = json!({ "state": "coderabbit", "stage": "lease", "head": head });
     });
+    rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
-        step(&runner).unwrap(),
+        rig.verdict(&runner),
         Some(StepReport::MarkedReady { .. })
     ));
     assert!(matches!(

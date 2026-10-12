@@ -11,8 +11,10 @@
 //! on a repo that is not public.
 //! Once a review covers the head the label comes off, and once two reads
 //! of the bot's open threads agree they are the round's findings, which go
-//! to one fix turn as any reviewer's do. Kelpie resolves the threads it sent
-//! once that fix moves the head. A bot that read the pull request before
+//! to one fix turn as any reviewer's do. Kelpie replies on each thread it sent
+//! with the worker's line for it, and resolves the ones fixed once that fix
+//! moves the head, as its App where one covers the repo and through `gh`
+//! where none does. A bot that read the pull request before
 //! has its nits on a head a nit-only fix pushed left open, not sent again.
 //! A bot passed over that reviews the head anyway gets a round of its own
 //! before the next reviewer's, at green CI, or while the merge ruling waits.
@@ -24,6 +26,7 @@
 //! and found clean, unless a summon is owed: that one asks once more, for a
 //! full review.
 
+mod failed;
 mod late;
 mod lease;
 mod on_ready;
@@ -37,11 +40,11 @@ use super::gate::settled;
 use super::report::{Begin, StepReport};
 
 use crate::lease::wire::WindowFact;
-use crate::ports::{Finding, PullRequestState, Timestamp, Visibility};
+use crate::ports::{Finding, ForgeError, PullRequestState, Timestamp, Visibility};
 use crate::review_bot::{Activity, Bot, BotReviewer, Reading, ReviewWindow};
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{StateError, Stuck};
-use crate::work_item::{BotSkipped, Phase, Review, ReviewStage, WorkItem};
+use crate::work_item::{BotSkipped, Phase, Review, ReviewStage, ThreadAnswer, WorkItem};
 
 // A summon the bot gave no sign of in fifteen minutes may never have
 // reached it, and is sent once more. What counts as a sign is its profile's.
@@ -67,9 +70,35 @@ pub(super) const FAR: u64 = 3600;
 // review goes on with them open: one the forge keeps refusing never resolves.
 const RESOLVE_FAILURES: u32 = 3;
 
-/// What resolving the threads a fix answered came to
-pub(super) enum Resolved {
-    /// Every thread sent is resolved, or none was sent
+// Replaces a decline whose reason the forge guard refuses, as it names
+// something of this machine's.
+const UNPOSTABLE_REASON: &str = "Declined: the worker's reason names something on the machine kelpie runs on, so it is not posted.";
+
+// Replaces a decline whose reason a `publish` hook of the project's refuses.
+const HOOK_REFUSED_REASON: &str =
+    "Declined: the worker's reason was refused by a hook of the project's, so it is not posted.";
+
+// What kelpie replies on a thread sent to the worker, and whether it
+// resolves the thread, from what the worker's reply said of it.
+fn reply_to(answer: Option<&ThreadAnswer>, pushed: bool) -> (bool, String) {
+    match answer {
+        Some(ThreadAnswer::Fixed { .. }) if pushed => (true, "Fixed.".to_owned()),
+        Some(ThreadAnswer::Fixed { .. }) => (
+            false,
+            "Not fixed: the worker said it was, but pushed nothing, so it stays open.".to_owned(),
+        ),
+        Some(ThreadAnswer::Declined { reason, .. }) => (false, format!("Declined: {reason}")),
+        None => (
+            false,
+            "Not addressed: the worker's reply did not mention this thread, so it stays open."
+                .to_owned(),
+        ),
+    }
+}
+
+/// What replying on the threads a fix was sent came to
+pub(super) enum Answered {
+    /// Every thread sent is answered, or none was sent
     Done,
     /// The forge refused for this reason, so the step is tried again
     Retry(String),
@@ -90,6 +119,12 @@ impl Runner {
         bot: BotReviewer,
         review: Review,
     ) -> Result<Begin, StateError> {
+        if self.draining {
+            return Ok(Begin::Idle);
+        }
+        if let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
+        }
         let head = match self.origin_head() {
             Ok(head) => head,
             Err(reason) => return Ok(self.gate_failed(reason)),
@@ -123,7 +158,12 @@ impl Runner {
             Ok(PullRequestState::Open) => {}
             // The maintainer merged it by hand, which is their own ruling.
             Ok(PullRequestState::Merged) => {
-                self.update(|item| item.phase = Phase::Done { merged: true })?;
+                self.update(|item| {
+                    item.phase = Phase::Done {
+                        merged: true,
+                        closed: false,
+                    }
+                })?;
                 return self.finish(true);
             }
             Ok(PullRequestState::Closed) => {
@@ -282,7 +322,9 @@ impl Runner {
     // Sends the summon, under the lease, in whichever form `full` says.
     // `again` is a re-send of a summon the bot gave no sign of: it goes
     // out as a fresh event, and `at` stays the first one's time, so the
-    // round is the same and its window is not counted twice.
+    // round is the same and its window is not counted twice. A summon sent
+    // again after a failure takes its own time: the first was heard, never
+    // counted, and its failure must not read as the second's answer.
     fn send(
         &mut self,
         bot: Bot,
@@ -323,6 +365,7 @@ impl Runner {
             at,
             full: false,
             resent: again,
+            failed: self.failed_so_far(),
         })?;
         Ok(self.summoned(number, head, again))
     }
@@ -366,10 +409,11 @@ impl Runner {
             at,
             full: true,
             resent: again,
+            failed: self.failed_so_far(),
         })?;
         let profile = self.profile(bot);
         let body = profile.full_review().unwrap_or_default();
-        let posted = self.ports.forge.comment(&self.remote, number, body);
+        let posted = self.comment_as_gh(number, body);
         if let Err(e) = posted {
             let stage = if again {
                 ReviewStage::Summoned {
@@ -379,6 +423,7 @@ impl Runner {
                     at,
                     full: true,
                     resent: false,
+                    failed: false,
                 }
             } else {
                 ReviewStage::Summon {
@@ -531,7 +576,32 @@ impl Runner {
                     opens,
                 }))
             }
-            Reading::Silent | Reading::Processing | Reading::Completed { .. }
+            // Its settings do not let the summon start a review, and no
+            // wait changes them: the pass goes on without it.
+            Reading::Declined { status } => {
+                self.release(bot)?;
+                if let Err(reason) = self.label(bot, number, false) {
+                    return Ok(self.gate_failed(reason));
+                }
+                let reviewer = self.round_reviewer(bot);
+                self.pass_over(
+                    number,
+                    BotSkipped::Declined {
+                        reviewer,
+                        status: status.to_owned(),
+                    },
+                )
+            }
+            // A review that failed is asked for once more, and the pass goes
+            // on without the bot when that one fails too. The summon sent
+            // again takes the time it went out as its own, so the failure
+            // that drew it is not read as its answer. A bot summoned by
+            // marking ready is never asked by comment, so waits like one
+            // that is still reading.
+            Reading::Failed if waited < REVIEW_WAIT && !self.bot_reviewer(bot).reviews_on_ready => {
+                self.failed_review(bot, (started, head), Timestamp(now), full_again)
+            }
+            Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
                 if waited >= REVIEW_WAIT =>
             {
                 self.accepted(bot, at)?;
@@ -541,7 +611,7 @@ impl Runner {
                 let reviewer = self.round_reviewer(bot);
                 self.pass_over(number, BotSkipped::Silent { reviewer, head })
             }
-            Reading::Processing | Reading::Completed { .. } => {
+            Reading::Processing | Reading::Failed | Reading::Completed { .. } => {
                 self.accepted(bot, at).map(|()| Begin::Idle)
             }
             // No sign of the summon yet: it may never have been seen, so it
@@ -696,45 +766,86 @@ impl Runner {
         }))
     }
 
-    /// Resolves the bot threads sent to the worker, once its fix on pull
-    /// request `number` moved the head
+    /// Replies on each bot thread sent to the worker, with what its reply
+    /// said of the thread, and resolves the ones it fixed, on pull request
+    /// `number`
     ///
-    /// Resolving is safe to repeat, so a failure part way retries it all.
-    pub(super) fn resolve_sent(&mut self, number: u64) -> Result<Resolved, StateError> {
-        let mut left = self.item().threads_sent.clone();
-        if left.is_empty() {
-            return Ok(Resolved::Done);
+    /// A thread the worker's reply did not mention is replied to as not
+    /// addressed. When `pushed` is false the fix moved no head, so no thread
+    /// is resolved, and a fix the worker claims is replied to as not made.
+    /// Declined and unaddressed threads stay open.
+    ///
+    /// A thread is resolved before it is replied to, and forgotten once both
+    /// are done, so a failure part way retries only what is left and a
+    /// running runner never replies twice. A runner killed between a reply
+    /// and the save that forgets the thread replies to it again after the
+    /// restart: that order is kept, since the other would leave a thread with
+    /// no reply at all.
+    pub(super) fn answer_sent(
+        &mut self,
+        number: u64,
+        pushed: bool,
+    ) -> Result<Answered, StateError> {
+        if self.item().threads_sent.is_empty() {
+            return Ok(Answered::Done);
         }
         let mut failed = None;
+        let app = self.app_covers();
         for id in self.item().threads_sent.clone() {
-            match self.ports.forge.resolve_thread(&self.remote, &id) {
-                Ok(()) => left.retain(|t| t != &id),
-                Err(e) => {
-                    failed = Some(format!("cannot resolve a thread on #{number}: {e}"));
-                    break;
-                }
+            let answer = self.item().answer_of(&id).cloned();
+            let (resolve, body) = reply_to(answer.as_ref(), pushed);
+            let (forge, voice) = (&self.ports.forge, &self.ports.voice);
+            let resolved = match (resolve, app) {
+                (false, _) => Ok(()),
+                (true, true) => voice.resolve_thread(&self.remote, &id),
+                (true, false) => forge.resolve_thread(&self.remote, &id),
+            };
+            if let Err(e) = resolved {
+                failed.get_or_insert(format!("cannot resolve a thread on #{number}: {e}"));
+                continue;
             }
+            let reply = |text: &str| match app {
+                true => voice.reply_to_thread(&self.remote, &id, text),
+                false => forge.reply_to_thread(&self.remote, &id, text),
+            };
+            let mut posted = reply(&body);
+            // The guard refuses the same text every time, so a reason that
+            // names this machine, or that a hook refuses, is left out rather
+            // than retried for ever. A hook that failed to run is retried.
+            // Only a decline carries the worker's words, so only it is
+            // replaced, by a reply that says it was a decline.
+            let declined = matches!(answer, Some(ThreadAnswer::Declined { .. }));
+            match &posted {
+                Err(ForgeError::LocalPath { .. }) => posted = reply(UNPOSTABLE_REASON),
+                Err(ForgeError::Hook { refusal, .. }) if declined && !refusal.failed => {
+                    posted = reply(HOOK_REFUSED_REASON);
+                }
+                _ => {}
+            }
+            if let Err(e) = posted {
+                failed.get_or_insert(format!("cannot reply to a thread on #{number}: {e}"));
+                continue;
+            }
+            self.update(|item| item.thread_answered(&id))?;
         }
+        let left = self.item().threads_sent.clone();
         let failures = self.item().resolve_failures + 1;
         match failed {
             Some(reason) if failures < RESOLVE_FAILURES => {
-                self.update(|item| {
-                    item.threads_sent.clone_from(&left);
-                    item.resolve_failures = failures;
-                })?;
-                Ok(Resolved::Retry(reason))
+                self.update(|item| item.resolve_failures = failures)?;
+                Ok(Answered::Retry(reason))
             }
             // Open still, they go to the worker again with the bot's next review.
             Some(reason) => {
                 self.update(WorkItem::forget_threads)?;
-                Ok(Resolved::LeftOpen {
+                Ok(Answered::LeftOpen {
                     threads: left,
                     reason,
                 })
             }
             None => {
                 self.update(WorkItem::forget_threads)?;
-                Ok(Resolved::Done)
+                Ok(Answered::Done)
             }
         }
     }
@@ -881,5 +992,7 @@ mod owed;
 mod settling;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod thread_replies;
 #[cfg(test)]
 mod two_bots;

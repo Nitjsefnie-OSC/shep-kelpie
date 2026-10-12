@@ -24,6 +24,7 @@ use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
 mod events;
 mod git;
+pub(in crate::runner) mod patch;
 
 #[cfg(test)]
 mod tests;
@@ -49,6 +50,8 @@ pub(super) struct BoardCache {
     named_from: BTreeMap<u64, String>,
     // The files each open work item's branch changes, as git last said
     files: BTreeMap<u64, Vec<String>>,
+    // Each open branch's diff as git last gave it, or why not, for the PM
+    patches: BTreeMap<u64, Result<Vec<u8>, String>>,
     git: Git,
     due: bool,
     written: Option<Timestamp>,
@@ -63,6 +66,11 @@ pub(super) struct Watched {
     pub(super) call: Option<AgentCall>,
     /// Whether the board has said it is idle
     pub(super) idle: bool,
+}
+
+// Whether `after` holds an entry `before` did not, or holds one differently
+fn learned<T: PartialEq>(before: &BTreeMap<u64, T>, after: &BTreeMap<u64, T>) -> bool {
+    (after.iter()).any(|(issue, now)| before.get(issue) != Some(now))
 }
 
 /// Writes `runner`'s board if it is due, asking git with the lock let go
@@ -89,7 +97,7 @@ impl Runner {
     }
 
     // Saves `found` as board events.
-    fn record(&mut self, found: Vec<String>) -> Result<(), StateError> {
+    pub(in crate::runner) fn record(&mut self, found: Vec<String>) -> Result<(), StateError> {
         if found.is_empty() {
             return Ok(());
         }
@@ -170,6 +178,11 @@ impl Runner {
                 .map(|item| (item.issue, item.branch.clone()))
                 .collect(),
             bodies: self.brief.bodies.clone(),
+            patches: (self.agents.pm.is_some() || self.panel_enabled()).then(|| {
+                (self.state.work_items.iter())
+                    .map(|item| (item.issue, self.paths.worktree(item.issue)))
+                    .collect()
+            }),
         })
     }
 
@@ -208,6 +221,7 @@ impl Runner {
 
     fn write_board(&mut self, mut answers: GitAnswers) {
         let now = self.ports.clock.now();
+        let compared = (self.brief.named_from.clone(), self.brief.files.clone());
         self.brief.git = std::mem::take(&mut answers.git);
         self.brief.named = std::mem::take(&mut answers.named);
         self.brief.named_from = std::mem::take(&mut answers.bodies).into_iter().collect();
@@ -215,6 +229,13 @@ impl Runner {
         let open = self.state.open_issues();
         self.brief.files.retain(|issue, _| open.contains(issue));
         self.brief.files.extend(std::mem::take(&mut answers.files));
+        // A diff git could not give is not kept, since a stale one would mislead.
+        self.brief.patches = std::mem::take(&mut answers.patches);
+        // Paths the board could not compare before may let it dispatch now.
+        let (named_from, files) = &compared;
+        if learned(named_from, &self.brief.named_from) || learned(files, &self.brief.files) {
+            self.looks.board_moved();
+        }
         let conflicts = (answers.merges.iter())
             .filter_map(|(&pair, merge)| match merge {
                 Merge::Conflicts(files) => Some((pair, files.clone())),
@@ -258,6 +279,7 @@ impl Runner {
                 .issues_where(|i| !i.parked() && i.seat == Seat::Held)
                 .len(),
             parked: self.parked_count(),
+            run: self.run_status(),
             main: answers.main,
             items,
             rulings: (self.state.rulings.iter())
@@ -289,6 +311,13 @@ impl Runner {
             (None, Some(named)) => Files::Named(named.clone()),
             (None, None) => Files::Unknown,
         }
+    }
+
+    /// The work item for `issue`'s diff from `main` as the board's last
+    /// write read it, cut to size, or why git could not give it; `None`
+    /// before a write has read it
+    pub(super) fn brief_patch(&self, issue: u64) -> Option<&Result<Vec<u8>, String>> {
+        self.brief.patches.get(&issue)
     }
 
     /// The paths `issue`'s body names, once the board has read them from
@@ -327,6 +356,8 @@ impl Runner {
             branch: item.branch.clone(),
             session,
             summary: item.summary.clone().map(|s| self.shown(s)),
+            spent: item.priced().total(),
+            cap: item.budget_cap(self.settings.budget.per_item_usd),
             files,
         }
     }
@@ -337,7 +368,7 @@ impl Runner {
             .filter(|i| self.state.item(i.number).is_none())
             .cloned()
             .collect();
-        rule_order(&mut ready);
+        rule_order(&mut ready, &self.state.order);
         let issues = ready
             .into_iter()
             .map(|issue| {
@@ -378,7 +409,15 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
             "kelpie finished it, and the forge has not closed it".into(),
             false,
         ),
+        Skip::Dropped { issue } => (
+            format!("dropped, and `shep kelpie add {issue}` takes it back"),
+            false,
+        ),
         Skip::Assigned { .. } => ("someone is assigned to it".into(), false),
+        Skip::InProgress { .. } => (
+            "an earlier worker holds it, take `in-progress` off to release it".into(),
+            false,
+        ),
         Skip::Split { open, .. } => (
             format!("its {open} open sub-issues are worked instead"),
             false,
@@ -433,7 +472,7 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
 fn still(turn: &Turn, now: Timestamp, shown: &dyn Fn(String) -> String) -> String {
     match turn {
         Turn::Due => "no call in flight; its first turn is due".into(),
-        Turn::Running { since } => format!(
+        Turn::Running { since, .. } => format!(
             "no call in flight; a turn saved as running {} ago resumes on the next pass",
             age(now, *since)
         ),
@@ -478,7 +517,8 @@ fn phase_text(phase: &Phase, now: Timestamp) -> String {
         Phase::Ci { since, .. } => format!("waiting on CI for {}", age(now, *since)),
         Phase::Ruling { id } => format!("parked on ruling {id}"),
         Phase::Merge { .. } => "merging".into(),
-        Phase::Done { merged: true } => "merged, cleaning up".into(),
-        Phase::Done { merged: false } => "ending, cleaning up".into(),
+        Phase::Done { merged: true, .. } => "merged, cleaning up".into(),
+        Phase::Done { closed: true, .. } => "issue closed with no change, cleaning up".into(),
+        Phase::Done { .. } => "ending, cleaning up".into(),
     }
 }

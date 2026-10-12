@@ -8,8 +8,11 @@ fn url(text: &str) -> EndpointUrl {
 }
 
 mod bots;
+mod experts;
+mod extends;
 mod issue_writer;
 mod pm;
+mod tools;
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                     url: http://box:11434/v1\ncontext: 65536\n---\n";
@@ -285,7 +288,9 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "cubic",
             "codex",
             "issue-writer",
-            "pm"
+            "pm",
+            "advisor",
+            "researcher"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());
@@ -378,6 +383,61 @@ fn a_key_of_the_other_role_is_refused_by_name() {
     let err = refused(&[("x.md", command)]);
     assert!(
         err.contains("x.md: `harness`: unknown variant `command`"),
+        "{err}"
+    );
+}
+
+const ENDPOINT: &str = "---\nrole: reviewer\nharness: endpoint\nurl: http://box:11434/v1\n\
+                         model: coder\ncontext: 32768\n---\n";
+
+#[test]
+fn an_endpoint_reviewer_with_a_body_is_accepted() {
+    let dir = folder(&[("box.md", &format!("{ENDPOINT}Report only panics.\n"))]);
+    let agents = Agents::load(dir.path()).unwrap();
+    let agent = agents.get(&name("box")).unwrap();
+    assert_eq!(agent.prompt.as_deref(), Some("Report only panics."));
+    let Runs::Endpoint(endpoint) = &agent.runs else {
+        panic!("not an endpoint");
+    };
+    assert_eq!(endpoint.prompt.as_deref(), Some("Report only panics."));
+    let bare = folder(&[("box.md", ENDPOINT)]);
+    let agents = Agents::load(bare.path()).unwrap();
+    let Runs::Endpoint(endpoint) = &agents.get(&name("box")).unwrap().runs else {
+        panic!("not an endpoint");
+    };
+    assert_eq!(endpoint.prompt, None);
+}
+
+#[test]
+fn a_body_naming_base_or_diff_is_refused_naming_the_file() {
+    for placeholder in ["{{BASE}}", "{{DIFF}}"] {
+        let text = format!("{ENDPOINT}Read the change against {placeholder}.\n");
+        let err = refused(&[("box.md", &text)]);
+        assert!(err.contains("box.md: "), "{err}");
+        assert!(
+            err.contains(&format!(
+                "runs on endpoint, which sends the diff in chunks of its own, so its \
+                 body cannot name {placeholder}"
+            )),
+            "{err}"
+        );
+    }
+}
+
+#[test]
+fn a_command_and_a_bot_still_refuse_a_body() {
+    let command = refused(&[("x.md", &format!("{COMMAND}Review it.\n"))]);
+    assert!(command.contains("x.md: "), "{command}");
+    assert!(
+        command.contains("runs on command, which writes its own prompt: leave the body empty"),
+        "{command}"
+    );
+    let bot = "---\nrole: reviewer\nharness: bot\nbot: cubic\nreviews: 5\nhours: 24\n---\n\
+               Review it.\n";
+    let err = refused(&[("y.md", bot)]);
+    assert!(err.contains("y.md: "), "{err}");
+    assert!(
+        err.contains("runs on bot, which writes its own prompt: leave the body empty"),
         "{err}"
     );
 }

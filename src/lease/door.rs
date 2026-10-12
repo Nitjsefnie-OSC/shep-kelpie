@@ -6,10 +6,9 @@
 //! connection open, so one that ends or dies gives its place back. A
 //! worker's sandbox may connect to this socket and to no shep socket.
 
-use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+use rustix::io::{FdFlags, fcntl_setfd};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::UnixStream;
@@ -37,13 +36,15 @@ pub fn socket() -> Result<PathBuf, String> {
     named.map_or_else(|| Ok(default(&home::shep_home()?)), |n| Ok(n.into()))
 }
 
-/// The door a runner of the shepherd at `shep_home` lets its workers reach:
-/// [`socket`], unless that is relative or under the shepherd's home outside
-/// kelpie's, when it is the default and the message says why
+/// The door of the shepherd at `shep_home`, which the dog binds and a runner
+/// lets its workers reach: `KELPIE_LEASE_SOCKET`, unless that is relative or
+/// under the shepherd's home outside kelpie's, when it is the default and the
+/// message says why
 ///
 /// The path goes into the worker's sandbox, so it must never be shep's
-/// own socket.
-pub fn worker_socket(shep_home: &Path) -> (PathBuf, Option<String>) {
+/// own socket. The dog and the runner both ask this, so they cannot
+/// disagree. The comparison resolves `..`, symlinks and a volume's case.
+pub fn checked_socket(shep_home: &Path) -> (PathBuf, Option<String>) {
     let named = std::env::var_os(SOCKET_VAR).filter(|n| !n.is_empty());
     checked(named.map(PathBuf::from), shep_home)
 }
@@ -57,7 +58,12 @@ fn checked(named: Option<PathBuf>, shep_home: &Path) -> (PathBuf, Option<String>
     let Some(named) = named else {
         return (default, None);
     };
-    let shepherds = named.starts_with(shep_home) && !named.starts_with(home::under(shep_home));
+    let (real, shep, kelpie) = (
+        resolved(&named),
+        resolved(shep_home),
+        resolved(&home::under(shep_home)),
+    );
+    let shepherds = real.starts_with(&shep) && !real.starts_with(&kelpie);
     if named.is_absolute() && !shepherds {
         return (named, None);
     }
@@ -68,6 +74,40 @@ fn checked(named: Option<PathBuf>, shep_home: &Path) -> (PathBuf, Option<String>
     );
     (default, Some(why))
 }
+
+// Where `path` leads: `..` applied after the symlinks before it, and each
+// part that exists spelled as the volume does, so a case-insensitive one
+// cannot be asked for shep's socket by another name. What does not exist
+// yet is kept as written.
+fn resolved(path: &Path) -> PathBuf {
+    let mut real = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                real.pop();
+            }
+            Component::CurDir => {}
+            part => {
+                real.push(part);
+                if let Ok(there) = real.canonicalize() {
+                    real = there;
+                }
+            }
+        }
+    }
+    real
+}
+
+/// The lease an ask names to run a project's end-to-end tests on its host
+pub const E2E: &str = "e2e";
+
+/// What the dog says, first, when the project that asked for [`E2E`] has no
+/// host to run it on
+pub const NO_E2E_HOST: &str = "this project has no e2e host";
+
+/// What an e2e run is `Done` with when it ran past the dog's ceiling and was
+/// ended, as `timeout` exits
+pub const TIMED_OUT: i32 = 124;
 
 /// What a command asks for, its first and only line
 // wire format: changing this is a breaking change to the door
@@ -85,6 +125,12 @@ pub struct Ask {
     /// The dog takes it on trust, as it does the rest of the ask.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub running: bool,
+    /// The folder an `e2e` ask runs from, which the dog resolves to the
+    /// project whose worktree holds it. The ask never names a host, a command
+    /// or a results folder: the dog takes those from the project's own
+    /// settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<PathBuf>,
 }
 
 /// What the dog answers, one line each
@@ -96,6 +142,11 @@ pub enum Answer {
     Queued(usize),
     /// Held until the connection closes
     Granted,
+    /// A line of an e2e run's output, as it arrives
+    Output(String),
+    /// An e2e run is over, with the exit code of its command, and the dog
+    /// closes the connection
+    Done(i32),
     /// Refused, saying why, and the dog closes the connection
     Error(String),
 }
@@ -118,6 +169,15 @@ impl Visit {
         let stream = UnixStream::connect(socket)
             .await
             .map_err(|e| format!("cannot reach the dog at {}: {e}", socket.display()))?;
+        Self::over(stream, ask).await
+    }
+
+    /// Asks over `stream`, which is already connected to the dog
+    ///
+    /// # Errors
+    ///
+    /// A message when the ask cannot be sent.
+    pub async fn over(stream: UnixStream, ask: &Ask) -> Result<Self, String> {
         let (read, mut write) = stream.into_split();
         let mut line = serde_json::to_vec(ask).expect("an ask serializes to JSON");
         line.push(b'\n');
@@ -158,13 +218,11 @@ impl Visit {
     /// A message when the connection's flags cannot be changed.
     pub fn inheritable(&self, inherit: bool) -> Result<(), String> {
         let flags = if inherit {
-            FdFlag::empty()
+            FdFlags::empty()
         } else {
-            FdFlag::FD_CLOEXEC
+            FdFlags::CLOEXEC
         };
-        let fd = self.ask.as_ref().as_raw_fd();
-        fcntl(fd, FcntlArg::F_SETFD(flags))
-            .map(drop)
+        fcntl_setfd(self.ask.as_ref(), flags)
             .map_err(|e| format!("cannot pass the lease to the command: {e}"))
     }
 
@@ -199,6 +257,47 @@ mod tests {
         }
     }
 
+    // The dog binds what the runner hands its workers, so both ask `checked`.
+    #[test]
+    fn the_dog_and_the_runner_resolve_one_door() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let shep = base.join("shep");
+        std::fs::create_dir_all(shep.join("run")).unwrap();
+        std::fs::create_dir_all(home::dog_folder(&shep)).unwrap();
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(shep.join("run"), outside.join("link")).unwrap();
+        let default = default(&shep);
+
+        let mut bad = vec![
+            PathBuf::from("door.sock"),
+            shep.join("run/shep.sock"),
+            shep.join("kelpie/../run/shep.sock"),
+            outside.join("link/shep.sock"),
+            outside.join("link/../shep/run/shep.sock"),
+        ];
+        // Only a case-insensitive volume finds the folder spelled this way.
+        let shouting = shep.join("RUN/shep.sock");
+        if shouting.parent().unwrap().exists() {
+            bad.push(shouting);
+        }
+        for named in bad {
+            let (door, why) = checked(Some(named.clone()), &shep);
+            assert_eq!(door, default, "{}", named.display());
+            assert!(why.unwrap().contains(&named.display().to_string()));
+        }
+
+        let fine = [
+            outside.join("door.sock"),
+            shep.join("kelpie/dog/other.sock"),
+            shep.join("kelpie/../kelpie/dog/other.sock"),
+        ];
+        for named in fine {
+            assert_eq!(checked(Some(named.clone()), &shep), (named, None));
+        }
+    }
+
     #[test]
     fn the_wire_format_is_pinned() {
         let ask = Ask {
@@ -206,6 +305,7 @@ mod tests {
             pid: 42,
             what: "cargo test".into(),
             running: false,
+            worktree: None,
         };
         assert_eq!(
             serde_json::to_value(&ask).unwrap(),
@@ -221,23 +321,49 @@ mod tests {
             serde_json::to_value(&rejoining).unwrap()["running"],
             json!(true)
         );
+        let from = Ask {
+            take: E2E.into(),
+            worktree: Some(PathBuf::from("/k/koji/worktrees/7")),
+            ..ask.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(&from).unwrap(),
+            json!({
+                "take": "e2e",
+                "pid": 42,
+                "what": "cargo test",
+                "worktree": "/k/koji/worktrees/7"
+            })
+        );
         assert_eq!(
             serde_json::to_value([
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ])
             .unwrap(),
-            json!([{ "queued": 2 }, "granted", { "error": "no" }])
+            json!([
+                { "queued": 2 },
+                "granted",
+                { "error": "no" },
+                { "output": "ok 1" },
+                { "done": 3 }
+            ])
         );
-        let read: Vec<Answer> =
-            serde_json::from_str(r#"[{"queued":2},"granted",{"error":"no"}]"#).unwrap();
+        let read: Vec<Answer> = serde_json::from_str(
+            r#"[{"queued":2},"granted",{"error":"no"},{"output":"ok 1"},{"done":3}]"#,
+        )
+        .unwrap();
         assert_eq!(
             read,
             [
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ]
         );
     }

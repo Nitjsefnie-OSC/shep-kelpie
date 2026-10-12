@@ -8,13 +8,14 @@
 
 use super::answer::{Action, Answer, Unstick};
 use super::{Pick, stuck_on};
+use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::Phase;
 
 /// The most of the project manager's words a ruling or a note carries, in
 /// characters
-const WORDS: usize = 300;
+pub(super) const WORDS: usize = 300;
 
 /// How a work item is stuck
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +88,18 @@ impl Runner {
         self.pm.held = held;
         if let Some(unstick) = &answer.unstick {
             match self.unstick(unstick)? {
+                Ok(done) => acted.push(done),
+                Err(why) => dropped.push(why),
+            }
+        }
+        if let Some(settle) = &answer.answer {
+            match self.settle_question(settle)? {
+                Ok(done) => acted.push(done),
+                Err(why) => dropped.push(why),
+            }
+        }
+        if let Some(decide) = &answer.follow_up {
+            match self.settle_follow_up(decide)? {
                 Ok(done) => acted.push(done),
                 Err(why) => dropped.push(why),
             }
@@ -164,13 +177,21 @@ impl Runner {
         };
         let why = plain(&self.shown(why.to_owned()), WORDS);
         if action == Action::Retry {
-            let answer = match ruling.kind {
-                RulingKind::Stuck(crate::state::Stuck::StillRed { .. }) => Ruled::No(format!(
-                    "(from the project manager) CI is still red: fix it and push. PM says: {why}"
-                )),
-                _ => Ruled::Yes,
+            let (answer, said) = match ruling.kind {
+                RulingKind::Stuck(crate::state::Stuck::StillRed { .. }) => (
+                    Ruled::No(format!(
+                        "(from the project manager) CI is still red: fix it and push. PM says: {why}"
+                    )),
+                    "no, CI is still red, so the worker fixes it and pushes",
+                ),
+                _ => (Ruled::Yes, "yes"),
             };
-            return match self.rule(id, answer) {
+            let by = Settler::Pm {
+                answer: said.to_owned(),
+                why: why.clone(),
+                unread: false,
+            };
+            return match self.rule_by(id, answer, by) {
                 Ok(()) => Ok(Ok(())),
                 Err(RuleError::State(e)) => Err(e),
                 Err(e) => Ok(Err(format!("retry #{issue}: {e}"))),
@@ -205,7 +226,7 @@ impl Runner {
 
 // `text` on one line with no control characters, cut past `most` characters,
 // since it reaches the maintainer's webhook and the state file as it is.
-fn plain(text: &str, most: usize) -> String {
+pub(super) fn plain(text: &str, most: usize) -> String {
     let spaced: String = (text.chars())
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();

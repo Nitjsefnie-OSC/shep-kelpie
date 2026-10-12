@@ -24,6 +24,7 @@ use super::{GPU, LeaseKind};
 use crate::{dog, shepherd};
 
 pub(crate) mod counted_run;
+mod e2e;
 
 /// The usage lines for `shep-kelpie lease`
 pub const USAGE: &str = "\
@@ -31,8 +32,11 @@ pub const USAGE: &str = "\
        shep-kelpie lease take <kind>
        shep-kelpie lease return <kind>
        shep-kelpie lease status
+       shep-kelpie lease e2e
        <kind> is gpu, the qwen scripts' lock, cargo-test, which a few
-       commands hold at once and only for a run, or a lease the dog holds";
+       commands hold at once and only for a run, or a lease the dog holds
+       e2e runs the project's end-to-end tests on its host, from a worktree, and
+       prints their output and exits with their code";
 
 /// What a `take` holder writes as the lock's `what`, and `return` looks for
 const TAKE_WHAT: &str =
@@ -82,6 +86,7 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
         ["return", GPU] => return_gpu().map(|()| ExitCode::SUCCESS),
         ["return", kind] => return_book(&kind_of(kind)?).await,
         ["status"] => status().await,
+        ["e2e"] => run_e2e().await,
         // take reads a holder's stdout alone, so its errors go there.
         ["hold", GPU] => Ok(hold_gpu().await.unwrap_or_else(|e| {
             println!("shep kelpie lease: {e}");
@@ -92,6 +97,15 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::from(2))
         }
     }
+}
+
+// Runs the project's e2e tests from the folder it is in, which the dog
+// places by the worktree that holds it.
+async fn run_e2e() -> Result<ExitCode, String> {
+    let worktree = std::env::current_dir()
+        .map_err(|e| format!("cannot tell which folder this runs from: {e}"))?;
+    let socket = door::socket()?;
+    Ok(ExitCode::from(e2e::run(&socket, worktree).await))
 }
 
 fn kind_of(kind: &str) -> Result<LeaseKind, String> {
@@ -379,10 +393,8 @@ async fn ask_dog(action: &str, params: &str) -> Result<Value, String> {
 // without starting it.
 async fn run_command(command: &[&str], signals: &mut Signals) -> Result<ExitCode, String> {
     let (program, args) = command.split_first().ok_or("no command to run")?;
-    tokio::select! {
-        biased;
-        caught = signals.recv() => return Ok(caught.exit_code()),
-        () = std::future::ready(()) => {}
+    if let Some(caught) = signals.already().await {
+        return Ok(caught.exit_code());
     }
     let mut child = tokio::process::Command::from(crate::spawn::command(program))
         .args(args)
@@ -470,6 +482,19 @@ impl Signals {
         })
     }
 
+    // A signal that has already come, if one has. The OS may have handed
+    // kelpie a signal that the streams have not been told of yet, since
+    // tokio flags it from its driver, not from the handler. One yield lets
+    // the driver catch up before the streams are asked.
+    async fn already(&mut self) -> Option<Caught> {
+        tokio::task::yield_now().await;
+        tokio::select! {
+            biased;
+            caught = self.recv() => Some(caught),
+            () = std::future::ready(()) => None,
+        }
+    }
+
     async fn recv(&mut self) -> Caught {
         tokio::select! {
             _ = self.interrupt.recv() => Caught::Interrupt,
@@ -522,8 +547,10 @@ mod tests {
     }
 
     // The signal lands after the handler exists and before the command
-    // does, which is the gap between taking a lease and spawning.
-    #[tokio::test]
+    // does, which is the gap between taking a lease and spawning. A
+    // current-thread runtime runs its signal driver only when the test
+    // yields, so the stream has not seen the signal when the run starts.
+    #[tokio::test(flavor = "current_thread")]
     async fn an_interrupt_before_the_command_starts_ends_the_run_without_it() {
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("ran");
@@ -532,8 +559,10 @@ mod tests {
             .args(["-INT", &std::process::id().to_string()])
             .status()
             .unwrap();
-        // Delivery is asynchronous; wait until the handler has seen it.
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // `kill` returns once the signal is queued, and under load the OS
+        // handler can run on another thread a moment later. Sleeping here
+        // without yielding lets it run while the runtime's driver stays idle.
+        std::thread::sleep(std::time::Duration::from_millis(200));
         let command = ["touch", marker.to_str().unwrap()];
         let ended = run_command(&command, &mut signals).await;
         assert_eq!(ended, Ok(ExitCode::from(130)));

@@ -16,6 +16,7 @@ use crate::test::{Rig, Scripted, Told, git};
 mod again;
 mod budget;
 mod full;
+mod replies;
 mod skips;
 mod threads;
 
@@ -31,8 +32,18 @@ fn coderabbit() -> AgentName {
 // whose worker opened pull request 71, and whose qwen and Claude rounds read
 // it clean. CodeRabbit's round, the pass's third, is next.
 pub(in crate::runner) fn reviewed_by_qwen(project: &str) -> (Rig, Mutex<Runner>, String) {
+    reviewed_by_qwen_with(project, |_| {})
+}
+
+// As `reviewed_by_qwen`, `setup` having changed the project's settings
+// before its runner opens.
+pub(in crate::runner) fn reviewed_by_qwen_with(
+    project: &str,
+    setup: impl FnOnce(&Rig),
+) -> (Rig, Mutex<Runner>, String) {
     let rig = Rig::new(project);
     rig.coderabbit_on();
+    setup(&rig);
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
@@ -50,7 +61,16 @@ pub(in crate::runner) fn reviewed_by_qwen(project: &str) -> (Rig, Mutex<Runner>,
 // CodeRabbit's round: the pass that marks the draft ready, and the summon
 // that follows it.
 pub(in crate::runner) fn summoned(project: &str) -> (Rig, Mutex<Runner>, String) {
-    let (rig, runner, head) = reviewed_by_qwen(project);
+    summoned_with(project, |_| {})
+}
+
+// As `summoned`, `setup` having changed the project's settings before its
+// runner opens.
+pub(in crate::runner) fn summoned_with(
+    project: &str,
+    setup: impl FnOnce(&Rig),
+) -> (Rig, Mutex<Runner>, String) {
+    let (rig, runner, head) = reviewed_by_qwen_with(project, setup);
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady {
@@ -581,7 +601,11 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
         "nothing is resolved before the fix"
     );
 
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude.script([Scripted::PushSay(
+        "flag.txt",
+        "named\n",
+        "thread 1: fixed\nthread 2: fixed",
+    )]);
     step(&runner).unwrap();
     let fix = rig.claude.calls().pop().unwrap();
     assert!(
@@ -603,6 +627,8 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
             pull_request: 71,
             round: 3,
             head: Some(fixed.clone()),
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0", "PRRT_71_1"]);
@@ -681,7 +707,14 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
     let again = format!(
         "Your last turn on pull request #71 pushed nothing, so round 3's \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
+         `git push origin HEAD`. Update the pull request's body so it matches the head you \
+         push: what changed, the files touched, the test evidence, and the decisions you \
+         made. Each finding is a review bot's thread, and its line in the file starts \
+         with its number, `thread <n>|`. Kelpie replies on each thread for you and \
+         resolves the ones you fixed, so end your final reply with one line per \
+         finding, using the number its line starts with: `thread <n>: fixed` or \
+         `thread <n>: declined: <the reason>`. A finding with no line is replied to as \
+         not addressed, and stays open.",
         path.display()
     );
     let kind = &status["rulings"][0]["kind"];
@@ -695,7 +728,8 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
 
     // A yes sends the same findings, and a fix that pushes resolves the thread.
     rig.ask(&runner, "rule", Some(&format!("{id} yes")));
-    rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
+    rig.claude
+        .script([Scripted::PushSay("flag.txt", "named\n", "thread 1: fixed")]);
     step(&runner).unwrap();
     assert_eq!(rig.claude.calls().pop().unwrap().prompt, again);
     let fixed = rig.forge.head_of("kelpie/7");
@@ -707,6 +741,8 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
             pull_request: 71,
             round: 3,
             head: fixed,
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0"]);
@@ -856,6 +892,7 @@ fn coderabbit_that_cannot_be_read_is_tried_again_later() {
         "{reason}"
     );
     rig.forge.coderabbit.set_down(false);
+    rig.next_look();
     rig.forge.coderabbit.review(71, &head, now(&rig), &[]);
     assert_eq!(rig.threads_read(&runner), reviewed(0));
 }

@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::*;
 use crate::dog::open as open_book;
 use crate::lease::cli::counted_run;
-use crate::lease::door::Visit;
+use crate::lease::door::{NO_E2E_HOST, Visit};
 use crate::lease::gpu::GpuLock;
 use crate::lease::saved::BookFile;
 use crate::review_bot::Reviewers;
@@ -37,7 +37,14 @@ fn door(capacity: u32) -> (tempfile::TempDir, PathBuf, Arc<Mutex<Kept>>) {
     let desk = kept(dir.path(), capacity);
     let socket = dir.path().join("lease.sock");
     let listener = open(&socket).unwrap();
-    tokio::spawn(serve(listener, Arc::clone(&desk), Duration::ZERO));
+    let home = dir.path().join("kelpie");
+    tokio::spawn(serve(
+        listener,
+        Arc::clone(&desk),
+        Duration::ZERO,
+        home,
+        Remote::default(),
+    ));
     (dir, socket, desk)
 }
 
@@ -47,6 +54,7 @@ fn ask(what: &str) -> Ask {
         pid: std::process::id(),
         what: what.into(),
         running: false,
+        worktree: None,
     }
 }
 
@@ -120,7 +128,12 @@ async fn door_child() {
             std::process::exit(code.into());
         }
         Some(("hurry", script)) => {
-            let code = counted_run::run_with_patience(&socket, &["sh", "-c", script], 1).await;
+            let hurried = counted_run::Patience {
+                tries: 1,
+                ..counted_run::PATIENCE
+            };
+            let code =
+                counted_run::run_with_patience(&socket, &["sh", "-c", script], hurried).await;
             std::process::exit(code.into());
         }
         Some(("exec", program)) => {
@@ -129,7 +142,16 @@ async fn door_child() {
         }
         _ if job == "dog" => {
             let dir = tempfile::tempdir().unwrap();
-            serve(open(&socket).unwrap(), kept(dir.path(), 1), Duration::ZERO).await;
+            let home = dir.path().join("kelpie");
+            let desk = kept(dir.path(), 1);
+            serve(
+                open(&socket).unwrap(),
+                desk,
+                Duration::ZERO,
+                home,
+                Remote::default(),
+            )
+            .await;
         }
         _ if job == "bind" => {
             let _left = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -176,6 +198,31 @@ async fn a_holder_that_dies_gives_its_place_back() {
     holder.wait().unwrap();
     assert_eq!(answer(&mut waiter).await, Some(Answer::Granted));
     assert_eq!(holders(&desk), ["waiter"]);
+}
+
+// A descendant of the command inherits the connection and may write to it;
+// only the connection's end, with the last holder of it gone, gives it back.
+#[tokio::test]
+async fn a_stray_line_from_a_descendant_does_not_give_the_lease_back() {
+    let (_dir, socket, desk) = door(1);
+    let mut stream = UnixStream::connect(&socket).await.unwrap();
+    let mut line = serde_json::to_vec(&ask("holder")).unwrap();
+    line.push(b'\n');
+    stream.write_all(&line).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut reply = String::new();
+    while !reply.contains("granted") {
+        reply.clear();
+        let read = reader.read_line(&mut reply);
+        assert_ne!(tokio::time::timeout(BOUND, read).await.unwrap().unwrap(), 0);
+    }
+    reader.get_mut().write_all(b"stray\n").await.unwrap();
+    let mut waiter = Visit::knock(&socket, &ask("waiter")).await.unwrap();
+    assert_eq!(answer(&mut waiter).await, Some(Answer::Queued(0)));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(holders(&desk), ["holder"]);
+    drop(reader);
+    assert_eq!(answer(&mut waiter).await, Some(Answer::Granted));
 }
 
 #[tokio::test]
@@ -288,6 +335,8 @@ async fn a_run_whose_dog_restarts_is_seated_by_the_next_even_when_full() {
         open(&socket).unwrap(),
         Arc::clone(&next_desk),
         Duration::ZERO,
+        dir.path().join("kelpie"),
+        Remote::default(),
     ));
     let mut holder = Visit::knock(&socket, &ask("holder")).await.unwrap();
     assert_eq!(answer(&mut holder).await, Some(Answer::Granted));
@@ -321,9 +370,57 @@ async fn a_queued_run_whose_dog_restarts_waits_for_the_next() {
         open(&socket).unwrap(),
         Arc::clone(&next_desk),
         Duration::ZERO,
+        dir.path().join("kelpie"),
+        Remote::default(),
     ));
     assert_eq!(exited(&mut run).await, Some(0));
     assert!(marker.exists());
+}
+
+// A dog that answers `queued` and goes away `restarts` times, then grants and
+// holds the lease until the run ends. Each life takes the one ask it hears.
+async fn fake_dog(socket: PathBuf, restarts: u32) {
+    for life in 0..=restarts {
+        let listener = open(&socket).unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        stream.read_line(&mut String::new()).await.unwrap();
+        let mut said = vec![Answer::Queued(0)];
+        if life == restarts {
+            said.push(Answer::Granted);
+        }
+        for answer in said {
+            let mut line = serde_json::to_vec(&answer).unwrap();
+            line.push(b'\n');
+            stream.get_mut().write_all(&line).await.unwrap();
+        }
+        if life == restarts {
+            stream.read_line(&mut String::new()).await.unwrap();
+        }
+        drop(listener);
+        std::fs::remove_file(&socket).unwrap();
+    }
+}
+
+// Every restart is a dog that answered, so a run that has waited minutes in
+// the queue is not out of patience for the next. The run knocks every few
+// milliseconds here, not every second.
+#[tokio::test]
+async fn a_queued_run_keeps_asking_after_each_dog_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("lease.sock");
+    let restarts = counted_run::REJOIN_TRIES + 5;
+    let dog = tokio::spawn(fake_dog(socket.clone(), restarts));
+    let patience = counted_run::Patience {
+        every: Duration::from_millis(5),
+        ..counted_run::PATIENCE
+    };
+    let run = counted_run::run_with_patience(&socket, &["true"], patience);
+    let code = tokio::time::timeout(BOUND, run)
+        .await
+        .expect("the run never ended");
+    assert_eq!(code, 0);
+    tokio::time::timeout(BOUND, dog).await.unwrap().unwrap();
 }
 
 // A restarted dog grants nothing new until the runs it lost have rejoined.
@@ -333,7 +430,14 @@ async fn a_new_door_seats_running_commands_before_any_new_ask() {
     let desk = kept(dir.path(), 1);
     let socket = dir.path().join("lease.sock");
     let grace = Duration::from_secs(2);
-    tokio::spawn(serve(open(&socket).unwrap(), Arc::clone(&desk), grace));
+    let home = dir.path().join("kelpie");
+    tokio::spawn(serve(
+        open(&socket).unwrap(),
+        Arc::clone(&desk),
+        grace,
+        home,
+        Remote::default(),
+    ));
     let mut fresh = Visit::knock(&socket, &ask("fresh")).await.unwrap();
     let early = tokio::time::timeout(Duration::from_millis(500), fresh.answer()).await;
     assert!(
@@ -348,6 +452,13 @@ async fn a_new_door_seats_running_commands_before_any_new_ask() {
     assert_eq!(answer(&mut rejoin).await, Some(Answer::Granted));
     assert_eq!(answer(&mut fresh).await, Some(Answer::Queued(0)));
     assert_eq!(holders(&desk), ["rejoining"]);
+}
+
+// The tests above pass no grace, so this is what keeps the real one from
+// opening before a run whose dog went away has knocked twice.
+#[test]
+fn the_production_grace_outlasts_a_runs_knock() {
+    assert!(REJOIN_GRACE > 2 * counted_run::REJOIN_EVERY);
 }
 
 #[tokio::test]
@@ -368,7 +479,7 @@ async fn a_line_that_is_not_an_ask_is_refused() {
 }
 
 #[tokio::test]
-async fn any_other_lease_is_refused_at_the_door() {
+async fn an_ask_for_any_other_lease_is_still_refused() {
     let (_dir, socket, _desk) = door(3);
     let other = Ask {
         take: "coderabbit".into(),
@@ -378,8 +489,56 @@ async fn any_other_lease_is_refused_at_the_door() {
     let Some(Answer::Error(why)) = answer(&mut visit).await else {
         panic!("the door let coderabbit in");
     };
-    assert!(why.contains("only cargo-test"), "{why}");
+    assert!(why.contains("only cargo-test and e2e"), "{why}");
     assert_eq!(answer(&mut visit).await, None);
+}
+
+// An e2e ask from a worktree of a project under the door's kelpie home
+// that has no `e2e.json`.
+async fn e2e_answer() -> (Answer, Vec<Answer>) {
+    let (dir, socket, _desk) = door(1);
+    let worktree = dir.path().join("kelpie/koji/worktrees/7");
+    std::fs::create_dir_all(&worktree).unwrap();
+    let ask = Ask {
+        take: E2E.into(),
+        worktree: Some(worktree),
+        ..ask("e2e")
+    };
+    let mut visit = Visit::knock(&socket, &ask).await.unwrap();
+    let first = answer(&mut visit).await.expect("the dog answered");
+    let mut rest = Vec::new();
+    while let Some(more) = answer(&mut visit).await {
+        rest.push(more);
+    }
+    (first, rest)
+}
+
+#[tokio::test]
+async fn an_e2e_ask_from_a_project_without_the_table_is_told_it_is_not_configured() {
+    let (first, rest) = e2e_answer().await;
+    let Answer::Error(why) = first else {
+        panic!("the door did not refuse: {first:?}");
+    };
+    assert!(why.starts_with(NO_E2E_HOST), "{why}");
+    assert!(why.contains("[app.dogs.kelpie.e2e]"), "{why}");
+    assert_eq!(rest, [], "the dog closes after refusing");
+}
+
+#[tokio::test]
+async fn an_e2e_ask_from_a_path_that_names_no_project_is_told_it_is_not_configured() {
+    let (dir, socket, _desk) = door(1);
+    let ask = |worktree: Option<PathBuf>| Ask {
+        take: E2E.into(),
+        worktree,
+        ..ask("e2e")
+    };
+    for worktree in [None, Some(dir.path().to_owned()), Some("/nowhere".into())] {
+        let mut visit = Visit::knock(&socket, &ask(worktree.clone())).await.unwrap();
+        let Some(Answer::Error(why)) = answer(&mut visit).await else {
+            panic!("the door did not refuse {worktree:?}");
+        };
+        assert!(why.starts_with(NO_E2E_HOST), "{why}");
+    }
 }
 
 // The dead socket is bound in a child that has exited, so no process
@@ -397,3 +556,5 @@ async fn a_live_door_is_never_taken_over_and_a_dead_one_is() {
     let mode = std::fs::metadata(&stale).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 }
+
+mod e2e;

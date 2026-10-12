@@ -6,7 +6,9 @@ How the engineering skills should consume this repo's domain documentation when 
 
 - **`GLOSSARY.md`** at the repo root: the vocabulary.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in.
-- **`docs/design-log.md`**: every decision below ADR level, the measured facts behind them, and the test plan.
+- **`docs/design/`**: every decision below ADR level, with its reason and where it lives. Read `README.md` whole, then each area file its table names for the code you touch.
+- **`docs/design-log.md`**: the full record behind those decisions, and the test plan. Search it for one decision's detail; it is too long to read whole.
+- **`docs/facts/`**: the measured facts, one file per topic.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 

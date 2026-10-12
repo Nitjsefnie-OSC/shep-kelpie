@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Timestamp;
 use crate::guard::IssueRules;
+use crate::hooks::Hooks;
 use crate::settings::{AgentHarness, Effort, GuardHook, Harness, LeaseName};
 
 /// Which role an agent call is made for
@@ -30,6 +32,10 @@ pub enum Role {
     IssueWriter,
     /// The project manager's session, resumed across its wakes
     Pm,
+    /// The advisor's one-shot session, which votes on a ruling
+    Advisor,
+    /// The researcher's one-shot session, which votes on a ruling
+    Researcher,
 }
 
 #[cfg(test)]
@@ -45,6 +51,8 @@ mod role_tests {
         assert_eq!(Role::Reviewer.as_str(), "reviewer");
         assert_eq!(name(Role::IssueWriter), "issue-writer");
         assert_eq!(Role::IssueWriter.as_str(), "issue-writer");
+        assert_eq!(name(Role::Advisor), "advisor");
+        assert_eq!(name(Role::Researcher), "researcher");
     }
 }
 
@@ -56,6 +64,8 @@ impl Role {
             Self::Reviewer => "reviewer",
             Self::IssueWriter => "issue-writer",
             Self::Pm => "pm",
+            Self::Advisor => "advisor",
+            Self::Researcher => "researcher",
         }
     }
 }
@@ -99,6 +109,18 @@ pub enum Tools {
     /// The project manager's: reading its working folder, and adding to
     /// the end of [`PM_NOTES`] there, which a hook holds it to
     Pm,
+    /// A finished worker's retro, or its vote on a ruling: reading and
+    /// searching its worktree, with no file written, no command and no
+    /// crew. Its reply is the report, or the vote.
+    Retro,
+    /// The advisor's vote on a ruling: reading its folder, the worktrees and
+    /// the checkout, with no file written, no command and no crew. Its reply
+    /// is the vote.
+    Advise,
+    /// The researcher's vote on a ruling: reading its folder, and the web,
+    /// fetch and search, read only, with no file written, no command and no
+    /// crew. Its reply is the vote.
+    Research,
 }
 
 /// The project manager's own notes, the one file in its folder it may change
@@ -112,6 +134,9 @@ pub struct Reach {
     /// The fence on its writes, reads, hosts and commands. Without one,
     /// its tools alone hold it.
     pub fence: Option<Box<Fence>>,
+    /// Whether its sandbox keeps it from the maintainer's keychain, as it does
+    /// on a repo kelpie's App covers, which the runner sets on each call
+    pub block_keychain: bool,
 }
 
 /// Where a session may write and connect, and what it may not run
@@ -133,7 +158,7 @@ pub struct Fence {
     /// Commands it may not run, as prefixes where `*` matches any text
     pub no_commands: Vec<String>,
     /// Variables set for every command it runs
-    pub env: BTreeMap<String, PathBuf>,
+    pub env: BTreeMap<String, String>,
     /// Unix sockets it may connect to: the kelpie dog's lease socket,
     /// where a worker takes the lease it runs tests under
     pub sockets: Vec<PathBuf>,
@@ -160,6 +185,9 @@ pub struct Guard {
     /// For the issue writer, what it may file. The guard then runs only the
     /// commands that file, label and link issues, and git's read-only ones.
     pub issues: Option<IssueRules>,
+    /// The project's own hooks, which the guard runs on a commit, a push and
+    /// the text of a `gh` command, whatever the harness
+    pub hooks: Hooks,
 }
 
 /// One session call to an agent
@@ -193,10 +221,18 @@ pub struct AgentCall {
     pub plugin_dirs: Vec<PathBuf>,
     /// The kinds of tool it may use
     pub tools: Tools,
+    /// The tools its agent file names, as `claude --tools` takes them, in
+    /// place of what a worker's or a reviewer's own kind starts with. A
+    /// retro, the project manager and the issue writer keep their own.
+    pub agent_tools: Option<String>,
     /// The lease the call holds from start to end, for a local agent
     pub lease: Option<LeaseName>,
     /// What it may reach
     pub reach: Reach,
+    /// Tokens of context at which the harness compacts the session in the
+    /// middle of the turn, if it is to. A compaction summarizes the turn's
+    /// own prompt, so the harness is set to hand `prompt` back after one.
+    pub compact_window: Option<NonZeroU32>,
 }
 
 impl AgentCall {
@@ -252,6 +288,9 @@ pub struct Cost(pub u64);
 impl Cost {
     const PER_USD: f64 = 1e9;
 
+    /// Billionths of a dollar in a cent
+    pub const PER_CENT: u64 = 10_000_000;
+
     /// The nearest amount to `usd` dollars, or `None` when it is negative or not a number
     pub fn from_usd(usd: f64) -> Option<Self> {
         // The cast saturates, so an absurd figure cannot wrap.
@@ -298,6 +337,13 @@ pub trait Agents: Send + Sync {
     /// [`AgentError::TimedOut`] when `ending` ended it.
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError>;
 
+    /// Where `call`'s session writes its transcript, for `shep kelpie watch`
+    /// to follow, or `None` for a harness that keeps none kelpie can read
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let _ = call;
+        None
+    }
+
     /// When `call`, in flight, last showed something: a tool call or a line
     /// of output, as its transcript or its output file was last written
     fn last_active(&self, call: &AgentCall) -> CallActivity {
@@ -318,6 +364,18 @@ pub trait Agents: Send + Sync {
             call.harness.harness().command()
         )))
     }
+}
+
+/// Where a harness writes a session's transcript
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Transcript {
+    /// The folder the harness writes its transcripts in, which the session's
+    /// own file is found in once it is written
+    pub folder: PathBuf,
+    /// For a harness that names its own sessions, the folder where kelpie
+    /// keeps which of them each of its session ids is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threads: Option<PathBuf>,
 }
 
 /// What a harness can say of a call's activity
@@ -354,6 +412,8 @@ pub enum Wait {
     Busy,
     /// Nothing: its model has shown no output for a while, as kelpie reads it
     Silent,
+    /// Its model host could not be reached, and the turn is tried again
+    Unreachable,
 }
 
 impl Wait {
@@ -363,6 +423,7 @@ impl Wait {
             Self::Lease => "a lease on its model",
             Self::Busy => "its gateway, which answered busy",
             Self::Silent => "its model's first output",
+            Self::Unreachable => "its model host, which could not be reached",
         }
     }
 }
@@ -442,6 +503,11 @@ pub enum AgentError {
     TimedOut(Harness),
     /// The harness exited without a result it reports as a success
     Failed(Harness, String),
+    /// The harness could not reach its model host: a 502 or 503 from it, or a
+    /// connection it refused or reset
+    ///
+    /// It passes, so a turn that ends with it is tried again, not parked.
+    Unreachable(Harness, String),
     /// The harness's output was not the result asked for
     Unreadable(Harness, String),
 }
@@ -455,6 +521,12 @@ impl fmt::Display for AgentError {
             Self::Stopped => f.write_str("the agent was stopped with the runner"),
             Self::TimedOut(h) => write!(f, "{} ran past its turn's ceiling", h.command()),
             Self::Failed(h, detail) => write!(f, "{} failed: {}", h.command(), detail.trim()),
+            Self::Unreachable(h, detail) => write!(
+                f,
+                "{} could not reach its model host: {}",
+                h.command(),
+                detail.trim()
+            ),
             Self::Unreadable(h, output) => {
                 write!(f, "unreadable {} output: {}", h.command(), output.trim())
             }

@@ -7,7 +7,7 @@
 //! short before it wrote anything starts over. A turn that ends on a
 //! question block parks the worker on a ruling.
 
-use std::fs;
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
@@ -15,24 +15,32 @@ use super::Runner;
 use super::adopt;
 use super::claude_files::Unchecked;
 use super::instructions;
+use super::pm::{COMPACT, WORKER_COMPACT_PAST};
+use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
 use super::rework;
 use super::ruling::park;
+use crate::github::InstallationToken;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
 };
-use crate::profile::WorkerProfile;
+use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};
 use crate::skills::{Step, split_command};
 use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
+use crate::worker_folder;
 use crate::worktree::{self, Start};
+use handover::{Handover, Refused};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
+mod budget;
+mod handover;
 mod unfinished;
+pub(super) mod unreachable;
 
 /// What a work item's worker runs on this turn
 pub(super) struct WorkerAgent {
@@ -44,6 +52,8 @@ pub(super) struct WorkerAgent {
     pub(super) model: String,
     /// How hard the model thinks
     pub(super) effort: Effort,
+    /// The tools its agent file names, in place of a worker's own
+    pub(super) tools: Option<String>,
     /// Its agent file's body, added to kelpie's own instructions
     pub(super) prompt: Option<String>,
 }
@@ -51,6 +61,18 @@ pub(super) struct WorkerAgent {
 /// The prompt for a turn resumed after the runner restarted
 pub(super) const CONTINUE: &str = "Kelpie restarted while your last turn was running. \
                                    Carry on with the work item from where you left off.";
+
+/// What every fix turn's prompt asks, so the pull request's body stays true
+/// to the head the turn pushes
+///
+/// It sits where the prompt asks for the push. A prompt may add further
+/// instructions after it, such as a review bot's thread lines.
+///
+/// It says nothing of how: the worker's instructions do ([`profile`]), for
+/// a worker that edits the pull request itself and for one that rewrites
+/// the file kelpie sets the body from.
+pub(super) const KEEP_BODY_TRUE: &str = "Update the pull request's body so it matches the head \
+    you push: what changed, the files touched, the test evidence, and the decisions you made.";
 
 fn first_prompt(number: u64, issue: &Issue) -> String {
     format!(
@@ -61,7 +83,7 @@ fn first_prompt(number: u64, issue: &Issue) -> String {
 }
 
 /// What a step can work on
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Slot {
     /// The open work item for this issue
     Item(u64),
@@ -84,9 +106,18 @@ impl Runner {
             }
             return self.begin_item(true);
         }
+        self.recheck_dropped()?;
+        let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
+        self.unreachable.keep_only(&open);
         self.seat_waiting()?;
         let mut waiting = None;
-        for slot in self.rotation() {
+        let now = self.ports.clock.now();
+        let rotation = self.rotation();
+        self.looks.keep_only(&rotation);
+        for slot in rotation {
+            if !self.looks.due(slot, now) {
+                continue;
+            }
             let begin = match slot {
                 Slot::Item(issue) => {
                     self.focus = Some(issue);
@@ -94,9 +125,12 @@ impl Runner {
                 }
                 Slot::Board => {
                     self.focus = None;
+                    self.looks.reading_board(now);
                     self.dispatch()?
                 }
             };
+            let held = self.forge_hold.until(now);
+            self.looks.stepped(slot, &begin, now, held);
             match begin {
                 Begin::Idle => {}
                 Begin::Report(report) if report.waits() => {
@@ -115,7 +149,7 @@ impl Runner {
     // waiting for a slot, oldest first, then the board while it may open
     // one, from the one after the last to act, so one that keeps acting
     // cannot starve the rest
-    fn rotation(&self) -> Vec<Slot> {
+    pub(super) fn rotation(&self) -> Vec<Slot> {
         let items = (self.state.work_items.iter())
             .filter(|i| {
                 !self.flights.flying(i.issue) && i.attached.is_none() && i.seat != Seat::Waiting
@@ -154,7 +188,12 @@ impl Runner {
             Phase::Ci { .. } => return self.check_ci(),
             Phase::Ruling { id } => return self.late_while_parked(*id),
             Phase::Merge { .. } => return self.merge(),
-            Phase::Done { merged } => return self.finish(*merged),
+            Phase::Done { merged, .. } => return self.finish(*merged),
+        }
+        // A turn whose model host could not be reached is tried again as it
+        // was, once its pause has passed.
+        if !start_over && let Some(retry) = self.retry_for_host(item.issue) {
+            return Ok(retry);
         }
         // Only a turn that has not begun waits on the pacer: one already
         // running carries on, since a turn is never interrupted, and start_over
@@ -165,6 +204,9 @@ impl Runner {
         }
         // A rework can start on a branch that already changes them.
         if due && let Some(parked) = self.claude_files_changed(Unchecked::CarryOn)? {
+            return Ok(parked);
+        }
+        if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
         if due && let Some(held) = self.pace_worker(Scope::Turn)?.holds() {
@@ -178,8 +220,8 @@ impl Runner {
         // call it resumes gets only however much of the ceiling is left.
         let (session, prompt, since) = match &item.turn {
             Turn::Due => (Session::New(id), None, now),
-            Turn::Running { since } if start_over => (Session::New(id), None, *since),
-            Turn::Running { since } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
+            Turn::Running { since, .. } if start_over => (Session::New(id), None, *since),
+            Turn::Running { since, .. } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
             // An adopted work item's session begins with whatever the gate sends it.
             Turn::Next { prompt } if adopt::unborn(item) => {
                 let (command, then) = split_command(prompt);
@@ -201,6 +243,23 @@ impl Runner {
             }
             Turn::Ended { .. } | Turn::Failed { .. } => return Ok(Begin::Idle),
         };
+        // A turn the runner sends into a session grown past the mark is
+        // sent behind a `/compact`, which leaves the turn due as it was.
+        let compacting = matches!(item.turn, Turn::Next { .. })
+            && matches!(session, Session::Resume(_))
+            && item.context.is_some_and(|c| c > WORKER_COMPACT_PAST);
+        // What a yes on this turn's failure sends again: the prompt a resumed
+        // turn was sent, which a restart of the turn leaves as it was.
+        let kept = match &item.turn {
+            Turn::Next { prompt } if !start_over => Some(prompt.clone()),
+            Turn::Running { prompt, .. } if !start_over => prompt.clone(),
+            _ => None,
+        };
+        let prompt = if compacting {
+            Some(COMPACT.to_owned())
+        } else {
+            prompt
+        };
         let ceiling = self.turn_ceiling();
         let elapsed = Duration::from_secs(now.0.saturating_sub(since.0));
         let remaining = ceiling.saturating_sub(elapsed);
@@ -220,19 +279,40 @@ impl Runner {
             && prompt.is_none()
             && !(item.rework || item.adopted)
             && !item.calls.iter().any(|c| c.role == Role::Worker);
+        // A token GitHub would not give a moment ago is not asked for at every pass.
+        if self.token_wait.holds(now) {
+            return Ok(Begin::Idle);
+        }
+        self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
         let mut begin = match prepared {
+            // A covered worker never runs as the maintainer, so a token that
+            // passes waits here and is tried again, not parked on a ruling.
+            Err(reason) if self.token_wait.is_busy() => {
+                if self.token_wait.first_told() {
+                    self.notes
+                        .push(format!("issue #{issue} waits to start its turn: {reason}"));
+                }
+                return Ok(Begin::Idle);
+            }
             Ok(call) => {
+                self.token_wait.ends();
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
-                item.turn = Turn::Running { since };
+                if !compacting {
+                    item.turn = Turn::Running {
+                        since,
+                        prompt: kept,
+                    };
+                }
                 let deadline = Timestamp(since.0.saturating_add(ceiling.as_secs()));
                 Begin::Call {
                     call,
                     deadline,
                     first,
+                    compact: compacting,
                 }
             }
             Err(reason) => {
@@ -257,28 +337,52 @@ impl Runner {
         session: Session,
         prompt: Option<String>,
     ) -> Result<AgentCall, String> {
-        let start = if item.rework || item.adopted {
-            Start::Pushed
-        } else {
-            Start::Main
-        };
+        let call = self.worker_call(item, session, prompt)?;
+        self.prepared(call)
+    }
+
+    // The worker's call for `item`, with its worktree, build folder, settings
+    // path and instructions made, before its harness has written anything.
+    pub(super) fn worker_call(
+        &self,
+        item: &WorkItem,
+        session: Session,
+        prompt: Option<String>,
+    ) -> Result<AgentCall, String> {
+        let start = start_of(item);
         let WorkerAgent {
             harness,
             limit,
             model,
             effort,
+            tools: agent_tools,
             prompt: agent_prompt,
         } = self.worker_agent(item)?;
-        let reach = self.worker_reach(item, start)?;
+        // Where the App covers the repo, the worker holds its token and never
+        // the maintainer's login; a token it cannot have now fails the call
+        // rather than run it as the maintainer.
+        let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
+            if matches!(e, crate::ports::ForgeError::AppBusy(_)) {
+                self.token_wait.busy_at(self.ports.clock.now());
+            }
+            format!("cannot get the worker a GitHub token: {e}")
+        })?;
+        let reach = self.worker_reach(item, start, token.as_ref())?;
         // Named for the work item: the open items' calls run at once, and
         // each harness keeps its own files beside its settings file.
         let folder = &self.paths.worker;
         let settings = folder.join(format!("settings-{}.json", item.issue));
         let instructions = folder.join(format!("instructions-{}.md", item.issue));
+        let handed_over = token
+            .is_some()
+            .then(|| pull_request_file::path(&item.build));
         let text = instructions::compose(
             instructions::Extra {
                 agent: agent_prompt.as_deref(),
                 project: self.extra_instructions.as_deref(),
+                // Its token opens no pull request, so kelpie opens it.
+                pull_request_file: handed_over.as_deref(),
+                e2e: self.settings.e2e.as_ref(),
             },
             &item.worktree,
             &self.skills,
@@ -299,7 +403,10 @@ impl Runner {
                     .invoke(Step::Implement, &first_prompt(item.issue, &issue))
             }
         };
-        self.prepared(AgentCall {
+        // A `/compact` has nothing to bound, and would hand itself back after.
+        let compact_window =
+            NonZeroU32::new(self.settings.worker.compact_window).filter(|_| prompt != COMPACT);
+        Ok(AgentCall {
             role: Role::Worker,
             harness,
             issue: item.issue,
@@ -312,8 +419,10 @@ impl Runner {
             prompt,
             plugin_dirs: self.skills.plugin_dirs().to_vec(),
             tools: Tools::Work,
+            agent_tools,
             reach,
             lease: limit.lease().cloned(),
+            compact_window,
         })
     }
 
@@ -324,7 +433,12 @@ impl Runner {
     ///
     /// Why the worktree cannot be made ready, or why agents' own files in it
     /// are refused.
-    pub(super) fn worker_reach(&self, item: &WorkItem, start: Start) -> Result<Reach, String> {
+    pub(super) fn worker_reach(
+        &self,
+        item: &WorkItem,
+        start: Start,
+        token: Option<&InstallationToken>,
+    ) -> Result<Reach, String> {
         let dirs = worktree::prepare(
             &self.settings.git.checkout,
             &item.worktree,
@@ -335,6 +449,12 @@ impl Runner {
         .map_err(|e| e.to_string())?;
         if let Some(reason) = self.claude_files_refusal() {
             return Err(reason);
+        }
+        // Its login is written for this call, and a call whose login cannot be
+        // written does not start: `gh` would find the maintainer's instead.
+        if let Some(token) = token {
+            profile::write_login(&item.build, token)
+                .map_err(|e| format!("cannot write the worker's GitHub login: {e}"))?;
         }
         let profile = WorkerProfile {
             worktree: &item.worktree,
@@ -350,8 +470,15 @@ impl Runner {
             build_env: &self.settings.worker.build_env,
             shep_home: &self.paths.shep_home,
             door: &self.paths.door,
+            token,
         };
-        Ok(profile.reach())
+        // The guard in the fence runs the project's `commit`, `push` and
+        // `publish` hooks, so every harness reaches them with its own checks.
+        let mut reach = profile.reach();
+        if let Some(fence) = reach.fence.as_mut() {
+            fence.guard.hooks = self.hooks.clone().in_folder(&item.worktree);
+        }
+        Ok(reach)
     }
 
     /// The agent `item`'s worker runs on: the one it opened on, as that
@@ -390,6 +517,7 @@ impl Runner {
             limit: limit.clone(),
             model: model.model.as_str().to_owned(),
             effort: model.effort,
+            tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
             prompt: agent.prompt.clone(),
         })
     }
@@ -398,7 +526,13 @@ impl Runner {
     ///
     /// Done before the call is marked running, so a failure keeps the turn
     /// it would have run for a retry.
-    pub(super) fn prepared(&self, call: AgentCall) -> Result<AgentCall, String> {
+    pub(super) fn prepared(&self, mut call: AgentCall) -> Result<AgentCall, String> {
+        // The plugins the repo turns on reach every call the runner makes in it.
+        for plugin in self.repo_plugins.dirs() {
+            if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
+                call.plugin_dirs.push(plugin.to_owned());
+            }
+        }
         self.ports
             .agents
             .prepare(&call)
@@ -441,13 +575,47 @@ impl Runner {
                 // discovered once, and every later turn that reaches here
                 // (a CI-failure fix, most often) already knows it.
                 let discovering = item.pull_request.is_none();
+                // Only a worker on a repo the App covers hands its pull request
+                // over: any other opens and edits its own, and a file it left
+                // is not kelpie's to act on.
+                let handed_over = self.app_covers();
                 if discovering {
+                    // Only this turn's refusal is told: an earlier one no longer
+                    // says why there is no pull request.
+                    item.pull_request_refused = None;
                     item.pull_request = self.pull_request_from(&item.branch);
+                    // A worker whose token opens no pull request wrote its text
+                    // for kelpie to open it from, once the branch is pushed.
+                    if handed_over && item.pull_request.is_none() && item.known.head.is_some() {
+                        match self.open_handed_over(&item.build, &item.branch) {
+                            Ok(opened) => item.pull_request = opened,
+                            // The worker can fix its own file, so it is told why.
+                            Err(refusal) => {
+                                item.pull_request_refused = Some(pull_request_file::told(&refusal));
+                                self.started.push(StepReport::PullRequestNotOpened {
+                                    issue,
+                                    reason: refusal.to_string(),
+                                });
+                            }
+                        }
+                    }
                 }
+                // A later turn that rewrote the file changes the title and body,
+                // and a project's hook may refuse what it wrote.
+                let file_refused = match (handed_over, discovering, item.pull_request) {
+                    (true, false, Some(number)) => self.edit_handed_over(&item.build, number),
+                    _ => None,
+                };
                 let session = item.session.clone();
                 let cost =
                     item.record_call(Role::Worker, now, session, reply.usage, reply.session_cost);
                 item.summary = crate::board::briefing::summary(&reply.text);
+                item.context = reply.context;
+                // A fix turn's reply says what it made of each bot thread sent.
+                let fixing = matches!(&item.phase, Phase::Review(r) if matches!(r.stage, ReviewStage::Fixing { .. }));
+                if fixing {
+                    item.answer_threads(&reply.text);
+                }
                 // A turn that left its work uncommitted and pushed nothing is
                 // sent back once, before the gate can park it on a ruling. A
                 // turn to push before a round is that once already.
@@ -467,8 +635,40 @@ impl Runner {
                     None => Vec::new(),
                 };
                 let commit_first = !uncommitted.is_empty();
-                item.turn = if commit_first {
-                    item.asked_to_commit = true;
+                // The branch is handed over when the turn ends with it pushed,
+                // asking nothing and holding no work back, and the project's
+                // hooks judge it before review reads it. A refusal sends the
+                // worker back once, and the next parks the work item.
+                let ended = match commit_first || question.is_some() {
+                    true => None,
+                    false => self.turn_end(item, &reply.text),
+                };
+                let handed = match commit_first || question.is_some() || ended.is_some() {
+                    true => Handover::NotDue,
+                    false => self.handover(item),
+                };
+                let already = item.handover_refused;
+                if let Handover::Passed(head) = &handed {
+                    item.handed_over = Some(head.clone());
+                    item.handover_refused = false;
+                }
+                let refusal = match (&ended, handed) {
+                    (Some(why), _) => Some(Refused::turn(why)),
+                    (None, Handover::Refused(why)) => Some(Refused::branch(&why)),
+                    _ => file_refused.as_deref().map(Refused::pull_request_file),
+                };
+                // A turn no hook refused, with its work all committed, spent the
+                // worker's send-back: the next refusal, of whatever hook, is
+                // a new one and sends it back again.
+                if refusal.is_none() && !commit_first {
+                    item.handover_refused = false;
+                }
+                let hook_parks = refusal.clone().filter(|_| already);
+                let hook_first = refusal.as_ref().filter(|_| !already);
+                let to_worker = commit_first || refusal.is_some();
+                item.turn = if to_worker {
+                    item.asked_to_commit |= commit_first;
+                    item.handover_refused |= hook_first.is_some();
                     // The pull request this turn opened still owes its first
                     // review, which the follow-up's end is too late to see as
                     // a discovery.
@@ -480,7 +680,10 @@ impl Runner {
                         item.resume = Some(Phase::Review(Review::first()));
                     }
                     Turn::Next {
-                        prompt: uncommitted_prompt(&uncommitted),
+                        prompt: match &refusal {
+                            Some(refused) if !commit_first => refused.prompt.clone(),
+                            _ => uncommitted_prompt(&uncommitted),
+                        },
                     }
                 } else {
                     Turn::Ended { at: now }
@@ -490,7 +693,7 @@ impl Runner {
                 // have ended normally, and the answer resumes exactly this,
                 // captured below before `park` parks it on a ruling.
                 let stopped_short = pushed_nothing && awaits_a_push(item);
-                if question.is_none() && !stopped_short && !commit_first {
+                if question.is_none() && !stopped_short && !to_worker {
                     if let Some(resume) = item.resume.take() {
                         item.phase = resume;
                         // The follow-up was the worker's one turn to push, so
@@ -526,6 +729,12 @@ impl Runner {
                 let session = item.session.clone();
                 let (work_item_cost_usd, pull_request) = (item.cost().usd(), item.pull_request);
                 match question {
+                    // The hooks refused the branch again: the worker's turn to fix
+                    // it was spent, so the work item parks, and a yes sends it back.
+                    None if hook_parks.is_some() => {
+                        let why = hook_parks.map(|refused| refused.parked).unwrap_or_default();
+                        failed(self.names(), &mut next, issue, now, why)
+                    }
                     None => StepReport::Ended {
                         issue,
                         session,
@@ -537,6 +746,12 @@ impl Runner {
                     Some(text) => {
                         let resume = match &item.phase {
                             Phase::Review(review) => Resume::Review(review.clone()),
+                            // A CI fix turn sent from a round waiting on its head's run
+                            // goes back to that round once answered, and the answer
+                            // keeps the saved round in `resume`.
+                            Phase::Implement if matches!(item.resume, Some(Phase::Review(_))) => {
+                                Resume::Nothing
+                            }
                             // A merge ruling's no sends its fix to CI, question or none.
                             Phase::Implement if item.noted_from.is_some() => Resume::Nothing,
                             Phase::Implement if pull_request.is_some() => Resume::ReviewFirst,
@@ -576,7 +791,7 @@ impl Runner {
 
     // A ruling just raised is posted as a comment on its pull request, if it
     // has one; only these three reports carry a ruling and need the outcome.
-    pub(super) fn fill_comment_failed(&self, report: &mut StepReport) {
+    pub(super) fn fill_comment_failed(&mut self, report: &mut StepReport) {
         match report {
             StepReport::Asked {
                 pull_request,
@@ -612,10 +827,22 @@ impl Runner {
     }
 }
 
+// Where a worktree made for `item` starts: a rework or adopted branch is the
+// one `origin` holds.
+pub(super) fn start_of(item: &WorkItem) -> Start {
+    if item.rework || item.adopted {
+        Start::Pushed
+    } else {
+        Start::Main
+    }
+}
+
 pub(super) fn write(folder: &Path, file: &Path, text: &str) -> Result<(), String> {
-    fs::create_dir_all(folder)
-        .and_then(|()| fs::write(file, text))
-        .map_err(|e| format!("cannot write {}: {}", file.display(), e.kind()))
+    let failed = |why: &dyn std::fmt::Display| format!("cannot write {}: {why}", file.display());
+    let rel = file
+        .strip_prefix(folder)
+        .map_err(|_| failed(&"it is not in the folder"))?;
+    worker_folder::write(folder, rel, text).map_err(|e| failed(&e))
 }
 
 #[cfg(test)]

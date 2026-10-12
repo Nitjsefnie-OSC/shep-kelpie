@@ -40,6 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
+      - run: scripts/design-size.sh
       - run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings
@@ -47,6 +48,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo test --locked
+
+  # The whole suite on macOS, where the APFS case folding in `src/fence.rs`,
+  # the GPU lock's temp folder and the Seatbelt policy `src/adapters/srt.rs`
+  # writes run for real. Apart from the runner and the timeout it is the
+  # `test` job.
+  # The 20 minutes comes from a local macOS run (about 5 minutes of tests
+  # after the build), to be tightened from this job's first run.
+  test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
@@ -81,6 +96,54 @@ jobs:
           set -o pipefail
           cargo test --locked --test dog_smoke -- --ignored | tee dog_smoke.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' dog_smoke.log
+
+  # The tests `#[ignore]`d for needing kelpie's tools, run under the real
+  # sandbox runtime on Linux, where bubblewrap fences the worker. They skip
+  # the two that need a login or pi.
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KELPIE_TOOLS: ${{ github.workspace }}/.kelpie-tools
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal
+      - name: Install what srt needs on Linux
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep
+      # Ubuntu 24.04 runners block unprivileged user namespaces, which
+      # bubblewrap needs to build the sandbox.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # What `Tools::install` (src/tools.rs) does: the pinned package.json,
+      # then `npm install` beside it.
+      - name: Install the pinned srt
+        run: |
+          mkdir -p "$KELPIE_TOOLS"
+          cp src/tools/package.json "$KELPIE_TOOLS/package.json"
+          (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
+      - run: cargo test --locked --no-run
+      # A filter that matches nothing passes, and so does one that matches
+      # only some tests, so the run must show each test below as passed. A
+      # failing test fails the step on its own. A test given a Linux-only
+      # `ignore` for a gap in the fence (see #214) comes off this list.
+      - name: Run the sandbox tests
+        run: |
+          set -o pipefail
+          cargo test --locked -- --ignored \
+            adapters::claude::escapes \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat \
+            --skip a_live_worker_turn_runs_inside_the_sandbox_and_resumes \
+            --skip pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox \
+            | tee sandbox.log
+          for name in \
+            the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+            claude_codes_own_files_are_refused_in_any_case_and_spelling \
+            codexs_own_files_are_refused_in_any_case \
+            a_host_not_allowed_and_a_socket_not_listed_are_refused \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat; do
+            grep -Eq "^test .*::${name} \.\.\. ok$" sandbox.log \
+              || { echo "::error::$name did not run and pass"; exit 1; }
+          done
 
   msrv:
     runs-on: ubuntu-latest

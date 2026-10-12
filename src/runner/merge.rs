@@ -95,7 +95,7 @@ impl Runner {
         };
         if matches!(
             item.phase,
-            Phase::Merge { .. } | Phase::Done { merged: true }
+            Phase::Merge { .. } | Phase::Done { merged: true, .. }
         ) || matches!(item.phase, Phase::Ruling { id } if follow_up_parked(id))
         {
             return Err(DropError::Merging(item.issue));
@@ -109,7 +109,7 @@ impl Runner {
         if matches!(&item.phase, Phase::Review(review) if summoning(review)) {
             self.leave_round();
         }
-        match self.finish(false).map_err(DropError::State)? {
+        match self.cleanup(false, true).map_err(DropError::State)? {
             Begin::Report(StepReport::GateFailed { reason, .. }) => Err(DropError::Cleanup(reason)),
             _ => Ok(()),
         }
@@ -171,7 +171,7 @@ impl Runner {
         // that, anything but green withdraws the yes.
         let green = match pr.checks {
             _ if !ci => true,
-            Checks::Passed => true,
+            Checks::Passed | Checks::Skipped => true,
             Checks::None | Checks::Pending if readied.is_some() => false,
             Checks::None | Checks::Pending | Checks::Failed(_) => {
                 let reason = format!("CI on #{number} is no longer green");
@@ -284,15 +284,22 @@ impl Runner {
         let item = self
             .current_in(&mut next)
             .expect("a merge is of a work item");
-        item.phase = Phase::Done { merged: true };
-        if notice {
-            next.notices.push(Notice {
-                issue,
-                pull_request: number,
-                head,
-            });
-        }
+        item.phase = Phase::Done {
+            merged: true,
+            closed: false,
+        };
+        let notice = notice.then_some(Notice {
+            issue,
+            pull_request: number,
+            head,
+        });
+        next.notices.extend(notice.clone());
         self.save(next)?;
+        // A comment that fails is told once and not retried: the webhook's
+        // retry is the notice's, and nothing here waits on the comment.
+        if let Some(notice) = &notice {
+            self.notice_on(number, &super::voice::merged_notice(notice));
+        }
         self.finish(true)
     }
 
@@ -342,10 +349,19 @@ impl Runner {
         self.withdraw(issue, number, true, reason)
     }
 
+    // Ends a work item that finished, after its worker has been asked for a
+    // retro once: that turn needs the worktree this removes.
+    pub(super) fn finish(&mut self, merged: bool) -> Result<Begin, StateError> {
+        match self.retro()? {
+            Some(begin) => Ok(begin),
+            None => self.cleanup(merged, false),
+        }
+    }
+
     // Removes the worktree, branch and build folder, then the work
     // item, and records its issue so the board never takes it again. A pull
     // request left unmerged is handed back to the maintainer first.
-    pub(super) fn finish(&mut self, merged: bool) -> Result<Begin, StateError> {
+    fn cleanup(&mut self, merged: bool, dropped: bool) -> Result<Begin, StateError> {
         // First, since the findings sit in the build folder this removes.
         if merged && let Some(begin) = self.follow_ups()? {
             return Ok(begin);
@@ -369,39 +385,58 @@ impl Runner {
         }
         let now = self.ports.clock.now();
         let timings = item.split(now, self.timing_phase(item));
+        let closed = matches!(item.phase, Phase::Done { closed: true, .. });
         let record = Finished {
             issue: item.issue,
             title: item.title.clone(),
             pull_request: item.pull_request,
             merged,
+            closed,
             at: now,
             wall: timings.wall,
             seconds: timings.seconds.clone(),
             spend: Some(item.tally()),
         };
         let line = crate::usage::FinishedLine::of(&record, &item.tally());
+        let ended = record.clone();
         let report = StepReport::Finished {
             issue: item.issue,
             pull_request: item.pull_request,
             merged,
+            closed,
             spend: Box::new(item.spend()),
             qwen: item.qwen,
             timings,
         };
-        let issue = item.issue;
+        let (issue, pull_request) = (item.issue, item.pull_request);
         let mut next = self.state.clone();
         next.work_items.retain(|open| open.issue != item.issue);
         // Rulings about this work item go with it, a question asked before
         // its pull request included.
         next.rulings.retain(|r| r.issue != Some(item.issue));
-        if !next.finished.contains(&item.issue) {
-            next.finished.push(item.issue);
+        // A dropped issue stays open, unlike a merged one the forge closes, so it
+        // goes on its own list, which a label put back clears.
+        let (listed, other) = match dropped {
+            true => (&mut next.dropped, &mut next.finished),
+            false => (&mut next.finished, &mut next.dropped),
+        };
+        other.retain(|n| *n != item.issue);
+        if !listed.contains(&item.issue) {
+            listed.push(item.issue);
         }
         next.record_finished(record);
+        // Before the save, so a runner that stops partway still has the work
+        // item and comes back here. The step reads the issue first, so it
+        // closes nothing twice.
+        if let (true, Some(number)) = (merged, pull_request) {
+            self.close_merged_issue(issue, number);
+        }
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
+        self.tell_done(&ended);
         self.mark_held(issue, false);
         self.late_reads.remove(&issue);
+        self.parked_reads.remove(&issue);
         Ok(Begin::Report(report))
     }
 }
@@ -473,6 +508,25 @@ mod tests {
             (&status["work_item"], &status["rulings"]),
             (&json!(null), &json!([]))
         );
+    }
+
+    #[test]
+    fn a_build_folder_holding_a_read_only_module_cache_is_removed_with_the_item() {
+        use std::os::unix::fs::PermissionsExt;
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.ask(&runner, "rule", Some("1 yes"));
+        let build = rig.home.path().join("shep/kelpie/koji/builds/7");
+        let cache = build.join("gomod/cache/download");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("list"), "v1.0.0\n").unwrap();
+        for dir in [&cache, &build.join("gomod")] {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(!build.exists());
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"], json!(null));
     }
 
     // A hook on the bare origin that refuses the worker branch's delete,
@@ -694,6 +748,7 @@ mod tests {
         assert!(rig.worktree_7().exists());
 
         rig.forge.set_merges_down(false);
+        rig.next_look();
         assert!(finished(step(&runner).unwrap()));
         assert_eq!(rig.forge.merges(), [(71, head)]);
     }
@@ -809,6 +864,9 @@ mod tests {
     #[test]
     fn a_finished_issue_leaves_the_state_file_once_its_issue_is_closed() {
         let (rig, runner, _) = Rig::parked("webapp");
+        // A close the forge refuses leaves the issue open.
+        rig.forge.set_closes(71, &[]);
+        rig.forge.set_closes_down(true);
         rig.forge.list_ready(7, false);
         rig.ask(&runner, "rule", Some("1 yes"));
         assert!(finished(ready_then_merge(&rig, &runner)));
@@ -832,5 +890,107 @@ mod tests {
         rig.forge.remove_issue(7);
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(finished_on_disk(&rig), json!([7]));
+    }
+
+    #[test]
+    fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.list_ready(8, false);
+        rig.forge.block(8, 7);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert_eq!(rig.forge.closings(), [7]);
+        let comments = rig.forge.comments();
+        assert_eq!(comments.len(), 1, "{comments:?}");
+        assert_eq!(comments[0].0, 7);
+        assert!(comments[0].1.contains("#71"), "{comments:?}");
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 8, .. })
+        ));
+    }
+
+    #[test]
+    fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.forge.set_state(71, PullRequestState::Merged);
+
+        assert!(finished(step(&runner).unwrap()));
+        assert_eq!(rig.forge.closings(), [7]);
+        assert_eq!(rig.forge.comments().len(), 1);
+    }
+
+    #[test]
+    fn an_issue_the_pull_request_names_is_left_to_the_forge_though_it_still_reads_open() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.list_ready(7, false);
+        rig.ask(&runner, "rule", Some("1 yes"));
+        // The forge has merged it and not yet closed #7, which #71 names.
+        rig.forge.set_state(71, PullRequestState::Merged);
+
+        assert!(finished(step(&runner).unwrap()));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
+    }
+
+    #[test]
+    fn an_issue_the_forge_already_closed_gets_no_comment_and_no_second_close() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
+    }
+
+    #[test]
+    fn a_close_the_forge_refuses_is_noted_and_the_work_item_still_finishes() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.set_closes_down(true);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(rig.forge.closings().is_empty());
+        assert_eq!(rig.forge.comments().len(), 1);
+        let notes = runner.lock().unwrap().take_notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("cannot close issue #7"), "{notes:?}");
+        assert!(notes[0].contains("closing is refused"), "{notes:?}");
+        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
+    }
+
+    #[test]
+    fn a_comment_the_forge_refuses_is_noted_and_the_issue_is_closed_without_it() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.set_comments_down(true);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert_eq!(rig.forge.closings(), [7]);
+        let notes = runner.lock().unwrap().take_notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("cannot comment on issue #7"), "{notes:?}");
+    }
+
+    #[test]
+    fn an_item_that_ended_without_a_merge_leaves_its_issue_untouched() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+
+        rig.ask(&runner, "drop", Some("7"));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
     }
 }

@@ -20,7 +20,10 @@ _Avoid_: harness (the working name before 2026-09-25), control room
    ends its turn.
 4. **Review.** Each reviewer in the project's list reads the pull request
    once, in order, and one with any finding, nits included, is followed by
-   one fix turn. The pass ends where it ends: no loop, no judge.
+   one fix turn. The pass ends where it ends: no loop, no judge. No
+   reviewer reads a head until CI has passed on it, so the worker's push and
+   each fix turn's head wait for green first, and a red run goes to the
+   worker's CI fix turn before any reviewer reads.
 5. **CI.** A red run goes back to the worker. A second red run on a head the
    worker left alone is a `stuck` ruling.
 6. **Merge.** A ruling under `ask`, kelpie's code under `auto`, as a merge
@@ -32,7 +35,8 @@ _Avoid_: harness (the working name before 2026-09-25), control room
 A repo under kelpie, with its settings, board and state file. It runs while
 its runner's sheep runs: you start it, or pause it, which waits for its
 calls and any merge in flight to end and then stops that sheep. A wait that
-runs out, an interrupt or a refused stop leaves it running. Its settings
+runs out, an interrupt or a refused stop leaves it running. Or you finish
+it, and it stops itself once its open work items end. Its settings
 (merge authority, CI, agents, pacing) live on it, each in a table of its own.
 _Avoid_: shift
 
@@ -90,8 +94,9 @@ run as a `command`, an `endpoint` or a `bot`.
 One endpoint in front of a host's model servers, such as paddock,
 named once in kelpie's own settings with the variable holding its key. A
 pi agent or an endpoint reviewer names one in place of its server's URL.
-It queues its calls, so kelpie takes no GPU lock for them, and a worker's
-turn on one holds a lease of the gateway's own on its model.
+It queues its calls, so kelpie takes no GPU lock for them. A worker's turn
+on one holds a lease of the gateway's own on its model, so the gateway
+evicts nothing it runs on midway; a reviewer's round takes no lease at all.
 _Avoid_: proxy, router
 
 **Implementer**:
@@ -251,6 +256,13 @@ What a worker's call may write, read and reach, which kelpie's OS
 **sandbox** enforces around the whole call, with **confine** (on every file
 write) and **guard** (on every command) as kelpie's own checks inside it.
 
+**Hook**:
+A project's own command, which kelpie runs itself at one of its points for
+every harness and role: `publish` (text bound for the forge), `commit`,
+`push` and `handover`. It refuses with exit 2 and a reason, and a hook that
+cannot run refuses too. Apart from `worker.guard_hooks`, which are Claude
+Code hooks that only a Claude Code worker runs.
+
 **Timings**:
 Where a work item's wall time went, by timing phase: `worker`, `review`,
 `ci`, `ruling`, `merge` and `other`. Every second lands in exactly one. A
@@ -284,6 +296,18 @@ carries it, or asking for a full review in a comment. For cubic it is the
 marking a draft ready where its file says it reviews on ready. Only kelpie's
 code summons, in the listed bot's round of a review pass.
 
+**App**:
+Kelpie's GitHub App, one per repo owner, which the maintainer registers
+with `shep kelpie github setup` and installs on the repos kelpie works. Its
+private key stays in kelpie's home, and kelpie acts as the App with an
+installation token minted from it, one per repo. Kelpie's rulings, notices
+and review rounds are posted as the App, and the issues and labels it makes.
+Merging, a review bot's summons and a pull request's labels stay on the
+maintainer's own `gh` login. On a repo it covers, a **worker** holds a token
+of the App's too, for that repo alone and able to push and nothing more,
+never the maintainer's login.
+_Avoid_: bot account, kelpie's account
+
 **Pacing**:
 How kelpie spends each **account** (`claude`, `codex`, or `none` for a local
 model) against its usage windows: a daily **allowance** of the weekly
@@ -309,7 +333,38 @@ red, a note sending the worker back. A merge ruling takes three answers:
 `rework <note>`, whose change starts a new pass, as a `no` does on a
 merge ruling that warns of open bot threads, an unread pass or an unread
 head. It names open bot nits apart from the threads that hold a merge, and
-nits never do.
+nits never do. Where an **App** covers the repo, a ruling is also answered by
+a reply in its thread that starts with the ruling's id, as `shep kelpie rule`
+does (`99 yes`), from the one login the ruling mentions, if it has write
+access to the repo: a bare `yes` answers nothing, and a ruling that mentions
+no one is answered at the terminal only. The first answer, from the thread or
+the terminal, wins.
+
+**Panel**:
+The four experts who vote on a ruling, each blind to the others: the work
+item's own **worker**, resumed once with the ruling (it abstains when the
+item has no worker turn), the **project manager**, the **advisor** and the
+**researcher**. A project has one once it names an advisor or a researcher
+(`agents.advisor`, `agents.researcher`). A **vote** is one JSON object, a
+`choice` that is an option's key, a `why` of at most 350 characters and a
+`design` flag; one kelpie cannot read is an abstention, logged. A ruling's
+comment lists the votes under **Panel** and waits for them, 20 minutes at
+most. Nothing decides by them yet.
+_Avoid_: jury, council, quorum
+
+**Advisor**:
+The panel's expert on the codebase, an agent file whose role is `advisor`.
+It reads the work item's worktree, the checkout, the branch's diff that kelpie
+writes into its folder, and the project's design docs, ADRs, glossary and
+README. It runs no git, `gh` or command, and writes nothing but its vote.
+
+**Researcher**:
+The panel's expert on everything outside the codebase, an agent file whose
+role is `researcher`. It reads what kelpie writes into its folder, which is
+earlier rulings and their answers, the issue and pull request threads, the
+worker's session and the maintainer's own agent sessions
+(`researcher.transcripts`, off until named), and it has the web, read only.
+It runs no git, `gh` or command, and writes nothing but its vote.
 
 **Merge authority**:
 Who merges a green, reviewed pull request, a project's `git.merging`. `ask`
@@ -320,9 +375,19 @@ follow `git.issues`, not it: a `follow-up` ruling comes only under `ask`.
 Every other ruling still asks.
 
 **Notice**:
-What kelpie sends after a merge under `auto`, through the same webhook as
-rulings. Not a ruling: it has no id and takes no answer.
+What kelpie sends after a merge under `auto`, a work item closed with no
+change, a withdrawn merge ruling or a finished runner, through the same
+webhook as rulings. All but the finished runner's are also a comment on the
+work item's thread where an App covers the repo. Not a ruling: it has no id
+and takes no answer.
 
 **Draining**:
 A runner told to start no new call, while the calls it has running go on to
 their end. `shep kelpie upgrade` drains each runner before it restarts it.
+
+**Finishing**:
+A runner whose board picks nothing new while its open work items run on to
+their end, merged, closed, dropped or stopped by a `no`, after which it
+stops its own sheep as a pause does. It outlasts a restart but not a pause, and `shep kelpie start`
+ends it.
+_Avoid_: winding down

@@ -211,9 +211,24 @@ fn an_implementer_off_claude_code_beside_guard_hooks_is_refused_at_load() {
             format!(
                 "setting `agents.implementers`: implementer {name} runs on {harness}, which \
                  cannot run `worker.guard_hooks`, which are Claude Code hooks: turn those \
-                 off or build on Claude Code"
+                 off, move the check to a `command` or `write` hook in `hooks`, which runs \
+                 on every harness, or build on Claude Code"
             )
         );
+    }
+}
+
+// The project's own `hooks` are kelpie's to run, so no harness is asked to run them.
+#[test]
+fn an_implementer_off_claude_code_beside_project_hooks_loads() {
+    for name in ["qwen", "gpt"] {
+        let names = format!("implementers = [\"sonnet-high\", \"{name}\"]\n");
+        let mut settings = project(&names);
+        settings.hooks = vec![crate::settings::ProjectHook {
+            point: crate::settings::HookPoint::Commit,
+            command: "true".to_owned().try_into().unwrap(),
+        }];
+        assert!(settings.role_agents(&book()).is_ok(), "{name}");
     }
 }
 

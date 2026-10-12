@@ -92,6 +92,7 @@ impl Runner {
         draft.issue = Some(issue.number);
         let key = Some(issue.number);
         self.flights.ledger.open(key, draft, self.pacer_lines());
+        self.call_started(&call, name.as_str());
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
@@ -161,6 +162,8 @@ impl Runner {
         end: End,
     ) -> Result<Option<StepReport>, StateError> {
         self.flights.labelling = None;
+        // The issue it labels, or rules on, is the board's to take again.
+        self.looks.board_moved();
         let open = self.flights.ledger.take(Some(issue));
         let result = match end {
             End::Turn(result) => result,
@@ -194,7 +197,7 @@ impl Runner {
             Err(why) => return self.unlabelled(issue, why).map(Some),
         };
         let label = format!("{AGENT_LABEL}{agent}");
-        if let Err(e) = (self.ports.forge).set_issue_label(&self.remote, issue, &label, true) {
+        if let Err(e) = self.label_issue(issue, &label, true) {
             let why = format!("the forge would not label it `{label}`: {e}");
             return self.unlabelled(issue, why).map(Some);
         }
@@ -245,6 +248,11 @@ impl Runner {
             pull_request: None,
             kind,
             alerted: false,
+            panel: None,
+            verdict: None,
+            unposted: false,
+            effects: Vec::new(),
+            raised: Some(names.now),
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {

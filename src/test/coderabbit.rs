@@ -2,7 +2,7 @@
 //! the shapes the real one was recorded posting on shep
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::ports::{ForgeError, Timestamp};
@@ -16,9 +16,12 @@ pub(crate) struct FakeCodeRabbit {
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     label_log: Arc<Mutex<Vec<(u64, String, bool)>>>,
     resolved: Arc<Mutex<Vec<String>>>,
+    replies: Arc<Mutex<Vec<(String, String)>>>,
     logins: Arc<Mutex<Vec<String>>>,
     down: Arc<AtomicBool>,
     resolve_down: Arc<AtomicBool>,
+    reply_down: Arc<AtomicBool>,
+    gh_writes: Arc<AtomicUsize>,
 }
 
 // CodeRabbit's own store on pull request `number`.
@@ -139,6 +142,21 @@ impl FakeCodeRabbit {
         );
     }
 
+    /// Sets the skip status `description` on `head` of pull request
+    /// `number` at `at`, as CodeRabbit answers a summon its settings do not
+    /// let start a review
+    pub(crate) fn skip(&self, number: u64, head: &str, at: u64, description: &str) {
+        let mut activity = self.activity.lock().unwrap();
+        activity.entry(ours(number)).or_default().statuses.insert(
+            0,
+            Status {
+                commit: head.to_owned(),
+                description: description.into(),
+                at: Timestamp(at),
+            },
+        );
+    }
+
     /// Resolves thread `id` as CodeRabbit does once it sees a fix
     pub(crate) fn settle(&self, id: &str) {
         let mut activity = self.activity.lock().unwrap();
@@ -162,6 +180,26 @@ impl FakeCodeRabbit {
     /// Every thread resolved, in order
     pub(crate) fn resolved(&self) -> Vec<String> {
         self.resolved.lock().unwrap().clone()
+    }
+
+    /// Every reply posted on a thread, in order: the thread's id and the text
+    pub(crate) fn replies(&self) -> Vec<(String, String)> {
+        self.replies.lock().unwrap().clone()
+    }
+
+    /// How many replies and resolves came through `gh`, as the maintainer
+    pub(crate) fn gh_writes(&self) -> usize {
+        self.gh_writes.load(Ordering::SeqCst)
+    }
+
+    // A reply or resolve made through the forge port, which is `gh`.
+    pub(super) fn made_by_gh(&self) {
+        self.gh_writes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Makes replying to a thread fail, or work again
+    pub(crate) fn set_reply_down(&self, down: bool) {
+        self.reply_down.store(down, Ordering::SeqCst);
     }
 
     pub(super) fn labels(&self, number: u64) -> Vec<String> {
@@ -219,6 +257,33 @@ impl FakeCodeRabbit {
         }
         self.settle(id);
         self.resolved.lock().unwrap().push(id.to_owned());
+        Ok(())
+    }
+
+    // A thread that does not exist is done, as the gh adapter reads
+    // GitHub's not-found.
+    pub(super) fn reply(&self, id: &str, body: &str) -> Result<(), ForgeError> {
+        if self.reply_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("replying is down".into()));
+        }
+        // As the guarded forge refuses a text naming this machine's folders.
+        if body.contains("/Users/") {
+            let leak = crate::local_paths::Leak::Path;
+            return Err(ForgeError::LocalPath {
+                what: "the reply",
+                leak,
+            });
+        }
+        let activity = self.activity.lock().unwrap();
+        let known = activity
+            .values()
+            .flat_map(|a| &a.threads)
+            .any(|t| t.id == id);
+        drop(activity);
+        if known {
+            let reply = (id.to_owned(), body.to_owned());
+            self.replies.lock().unwrap().push(reply);
+        }
         Ok(())
     }
 }

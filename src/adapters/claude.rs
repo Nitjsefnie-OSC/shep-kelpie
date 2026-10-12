@@ -12,7 +12,7 @@ use super::process::{Processes, RunError};
 use super::srt::SandboxRuntime;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox, Session,
-    SessionId, Unreadable, Usage, written_at,
+    SessionId, Transcript, Unreadable, Usage, written_at,
 };
 use crate::settings::Harness;
 use crate::tools::Tools;
@@ -27,6 +27,46 @@ pub(crate) mod settings;
 
 /// What `claude -p --resume` prints when the session has no transcript
 const NO_SESSION: &str = "No conversation found with session ID";
+
+/// How to give `claude` the login it needs where the keychain is blocked, as doctor and a refused call say it
+pub const LOGIN_FIX: &str = "run `claude setup-token`, then `shep secret set CLAUDE_CODE_OAUTH_TOKEN` and set \
+     `CLAUDE_CODE_OAUTH_TOKEN = \"{{secret:CLAUDE_CODE_OAUTH_TOKEN}}\"` in the runner's `env`";
+
+/// The variable Claude Code reads a login from, in place of the keychain's
+pub const LOGIN_VAR: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// The login `claude setup-token` makes: one token, not the keychain's full login
+///
+/// Where a call's sandbox blocks the keychain, `claude` cannot read its own
+/// login there. The maintainer keeps this one with `shep secret`, and a runner
+/// hands it to `claude` alone.
+#[derive(Clone, PartialEq, Eq)]
+pub struct LoginToken(String);
+
+impl LoginToken {
+    /// The token `value` is, or `None` when it is empty
+    pub fn new(value: String) -> Option<Self> {
+        (!value.trim().is_empty()).then(|| Self(value.trim().to_owned()))
+    }
+
+    /// Takes the token from this process's environment, and keeps the variable
+    /// out of every process started from now on, `claude`'s apart
+    pub fn take() -> Option<Self> {
+        let token = std::env::var(LOGIN_VAR).ok().and_then(Self::new);
+        crate::spawn::hide([LOGIN_VAR.to_owned()]);
+        token
+    }
+
+    pub(super) fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for LoginToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LoginToken(..)")
+    }
+}
 
 /// Names a runner's child process in `shep describe`
 pub trait LambLabels: Send + Sync + fmt::Debug {
@@ -56,6 +96,10 @@ pub struct ClaudeCli {
     pub(super) home: PathBuf,
     // What a call with no fence may not read either: the shepherd's home
     pub(super) unfenced_no_read: Vec<String>,
+    // The login `claude` runs with, in place of the maintainer's in the keychain
+    login: Option<LoginToken>,
+    // Whether this is macOS, where a blocked keychain takes `claude`'s own login with it
+    macos: bool,
 }
 
 // The default home and tools are the maintainer's: `$HOME` and kelpie's own tools.
@@ -73,6 +117,8 @@ impl Default for ClaudeCli {
             ))),
             home,
             unfenced_no_read: Vec::new(),
+            login: None,
+            macos: cfg!(target_os = "macos"),
         }
     }
 }
@@ -114,8 +160,24 @@ impl ClaudeCli {
         self.sandboxed(Arc::new(sandbox), home)
     }
 
+    /// Runs `claude` with `login` in its environment, where there is one, in
+    /// place of the keychain's login
+    ///
+    /// pi and Codex made from this get none of it.
+    pub fn with_login(self, login: Option<LoginToken>) -> Self {
+        Self { login, ..self }
+    }
+
+    /// The same, as on macOS or not, which a test runs on either
+    #[cfg(test)]
+    pub(crate) fn on_macos(self, macos: bool) -> Self {
+        Self { macos, ..self }
+    }
+
     /// Keeps a call with no fence, such as a reviewer's session, out of
     /// `shep_home`, which holds the sheep entries' `env` and `dogs.toml`
+    ///
+    /// pi and Codex made from this after share it.
     pub fn unfenced_unread(mut self, shep_home: &Path) -> Self {
         self.unfenced_no_read = vec![format!("{}/**", shep_home.display())];
         self
@@ -164,6 +226,14 @@ impl Agents for ClaudeCli {
         parse_result(&output, &call.session)
     }
 
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let folder = sandbox::transcripts(&self.home, &call.cwd).ok()?;
+        Some(Transcript {
+            folder,
+            threads: None,
+        })
+    }
+
     // Claude Code appends to the session's transcript at each message and
     // tool call, so a write is the session doing something.
     fn last_active(&self, call: &AgentCall) -> CallActivity {
@@ -181,21 +251,43 @@ impl Agents for ClaudeCli {
 /// Writes the call's settings file whole, from the call alone
 pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<(), AgentError> {
     let mut value = settings::settings(call.tools, &call.reach);
+    // The prompt beside the settings file, for the hook that hands it back.
+    let again = settings::prompt_file(&call.settings);
+    if let Some(window) = call.compact_window {
+        settings::compacting(&mut value, window, &again);
+    }
     let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
     }
     let text = serde_json::to_string_pretty(&value).expect("settings are JSON");
     let folder = call.settings.parent().unwrap_or(std::path::Path::new("/"));
-    std::fs::create_dir_all(folder)
-        .and_then(|()| std::fs::write(&call.settings, text))
-        .map_err(|e| {
-            AgentError::Setup(format!(
-                "cannot write {}: {}",
-                call.settings.display(),
-                e.kind()
-            ))
+    let write = |path: &std::path::Path, text: String| {
+        std::fs::write(path, text).map_err(|e| {
+            AgentError::Setup(format!("cannot write {}: {}", path.display(), e.kind()))
         })
+    };
+    std::fs::create_dir_all(folder).map_err(|e| {
+        AgentError::Setup(format!(
+            "cannot write {}: {}",
+            call.settings.display(),
+            e.kind()
+        ))
+    })?;
+    write(&call.settings, text)?;
+    match call.compact_window {
+        Some(_) => write(&again, compacted_prompt(&call.prompt)),
+        None => Ok(()),
+    }
+}
+
+// What a compaction's hook prints into the session: the turn's prompt again.
+fn compacted_prompt(prompt: &str) -> String {
+    format!(
+        "Claude Code compacted your session partway through this turn, so what came before is \
+         a summary, and the prompt may have been cut from it. This is the prompt again:\n\n\
+         {prompt}\n"
+    )
 }
 
 // `--setting-sources project` keeps the project's CLAUDE.md and skills and
@@ -205,7 +297,9 @@ fn argv(call: &AgentCall) -> Vec<OsString> {
     let mut argv: Vec<OsString> = vec!["-p".into(), call.prompt.as_str().into()];
     argv.extend(profile(call));
     argv.extend(["--output-format".into(), "json".into()]);
-    if call.role == Role::Worker {
+    // A retro is a worker's session that may change nothing, so it is asked
+    // like any call whose edits nothing allows.
+    if call.role == Role::Worker && call.tools == crate::ports::Tools::Work {
         argv.extend(["--permission-mode".into(), "bypassPermissions".into()]);
     }
     argv.extend(session(call));
@@ -234,13 +328,23 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         "--settings".into(),
         call.settings.clone().into(),
     ];
-    // The project manager's tools are an allow-list, and it loads no MCP server.
-    if call.role == Role::Pm {
-        argv.extend([
-            "--tools".into(),
-            settings::PM_TOOLS.into(),
-            "--strict-mcp-config".into(),
-        ]);
+    // Every kind of call but an answer or the issue writer's runs on an
+    // allow-list and loads no MCP server, so what a project's settings allow
+    // adds nothing. An agent file's own list replaces a worker's and a
+    // reviewer's, and no other's.
+    use crate::ports::Tools as Kind;
+    let own = call.agent_tools.as_deref();
+    let tools = match (call.role, call.tools) {
+        (Role::Pm, _) => Some(settings::PM_TOOLS),
+        (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
+        (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
+        (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
+        (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
+        (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
+        (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
+    };
+    if let Some(tools) = tools {
+        argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
     }
     argv
 }
@@ -406,6 +510,23 @@ mod tests {
         assert!(matches!(claude.last_active(&call), CallActivity::At(_)));
     }
 
+    #[test]
+    fn a_calls_transcript_is_in_the_folder_claude_code_names_for_its_working_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let claude = ClaudeCli::default().sandboxed(Arc::new(OpenSandbox::default()), home.clone());
+        let mut call = call(Role::Worker, fresh());
+        call.cwd = dir.path().join("wt");
+        std::fs::create_dir_all(&call.cwd).unwrap();
+        assert_eq!(
+            claude.transcript(&call),
+            Some(crate::ports::Transcript {
+                folder: sandbox::transcripts(&home, &call.cwd).unwrap(),
+                threads: None,
+            })
+        );
+    }
+
     // Recorded from Claude Code 2.1.283 on Haiku: a call asked to say ok.
     const RESULT: &str = include_str!("../../fixtures/claude-p-result.json");
     // Recorded from Claude Code 2.1.283 on Haiku: a new session, then the
@@ -445,8 +566,10 @@ mod tests {
             prompt: "implement #6".into(),
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
+            agent_tools: None,
             reach: Reach::default(),
             lease: None,
+            compact_window: None,
         }
     }
 
@@ -472,6 +595,9 @@ mod tests {
                 "project",
                 "--settings",
                 "/k/worker/settings.json",
+                "--tools",
+                "Bash,Read,Edit,Write,Glob,Grep,Skill",
+                "--strict-mcp-config",
                 "--output-format",
                 "json",
                 "--permission-mode",
@@ -490,6 +616,25 @@ mod tests {
         assert_eq!(argv[argv.len() - 2..], ["--resume", "abc"]);
         assert!(!argv.iter().any(|a| a == "--append-system-prompt-file"));
         assert!(!argv.iter().any(|a| a == "--session-id"));
+    }
+
+    #[test]
+    fn a_retro_resumes_the_workers_session_without_bypassing_permissions() {
+        let mut retro = call(Role::Worker, resume("abc"));
+        retro.tools = crate::ports::Tools::Retro;
+        let argv = strings(&retro);
+        assert!(!argv.iter().any(|a| a == "bypassPermissions"), "{argv:?}");
+        assert_eq!(argv[argv.len() - 2..], ["--resume", "abc"]);
+    }
+
+    #[test]
+    fn a_retro_runs_on_an_allow_list_of_tools_and_no_mcp_server() {
+        let mut retro = call(Role::Worker, resume("abc"));
+        retro.tools = crate::ports::Tools::Retro;
+        let argv = strings(&retro);
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(argv[at + 1], "Read,Glob,Grep,Skill");
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
     }
 
     #[test]
@@ -589,12 +734,68 @@ mod tests {
             assert!(pm.iter().any(|a| a == "--strict-mcp-config"));
             assert!(!pm.iter().any(|a| a == "bypassPermissions"));
         }
-        let worker = argv(&call(Role::Worker, fresh()));
-        assert!(
-            !worker
-                .iter()
-                .any(|a| a == "--tools" || a == "--strict-mcp-config")
+    }
+
+    #[test]
+    fn the_advisor_and_the_researcher_run_on_allow_lists_of_reading_tools_and_no_mcp_server() {
+        let tools = |role, tools| {
+            let mut vote = call(role, fresh());
+            vote.tools = tools;
+            let argv = strings(&vote);
+            let at = argv.iter().position(|a| a == "--tools").unwrap();
+            assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+            assert!(!argv.iter().any(|a| a == "bypassPermissions"));
+            argv[at + 1].clone()
+        };
+        assert_eq!(tools(Role::Advisor, Tools::Advise), "Read,Glob,Grep");
+        assert_eq!(
+            tools(Role::Researcher, Tools::Research),
+            "Read,Glob,Grep,WebFetch,WebSearch"
         );
+    }
+
+    #[test]
+    fn a_worker_runs_on_the_tools_its_skills_use_and_no_mcp_server() {
+        for worker in [
+            strings(&call(Role::Worker, fresh())),
+            strings(&call(Role::Worker, resume("abc"))),
+        ] {
+            let at = worker.iter().position(|a| a == "--tools").unwrap();
+            assert_eq!(worker[at + 1], "Bash,Read,Edit,Write,Glob,Grep,Skill");
+            assert!(worker.iter().any(|a| a == "--strict-mcp-config"));
+        }
+    }
+
+    #[test]
+    fn a_reviewer_runs_on_the_tools_a_read_only_review_uses_and_no_mcp_server() {
+        let mut review = call(Role::Reviewer, fresh());
+        review.tools = Tools::Review;
+        let argv = strings(&review);
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(argv[at + 1], "Read,Glob,Grep");
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn an_agent_files_tools_replace_a_workers_and_a_reviewers_but_no_others() {
+        let tools_of = |call: &AgentCall| {
+            let argv = strings(call);
+            let at = argv.iter().position(|a| a == "--tools")?;
+            Some(argv[at + 1].clone())
+        };
+        let mut worker = call(Role::Worker, fresh());
+        worker.agent_tools = Some("Bash,Read,Edit,Write,Glob,Grep,Skill,WebFetch".into());
+        assert_eq!(
+            tools_of(&worker).as_deref(),
+            Some("Bash,Read,Edit,Write,Glob,Grep,Skill,WebFetch")
+        );
+        let mut review = call(Role::Reviewer, fresh());
+        review.tools = Tools::Review;
+        review.agent_tools = Some("Read,Glob,Grep,Skill".into());
+        assert_eq!(tools_of(&review).as_deref(), Some("Read,Glob,Grep,Skill"));
+        // A retro resumes the worker's session, and stays read-only.
+        worker.tools = Tools::Retro;
+        assert_eq!(tools_of(&worker).as_deref(), Some("Read,Glob,Grep,Skill"));
     }
 
     #[test]

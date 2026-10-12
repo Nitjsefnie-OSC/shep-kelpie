@@ -18,9 +18,13 @@
 //! worktree steps do, with the worktree's git dirs named and checked. A
 //! repo the worker made could name any program in its own config.
 //!
+//! The project's `command` hooks judge each command it lets through, whole;
+//! `--after` makes it the PostToolUse hook for `after_command` instead.
+//!
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
 //! only the commands it lists.
 
+mod after;
 mod gh;
 mod git;
 mod issues;
@@ -29,9 +33,10 @@ mod script;
 mod shell;
 mod wrap;
 
+pub use after::{AFTER_FLAG, after_flag, judge_after};
 pub use issues::{
-    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, issue_rules, judge_issues,
-    record_issues,
+    AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
+    judge_issues, judge_issues_with, record_issues,
 };
 
 use std::fs;
@@ -41,7 +46,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::confine::Verdict;
+use crate::hooks::{Hooks, Role};
 use crate::local_paths::{Leak, LocalPaths, Surface};
+use crate::settings::HookPoint;
 use judging::{CallState, Judging};
 
 /// Where the worker's own git lives
@@ -202,6 +209,19 @@ pub fn judge(
     local: LocalPaths,
     checkout: Checkout<'_>,
 ) -> Verdict {
+    judge_with(input, home, local, &Hooks::default(), checkout)
+}
+
+/// Judges the tool call in `input` as [`judge`] does, and also by the
+/// project's own `hooks`: its `commit` hooks on a commit, its `push` hooks
+/// on a push, and its `publish` hooks on the text of a `gh` command
+pub fn judge_with(
+    input: impl Read,
+    home: Option<&Path>,
+    local: LocalPaths,
+    hooks: &Hooks,
+    checkout: Checkout<'_>,
+) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
         tool_name: String,
@@ -238,15 +258,42 @@ pub fn judge(
         return Verdict::Allow;
     };
     let judging = Judging {
-        home: Home::new(home, local),
+        home: Home::new(home, local).with_hooks(hooks.clone().in_folder(checkout.worktree)),
         checkout,
     };
     let mut call_state = CallState::default();
-    judging.line(&line, Some(call.cwd), 0, &mut call_state);
+    judging.line(&line, Some(call.cwd.clone()), 0, &mut call_state);
     if call_state.refusals.is_empty() {
-        return Verdict::Allow;
+        // What kelpie lets through is the project's to judge too, whole.
+        return command_hooks(
+            hooks,
+            Role::Worker,
+            &line,
+            &call.cwd,
+            Some(checkout.worktree),
+        );
     }
     Verdict::Refuse(call_state.refusals.join("\n\n"))
+}
+
+// The project's `command` hooks on a shell command an agent is about to run.
+fn command_hooks(
+    hooks: &Hooks,
+    role: Role,
+    line: &str,
+    cwd: &Path,
+    folder: Option<&Path>,
+) -> Verdict {
+    if !hooks.has(HookPoint::Command) {
+        return Verdict::Allow;
+    }
+    let details = serde_json::json!({ "command": line, "cwd": cwd });
+    match hooks.check(HookPoint::Command, role, folder, details) {
+        Ok(()) => Verdict::Allow,
+        Err(refusal) => Verdict::Refuse(format!(
+            "this command: {refusal}. Change it so the hook accepts it, then try again."
+        )),
+    }
 }
 
 // The `isolation` a project subagent's definition in the worktree sets.
@@ -330,6 +377,8 @@ fn files(args: &[String], long: &[&str], short: &[char], cwd: Option<&Path>) -> 
 struct Home {
     path: Option<PathBuf>,
     local: LocalPaths,
+    // The project's own hooks, which judge what the guard lets through.
+    hooks: Hooks,
 }
 
 impl Home {
@@ -341,7 +390,23 @@ impl Home {
                 text.len() > 1 && text.starts_with('/')
             })
             .map(Path::to_owned);
-        Self { path, local }
+        Self {
+            path,
+            local,
+            hooks: Hooks::default(),
+        }
+    }
+
+    fn with_hooks(self, hooks: Hooks) -> Self {
+        Self { hooks, ..self }
+    }
+
+    // Why a `publish` hook of the project's refuses `text`, if one does.
+    fn publish(&self, role: Role, field: &str, text: &str) -> Option<String> {
+        let refusal = self.hooks.publish(role, field, text).err()?;
+        Some(format!(
+            "{field}: {refusal}. Change it so the hook accepts it, then try again."
+        ))
     }
 
     fn path(&self) -> Option<&Path> {
@@ -377,11 +442,11 @@ impl Home {
     // An address is taken out; a path is written from the repo's root.
     fn refusal(&self, what: &str, leak: Leak, fix: &str) -> String {
         let advice = match leak {
-            Leak::Path | Leak::Tilde => {
+            Leak::Path => {
                 " Write a path in the repo from its root (`src/lib.rs`), and leave out one \
                  outside it."
             }
-            Leak::Lan => "",
+            Leak::Lan | Leak::Private => "",
         };
         format!("{what} carries {leak}. {fix}{advice}")
     }

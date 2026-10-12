@@ -13,6 +13,7 @@ use crate::adapters::{GpuCurl, LocalReviewer};
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
 use crate::cubic::Cubic;
+use crate::github::AppVoice;
 use crate::ports::{
     Checks, Clock, Cost, Meter, MeterError, Ports, Role, SessionId, Timestamp, Usage, Utilization,
     Window,
@@ -34,22 +35,43 @@ mod cubic;
 mod elsewhere;
 mod endpoint;
 mod forge;
+mod git;
+mod github;
 mod leases;
+mod reads;
 mod reviewer;
 mod sandbox;
 mod script;
 mod shepherd;
+mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
-pub(crate) use forge::FakeForge;
+pub(crate) use forge::{FakeForge, VIEWER};
+pub(crate) use git::{FakeGit, Synced};
+pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use leases::{FakeLeases, Told};
+pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
+pub(crate) use test_runner::FakeTests;
+
+/// Makes an owner-only FIFO at `path`
+///
+/// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
+/// a second copy of itself in the tree beside the one `shep-core` builds.
+pub(crate) fn make_fifo(path: &Path) {
+    let made = Command::new("mkfifo")
+        .args(["-m", "600"])
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}: {made}", path.display());
+}
 
 /// A work item with one call, so every field of its format shows
 pub(crate) fn a_work_item() -> WorkItem {
@@ -67,6 +89,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         session: SessionId("5e55".into()),
         turn: Turn::Running {
             since: Timestamp(9),
+            prompt: None,
         },
         pull_request: Some(51),
         phase: Phase::Ci {
@@ -95,9 +118,14 @@ pub(crate) fn a_work_item() -> WorkItem {
         late_from: None,
         claude_files_accepted: None,
         qwen: crate::work_item::QwenTally::default(),
+        budget_raises: 0,
         merge_refused: false,
         sent_back: false,
         asked_to_commit: false,
+        handed_over: None,
+        handover_refused: false,
+        pull_request_refused: None,
+        context: None,
         merge_tried: None,
         merge_queued: None,
         summon_owed: false,
@@ -105,7 +133,9 @@ pub(crate) fn a_work_item() -> WorkItem {
         bots_after_ci: false,
         seat: crate::work_item::Seat::Held,
         threads_sent: Vec::new(),
+        thread_answers: Vec::new(),
         resolve_failures: 0,
+        threads_accepted: Vec::new(),
         reviewers_skipped: Vec::new(),
         unreviewed: None,
         local_failures: Default::default(),
@@ -113,7 +143,9 @@ pub(crate) fn a_work_item() -> WorkItem {
         local_unreviewed_by: None,
         rebased: false,
         held: Vec::new(),
+        test_checks: Vec::new(),
         follow_ups: None,
+        retro: false,
         summary: None,
         timings: Some(Timings {
             created: Timestamp(5),
@@ -175,6 +207,12 @@ const EXAMPLE_REVIEWERS: &str = "# reviewers = [\"qwen\", \"defect-hunter\"]\n";
 
 /// The rig's reviewers: its qwen round and then its own Claude session, `claude`
 pub(crate) const RIG_REVIEWERS: &str = "reviewers = [\"qwen\", \"claude\"]\n";
+
+/// What the rig adds to its settings to run no retro
+pub(crate) const NO_RETRO: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"none\" }\n";
+
+// What [`Rig::retro_on`] puts in its place, a retro being off when left out
+const RETRO_ON: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"kelpie\" }\n";
 
 /// The rig's own session reviewer, as the older Claude round ran: Sonnet 5
 /// at medium, asked for findings in kelpie's format
@@ -255,13 +293,18 @@ pub(crate) struct Rig {
     pub(crate) project: ProjectName,
     pub(crate) claude: FakeClaude,
     pub(crate) forge: FakeForge,
+    pub(crate) git: FakeGit,
     pub(crate) meter: FakeMeter,
     pub(crate) codex_meter: FakeMeter,
     pub(crate) reviewer: FakeReviewer,
     pub(crate) local_leases: LocalReviewer,
     pub(crate) alerts: FakeAlerts,
     pub(crate) leases: FakeLeases,
+    pub(crate) tests: FakeTests,
     pub(crate) clock: FakeClock,
+    /// GitHub as kelpie's App sees it: the rig has registered no App until
+    /// [`Rig::with_app`]
+    pub(crate) github: FakeGithub,
 }
 
 impl Rig {
@@ -286,6 +329,9 @@ impl Rig {
         }
     }
 
+    /// The repo the rig's project works on GitHub
+    pub(crate) const REMOTE: &str = "shep-pm/shep";
+
     /// Where the rig says the kelpie binary is
     pub(crate) const KELPIE: &str = "/opt/kelpie/bin/kelpie";
 
@@ -304,6 +350,7 @@ impl Rig {
             project: ProjectName::try_from(project).unwrap(),
             claude: FakeClaude::metered(meter.clone()),
             forge: FakeForge::new(home.path().join("origin.git")),
+            git: FakeGit::default(),
             meter,
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
@@ -313,10 +360,14 @@ impl Rig {
                 .with_naps(|_| Duration::from_millis(100)),
             alerts: FakeAlerts::on(clock.clone()),
             leases: FakeLeases::default(),
+            tests: FakeTests::default(),
+            github: FakeGithub::new(clock.clone(), "shep-pm"),
             clock,
             home,
         };
         rig.make_repo();
+        rig.forge.threads.use_clock(rig.clock.clone());
+        rig.github.use_threads(rig.forge.coderabbit.clone());
 
         let example = include_str!("../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
@@ -330,6 +381,13 @@ impl Rig {
         let settings = example
             .replace(EXAMPLE_REPO, &rig.repo().display().to_string())
             .replace(EXAMPLE_REVIEWERS, RIG_REVIEWERS);
+        // A retro is one more call at every work item's end, so most tests
+        // leave it off and a test of the retro turns it on with [`Rig::retro_on`].
+        let settings = format!("{settings}{NO_RETRO}");
+        // No reviewer reads a head before CI has passed on it, and a run has
+        // two minutes to register, so most tests run the project without CI
+        // and a test of the gate turns it on with [`Rig::ci_on`].
+        let settings = settings.replace("block = true", "block = false");
         let paths = rig.paths();
         std::fs::create_dir_all(&paths.folder).unwrap();
         std::fs::write(rig.settings_file(), settings).unwrap();
@@ -487,6 +545,13 @@ impl Rig {
         ProjectPaths::under(&shep.join("kelpie"), &shep, &self.project)
     }
 
+    /// Registers kelpie's App for the project's repo owner and installs it on
+    /// the repo, so a runner opened next posts through it
+    pub(crate) fn with_app(&self) {
+        let kelpie_home = self.paths().kelpie_home;
+        self.github.registered(&kelpie_home, Self::REMOTE);
+    }
+
     /// Lists CodeRabbit after the rig's reviewers, so it reads each pass last
     pub(crate) fn coderabbit_on(&self) {
         self.edit_settings(|s| {
@@ -501,6 +566,73 @@ impl Rig {
         self.edit_settings(|s| {
             assert!(s.contains(ask), "the example's `git.merging` moved");
             s.replace(ask, auto)
+        });
+    }
+
+    /// Sets the project's `git.maintainer` to `login`, read when a runner next opens
+    pub(crate) fn maintainer(&self, login: &str) {
+        let ask = "issues = \"ask\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(ask), "the example's `git.issues` moved");
+            s.replace(ask, &format!("{ask}\nmaintainer = \"{login}\""))
+        });
+    }
+
+    /// Gives the project a hook at each of `points` that runs `script`, a
+    /// shell script written to the rig's home as `name`, read when a
+    /// runner next opens
+    pub(crate) fn hook(&self, name: &str, points: &[&str], script: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let file = self.home.path().join(name);
+        std::fs::write(&file, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let hooks: String = points
+            .iter()
+            .map(|point| {
+                format!(
+                    "\n[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"{}\"\n",
+                    file.display()
+                )
+            })
+            .collect();
+        self.edit_settings(|s| s + &hooks);
+    }
+
+    /// Gives the project a hook at each of `points` that refuses any text
+    /// naming `word`, exit 2 with a reason that does not repeat it, read
+    /// when a runner next opens
+    pub(crate) fn forbid_word(&self, points: &[&str], word: &str) {
+        let script = format!(
+            "if grep -q '{word}'; then echo 'it names a word the project keeps private' >&2; exit 2; fi"
+        );
+        self.hook("forbid-word.sh", points, &script);
+    }
+
+    /// Has the project block on CI, read when a runner next opens
+    pub(crate) fn ci_on(&self) {
+        self.edit_settings(|s| s.replace("block = false", "block = true"));
+    }
+
+    /// [`Rig::ci_on`] for a runner already open, which reads its settings again
+    pub(crate) fn ci_on_now(&self, runner: &Mutex<Runner>) {
+        self.ci_on();
+        let (settings, kelpie) = (self.settings(), self.kelpie_settings());
+        runner.lock().unwrap().reread(settings, kelpie).unwrap();
+    }
+
+    /// Lets the project run its retro, read when a runner next opens
+    pub(crate) fn retro_on(&self) {
+        self.edit_settings(|s| {
+            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
+            s.replace(NO_RETRO, RETRO_ON)
+        });
+    }
+
+    /// Leaves the retro out of the project's settings, read when a runner next opens
+    pub(crate) fn retro_left_out(&self) {
+        self.edit_settings(|s| {
+            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
+            s.replace(NO_RETRO, "")
         });
     }
 
@@ -519,6 +651,15 @@ impl Rig {
         self.edit_settings(|s| {
             assert!(s.contains(none), "the example's `ci.fix_attempts` moved");
             s.replace(none, &format!("fix_attempts = {cap}"))
+        });
+    }
+
+    /// Sets the project's `ci.test_command`, read when a runner next opens
+    pub(crate) fn test_command(&self, command: &str) {
+        let off = "# test_command = \"cargo test --test {name}\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(off), "the example's `ci.test_command` moved");
+            s.replace(off, &format!("test_command = \"{command}\""))
         });
     }
 
@@ -560,6 +701,11 @@ impl Rig {
         });
     }
 
+    /// Gives the project an e2e host, `e2e-box`, read when a runner next opens
+    pub(crate) fn e2e_on(&self) {
+        self.edit_settings(|s| s + "\n[app.dogs.kelpie.e2e]\nhost = \"e2e-box\"\n");
+    }
+
     pub(crate) fn edit_settings(&self, edit: impl FnOnce(String) -> String) {
         let file = self.settings_file();
         let text = std::fs::read_to_string(&file).unwrap();
@@ -572,7 +718,7 @@ impl Rig {
     }
 
     // The rig keeps the runner's Flockfile entry where the old settings file was.
-    fn try_settings(&self) -> Result<Settings, SettingsError> {
+    pub(crate) fn try_settings(&self) -> Result<Settings, SettingsError> {
         let paths = self.paths();
         let entry = std::fs::read_to_string(self.settings_file()).unwrap();
         let folder = &paths.folder;
@@ -590,18 +736,23 @@ impl Rig {
         &self,
         review_bots: Vec<Arc<dyn Profile>>,
     ) -> Result<Mutex<Runner>, OpenError> {
+        let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
         let ports = Ports {
             agents: Arc::new(self.claude.clone()),
-            forge: Box::new(self.forge.clone()),
+            forge: Arc::new(self.forge.clone()),
+            voice: Arc::new(AppVoice::new(tokens, Box::new(self.github.clone()))),
             meter: Box::new(self.meter.clone()),
             codex_meter: Box::new(self.codex_meter.clone()),
             reviewer: Arc::new(self.reviewer.clone()),
+            git: Arc::new(self.git.clone()),
             gpu: Arc::new(GpuCurl),
             local_leases: Arc::new(self.local_leases.clone()),
             review_bots,
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
-            clock: Box::new(self.clock.clone()),
+            test_runner: Arc::new(self.tests.clone()),
+            clock: Arc::new(self.clock.clone()),
+            flock: Vec::new(),
         };
         let paths = self.paths();
         Runner::open(
@@ -623,7 +774,9 @@ impl Rig {
         action: &str,
         params: Option<&str>,
     ) -> serde_json::Value {
-        serde_json::from_str(&answer(runner, action, params)).expect("a JSON reply")
+        let reply = answer(runner, action, params);
+        runner.lock().unwrap().settle_notices();
+        serde_json::from_str(&reply).expect("a JSON reply")
     }
 
     /// A running project whose worker's first turn pushed `work.txt` on
@@ -656,6 +809,8 @@ impl Rig {
         step(&runner).unwrap(); // review round 1, qwen: clean by default
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
         let head = rig.forge.head_of("kelpie/7").expect("the worker pushed");
+        // The gate begins here, so CI blocks from now on.
+        rig.ci_on_now(&runner);
         (rig, runner, head)
     }
 
@@ -677,6 +832,17 @@ impl Rig {
             Some(StepReport::Ruling { id: 1, .. })
         ));
         (rig, runner, head)
+    }
+
+    /// `login` writes `body` on `thread` now, and the comment's id
+    pub(crate) fn writes_on(&self, thread: u64, login: &str, body: &str) -> u64 {
+        (self.forge.threads).write(thread, login, body, self.clock.now())
+    }
+
+    /// Moves the clock on to the board's next read, past the first three
+    /// waits of a step that failed
+    pub(crate) fn next_look(&self) {
+        self.clock.advance(crate::runner::BOARD_POLL.as_secs());
     }
 
     /// Steps once and, if nothing happened, waits out CI's settling and
@@ -757,6 +923,26 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
         cwd.display()
     );
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// Gives `main` in `repo` a commit that sets `file` to `contents`, and moves
+/// `origin/main` to it
+///
+/// Before a branch is cut, it is the base the branch starts from. After, it
+/// is `main` moving on.
+pub(crate) fn main_commits(repo: &Path, file: &str, contents: &str) {
+    let path = repo.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+    git(repo, &["add", file]);
+    git(repo, &["commit", "--quiet", "-m", "main moves on"]);
+    let tip = git(repo, &["rev-parse", "main"]);
+    git(repo, &["update-ref", "refs/remotes/origin/main", &tip]);
+}
+
+/// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
+pub(crate) fn cut_from_main(worktree: &Path) {
+    git(worktree, &["reset", "--quiet", "--hard", "main"]);
 }
 
 /// A repo at `home/repo` with one commit on `main`, and a worktree of it at

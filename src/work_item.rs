@@ -14,20 +14,24 @@ use crate::settings::AgentName;
 mod bots;
 mod follow_ups;
 mod heads;
+mod known;
 mod local;
 mod review;
 mod seat;
 mod spend;
 mod tally;
+mod threads;
 mod timings;
 
 pub use bots::BotSkipped;
 pub use follow_ups::FollowUps;
+pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
-pub use review::{Review, ReviewStage};
+pub use review::{Awaited, Reading, Review, ReviewStage, TestCheck};
 pub use seat::Seat;
-pub use spend::{QwenTally, RoleSpend, Spend};
+pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
 pub use tally::{Counts, RoleTally, Tally};
+pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
 
 /// The work item in flight
@@ -137,13 +141,22 @@ pub struct WorkItem {
     /// The listed review bots this pass went on without, and why
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bots_skipped: Vec<BotSkipped>,
-    /// The forge's ids of the review bot threads sent to the worker, which
-    /// kelpie resolves once its fix moves the head
+    /// The forge's ids of the review bot threads sent to the worker, in the
+    /// order its findings file lists them, which kelpie replies on once the
+    /// fix turn ends, and resolves when the worker fixed them
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub threads_sent: Vec<String>,
-    /// Steps in a row that could not resolve `threads_sent`
+    /// What the worker's reply said of `threads_sent`, which kelpie replies
+    /// with: a thread it did not mention has none
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thread_answers: Vec<ThreadAnswer>,
+    /// Steps in a row that could not answer `threads_sent`
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resolve_failures: u32,
+    /// The forge's ids of the review bot threads the maintainer merged past
+    /// with a yes, which hold no later merge of this work item
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub threads_accepted: Vec<String>,
     /// The reviewers whose calls failed so often in a row that a pass went
     /// on without them
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -187,13 +200,17 @@ pub struct WorkItem {
     /// Its qwen rounds so far
     #[serde(default)]
     pub qwen: QwenTally,
+    /// How many times a ruling for going over its budget has doubled its cap
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub budget_raises: u32,
     /// Whether the forge refused a merge under `auto` since the last
     /// ruling on one. A second refusal raises a `stuck` ruling for `merge-refused`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub merge_refused: bool,
     /// Whether a worker turn already ended with no pull request and no
     /// question, and kelpie sent the worker back once. The next such turn
-    /// parks it on a ruling.
+    /// parks it on a ruling. Cleared when a question the worker asked is
+    /// answered.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sent_back: bool,
     /// Whether a worker turn ended with uncommitted files and nothing
@@ -201,6 +218,22 @@ pub struct WorkItem {
     /// when the next turn ends, so a later turn gets its own chance.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub asked_to_commit: bool,
+    /// The head the project's `handover` hooks last passed, so a turn that
+    /// ends on the same head runs them no more
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handed_over: Option<String>,
+    /// Whether a `handover` hook refused the branch and kelpie sent the
+    /// worker back once to fix it. The next refusal parks the work item on
+    /// a ruling. Cleared when a hook passes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub handover_refused: bool,
+    /// Why the forge refused the pull request kelpie tried to open from the
+    /// worker's `pull-request.md` (the guard, a `publish` hook or the forge
+    /// itself), with how to fix the file where the worker can, until the next
+    /// step tells the worker. Kept in the state, so a restart still names the
+    /// refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request_refused: Option<String>,
     /// The head of the last merge under `auto` that answered an error. A
     /// pull request later found merged at it is kelpie's merge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -213,13 +246,26 @@ pub struct WorkItem {
     /// rounds. Only one of these is filed when the worker defers it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held: Vec<Finding>,
+    /// What kelpie ran of the tests reviewers attached to findings, before
+    /// and after the fix, oldest first
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test_checks: Vec<TestCheck>,
     /// The findings the worker left unfixed, read once the pull request
     /// merges. None until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_ups: Option<FollowUps>,
+    /// Whether its retro was started, which is never done twice: a retro
+    /// cut short by a stop is not asked for again
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retro: bool,
     /// The worker's last turn's closing message, on one line and cut short
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// The tokens the worker's session held at its last turn's last model
+    /// request, where its harness reports it. Unknown after a compaction,
+    /// until the next turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
     /// Where its wall time went, from the runner that first loaded it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timings: Option<Timings>,
@@ -283,91 +329,8 @@ pub struct Conflict {
     pub turns: u32,
 }
 
-/// The labels, ready state and head kelpie believes a pull request carries
-// wire format: changing this is a breaking change to the state file
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Known {
-    /// Its labels' names
-    pub labels: Vec<String>,
-    /// Whether it is marked ready for review (not a draft)
-    pub ready: bool,
-    /// Its head as the worker's turn or kelpie's own push left it, once
-    /// kelpie has read one
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub head: Option<String>,
-}
-
-/// Whether `labels`, `ready` and `head`, as seen on the forge, differ from
-/// `known`, and if so what changed, named plainly enough to answer from a phone
-///
-/// A `known` with no head makes no claim about it.
-pub fn foreign_change(
-    known: &Known,
-    labels: &[String],
-    ready: bool,
-    head: &str,
-) -> Option<(Known, String)> {
-    let added: Vec<&String> = labels
-        .iter()
-        .filter(|l| !known.labels.contains(l))
-        .collect();
-    let removed: Vec<&String> = known
-        .labels
-        .iter()
-        .filter(|l| !labels.contains(l))
-        .collect();
-    let mut parts = Vec::new();
-    if !added.is_empty() {
-        parts.push(format!(
-            "the `{}` {} added",
-            joined(&added),
-            label_or_labels(added.len())
-        ));
-    }
-    if !removed.is_empty() {
-        parts.push(format!(
-            "the `{}` {} removed",
-            joined(&removed),
-            label_or_labels(removed.len())
-        ));
-    }
-    if ready && !known.ready {
-        parts.push("it was marked ready for review".to_owned());
-    } else if !ready && known.ready {
-        parts.push("it was marked a draft again".to_owned());
-    }
-    if known.head.as_deref().is_some_and(|h| h != head) {
-        let short = head.get(..7).unwrap_or(head);
-        parts.push(format!(
-            "its head moved to {short}, a commit the worker did not push"
-        ));
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    let seen = Known {
-        labels: labels.to_vec(),
-        ready,
-        head: Some(head.to_owned()),
-    };
-    Some((seen, parts.join("; ")))
-}
-
 fn is_zero(n: &u32) -> bool {
     *n == 0
-}
-
-fn label_or_labels(n: usize) -> &'static str {
-    if n == 1 { "label was" } else { "labels were" }
-}
-
-fn joined(labels: &[&String]) -> String {
-    labels
-        .iter()
-        .map(|l| l.as_str())
-        .collect::<Vec<_>>()
-        .join("`, `")
 }
 
 /// Where a work item stands between the worker's turns and the merge
@@ -411,6 +374,10 @@ pub enum Phase {
     Done {
         /// Whether the pull request merged, so its branch on the forge goes too
         merged: bool,
+        /// Whether its issue was closed while its branch held no commit, so
+        /// it ends with no pull request and nothing to keep
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        closed: bool,
     },
 }
 
@@ -438,6 +405,7 @@ impl WorkItem {
     /// this round will resolve now
     pub fn forget_threads(&mut self) {
         self.threads_sent.clear();
+        self.thread_answers.clear();
         self.resolve_failures = 0;
     }
 
@@ -479,6 +447,16 @@ impl WorkItem {
         Cost(self.calls.iter().map(|c| c.cost.0).sum())
     }
 
+    /// Moves what `session` had cost as of its last recorded call up to `to`,
+    /// for a call in it that the work item does not count, so the cost of the
+    /// next call here leaves that one out
+    pub fn advance_session_cost(&mut self, session: &SessionId, to: Cost) {
+        let last = self.calls.iter_mut().rev().find(|c| &c.session == session);
+        if let Some(last) = last.filter(|c| c.session_cost.0 < to.0) {
+            last.session_cost = to;
+        }
+    }
+
     /// What `session` had cost as of its last recorded call
     pub fn session_cost(&self, session: &SessionId) -> Cost {
         let last = self.calls.iter().rev().find(|c| &c.session == session);
@@ -511,6 +489,10 @@ pub enum Turn {
     Running {
         /// When it started
         since: Timestamp,
+        /// The prompt a resumed turn was sent, which a turn that failed
+        /// before the harness started never saw. A first turn has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// A later turn waits to resume the session with this prompt
     Next {
@@ -712,8 +694,21 @@ mod tests {
                 at: Timestamp(12),
                 full: false,
                 resent: true,
+                failed: false,
             })["stage"],
             json!({ "stage": "summoned", "bot": "coderabbit", "started": 10, "head": "c0ffee", "at": 12, "resent": true })
+        );
+        assert_eq!(
+            bot(ReviewStage::Summoned {
+                bot: Bot::Codex,
+                started: Timestamp(10),
+                head: "c0ffee".into(),
+                at: Timestamp(12),
+                full: true,
+                resent: false,
+                failed: true,
+            })["stage"],
+            json!({ "stage": "summoned", "bot": "codex", "started": 10, "head": "c0ffee", "at": 12, "full": true, "failed": true })
         );
         let found = ReviewStage::Found {
             findings: Vec::new(),
@@ -757,8 +752,18 @@ mod tests {
             json!({ "state": "merge", "head": "c0ffee", "readied": null, "auto": true })
         );
         assert_eq!(
-            value(Phase::Done { merged: true }),
+            value(Phase::Done {
+                merged: true,
+                closed: false
+            }),
             json!({ "state": "done", "merged": true })
+        );
+        assert_eq!(
+            value(Phase::Done {
+                merged: false,
+                closed: true
+            }),
+            json!({ "state": "done", "merged": false, "closed": true })
         );
         assert_eq!(
             serde_json::to_value(Turn::Next {
@@ -844,118 +849,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_changed_is_no_foreign_change() {
-        let known = Known {
-            labels: vec!["bug".into()],
-            ready: true,
-            head: None,
-        };
-        assert_eq!(
-            foreign_change(&known, &["bug".to_owned()], true, "c0ffee"),
-            None
-        );
-    }
-
-    #[test]
-    fn one_label_added_is_named_in_the_singular() {
-        let known = Known::default();
-        let (seen, text) = foreign_change(&known, &["bug".to_owned()], false, "c0ffee").unwrap();
-        assert_eq!(text, "the `bug` label was added");
-        assert_eq!(
-            seen,
-            Known {
-                labels: vec!["bug".into()],
-                ready: false,
-                head: Some("c0ffee".into()),
-            }
-        );
-    }
-
-    #[test]
-    fn two_labels_added_are_named_in_the_plural() {
-        let known = Known::default();
-        let labels = ["urgent".to_owned(), "bug".to_owned()];
-        let (_, text) = foreign_change(&known, &labels, false, "c0ffee").unwrap();
-        assert_eq!(text, "the `urgent`, `bug` labels were added");
-    }
-
-    #[test]
-    fn labels_removed_are_named_with_the_same_singular_and_plural_rule() {
-        let known = Known {
-            labels: vec!["bug".into()],
-            ready: false,
-            head: None,
-        };
-        let (_, text) = foreign_change(&known, &[], false, "c0ffee").unwrap();
-        assert_eq!(text, "the `bug` label was removed");
-
-        let known = Known {
-            labels: vec!["urgent".into(), "bug".into()],
-            ready: false,
-            head: None,
-        };
-        let (_, text) = foreign_change(&known, &[], false, "c0ffee").unwrap();
-        assert_eq!(text, "the `urgent`, `bug` labels were removed");
-    }
-
-    #[test]
-    fn marking_ready_or_a_draft_again_is_named() {
-        let known = Known::default();
-        let (seen, text) = foreign_change(&known, &[], true, "c0ffee").unwrap();
-        assert_eq!(text, "it was marked ready for review");
-        assert!(seen.ready);
-
-        let known = Known {
-            labels: vec![],
-            ready: true,
-            head: None,
-        };
-        let (seen, text) = foreign_change(&known, &[], false, "c0ffee").unwrap();
-        assert_eq!(text, "it was marked a draft again");
-        assert!(!seen.ready);
-    }
-
-    #[test]
-    fn every_kind_of_change_at_once_is_joined_with_semicolons() {
-        let known = Known {
-            labels: vec!["bug".into()],
-            ready: false,
-            head: Some("a11ce".into()),
-        };
-        let (_, text) = foreign_change(&known, &["urgent".to_owned()], true, "c0ffee").unwrap();
-        assert_eq!(
-            text,
-            "the `urgent` label was added; the `bug` label was removed; \
-             it was marked ready for review; \
-             its head moved to c0ffee, a commit the worker did not push"
-        );
-    }
-
-    #[test]
-    fn a_head_the_worker_did_not_push_is_named_by_its_short_hash() {
-        let known = Known {
-            head: Some("a11ce".into()),
-            ..Known::default()
-        };
-        let head = "4887ecf0123456789";
-        let (seen, text) = foreign_change(&known, &[], false, head).unwrap();
-        assert_eq!(
-            text,
-            "its head moved to 4887ecf, a commit the worker did not push"
-        );
-        assert_eq!(seen.head.as_deref(), Some(head));
-        assert_eq!(foreign_change(&seen, &[], false, head), None);
-    }
-
-    #[test]
-    fn a_known_with_no_head_makes_no_claim_about_it() {
-        assert_eq!(
-            foreign_change(&Known::default(), &[], false, "c0ffee"),
-            None
-        );
-    }
-
-    #[test]
     fn a_calls_cost_is_measured_from_its_own_sessions_last_call() {
         let mut item = a_work_item();
         let other = SessionId("0th3r".into());
@@ -968,5 +861,27 @@ mod tests {
         assert_eq!(item.session_cost(&other), Cost(40));
         assert_eq!(item.session_cost(&SessionId("new".into())), Cost(0));
         assert_eq!(item.cost(), Cost(45));
+    }
+
+    #[test]
+    fn a_call_the_item_does_not_count_moves_its_sessions_cost_without_adding_to_its_own() {
+        let mut item = a_work_item();
+        let session = item.session.clone();
+        let before = item.cost();
+
+        item.advance_session_cost(&session, Cost(30));
+        item.advance_session_cost(&session, Cost(10));
+        item.advance_session_cost(&SessionId("new".into()), Cost(99));
+
+        assert_eq!(item.session_cost(&session), Cost(30));
+        assert_eq!(item.cost(), before);
+        let next = item.record_call(
+            Role::Worker,
+            Timestamp(9),
+            session,
+            Usage::default(),
+            Some(Cost(35)),
+        );
+        assert_eq!(next, Some(Cost(5)));
     }
 }

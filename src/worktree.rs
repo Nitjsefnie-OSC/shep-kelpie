@@ -11,6 +11,9 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
+
+mod stale_lock;
 
 /// The branch every work item is cut from, on `origin`
 pub const BASE: &str = "main";
@@ -133,6 +136,7 @@ pub fn prepare(
     build: &Path,
 ) -> Result<Worktree, WorktreeError> {
     let foreign = || WorktreeError::Foreign(worktree.to_owned());
+    stale_lock::clear(&repo.join(".git"), SystemTime::now());
     let full_ref = format!("refs/heads/{branch}");
     if worktree.exists() {
         if listed_branch(repo, worktree)?.as_deref() != Some(full_ref.as_str()) {
@@ -244,12 +248,47 @@ pub fn remove(
             return Err(e);
         }
     }
-    match std::fs::remove_dir_all(build) {
+    let removed = match std::fs::remove_dir_all(build) {
+        // Go writes its module cache with read-only folders, which cannot
+        // be emptied until they are made writable.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            make_writable(build);
+            std::fs::remove_dir_all(build)
+        }
+        other => other,
+    };
+    match removed {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(WorktreeError::Remove {
             path: build.to_owned(),
             kind: e.kind(),
         }),
         _ => Ok(()),
+    }
+}
+
+/// Gives the owner read, write and execute on every folder under `root`, and
+/// on `root`, so the tree can be unlinked
+///
+/// A link is never followed and never changed, so nothing outside `root` is
+/// touched. What cannot be read or changed is skipped: the removal that
+/// follows reports it.
+fn make_writable(root: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(meta) = std::fs::symlink_metadata(root) else {
+        return;
+    };
+    if !meta.is_dir() {
+        return;
+    }
+    let mut mode = meta.permissions();
+    mode.set_mode(mode.mode() | 0o700);
+    let _ = std::fs::set_permissions(root, mode);
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        make_writable(&entry.path());
     }
 }
 
@@ -291,6 +330,57 @@ pub fn remove_view(repo: &Path, view: &Path) -> Result<(), WorktreeError> {
         git(repo, args)?;
     }
     git(repo, ["worktree", "prune"]).map(drop)
+}
+
+/// Whether a work item's branch or worktree holds work `origin/main` lacks:
+/// a commit on `branch` or at the worktree's head, or a file not committed
+///
+/// Fetches `origin/main` first. A branch or worktree that is not there
+/// holds none.
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn holds_work(repo: &Path, worktree: &Path, branch: &str) -> Result<bool, WorktreeError> {
+    git(repo, ["fetch", "--quiet", "origin", BASE])?;
+    let mut tips = Vec::new();
+    let full_ref = format!("refs/heads/{branch}");
+    if has_ref(repo, &full_ref)? {
+        tips.push(full_ref);
+    }
+    if worktree.exists() {
+        if !uncommitted(repo, worktree)?.is_empty() {
+            return Ok(true);
+        }
+        tips.push(head(repo, worktree)?);
+    }
+    if tips.is_empty() {
+        return Ok(false);
+    }
+    let base = format!("^origin/{BASE}");
+    let mut args = vec!["rev-list", "--count", base.as_str()];
+    args.extend(tips.iter().map(String::as_str));
+    Ok(git(repo, args)? != "0")
+}
+
+/// Whether `full_ref` is in `repo`, telling a ref that is not there from a
+/// git that cannot answer
+fn has_ref(repo: &Path, full_ref: &str) -> Result<bool, WorktreeError> {
+    // `show-ref --verify` answers a missing ref with exit 1.
+    let args = ["show-ref", "--verify", "--quiet", full_ref];
+    let output = in_repo(repo)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| WorktreeError::Spawn(e.to_string()))?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(WorktreeError::Git {
+            args: args.join(" "),
+            stderr: String::from_utf8_lossy(&output.stderr).into(),
+        }),
+    }
 }
 
 /// Whether `full_ref` is a branch on `origin` right now, asked of the remote
@@ -403,7 +493,75 @@ fn status_names(status: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::status_names;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::Path;
+
+    use super::{git, has_ref, remove, status_names};
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    fn set_mode(path: &Path, mode: u32) {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    // A repo with nothing to remove but the build folder
+    fn remove_build(repo: &Path, build: &Path) -> Result<(), super::WorktreeError> {
+        git(repo, ["init", "--quiet"]).unwrap();
+        remove(repo, &repo.join("none"), "kelpie/7", build, false)
+    }
+
+    #[test]
+    fn a_build_folder_holding_read_only_folders_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let cache = build.join("gomod/cache/mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache.join("go.mod"), 0o444);
+        set_mode(&cache, 0o555);
+        set_mode(&build.join("gomod"), 0o555);
+
+        remove_build(dir.path(), &build).unwrap();
+        assert!(!build.exists());
+    }
+
+    #[test]
+    fn a_build_folder_already_gone_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        remove_build(dir.path(), &dir.path().join("build")).unwrap();
+    }
+
+    #[test]
+    fn a_link_in_the_build_folder_leaves_what_it_points_at_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        set_mode(&outside, 0o555);
+        let build = dir.path().join("build");
+        let cache = build.join("mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache, 0o555);
+        symlink(&outside, build.join("link")).unwrap();
+
+        let removed = remove_build(dir.path(), &build);
+        let mode = mode_of(&outside);
+        set_mode(&outside, 0o755);
+        removed.unwrap();
+        assert!(!build.exists());
+        assert!(outside.exists());
+        assert_eq!(mode, 0o555);
+    }
+
+    #[test]
+    fn a_missing_ref_is_absent_but_a_folder_git_cannot_read_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(has_ref(dir.path(), "refs/heads/kelpie/7").is_err());
+        git(dir.path(), ["init", "--quiet"]).unwrap();
+        assert!(!has_ref(dir.path(), "refs/heads/kelpie/7").unwrap());
+    }
 
     #[test]
     fn a_status_names_every_changed_staged_renamed_and_new_path() {
@@ -571,6 +729,28 @@ pub fn rebase(
         return Err(e);
     }
     Ok(Rebase::Pushed(rebased))
+}
+
+/// The range of a work item's own change for `git diff`: from the merge base
+/// of `base` and the worktree's `HEAD` to `HEAD`
+///
+/// A branch behind `main` read against `main`'s tip shows what `main` gained
+/// as the branch undoing it. An adopted item's `base` is a commit on the
+/// branch, where the merge base is that commit itself.
+pub(crate) fn change_since(base: &str) -> String {
+    format!("{base}...HEAD")
+}
+
+/// The commit a work item's own change starts from: the merge base of `base`
+/// and the worktree's `HEAD`
+///
+/// For a script that diffs a ref of its own, which a range would not suit.
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn change_start(repo: &Path, worktree: &Path, base: &str) -> Result<String, WorktreeError> {
+    trusted(repo, worktree)?(&["merge-base", base, "HEAD"])
 }
 
 // Git for the worktree, with its git dirs named rather than found, as every

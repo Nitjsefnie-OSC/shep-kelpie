@@ -37,9 +37,29 @@ pub struct PmStatus<'a> {
     /// The ready issues it holds until an open work item closes
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub held: &'a [u64],
+    /// The last few worker questions it answered or passed on, newest last
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub settled: &'a [Settled],
     /// Its last message to the maintainer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply: Option<&'a str>,
+}
+
+/// A worker's question the project manager answered or passed on
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Settled {
+    /// The ruling the question raised
+    pub ruling: u64,
+    /// The work item's issue
+    pub issue: u64,
+    /// What it did: `answered`, so the maintainer was not asked, `passed on`, or
+    /// for a follow-up ruling `filed` or `dropped`
+    pub how: &'static str,
+    /// The choice it recommended, when it passed the question on with one
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommends: Option<String>,
+    /// Why, in its words
+    pub why: String,
 }
 
 /// What `pm attach` answers
@@ -195,7 +215,7 @@ impl Runner {
                 (id.clone(), Session::New(id))
             }
         };
-        let call = self.pm_call(agent, session, String::new());
+        let call = self.pm_call(agent, session, String::new(), true);
         let command = call
             .and_then(|call| {
                 self.ports
@@ -270,6 +290,7 @@ impl Runner {
             down_until: self.pm.down_until,
             told: &self.state.pm_told,
             held: &self.pm.held,
+            settled: &self.pm.settled,
             reply: self.pm.reply.as_deref(),
         })
     }

@@ -10,14 +10,22 @@ use std::fmt;
 
 use super::gate::short;
 use super::report::{Begin, StepReport};
-use super::review::pushed::{off_text, push_prompt};
+use super::review::pushed::push_prompt;
 use super::rework::HUMAN;
+use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
 use crate::settings::Merging;
 use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree;
+
+mod prompts;
+mod question;
+use prompts::{
+    answer_prompt, declined_prompt, failed_again, note_prompt, noted_prompt, rework_prompt,
+};
+pub(super) use question::question;
 
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
@@ -60,8 +68,12 @@ pub enum RuleError {
     YesOnly(u64),
     /// The `ready-for-human` label could not come off this pull request
     Unlabel(u64, String),
+    /// The threads that held a merge ruling could not be read from the forge
+    Threads(u64, String),
     /// The worktree could not be brought to the head a yes accepted
     Adopt(String, String),
+    /// A ruling the panel decided could not be reopened
+    Reopen(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -69,7 +81,9 @@ pub enum RuleError {
 impl fmt::Display for RuleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoSuchRuling(id) => write!(f, "no ruling {id} is pending"),
+            Self::NoSuchRuling(id) => {
+                write!(f, "ruling {id} is already answered, or was never raised")
+            }
             Self::WantsAnswer(id) => write!(
                 f,
                 "ruling {id} is the worker's question, so it takes an answer, not a yes or no"
@@ -90,9 +104,13 @@ impl fmt::Display for RuleError {
             Self::Unlabel(number, e) => {
                 write!(f, "cannot take the `{HUMAN}` label off #{number}: {e}")
             }
+            Self::Threads(number, e) => {
+                write!(f, "cannot read the review threads on #{number}: {e}")
+            }
             Self::Adopt(head, e) => {
                 write!(f, "cannot bring the worktree to {}: {e}", short(head))
             }
+            Self::Reopen(id, why) => write!(f, "ruling {id} cannot be reopened: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -112,6 +130,9 @@ enum Move {
         phase: Phase,
         force: Option<Phase>,
     },
+    /// A no on a work item over its budget: its note goes ahead of the turn
+    /// that was due, which otherwise goes on as it stood
+    Noted { note: String, phase: Phase },
     /// A yes on a failed turn: the turn goes back as it stood, under its phase
     Retry { turn: Turn, phase: Phase },
     /// A yes on a foreign change: kelpie adopts it. A new head goes
@@ -135,11 +156,26 @@ impl Runner {
     /// it, or the answer cannot be saved. The ruling stays pending then, and
     /// answering again is safe: a worktree already at an accepted head is left.
     pub fn rule(&mut self, id: u64, answer: Answer) -> Result<(), RuleError> {
+        self.rule_by(id, answer, Settler::Terminal)
+    }
+
+    // Applies an answer, and says whether it was taken, not after the branch moved.
+    // `by` says who gave it, which the record of it says: the researcher reads
+    // it, and the panel's measurements count only the maintainer's.
+    pub(super) fn apply(
+        &mut self,
+        id: u64,
+        answer: Answer,
+        by: super::panel::Answerer,
+        unread: bool,
+    ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
+        // Kept for the researcher once the answer is saved.
+        let record = super::panel::Record::of(&ruling, &answer, now, by);
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -152,6 +188,9 @@ impl Runner {
             (&answer, &ruling.kind),
             (Answer::Yes, RulingKind::FollowUp { refused: None, .. })
         );
+        // ... unless the project manager asks for them to be filed unread, as
+        // `needs-triage`.
+        let unread = triaged && unread;
         let accepts = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::AgentFiles { head, .. }) => Some(head.clone()),
             _ => None,
@@ -159,6 +198,8 @@ impl Runner {
         // A merge ruling's no whose fix goes to CI with no pass of the review.
         // Any answer to a merge ruling replaces what an earlier no left.
         let merge = matches!(ruling.kind, RulingKind::Merge { .. });
+        // A yes merges past the threads that held it, so a catch-up with
+        // `main` that withdraws the yes does not ask about them again.
         let noted_from = match (&answer, &ruling.kind) {
             (Answer::No(_), RulingKind::Merge { head, .. }) if !needs_pass(&ruling.kind) => {
                 Some(head.clone())
@@ -175,12 +216,45 @@ impl Runner {
         );
         // Any answer to a refused merge gives the next one its catch-up again.
         let refusal_answered = matches!(ruling.kind, RulingKind::Stuck(Stuck::MergeRefused { .. }));
+        // Either answer to a work item over its budget lifts its cap, as far as
+        // its next turn needs to start.
+        let raises = matches!(
+            (&answer, &ruling.kind),
+            (
+                Answer::Yes | Answer::No(_),
+                RulingKind::Stuck(Stuck::OverBudget { .. })
+            )
+        );
+        // An answered question gives the next turn that stops short its nudge again.
+        let answered = matches!(ruling.kind, RulingKind::Question { .. });
         // Only the ruling the work item is parked on moves it. Any other,
         // which nothing leaves behind today, is answered by clearing it.
         let parked_on = |item: &WorkItem| item.phase == Phase::Ruling { id };
         let parked = next.work_items.iter().find(|item| parked_on(item));
         // The answer moves only the work item it parks, whichever is open.
         self.focus = parked.map(|item| item.issue);
+        // A ruling raised before the ids were kept (state version 24) names
+        // its threads and holds no ids, so the forge says which hold it now.
+        let accepted = match (&answer, &ruling.kind) {
+            (Answer::Yes, RulingKind::Merge { held_by, .. }) if !held_by.is_empty() => {
+                held_by.clone()
+            }
+            (
+                Answer::Yes,
+                RulingKind::Merge {
+                    open_threads: Some(_),
+                    ..
+                },
+            ) => match ruling.pull_request {
+                Some(number) => {
+                    (self.threads_open(number))
+                        .map_err(|e| RuleError::Threads(number, e))?
+                        .held_by
+                }
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
         let head_moved = match (parked, &ruling.kind) {
             (Some(item), RulingKind::ForeignChange { known: seen, .. }) => {
                 match (&item.known.head, &seen.head) {
@@ -199,7 +273,9 @@ impl Runner {
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
                 let issue = item.issue;
-                return self.ask_again(next, issue, ruling.pull_request, change, now);
+                return self
+                    .ask_again(next, issue, ruling.pull_request, change, now)
+                    .map(|()| false);
             }
         }
         let moved = decide(id, answer, ruling, now, head_moved)?;
@@ -207,6 +283,7 @@ impl Runner {
             if let (Some(filed), Some(pending)) = (follow_up, item.follow_ups.as_mut()) {
                 if filed {
                     pending.ruled |= triaged;
+                    pending.unread |= unread;
                     pending.first_refused = None;
                 } else {
                     pending.findings.clear();
@@ -216,6 +293,7 @@ impl Runner {
                 item.claude_files_accepted = accepts;
             }
             if merge {
+                item.threads_accepted.extend(accepted);
                 item.noted_from = noted_from;
                 item.late_from = None;
                 self.late_reads.remove(&item.issue);
@@ -231,6 +309,13 @@ impl Runner {
             if refusal_answered {
                 item.merge_refused = false;
             }
+            if raises {
+                item.raise_budget(self.settings.budget.per_item_usd);
+            }
+            if answered {
+                item.sent_back = false;
+                item.handover_refused = false;
+            }
             let worker = match moved {
                 Move::Phase(phase) => {
                     item.phase = phase;
@@ -242,6 +327,25 @@ impl Runner {
                     force,
                 } => Some((Turn::Next { prompt }, phase, force)),
                 Move::Retry { turn, phase } => Some((turn, phase, None)),
+                Move::Noted { note, phase } => match &item.turn {
+                    Turn::Next { prompt } => Some((
+                        Turn::Next {
+                            prompt: noted_prompt(&note, prompt),
+                        },
+                        phase,
+                        None,
+                    )),
+                    // No session has begun for a first turn to resume, so no note can reach it.
+                    other => {
+                        if matches!(other, Turn::Due) {
+                            self.notes.push(format!(
+                                "ruling {id}: the worker's session has not begun, so your note was not sent"
+                            ));
+                        }
+                        item.phase = phase;
+                        None
+                    }
+                },
                 Move::Accept(known) => {
                     let (from, to) = (item.known.head.take(), known.head.clone());
                     item.phase = match (from, to) {
@@ -287,7 +391,12 @@ impl Runner {
                 }
             }
         }
-        self.save(next).map_err(RuleError::State)
+        self.save(next).map_err(RuleError::State)?;
+        if let Err(why) = record.append(&self.paths.rulings) {
+            self.notes
+                .push(format!("ruling {id} is not kept for the researcher: {why}"));
+        }
+        Ok(true)
     }
 
     // The branch moved again while the ruling waited, so the answer was about
@@ -314,7 +423,10 @@ impl Runner {
         let (id, _) = park(self.names(), &mut next, issue, number, kind);
         self.save(next).map_err(RuleError::State)?;
         // A comment that fails loses nothing: the ruling is saved and alerted.
-        let _ = self.post_ruling(number, id);
+        if let Some(why) = self.post_ruling(number, id) {
+            self.notes
+                .push(format!("cannot post ruling {id} on its thread: {why}"));
+        }
         Ok(())
     }
 
@@ -325,6 +437,7 @@ impl Runner {
         let issue = self.current().expect("a ruling is about a work item").issue;
         let (id, question) = park(self.names(), &mut next, issue, Some(number), kind);
         self.save(next)?;
+        self.word_effects(id)?;
         let comment_failed = self.post_ruling(Some(number), id);
         Ok(Begin::Report(StepReport::Ruling {
             issue,
@@ -338,11 +451,44 @@ impl Runner {
     // Posts a saved ruling on its pull request, if it has one and has
     // anything to say there, and returns why the comment failed, if it did.
     // The pull request carries no question: the webhook does.
-    pub(super) fn post_ruling(&self, number: Option<u64>, id: u64) -> Option<String> {
-        let number = number?;
+    //
+    // Where an App covers the repo, the ruling is posted through it on the
+    // pull request, or on the issue while there is none, whatever its kind,
+    // and mentions the maintainer.
+    //
+    // A ruling that went up through the App with a mention is saved with
+    // where it is answered in its thread: the login it mentions, and the
+    // comment's own id and time as GitHub gave them.
+    pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
+        // A question the project manager may answer, or a ruling the panel has
+        // yet to vote on, is not the maintainer's yet, so its comment waits
+        // for the hold to end.
+        if self.panel_enabled() {
+            self.mark_unposted(id, true);
+        }
+        self.panel_open_all();
+        if self.pm_holds_comment(id) {
+            return None;
+        }
+        self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
+        if self.app_covers() {
+            let thread = number.or(ruling.issue)?;
+            let (failed, placed) = self.post_app_ruling(thread, ruling);
+            if let Some(placed) = placed {
+                let mut next = self.state.clone();
+                placed.keep(&mut next, id);
+                if let Err(e) = self.save(next) {
+                    self.notes.push(format!(
+                        "cannot save where ruling {id} is answered in its thread: {e}"
+                    ));
+                }
+            }
+            return failed;
+        }
+        let number = number?;
         let comment = comment(&ruling.kind)?;
-        let posted = self.ports.forge.comment(&self.remote, number, &comment);
+        let posted = self.comment_as_gh(number, &comment);
         posted.err().map(|e| e.to_string())
     }
 
@@ -402,6 +548,11 @@ pub(super) fn park(
         pull_request,
         kind,
         alerted: false,
+        panel: None,
+        verdict: None,
+        unposted: false,
+        effects: Vec::new(),
+        raised: Some(names.now),
     });
     (id, text)
 }
@@ -410,21 +561,16 @@ pub(super) fn park(
 // that it waits on the maintainer, with no command and nothing of kelpie's.
 // A merge ruling says nothing, since `ready-for-human` already does.
 fn comment(kind: &RulingKind) -> Option<String> {
-    let said = match kind {
+    match kind {
         RulingKind::Merge { .. } => return None,
-        RulingKind::Stuck(reason) => stuck_comment(reason),
-        RulingKind::Question { asked, .. } => asked.clone(),
-        RulingKind::AgentFiles { files, .. } => format!(
-            "This pull request changes agents' own files: {}.",
-            files.join(", ")
-        ),
-        RulingKind::ForeignChange { description, .. } => {
-            format!("This pull request was changed: {description}.")
-        }
         // Merged and done: nothing on the pull request waits on the maintainer.
         RulingKind::FollowUp { .. } => return None,
-    };
-    Some(format!("{said}\n\nWaiting on the maintainer."))
+        _ => {}
+    }
+    Some(format!(
+        "{}\n\nWaiting on the maintainer.",
+        super::voice::said(kind)
+    ))
 }
 
 // The fix turns a worker had on red runs. The cap is read live, so a
@@ -437,7 +583,7 @@ fn fix_turns_had(turns: u32) -> String {
     }
 }
 
-fn stuck_comment(reason: &Stuck) -> String {
+pub(super) fn stuck_comment(reason: &Stuck) -> String {
     match reason {
         Stuck::Rebase { why } => {
             format!("This branch could not be rebased onto main: {why}.")
@@ -484,6 +630,9 @@ fn stuck_comment(reason: &Stuck) -> String {
         Stuck::Unlabelled { .. } => "No implementer was picked for this issue.".to_owned(),
         Stuck::TurnFailed { .. } => {
             "The work on this pull request hit an error and stopped.".to_owned()
+        }
+        Stuck::OverBudget { .. } => {
+            "The work on this pull request is over its budget and waits for an answer.".to_owned()
         }
     }
 }
@@ -570,23 +719,42 @@ fn decide(
         // waiting is not held against it.
         (Answer::Yes, RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. })) => {
             let turn = match retry {
-                Turn::Running { .. } => Turn::Next {
-                    prompt: FAILED_CONTINUE.to_owned(),
+                Turn::Running { prompt, .. } => Turn::Next {
+                    prompt: prompt.map_or_else(|| FAILED_CONTINUE.to_owned(), failed_again),
                 },
                 other => other,
             };
             return Ok(Move::Retry { turn, phase });
+        }
+        // The cap doubles on either answer, in `apply`, and the turn that was due
+        // goes on in its phase. A no sends the worker its note in that turn.
+        (Answer::Yes, RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => phase,
+        // A review round has no worker turn due to take a note, so a no there is
+        // a fix turn like any other ruling's, and the pull request is reviewed again.
+        (Answer::No(note), RulingKind::Stuck(Stuck::OverBudget { phase, .. }))
+            if !matches!(phase, Phase::Review(_)) =>
+        {
+            return Ok(Move::Noted {
+                note: note_prompt(ruling.pull_request, &note),
+                phase,
+            });
         }
         // A worker cannot write agents' own files, so a note would not help it.
         (
             Answer::No(_),
             RulingKind::Stuck(Stuck::TurnTimeout { .. } | Stuck::TurnFailed { .. })
             | RulingKind::AgentFiles { .. },
-        ) => Phase::Done { merged: false },
+        ) => Phase::Done {
+            merged: false,
+            closed: false,
+        },
         (Answer::Yes, RulingKind::AgentFiles { phase, .. }) => phase,
         (Answer::Yes, RulingKind::ForeignChange { known, .. }) => return Ok(Move::Accept(known)),
         // The pull request is merged, so a no has no worker to send a note to.
-        (Answer::Yes | Answer::No(_), RulingKind::FollowUp { .. }) => Phase::Done { merged: true },
+        (Answer::Yes | Answer::No(_), RulingKind::FollowUp { .. }) => Phase::Done {
+            merged: true,
+            closed: false,
+        },
         // A no's fix is new code, unreviewed: it goes through a pass of the
         // review again before CI, whatever other ruling this answers.
         (Answer::No(note), _) => {
@@ -610,7 +778,10 @@ fn decide(
             head: None,
             since: now,
         },
-        (Answer::Yes, RulingKind::Stuck(Stuck::Closed)) => Phase::Done { merged: false },
+        (Answer::Yes, RulingKind::Stuck(Stuck::Closed)) => Phase::Done {
+            merged: false,
+            closed: false,
+        },
         // No work item is parked on it, so an answer only clears it.
         (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. })) => Phase::Implement,
         (Answer::Yes, RulingKind::Stuck(Stuck::LocalModelSpilled { review, .. })) => {
@@ -648,268 +819,15 @@ fn decide(
     Ok(Move::Phase(phase))
 }
 
-pub(super) fn question(id: u64, issue: u64, number: Option<u64>, kind: &RulingKind) -> String {
-    let trigger = |answer: &str| format!("`shep kelpie rule {id} {answer}`");
-    let (yes, no) = (trigger("yes"), trigger("no <note>"));
-    let about = number.map_or_else(
-        || format!("issue #{issue}"),
-        |n| format!("pull request #{n}"),
-    );
-    // A work item stopped before its pull request opened leaves none on the forge.
-    let kept = if number.is_some() {
-        ", keeping its branch and pull request on the forge"
-    } else {
-        ""
-    };
-    let ask = match kind {
-        RulingKind::Merge {
-            head,
-            unreviewed,
-            open_threads,
-            unread_head,
-            note_fix,
-            late_fix,
-            nits,
-        } => {
-            let mut unread = unreviewed.as_ref().map_or_else(String::new, |why| {
-                format!(" No reviewer read it in its last review: {why}.")
-            });
-            if *unread_head {
-                unread.push_str(
-                    " Kelpie has no record of a review round reading this head, or of a fix turn it sent pushing it.",
-                );
-            }
-            if *note_fix {
-                unread.push_str(
-                    " This head is the worker's fix for your note, and no reviewer read it.",
-                );
-            }
-            if *late_fix {
-                unread.push_str(
-                    " This head is the worker's fix for a review bot's late review, and no reviewer read it.",
-                );
-            }
-            let mut open = open_threads.as_ref().map_or_else(String::new, |open| {
-                format!(" Review bot threads are still open on it: {open}.")
-            });
-            if let Some(nits) = nits {
-                open.push_str(&format!(" {nits}."));
-            }
-            let rework = trigger("rework <note>");
-            if needs_pass(kind) {
-                return format!(
-                    "Merge {about} at {} into main?{unread}{open} {yes} merges it, and {no} \
-                     or {rework} sends the worker your note for a change the whole review \
-                     reads again, since only a new pass clears that.",
-                    short(head)
-                );
-            }
-            return format!(
-                "Merge {about} at {} into main?{unread}{open} {yes} merges it, {no} sends the \
-                 worker your note for a fix that goes to CI and back to you, and {rework} \
-                 sends it your note for a change the whole review reads again.",
-                short(head)
-            );
-        }
-        RulingKind::Stuck(reason) => match reason {
-            Stuck::Rebase { why } => format!(
-                "Kelpie cannot rebase {about} onto main: {why}. \
-                 Once the branch is fixed, {yes} has kelpie look again"
-            ),
-            Stuck::StillRed {
-                head,
-                checks,
-                fix_turns: None,
-            } => format!(
-                "CI failed again on {about} at {}, and the worker pushed \
-                 no fix: {}. {yes} has kelpie look again",
-                short(head),
-                checks.join(", ")
-            ),
-            Stuck::StillRed {
-                head,
-                checks,
-                fix_turns: Some(turns),
-            } => format!(
-                "CI failed on {about} at {}: {}. {}, and the cap `ci.fix_attempts` sets is \
-                 reached. {yes} has kelpie look again",
-                short(head),
-                checks.join(", "),
-                fix_turns_had(*turns)
-            ),
-            Stuck::MergeRefused { head, why } => format!(
-                "Kelpie could not merge {about} at {} after catching it up: {why}. \
-                 {yes} has kelpie look again and merge once every gate passes",
-                short(head)
-            ),
-            Stuck::Closed => format!(
-                "{} was closed without merging. {yes} drops the work \
-                 item and keeps its branch on the forge",
-                capitalized(&about)
-            ),
-            Stuck::LocalModelSpilled { review, why } => format!(
-                "Round {} of the review on {about} did not run: {why}. \
-                 Once the model is back on the GPU, {yes} runs the round again",
-                review.round
-            ),
-            Stuck::Unpushed {
-                files,
-                head,
-                pushed,
-                review,
-            } => format!(
-                "The worker on {about} still has work not pushed after its turn to push or \
-                 discard it: {}. Round {} of the review did not run. {yes} gives the worker \
-                 another turn to push or discard it",
-                off_text(files, head, pushed),
-                review.round
-            ),
-            Stuck::FixNotPushed { fix, .. } => {
-                let Fix::Review(review) = fix;
-                format!(
-                    "The worker on {about} ended its fix for round {} of the review without \
-                     pushing, so those findings still hold. {yes} sends it the findings again",
-                    review.round
-                )
-            }
-            Stuck::TurnTimeout { .. } => {
-                return format!(
-                    "The worker on {about} has been running past its turn's ceiling, \
-                     and kelpie stopped it. {yes} resumes its session for another turn, \
-                     and {no} stops the work item{kept}."
-                );
-            }
-            Stuck::TurnFailed { why, .. } => {
-                return format!(
-                    "The worker's turn on {about} failed: {}. {yes} tries that step again, \
-                     and {no} stops the work item{kept}.",
-                    why.trim()
-                );
-            }
-            Stuck::Unlabelled { why } => {
-                return format!(
-                    "The issue writer could not pick an implementer for {about}: {}. Label \
-                     it `agent:<name>` for one `agents.implementers` lists, then answer {yes}: \
-                     the board takes it once this is answered, and an issue still unlabelled \
-                     goes to the issue writer again.",
-                    why.trim()
-                );
-            }
-        },
-        RulingKind::Question { asked, .. } => {
-            return format!(
-                "The worker on {about} asks:\n\n{asked}\n\n{} sends the worker your answer.",
-                trigger("<text>")
-            );
-        }
-        RulingKind::AgentFiles { head, files, .. } => {
-            return format!(
-                "{} at {} changes agents' own files, which decide what \
-                 an agent runs in the worktree: {}. {yes} accepts them at that head and kelpie \
-                 carries on, and {no} stops the work item, keeping its branch and \
-                 pull request on the forge.",
-                capitalized(&about),
-                short(head),
-                files.join(", ")
-            );
-        }
-        RulingKind::ForeignChange { description, .. } => {
-            return format!(
-                "{} changed outside kelpie: {description}. {yes} accepts it and kelpie \
-                 carries on, and {no} sends the worker your note.",
-                capitalized(&about)
-            );
-        }
-        RulingKind::FollowUp { findings, refused } => {
-            let list: Vec<String> = findings
-                .iter()
-                .map(|f| match f.line {
-                    0 => format!("- {} {}", f.file, f.what.trim()),
-                    line => format!("- {}:{line} {}", f.file, f.what.trim()),
-                })
-                .collect();
-            let (said, files) = match refused {
-                Some(why) => (
-                    format!(
-                        "The forge has refused for hours to take the {} confirmed \
-                         finding(s) {about} left unfixed: {}.",
-                        findings.len(),
-                        why.trim()
-                    ),
-                    "tries again",
-                ),
-                None => (
-                    format!(
-                        "{} merged with {} confirmed finding(s) left unfixed.",
-                        capitalized(&about),
-                        findings.len()
-                    ),
-                    "files each as an issue on the board",
-                ),
-            };
-            return format!(
-                "{said}\n\n{}\n\n{yes} {files}, and {} drops them.",
-                list.join("\n"),
-                trigger("no")
-            );
-        }
-    };
-    format!("{ask}, and {no} sends the worker your note.")
-}
-
 // Whether a merge ruling warns of what only a new pass of the review clears:
 // a pass no reviewer read, a listed bot's threads left open, or a head no
 // round read and no fix turn of kelpie's pushed.
-fn needs_pass(kind: &RulingKind) -> bool {
+pub(super) fn needs_pass(kind: &RulingKind) -> bool {
     matches!(
         kind,
         RulingKind::Merge { unreviewed, open_threads, unread_head, .. }
             if unreviewed.is_some() || open_threads.is_some() || *unread_head
     )
-}
-
-fn capitalized(text: &str) -> String {
-    let mut chars = text.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().chain(chars).collect()
-    })
-}
-
-fn note_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!("The maintainer answered no on {about}, with this note:\n\n{note}\n")
-}
-
-fn rework_prompt(number: Option<u64>, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your work item".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "The maintainer asked for a rework of {about}, with this note:\n\n{note}\n\n\
-         Once you push it, the whole review reads your change again.\n"
-    )
-}
-
-fn declined_prompt(number: Option<u64>, head: &str, note: &str) -> String {
-    let about = number.map_or_else(
-        || "your branch".to_owned(),
-        |n| format!("pull request #{n}"),
-    );
-    format!(
-        "Someone other than you pushed commit {} to {about}, and the maintainer \
-         declined it, with this note:\n\n{note}\n\nYour worktree is now at that commit. \
-         Revert or change it with a new commit on top, and push with \
-         `git push origin HEAD`. Do not force-push.\n",
-        short(head)
-    )
-}
-
-fn answer_prompt(text: &str) -> String {
-    format!("The maintainer answered your question:\n\n{text}\n")
 }
 
 #[cfg(test)]

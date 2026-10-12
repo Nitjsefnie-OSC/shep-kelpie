@@ -8,7 +8,12 @@
 //! `gate`, `drop`, `timings`, `issue`, `attach`, `tell`, `pm`, `drain`, `undrain` and
 //! `usage`: a project in the maintainer's own flock, the one `-p` names or
 //! whose repo holds the folder it runs in. `usage` with no project reports
-//! every project that has a usage ledger instead.
+//! every project that has a usage ledger instead, and `usage --forge` reports
+//! the forge ledger, which every project shares.
+//!
+//! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: the runner's
+//! log and the transcripts of the sessions it names, followed live. Run as
+//! `shep kelpie watch`.
 //!
 //! `shep kelpie doctor [<project>] [--test-alert]`: checks what the projects need
 //! on this machine, and changes nothing. Run as `shep kelpie doctor`.
@@ -23,8 +28,9 @@
 //! `kelpie version [--json]`: the build's version and the shep version it is
 //! made with, which `upgrade` reads from a build before it installs it.
 //!
-//! `kelpie confine <folder>...`: the hook that holds a worker's file tools
-//! to its folders. Claude Code runs it; it is not for the maintainer. With
+//! `kelpie confine <folder>... [--hooks=<json>]`: the hook that holds a worker's
+//! file tools to its folders, and runs the project's `write` hooks. Claude Code
+//! runs it; it is not for the maintainer. With
 //! `--append <file>` it is the project manager's, which may only add to the
 //! end of that file.
 //!
@@ -36,7 +42,12 @@
 //! With `--issues=<label>`, an `--agent=<name>` per implementer and
 //! `--ledger=<file>` it is the issue writer's hook instead, which runs only
 //! the commands it lists. With `--record` too it is the PostToolUse hook
-//! that records what the session filed and read in that ledger.
+//! that records what the session filed and read in that ledger. With `--after`
+//! it is the PostToolUse hook that runs the project's `after_command` hooks.
+//!
+//! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
+//! registers kelpie's GitHub App for the maintainer's account or an
+//! organization, and opens the page that installs it.
 //!
 //! `shep kelpie tools install`: installs the sandbox runtime every agent runs
 //! in, under kelpie's home.
@@ -53,8 +64,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use shep_kelpie::confine::{APPEND, Verdict, judge, judge_append};
+use shep_kelpie::confine::{APPEND, Verdict, judge_append, judge_with};
 use shep_kelpie::guard::{self, Checkout};
+use shep_kelpie::hooks::{Hooks, Role};
 use shep_kelpie::tools::Tools;
 
 /// A PreToolUse hook's exit code that refuses the tool call
@@ -76,7 +88,13 @@ fn main() -> ExitCode {
             let (record, local) = guard::record_flag(&local);
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
-            let paths = match guard::local_paths(home.as_deref(), &local) {
+            let (after, local) = guard::after_flag(&local);
+            // `local` keeps the hooks' flag, which a pinned command judges with again.
+            let (hooks, folders) = match Hooks::take(&local) {
+                Ok(taken) => taken,
+                Err(why) => return hook(Verdict::Refuse(why)),
+            };
+            let paths = match guard::local_paths(home.as_deref(), &folders) {
                 Ok(paths) => paths,
                 Err(why) => return hook(Verdict::Refuse(why)),
             };
@@ -90,11 +108,24 @@ fn main() -> ExitCode {
                 guard::record_issues(&input[..], rules);
                 return ExitCode::SUCCESS;
             }
+            if after {
+                let role = match issues {
+                    Some(_) => Role::IssueWriter,
+                    None => Role::Worker,
+                };
+                return hook(guard::judge_after(
+                    &input[..],
+                    &hooks,
+                    role,
+                    Path::new(worktree),
+                ));
+            }
             if let Some(rules) = issues {
-                return hook(guard::judge_issues(
+                return hook(guard::judge_issues_with(
                     &input[..],
                     home.as_deref(),
                     paths,
+                    &hooks,
                     &rules,
                 ));
             }
@@ -120,7 +151,7 @@ fn main() -> ExitCode {
                     .chain([guard::HERE_FLAG.to_owned()])
                     .collect())
             };
-            match guard::judge(&input[..], home.as_deref(), paths, checkout) {
+            match guard::judge_with(&input[..], home.as_deref(), paths, &hooks, checkout) {
                 Verdict::Allow if pin => match again()
                     .and_then(|again| guard::pinned(&input, Path::new(worktree), &again))
                 {
@@ -138,14 +169,20 @@ fn main() -> ExitCode {
         }
         [command, rest @ ..] if command == "doctor" => shep_kelpie::doctor::main(rest),
         [command, rest @ ..] if command == "upgrade" => shep_kelpie::upgrade::main(rest),
+        [command, rest @ ..] if command == "github" => shep_kelpie::github::setup::main(rest),
         [command] if command == "version" => version(false),
         [command, flag] if command == "version" && flag == "--json" => version(true),
         [role, flag, file] if role == "confine" && flag == APPEND => {
             hook(judge_append(std::io::stdin().lock(), Path::new(file)))
         }
         [role, folders @ ..] if role == "confine" && !folders.is_empty() => {
+            // The project's `write` hooks ride on the command line after the folders.
+            let (hooks, folders) = match Hooks::take(folders) {
+                Ok(taken) => taken,
+                Err(why) => return hook(Verdict::Refuse(why)),
+            };
             let folders: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
-            hook(judge(std::io::stdin().lock(), &folders))
+            hook(judge_with(std::io::stdin().lock(), &folders, &hooks))
         }
         [command, sub] if command == "tools" && sub == "install" => install_tools(),
         [command] if command == "totp" => totp(false),
@@ -165,7 +202,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
             eprintln!(
-                "usage: shep-kelpie add [<project>] | add <issue>\n       shep-kelpie start | pause | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<issue>] | drop [<issue>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie tools install\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
+                "usage: shep-kelpie add [<project>] | add <issue>\n       shep-kelpie start | pause | finish | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<issue>] | drop [<issue>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie github setup [--org <org>] [--name <app name>] [--replace]\n       shep-kelpie tools install\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
                 shep_kelpie::lease::cli::USAGE,
                 shep_kelpie::flock::USAGE,
                 shep_kelpie::flock::rule::HELP

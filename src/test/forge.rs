@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
-    Checks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, Visibility,
+    Checks, CommentMarks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue,
+    PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -21,6 +21,8 @@ use crate::settings::ForgeSlug;
 #[derive(Debug, Clone)]
 pub(crate) struct FakeForge {
     visibility: Arc<Mutex<Visibility>>,
+    // What the repos a test named are, in place of `visibility`; keyed by lowercase slug
+    visibilities: Arc<Mutex<HashMap<String, Visibility>>>,
     missing: Arc<Mutex<HashSet<u64>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
@@ -28,8 +30,8 @@ pub(crate) struct FakeForge {
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
     sub_issues: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
-    // The issues kelpie closed, with the comment each got
-    closings: Arc<Mutex<Vec<(u64, String)>>>,
+    // The issues kelpie closed
+    closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
     open: Arc<Mutex<Vec<OpenPullRequest>>>,
@@ -56,6 +58,12 @@ pub(crate) struct FakeForge {
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
+    // What the failed CI runs' logs say, or why reading them fails
+    ci_log: Arc<Mutex<Result<String, String>>>,
+    // The title a pull request is read with, where a test names one
+    titles: Arc<Mutex<HashMap<u64, String>>>,
+    // The title and body of each pull request kelpie opened or edited, by number
+    texts: Arc<Mutex<HashMap<u64, (String, String)>>>,
     // Why listing and opening issues fail, while they do
     issues_down: Arc<Mutex<Option<String>>>,
     // How many more issues may open before every later one fails
@@ -69,8 +77,15 @@ pub(crate) struct FakeForge {
     pushes: Arc<AtomicBool>,
     bot_seen: Arc<AtomicBool>,
     viewer_down: Arc<Mutex<Option<ForgeError>>>,
+    // Every call made, and the board's reads among them
+    asked: Arc<AtomicUsize>,
+    board_reads: Arc<AtomicUsize>,
+    // Set while the forge is down
+    down: Arc<Mutex<Option<down::Down>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
+    /// What people wrote on the threads, and who may write to the repo
+    pub(crate) threads: thread::FakeThreads,
 }
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
@@ -102,6 +117,7 @@ impl FakeForge {
     pub(crate) fn new(origin: PathBuf) -> Self {
         Self {
             visibility: Arc::new(Mutex::new(Visibility::Public)),
+            visibilities: Arc::default(),
             missing: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
@@ -125,6 +141,7 @@ impl FakeForge {
             queue: Arc::default(),
             labels_down: Arc::default(),
             unreadable: Arc::default(),
+            titles: Arc::default(),
             viewer_reads: Arc::default(),
             lagging: Arc::default(),
             lagging_drafts: Arc::default(),
@@ -133,6 +150,8 @@ impl FakeForge {
             merges: Arc::default(),
             issues: Arc::default(),
             created: Arc::default(),
+            texts: Arc::default(),
+            ci_log: Arc::new(Mutex::new(Ok(String::new()))),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -143,7 +162,11 @@ impl FakeForge {
             pushes: Arc::new(AtomicBool::new(true)),
             bot_seen: Arc::new(AtomicBool::new(true)),
             viewer_down: Arc::default(),
+            asked: Arc::default(),
+            board_reads: Arc::default(),
+            down: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
+            threads: thread::FakeThreads::default(),
         }
     }
 
@@ -160,38 +183,6 @@ impl FakeForge {
     /// Removes `label` from pull request `number`, as someone other than kelpie would
     pub(crate) fn unlabel_pull_request(&self, number: u64, label: &str) {
         self.coderabbit.put_label(number, label, false);
-    }
-
-    pub(crate) fn set_visibility(&self, visibility: Visibility) {
-        *self.visibility.lock().unwrap() = visibility;
-    }
-
-    /// Whether the account may push to the repo, which it may until a test says not
-    pub(crate) fn set_can_push(&self, pushes: bool) {
-        self.pushes.store(pushes, Ordering::SeqCst);
-    }
-
-    /// Whether a review bot has ever commented on the repo, which it has until a test says not
-    pub(crate) fn set_review_bot_seen(&self, seen: bool) {
-        self.bot_seen.store(seen, Ordering::SeqCst);
-    }
-
-    /// Makes asking who the account is fail with `error`, as `gh` does when it is logged out
-    pub(crate) fn set_viewer_down(&self, error: ForgeError) {
-        *self.viewer_down.lock().unwrap() = Some(error);
-    }
-
-    pub(crate) fn set_default_branch(&self, branch: &str) {
-        *self.default_branch.lock().unwrap() = branch.to_owned();
-    }
-
-    /// The repo's labels, those it started with and those made since
-    pub(crate) fn repo_labels_now(&self) -> Vec<String> {
-        self.repo_labels.lock().unwrap().clone()
-    }
-
-    pub(crate) fn set_repo_labels(&self, labels: &[&str]) {
-        *self.repo_labels.lock().unwrap() = labels.iter().map(|&l| l.to_owned()).collect();
     }
 
     pub(crate) fn remove_issue(&self, number: u64) {
@@ -218,6 +209,13 @@ impl FakeForge {
             parent: None,
             sub_issues: SubIssues::default(),
         });
+    }
+
+    /// Takes `ready-for-agent` off issue `number`, so the board no longer lists it
+    pub(crate) fn unlist_ready(&self, number: u64) {
+        self.ready.lock().unwrap().retain(|i| i.number != number);
+        let mut labels = self.labels.lock().unwrap();
+        labels.entry(number).or_default().retain(|l| l != READY);
     }
 
     /// Gives ready issue `number` the body `body`, as its author wrote it
@@ -249,8 +247,8 @@ impl FakeForge {
         self.closes_down.store(down, Ordering::SeqCst);
     }
 
-    /// The issues kelpie closed, with the comment each got
-    pub(crate) fn closings(&self) -> Vec<(u64, String)> {
+    /// The issues kelpie closed
+    pub(crate) fn closings(&self) -> Vec<u64> {
         self.closings.lock().unwrap().clone()
     }
 
@@ -304,6 +302,15 @@ impl FakeForge {
     pub(crate) fn set_state(&self, number: u64, state: PullRequestState) {
         let mut prs = self.pull_requests.lock().unwrap();
         prs.get_mut(&number).expect("an opened pull request").state = state;
+    }
+
+    /// Makes pull request `number` close `closes` when kelpie merges it, in
+    /// place of the issues it was opened to close
+    pub(crate) fn set_closes(&self, number: u64, closes: &[u64]) {
+        let mut open = self.open.lock().unwrap();
+        for listed in open.iter_mut().filter(|l| l.number == number) {
+            listed.closes = closes.to_vec();
+        }
     }
 
     /// Whether pull request `number` is a draft
@@ -390,6 +397,16 @@ impl FakeForge {
         self.labels_down.store(down, Ordering::SeqCst);
     }
 
+    /// Makes pull request `number` read with `title`
+    pub(crate) fn set_title(&self, number: u64, title: &str) {
+        self.titles.lock().unwrap().insert(number, title.to_owned());
+    }
+
+    /// The title and body pull request `number` was opened or edited with
+    pub(crate) fn pull_request_text(&self, number: u64) -> Option<(String, String)> {
+        self.texts.lock().unwrap().get(&number).cloned()
+    }
+
     /// Every comment posted, oldest first, with its pull request
     pub(crate) fn comments(&self) -> Vec<(u64, String)> {
         self.comments.lock().unwrap().clone()
@@ -414,37 +431,6 @@ impl FakeForge {
     /// CodeRabbit answers with "Draft PR not reviewed" and never reviews
     pub(crate) fn skipped_as_drafts(&self) -> Vec<u64> {
         self.skipped.lock().unwrap().clone()
-    }
-
-    /// Leaves issue `number` open, as someone other than kelpie would have,
-    /// and shows this title and body when it is viewed
-    pub(crate) fn open_issue(&self, number: u64, title: &str, body: &str) {
-        self.issues.lock().unwrap().push(OpenIssue {
-            number,
-            title: title.to_owned(),
-            body: body.to_owned(),
-        });
-    }
-
-    /// Every issue kelpie opened, oldest first
-    pub(crate) fn created(&self) -> Vec<CreatedIssue> {
-        self.created.lock().unwrap().clone()
-    }
-
-    /// Makes listing and opening issues fail, or work again
-    pub(crate) fn set_issues_down(&self, down: bool) {
-        let why = down.then(|| "issues are down".to_owned());
-        *self.issues_down.lock().unwrap() = why;
-    }
-
-    /// Makes listing and opening issues fail with `error`, verbatim
-    pub(crate) fn set_issues_error(&self, error: &str) {
-        *self.issues_down.lock().unwrap() = Some(error.to_owned());
-    }
-
-    /// Lets `n` more issues open, then makes every later one fail
-    pub(crate) fn set_creates_left(&self, n: usize) {
-        *self.creates_left.lock().unwrap() = Some(n);
     }
 
     /// Every merge made, with the head it was held to
@@ -533,20 +519,26 @@ impl FakeForge {
 }
 
 impl Forge for FakeForge {
-    fn visibility(&self, _repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
+    fn visibility(&self, repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
+        self.ask()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(*self.visibility.lock().unwrap())
+        let key = repo.as_str().to_lowercase();
+        let own = self.visibilities.lock().unwrap().get(&key).copied();
+        Ok(own.unwrap_or_else(|| *self.visibility.lock().unwrap()))
     }
 
     fn default_branch(&self, _repo: &ForgeSlug) -> Result<String, ForgeError> {
+        self.ask()?;
         Ok(self.default_branch.lock().unwrap().clone())
     }
 
     fn repo_labels(&self, _repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {
+        self.ask()?;
         Ok(self.repo_labels.lock().unwrap().clone())
     }
 
     fn create_label(&self, _repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
+        self.ask()?;
         let mut labels = self.repo_labels.lock().unwrap();
         if labels.iter().any(|l| l == label.name) {
             return Err(ForgeError::Failed(format!(
@@ -559,14 +551,17 @@ impl Forge for FakeForge {
     }
 
     fn can_push(&self, _repo: &ForgeSlug) -> Result<bool, ForgeError> {
+        self.ask()?;
         Ok(self.pushes.load(Ordering::SeqCst))
     }
 
     fn review_bot_seen(&self, _repo: &ForgeSlug, _login: Login<'_>) -> Result<bool, ForgeError> {
+        self.ask()?;
         Ok(self.bot_seen.load(Ordering::SeqCst))
     }
 
     fn issue(&self, _repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
+        self.ask()?;
         if self.missing.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("no issue #{number}")));
         }
@@ -592,6 +587,8 @@ impl Forge for FakeForge {
     }
 
     fn ready_issues(&self, _repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
+        self.board_reads.fetch_add(1, Ordering::SeqCst);
+        self.ask()?;
         self.board()?;
         let ready = self.ready.lock().unwrap().clone();
         let closed = self.closed.lock().unwrap().clone();
@@ -609,6 +606,7 @@ impl Forge for FakeForge {
     }
 
     fn open_pull_requests(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
+        self.ask()?;
         self.board()?;
         let prs = self.pull_requests.lock().unwrap();
         let open = self.open.lock().unwrap().clone();
@@ -623,6 +621,7 @@ impl Forge for FakeForge {
     }
 
     fn pull_request(&self, _repo: &ForgeSlug, number: u64) -> Result<PullRequest, ForgeError> {
+        self.ask()?;
         let pr = self.opened(number)?;
         let lagging = self.lagging.lock().unwrap().get(&number).cloned();
         let head = match lagging {
@@ -642,6 +641,7 @@ impl Forge for FakeForge {
     }
 
     fn reviewed(&self, _repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
+        self.ask()?;
         if self.unreadable.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("#{number} is unreadable")));
         }
@@ -654,7 +654,8 @@ impl Forge for FakeForge {
         };
         Ok(Reviewed {
             state: pr.state,
-            title: format!("Title of pull request #{number}"),
+            title: (self.titles.lock().unwrap().get(&number).cloned())
+                .unwrap_or_else(|| format!("Title of pull request #{number}")),
             body: format!("Body of pull request #{number}.\n"),
             closes,
             base: pr.base,
@@ -668,6 +669,7 @@ impl Forge for FakeForge {
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {
+        self.ask()?;
         self.viewer_reads.fetch_add(1, Ordering::SeqCst);
         match &*self.viewer_down.lock().unwrap() {
             Some(error) => Err(error.clone()),
@@ -675,7 +677,28 @@ impl Forge for FakeForge {
         }
     }
 
-    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+    fn comments_since(
+        &self,
+        _repo: &ForgeSlug,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.read(since))
+    }
+
+    fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.may_write(login))
+    }
+
+    fn comment_marks(&self, _repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+        self.ask()?;
+        (self.threads.marks_of(comment))
+            .ok_or_else(|| ForgeError::Failed(format!("comment {comment} is unreadable")))
+    }
+
+    fn comment(&self, _repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
+        self.ask()?;
         if self.comments_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("comments are down".into()));
         }
@@ -703,16 +726,12 @@ impl Forge for FakeForge {
             .lock()
             .unwrap()
             .push((number, body.to_owned()));
-        Ok(())
-    }
-
-    fn post_comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.comment(repo, number, body)?;
-        let at = self.comments.lock().unwrap().len() - 1;
-        Ok(9000 + at as u64)
+        // Kelpie's login is a writer: the comment is on the thread like any other.
+        Ok(self.threads.write_now(number, VIEWER, body))
     }
 
     fn open_issues(&self, _repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
+        self.ask()?;
         if let Some(why) = &*self.issues_down.lock().unwrap() {
             return Err(ForgeError::Failed(why.clone()));
         }
@@ -727,6 +746,7 @@ impl Forge for FakeForge {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
+        self.ask()?;
         self.issues_up()?;
         if let Some(left) = self.creates_left.lock().unwrap().as_mut() {
             if *left == 0 {
@@ -757,20 +777,64 @@ impl Forge for FakeForge {
         Ok(number)
     }
 
-    fn close_issue(&self, _repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
+    fn close_issue(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("closing is refused".into()));
         }
         self.closed.lock().unwrap().insert(number);
-        self.closings
-            .lock()
-            .unwrap()
-            .push((number, comment.to_owned()));
+        self.closings.lock().unwrap().push(number);
         Ok(())
     }
 
+    // Numbers start at 500, clear of every pull request a test opens by hand.
+    fn create_pull_request(
+        &self,
+        _repo: &ForgeSlug,
+        head: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.ask()?;
+        let mut texts = self.texts.lock().unwrap();
+        let number = 500 + texts.len() as u64;
+        let closes = (body.lines())
+            .filter_map(|l| l.strip_prefix("Resolves #")?.trim().parse().ok())
+            .collect::<Vec<u64>>();
+        self.open_pull_request(number, head, &closes);
+        self.set_base(number, base);
+        texts.insert(number, (title.to_owned(), body.to_owned()));
+        Ok(number)
+    }
+
+    fn edit_pull_request(
+        &self,
+        _repo: &ForgeSlug,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        let text = (title.to_owned(), body.to_owned());
+        self.texts.lock().unwrap().insert(number, text);
+        Ok(())
+    }
+
+    fn failed_run_logs(
+        &self,
+        _repo: &ForgeSlug,
+        _head: &str,
+        _merge_group: bool,
+    ) -> Result<String, ForgeError> {
+        self.ask()?;
+        (self.ci_log.lock().unwrap().clone()).map_err(ForgeError::Failed)
+    }
+
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.ask()?;
         self.opened(number)?;
         let mut prs = self.pull_requests.lock().unwrap();
         prs.get_mut(&number).expect("checked above").draft = false;
@@ -785,6 +849,7 @@ impl Forge for FakeForge {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
+        self.ask()?;
         if self.labels_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("labels are down".into()));
         }
@@ -804,6 +869,7 @@ impl Forge for FakeForge {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
+        self.ask()?;
         if self.labels_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("labels are down".into()));
         }
@@ -823,17 +889,32 @@ impl Forge for FakeForge {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
+        self.ask()?;
         self.opened(number)?;
         self.coderabbit.activity(number, login.rest)
     }
 
     fn resolve_thread(&self, _repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.coderabbit.made_by_gh();
         self.coderabbit.resolve(thread)
+    }
+
+    fn reply_to_thread(
+        &self,
+        _repo: &ForgeSlug,
+        thread: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.coderabbit.made_by_gh();
+        self.coderabbit.reply(thread, body)
     }
 
     // Refuses what GitHub refuses: a draft, a pull request that is not open,
     // and a head that moved since the caller looked.
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
+        self.ask()?;
         if self.merges_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("merges are down".into()));
         }
@@ -856,6 +937,12 @@ impl Forge for FakeForge {
             return Ok(());
         }
         self.set_state(number, PullRequestState::Merged);
+        // The forge closes the issues the pull request names as it merges.
+        let closes = (self.open.lock().unwrap().iter())
+            .rfind(|l| l.number == number)
+            .map(|l| l.closes.clone())
+            .unwrap_or_default();
+        self.closed.lock().unwrap().extend(closes);
         if self.merge_answers_lost.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("the answer was lost".into()));
         }
@@ -863,15 +950,26 @@ impl Forge for FakeForge {
     }
 
     fn merge_queue(&self, _repo: &ForgeSlug, number: u64) -> Result<QueueStanding, ForgeError> {
+        self.ask()?;
         self.opened(number)?;
         Ok(self.standing(number))
     }
 
     fn disable_auto_merge(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.ask()?;
         self.opened(number)?;
         self.disarm(number);
         Ok(())
     }
+
+    fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        Ok(self.reset())
+    }
 }
 
+mod down;
+mod handed;
+mod issues;
 mod queue;
+mod repo;
+mod thread;

@@ -472,6 +472,7 @@ fn a_worktree_hiding_a_pushed_path_is_brought_to_the_pushed_head_before_the_revi
 // merge ruling naming the head unread.
 fn changed_while_read(project: &str, meddle: impl Fn(&std::path::Path) + Sync) {
     let rig = Rig::new(project);
+    rig.ci_on();
     rig.merge_auto();
     rig.reviewers(&["qwen"]);
     let (queued, running) = (Hold::default(), Hold::default());
@@ -488,6 +489,11 @@ fn changed_while_read(project: &str, meddle: impl Fn(&std::path::Path) + Sync) {
         (rig, runner)
     };
     queued.release();
+    // The round reads the head once its run is green.
+    let pushed = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&pushed, Checks::Passed);
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
     std::thread::scope(|scope| {
         scope.spawn(|| {
             assert!(

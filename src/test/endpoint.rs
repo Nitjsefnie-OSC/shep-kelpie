@@ -41,6 +41,7 @@ struct Shared {
     requests: Vec<Value>,
     lines: Vec<String>,
     auths: Vec<Option<String>>,
+    every_auth: Vec<Vec<String>>,
     ps: Option<String>,
     metrics: Option<String>,
     models: Vec<String>,
@@ -101,6 +102,11 @@ impl StandInEndpoint {
         self.shared.lock().unwrap().auths.clone()
     }
 
+    /// Every `Authorization` header each request carried, in order, not only its last
+    pub(crate) fn authorization_headers(&self) -> Vec<Vec<String>> {
+        self.shared.lock().unwrap().every_auth.clone()
+    }
+
     /// Has `/metrics` answer with this page, as a Prometheus exporter does
     pub(crate) fn with_metrics(self, page: &str) -> Self {
         self.shared.lock().unwrap().metrics = Some(page.to_owned());
@@ -149,7 +155,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         .unwrap()
         .lines
         .push(request_line.trim().to_owned());
-    let (mut length, mut auth) = (0, None);
+    let (mut length, mut auth, mut every) = (0, None, Vec::new());
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
@@ -160,12 +166,18 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 length = value.trim().parse().unwrap_or(0);
             }
             Some((name, value)) if name.eq_ignore_ascii_case("authorization") => {
+                every.push(value.trim().to_owned());
                 auth = Some(value.trim().to_owned());
             }
             _ => {}
         }
     }
-    shared.lock().unwrap().auths.push(auth.clone());
+    {
+        // Under one lock, so the two records stay in the same order.
+        let mut held = shared.lock().unwrap();
+        held.every_auth.push(every);
+        held.auths.push(auth.clone());
+    }
     let mut body = vec![0; length];
     if reader.read_exact(&mut body).is_err() {
         return;

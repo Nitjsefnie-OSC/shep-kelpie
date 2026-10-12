@@ -21,14 +21,17 @@ use super::alert::post_due;
 use super::briefing::{Watched, brief};
 use super::drain::{CallRole, CallRunning};
 use super::in_flight::InFlight;
+use super::login_refresh;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
+use super::retro;
 use super::review::run_review_call;
 use super::trigger::lock;
+use super::turn_hooks::TurnHooks;
 use crate::ports::{AgentCall, AgentError, AgentReply, Ending, RoundStage, Timestamp, Wait};
 use crate::settings::Harness;
 use crate::state::StateError;
-use crate::usage::{CallKind, Draft};
+use crate::usage::{CallKind, Draft, Line};
 
 /// What one pass of the runner's loop did
 #[derive(Debug)]
@@ -49,6 +52,8 @@ pub(super) struct Flights {
     pm: Option<(Timestamp, Ending)>,
     // The issue writer's call labelling an issue
     labelling: Option<label::Labelling>,
+    // The experts of one ruling, voting
+    panel: Option<panel::Panelling>,
     // Every call's line in the usage ledger, as it started
     ledger: InFlight,
     send: Sender<News>,
@@ -64,6 +69,7 @@ impl Default for Flights {
             flying: BTreeMap::new(),
             pm: None,
             labelling: None,
+            panel: None,
             ledger: InFlight::default(),
             send,
             news,
@@ -76,7 +82,10 @@ impl Flights {
     /// Whether no call is in flight, the project manager's included
     #[cfg(test)]
     fn idle(&self) -> bool {
-        self.flying.is_empty() && self.pm.is_none() && self.labelling.is_none()
+        self.flying.is_empty()
+            && self.pm.is_none()
+            && self.labelling.is_none()
+            && self.panel.is_none()
     }
 
     /// The issue the issue writer is labelling, while it is
@@ -85,8 +94,14 @@ impl Flights {
     }
 
     /// Whether `issue`'s work item has a call in flight
+    /// A worker's vote on a ruling counts, since it runs in the work item's session
     pub(super) fn flying(&self, issue: u64) -> bool {
-        self.flying.contains_key(&issue)
+        self.flying.contains_key(&issue) || self.panel.iter().any(|p| p.votes_as(issue))
+    }
+
+    /// The ruling whose panel's experts are in flight, while they are
+    pub(super) fn panel_ruling(&self) -> Option<u64> {
+        self.panel.as_ref().map(panel::Panelling::ruling)
     }
 
     /// Whether `issue`'s work item has a worker's turn in flight
@@ -97,7 +112,49 @@ impl Flights {
     pub(super) fn runs_turn(&self, issue: u64) -> bool {
         self.flying
             .get(&issue)
-            .is_some_and(|f| f.deadline.is_some())
+            .is_some_and(|f| f.deadline.is_some() && !f.retro)
+    }
+
+    /// Forgets `issue`'s call in flight, once its end is heard
+    pub(super) fn landed(&mut self, issue: u64) {
+        self.flying.remove(&issue);
+    }
+
+    /// The call of `issue`'s worker turn in flight, whether it is its work
+    /// item's first, and the seconds of its ceiling it began with
+    pub(super) fn turn_call(&self, issue: u64) -> Option<(AgentCall, bool, u64)> {
+        let flight = self.flying.get(&issue)?;
+        let call = flight.watched.call.clone()?;
+        (flight.deadline.is_some() && !flight.retro && !flight.compact).then_some((
+            call,
+            flight.first,
+            flight.left,
+        ))
+    }
+
+    /// When `issue`'s call in flight started
+    pub(super) fn started(&self, issue: u64) -> Option<Timestamp> {
+        Some(self.flying.get(&issue)?.watched.started)
+    }
+
+    /// Whether `issue`'s call in flight is a `/compact` of its worker's session
+    pub(super) fn runs_compact(&self, issue: u64) -> bool {
+        self.flying.get(&issue).is_some_and(|f| f.compact)
+    }
+
+    /// Whether the panel's experts are in flight
+    pub(super) fn panel_running(&self) -> bool {
+        self.panel.is_some()
+    }
+
+    /// Whether any work item has its retro in flight
+    pub(super) fn retro_running(&self) -> bool {
+        self.flying.values().any(|f| f.retro)
+    }
+
+    /// Whether `issue`'s call in flight is its work item's retro
+    pub(super) fn runs_retro(&self, issue: u64) -> bool {
+        self.flying.get(&issue).is_some_and(|f| f.retro)
     }
 
     /// Ends `issue`'s call in flight, as its ceiling would
@@ -125,7 +182,11 @@ impl Flights {
             issue: Some(l.issue),
             role: CallRole::IssueWriter,
         });
-        items.chain(pm).chain(labelling).collect()
+        let panel = self.panel.iter().map(|_| CallRunning {
+            issue: None,
+            role: CallRole::Panel,
+        });
+        items.chain(pm).chain(labelling).chain(panel).collect()
     }
 
     /// The calls in flight as the usage ledger knows them
@@ -160,6 +221,10 @@ struct Flight {
     watched: Watched,
     // Whether a worker's turn is its work item's first, with no session to keep
     first: bool,
+    // Whether it is a finished work item's retro, not a turn of its worker
+    retro: bool,
+    // Whether it is a `/compact` of the worker's session, sent before a turn
+    compact: bool,
     // When the call began, past the lease it waited for
     began_at: Option<Timestamp>,
     // What the call last said it waits for, and since when
@@ -180,6 +245,11 @@ enum News {
     Labelled {
         issue: u64,
         end: End,
+    },
+    // The experts of a ruling ended, each as its own call did
+    Paneled {
+        id: u64,
+        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
     },
     // A local round queued for the GPU or began to run. The call waits until
     // `_seen` drops, once the stage is saved, so its time is charged right.
@@ -277,6 +347,8 @@ enum Launch {
         deadline: Timestamp,
         again: bool,
         first: bool,
+        retro: bool,
+        compact: bool,
     },
     Review(ReviewCall),
 }
@@ -300,9 +372,11 @@ impl Runner {
             .filter(|(_, ending)| !ending.asked())
             .map(|(deadline, _)| *deadline);
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
+        let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
+            .chain(panel)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
             .min()
     }
@@ -324,6 +398,9 @@ impl Runner {
         if let Some(labelling) = &self.flights.labelling {
             labelling.end_overdue(now);
         }
+        if let Some(panel) = &self.flights.panel {
+            panel.end_overdue(now);
+        }
     }
 
     /// Starts the project manager's `call`, a `kind` on the agent named
@@ -333,11 +410,17 @@ impl Runner {
         let now = self.ports.clock.now();
         let draft = Draft::of(&call, agent, kind, now);
         self.flights.ledger.open(None, draft, self.pacer_lines());
+        self.call_started(&call, agent);
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = Arc::clone(&self.ports.agents);
+        let agents = TurnHooks::around(
+            Arc::clone(&self.ports.agents),
+            &self.hooks,
+            &self.notes,
+            None,
+        );
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
@@ -382,12 +465,26 @@ impl Runner {
                 call,
                 deadline,
                 first,
+                compact,
             } => Launch::Turn {
                 call,
                 deadline,
                 again: start_over.is_some(),
                 first,
+                retro: false,
+                compact,
             },
+            Begin::Retro(call) => {
+                let now = self.ports.clock.now();
+                Launch::Turn {
+                    call,
+                    deadline: Timestamp(now.0.saturating_add(retro::CEILING)),
+                    again: false,
+                    first: false,
+                    retro: true,
+                    compact: false,
+                }
+            }
             Begin::Review(action) => Launch::Review(action),
             Begin::Label(issue) => {
                 let report = self.ask_writer(&issue)?;
@@ -423,6 +520,7 @@ impl Runner {
                 deadline,
                 again,
                 first,
+                ..
             } => (
                 Some(*deadline),
                 *again,
@@ -431,6 +529,8 @@ impl Runner {
             ),
             Launch::Review(_) => (None, false, false, None),
         };
+        let retro = matches!(launch, Launch::Turn { retro: true, .. });
+        let compact = matches!(launch, Launch::Turn { compact: true, .. });
         let role = harness.map_or("reviewer", |_| "worker");
         let now = self.ports.clock.now();
         let watched = Watched {
@@ -443,7 +543,12 @@ impl Runner {
         };
         let draft = match &launch {
             Launch::Turn { call, .. } => {
-                Draft::of(call, &self.ledger_worker(issue), CallKind::Turn, now)
+                let kind = match (retro, compact) {
+                    (true, _) => CallKind::Retro,
+                    (false, true) => CallKind::Compact,
+                    (false, false) => CallKind::Turn,
+                };
+                Draft::of(call, &self.ledger_worker(issue), kind, now)
             }
             Launch::Review(ReviewCall::Session(call)) => {
                 Draft::of(call, &self.ledger_reviewer(issue), CallKind::Review, now)
@@ -456,15 +561,37 @@ impl Runner {
         self.flights
             .ledger
             .open(Some(issue), draft, self.pacer_lines());
+        match &launch {
+            Launch::Turn { call, .. } => self.call_started(call, &self.ledger_worker(issue)),
+            Launch::Review(ReviewCall::Session(call)) => {
+                self.call_started(call, &self.ledger_reviewer(issue));
+            }
+            Launch::Review(ReviewCall::Local { .. }) => {}
+        }
         let ledger = self.flights.ledger.clone();
-        let (agents, reviewer) = (
+        let item = self.state.work_items.iter().find(|i| i.issue == issue);
+        let agents = TurnHooks::around(
             Arc::clone(&self.ports.agents),
-            Arc::clone(&self.ports.reviewer),
+            &self.hooks,
+            &self.notes,
+            item,
         );
+        let reviewer = Arc::clone(&self.ports.reviewer);
         let held = ending.clone();
+        let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| match launch {
-                Launch::Turn { call, .. } => End::Turn(agents.run(&call, &held)),
+                // A covered worker's token lasts an hour, a call may not.
+                Launch::Turn { call, .. } => {
+                    let build = covered_build(&call);
+                    End::Turn(login_refresh::while_running(
+                        voice.as_ref(),
+                        &remote,
+                        build.as_deref(),
+                        login_refresh::EVERY,
+                        || agents.run(&call, &held),
+                    ))
+                }
                 Launch::Review(action) => {
                     let watch = |stage| tell.stage(stage);
                     let reviewed =
@@ -493,6 +620,8 @@ impl Runner {
             again,
             watched,
             first,
+            retro,
+            compact,
             began_at: None,
             told: None,
             fallback: waiting::Fallback::Stays,
@@ -508,6 +637,15 @@ impl Runner {
         issue: u64,
         result: Result<AgentReply, AgentError>,
     ) -> Result<Option<StepReport>, StateError> {
+        // A host that cannot be reached holds the turn back, to be tried
+        // again, and keeps its session. Time spent on the call is saved
+        // while its flight still counts it.
+        if self.waits_for_host(issue, &result) {
+            let saved = self.save_time();
+            self.flights.flying.remove(&issue);
+            saved?;
+            return Ok(None);
+        }
         let again = self.flights.flying.get(&issue).is_some_and(|f| f.again);
         if !again && matches!(result, Err(AgentError::NoSession(..))) {
             // The dead call's time is the worker's, so it is saved while its
@@ -534,6 +672,15 @@ impl Runner {
     }
 }
 
+// The build folder of a worker whose login kelpie wrote, when `call` is one
+fn covered_build(call: &AgentCall) -> Option<std::path::PathBuf> {
+    let fence = call.reach.fence.as_deref()?;
+    fence
+        .env
+        .contains_key("GH_CONFIG_DIR")
+        .then(|| fence.guard.build.clone())
+}
+
 // The end of a call whose thread could not start: a turn on `harness`, or a
 // review call.
 fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
@@ -557,7 +704,8 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 /// do yields to the next. A report that waits, such as a forge that cannot
 /// be read, is returned only when no other work item did anything. A
 /// ruling answered while the runner was stopped is acted on first. A ruling
-/// is posted, and a reply handled, while the runner drains too.
+/// is posted, and a reply handled, while the runner drains too. A runner
+/// finishing with no work item left open reports that it finished.
 ///
 /// # Errors
 ///
@@ -569,11 +717,22 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 #[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     let pass = one_pass(runner);
+    // After the pass, so a ruling it raised is told in the pass that raised it.
+    lock(runner).tell_rulings();
     brief(runner);
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
     match pass {
-        Ok(Pass::Idle) if lock(runner).wake_pm() => Ok(Pass::Started),
+        // Experts that just started, or a wake, are calls in flight: the loop goes on.
+        Ok(Pass::Idle) => {
+            let woke = lock(runner).wake_pm();
+            let asked = lock(runner).panel_launched();
+            Ok(if woke || asked {
+                Pass::Started
+            } else {
+                Pass::Idle
+            })
+        }
         Ok(Pass::Report(report)) if report.waits() => {
             lock(runner).wake_pm();
             Ok(Pass::Report(report))
@@ -586,6 +745,10 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
 fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).beat();
     lock(runner).let_go_of_the_gone();
+    // Before any answer is taken, so none resumes a worker on a closed issue.
+    lock(runner).read_parked()?;
+    // The forge is asked with the lock let go.
+    super::thread_replies::read_threads(runner)?;
     super::left::answer_left(runner);
     loop {
         let news = lock(runner).next_news();
@@ -603,11 +766,23 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     if let Some(answered) = answer_replies(runner, alerts.as_ref()) {
         return answered.map(Pass::Report);
     }
+    // After the posts, so a merge's notice goes before the word it finished.
+    let finished = lock(runner).finished_now()?;
+    if let Some(report) = finished {
+        return Ok(Pass::Report(report));
+    }
     lock(runner).begin(None)
 }
 
-// Records one piece of news from a call in flight.
+// Records one piece of news from a call in flight, and tells the project's `ruling`
+// hooks the ruling it may have raised.
 fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
+    let heard = hear_news(runner, news);
+    lock(runner).tell_rulings();
+    heard
+}
+
+fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
     let mut runner = lock(runner);
     let (issue, end) = match news {
         News::Stage { issue, stage, .. } => {
@@ -631,6 +806,7 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
             return Ok(None);
         }
         News::Labelled { issue, end } => return runner.label_ended(issue, end),
+        News::Paneled { id, ends } => return runner.panel_ended(id, ends),
         News::Ended { issue, end } => (issue, end),
         News::Pm(end) => {
             runner.flights.pm = None;
@@ -657,6 +833,31 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
     // A call's line goes in only once its end is saved: one not saved runs
     // again, and its session's cost by then takes in this call's.
     match end {
+        End::Turn(result) if runner.flights.runs_retro(issue) => {
+            let line = open.and_then(|open| runner.turn_line(&open, &result));
+            runner.retro_ended(issue, result);
+            if let Some(line) = line {
+                runner.ledger.append(&Line::Call(line));
+            }
+            Ok(None)
+        }
+        // A panicking retro is skipped as a failed one is: it must not end the runner.
+        End::Panicked(_) if runner.flights.runs_retro(issue) => {
+            if let Some(open) = &open {
+                runner.panicked_line(open);
+            }
+            runner.retro_ended(issue, Err(AgentError::Setup("its call panicked".into())));
+            Ok(None)
+        }
+        End::Turn(result) if runner.flights.runs_compact(issue) => {
+            let line = open.and_then(|open| runner.turn_line(&open, &result));
+            let unreported = result.is_err();
+            let ended = runner.on(Some(issue)).compact_ended(result);
+            if let (Some(line), Ok(_)) = (line, &ended) {
+                runner.append_call(line, unreported);
+            }
+            ended
+        }
         End::Turn(result) => {
             let line = open.and_then(|open| runner.turn_line(&open, &result));
             let unreported = result.is_err();
@@ -700,6 +901,8 @@ fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateE
 pub fn step(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     let stepped = step_once(runner);
     brief(runner);
+    // A notice hook runs off the runner's lock, so a test waits for what it told.
+    lock(runner).settle_notices();
     stepped
 }
 
@@ -731,6 +934,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
 }
 
 pub(super) mod label;
+pub(super) mod panel;
 #[cfg(test)]
 mod tests;
 mod waiting;

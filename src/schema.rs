@@ -138,10 +138,43 @@ mod tests {
                 "# [[app.dogs.kelpie.worker.guard_hooks]]\n# event = \"PreToolUse\"\n# matcher = \"Bash\"\n# command =",
                 "[[app.dogs.kelpie.worker.guard_hooks]]\nevent = \"PreToolUse\"\nmatcher = \"Bash\"\ncommand =",
             )
+            .replace(
+                "# [[app.dogs.kelpie.hooks]]\n# point = \"publish\"\n# command =",
+                "[[app.dogs.kelpie.hooks]]\npoint = \"publish\"\ncommand =",
+            )
             .replace("# reviewers = [\"qwen\", \"defect-hunter\"]", "reviewers = [\"qwen\"]")
+            .replace(
+                "# test_command = \"cargo test --test {name}\"",
+                "test_command = \"cargo test --test {name}\"",
+            )
             .replace("# pm = \"pm\"", "pm = \"pm\"")
+            .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
+            .replace(
+                "# researcher = \"researcher\"",
+                "researcher = \"researcher\"",
+            )
+            .replace(
+                "# [app.dogs.kelpie.researcher]\n# transcripts =",
+                "[app.dogs.kelpie.researcher]\ntranscripts =",
+            )
+            .replace(
+                "# allowed_domains = [\"docs.rs\"]",
+                "allowed_domains = [\"docs.rs\"]",
+            )
+            .replace(
+                "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
+                "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
+            )
+            .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# issue_writer =", "issue_writer =")
-            .replace("# fallback_after =", "fallback_after =");
+            .replace("# fallback_after =", "fallback_after =")
+            .replace("# maintainer =", "maintainer =")
+            .replace(
+                "# [app.dogs.kelpie.e2e]\n# host =",
+                "[app.dogs.kelpie.e2e]\nhost =",
+            )
+            .replace("# command = \"scripts/", "command = \"scripts/")
+            .replace("# results =", "results =");
         assert!(
             text.contains("reviewers = [\"qwen\"]"),
             "the example's list moved"
@@ -151,6 +184,7 @@ mod tests {
             "{ kind = \"path\", path = \"skills/mine\" }",
             "{ kind = \"plugin\", plugin = \"plugins/house\", skill = \"mine\" }",
             "{ kind = \"none\" }",
+            "{ kind = \"kelpie\" }",
         ];
         kinds
             .into_iter()
@@ -192,6 +226,9 @@ mod tests {
         let example = include_str!("../kelpie-settings.example.toml")
             .replace("# codex_home =", "codex_home =")
             .replace("# gpu_metrics_url =", "gpu_metrics_url =")
+            .replace("# ca_cert =", "ca_cert =")
+            .replace("# token =", "token =")
+            .replace("# trusted =", "trusted =")
             .replace("# [kelpie.gateways.paddock]", "[kelpie.gateways.paddock]")
             .replace(
                 "# url = \"http://gpu-box:8700\"",
@@ -256,11 +293,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_webhook_url_is_a_secret() {
+    fn only_the_webhooks_url_ca_cert_and_token_are_secrets() {
         let root = schema();
         let text = root.to_string();
-        assert_eq!(text.matches(SECRET_KEY).count(), 1, "{text}");
+        assert_eq!(text.matches(SECRET_KEY).count(), 3, "{text}");
         let webhook = resolve(&root, &root["properties"]["webhook"]);
-        assert_eq!(webhook["properties"]["url"][SECRET_KEY], true);
+        for key in ["url", "ca_cert", "token"] {
+            assert_eq!(webhook["properties"][key][SECRET_KEY], true, "{key}");
+        }
     }
 }

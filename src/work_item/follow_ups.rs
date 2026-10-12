@@ -15,6 +15,9 @@ pub struct FollowUps {
     /// before filing them, which files them `ready-for-agent`
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ruled: bool,
+    /// Whether that yes asked for `needs-triage`, which files them unread
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unread: bool,
     /// When the forge first refused to take them, since it last took one
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_refused: Option<Timestamp>,

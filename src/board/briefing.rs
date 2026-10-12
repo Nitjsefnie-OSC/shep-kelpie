@@ -2,7 +2,7 @@
 //!
 //! Code writes it from what the runner already holds, so the agent never
 //! runs git or gh. It has one entry per open work item with its session's
-//! activity, the rulings waiting, the ready queue in the board rule's order,
+//! activity, the rulings waiting, the ready queue in the board's order,
 //! the events since the agent's last wake, and an overlap table of the
 //! files open branches and ready issues share. Its shape follows what was
 //! measured: a PM briefed this way decided as well as one that looked for
@@ -11,7 +11,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use crate::ports::{CallActivity, Timestamp, Wait};
+use crate::ports::{CallActivity, Cost, Timestamp, Wait};
+use crate::runner::Run;
 use crate::state::BoardEvent;
 
 /// How long a call in flight may show nothing before the board calls it idle
@@ -42,6 +43,9 @@ pub struct Briefing<'a> {
     pub held: usize,
     /// How many open work items are parked on rulings `concurrency.pending_rulings` counts
     pub parked: usize,
+    /// Whether the runner is finishing, or finished and stopping, so the
+    /// board opens nothing new
+    pub run: Option<Run>,
     /// `origin/main`'s commit, once git has read it
     pub main: Option<String>,
     /// The open work items, oldest first
@@ -94,6 +98,10 @@ pub struct Item {
     pub waiting: Option<(Timestamp, Wait)>,
     /// The worker's last turn's closing message
     pub summary: Option<String>,
+    /// What its priced calls have cost
+    pub spent: Cost,
+    /// What they may cost before its worker's next turn waits on a ruling
+    pub cap: Cost,
     /// The files it touches
     pub files: Files,
 }
@@ -156,7 +164,7 @@ pub struct RulingLine {
 pub struct Ready {
     /// When it was read
     pub read: Timestamp,
-    /// Its issues in the board rule's order, none of them open as a work item
+    /// Its issues in the board's order, none of them open as a work item
     pub issues: Vec<ReadyLine>,
 }
 
@@ -195,6 +203,17 @@ pub fn render(board: &Briefing<'_>) -> String {
         board.parked,
         board.pending_rulings
     );
+    match board.run {
+        Some(Run::Finishing) => out.push_str(
+            "The runner is finishing: the board opens nothing new, and the runner stops once \
+             the open work items end.\n\n",
+        ),
+        Some(Run::Finished) => out.push_str(
+            "The runner finished its open work items and is stopping: the board opens \
+             nothing new.\n\n",
+        ),
+        None => {}
+    }
     open_work(&mut out, board);
     rulings(&mut out, &board.rulings);
     ready_queue(&mut out, board.ready.as_ref(), now);
@@ -233,6 +252,12 @@ fn open_work(out: &mut String, board: &Briefing<'_>) {
             item.issue, item.title, item.phase, item.agent
         );
         let _ = writeln!(out, "  - Session: {}", session(&item.session, board.now));
+        let _ = writeln!(
+            out,
+            "  - Spend: ${:.2} of ${:.2}",
+            item.spent.usd(),
+            item.cap.usd()
+        );
         if let Some((since, why)) = item.waiting {
             let _ = writeln!(
                 out,
@@ -311,7 +336,7 @@ fn ready_queue(out: &mut String, ready: Option<&Ready>, now: Timestamp) {
     };
     let _ = writeln!(
         out,
-        "## Ready queue, read {} ago (board rule order: priority, then oldest by number)\n",
+        "## Ready queue, read {} ago (the board's order, first taken first; a new issue joins after the last of its priority)\n",
         age(now, ready.read)
     );
     if ready.issues.is_empty() {

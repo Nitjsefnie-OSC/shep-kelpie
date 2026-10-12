@@ -13,14 +13,16 @@ impl Reviewer {
             || self.effort.is_some()
             || self.lease.is_some()
             || self.url.is_some()
+            || self.gateway.is_some()
             || self.context.is_some()
             || self.command.is_some()
             || self.ollama.is_some()
-            || self.ollama_model.is_some();
+            || self.ollama_model.is_some()
+            || self.tools.is_some();
         if others {
             return Err(
                 "runs a review bot, which takes no `model`, `effort`, `lease`, \
-                        `url`, `context`, `command`, `ollama` or `ollama_model`"
+                        `url`, `gateway`, `context`, `command`, `ollama`, `ollama_model` or `tools`"
                     .into(),
             );
         }

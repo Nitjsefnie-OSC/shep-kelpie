@@ -10,9 +10,13 @@ use serde::Serialize;
 
 use crate::board::Skip;
 use crate::pacer::HoldKind;
-use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Usage};
+use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Transcript, Usage};
 use crate::settings::{AgentName, LocalRound};
-use crate::work_item::{QwenTally, Spend, Split};
+use crate::work_item::{QwenTally, Spend, Split, TestCheck};
+
+fn none_left(n: &usize) -> bool {
+    *n == 0
+}
 
 /// What asked for a rework on the pull request itself
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -204,6 +208,15 @@ pub enum StepReport {
         /// Why the question could not be posted on the pull request, if it could not
         comment_failed: Option<String>,
     },
+    /// A turn pushed its branch, but kelpie could not open the pull request
+    /// from the worker's `pull-request.md`, and the refusal is the worker's
+    /// next turn
+    PullRequestNotOpened {
+        /// The work item's issue
+        issue: u64,
+        /// Why, as the forge, the guard or a project's hook refused it
+        reason: String,
+    },
     /// CI failed, and the failure is the worker's next turn
     CiFailed {
         /// The work item's issue
@@ -292,6 +305,10 @@ pub enum StepReport {
         pull_request: Option<u64>,
         /// Whether the pull request merged
         merged: bool,
+        /// Whether its issue was closed with no change, so it ended with no
+        /// pull request
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        closed: bool,
         /// What its Claude calls cost, by role
         spend: Box<Spend>,
         /// Its qwen rounds
@@ -299,6 +316,9 @@ pub enum StepReport {
         /// Where its time went
         timings: Split,
     },
+    /// The runner was finishing and its last open work item ended, so it
+    /// stops its own sheep
+    RunFinished,
     /// Findings a merged pull request left unfixed were filed
     FollowUpsFiled {
         /// The work item's issue
@@ -372,6 +392,12 @@ pub enum StepReport {
     ReplyCodeUsed {
         /// The ruling's id
         id: u64,
+        /// Why the line for the topic could not be posted, if it could not
+        line_failed: Option<String>,
+    },
+    /// A reply carried a right code but named no ruling kelpie could read:
+    /// it answered nothing, its code is spent, and the topic was told so
+    ReplyUnreadable {
         /// Why the line for the topic could not be posted, if it could not
         line_failed: Option<String>,
     },
@@ -594,6 +620,13 @@ pub enum StepReport {
         round: u32,
         /// The head it pushed; none when an older state file kept no head
         head: Option<String>,
+        /// What the round's attached tests did, before the fix and after it
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        checks: Vec<TestCheck>,
+        /// How many attached tests were not run after the fix, because the
+        /// head it pushed is not the worker's own
+        #[serde(skip_serializing_if = "none_left")]
+        unchecked: usize,
     },
     /// The project manager answered a wake, and kelpie acted on what the
     /// board allowed
@@ -629,6 +662,43 @@ pub enum StepReport {
         /// Its session
         session: SessionId,
     },
+    /// A call started in a session, before it ends: what `shep kelpie watch`
+    /// reads to tell whose a transcript is and where to find it
+    SessionStarted {
+        /// The work item's issue, or none for the project manager
+        #[serde(skip_serializing_if = "Option::is_none")]
+        issue: Option<u64>,
+        /// The role the call is made for
+        role: Role,
+        /// The agent it runs on
+        agent: String,
+        /// The harness it runs on, as settings name it
+        harness: &'static str,
+        /// The session it runs in, new or resumed
+        session: SessionId,
+        /// Where the harness writes the session's transcript, if kelpie can
+        /// read it
+        #[serde(skip_serializing_if = "Option::is_none")]
+        transcript: Option<Transcript>,
+    },
+    /// A worker's session was compacted before its next turn, its context
+    /// past the mark
+    WorkerCompacted {
+        /// The work item's issue
+        issue: u64,
+        /// Its session
+        session: SessionId,
+        /// The tokens its context held before
+        context: Option<u64>,
+    },
+    /// A worker's session could not be compacted, so its next turn goes on
+    /// in the session as it was
+    WorkerCompactFailed {
+        /// The work item's issue
+        issue: u64,
+        /// Why
+        reason: String,
+    },
 }
 
 impl StepReport {
@@ -650,13 +720,17 @@ pub(super) enum Begin {
     Idle,
     Report(StepReport),
     /// A worker's turn, ended at `deadline` if it runs that long. `first`
-    /// is its work item's first, which has no session to keep.
+    /// is its work item's first, which has no session to keep. `compact`
+    /// is a `/compact` of its session, sent before the turn that waits.
     Call {
         call: AgentCall,
         deadline: Timestamp,
         first: bool,
+        compact: bool,
     },
     Review(ReviewCall),
+    /// The retro turn of a work item that finished, before its worktree goes
+    Retro(AgentCall),
     /// The issue writer's call to label an issue the board would open with
     /// no `agent:` label
     Label(crate::board::ReadyIssue),

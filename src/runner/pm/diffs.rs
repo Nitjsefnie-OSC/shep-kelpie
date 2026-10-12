@@ -1,0 +1,114 @@
+//! Each open branch's diff from `main`, written into the project manager's
+//! folder before it wakes, since it runs no git, and the board section that
+//! names them beside each work item's worktree
+//!
+//! A work item parked on red CI has its failed run's log named beside its diff.
+//!
+//! The diffs are those the board's last write read, with the runner's lock
+//! let go, so a wake runs no git. The folder is emptied first, so a diff
+//! never outlives its work item or a write whose git failed for it.
+//!
+//! A work item parked on a follow-up ruling has merged, so its branch's diff
+//! from `main` is empty. Its file holds the merged pull request's diff
+//! instead, which is the one thing a wake reads from git itself.
+
+use std::fmt::Write as _;
+use std::path::Path;
+
+use crate::runner::Runner;
+use crate::runner::briefing::patch;
+use crate::state::RulingKind;
+use crate::work_item::Phase;
+
+/// The folder in the project manager's that holds the diffs
+const DIFFS: &str = "diffs";
+
+impl Runner {
+    /// Writes `diffs/<issue>.diff` in `folder` for each open work item,
+    /// and returns the board's section naming them and each worktree
+    ///
+    /// A diff git could not give is left out, and noted there and in the log.
+    pub(super) fn pm_diffs(&mut self, folder: &Path) -> String {
+        let diffs = folder.join(DIFFS);
+        let cleared = match std::fs::remove_dir_all(&diffs) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => std::fs::create_dir_all(&diffs),
+        };
+        let mut out = String::from(
+            "## Code\n\nEach open work item's worktree, which you may read, and its branch's \
+             diff from main, written in your folder as you woke.\n\n",
+        );
+        // Only `pm_call` reaches here, as a wake or `shep kelpie pm` starts,
+        // so the logs are read once per call and not on every board write.
+        // They do not depend on the diffs folder, so they are written first.
+        let mut logs = self.pm_ci_logs(folder);
+        if let Err(e) = cleared {
+            let why = format!("cannot clear {}: {}", diffs.display(), e.kind());
+            self.notes
+                .push(format!("the project manager's diffs: {why}"));
+            let _ = writeln!(out, "(no diffs: {why})");
+            for (issue, log) in logs {
+                let _ = writeln!(out, "- #{issue}: {log}");
+            }
+            return out;
+        }
+        if self.state.work_items.is_empty() {
+            out.push_str("(none)\n");
+        }
+        let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
+        for issue in issues {
+            let file = diff_file(issue);
+            let read = match self.merged_branch(issue) {
+                Some(branch) => Some(self.merged_patch(&branch, issue)),
+                None => self.brief_patch(issue).cloned(),
+            };
+            let written = match read {
+                Some(Ok(diff)) => std::fs::write(folder.join(&file), diff)
+                    .map_err(|e| format!("cannot write it: {}", e.kind())),
+                Some(Err(why)) => Err(why),
+                None => Err("the board has not read its branch yet".to_owned()),
+            };
+            let diff = match written {
+                Ok(()) => format!("diff `{file}`"),
+                Err(why) => {
+                    self.notes.push(format!(
+                        "no diff of #{issue} for the project manager: {why}"
+                    ));
+                    format!("no diff: {why}")
+                }
+            };
+            let worktree = self.paths.worktree(issue);
+            let _ = write!(out, "- #{issue}: worktree `{}`, {diff}", worktree.display());
+            if let Some(log) = logs.remove(&issue) {
+                let _ = write!(out, ", {log}");
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    // The branch of `issue`'s work item if it is parked on a follow-up
+    // ruling, since its pull request merged and the board's diff of it
+    // from `main` is empty.
+    fn merged_branch(&self, issue: u64) -> Option<String> {
+        let item = self.state.item(issue)?;
+        let Phase::Ruling { id } = item.phase else {
+            return None;
+        };
+        let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
+        matches!(ruling.kind, RulingKind::FollowUp { .. }).then(|| item.branch.clone())
+    }
+
+    // What the merged pull request of `issue`'s `branch` changed. A merged
+    // diff is read by a wake for a follow-up ruling alone, once, so unlike
+    // the board's diffs it runs git as the wake starts.
+    fn merged_patch(&self, branch: &str, issue: u64) -> Result<Vec<u8>, String> {
+        let repo = &self.settings.git.checkout;
+        patch::merged(repo, branch, &self.paths.worktree(issue))
+    }
+}
+
+/// The diff of `issue`'s work item, in the project manager's folder
+pub(super) fn diff_file(issue: u64) -> String {
+    format!("{DIFFS}/{issue}.diff")
+}

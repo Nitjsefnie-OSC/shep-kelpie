@@ -21,6 +21,15 @@ struct Input<'a> {
     heredocs: &'a [String],
     // Whether a `|` feeds it another command's output.
     piped: bool,
+    // How each word of the command it is part of was written. The words judged
+    // are the last ones of it, since a wrapper or a name only drops words in front.
+    quoting: &'a [shell::Quoting],
+}
+
+// The last `n` of `items`, or none when there are fewer: a misaligned tail would
+// pair words with how other words were written.
+fn last<T>(items: &[T], n: usize) -> &[T] {
+    items.len().checked_sub(n).map_or(&[], |at| &items[at..])
 }
 
 /// One Bash call being judged
@@ -210,6 +219,7 @@ impl Judging<'_> {
             let input = Input {
                 heredocs: &command.heredocs,
                 piped: command.piped,
+                quoting: &command.quoting,
             };
             self.command(&command.words, input, &mut cwd, shells, state);
         }
@@ -327,6 +337,7 @@ impl Judging<'_> {
                 }
                 let git = git::Git {
                     words,
+                    quoting: last(input.quoting, words.len()),
                     heredocs: input.heredocs,
                     redirected: run.git_redirected || state.git_redirected,
                     configured: run.git_configured || state.git_configured,
@@ -337,7 +348,13 @@ impl Judging<'_> {
                 state.made_repo |= git::makes_repo(words);
                 found
             }
-            "gh" => gh::judge(run.words, input.heredocs, cwd.as_deref(), home),
+            "gh" => gh::judge(
+                run.words,
+                last(input.quoting, run.words.len()),
+                input.heredocs,
+                cwd.as_deref(),
+                home,
+            ),
             name if starts_agent(name) => vec![NO_AGENTS.into()],
             name if PATCHERS.contains(&name) => vec![NO_SHELL_PATCHES.into()],
             name if KILLERS.contains(&name) => vec![NO_KILLING_BY_NAME.into()],

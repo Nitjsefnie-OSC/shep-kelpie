@@ -13,12 +13,18 @@
 //! [`super::review_bot`]'s, and its open threads are its findings. After the
 //! last reviewer the work item goes on to [`super::gate`].
 
+mod attached;
+mod awaited;
 pub(super) mod calls;
+mod checks;
 mod criteria;
 pub(super) mod findings;
 #[cfg(test)]
 mod foreign;
+#[cfg(test)]
+mod green;
 mod lineup;
+pub(super) use lineup::{changed_files, matches};
 #[cfg(test)]
 mod local;
 #[cfg(test)]
@@ -36,8 +42,9 @@ use std::path::Path;
 
 use super::Runner;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
-use super::review_bot::Resolved;
+use super::review_bot::Answered;
 use super::ruling::park;
+use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
 use crate::ports::{
@@ -99,6 +106,10 @@ impl Runner {
                     Ok(None) => return self.pass_ended(&review),
                     Err(reason) => return Ok(self.gate_failed(reason)),
                 };
+                // Before any reader or bot is started on the head.
+                if let Some(begin) = self.before_read(&mut review)? {
+                    return Ok(begin);
+                }
                 if let Some(bot) = chosen.bot() {
                     return self.bot_round(&chosen, bot, review);
                 }
@@ -107,6 +118,9 @@ impl Runner {
                 };
                 if self.draining {
                     return Ok(Begin::Idle);
+                }
+                if let Some(parked) = self.park_over_budget()? {
+                    return Ok(parked);
                 }
                 let criteria = match self.criteria(issue) {
                     Ok(criteria) => criteria,
@@ -165,11 +179,15 @@ impl Runner {
         if self.draining {
             return Ok(Begin::Idle);
         }
+        if let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
+        }
         if let Some(held) = self.pace(Scope::Turn, limit)?.holds() {
             return Ok(held);
         }
         let item = self.current().expect("a review is a work item's");
         let (issue, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
+        let build = item.build.clone();
         let criteria = match self.criteria(issue) {
             Ok(criteria) => criteria,
             Err(reason) => return Ok(self.gate_failed(reason)),
@@ -179,9 +197,29 @@ impl Runner {
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         let body = chosen.prompt.as_deref().unwrap_or_default();
-        let prompt = prompts::reviewer_prompt(body, &base, &diff, &criteria, first.as_deref());
-        let call =
-            calls::reviewer_call(issue, &worktree, &self.paths.worker, (model, limit), prompt);
+        let tests = match self.begin_tests(model, (&worktree, &build), first.is_none()) {
+            Ok(tests) => tests,
+            Err(reason) => return Ok(self.gate_failed(reason)),
+        };
+        let ask = (tests.as_ref().and(self.test_command_for(model)))
+            .map(|command| (command.as_str(), attached::tests_folder(&build)));
+        let prompt = prompts::reviewer_prompt(
+            body,
+            &base,
+            &diff,
+            &criteria,
+            first.as_deref(),
+            ask.as_ref()
+                .map(|(command, folder)| (*command, folder.as_path())),
+        );
+        let call = calls::reviewer_call(
+            issue,
+            &worktree,
+            &self.paths.worker,
+            (model, limit),
+            prompt,
+            tests,
+        );
         match call.and_then(|call| self.prepared(call)) {
             Ok(call) => {
                 match first {
@@ -254,6 +292,7 @@ impl Runner {
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
         let mut left_open = None;
+        let (mut checks, mut unchecked) = (Vec::new(), 0);
         let pushed = match head {
             Some(before) => match self.origin_head() {
                 Ok(now) if now == before => {
@@ -272,16 +311,18 @@ impl Runner {
                         Err(reason) => return Ok(self.gate_failed(reason)),
                     }
                     let path = findings::findings_path(build);
-                    let prompt = findings::again_prompt(number, round, &path);
+                    let threads =
+                        (self.current()).is_some_and(|item| !item.threads_sent.is_empty());
+                    let prompt = findings::again_prompt(number, round, &path, threads);
                     let fix = Fix::Review(review);
                     return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
                 }
-                // A fix that moved the head answers the bot threads it was sent.
+                // A fix that moved the head answers the bot threads it was sent, by what the worker said.
                 Ok(now) => {
-                    match self.resolve_sent(number)? {
-                        Resolved::Done => {}
-                        Resolved::Retry(reason) => return Ok(self.gate_failed(reason)),
-                        Resolved::LeftOpen { threads, reason } => {
+                    match self.answer_sent(number, true)? {
+                        Answered::Done => {}
+                        Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
+                        Answered::LeftOpen { threads, reason } => {
                             left_open = Some((threads, reason));
                         }
                     }
@@ -297,6 +338,12 @@ impl Runner {
                                 item.nit_fixed(head);
                             }
                         })?;
+                        // The tests ran only at a head the worker holds: a
+                        // test is not run against code that is not its own.
+                        checks = self.tests_after(round, sent.findings)?;
+                    } else {
+                        checks = self.round_checks(round, sent.findings);
+                        unchecked = checks.len();
                     }
                     Some(now)
                 }
@@ -318,14 +365,16 @@ impl Runner {
                 pull_request: number,
                 round,
                 head: pushed,
+                checks,
+                unchecked,
             },
         }))
     }
 
     // Every finding sent was left for a follow-up issue, or every one was a
     // nit the worker declined, so there was nothing to push, and the next
-    // reviewer reads the pull request as it stands. Bot threads sent stay
-    // open, since nothing answered them.
+    // reviewer reads the pull request as it stands. Bot threads sent are
+    // replied to with the worker's lines and stay open, since nothing fixed them.
     fn went_unfixed(
         &mut self,
         number: u64,
@@ -334,11 +383,22 @@ impl Runner {
     ) -> Result<Begin, StateError> {
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
+        let mut left_open = None;
+        match self.answer_sent(number, false)? {
+            Answered::Done => {}
+            Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
+            Answered::LeftOpen { threads, reason } => left_open = Some((threads, reason)),
+        }
         let next = self.after_round(review, self.ports.clock.now());
-        self.update(|item| {
-            item.forget_threads();
-            item.phase = next;
-        })?;
+        self.update(|item| item.phase = next)?;
+        if let Some((threads, reason)) = left_open {
+            return Ok(Begin::Report(StepReport::ThreadsLeftOpen {
+                issue,
+                pull_request: number,
+                threads,
+                reason,
+            }));
+        }
         Ok(Begin::Report(match unfixed {
             Unfixed::Deferred(deferred) => StepReport::FindingsDeferred {
                 issue,
@@ -397,10 +457,11 @@ impl Runner {
     }
 
     // Every finding goes, at the reviewer's own severity, nits included, and
-    // a bot's threads sent with them are kept to resolve once the fix moves
-    // the head. A file the script skipped for its size is reported with the
-    // round but never sent, since no fix of the worker's reviews it. A round
-    // left with nothing to send goes on to the next reviewer.
+    // a bot's threads sent with them are kept, in the findings' order, to
+    // reply on and resolve by the worker's lines once its fix turn ends. A
+    // file the script skipped for its size is reported with the round but
+    // never sent, since no fix of the worker's reviews it. A round left with
+    // nothing to send goes on to the next reviewer.
     fn send_findings(
         &mut self,
         review: Review,
@@ -413,10 +474,21 @@ impl Runner {
             .pull_request
             .expect("review runs once a pull request is known");
         let round = review.round;
-        let findings: Vec<Finding> = findings
-            .into_iter()
-            .filter(|f| !f.is_skipped_for_size())
-            .collect();
+        // A bot's finding is its thread's, in the same order, so a finding
+        // dropped takes its thread with it.
+        let by_thread = threads.len() == findings.len();
+        let (findings, threads): (Vec<Finding>, Vec<String>) = match by_thread {
+            true => (findings.into_iter().zip(threads))
+                .filter(|(f, _)| !f.is_skipped_for_size())
+                .unzip(),
+            false => (
+                findings
+                    .into_iter()
+                    .filter(|f| !f.is_skipped_for_size())
+                    .collect(),
+                threads,
+            ),
+        };
         if findings.is_empty() {
             let next = self.after_round(review, self.ports.clock.now());
             self.update(|item| item.phase = next)?;
@@ -437,22 +509,25 @@ impl Runner {
         };
         let build = &item.build;
         let path = findings::findings_path(build);
-        if let Err(reason) = findings::write_findings_file(build, &path, round, &findings) {
+        let report_threads = by_thread && !threads.is_empty();
+        let written = findings::write_findings_file(build, &path, round, &findings, report_threads);
+        if let Err(reason) = written {
             return Ok(self.gate_failed(reason));
         }
         let held = findings.len();
-        let prompt = findings::fix_prompt(number, round, held, &path);
+        let prompt = findings::fix_prompt(number, round, held, &path, report_threads);
         let deferred_before = match findings::deferred(build) {
             Ok(deferred) => deferred,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
+        // Run at the head the reviewer read, before the worker's fix turn begins.
+        let checks = self.tests_before(round, &head, &findings);
         self.update(|item| {
+            item.test_checks.extend(checks);
             item.record_held(&findings);
-            for thread in threads {
-                if !item.threads_sent.contains(&thread) {
-                    item.threads_sent.push(thread);
-                }
-            }
+            // In the findings' order, which the worker's lines number.
+            item.threads_sent = threads;
+            item.thread_answers.clear();
             item.turn = Turn::Next { prompt };
             item.counts.fix_turns = item.counts.fix_turns.saturating_add(1);
             item.phase = Phase::Review(Review {
@@ -498,6 +573,7 @@ impl Runner {
             Some(Phase::Review(review)) => review.reading.clone(),
             _ => None,
         };
+        let started_at = reading.clone();
         let read = reading
             .filter(|_| matches!(&result, ReviewResult::Findings(Ok(_))))
             .filter(|head| self.still_at(head));
@@ -529,6 +605,7 @@ impl Runner {
             return Ok(None);
         }
         let issue = item.issue;
+        let (worktree, build) = (item.worktree.clone(), item.build.clone());
         let number = item
             .pull_request
             .expect("review runs once a pull request is known");
@@ -576,6 +653,13 @@ impl Runner {
             .clone()
             .unwrap_or_else(|| AgentName::kelpies(if local_round { QWEN } else { DEFECT_HUNTER }));
         let unreviewed: Vec<String> = unreviewed.into_iter().map(|f: Finding| f.file).collect();
+        let reviewer_name = reviewer.as_str().to_owned();
+        // A test a reviewer attached is kept only once its file has been checked.
+        let asked = self.round_asked_tests(&reviewer);
+        let result =
+            result.map(|found| self.checked_tests(asked, (issue, &worktree, &build), found));
+        // What a round that read the pull request found, to post once it is saved.
+        let mut ended: Option<Vec<Finding>> = None;
 
         let report = match (review.stage.clone(), result) {
             // The call stays due; one that keeps failing goes no further.
@@ -586,6 +670,8 @@ impl Runner {
             }
             // A second look that keeps failing leaves the first's findings to go alone.
             (ReviewStage::SecondLook { first }, Err(reason)) => {
+                // The first look ended with these findings, which now go on alone.
+                ended = Some(first.clone());
                 item.phase = Phase::Review(Review {
                     stage: ReviewStage::Found {
                         findings: first,
@@ -668,6 +754,7 @@ impl Runner {
                     if local_round {
                         item.note_local_round(&reviewer, &unreviewed);
                     }
+                    ended = Some(findings.clone());
                     // Nothing found: the pass goes on to the next reviewer at once.
                     if findings.is_empty() {
                         item.phase = self.after_round(review, now);
@@ -700,6 +787,15 @@ impl Runner {
             }
         };
         self.save(next)?;
+        if let Some(findings) = ended {
+            self.post_round(&Round {
+                number,
+                reviewer: &reviewer_name,
+                round,
+                head: started_at.as_deref(),
+                findings: &findings,
+            });
+        }
         Ok(Some(report))
     }
 }

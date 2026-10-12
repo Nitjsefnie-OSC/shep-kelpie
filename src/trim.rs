@@ -1,15 +1,14 @@
 //! Claude Code features no call kelpie makes uses
 //!
-//! Bundled skills, workflows, claude.ai connectors, the Artifact tool, plan
-//! mode, and the cron, design and worktree tools each add to the first
-//! turn's input, on every turn of every agent. Measured on Claude Code
+//! Bundled skills, workflows, remote control, claude.ai connectors, the
+//! Artifact tool, plan mode, and the cron, design and worktree tools each
+//! add to the first turn's input, on every turn of every agent. Measured on Claude Code
 //! 2.1.286 with a one-word prompt: 17,949 input tokens with an empty
 //! settings file, 10,867 with these. A bare tool name in `deny` removes the
 //! tool's definition; a scoped rule only blocks the call.
 //!
 //! A tool kelpie's code or instructions name is not here: `SendMessage`,
-//! `Agent`, `Skill`, `ToolSearch` and the `Task*` tools stay. Nor is
-//! `disableRemoteControl`.
+//! `Agent`, `Skill`, `ToolSearch` and the `Task*` tools stay.
 
 use serde_json::{Value, json};
 
@@ -35,6 +34,7 @@ pub(crate) fn trimmed(mut settings: Value) -> Value {
         "disableWorkflows",
         "disableClaudeAiConnectors",
         "disableArtifact",
+        "disableRemoteControl",
     ] {
         settings[key] = json!(true);
     }

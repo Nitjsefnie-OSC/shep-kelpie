@@ -2,9 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
+use super::attached::tests_folder;
 use super::calls::severity_tag;
 use crate::ports::{Finding, parse_findings};
 use crate::runner::turn;
+use crate::worker_folder;
 
 /// Where a round's findings are written for the worker's next turn
 const FINDINGS_FILE: &str = "review-findings.md";
@@ -32,11 +34,12 @@ pub(in crate::runner) fn deferred_path(build: &Path) -> PathBuf {
 ///
 /// A message naming the file when it is there but cannot be read.
 pub(in crate::runner) fn deferred(build: &Path) -> Result<Vec<Finding>, String> {
-    let path = deferred_path(build);
-    match std::fs::read_to_string(&path) {
-        Ok(text) => Ok(parse_findings(&text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("cannot read {}: {}", path.display(), e.kind())),
+    match worker_folder::read(build, Path::new(DEFERRED_FILE)) {
+        Ok(text) => Ok(text.map_or_else(Vec::new, |text| parse_findings(&text))),
+        Err(e) => Err(format!(
+            "cannot read {}: {e}",
+            deferred_path(build).display()
+        )),
     }
 }
 
@@ -84,6 +87,7 @@ pub(in crate::runner) fn write_findings_file(
     path: &Path,
     round: u32,
     findings: &[Finding],
+    numbered: bool,
 ) -> Result<(), String> {
     let deferred = deferred_path(folder);
     let mut text = format!(
@@ -91,12 +95,30 @@ pub(in crate::runner) fn write_findings_file(
          commit and push. A finding that is out of scope for this pull request may be \
          left: copy its line, as it stands here, onto a line of its own in {}. Kelpie \
          files what is there as an issue once the pull request merges, except a LOW \
-         one, which is dropped.\n\n",
+         one, which is dropped.",
         deferred.display()
     );
-    for f in findings {
+    if numbered {
+        text.push_str(
+            " Each line starts with its thread number, `thread <n>|`, which is how you \
+             report on it.",
+        );
+    }
+    if findings.iter().any(|f| f.test.is_some()) {
         text.push_str(&format!(
-            "{}|{}:{}|{}|{}\n",
+            " A line with a fifth field names a failing test the reviewer wrote for it, \
+             which is not in your worktree: read it at {}/<that path>.",
+            tests_folder(folder).display()
+        ));
+    }
+    text.push_str("\n\n");
+    for (at, f) in findings.iter().enumerate() {
+        if numbered {
+            text.push_str(&format!("thread {}|", at + 1));
+        }
+        let test = (f.test.as_ref()).map_or_else(String::new, |t| format!("|{t}"));
+        text.push_str(&format!(
+            "{}|{}:{}|{}|{}{test}\n",
             severity_tag(f.severity),
             f.file,
             f.line,
@@ -107,21 +129,46 @@ pub(in crate::runner) fn write_findings_file(
     turn::write(folder, path, &text)
 }
 
-pub(super) fn fix_prompt(number: u64, round: u32, count: usize, path: &Path) -> String {
+// What the worker is asked to end its reply with when the findings are a
+// review bot's threads. Kelpie reads the lines (`thread_lines`) and replies
+// on each thread for the worker, resolving the ones it fixed.
+const THREAD_LINES: &str = " Each finding is a review bot's thread, and its line in the file starts \
+     with its number, `thread <n>|`. Kelpie replies on each thread for you and \
+     resolves the ones you fixed, so end your final reply with one line per \
+     finding, using the number its line starts with: `thread <n>: fixed` or \
+     `thread <n>: declined: <the reason>`. A finding with no line is replied to as \
+     not addressed, and stays open.";
+
+pub(super) fn fix_prompt(
+    number: u64,
+    round: u32,
+    count: usize,
+    path: &Path,
+    threads: bool,
+) -> String {
+    let lines = if threads { THREAD_LINES } else { "" };
     format!(
         "Round {round} of the review on your pull request #{number} found \
          {count} finding(s), in {}. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
-        path.display()
+         `git push origin HEAD`. {}{lines}",
+        path.display(),
+        turn::KEEP_BODY_TRUE
     )
 }
 
-pub(in crate::runner) fn again_prompt(number: u64, round: u32, path: &Path) -> String {
+pub(in crate::runner) fn again_prompt(
+    number: u64,
+    round: u32,
+    path: &Path,
+    threads: bool,
+) -> String {
+    let lines = if threads { THREAD_LINES } else { "" };
     format!(
         "Your last turn on pull request #{number} pushed nothing, so round {round}'s \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`.",
-        path.display()
+         `git push origin HEAD`. {}{lines}",
+        path.display(),
+        turn::KEEP_BODY_TRUE
     )
 }
 
@@ -148,6 +195,7 @@ mod tests {
                 line: 9,
                 what: "looks racy".into(),
                 why: "two threads write the same field".into(),
+                test: None,
             },
             Finding {
                 severity: Severity::Low,
@@ -155,9 +203,10 @@ mod tests {
                 line: 1,
                 what: "unused import".into(),
                 why: "dead code".into(),
+                test: None,
             },
         ];
-        write_findings_file(dir.path(), &path, 3, &findings).unwrap();
+        write_findings_file(dir.path(), &path, 3, &findings, false).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             text.starts_with("Round 3's findings, at the reviewer's severity."),
@@ -181,14 +230,113 @@ mod tests {
     }
 
     #[test]
+    fn a_findings_test_is_its_fifth_field_and_the_header_says_where_to_read_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("review-findings.md");
+        let with = Finding {
+            test: Some("tests/flag.rs".into()),
+            ..bot_finding("first")
+        };
+        let without = bot_finding("second");
+
+        write_findings_file(
+            dir.path(),
+            &path,
+            1,
+            &[with.clone(), without.clone()],
+            false,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("\nMEDIUM|src/lib.rs:3|first|it matters|tests/flag.rs\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nMEDIUM|src/lib.rs:3|second|it matters\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "read it at {}/<that path>",
+                dir.path().join("review-tests").display()
+            )),
+            "the header says where the reviewer's file is: {text}"
+        );
+        assert_eq!(parse_findings(&text), [with, without]);
+
+        write_findings_file(dir.path(), &path, 1, &[bot_finding("third")], false).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("review-tests"), "{text}");
+    }
+
+    fn bot_finding(what: &str) -> Finding {
+        Finding {
+            severity: Severity::Medium,
+            file: "src/lib.rs".into(),
+            line: 3,
+            what: what.into(),
+            why: "it matters".into(),
+            test: None,
+        }
+    }
+
+    // A bot's findings are its threads, which the worker names by number: each
+    // line starts with its own, and the header says so.
+    #[test]
+    fn a_bots_threads_are_numbered_from_one_at_the_start_of_each_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("review-findings.md");
+        let findings = [bot_finding("first"), bot_finding("second")];
+        write_findings_file(dir.path(), &path, 3, &findings, true).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("Each line starts with its thread number"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nthread 1|MEDIUM|src/lib.rs:3|first|it matters\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nthread 2|MEDIUM|src/lib.rs:3|second|it matters\n"),
+            "{text}"
+        );
+
+        // The numbers are the worker's, so a line copied into the deferred
+        // file with its number still reads as the finding it was.
+        assert_eq!(parse_findings(&text), findings);
+    }
+
+    #[test]
     fn the_fix_prompt_names_the_round_the_pull_request_and_the_file() {
-        let prompt = fix_prompt(71, 3, 2, Path::new("/k/targets/shep/7/review-findings.md"));
+        let prompt = fix_prompt(
+            71,
+            3,
+            2,
+            Path::new("/k/targets/shep/7/review-findings.md"),
+            false,
+        );
         assert_eq!(
             prompt,
             "Round 3 of the review on your pull request #71 found 2 \
              finding(s), in /k/targets/shep/7/review-findings.md. Fix each one, then \
-             commit and push with `git push origin HEAD`."
+             commit and push with `git push origin HEAD`. Update the pull request's \
+             body so it matches the head you push: what changed, the files touched, the \
+             test evidence, and the decisions you made."
         );
+    }
+
+    #[test]
+    fn a_review_fix_prompt_asks_for_the_body_to_be_kept_true() {
+        let path = Path::new("/k/targets/shep/7/review-findings.md");
+        let ask = "Update the pull request's body so it matches the head you push";
+        for threads in [false, true] {
+            let fix = fix_prompt(71, 3, 2, path, threads);
+            let again = again_prompt(71, 3, path, threads);
+            assert!(fix.contains(ask), "{fix}");
+            assert!(again.contains(ask), "{again}");
+        }
     }
 
     #[test]
@@ -206,15 +354,61 @@ mod tests {
             line: 1,
             what: "nit".into(),
             why: "style".into(),
+            test: None,
         };
-        let err = write_findings_file(&folder, &folder.join("review-findings.md"), 1, &[finding])
-            .unwrap_err();
+        let err = write_findings_file(
+            &folder,
+            &folder.join("review-findings.md"),
+            1,
+            &[finding],
+            false,
+        )
+        .unwrap_err();
         assert!(err.contains("review-findings.md"), "{err}");
 
         // Restore write access so the tempdir can clean itself up.
         let mut perms = std::fs::metadata(&folder).unwrap().permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&folder, perms).unwrap();
+    }
+
+    #[test]
+    fn a_findings_file_that_links_to_another_file_is_replaced_and_that_file_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (build, hook) = (dir.path().join("build"), dir.path().join("pre-commit"));
+        std::fs::create_dir(&build).unwrap();
+        std::fs::write(&hook, "#!/bin/sh\n").unwrap();
+        std::os::unix::fs::symlink(&hook, findings_path(&build)).unwrap();
+        let finding = Finding {
+            severity: Severity::Low,
+            file: "a.rs".into(),
+            line: 1,
+            what: "nit".into(),
+            why: "style".into(),
+            test: None,
+        };
+
+        write_findings_file(&build, &findings_path(&build), 1, &[finding], false).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&hook).unwrap(), "#!/bin/sh\n");
+        let text = std::fs::read_to_string(findings_path(&build)).unwrap();
+        assert!(text.contains("a.rs:1"), "{text}");
+    }
+
+    #[test]
+    fn a_deferred_file_that_links_to_another_file_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (build, theirs) = (dir.path().join("build"), dir.path().join("notes.md"));
+        std::fs::create_dir(&build).unwrap();
+        let line = "HIGH|src/lib.rs:3|a thing|it is wrong\n";
+        std::fs::write(&theirs, line).unwrap();
+        std::os::unix::fs::symlink(&theirs, deferred_path(&build)).unwrap();
+
+        let err = deferred(&build).unwrap_err();
+
+        assert!(err.contains("deferred-findings.md"), "{err}");
+        assert!(err.contains("not a regular file"), "{err}");
+        assert!(!err.contains("a thing"), "{err}");
     }
 
     // Round 1 on pull request 71 found one MEDIUM finding, and its fix turn is next.
@@ -231,6 +425,7 @@ mod tests {
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         }])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next
@@ -267,6 +462,8 @@ mod tests {
                 pull_request: 71,
                 round: 1,
                 head: fixed,
+                checks: Vec::new(),
+                unchecked: 0,
             })
         );
     }
@@ -311,7 +508,7 @@ mod tests {
                         }],
                     },
                 },
-                "prompt": again_prompt(71, 1, &path),
+                "prompt": again_prompt(71, 1, &path, false),
             })
         );
         assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id }));
@@ -330,7 +527,9 @@ mod tests {
             format!(
                 "Your last turn on pull request #71 pushed nothing, so round 1's \
                  findings in {} still hold. Fix each one, then commit and push with \
-                 `git push origin HEAD`.",
+                 `git push origin HEAD`. Update the pull request's body so it matches the \
+                 head you push: what changed, the files touched, the test evidence, and \
+                 the decisions you made.",
                 rig.build_7().join("review-findings.md").display()
             )
         );
@@ -341,6 +540,8 @@ mod tests {
                 pull_request: 71,
                 round: 1,
                 head: rig.forge.head_of("kelpie/7"),
+                checks: Vec::new(),
+                unchecked: 0,
             })
         );
         assert_eq!(
@@ -427,6 +628,7 @@ mod tests {
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         }])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next

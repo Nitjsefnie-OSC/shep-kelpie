@@ -87,18 +87,9 @@ fn parse_open_issues(stdout: &[u8]) -> Result<Vec<OpenIssue>, ForgeError> {
         .collect())
 }
 
-pub(super) fn close_issue(repo: &ForgeSlug, number: u64, comment: &str) -> Result<(), ForgeError> {
+pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
     let number = number.to_string();
-    let args = [
-        "issue",
-        "close",
-        &number,
-        "--repo",
-        repo.as_str(),
-        "--comment",
-        comment,
-    ];
-    gh(&args).map(drop)
+    gh(&["issue", "close", &number, "--repo", repo.as_str()]).map(drop)
 }
 
 // `gh issue create` prints the new issue's URL, which ends in its number.

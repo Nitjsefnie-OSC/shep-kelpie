@@ -4,24 +4,25 @@
 //! or when room opens. A command already running under a dog that went
 //! away is seated at once, and for a [`REJOIN_GRACE`] after the door opens
 //! only such commands are: the others wait, so the runs a restart left
-//! going are counted before anyone new. Any line from a holder, or its
-//! connection closing, gives its place back.
+//! going are counted before anyone new. A holder's connection closing gives
+//! its place back; a line on it does not.
 
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
+use super::e2e::Remote;
 use super::{Kept, lock_desk};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
-use crate::lease::door::{Answer, Ask};
+use crate::lease::door::{Answer, Ask, E2E};
 
 /// How long a connection has to send its ask before the dog hangs up
 const ASK_WITHIN: Duration = Duration::from_secs(10);
@@ -33,7 +34,8 @@ const LONGEST_ASK: u64 = 64 * 1024;
 const ACCEPT_REST: Duration = Duration::from_millis(500);
 
 /// How long after the door opens only running commands are seated. A run
-/// whose dog went away knocks every second, so three seconds covers it.
+/// whose dog went away knocks every second, so three seconds covers it, with
+/// room for a knock that lands late.
 pub const REJOIN_GRACE: Duration = Duration::from_secs(3);
 
 // Waiters to wake when the lease grants them, by ticket.
@@ -76,7 +78,18 @@ pub fn open(socket: &Path) -> Result<UnixListener, String> {
 
 /// Answers every command that knocks at `listener`, for as long as it runs,
 /// granting nothing new for `grace` from now
-pub async fn serve(listener: UnixListener, desk: Arc<Mutex<Kept>>, grace: Duration) {
+///
+/// An `e2e` ask is placed by the worktree it names under `kelpie_home`, and
+/// run through `remote`.
+pub(super) async fn serve(
+    listener: UnixListener,
+    desk: Arc<Mutex<Kept>>,
+    grace: Duration,
+    kelpie_home: PathBuf,
+    remote: Remote,
+) {
+    let kelpie_home = Arc::new(kelpie_home);
+    let remote = Arc::new(remote);
     let fresh_from = tokio::time::Instant::now() + grace;
     let waiters = Waiters::default();
     let mut next = 0;
@@ -94,23 +107,46 @@ pub async fn serve(listener: UnixListener, desk: Arc<Mutex<Kept>>, grace: Durati
             ticket: Ticket(next),
             desk: Arc::clone(&desk),
             waiters: Arc::clone(&waiters),
+            kelpie_home: Arc::clone(&kelpie_home),
+            remote: Arc::clone(&remote),
+            e2e_host: None,
         };
         tokio::spawn(visit(stream, place, fresh_from));
     }
 }
 
 // One connection's hold on the lease, given back however the visit ends.
-struct Place {
-    ticket: Ticket,
-    desk: Arc<Mutex<Kept>>,
+pub(super) struct Place {
+    pub(super) ticket: Ticket,
+    pub(super) desk: Arc<Mutex<Kept>>,
     waiters: Waiters,
+    pub(super) kelpie_home: Arc<PathBuf>,
+    pub(super) remote: Arc<Remote>,
+    // The host whose e2e lease this connection holds or waits for, if it is
+    // an e2e ask; otherwise it is for cargo-test.
+    pub(super) e2e_host: Option<String>,
+}
+
+impl Place {
+    // Lists the waiter before it asks, so a grant cannot miss it.
+    pub(super) fn list_waiter(&self, wake: oneshot::Sender<()>) {
+        self.waiters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(self.ticket, wake);
+    }
 }
 
 impl Drop for Place {
     fn drop(&mut self) {
         let mut waiters = self.waiters.lock().unwrap_or_else(PoisonError::into_inner);
         waiters.remove(&self.ticket);
-        let granted = lock_desk(&self.desk).desk.leave_test(self.ticket);
+        let mut kept = lock_desk(&self.desk);
+        let granted = match &self.e2e_host {
+            Some(host) => kept.desk.leave_e2e(host, self.ticket),
+            None => kept.desk.leave_test(self.ticket),
+        };
+        drop(kept);
         for ticket in granted {
             if let Some(wake) = waiters.remove(&ticket) {
                 let _ = wake.send(());
@@ -119,7 +155,7 @@ impl Drop for Place {
     }
 }
 
-async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instant) {
+async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::Instant) {
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     let mut first = Vec::new();
@@ -130,20 +166,22 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
     };
     let ask = match serde_json::from_slice::<Ask>(&first) {
         Ok(ask) if ask.take == CARGO_TEST => ask,
+        Ok(ask) if ask.take == E2E => {
+            return super::e2e::visit(&mut place, ask, &mut reader, &mut write).await;
+        }
         Ok(ask) => {
             let why = format!(
-                "{:?} is not a lease the door holds: only {CARGO_TEST}",
+                "{:?} is not a lease the door holds: only {CARGO_TEST} and {E2E}",
                 ask.take
             );
             return say(&mut write, &Answer::Error(why)).await;
         }
         Err(e) => return say(&mut write, &Answer::Error(format!("not an ask: {e}"))).await,
     };
-    let mut lines = reader.lines();
     if !ask.running {
         tokio::select! {
             () = tokio::time::sleep_until(fresh_from) => {}
-            _ = lines.next_line() => return,
+            _ = heard(&mut reader) => return,
         }
     }
     let (wake, woken) = oneshot::channel();
@@ -172,18 +210,27 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
         tokio::select! {
             _ = woken => {}
             // Anything but a grant first, even a line, ends the wait.
-            _ = lines.next_line() => return,
+            _ = heard(&mut reader) => return,
         }
     }
     println!("{CARGO_TEST}: granted to pid {pid} running {what}");
     say(&mut write, &Answer::Granted).await;
-    // Any line, or the connection's end, gives it back.
-    let _ = lines.next_line().await;
+    // Only the connection's end gives it back: a descendant of the command
+    // holds the connection too, and a line from it is not the command ending.
+    // What it writes is dropped as it arrives, never kept.
+    while heard(&mut reader).await {}
     println!("{CARGO_TEST}: pid {pid} gave it back");
 }
 
+// Whether the connection sent anything, which it discards: a fixed buffer
+// bounds what the dog holds however much a holder writes.
+pub(super) async fn heard(reader: &mut BufReader<OwnedReadHalf>) -> bool {
+    let mut sink = [0; 1024];
+    matches!(reader.read(&mut sink).await, Ok(1..))
+}
+
 // A command that went away is heard as the connection's end.
-async fn say(write: &mut OwnedWriteHalf, answer: &Answer) {
+pub(super) async fn say(write: &mut OwnedWriteHalf, answer: &Answer) {
     let mut line = serde_json::to_vec(answer).expect("an answer serializes to JSON");
     line.push(b'\n');
     let _ = write.write_all(&line).await;

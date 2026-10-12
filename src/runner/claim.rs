@@ -6,6 +6,8 @@
 //! a forge that refuses it leaves a note and never stops the work item.
 //! Each listed implementer's `agent:` label is made where the repo lacks it.
 
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
 use super::Runner;
 
 /// The label on an issue while a work item holds it
@@ -17,12 +19,7 @@ pub const IN_PROGRESS: &str = "in-progress";
 impl Runner {
     // Labels `issue` as held, or takes the label off, and notes a refusal
     pub(super) fn mark_held(&mut self, issue: u64, held: bool) {
-        let repo = &self.remote;
-        if let Err(e) = self
-            .ports
-            .forge
-            .set_issue_label(repo, issue, IN_PROGRESS, held)
-        {
+        if let Err(e) = self.label_issue(issue, IN_PROGRESS, held) {
             let verb = if held { "add" } else { "remove" };
             self.notes.push(format!(
                 "cannot {verb} `{IN_PROGRESS}` on issue #{issue}: {e}"
@@ -31,10 +28,15 @@ impl Runner {
     }
 
     // Puts the label right after a start: on for each work item held, off
-    // for each finished issue, whose own removal a refusal may have missed
+    // for each finished or dropped issue with no work item open, whose own
+    // removal a refusal may have missed
     pub(super) fn settle_labels(&mut self) {
         let held = self.state.open_issues();
-        let finished = self.state.finished.clone();
+        let state = &self.state;
+        let finished: Vec<u64> = (state.finished.iter().chain(&state.dropped))
+            .filter(|n| !held.contains(n))
+            .copied()
+            .collect();
         for issue in held {
             self.mark_held(issue, true);
         }
@@ -48,7 +50,7 @@ impl Runner {
     pub(super) fn make_agent_labels(&mut self) {
         let labels = crate::issues::agent_labels(&self.agents);
         let wanted = labels.iter().map(crate::issues::AgentLabel::new_label);
-        let made = crate::issues::make_missing(self.ports.forge.as_ref(), &self.remote, wanted);
+        let made = self.make_missing_labels(wanted);
         if let Err(e) = made {
             self.notes.push(e);
         }
@@ -58,7 +60,30 @@ impl Runner {
     ///
     /// Each note is handed out once.
     pub fn take_notes(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.notes)
+        self.notes.take()
+    }
+}
+
+/// What the runner carried on without, oldest first, kept in memory until
+/// `take_notes` hands it out, and shared with the forge's rate-limit hold
+#[derive(Debug, Clone, Default)]
+pub(super) struct Notes(Arc<Mutex<Vec<String>>>);
+
+impl Notes {
+    fn lock(&self) -> MutexGuard<'_, Vec<String>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn push(&self, note: String) {
+        self.lock().push(note);
+    }
+
+    pub(super) fn extend(&self, notes: impl IntoIterator<Item = String>) {
+        self.lock().extend(notes);
+    }
+
+    fn take(&self) -> Vec<String> {
+        std::mem::take(&mut *self.lock())
     }
 }
 
@@ -99,6 +124,21 @@ mod tests {
         rig.ask(&runner, "drop", None);
         assert!(!held(&rig, 7));
         assert_eq!(notes(&runner), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_dropped_issue_added_again_keeps_the_label_through_a_start() {
+        let (rig, runner) = running("koji");
+        rig.ask(&runner, "add", Some("7"));
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "drop", None);
+        rig.ask(&runner, "add", Some("7"));
+        assert!(held(&rig, 7));
+
+        runner.lock().unwrap().settle_labels();
+        assert!(held(&rig, 7));
     }
 
     #[test]

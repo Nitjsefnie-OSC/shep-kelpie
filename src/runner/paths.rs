@@ -35,7 +35,7 @@ impl TryFrom<&str> for ProjectName {
             return Err(ProjectNameError(value.to_owned()));
         }
         // A project's folder sits beside kelpie's own in kelpie's home.
-        if crate::home::OWN.contains(&value) {
+        if crate::home::is_own(value) {
             return Err(ProjectNameError(value.to_owned()));
         }
         Ok(Self(value.to_owned()))
@@ -88,10 +88,20 @@ pub struct ProjectPaths {
     /// The project manager's folder: the board as it stood at its last wake,
     /// and its notes
     pub pm: PathBuf,
+    /// The advisor's folder: the ruling it votes on, and the diff of its branch
+    pub advisor: PathBuf,
+    /// The researcher's folder: the ruling it votes on, the rulings before it,
+    /// the threads, the worker's transcript and the maintainer's
+    pub researcher: PathBuf,
+    /// Every ruling answered, one JSON object a line, which the researcher reads
+    pub rulings: PathBuf,
     /// The folder for the worker's settings file and instructions
     pub worker: PathBuf,
     /// The folder for the plugins that hold each step's skill
     pub skills: PathBuf,
+    /// Where the retros workers wrote when their work items finished are
+    /// kept unread, one file each, which every project shares
+    pub retro_reports: PathBuf,
     /// Kelpie's own tools for showing a work item's UI, which every project shares
     pub tools: Tools,
     /// Kelpie's home, which holds every folder here
@@ -120,8 +130,12 @@ impl ProjectPaths {
             board: folder.join("board.md"),
             answers: folder.join("answers"),
             pm: folder.join("pm"),
+            advisor: folder.join("advisor"),
+            researcher: folder.join("researcher"),
+            rulings: folder.join("rulings.jsonl"),
             worker: folder.join("worker"),
             skills: folder.join("skills"),
+            retro_reports: kelpie_home.join("retro-reports/unverified"),
             tools: Tools::under(kelpie_home),
             kelpie_home: kelpie_home.to_owned(),
             shep_home: shep_home.to_owned(),
@@ -130,6 +144,12 @@ impl ProjectPaths {
             builds: folder.join("builds"),
             issues: folder.join("issues"),
         }
+    }
+
+    /// The project's name, which names its folder
+    pub fn name(&self) -> String {
+        let name = self.folder.file_name();
+        name.map_or_else(String::new, |n| n.to_string_lossy().into_owned())
     }
 
     /// Whether the door, and the longest socket a call opens (a 128-bit
@@ -147,6 +167,17 @@ impl ProjectPaths {
     /// and every build folder
     pub fn owned(&self) -> [PathBuf; 2] {
         [self.worktrees.clone(), self.builds.clone()]
+    }
+
+    /// The project's `[app.dogs.kelpie.e2e]` table as the runner recorded it
+    /// for the dog, which is not there while the project sets none
+    pub fn e2e(&self) -> PathBuf {
+        self.folder.join("e2e.json")
+    }
+
+    /// The folder holding every work item's worktree
+    pub fn worktrees(&self) -> PathBuf {
+        self.worktrees.clone()
     }
 
     /// The worktree for the work item that resolves `issue`

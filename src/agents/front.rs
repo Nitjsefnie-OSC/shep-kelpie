@@ -30,6 +30,8 @@ enum Front {
     Reviewer(Reviewer),
     IssueWriter(OnClaude),
     Pm(OnClaude),
+    Advisor(Expert),
+    Researcher(Expert),
 }
 
 // The first pass: the role alone, whatever else is there
@@ -57,6 +59,8 @@ struct Implementer {
     gateway: Option<GatewayName>,
     #[serde(default)]
     context: Option<ContextSize>,
+    #[serde(default)]
+    tools: Option<NonBlank>,
 }
 
 // The issue writer's and the project manager's keys: a Claude Code
@@ -69,6 +73,28 @@ struct OnClaude {
     harness: Harness,
     model: NonBlank,
     effort: Effort,
+}
+
+// The advisor's and the researcher's keys: a session on any harness. Neither
+// takes `tools`: each is held to its reads by the kind of call kelpie makes.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Expert {
+    #[serde(rename = "role")]
+    _role: Role,
+    harness: Harness,
+    model: NonBlank,
+    effort: Effort,
+    #[serde(default)]
+    usage: Option<UsageReader>,
+    #[serde(default)]
+    lease: Option<LeaseName>,
+    #[serde(default)]
+    url: Option<EndpointUrl>,
+    #[serde(default)]
+    gateway: Option<GatewayName>,
+    #[serde(default)]
+    context: Option<ContextSize>,
 }
 
 // What runs a reviewer: a session on a harness, a command, an endpoint or a
@@ -127,6 +153,8 @@ struct Reviewer {
     reviews_on_ready: Option<bool>,
     #[serde(default)]
     rounds: Option<NonZeroU32>,
+    #[serde(default)]
+    tools: Option<NonBlank>,
 }
 
 // A session's keys, whichever role runs it
@@ -138,6 +166,7 @@ struct SessionKeys<'a> {
     lease: Option<&'a LeaseName>,
     host: Option<ModelHost>,
     context: Option<ContextSize>,
+    tools: Option<&'a NonBlank>,
 }
 
 /// The agent an agent file's `text` defines, or what is wrong with it
@@ -155,6 +184,8 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Role::Reviewer => Front::Reviewer(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::IssueWriter => Front::IssueWriter(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
+        Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
+        Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
     };
     let body = body.trim();
     let prompt = (!body.is_empty()).then(|| body.to_owned());
@@ -169,13 +200,14 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 lease: keys.lease.as_ref(),
                 host: host(keys.url.as_ref(), keys.gateway.as_ref())?,
                 context: keys.context,
+                tools: keys.tools.as_ref(),
             })?,
             prompt,
             paths: Vec::new(),
             second_look: false,
         }),
         Front::Reviewer(keys) => {
-            let runs = keys.runs(prompt.is_some(), &yaml)?;
+            let runs = keys.runs(prompt.as_deref(), &yaml)?;
             Ok(Agent {
                 role: Role::Reviewer,
                 runs,
@@ -202,6 +234,36 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 "a Claude Code hook is what holds its writes to its notes",
             ),
         ),
+        Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
+        Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
+    }
+}
+
+impl Expert {
+    /// The agent of `role` these keys and `prompt` make, or why not: `who`
+    /// names it
+    fn agent(&self, role: Role, prompt: Option<String>, who: &str) -> Result<Agent, String> {
+        if prompt.is_none() {
+            return Err(format!(
+                "{who}'s prompt is the file's body: write it below the closing `---`"
+            ));
+        }
+        Ok(Agent {
+            role,
+            runs: session(&SessionKeys {
+                harness: self.harness,
+                model: &self.model,
+                effort: self.effort,
+                usage: self.usage,
+                lease: self.lease.as_ref(),
+                host: host(self.url.as_ref(), self.gateway.as_ref())?,
+                context: self.context,
+                tools: None,
+            })?,
+            prompt,
+            paths: Vec::new(),
+            second_look: false,
+        })
     }
 }
 
@@ -238,6 +300,7 @@ impl OnClaude {
                 lease: None,
                 host: None,
                 context: None,
+                tools: None,
             })?,
             prompt,
             paths: Vec::new(),
@@ -247,9 +310,9 @@ impl OnClaude {
 }
 
 impl Reviewer {
-    /// What runs it, or why its keys cannot: `prompted` says whether the
-    /// file has a body
-    fn runs(&self, prompted: bool, yaml: &str) -> Result<Runs, String> {
+    /// What runs it, or why its keys cannot: `prompt` is the file's body, if
+    /// it has one
+    fn runs(&self, prompt: Option<&str>, yaml: &str) -> Result<Runs, String> {
         let harness = match self.harness {
             ReviewerHarness::ClaudeCode => Harness::ClaudeCode,
             ReviewerHarness::Pi => Harness::Pi,
@@ -258,16 +321,16 @@ impl Reviewer {
             ReviewerHarness::StandIn => Harness::StandIn,
             ReviewerHarness::Command => {
                 self.no_bot_keys("command", yaml)?;
-                return self.command(prompted).map(Runs::Command);
+                return self.command(prompt.is_some()).map(Runs::Command);
             }
             ReviewerHarness::Endpoint => {
                 self.no_bot_keys("endpoint", yaml)?;
-                return self.endpoint(prompted).map(Runs::Endpoint);
+                return self.endpoint(prompt).map(Runs::Endpoint);
             }
             ReviewerHarness::Bot => {
                 let key = if self.bot.is_some() { "bot" } else { "harness" };
                 return self
-                    .bot(prompted)
+                    .bot(prompt.is_some())
                     .map(Runs::Bot)
                     .map_err(|m| at_key(yaml, key, &m));
             }
@@ -285,7 +348,7 @@ impl Reviewer {
                 "runs a session on {name}, which needs `model` and `effort`"
             ));
         };
-        if !prompted {
+        if prompt.is_none() {
             return Err(format!(
                 "runs a session on {name}, whose prompt is the file's body: write it \
                  below the closing `---`"
@@ -299,6 +362,7 @@ impl Reviewer {
             lease: self.lease.as_ref(),
             host: host(self.url.as_ref(), self.gateway.as_ref())?,
             context: self.context,
+            tools: self.tools.as_ref(),
         })
     }
 
@@ -310,11 +374,12 @@ impl Reviewer {
             || self.effort.is_some()
             || self.url.is_some()
             || self.gateway.is_some()
-            || self.context.is_some();
+            || self.context.is_some()
+            || self.tools.is_some();
         if session_keys {
             return Err(
-                "runs a command, which takes no `model`, `effort`, `url`, `gateway` \
-                        or `context`"
+                "runs a command, which takes no `model`, `effort`, `url`, `gateway`, \
+                        `context` or `tools`"
                     .into(),
             );
         }
@@ -340,15 +405,26 @@ impl Reviewer {
         }
     }
 
-    fn endpoint(&self, prompted: bool) -> Result<Endpoint, String> {
-        self.on_its_own("endpoint", prompted)?;
+    // An endpoint takes a body for what to report. Kelpie sends the diff in
+    // chunks, so the body cannot place the whole diff or its base.
+    fn endpoint(&self, prompt: Option<&str>) -> Result<Endpoint, String> {
+        self.on_its_own("endpoint", false)?;
+        for placeholder in ["{{BASE}}", "{{DIFF}}"] {
+            if prompt.is_some_and(|body| body.contains(placeholder)) {
+                return Err(format!(
+                    "runs on endpoint, which sends the diff in chunks of its own, so its \
+                     body cannot name {placeholder}: leave it out"
+                ));
+            }
+        }
         let other = self.effort.is_some()
             || self.command.is_some()
             || self.ollama.is_some()
-            || self.ollama_model.is_some();
+            || self.ollama_model.is_some()
+            || self.tools.is_some();
         if other {
             return Err("runs on an endpoint, which takes no `effort`, `command`, \
-                        `ollama` or `ollama_model`: its url is the Ollama host"
+                        `ollama`, `ollama_model` or `tools`: its url is the Ollama host"
                 .into());
         }
         let host = host(self.url.as_ref(), self.gateway.as_ref())?;
@@ -365,6 +441,7 @@ impl Reviewer {
             model: model.clone(),
             context,
             lease: self.lease.clone(),
+            prompt: prompt.map(str::to_owned),
         })
     }
 
@@ -418,6 +495,12 @@ fn host(
 const NO_LEASE: &str = "names a `gateway`, which queues its calls itself, so it takes no `lease`";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
+    if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {
+        let name = keys.harness.as_str();
+        return Err(format!(
+            "runs on {name}, which takes no `tools`: only claude-code has an allow-list to name"
+        ));
+    }
     let harness = match (keys.harness, &keys.host, keys.context) {
         (Harness::ClaudeCode, None, None) => AgentHarness::ClaudeCode,
         (Harness::ClaudeCode, ..) => {
@@ -452,6 +535,7 @@ fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
         model: keys.model.clone(),
         effort: keys.effort,
         harness,
+        tools: keys.tools.cloned(),
     })
 }
 
@@ -536,7 +620,7 @@ fn yaml_error(yaml: &str, error: &serde_saphyr::Error) -> String {
 }
 
 // The frontmatter between the opening and closing `---` lines, and the body after.
-fn split(text: &str) -> Option<(&str, &str)> {
+pub(super) fn split(text: &str) -> Option<(&str, &str)> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let rest = text
         .strip_prefix("---\n")

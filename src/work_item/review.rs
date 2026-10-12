@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::is_zero;
-use crate::ports::{Finding, Timestamp};
+use crate::ports::{Finding, TestOutcome, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::AgentName;
 
@@ -52,6 +52,24 @@ pub struct Review {
     /// worktree held, clean, as the round started
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reading: Option<String>,
+    /// The run kelpie waits on before a reviewer reads a head (ADR 0008)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ci: Option<Box<Awaited>>,
+}
+
+/// CI on the head a round's reviewer is about to read
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Awaited {
+    /// The head
+    pub head: String,
+    /// When kelpie first saw that head, whose checks need two minutes to
+    /// register whole
+    pub since: Timestamp,
+    /// Whether the run passed, so no later reviewer of the pass waits again
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub green: bool,
 }
 
 impl Review {
@@ -67,6 +85,7 @@ impl Review {
             unread: true,
             bots_only: false,
             reading: None,
+            ci: None,
         }
     }
 
@@ -98,6 +117,64 @@ impl Review {
             unread: self.unread,
             bots_only: self.bots_only,
             reading: None,
+            ci: self.ci,
+        }
+    }
+}
+
+/// What kelpie ran of a finding's test, at the head the reviewer read and at the fix's
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestCheck {
+    /// The finding's file
+    pub file: String,
+    /// The finding's line
+    pub line: u32,
+    /// The finding's text
+    pub what: String,
+    /// The round whose findings it was sent in
+    pub round: u32,
+    /// The run at the head the reviewer read
+    pub before: TestOutcome,
+    /// The run at the fix's head. None while the fix has not moved the head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<TestOutcome>,
+}
+
+/// What the two runs of a finding's test say, none of which holds the pass
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reading {
+    /// It failed before the fix and passed after
+    Verified,
+    /// It passed before the fix, so it does not reproduce the finding
+    NotReproducing,
+    /// It failed after the fix as well
+    StillFailing,
+    /// A run was not made, or timed out, so nothing is said
+    Unknown,
+    /// The fix has not been run yet
+    Waiting,
+}
+
+impl TestCheck {
+    /// Whether this is `finding`'s check from `round`
+    pub fn is_for(&self, round: u32, finding: &Finding) -> bool {
+        self.round == round
+            && self.file == finding.file
+            && self.line == finding.line
+            && self.what == finding.what
+    }
+
+    /// What its runs say
+    pub fn reading(&self) -> Reading {
+        use TestOutcome::{Failed, Passed};
+        match (&self.before, &self.after) {
+            (Passed, _) => Reading::NotReproducing,
+            (Failed { .. }, Some(Passed)) => Reading::Verified,
+            (Failed { .. }, Some(Failed { .. })) => Reading::StillFailing,
+            (Failed { .. }, None) => Reading::Waiting,
+            _ => Reading::Unknown,
         }
     }
 }
@@ -183,6 +260,10 @@ pub enum ReviewStage {
         /// Whether the bot gave no sign of it and it went out once more
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         resent: bool,
+        /// Whether the bot's review failed and the summon went out once
+        /// more for it, so a second failure passes the bot over
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
     },
     /// The bot's review covers the head, and its threads are read again
     /// until two reads agree, since the forge can show a review before
@@ -215,6 +296,7 @@ mod tests {
             line: 3,
             what: "bad".into(),
             why: "breaks".into(),
+            test: None,
         };
         assert_eq!(
             value(ReviewStage::SecondLook {

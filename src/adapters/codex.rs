@@ -22,19 +22,18 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::claude::sandbox::fence_policy;
+use super::claude::sandbox::call_policy;
 use super::claude::settings::shell_quote;
 use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
 use super::process::{Processes, RunError};
 use crate::fence;
-use crate::guard::{FOLDER_FLAG, PIN_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy, Sandbox,
-    Session, SessionId, Tools, Usage, written_at,
+    Session, SessionId, Tools, Transcript, Usage, written_at,
 };
-use crate::profile::CREDENTIALS;
-use crate::settings::{AgentHarness, Harness};
+use crate::settings::{AgentHarness, Harness, HookPoint};
 
 #[cfg(test)]
 mod tests;
@@ -78,7 +77,7 @@ const LOGS: &str = "log";
 /// A list of those would miss the next one Codex adds, so the call writes
 /// only these. Not `tmp`: Codex puts a folder in it first on every hook's
 /// PATH, so a `git` planted there would run inside `kelpie guard`. Codex
-/// runs on without it (Facts).
+/// runs on without it (`docs/facts/codex-as-an-agent.md`).
 const WRITTEN: [&str; 5] = [
     "sessions",
     "archived_sessions",
@@ -95,7 +94,8 @@ const INSTALLATION_ID: &str = "installation_id";
 /// its hooks or its sandbox
 ///
 /// `unified_exec` is not among them: Codex turns it back on unless an
-/// administrator's `requirements.toml` pins it off (Facts).
+/// administrator's `requirements.toml` pins it off
+/// (`docs/facts/codex-as-an-agent.md`).
 const FEATURES_OFF: [&str; 16] = [
     // A crew of Codex's own, whose calls kelpie's checks were not measured on
     "multi_agent",
@@ -125,6 +125,8 @@ pub struct CodexCli {
     program: OsString,
     lambs: Option<Arc<dyn LambLabels>>,
     sandbox: Arc<dyn Sandbox>,
+    // What a call with no fence may not read: the shepherd's home
+    unfenced_no_read: Vec<String>,
     login: PathBuf,
 }
 
@@ -137,6 +139,7 @@ impl ClaudeCli {
             program: "codex".into(),
             lambs: self.lambs.clone(),
             sandbox: Arc::clone(&self.sandbox),
+            unfenced_no_read: self.unfenced_no_read.clone(),
             login: codex_home,
         }
     }
@@ -176,7 +179,8 @@ impl Agents for CodexCli {
                 lambs.label(pid, &label);
             }
         };
-        // Codex dies of a full stdout pipe the sandbox's Node made non-blocking (Facts).
+        // Codex dies of a full stdout pipe the sandbox's Node made non-blocking
+        // (`docs/facts/codex-as-an-agent.md`).
         let outputs = [files.stdout.as_path(), files.stderr.as_path()];
         let run = self
             .processes
@@ -214,6 +218,14 @@ impl Agents for CodexCli {
             usage: turn.spent.since(before),
             session_cost: None,
             context: None,
+        })
+    }
+
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        let files = Files::of(call);
+        Some(Transcript {
+            folder: files.home.join("sessions"),
+            threads: Some(files.threads),
         })
     }
 
@@ -268,13 +280,15 @@ impl CodexCli {
             )?)
             .current_dir(&call.cwd)
             .env("CODEX_HOME", &files.home)
-            .env("TMPDIR", &files.scratch);
+            .env("TMPDIR", &files.scratch)
+            // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
+            .env("TMPPREFIX", files.scratch.join("zsh"));
         if let Some(fence) = &call.reach.fence {
             command.envs(&fence.env);
         }
         self.sandbox
             .wrap(
-                &policy(call, &self.login, &files),
+                &policy(call, &self.login, &files, &self.unfenced_no_read),
                 &files.sandbox_settings,
                 &command,
             )
@@ -301,7 +315,8 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
         .is_some_and(|f| !f.hooks.is_empty())
     {
         return Err(AgentError::Setup(
-            "kelpie does not run `worker.guard_hooks` on codex: remove them or put \
+            "kelpie does not run `worker.guard_hooks` on codex: remove them, move the check \
+             to a `command` or `write` hook in `hooks`, which runs on every harness, or put \
              the worker on Claude Code"
                 .into(),
         ));
@@ -474,7 +489,15 @@ fn argv(
         [
             // Codex's levels share Claude Code's names; a model refuses one it lacks.
             config("model_reasoning_effort", call.effort.as_str()),
-            config("web_search", "disabled"),
+            // Only the researcher searches the web, which reads and writes nothing here.
+            config(
+                "web_search",
+                if call.tools == Tools::Research {
+                    "live"
+                } else {
+                    "disabled"
+                },
+            ),
             config("check_for_update_on_startup", false),
             config(
                 "sqlite_home",
@@ -497,13 +520,22 @@ fn argv(
     for feature in off {
         argv.extend(["--disable".into(), feature.into()]);
     }
+    // A retro, an advisor and a researcher change nothing, so no `apply_patch` of theirs is let through.
+    let reads_only = matches!(call.tools, Tools::Retro | Tools::Advise | Tools::Research);
     let hooks = match &call.reach.fence {
-        Some(fence) => hooks(fence),
-        None => no_writes(),
+        Some(fence) if !reads_only => hooks(fence),
+        _ => no_writes(),
     };
     // Codex runs a hook only once it is trusted; kelpie wrote these itself.
     argv.push("--dangerously-bypass-hook-trust".into());
     argv.extend(["-c".into(), config("hooks.PreToolUse", hooks)]);
+    let after = match &call.reach.fence {
+        Some(fence) if call.tools == Tools::Work => after_hooks(fence),
+        _ => None,
+    };
+    if let Some(after) = after {
+        argv.extend(["-c".into(), config("hooks.PostToolUse", after)]);
+    }
     argv.push("--".into());
     if let Some(thread) = resumed {
         argv.push(thread.id.as_str().into());
@@ -549,13 +581,21 @@ fn prompt(call: &AgentCall) -> Result<String, AgentError> {
 fn hooks(fence: &Fence) -> toml::Value {
     let guard = &fence.guard;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
-    let confine = [
+    let mut confine = vec![
         quoted(&guard.kelpie),
         shell_quote("confine"),
         quoted(&guard.worktree),
         quoted(&guard.build),
-    ]
-    .join(" ");
+    ];
+    // The project's `write` hooks, which `confine` runs on each file a patch writes.
+    if let Some(flag) = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::Write))
+    {
+        confine.push(shell_quote(&flag));
+    }
+    let confine = confine.join(" ");
     let commands: Vec<String> = [
         quoted(&guard.kelpie),
         shell_quote("guard"),
@@ -570,11 +610,36 @@ fn hooks(fence: &Fence) -> toml::Value {
             .iter()
             .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display()))),
     )
+    .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
     .collect();
     toml::Value::Array(vec![
         hook_entry("^apply_patch$", confine),
         hook_entry("^Bash$", commands.join(" ")),
     ])
+}
+
+/// The `PostToolUse` hook that runs the project's `after_command` hooks on a
+/// command's result, if the project has any
+///
+/// It is the guard again, without the pin that keeps a command to the folder
+/// the guard judged it in, since the command has already run.
+fn after_hooks(fence: &Fence) -> Option<toml::Value> {
+    let guard = &fence.guard;
+    let flag = guard
+        .hooks
+        .flag()
+        .filter(|_| guard.hooks.has(HookPoint::AfterCommand))?;
+    let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
+    let command = [
+        quoted(&guard.kelpie),
+        shell_quote("guard"),
+        quoted(&guard.git_common_dir),
+        quoted(&guard.worktree),
+        shell_quote(&flag),
+        shell_quote(AFTER_FLAG),
+    ]
+    .join(" ");
+    Some(toml::Value::Array(vec![hook_entry("^Bash$", command)]))
 }
 
 /// The `PreToolUse` hook of a call with no fence, which writes no file
@@ -598,15 +663,10 @@ fn hook_entry(matcher: &str, command: String) -> toml::Value {
 }
 
 /// The whole call's policy: its fence, or none, and what Codex itself needs
-fn policy(call: &AgentCall, login: &Path, files: &Files) -> Policy {
-    let mut policy = match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => Policy {
-            no_read: CREDENTIALS.map(str::to_owned).into(),
-            ..Policy::default()
-        },
-    };
+fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) -> Policy {
+    let mut policy = call_policy(call, unfenced);
     policy.no_read.extend(fence::others_credentials(HARNESS));
+    policy.no_keychain = call.reach.block_keychain;
     policy
         .no_read
         .extend([MAINTAINERS_HOME, SKILLS].map(str::to_owned));
@@ -625,7 +685,8 @@ fn policy(call: &AgentCall, login: &Path, files: &Files) -> Policy {
             .chain(call.reach.read.iter().cloned()),
     );
     policy.hosts.push(MODEL_HOST.to_owned());
-    // Codex verifies the model's certificate through macOS, as `gh` does (Facts).
+    // Codex verifies the model's certificate through macOS, as `gh` does
+    // (`docs/facts/codex-as-an-agent.md`).
     policy.verify_tls = true;
     policy
 }
@@ -657,8 +718,9 @@ struct Turn {
 // `codex exec --json` prints one event per line: the session it runs in,
 // each item as it starts and ends, and the turn's end with its tokens or
 // its failure. The answer is the last agent message. Its tokens are the
-// session's so far, a resumed session's earlier turns included (Facts). A
-// ChatGPT plan has no price per call, so kelpie records each one as unpriced.
+// session's so far, a resumed session's earlier turns included
+// (`docs/facts/codex-as-an-agent.md`). A ChatGPT plan has no price per call,
+// so kelpie records each one as unpriced.
 fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentError> {
     #[derive(Deserialize)]
     struct Event {

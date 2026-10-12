@@ -63,6 +63,8 @@ pub enum AdoptError {
     File(String),
     /// A label could not be taken off the pull request
     Unlabel(u64, String, ForgeError),
+    /// `finish` holds the board back, so nothing new is taken on
+    Finishing,
     /// The change could not be saved
     State(StateError),
 }
@@ -100,6 +102,7 @@ impl fmt::Display for AdoptError {
             Self::Unlabel(number, label, e) => {
                 write!(f, "cannot take the `{label}` label off #{number}: {e}")
             }
+            Self::Finishing => f.write_str(super::finishing::NOTHING_NEW),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -135,6 +138,9 @@ impl Runner {
     /// also goes to it as a comment, or why the change cannot be saved.
     /// Nothing is adopted then.
     pub fn adopt(&mut self, number: u64) -> Result<(), AdoptError> {
+        if !self.picks() {
+            return Err(AdoptError::Finishing);
+        }
         let in_flight = self
             .state
             .work_items
@@ -276,7 +282,7 @@ impl Runner {
 
     fn refusal_comment(&self, number: u64, refused: &AdoptError) -> Option<String> {
         let comment = format!("Kelpie cannot adopt this pull request: {refused}.");
-        let posted = self.ports.forge.comment(&self.remote, number, &comment);
+        let posted = self.comment_on_issue(number, &comment);
         posted.err().map(|e| e.to_string())
     }
 
@@ -539,10 +545,16 @@ pub(super) fn first_prompt(item: &WorkItem, then: Option<&str>) -> String {
         item.title,
         adopted_path(&item.build).display()
     );
-    prompt.push_str(then.unwrap_or(
-        "Make the changes the review asks for, then commit and push with \
-         `git push origin HEAD`.",
-    ));
+    match then {
+        Some(then) => prompt.push_str(then),
+        None => {
+            prompt.push_str(
+                "Make the changes the review asks for, then commit and push with \
+                 `git push origin HEAD`. ",
+            );
+            prompt.push_str(turn::KEEP_BODY_TRUE);
+        }
+    }
     prompt.push('\n');
     prompt
 }
