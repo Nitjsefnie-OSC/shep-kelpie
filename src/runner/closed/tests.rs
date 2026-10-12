@@ -4,7 +4,8 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::PARKED_READ;
-use crate::ports::{Cost, Usage};
+use crate::ports::{Cost, PullRequestState, Usage};
+use crate::runner::follow_up::tests::{ask_after_the_merge, racy};
 use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
 use crate::test::{Hold, Rig, Scripted, git, write_in};
@@ -342,4 +343,165 @@ fn an_answered_question_gives_the_next_turn_that_stops_short_its_nudge_again() {
     );
     assert_eq!(nudged.prompt, SENT_BACK);
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+fn finished_merged(report: &StepReport) -> bool {
+    matches!(
+        report,
+        StepReport::Finished {
+            issue: 7,
+            pull_request: Some(71),
+            merged: true,
+            closed: false,
+            ..
+        }
+    )
+}
+
+// The reports of the next few steps. An ended item is cleaned up on a pass
+// of its own, and a free slot lets the board open the next issue first.
+fn steps(runner: &Mutex<Runner>) -> Vec<StepReport> {
+    (0..6).filter_map(|_| step(runner).unwrap()).collect()
+}
+
+fn dispatched_9(reports: &[StepReport]) -> bool {
+    let opened = |r: &StepReport| matches!(r, StepReport::Dispatched { issue: 9, .. });
+    reports.iter().any(opened)
+}
+
+// What the maintainer's own merge leaves: the pull request merged and its
+// issue closed
+fn merged_by_hand(rig: &Rig) {
+    rig.forge.set_state(71, PullRequestState::Merged);
+    rig.forge.close_issue(7);
+}
+
+// [`merged_by_hand`], with ready issue 9 waiting on issue 7
+fn merged_by_hand_before_9(rig: &Rig) {
+    rig.forge.list_ready(9, false);
+    rig.forge.block(9, 7);
+    merged_by_hand(rig);
+}
+
+// Whether the status shows issue 7's work item and rulings gone, though
+// issue 9 was opened in its place
+fn seven_is_gone(status: &serde_json::Value) -> bool {
+    let rulings = status["rulings"].as_array().unwrap();
+    status["work_item"]["issue"] == 9 && rulings.iter().all(|r| r["issue"] != 7)
+}
+
+// A running project whose worker on issue 7 pushed pull request 71 and then
+// asked ruling 1
+fn asked_with_a_pull_request(project: &str) -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new(project);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude
+        .script([Scripted::PushSay("work.txt", "work\n", ASKS)]);
+    step(&runner).unwrap();
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["pull_request"], 71);
+    (rig, runner)
+}
+
+#[test]
+fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_merge_ruling() {
+    let (rig, runner, _) = Rig::parked("shep");
+    merged_by_hand_before_9(&rig);
+    let reports = steps(&runner);
+    assert!(reports.iter().any(finished_merged), "{reports:?}");
+    assert!(dispatched_9(&reports), "{reports:?}");
+    let status = rig.ask(&runner, "status", None);
+    assert!(seven_is_gone(&status), "{status}");
+    let history = &status["history"][0];
+    assert_eq!(
+        (&history["issue"], &history["merged"], &history["closed"]),
+        (&json!(7), &json!(true), &json!(null))
+    );
+    let said = "Pull request #71 was merged, so work item #7 ends. Ruling 1 is withdrawn. \
+                Nothing to answer.";
+    assert!(
+        alert_texts(&rig).iter().any(|t| t == said),
+        "{:?}",
+        alert_texts(&rig)
+    );
+    assert!(!rig.worktree_7().exists());
+    assert_eq!(rig.forge.merges(), [], "kelpie made no merge");
+}
+
+#[test]
+fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_workers_question() {
+    let (rig, runner) = asked_with_a_pull_request("rotom");
+    merged_by_hand_before_9(&rig);
+    let reports = steps(&runner);
+    assert!(reports.iter().any(finished_merged), "{reports:?}");
+    assert!(dispatched_9(&reports), "{reports:?}");
+    let status = rig.ask(&runner, "status", None);
+    assert!(seven_is_gone(&status), "{status}");
+    assert_eq!(status["history"][0]["merged"], true);
+}
+
+#[test]
+fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead() {
+    let (rig, runner) = asked_with_a_pull_request("koji");
+    rig.forge.set_state(71, PullRequestState::Closed);
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 2 }));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["work_item"]["phase"],
+        json!({ "state": "ruling", "id": 2 })
+    );
+    let [ruling] = status["rulings"].as_array().unwrap().as_slice() else {
+        panic!("the old ruling stayed: {}", status["rulings"]);
+    };
+    assert_eq!(ruling["id"], 2);
+    assert_eq!(ruling["pull_request"], 71);
+    assert_eq!(ruling["kind"]["kind"], "stuck");
+    assert_eq!(ruling["kind"]["reason"], "closed");
+
+    // It stays parked on that one, and is not asked again.
+    rig.clock.advance(PARKED_READ);
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 2);
+}
+
+#[test]
+fn an_item_parked_on_its_follow_up_ruling_after_kelpies_own_merge_is_left_alone() {
+    let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
+    assert_eq!(rig.forge.merges().len(), 1);
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id }));
+    rig.forge.set_state(71, PullRequestState::Merged);
+    rig.clock.advance(PARKED_READ);
+    for _ in 0..2 {
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["id"], id);
+    assert_eq!(status["rulings"][0]["kind"]["kind"], "follow-up");
+    assert_eq!(status["work_item"]["phase"]["id"], id);
+}
+
+#[test]
+fn a_parked_item_stays_while_its_pull_request_cannot_be_read_and_is_read_again_later() {
+    let (rig, runner, _) = Rig::parked("acme");
+    merged_by_hand(&rig);
+    rig.forge.set_down(true);
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["work_item"]["phase"],
+        json!({ "state": "ruling", "id": 1 })
+    );
+    let notes = runner.lock().unwrap().take_notes();
+    assert!(
+        notes.iter().any(|n| n.starts_with("cannot read #71")),
+        "{notes:?}"
+    );
+
+    // The forge is back, but the item is read again only after the interval.
+    rig.forge.set_down(false);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(PARKED_READ);
+    assert!(steps(&runner).iter().any(finished_merged));
 }
