@@ -672,6 +672,11 @@ impl Rig {
         });
     }
 
+    /// Gives the project an e2e host, `e2e-box`, read when a runner next opens
+    pub(crate) fn e2e_on(&self) {
+        self.edit_settings(|s| s + "\n[app.dogs.kelpie.e2e]\nhost = \"e2e-box\"\n");
+    }
+
     pub(crate) fn edit_settings(&self, edit: impl FnOnce(String) -> String) {
         let file = self.settings_file();
         let text = std::fs::read_to_string(&file).unwrap();

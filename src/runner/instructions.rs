@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::profile;
-use crate::settings::{Settings, SettingsError};
+use crate::settings::{E2e, Settings, SettingsError};
 use crate::skills::{Skills, Step};
 
 /// Reads the project's extra worker instructions, if its settings name a file
@@ -40,6 +40,13 @@ pub(super) struct Extra<'a> {
     /// Where the worker writes its pull request's text, when kelpie opens
     /// the pull request for it
     pub(super) pull_request_file: Option<&'a Path>,
+    /// The project's e2e host, when it names one
+    pub(super) e2e: Option<&'a E2e>,
+}
+
+/// The command that runs the project's end-to-end tests, for the prompt of a worker told of it
+pub(super) fn e2e_command(kelpie: &Path) -> String {
+    format!("`{} lease e2e`", kelpie.display())
 }
 
 /// The instructions file for one worker turn
@@ -63,6 +70,15 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
              `Resolves #<issue>`.\n"
         )),
         (None, None) => {}
+    }
+    if let Some(e2e) = extra.e2e {
+        lines.push(format!(
+            "Your sandbox cannot run the project's end-to-end tests: run {} from your \
+             worktree. It waits for the host, streams the output, and leaves the results in \
+             `{}` of your worktree.\n",
+            e2e_command(kelpie),
+            e2e.results.as_path().display()
+        ));
     }
     if !lines.is_empty() {
         text.push('\n');
@@ -264,6 +280,27 @@ mod tests {
         let text = first_instructions(&rig, &runner);
         assert!(text.starts_with(&kelpies()), "{text}");
         assert!(text.ends_with(EXTRA), "{text}");
+    }
+
+    #[test]
+    fn a_worker_is_told_of_the_e2e_command_only_when_one_is_configured() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        let without = first_instructions(&rig, &runner);
+        assert!(!without.contains("lease e2e"), "{without}");
+
+        let rig = Rig::new("koji");
+        rig.e2e_on();
+        let runner = rig.open().unwrap();
+        let with = first_instructions(&rig, &runner);
+        let line = "Your sandbox cannot run the project's end-to-end tests: run \
+                    `/opt/kelpie/bin/kelpie lease e2e` from your worktree. It waits for the \
+                    host, streams the output, and leaves the results in `test-results` of \
+                    your worktree.\n";
+        assert!(with.contains(line), "{with}");
+        // Only that line differs, and it comes after the skills' lines.
+        assert_eq!(with.replace(line, ""), without);
+        assert!(with.find("/mattpocock:pr").unwrap() < with.find(line).unwrap());
     }
 
     #[test]

@@ -5,17 +5,26 @@
 //! reads the end of the failed runs' logs as the login `gh` acts as, and the
 //! prompt carries them. Any other worker is pointed at the commands.
 
-use super::Runner;
+use super::{Runner, instructions};
 
 impl Runner {
     /// What a red run's prompt says about reading the failure
     pub(super) fn red_help(&self, number: u64, head: &str) -> String {
-        match self.app_covers() {
+        let help = match self.app_covers() {
             true => self.logs_for(head, false),
             false => format!(
                 "`gh pr checks {number}` lists the checks, and `gh run view <run id> \
                  --log-failed` shows what failed."
             ),
+        };
+        match &self.settings.e2e {
+            Some(e2e) => format!(
+                "{help} {} runs the project's end-to-end tests on their host from your \
+                 worktree, and leaves the results in `{}`.",
+                instructions::e2e_command(&self.kelpie),
+                e2e.results.as_path().display()
+            ),
+            None => help,
         }
     }
 
@@ -83,6 +92,36 @@ mod tests {
             "{prompt}"
         );
         assert!(!prompt.contains("gh run view"), "{prompt}");
+    }
+
+    const E2E: &str = "`/opt/kelpie/bin/kelpie lease e2e` runs the project's end-to-end tests";
+
+    #[test]
+    fn the_red_prompt_names_the_e2e_command_only_when_configured() {
+        // Not covered by the App: the worker reads CI itself.
+        let (rig, runner, head) = Rig::with_pull_request("koji");
+        let prompt = red_prompt(&rig, &runner, &head);
+        assert!(!prompt.contains("lease e2e"), "{prompt}");
+
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::e2e_on);
+        let prompt = red_prompt(&rig, &runner, &head);
+        assert!(prompt.contains("--log-failed"), "{prompt}");
+        assert!(prompt.contains(E2E), "{prompt}");
+
+        // Covered by the App: kelpie carries the logs.
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::with_app);
+        rig.forge.set_ci_log("--- run 9\nerror[E0308]");
+        let prompt = red_prompt(&rig, &runner, &head);
+        assert!(!prompt.contains("lease e2e"), "{prompt}");
+
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| {
+            rig.with_app();
+            rig.e2e_on();
+        });
+        rig.forge.set_ci_log("--- run 9\nerror[E0308]");
+        let prompt = red_prompt(&rig, &runner, &head);
+        assert!(prompt.contains("error[E0308]"), "{prompt}");
+        assert!(prompt.contains(E2E), "{prompt}");
     }
 
     #[test]

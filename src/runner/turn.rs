@@ -386,6 +386,7 @@ impl Runner {
                 project: self.extra_instructions.as_deref(),
                 // Its token opens no pull request, so kelpie opens it.
                 pull_request_file: handed_over.as_deref(),
+                e2e: self.settings.e2e.as_ref(),
             },
             &item.worktree,
             &self.skills,
