@@ -56,7 +56,7 @@ fn standing_of(lines: &[Value]) -> Standing {
         .iter()
         .map(|line| serde_json::from_value(line.clone()).unwrap())
         .collect();
-    standing(Decide::Shadow, &records, &BTreeMap::new())
+    standing(Decide::Shadow, &records, Some(&BTreeMap::new()))
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn whatif_of(lines: &[Value], calls: &[Line]) -> BTreeMap<String, Score> {
     let records: Vec<Record> = (lines.iter())
         .map(|line| serde_json::from_value(line.clone()).unwrap())
         .collect();
-    standing(Decide::Shadow, &records, &vote_costs(calls)).whatif
+    standing(Decide::Shadow, &records, Some(&vote_costs(calls))).whatif
 }
 
 fn assert_score(got: &Score, (decided, matched, maintainer): (u32, u32, u32), cost: f64) {
@@ -250,11 +250,8 @@ fn assert_score(got: &Score, (decided, matched, maintainer): (u32, u32, u32), co
         (got.decided, got.matched, got.maintainer),
         (decided, matched, maintainer)
     );
-    assert!(
-        (got.cost - cost).abs() < 1e-9,
-        "cost {} is not {cost}",
-        got.cost
-    );
+    let got = got.cost.expect("the ledger was read");
+    assert!((got - cost).abs() < 1e-9, "cost {got} is not {cost}");
 }
 
 // Four shadow rulings, voted worker, project manager, researcher, advisor.
@@ -352,6 +349,23 @@ fn the_fixed_pairs_and_all_four_are_scored_the_same_way() {
     assert_score(&whatif["all"], (2, 2, 2), 1.00);
     let names: Vec<&String> = whatif.keys().collect();
     assert_eq!(names.len(), 7, "{names:?}");
+}
+
+#[test]
+fn a_ledger_that_could_not_be_read_leaves_the_costs_unknown_and_the_counts_as_they_are() {
+    let (lines, _) = recorded();
+    let records: Vec<Record> = (lines.iter())
+        .map(|line| serde_json::from_value(line.clone()).unwrap())
+        .collect();
+
+    let whatif = standing(Decide::Shadow, &records, None).whatif;
+
+    assert_eq!(whatif.len(), 7);
+    for score in whatif.values() {
+        assert_eq!(score.cost, None);
+    }
+    let all = &whatif["all"];
+    assert_eq!((all.decided, all.matched, all.maintainer), (2, 2, 2));
 }
 
 #[test]

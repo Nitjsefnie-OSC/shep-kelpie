@@ -205,8 +205,8 @@ compact_window = 200000
 # `fix`, `refactor`, `perf`, `test`, `ci`, `chore` and `style` the project
 # manager and the advisor; `feat`, a breaking `!` or no type all four). A
 # question, a `design` flag and a diff that touches a `full_panel_paths` glob
-# ask all four whatever the type. A split and a merge under
-# `git.merging = "ask"` come to you with every vote. `pm_alone` lists kinds of
+# ask all four whatever the type, and whatever `pm_alone` lists. A split and a
+# merge under `git.merging = "ask"` come to you with every vote. `pm_alone` lists kinds of
 # ruling the project manager decides with its own vote on any type of work
 # (`question`, `still-red`, `turn-timeout`, `turn-failed` ...); an abstention
 # calls the type's panel, a `design` flag all four, and `merge` is refused.

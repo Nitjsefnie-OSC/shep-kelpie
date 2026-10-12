@@ -172,12 +172,14 @@ impl Runner {
             let records = history::records(&self.paths.rulings);
             // The ledger is read only when some ruling can be scored with it.
             let scorable = (records.iter()).any(|r| r.verdict.as_ref().is_some_and(|v| v.shadow));
-            let lines = match scorable {
-                true => crate::usage::read(self.ledger.path()).unwrap_or_default(),
-                false => Vec::new(),
+            // A ledger that cannot be read leaves the costs unknown, not zero.
+            let costs = match scorable {
+                true => (crate::usage::read(self.ledger.path()))
+                    .ok()
+                    .map(|lines| crate::usage::vote_costs(&lines)),
+                false => Some(BTreeMap::new()),
             };
-            let costs = crate::usage::vote_costs(&lines);
-            measure::standing(self.settings.rulings.decide, &records, &costs)
+            measure::standing(self.settings.rulings.decide, &records, costs.as_ref())
         })
     }
 
@@ -299,8 +301,11 @@ impl Runner {
         let risky = self.panel_risky(id, issue);
         let tier = first_tier(work.tier, kind == RulingName::Question, risky);
         let shadow = self.settings.rulings.decide == Decide::Shadow;
-        // A kind the project manager decides alone starts with it alone, if it is there.
-        let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some();
+        // A kind the project manager decides alone starts with it alone, if it is
+        // there, unless the ruling is raised to the full panel: a question or a
+        // risky path is never one voice's, whatever `pm_alone` lists.
+        let raised = kind == RulingName::Question || risky;
+        let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some() && !raised;
         let first = match alone {
             true => Stage::Alone,
             false => Stage::Tier(tier),

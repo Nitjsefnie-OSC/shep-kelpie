@@ -96,8 +96,9 @@ pub struct Score {
     pub maintainer: u32,
     /// What it would have cost a ruling, in US dollars: the ledger lines of
     /// the votes it asks, its escalations included. A call with no reported
-    /// cost adds nothing.
-    pub cost: f64,
+    /// cost adds nothing. None when the
+    /// ledger could not be read.
+    pub cost: Option<f64>,
 }
 
 /// How the panel stands over `records`, the rulings answered in order, with
@@ -105,7 +106,7 @@ pub struct Score {
 pub(super) fn standing(
     decide: Decide,
     records: &[Record],
-    costs: &BTreeMap<(u64, Voter), f64>,
+    costs: Option<&BTreeMap<(u64, Voter), f64>>,
 ) -> Standing {
     let mut stand = Standing {
         decide,
@@ -122,7 +123,11 @@ pub(super) fn standing(
             .insert(tier.name().to_owned(), Panel::default());
     }
     for policy in Policy::ALL {
-        (stand.whatif).insert(policy.name().to_owned(), Score::default());
+        let score = Score {
+            cost: costs.map(|_| 0.0),
+            ..Score::default()
+        };
+        stand.whatif.insert(policy.name().to_owned(), score);
     }
     let mut scored: u32 = 0;
     for record in records.iter().filter(|r| !r.ballots.is_empty()) {
@@ -139,7 +144,7 @@ pub(super) fn standing(
     }
     if scored > 0 {
         for score in stand.whatif.values_mut() {
-            score.cost /= f64::from(scored);
+            score.cost = score.cost.map(|cost| cost / f64::from(scored));
         }
     }
     stand.facts_due = stand.voted >= FACTS_AFTER;
@@ -225,7 +230,7 @@ fn play(
     id: u64,
     chose: Option<char>,
     case: &Case<'_>,
-    costs: &BTreeMap<(u64, Voter), f64>,
+    costs: Option<&BTreeMap<(u64, Voter), f64>>,
 ) {
     for policy in Policy::ALL {
         let outcome = policy.play(case);
@@ -237,10 +242,11 @@ fn play(
             }
             None => score.maintainer += 1,
         }
-        let asked = outcome.asked.iter();
-        score.cost += asked
-            .map(|voter| costs.get(&(id, *voter)).copied().unwrap_or(0.0))
-            .sum::<f64>();
+        if let (Some(total), Some(costs)) = (&mut score.cost, costs) {
+            let asked = outcome.asked.iter();
+            *total +=
+                (asked.map(|voter| costs.get(&(id, *voter)).copied().unwrap_or(0.0))).sum::<f64>();
+        }
     }
 }
 

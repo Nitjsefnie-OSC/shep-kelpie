@@ -51,6 +51,23 @@ fn a_fix_items_question_asks_all_four() {
 }
 
 #[test]
+fn a_question_listed_under_pm_alone_still_asks_all_four() {
+    let rulings = format!("{PANEL}\npm_alone = [\"question\"]");
+    let (rig, runner) = asking("q-alone", "fix(guard): a bug", &rulings);
+    script(&rig, ["A", "A", "A", "A"]);
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Say(leak(pm_says('A', false)))]);
+
+    voted(&rig, &runner);
+
+    for role in [Role::Advisor, Role::Researcher, Role::Worker] {
+        assert_eq!(asked(&rig, role), 1, "{role:?}");
+    }
+    let said = decided_comment(&rig).expect("the full panel decided it");
+    assert!(said.contains("(4 of 4)"), "{said}");
+}
+
+#[test]
 fn a_docs_item_whose_diff_touches_a_full_panel_path_asks_all_four() {
     let rulings = format!("{PANEL}\nfull_panel_paths = [\"src/**\", \"work.*\"]");
     let (rig, runner) = ruling("p-docs", "docs: say more", Merging::Auto, &rulings);

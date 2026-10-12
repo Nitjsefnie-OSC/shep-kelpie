@@ -151,6 +151,25 @@ fn status_scores_each_candidate_policy_on_the_votes_and_ledger_of_a_shadow_rulin
 }
 
 #[test]
+fn a_ledger_that_cannot_be_read_leaves_the_costs_of_the_whatif_report_null() {
+    let (rig, runner) = ruling("whatif-bad", "feat: add it", Merging::Auto, SHADOW);
+    script(&rig, ["A", "A", "A", "A"]);
+    voted(&rig, &runner);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    // A folder where the ledger should be: reading it fails, and is not a missing file.
+    let path = rig.paths().folder.join(FILE);
+    let _ = std::fs::remove_file(&path);
+    std::fs::create_dir(&path).unwrap();
+
+    let whatif = rig.ask(&runner, "status", None)["panel"]["whatif"].clone();
+
+    assert_eq!(
+        whatif["all"],
+        json!({"decided": 1, "matched": 1, "maintainer": 0, "cost": null})
+    );
+}
+
+#[test]
 fn a_project_with_no_panel_reports_none() {
     let rig = Rig::new("no-panel");
     let runner = rig.open().unwrap();
