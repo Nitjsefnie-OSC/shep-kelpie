@@ -5,7 +5,7 @@
 //! gone and the others are packed. The worker's fence lets it write
 //! `refs/heads/kelpie/<n>` but not make the folder that holds it, so its next
 //! commit would fail. Kelpie writes as the maintainer and makes the folders
-//! before it hands the worktree over.
+//! before it hands a worktree over, and again after it deletes a branch.
 
 use std::path::Path;
 
@@ -36,7 +36,7 @@ mod tests {
     use std::process::Command;
 
     use crate::test::git;
-    use crate::worktree::{Start, prepare};
+    use crate::worktree::{Start, prepare, remove};
 
     // A clone of an origin holding `main`, with `kelpie/` folders to be
     // emptied the way the cleanup of a merged branch empties them.
@@ -157,5 +157,24 @@ mod tests {
         let before = clone.branch_head();
         assert!(clone.worker_commits());
         assert_ne!(clone.branch_head(), before);
+    }
+
+    #[test]
+    fn removing_a_work_item_leaves_the_folders_other_workers_commit_through() {
+        let clone = Clone::new();
+        clone.prepare();
+
+        remove(
+            &clone.repo(),
+            &clone.worktree(),
+            "kelpie/7",
+            &clone.root.join("build"),
+            false,
+        )
+        .unwrap();
+
+        for root in ["refs/heads", "logs/refs/heads"] {
+            assert!(clone.git_dir().join(root).join("kelpie").is_dir());
+        }
     }
 }

@@ -192,11 +192,7 @@ pub fn prepare(
             )?;
         }
     }
-    let common = git(
-        repo,
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
-    let git_common_dir = canonical(Path::new(&common));
+    let git_common_dir = common_dir(repo)?;
     let git_dir = own_git_dir(&git_common_dir, worktree).ok_or_else(foreign)?;
     ref_folders::ensure(&git_common_dir, branch)?;
     create(build)?;
@@ -250,6 +246,9 @@ pub fn remove(
             return Err(e);
         }
     }
+    // Deleting the last loose ref in a folder removes the folder, and the
+    // workers still running have no leave to make it again.
+    ref_folders::ensure(&common_dir(repo)?, branch)?;
     let removed = match std::fs::remove_dir_all(build) {
         // Go writes its module cache with read-only folders, which cannot
         // be emptied until they are made writable.
@@ -912,6 +911,14 @@ fn own_git_dir(common: &Path, worktree: &Path) -> Option<PathBuf> {
             std::fs::read_to_string(dir.join("gitdir"))
                 .is_ok_and(|named| canonical(Path::new(named.trim())) == want)
         })
+}
+
+fn common_dir(repo: &Path) -> Result<PathBuf, WorktreeError> {
+    let common = git(
+        repo,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+    Ok(canonical(Path::new(&common)))
 }
 
 fn canonical(path: &Path) -> PathBuf {
