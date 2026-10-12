@@ -17,6 +17,7 @@ use std::fmt;
 
 use serde::Serialize;
 
+use crate::runner::IN_PROGRESS;
 use crate::settings::AgentName;
 
 pub mod briefing;
@@ -131,6 +132,11 @@ pub enum Skip {
         /// The issue
         issue: u64,
     },
+    /// It carries the `in-progress` label, so an earlier worker holds it
+    InProgress {
+        /// The issue
+        issue: u64,
+    },
     /// It has sub-issues, which are worked in its place
     Split {
         /// The issue
@@ -218,6 +224,7 @@ impl Skip {
             | Self::Finished { issue }
             | Self::Dropped { issue }
             | Self::Assigned { issue }
+            | Self::InProgress { issue }
             | Self::Split { issue, .. }
             | Self::Blocked { issue, .. }
             | Self::Label { issue, .. }
@@ -246,6 +253,10 @@ pub struct Pick {
 
 /// Picks the ready issue that nobody is working on, highest priority first and
 /// oldest first within a priority
+///
+/// A ready issue labelled `in-progress` is passed over as held by an earlier
+/// worker. The caller drops the issues its own work items hold before it asks,
+/// so only an issue it does not hold reaches this check.
 ///
 /// `finished` lists the issues whose work items kelpie already finished. The
 /// forge can still list one as open and ready for a while after its pull
@@ -284,6 +295,8 @@ pub fn pick(
             });
         } else if issue.assigned {
             skipped.push(Skip::Assigned { issue: number });
+        } else if issue.labels.iter().any(|l| l == IN_PROGRESS) {
+            skipped.push(Skip::InProgress { issue: number });
         } else if issue.sub_issues.total > 0 {
             skipped.push(Skip::Split {
                 issue: number,
@@ -579,6 +592,15 @@ mod tests {
                 Skip::Assigned { issue: 3 },
             ]
         );
+    }
+
+    #[test]
+    fn an_issue_an_earlier_worker_labelled_in_progress_is_passed_over_for_the_next_oldest() {
+        let mut held = ready(2);
+        held.labels.push(IN_PROGRESS.into());
+        let pick = pick(&[held, ready(5)], &[], &[], &[], &listed());
+        assert_eq!(pick.issue, Some(5));
+        assert_eq!(pick.skipped, [Skip::InProgress { issue: 2 }]);
     }
 
     #[test]
