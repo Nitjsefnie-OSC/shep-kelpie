@@ -8,7 +8,7 @@
 //! it.
 
 use std::ffi::OsString;
-use std::io;
+
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
@@ -112,21 +112,29 @@ async fn command(remote: &Remote, plan: &Plan, lines: &Sender<String>) -> Result
         .unwrap_or(255))
 }
 
-// The results folder alone, into the same folder of the worktree. Links are
-// not copied, and the folder in the worktree is refused when it, or a folder
-// above it, is a link: the host cannot make anything outside it come back,
-// and neither can a link in the worktree send it out.
+// The results folder alone, into a folder of the dog's own, and from there
+// into the same folder of the worktree. Links on the host are not copied, and
+// a link in the worktree, at the folder or above it, is refused as the copy
+// reaches it: the worktree is the worker's to change while this goes, so no
+// path in it is checked ahead and trusted later.
 async fn copy_back(remote: &Remote, plan: &Plan) -> Result<(), String> {
-    let into = plan.worktree.join(&plan.results);
-    refuse_links(&plan.worktree, &plan.results)?;
-    std::fs::create_dir_all(&into).map_err(|e| format!("cannot make {}: {e}", into.display()))?;
+    let staging = plan.staging()?;
+    let result = stage_and_deliver(remote, plan, &staging).await;
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+async fn stage_and_deliver(remote: &Remote, plan: &Plan, staging: &Path) -> Result<(), String> {
+    // One left by a run that was ended partway is not part of this one.
+    let _ = std::fs::remove_dir_all(staging);
+    std::fs::create_dir(staging).map_err(|e| format!("cannot make {}: {e}", staging.display()))?;
     let from = format!(
         "{}:{}/{}/",
         plan.host,
         plan.remote_dir(),
         plan.results.display()
     );
-    let mut to = OsString::from(&into);
+    let mut to = OsString::from(staging);
     to.push("/");
     let args = [
         "-rt",
@@ -137,29 +145,8 @@ async fn copy_back(remote: &Remote, plan: &Plan) -> Result<(), String> {
     ]
     .map(OsString::from);
     let args: Vec<OsString> = args.into_iter().chain([from.into(), to]).collect();
-    rsync(remote, &args).await
-}
-
-// Whether `results` or a folder above it, in `worktree`, is a link.
-fn refuse_links(worktree: &Path, results: &Path) -> Result<(), String> {
-    let mut at = worktree.to_owned();
-    for part in results {
-        at.push(part);
-        match std::fs::symlink_metadata(&at) {
-            Ok(meta) if meta.is_symlink() => {
-                let link = at.strip_prefix(worktree).unwrap_or(&at);
-                return Err(format!(
-                    "{} in the worktree is a link, and results are not copied through one",
-                    link.display()
-                ));
-            }
-            // Nothing is there yet to be a link, nor below it.
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(format!("cannot read {}: {e}", at.display())),
-            Ok(_) => {}
-        }
-    }
-    Ok(())
+    rsync(remote, &args).await?;
+    deliver::deliver(staging, &plan.worktree, &plan.results)
 }
 
 async fn rsync(remote: &Remote, args: &[OsString]) -> Result<(), String> {
@@ -204,6 +191,8 @@ async fn pump(from: impl AsyncRead + Unpin, lines: &Sender<String>) {
         }
     }
 }
+
+mod deliver;
 
 #[cfg(test)]
 mod tests;

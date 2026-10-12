@@ -169,6 +169,37 @@ async fn a_results_folder_that_is_a_link_in_the_worktree_is_refused() {
 }
 
 #[tokio::test]
+async fn a_link_inside_the_results_folder_is_not_written_through() {
+    let stand = StandIn::new();
+    let script = "mkdir -p test-results/sub; echo new > test-results/report.txt; \
+                  echo new > test-results/sub/b.txt";
+    let worktree = stand.project("koji", TABLE, 7, script);
+    let outside = stand.outside();
+    std::fs::write(outside.join("target.txt"), "mine\n").unwrap();
+    std::fs::create_dir_all(worktree.join("test-results")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.join("target.txt"),
+        worktree.join("test-results/report.txt"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&outside, worktree.join("test-results/sub")).unwrap();
+
+    let (result, lines) = go(&stand, &worktree).await;
+
+    assert_eq!(result, Ok(0));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].contains("the results did not come back"),
+        "{lines:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(outside.join("target.txt")).unwrap(),
+        "mine\n"
+    );
+    assert!(!outside.join("b.txt").exists());
+}
+
+#[tokio::test]
 async fn the_local_side_starts_only_ssh_and_rsync() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "mkdir -p test-results");

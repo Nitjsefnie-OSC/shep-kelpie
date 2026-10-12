@@ -121,6 +121,19 @@ impl Plan {
     fn remote_dir(&self) -> String {
         format!("kelpie-e2e/{}", self.project)
     }
+
+    // Where the results land before they go into the worktree: a folder in
+    // the project's own, which the worker's fence cannot write.
+    fn staging(&self) -> Result<PathBuf, String> {
+        let project_folder = self.worktree.parent().and_then(Path::parent);
+        let name = self.worktree.file_name();
+        match (project_folder, name) {
+            (Some(folder), Some(name)) => {
+                Ok(folder.join(format!("e2e-back-{}", name.to_string_lossy())))
+            }
+            _ => Err(format!("{} is not a worktree", self.worktree.display())),
+        }
+    }
 }
 
 impl Desk {
