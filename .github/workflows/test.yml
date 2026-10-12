@@ -82,6 +82,44 @@ jobs:
           cargo test --locked --test dog_smoke -- --ignored | tee dog_smoke.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' dog_smoke.log
 
+  # The tests `#[ignore]`d for needing kelpie's tools, run under the real
+  # sandbox runtime on Linux, where bubblewrap fences the worker. They skip
+  # the two that need a login or pi.
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KELPIE_TOOLS: ${{ github.workspace }}/.kelpie-tools
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal
+      - name: Install what srt needs on Linux
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep
+      # Ubuntu 24.04 runners block unprivileged user namespaces, which
+      # bubblewrap needs to build the sandbox.
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # What `Tools::install` (src/tools.rs) does: the pinned package.json,
+      # then `npm install` beside it.
+      - name: Install the pinned srt
+        run: |
+          mkdir -p "$KELPIE_TOOLS"
+          cp src/tools/package.json "$KELPIE_TOOLS/package.json"
+          (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
+      - run: cargo test --locked --no-run
+      # A filter that matches nothing passes, so the run must show tests
+      # that passed; a failing test fails the step on its own.
+      - name: Run the sandbox tests
+        run: |
+          set -o pipefail
+          cargo test --locked -- --ignored \
+            adapters::claude::escapes \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat \
+            --skip a_live_worker_turn_runs_inside_the_sandbox_and_resumes \
+            --skip pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox \
+            | tee sandbox.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' sandbox.log
+
   msrv:
     runs-on: ubuntu-latest
     timeout-minutes: 10
