@@ -212,6 +212,18 @@ fn a_project_that_sets_the_retro_to_none_asks_for_none() {
 }
 
 #[test]
+fn a_project_that_leaves_the_retro_out_asks_for_none() {
+    let (rig, runner, _) = Rig::parked("koji");
+    rig.retro_left_out();
+    drop(runner);
+    let runner = rig.open().unwrap();
+    merge(&rig, &runner);
+
+    assert_eq!(retro_calls(&rig), []);
+    assert_eq!(saved(&rig), Vec::<PathBuf>::new());
+}
+
+#[test]
 fn a_work_item_closed_with_no_change_is_asked_for_a_retro_too() {
     let rig = Rig::new("koji");
     rig.retro_on();
