@@ -14,7 +14,7 @@ use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instru
 use crate::agents::Agents;
 use crate::review_bot::Bot;
 use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
-use crate::skills::Skills;
+use crate::skills::{RepoPlugins, Skills, default_head};
 use crate::webhook::{KelpieSettings, Webhook};
 
 impl Runner {
@@ -85,7 +85,21 @@ impl Runner {
         if gpu_metrics_url != self.gpu.url() {
             changed.push("gpu_metrics_url");
         }
+        // The default branch may have turned a plugin on or off since the last read.
+        // Planned here and written once the checks below hold, so a reread that
+        // fails leaves the plugin folders the runner is using as they were.
+        let repo_plugins = RepoPlugins::plan(
+            &self.settings.git.checkout,
+            &self.paths.kelpie_home,
+            &self.paths.skills,
+            self.ports.git.as_ref(),
+        );
+        let plugins_head = default_head(&self.settings.git.checkout);
+        if repo_plugins != self.repo_plugins {
+            changed.push("repo plugins");
+        }
         if changed.is_empty() && waiting.is_empty() {
+            self.plugins_head = plugins_head;
             return Ok(None);
         }
         let extra_instructions = instructions::read_extra(&settings)?;
@@ -135,7 +149,46 @@ impl Runner {
             }
             self.skills = skills;
         }
+        self.plugins_head = plugins_head;
+        if repo_plugins != self.repo_plugins {
+            let repo_plugins = repo_plugins.install(&self.paths.skills);
+            for notice in repo_plugins.notices() {
+                line.push_str(&format!("\n{notice}"));
+            }
+            self.repo_plugins = repo_plugins;
+        }
         Ok(Some(line))
+    }
+}
+
+impl Runner {
+    /// Loads the repo's plugins again if its default branch moved since they
+    /// were read, which settings of kelpie's own do not announce
+    ///
+    /// Returns a line for the log when the plugins changed.
+    pub fn reread_plugins(&mut self) -> Option<String> {
+        let checkout = &self.settings.git.checkout;
+        if default_head(checkout) == self.plugins_head {
+            return None;
+        }
+        let planned = RepoPlugins::plan(
+            checkout,
+            &self.paths.kelpie_home,
+            &self.paths.skills,
+            self.ports.git.as_ref(),
+        );
+        // The plan fetched the branch, so this is the commit it read.
+        self.plugins_head = default_head(checkout);
+        if planned == self.repo_plugins {
+            return None;
+        }
+        let planned = planned.install(&self.paths.skills);
+        let mut line = String::from("the default branch changed: repo plugins now in effect");
+        for notice in planned.notices() {
+            line.push_str(&format!("\n{notice}"));
+        }
+        self.repo_plugins = planned;
+        Some(line)
     }
 }
 

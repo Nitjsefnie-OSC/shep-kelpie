@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl, ShepLeases,
-    SystemClock, stop_calls,
+    SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -195,6 +195,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         meter: Box::new(claude.meter()),
         codex_meter: Box::new(claude.codex_meter(codex_home)),
         reviewer: Arc::new(reviewer.clone()),
+        git: Arc::new(SystemGit),
         gpu: Arc::new(GpuCurl),
         local_leases: Arc::new(reviewer.clone()),
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],

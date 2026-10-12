@@ -366,6 +366,8 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
         ("NODE_USE_ENV_PROXY".into(), "1".into()),
         ("PI_CODING_AGENT_DIR".into(), files.home.clone().into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
+        // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
+        ("TMPPREFIX".into(), files.scratch.join("zsh").into()),
     ];
     if let Some(fence) = &call.reach.fence {
         vars.extend(

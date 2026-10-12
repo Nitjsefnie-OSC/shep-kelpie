@@ -71,6 +71,20 @@ fn a_pi_workers_commands_ask_for_the_test_lease_at_the_dogs_door() {
     assert!(vars.contains(&door), "{vars:?}");
 }
 
+// zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+#[test]
+fn a_pi_call_s_zsh_makes_its_heredoc_files_in_the_call_s_scratch_folder() {
+    let w = World::new();
+    let call = w.call(URL, Role::Worker, Session::New(id(WORKER_ID)));
+    let files = Files::of(&call);
+    let vars: Vec<String> = env_args(&call, &files)
+        .into_iter()
+        .map(|a| a.into_string().unwrap())
+        .collect();
+    let prefix = format!("TMPPREFIX={}/zsh", files.scratch.display());
+    assert!(vars.contains(&prefix), "{vars:?}");
+}
+
 #[test]
 fn a_new_worker_session_carries_its_model_tools_and_guard() {
     let w = World::new();

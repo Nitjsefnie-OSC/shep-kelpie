@@ -225,7 +225,7 @@ mod tests {
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
         assert!(
-            text.contains("`/opt/kelpie/bin/kelpie lease run cargo-test -- cargo test`"),
+            text.contains("`/opt/kelpie/bin/kelpie lease run cargo-test -- cargo test --lib`"),
             "{text}"
         );
         assert!(!text.contains("{kelpie}"), "{text}");
