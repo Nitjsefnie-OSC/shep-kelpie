@@ -95,6 +95,22 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError>;
 
+    /// What folder `path` of `repo` holds on its default branch, where an
+    /// empty `path` is the root, or `None` when `repo` or the folder is not there
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError>;
+
+    /// The text of file `path` of `repo` on its default branch
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked, has no such file, or
+    /// its answer is not text.
+    fn file_text(&self, repo: &ForgeSlug, path: &str) -> Result<String, ForgeError>;
+
     /// The names of the labels `repo` has
     ///
     /// # Errors
@@ -380,6 +396,15 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError>;
+}
+
+/// One entry of a folder on the forge
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderEntry {
+    /// The entry's name, without its folder
+    pub name: String,
+    /// Whether it is a folder and not a file
+    pub is_dir: bool,
 }
 
 /// Where a pull request stands in the merge queue

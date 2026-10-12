@@ -103,6 +103,9 @@ pub struct Status<'a> {
     /// skipped; left out when it turns on none
     #[serde(skip_serializing_if = "<[RepoPlugin]>::is_empty")]
     pub plugins: &'a [RepoPlugin],
+    /// Where a worker's pull request template comes from: the repo, its
+    /// owner's `.github` repository, or none
+    pub pull_request_template: super::TemplateSource,
     /// Where the local model sat when a round last looked, when there was
     /// an Ollama host to ask
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -704,6 +707,7 @@ mod tests {
                     "skill": format!("/mattpocock:{}", step.default_skill()),
                     "fallback": null,
                 })),
+                "pull_request_template": "none",
                 "board": rig.paths().board,
             })
         );

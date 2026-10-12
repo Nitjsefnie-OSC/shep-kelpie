@@ -1,10 +1,11 @@
 //! The fake forge's repo-wide answers: its visibility, whether the account may
 //! push, its default branch and labels, and who the account is
 
+use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
-use crate::ports::{ForgeError, Visibility};
+use crate::ports::{FolderEntry, ForgeError, Visibility};
 use crate::settings::ForgeSlug;
 
 impl FakeForge {
@@ -49,5 +50,35 @@ impl FakeForge {
 
     pub(crate) fn set_repo_labels(&self, labels: &[&str]) {
         *self.repo_labels.lock().unwrap() = labels.iter().map(|&l| l.to_owned()).collect();
+    }
+
+    /// Puts file `path` holding `text` on the default branch of `repo`, which
+    /// then exists on the forge
+    pub(crate) fn put_file(&self, repo: &str, path: &str, text: &str) {
+        let mut files = self.files.lock().unwrap();
+        let repo = files.entry(repo.to_lowercase()).or_default();
+        repo.insert(path.to_owned(), text.to_owned());
+    }
+
+    // What folder `path` of `repo` holds, as the forge lists it: nothing where no file is in it
+    pub(super) fn folder_of(&self, repo: &ForgeSlug, path: &str) -> Option<Vec<FolderEntry>> {
+        let files = self.files.lock().unwrap();
+        let repo = files.get(&repo.as_str().to_lowercase())?;
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{path}/")
+        };
+        let mut entries: BTreeMap<String, bool> = BTreeMap::new();
+        for file in repo.keys().filter_map(|f| f.strip_prefix(&prefix)) {
+            match file.split_once('/') {
+                Some((dir, _)) => entries.insert(dir.to_owned(), true),
+                None => entries.insert(file.to_owned(), false),
+            };
+        }
+        let entries: Vec<FolderEntry> = (entries.into_iter())
+            .map(|(name, is_dir)| FolderEntry { name, is_dir })
+            .collect();
+        (!entries.is_empty()).then_some(entries)
     }
 }
