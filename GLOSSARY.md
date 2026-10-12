@@ -355,7 +355,7 @@ _Avoid_: jury, council, quorum
 **Advisor**:
 The panel's expert on the codebase, an agent file whose role is `advisor`.
 It reads the work item's worktree, the checkout, the branch's diff that kelpie
-writes into its folder, and the project's design log, ADRs, glossary and
+writes into its folder, and the project's design docs, ADRs, glossary and
 README. It runs no git, `gh` or command, and writes nothing but its vote.
 
 **Researcher**:

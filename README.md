@@ -724,7 +724,7 @@ Four experts vote on each ruling that lists two options or more, each blind to t
 |---|---|---|
 | Worker | the work item's own session, resumed once with the ruling | what it already holds, and its worktree. It abstains when the work item has no worker turn |
 | PM | the project manager, woken as for anything else | the board, the diffs and the CI logs |
-| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design log, ADRs, glossary and README |
+| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design docs, ADRs, glossary and README |
 | Researcher | the `researcher` agent file | everything outside the codebase: earlier rulings and their answers, the issue and pull request threads, the worker's session, your own agent sessions, and the web |
 
 A project has a panel once it names an advisor or a researcher:
@@ -831,7 +831,7 @@ The panel costs up to four agent calls on every ruling, one of them Opus at high
   - `all`: all four on every ruling
 
   For each: `decided` (rulings it would have decided without you), `matched` (of those, the ones it decided as you answered), `maintainer` (rulings it would have sent to you) and `cost`, per ruling, summed from the ledger lines of the votes it would have asked, an escalation's included. A call with no reported cost adds nothing, and `cost` is `null` when the usage ledger cannot be read. Only rulings answered under a build with `whatif` count, since an older line does not say whether it was a shadow run or a risky path.
-- After a project's first 30 panel rulings (`facts_due` in `status`) the design log gets a Facts entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
+- After a project's first 30 panel rulings (`facts_due` in `status`) `docs/facts/the-panel.md` gets an entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
 
 ## Upgrading
 
@@ -1036,7 +1036,9 @@ For how it works and why:
 
 - `GLOSSARY.md`: the vocabulary
 - `docs/adr/`: decisions that are hard to reverse
-- `docs/design-log.md`: every decision so far, the facts behind them, and the test plan
+- `docs/design/`: every current decision, its reason and where it lives, split by area
+- `docs/design-log.md`: the full record behind them, and the test plan
+- `docs/facts/`: the measured facts, one file per topic
 - `docs/specs/`: each test series and its results
 
 ## License

@@ -1,0 +1,22 @@
+# Codex
+
+Read 2026-10-01 from the one summon kelpie made, on shep-pm/shep-kelpie#234, and from a mention on #126. The app, `chatgpt-codex-connector[bot]`, is installed on shep-pm. The comments on #234 are recorded in `fixtures/codex-comments-234.jsonl`.
+
+- `@codex review` in a comment at 04:39:19Z drew a comment from the app at 04:39:27Z, 8 seconds on: "To use Codex here, create an environment for this repo", linking Codex's cloud settings. The same comment answered a mention of `@codex` in prose on #126 at 04:31:59Z, so it says nothing about the review. It is not a refusal, and it came before the review did.
+- The review came at 04:43:07Z, 3 minutes 48 seconds after the summon, on a draft of 15 files and 561 added lines. It found nothing, and it is a conversation comment and not a pull request review: "Codex Review: Didn't find any major issues. Keep them coming!", then `**Reviewed commit:** ` and the first ten characters of the commit, 8eecd21835, then a collapsed "About Codex in GitHub". The pull request had no review and no review comment after it.
+- It left a thumbs up on the pull request itself, not on the summon comment, at 04:43:06Z, a second before the comment.
+  - GraphQL's `reactions` on the pull request lists it with the user `chatgpt-codex-connector[bot]`, the suffix an author's login drops, and REST showed it as `+1`. Recorded in `fixtures/codex-reactions-234.json`.
+  - Its footer says it reacts with a thumbs up when it has nothing to say, so kelpie reads one since the summon as a review with nothing in it, in case Codex ever leaves only that.
+  - GitHub keeps one reaction of a kind per user on the pull request, so only the first clean thumbs up can be seen: a later round that leaves only one adds nothing, and reads as before.
+  - A thumbs up that came with a comment naming another commit is that review's and is not read for the head, and a comment naming a commit is never read as a refusal.
+- The collapsed text says it reviews when a pull request is opened for review, when a draft is marked ready, and on the comment. Reviewing on ready was not seen live.
+  - #234 was marked ready at 05:53:54Z, and by 06:11Z, 17 minutes on and four times the 3m48s the summoned review took, Codex had posted no review, comment or reaction on it, nor on the commits pushed since. So the claim rests only on Codex's footer.
+  - The setting is off by default for that reason, and the maintainer turns it on where Codex's automatic reviews are enabled.
+- Where it does review on ready, kelpie's mark-ready before its first summon and the comment would each spend a review while the book counts one. So a bot that reviews on ready is summoned by marking ready.
+  - The switch is the `codex` agent file's `reviews_on_ready`, off when absent since it was never seen to (`[kelpie.reviewers.codex]`'s before shep-pm/shep-kelpie#315).
+  - The round takes the lease first, waiting for it with the draft unmarked, marks the draft ready as the summon, and posts no comment. A pull request already ready, one a bot listed before Codex marked ready, and every pass after the first are summoned by comment as before.
+  - Since shep-pm/shep-kelpie#315 a summon by marking ready is never sent again by comment, since that would spend a second review: one Codex never answers is passed over at two hours, so `reviews_on_ready` belongs only on a repo whose Codex reviews on ready.
+  - A bot listed before Codex would mark the draft ready and draw Codex's review outside its lease, so since shep-pm/shep-kelpie#315 a list with a bot before one that reviews on ready is refused at load.
+- Kelpie's `codex` agent file holds 10 reviews in 168 hours, the allowance read above, with `reviews_on_ready` off (shep-pm/shep-kelpie#315). A usage-limit reply quotes no opening, so it holds Codex for that week, and the pass goes on without it.
+- A mention of `@codex` in prose draws the same "create an environment" reply, as it did on #126 from a comment that quoted `@codex review` in backticks, so a worker's pull request body or comment that mentions it may summon Codex outside the lease.
+- Never recorded, so written from Codex's documentation: a review with findings (a pull request review on the commit, each finding an inline comment that opens with a priority badge, `P0` to `P3`, and a bold title) and the refusal. The refusal is read as any comment since the summon that names a usage limit, or a limit reached or exceeded, since the wording is a guess. The tests use hand-written shapes for these, and the first real ones should replace them.
