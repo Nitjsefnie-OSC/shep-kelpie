@@ -166,6 +166,8 @@ async fn wait_for_turn(
             Turn::Refused(why) => return Err(why),
             Turn::Lost { why, answered } => {
                 // A dog that answered was there; the next one is a fresh wait.
+                // A run queued behind hours of work may outlast many restarts,
+                // so only a dog that never answers wears the tries down.
                 if answered {
                     tries = 0;
                 }
