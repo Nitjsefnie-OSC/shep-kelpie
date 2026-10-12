@@ -409,6 +409,8 @@ pub enum Wait {
     Busy,
     /// Nothing: its model has shown no output for a while, as kelpie reads it
     Silent,
+    /// Its model host could not be reached, and the turn is tried again
+    Unreachable,
 }
 
 impl Wait {
@@ -418,6 +420,7 @@ impl Wait {
             Self::Lease => "a lease on its model",
             Self::Busy => "its gateway, which answered busy",
             Self::Silent => "its model's first output",
+            Self::Unreachable => "its model host, which could not be reached",
         }
     }
 }
@@ -497,6 +500,11 @@ pub enum AgentError {
     TimedOut(Harness),
     /// The harness exited without a result it reports as a success
     Failed(Harness, String),
+    /// The harness could not reach its model host: a 502 or 503 from it, or a
+    /// connection it refused or reset
+    ///
+    /// It passes, so a turn that ends with it is tried again, not parked.
+    Unreachable(Harness, String),
     /// The harness's output was not the result asked for
     Unreadable(Harness, String),
 }
@@ -510,6 +518,12 @@ impl fmt::Display for AgentError {
             Self::Stopped => f.write_str("the agent was stopped with the runner"),
             Self::TimedOut(h) => write!(f, "{} ran past its turn's ceiling", h.command()),
             Self::Failed(h, detail) => write!(f, "{} failed: {}", h.command(), detail.trim()),
+            Self::Unreachable(h, detail) => write!(
+                f,
+                "{} could not reach its model host: {}",
+                h.command(),
+                detail.trim()
+            ),
             Self::Unreadable(h, output) => {
                 write!(f, "unreadable {} output: {}", h.command(), output.trim())
             }

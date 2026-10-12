@@ -31,6 +31,9 @@ const TIMINGS_DEFAULT: usize = 10;
 /// How many finished work items `status` lists
 pub(super) const STATUS_HISTORY: usize = 10;
 
+/// How many issues of the board's order `status` lists
+pub(super) const STATUS_ORDER: usize = 5;
+
 /// What `attach` and `detach` take, as their refusals say
 const ATTACH_USAGE: &str = "takes an issue number and the attaching process's pid, and \
                             `attach` the pid of the session it started";
@@ -72,6 +75,9 @@ pub struct Status<'a> {
     pub pending_rulings: u32,
     /// Pull requests adopted and waiting for a free slot, oldest first
     pub adopted: &'a [Waiting],
+    /// The first issues in the order the board takes the ready ones, which
+    /// holds those it would pass over too
+    pub order: &'a [u64],
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
     /// Rulings waiting on the maintainer, oldest first
@@ -627,6 +633,7 @@ mod tests {
                 "parked": [],
                 "pending_rulings": 2,
                 "adopted": [],
+                "order": [],
                 "skipped": [],
                 "rulings": [],
                 "leases": [],

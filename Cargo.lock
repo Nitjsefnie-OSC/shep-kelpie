@@ -1004,7 +1004,6 @@ version = "0.0.0"
 dependencies = [
  "hmac",
  "jiff",
- "nix",
  "qrcode",
  "rustix",
  "schemars",

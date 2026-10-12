@@ -366,7 +366,7 @@ impl Runner {
             .filter(|i| self.state.item(i.number).is_none())
             .cloned()
             .collect();
-        rule_order(&mut ready);
+        rule_order(&mut ready, &self.state.order);
         let issues = ready
             .into_iter()
             .map(|issue| {

@@ -157,11 +157,14 @@ pub(super) fn board_moved(before: &ProjectState, after: &ProjectState) -> bool {
 }
 
 impl Runner {
-    /// How long until the runner next reads the board or retries a failed
-    /// step, or `None` with neither waiting
+    /// How long until the runner next reads the board, retries a failed
+    /// step or tries a turn again whose model host could not be reached, or
+    /// `None` with none waiting
     pub fn next_look(&self) -> Option<Duration> {
-        self.looks
-            .next_due(self.ports.clock.now(), &self.rotation())
+        let now = self.ports.clock.now();
+        let looks = self.looks.next_due(now, &self.rotation());
+        let host = self.next_retry().map(|d| d.max(DUE_FLOOR));
+        [looks, host].into_iter().flatten().min()
     }
 }
 

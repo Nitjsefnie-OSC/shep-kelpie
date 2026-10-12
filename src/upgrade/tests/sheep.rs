@@ -251,6 +251,42 @@ async fn a_failure_after_the_swap_names_what_is_installed_and_the_command_that_f
 }
 
 #[tokio::test]
+async fn a_failed_rollback_names_the_rolled_back_build_as_installed() {
+    let mut rig = Rig::new().await;
+    let new = rig.build("new", "0.3.0", "0.12.0");
+    rig.install(&new).await.0.unwrap();
+    rig.restarts();
+
+    rig.shepherd.says("koji", &[MERGING]);
+    let patience = Patience {
+        merge: Duration::from_millis(100),
+        ..FAST
+    };
+    let err = rig
+        .upgrade_within(Action::Rollback, patience)
+        .await
+        .0
+        .unwrap_err();
+    let installed = rig.installed.display();
+    assert_eq!(rig.installed_says(), "0.1.0 for shep 0.12.0");
+    assert!(
+        err.contains(&format!(
+            "The rolled back build is installed at {installed}"
+        )),
+        "{err}"
+    );
+    assert!(!err.contains("The new build"), "{err}");
+    assert!(
+        err.contains(&format!("`shep kelpie upgrade --binary {installed}`")),
+        "{err}"
+    );
+    assert!(
+        err.contains("`--rollback` would swap the builds forward again"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
 async fn a_bare_upgrade_restarts_onto_the_installed_build() {
     let mut rig = Rig::new().await;
     // What `cargo install` leaves: the new build already at the installed path.

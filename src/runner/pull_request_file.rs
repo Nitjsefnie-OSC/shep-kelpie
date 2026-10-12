@@ -538,7 +538,7 @@ body
         let (build, mut runner) = (rig.build_7(), runner.lock().unwrap());
         let file = path(&build);
 
-        nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRWXU).unwrap();
+        crate::test::make_fifo(&file);
         assert_eq!(runner.open_handed_over(&build, "kelpie/7"), Ok(None));
         runner.edit_handed_over(&build, 500);
         std::fs::remove_file(&file).unwrap();
