@@ -92,7 +92,9 @@ impl Runner {
 
     // One finding at a time, each taken off the work item once it is filed,
     // so a failure part way retries only what is left. Only a yes on the
-    // `follow-up` ruling puts them on the board: that yes is their triage.
+    // `follow-up` ruling puts them on the board as `ready-for-agent`: that yes
+    // is their triage. A project manager's yes that asked for `needs-triage`
+    // is not, and files them unread, as `file` does.
     fn file_follow_ups(&mut self, number: u64) -> Result<Begin, StateError> {
         let item = self.current().expect("a follow-up is of a work item");
         let issue = item.issue;

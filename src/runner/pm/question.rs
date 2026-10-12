@@ -69,7 +69,7 @@ impl Runner {
             How::Text(_) if self.follow_up_ruling(id) => {
                 return Ok(Err(format!(
                     "answer #{n}: ruling {id} is a follow-up, which the project manager \
-                     passes on with a recommendation and cannot answer"
+                     decides with `follow_up` or passes on with a recommendation, not with text"
                 )));
             }
             How::Text(text) => {

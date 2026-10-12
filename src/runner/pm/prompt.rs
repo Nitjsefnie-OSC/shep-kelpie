@@ -31,7 +31,7 @@ macro_rules! questions {
 /// ruling shows again to a session that has seen the answer without it
 macro_rules! follow_up_key {
     () => {
-        "\"follow_up\": null or {\"item\": <the work item whose follow-up ruling you decide>, \"decision\": \"yes\" | \"no\", \"label\": \"ready-for-agent\" | \"needs-triage\", \"why\": \"<one sentence>\"}"
+        "\"follow_up\": null or {\"item\": <the work item whose follow-up ruling you decide>, \"decision\": \"yes\" | \"no\", \"label\"?: \"ready-for-agent\" | \"needs-triage\" (only with yes, may be left out), \"why\": \"<one sentence>\"}"
     };
 }
 
@@ -42,7 +42,8 @@ macro_rules! follow_ups {
          Read the merged diff beside them, and check each finding against it and the \
          docs. Decide the ruling with `follow_up`, and the item's issue in `item`. \
          `yes` files every finding as an issue labelled `ready-for-agent` (or \
-         `needs-triage` if you give that `label`, when the maintainer reads them first), \
+         `needs-triage` if you give that `label`, when the maintainer reads them first; \
+         leave `label` out otherwise, and never give one with `no`), \
          so give a plain yes only where each is worth an issue and reads well enough for \
          a worker to take with no human read. `no` drops them all and files nothing, \
          where the diff shows them mistaken or already fixed. Your `why` names the \
