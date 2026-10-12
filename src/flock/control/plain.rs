@@ -36,8 +36,14 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
             Some(table) => table.lines().map(str::to_owned).collect(),
             None => vec![body.to_owned()],
         },
-        "drain" => vec![draining(sheep, &answer["draining"])],
-        "undrain" => vec![format!("{sheep} is not draining: calls start again")],
+        // An answer that contradicts the action is printed as it came.
+        "drain" if answer["draining"].is_object() => {
+            vec![draining(sheep, &answer["draining"])]
+        }
+        "undrain" if answer["draining"].is_null() => {
+            vec![format!("{sheep} is not draining: calls start again")]
+        }
+        "drain" | "undrain" => vec![body.to_owned()],
         "gate" => vec![format!("{sheep}: sent {} to the review gate", of())],
         "drop" => vec![format!("{sheep}: dropped {}", of())],
         "add" => vec![format!(

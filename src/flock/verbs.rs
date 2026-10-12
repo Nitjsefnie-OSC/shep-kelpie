@@ -140,11 +140,12 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     };
     // The runner's JSON with `--json`, else its answer to `action` as plain lines.
     let print = async |action: &str, params: Option<&str>| {
-        let answer = send(action, params).await?;
+        // The project is found before the action is sent, so a lookup that fails
+        // cannot follow an action the runner already took.
+        let name = project().await?;
+        let answer = control::send(&client, &name, action, params).await?;
         Ok(match (json, answer.as_slice()) {
-            (false, [body]) => {
-                control::plain_reply(project().await?.as_str(), action, params, body)
-            }
+            (false, [body]) => control::plain_reply(name.as_str(), action, params, body),
             _ => answer,
         })
     };
@@ -529,6 +530,16 @@ mod tests {
         let (plain, json) = both("undrain", "", status).await;
         assert_eq!(plain, ["koji is not draining: calls start again"]);
         assert_eq!(json, [status]);
+    }
+
+    #[tokio::test]
+    async fn drain_and_undrain_print_an_answer_that_contradicts_them_as_it_came() {
+        let not_draining = r#"{"project":"koji","draining":null}"#;
+        let (plain, _) = both("drain", "", not_draining).await;
+        assert_eq!(plain, [not_draining]);
+        let draining = r#"{"draining":{"calls":[],"ceiling":3600}}"#;
+        let (plain, _) = both("undrain", "", draining).await;
+        assert_eq!(plain, [draining]);
     }
 
     #[tokio::test]
