@@ -20,6 +20,58 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     lines
 }
 
+/// What `sheep`'s runner's answer `body` to `action` with `params` says as
+/// plain lines, for the verbs that print one: the answer itself when it is
+/// not the object that action answers with
+pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str) -> Vec<String> {
+    let Ok(answer) = serde_json::from_str::<Value>(body) else {
+        return vec![body.to_owned()];
+    };
+    let of = || match params {
+        Some(issue) => format!("#{issue}"),
+        None => "the open work item".to_owned(),
+    };
+    match action {
+        "timings" => match answer["table"].as_str() {
+            Some(table) => table.lines().map(str::to_owned).collect(),
+            None => vec![body.to_owned()],
+        },
+        // An answer that contradicts the action is printed as it came.
+        "drain" if answer["draining"].is_object() => {
+            vec![draining(sheep, &answer["draining"])]
+        }
+        "undrain" if answer["draining"].is_null() => {
+            vec![format!("{sheep} is not draining: calls start again")]
+        }
+        "drain" | "undrain" => vec![body.to_owned()],
+        "gate" => vec![format!("{sheep}: sent {} to the review gate", of())],
+        "drop" => vec![format!("{sheep}: dropped {}", of())],
+        "add" => vec![format!(
+            "{sheep}: opened a work item for #{}",
+            params.unwrap_or("?")
+        )],
+        _ => vec![body.to_owned()],
+    }
+}
+
+fn draining(sheep: &str, draining: &Value) -> String {
+    let calls = draining["calls"].as_array().map_or(&[][..], Vec::as_slice);
+    if calls.is_empty() {
+        return format!("{sheep} is draining: no new call starts, and none is running");
+    }
+    let running: Vec<String> = calls
+        .iter()
+        .map(|call| match call["issue"].as_u64() {
+            Some(issue) => format!("{} #{issue}", call["role"].as_str().unwrap_or("?")),
+            None => call["role"].as_str().unwrap_or("?").to_owned(),
+        })
+        .collect();
+    format!(
+        "{sheep} is draining: no new call starts; still running: {}",
+        running.join(", ")
+    )
+}
+
 fn items(status: &Value, lines: &mut Vec<String>) {
     let items = status["work_items"]
         .as_array()

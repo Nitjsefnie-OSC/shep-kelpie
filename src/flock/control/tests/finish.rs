@@ -12,7 +12,7 @@ async fn finished(shepherd: &FakeShepherd) -> (Result<Vec<String>, String>, Vec<
     let client = client(shepherd).await;
     let mut said = Vec::new();
     let say = &mut |line| said.push(line);
-    let ran = in_time(finish(&client, &project("koji"), FAST, say)).await;
+    let ran = in_time(finish(&client, &project("koji"), Format::Plain, FAST, say)).await;
     (ran, said)
 }
 
@@ -77,6 +77,24 @@ async fn finish_waits_for_a_runner_still_starting() {
     assert!(lines.unwrap()[0].starts_with("koji is finishing #7, #9"));
     assert_eq!(said, ["waiting: `koji` is starting"]);
     assert_eq!(asked(&shepherd.writes()), ["status", "status", "finish"]);
+}
+
+#[tokio::test]
+async fn finishing_a_stopped_runner_prints_an_object_with_json() {
+    let shepherd = FakeShepherd::new().await;
+    runner(&shepherd, "koji", Path::new("/src/koji"), false);
+    let client = client(&shepherd).await;
+    let say = &mut |_| {};
+    let lines = in_time(finish(&client, &project("koji"), Format::Json, FAST, say)).await;
+    let [line] = lines.unwrap().try_into().unwrap();
+    let object: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        object,
+        serde_json::json!({
+            "sheep": "koji",
+            "message": "koji's runner is stopped, so it has nothing to finish",
+        })
+    );
 }
 
 #[tokio::test]

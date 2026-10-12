@@ -284,20 +284,23 @@ fn run(body: &str) -> Option<String> {
 ///
 /// A message when the project has no kelpie runner, it does not come up
 /// from starting within `patience`, the runner refused `finish`, with its
-/// reason, or it did not answer.
+/// reason, or it did not answer. With [`Format::Json`] it returns the runner's
+/// answer as it came, once the runner has taken `finish`.
 pub async fn finish(
     client: &Client,
     project: &ProjectName,
+    format: Format,
     patience: Patience,
     say: &mut dyn FnMut(String),
 ) -> Result<Vec<String>, String> {
     let runner = kelpie_runner(client, &flock(client).await?, project).await?;
     let name = project.as_str();
     if !matches!(runner.status, ProcStatus::Online | ProcStatus::Starting) {
-        return Ok(vec![format!(
+        let said = format!(
             "{name}'s runner is {}, so it has nothing to finish",
             runner.status
-        )]);
+        );
+        return Ok(vec![said_as(format, name, said)]);
     }
     come_up(client, name, patience, say).await?;
     let body = match trigger(client, name, "finish", None).await? {
@@ -306,6 +309,9 @@ pub async fn finish(
     };
     if let Some(why) = refusal(&body) {
         return Err(why);
+    }
+    if format == Format::Json {
+        return Ok(vec![body]);
     }
     let named = |numbers: &[u64]| {
         let named: Vec<String> = numbers.iter().map(|n| format!("#{n}")).collect();
@@ -552,12 +558,19 @@ pub fn plain_status(sheep: &str, body: &str) -> Vec<String> {
     }
 }
 
-/// How `status` prints a runner's answer
+/// `sheep`'s runner's answer `body` to `action` with `params` as the plain
+/// lines `timings`, `drain`, `undrain`, `gate`, `drop` and `add` print
+pub fn plain_reply(sheep: &str, action: &str, params: Option<&str>, body: &str) -> Vec<String> {
+    plain::reply(sheep, action, params, body)
+}
+
+/// How a verb prints a runner's answer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
-    /// A short block of lines per project
+    /// A short line or block of lines
     Plain,
-    /// One line per project: its name and the runner's JSON object as it came
+    /// The runner's JSON object as it came, which `status` prints on one line
+    /// per project, behind its name
     Json,
 }
 
@@ -624,27 +637,42 @@ pub async fn send(
 /// # Errors
 ///
 /// A message when the project has no kelpie runner, it is not running, or
-/// it refused the note, with its reason.
+/// it refused the note, with its reason. With [`Format::Json`] it returns the
+/// runner's answer as it came.
 pub async fn tell(
     client: &Client,
     project: &ProjectName,
     note: &str,
+    format: Format,
 ) -> Result<Vec<String>, String> {
     kelpie_runner(client, &flock(client).await?, project).await?;
     let runner = project.as_str();
     match trigger(client, runner, "tell", Some(note)).await? {
         Answered::Runner(body) => match refusal(&body) {
             Some(why) => Err(why),
+            None if format == Format::Json => Ok(vec![body]),
             None => Ok(vec![format!(
                 "told {project}'s project manager, which reads it on its next wake"
             )]),
         },
-        Answered::TimedOut => Ok(vec![format!(
-            "{runner}'s runner did not answer in time, and the note may have arrived: \
-             do not tell it again unless the project manager does not wake for it, \
-             and `shep bleats {runner}` says why"
-        )]),
+        Answered::TimedOut => {
+            let said = format!(
+                "{runner}'s runner did not answer in time, and the note may have arrived: \
+                 do not tell it again unless the project manager does not wake for it, \
+                 and `shep bleats {runner}` says why"
+            );
+            Ok(vec![said_as(format, runner, said)])
+        }
         other => Err(unanswered(runner, other)),
+    }
+}
+
+// What kelpie itself says when the runner gave no object to print: the
+// sentence, or under [`Format::Json`] an object that holds it.
+fn said_as(format: Format, sheep: &str, said: String) -> String {
+    match format {
+        Format::Plain => said,
+        Format::Json => serde_json::json!({ "sheep": sheep, "message": said }).to_string(),
     }
 }
 

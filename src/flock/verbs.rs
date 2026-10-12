@@ -28,6 +28,11 @@ pub const VERBS: [&str; 19] = [
     "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch",
 ];
 
+/// The verbs that print the runner's JSON instead of plain text with `--json`
+const JSON_VERBS: [&str; 9] = [
+    "add", "finish", "status", "gate", "drop", "timings", "tell", "drain", "undrain",
+];
+
 /// What the verbs take, as their help says
 pub const USAGE: &str = "\
 usage: shep kelpie add [<project>]       registers this checkout as a project
@@ -54,6 +59,10 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          units and dollars per merged pull request
        shep kelpie usage <project> --import <log file>
                                          adds a runner's logged calls to its ledger
+
+`--json` goes anywhere in the line of `add <issue>`, `finish`, `status`, `gate`,
+`drop`, `timings`, `tell`, `drain` and `undrain`, and prints the runner's JSON
+object in place of plain text.
 
 `-p <project>` or `--project <project>` goes anywhere in the line, before a
 ruling's answer. Without it, the project is the one whose repo holds this
@@ -88,8 +97,8 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     // A ruling's answer starts after its id and first word.
     let (named, args) = split_project(args, (command == "rule").then_some(2))?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    // Only `status` has a JSON form, so `--json` is a word to every other verb.
-    let json = command == "status" && args.contains(&"--json");
+    // Only these verbs have a JSON form, so `--json` is a word to every other verb.
+    let json = JSON_VERBS.contains(&command) && args.contains(&"--json");
     let args: Vec<&str> = if json {
         args.into_iter().filter(|arg| *arg != "--json").collect()
     } else {
@@ -129,6 +138,18 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     let send = async |action: &str, params: Option<&str>| {
         control::send(&client, &project().await?, action, params).await
     };
+    // The runner's JSON with `--json`, else its answer to `action` as plain lines.
+    let print = async |action: &str, params: Option<&str>| {
+        // The project is found before the action is sent, so a lookup that fails
+        // cannot follow an action the runner already took.
+        let name = project().await?;
+        let answer = control::send(&client, &name, action, params).await?;
+        Ok(match (json, answer.as_slice()) {
+            (false, [body]) => control::plain_reply(name.as_str(), action, params, body),
+            _ => answer,
+        })
+    };
+    let format = if json { Format::Json } else { Format::Plain };
     // `start`, `pause`, `finish` and `add` take their project in place of `-p` too.
     let positional = |name: Option<&&str>| match (name, &named) {
         (Some(_), Some(_)) => Err(format!("name the project once\n\n{USAGE}")),
@@ -139,8 +160,10 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     };
     match (command, args.as_slice()) {
         ("add", [issue]) if !issue.is_empty() && issue.bytes().all(|b| b.is_ascii_digit()) => {
-            send("add", Some(issue)).await
+            print("add", Some(issue)).await
         }
+        // Registering a checkout has no JSON form.
+        ("add", _) if json => Err(USAGE.to_owned()),
         ("add", [] | [_]) => {
             let checkout = Checkout::of(&here)?;
             let name = match positional(args.first())? {
@@ -173,8 +196,12 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
             match command {
                 "start" => control::start(&client, &name).await,
                 "finish" => {
-                    let say = &mut |line: String| println!("{line}");
-                    control::finish(&client, &name, Patience::default(), say).await
+                    // What it waits on goes to stderr under `--json`, so stdout is the object.
+                    let say = &mut |line: String| match json {
+                        true => eprintln!("{line}"),
+                        false => println!("{line}"),
+                    };
+                    control::finish(&client, &name, format, Patience::default(), say).await
                 }
                 _ => {
                     let say = &mut |line: String| println!("{line}");
@@ -183,10 +210,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
                 }
             }
         }
-        ("status", []) if named.is_none() => {
-            let format = if json { Format::Json } else { Format::Plain };
-            control::status(&client, format).await
-        }
+        ("status", []) if named.is_none() => control::status(&client, format).await,
         ("status", []) => {
             let answer = send("status", None).await?;
             Ok(match (json, answer.as_slice()) {
@@ -195,11 +219,11 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
             })
         }
         ("rework" | "adopt", [number]) => send(command, Some(number)).await,
-        ("gate" | "drop", []) => send(command, None).await,
-        ("gate" | "drop", [issue]) => send(command, Some(issue)).await,
-        ("timings", []) => send("timings", None).await,
-        ("timings", [count]) => send("timings", Some(count)).await,
-        ("drain" | "undrain", []) => send(command, None).await,
+        ("gate" | "drop", []) => print(command, None).await,
+        ("gate" | "drop", [issue]) => print(command, Some(issue)).await,
+        ("timings", []) => print("timings", None).await,
+        ("timings", [count]) => print("timings", Some(count)).await,
+        ("drain" | "undrain", []) => print(command, None).await,
         ("attach", [issue]) => {
             let number = (issue.parse::<u64>().ok())
                 .filter(|&n| n > 0 && issue.bytes().all(|b| b.is_ascii_digit()));
@@ -208,7 +232,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         }
         ("tell", [_, ..]) => {
             let project = project().await?;
-            control::tell(&client, &project, &args.join(" ")).await
+            control::tell(&client, &project, &args.join(" "), format).await
         }
         ("pm", []) => pm::pm(&client, &project().await?).await,
         ("issue", [_, ..]) => {
@@ -439,6 +463,12 @@ mod tests {
 
     // `status` against a fake shepherd holding the runner `koji`.
     async fn status(args: &str) -> Result<Vec<String>, String> {
+        verb("status", args, None).await
+    }
+
+    // `command args` against a fake shepherd holding the runner `koji`, which
+    // answers every trigger with `says` when that is given.
+    async fn verb(command: &str, args: &str, says: Option<&str>) -> Result<Vec<String>, String> {
         let shepherd = crate::test::FakeShepherd::new().await;
         let launch = Launch {
             kelpie: "/opt/kelpie".into(),
@@ -449,11 +479,140 @@ mod tests {
         let name = ProjectName::try_from("koji").unwrap();
         shepherd.holds(launch.runner(&name, table), true);
         shepherd.holds_dog("kelpie", true);
-        let args: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
-        let ask = run(shepherd.home(), "status", &args);
+        if let Some(says) = says {
+            shepherd.says("koji", &[says]);
+        }
+        // Only a bare `status` needs no project; the rest find theirs from the folder.
+        let project = (command != "status").then_some("-p koji");
+        let args: Vec<String> = (project.into_iter().flat_map(str::split_whitespace))
+            .chain(args.split_whitespace())
+            .map(str::to_owned)
+            .collect();
+        let ask = run(shepherd.home(), command, &args);
         tokio::time::timeout(std::time::Duration::from_secs(40), ask)
             .await
-            .expect("status neither ended nor failed in time")
+            .unwrap_or_else(|_| panic!("{command} neither ended nor failed in time"))
+    }
+
+    // What `command args` prints plain, then with `--json`, for a runner that
+    // answers `says`.
+    async fn both(command: &str, args: &str, says: &str) -> (Vec<String>, Vec<String>) {
+        let plain = verb(command, args, Some(says)).await.unwrap();
+        let json = verb(command, &format!("{args} --json"), Some(says)).await;
+        (plain, json.unwrap())
+    }
+
+    #[tokio::test]
+    async fn timings_prints_the_table_plain_and_the_object_with_json() {
+        let object = r#"{"seconds":{"worker":90},"table":"phase   seconds\nworker  90"}"#;
+        let (plain, json) = both("timings", "20", object).await;
+        assert_eq!(plain, ["phase   seconds", "worker  90"]);
+        assert_eq!(json, [object]);
+    }
+
+    #[tokio::test]
+    async fn drain_names_the_calls_still_running_and_undrain_says_calls_start() {
+        let running =
+            r#"{"draining":{"calls":[{"issue":7,"role":"worker"},{"role":"pm"}],"ceiling":3600}}"#;
+        let (plain, json) = both("drain", "", running).await;
+        assert_eq!(
+            plain,
+            ["koji is draining: no new call starts; still running: worker #7, pm"]
+        );
+        assert_eq!(json, [running]);
+        let idle = r#"{"draining":{"calls":[],"ceiling":3600}}"#;
+        let (plain, _) = both("drain", "", idle).await;
+        assert_eq!(
+            plain,
+            ["koji is draining: no new call starts, and none is running"]
+        );
+        let status = r#"{"project":"koji","draining":null}"#;
+        let (plain, json) = both("undrain", "", status).await;
+        assert_eq!(plain, ["koji is not draining: calls start again"]);
+        assert_eq!(json, [status]);
+    }
+
+    #[tokio::test]
+    async fn drain_and_undrain_print_an_answer_that_contradicts_them_as_it_came() {
+        let not_draining = r#"{"project":"koji","draining":null}"#;
+        let (plain, _) = both("drain", "", not_draining).await;
+        assert_eq!(plain, [not_draining]);
+        let draining = r#"{"draining":{"calls":[],"ceiling":3600}}"#;
+        let (plain, _) = both("undrain", "", draining).await;
+        assert_eq!(plain, [draining]);
+    }
+
+    #[tokio::test]
+    async fn gate_drop_and_add_say_what_they_did_to_the_work_item() {
+        let status = r#"{"project":"koji","work_item":null}"#;
+        for (command, args, line) in [
+            (
+                "gate",
+                "",
+                "koji: sent the open work item to the review gate",
+            ),
+            ("gate", "7", "koji: sent #7 to the review gate"),
+            ("drop", "", "koji: dropped the open work item"),
+            ("drop", "7", "koji: dropped #7"),
+            ("add", "7", "koji: opened a work item for #7"),
+        ] {
+            let (plain, json) = both(command, args, status).await;
+            assert_eq!(plain, [line], "{command} {args}");
+            assert_eq!(json, [status], "{command} {args}");
+        }
+    }
+
+    #[tokio::test]
+    async fn tell_and_finish_print_their_line_plain_and_the_answer_with_json() {
+        let told = r#"{"project":"koji"}"#;
+        let (plain, json) = both("tell", "hold #4", told).await;
+        assert_eq!(
+            plain,
+            ["told koji's project manager, which reads it on its next wake"]
+        );
+        assert_eq!(json, [told]);
+        let finishing = r#"{"project":"koji","run":"finishing","work_items":[]}"#;
+        let (plain, json) = both("finish", "", finishing).await;
+        assert_eq!(
+            plain,
+            ["koji has no work item open, so its runner stops now"]
+        );
+        assert_eq!(json, [finishing]);
+    }
+
+    #[tokio::test]
+    async fn a_refused_answer_prints_its_reason_and_fails_in_both_forms() {
+        let refused = r#"{"error":"no work item for #8 is open"}"#;
+        for (command, args) in [
+            ("timings", "20"),
+            ("drain", ""),
+            ("undrain", ""),
+            ("gate", "8"),
+            ("drop", "8"),
+            ("tell", "hold #4"),
+            ("add", "8"),
+            ("finish", ""),
+        ] {
+            for flag in ["", " --json"] {
+                let err = verb(command, &format!("{args}{flag}"), Some(refused)).await;
+                assert_eq!(
+                    err.unwrap_err(),
+                    "no work item for #8 is open",
+                    "{command} {args}{flag}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn json_is_refused_where_there_is_nothing_to_print_as_json() {
+        for (command, args) in [("rework", "7 --json"), ("add", "--json"), ("pm", "--json")] {
+            let err = verb(command, args, None).await.unwrap_err();
+            assert!(
+                err.starts_with("usage: shep kelpie add"),
+                "{command}: {err}"
+            );
+        }
     }
 
     #[tokio::test]
