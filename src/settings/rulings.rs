@@ -31,6 +31,11 @@ pub struct Rulings {
     /// when absent, and `merge` is refused.
     #[serde(default)]
     pub pm_alone: Vec<RulingName>,
+    /// Globs of paths that call the full panel for a ruling on a work item
+    /// whose diff from its merge base touches one, whatever its type. `*` and
+    /// `?` stay inside a folder and `**` spans folders. Empty when absent.
+    #[serde(default)]
+    pub full_panel_paths: Vec<String>,
 }
 
 /// A kind of ruling, as `rulings.pm_alone` and the usage ledger name it
@@ -70,6 +75,8 @@ pub enum RulingName {
     TurnFailed,
     /// No implementer was picked
     Unlabelled,
+    /// A work item is over its budget
+    OverBudget,
 }
 
 impl RulingName {
@@ -92,6 +99,7 @@ impl RulingName {
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
                 Stuck::Unlabelled { .. } => Self::Unlabelled,
+                Stuck::OverBudget { .. } => Self::OverBudget,
             },
         }
     }
@@ -114,6 +122,7 @@ impl RulingName {
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
+            Self::OverBudget => "over-budget",
         }
     }
 }

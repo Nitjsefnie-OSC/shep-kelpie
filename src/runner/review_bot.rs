@@ -26,6 +26,7 @@
 //! and found clean, unless a summon is owed: that one asks once more, for a
 //! full review.
 
+mod failed;
 mod late;
 mod lease;
 mod on_ready;
@@ -118,6 +119,12 @@ impl Runner {
         bot: BotReviewer,
         review: Review,
     ) -> Result<Begin, StateError> {
+        if self.draining {
+            return Ok(Begin::Idle);
+        }
+        if let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
+        }
         let head = match self.origin_head() {
             Ok(head) => head,
             Err(reason) => return Ok(self.gate_failed(reason)),
@@ -315,7 +322,9 @@ impl Runner {
     // Sends the summon, under the lease, in whichever form `full` says.
     // `again` is a re-send of a summon the bot gave no sign of: it goes
     // out as a fresh event, and `at` stays the first one's time, so the
-    // round is the same and its window is not counted twice.
+    // round is the same and its window is not counted twice. A summon sent
+    // again after a failure takes its own time: the first was heard, never
+    // counted, and its failure must not read as the second's answer.
     fn send(
         &mut self,
         bot: Bot,
@@ -356,6 +365,7 @@ impl Runner {
             at,
             full: false,
             resent: again,
+            failed: self.failed_so_far(),
         })?;
         Ok(self.summoned(number, head, again))
     }
@@ -399,6 +409,7 @@ impl Runner {
             at,
             full: true,
             resent: again,
+            failed: self.failed_so_far(),
         })?;
         let profile = self.profile(bot);
         let body = profile.full_review().unwrap_or_default();
@@ -412,6 +423,7 @@ impl Runner {
                     at,
                     full: true,
                     resent: false,
+                    failed: false,
                 }
             } else {
                 ReviewStage::Summon {
@@ -580,7 +592,16 @@ impl Runner {
                     },
                 )
             }
-            Reading::Silent | Reading::Processing | Reading::Completed { .. }
+            // A review that failed is asked for once more, and the pass goes
+            // on without the bot when that one fails too. The summon sent
+            // again takes the time it went out as its own, so the failure
+            // that drew it is not read as its answer. A bot summoned by
+            // marking ready is never asked by comment, so waits like one
+            // that is still reading.
+            Reading::Failed if waited < REVIEW_WAIT && !self.bot_reviewer(bot).reviews_on_ready => {
+                self.failed_review(bot, (started, head), Timestamp(now), full_again)
+            }
+            Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
                 if waited >= REVIEW_WAIT =>
             {
                 self.accepted(bot, at)?;
@@ -590,7 +611,7 @@ impl Runner {
                 let reviewer = self.round_reviewer(bot);
                 self.pass_over(number, BotSkipped::Silent { reviewer, head })
             }
-            Reading::Processing | Reading::Completed { .. } => {
+            Reading::Processing | Reading::Failed | Reading::Completed { .. } => {
                 self.accepted(bot, at).map(|()| Begin::Idle)
             }
             // No sign of the summon yet: it may never have been seen, so it

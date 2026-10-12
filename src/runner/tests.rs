@@ -66,7 +66,7 @@ fn a_project_saved_paused_reads_the_board_on_its_first_pass() {
     drop(runner);
     let saved: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
-    assert_eq!(saved["version"], 31);
+    assert_eq!(saved["version"], 35);
     assert_eq!(
         saved["events"][2]["what"], "project paused",
         "old events stay"
@@ -192,6 +192,36 @@ fn coderabbit_listed_for_a_public_repo_asks_the_forge_once() {
     rig.coderabbit_on();
     rig.open().unwrap();
     assert_eq!(rig.forge.calls(), 1);
+}
+
+#[test]
+fn the_runner_records_its_e2e_table_for_the_dog_and_removes_it_when_unset() {
+    let rig = Rig::new("acme");
+    let file = rig.paths().folder.join("e2e.json");
+    rig.open().unwrap();
+    assert!(!file.exists(), "no table, no file");
+
+    rig.edit_settings(|s| s + "\n[app.dogs.kelpie.e2e]\nhost = \"e2e-box\"\n");
+    rig.open().unwrap();
+    let recorded: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        recorded,
+        json!({
+            "host": "e2e-box",
+            "command": "scripts/e2e-remote.sh",
+            "results": "test-results",
+        })
+    );
+
+    rig.edit_settings(|s| s.replace("host = \"e2e-box\"", "host = \"other\""));
+    rig.open().unwrap();
+    let recorded = std::fs::read_to_string(&file).unwrap();
+    assert!(recorded.contains("other"), "{recorded}");
+
+    rig.edit_settings(|s| s.replace("\n[app.dogs.kelpie.e2e]\nhost = \"other\"\n", ""));
+    rig.open().unwrap();
+    assert!(!file.exists(), "a stale file is removed");
 }
 
 #[test]

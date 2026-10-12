@@ -169,6 +169,12 @@ impl ProjectPaths {
         [self.worktrees.clone(), self.builds.clone()]
     }
 
+    /// The project's `[app.dogs.kelpie.e2e]` table as the runner recorded it
+    /// for the dog, which is not there while the project sets none
+    pub fn e2e(&self) -> PathBuf {
+        self.folder.join("e2e.json")
+    }
+
     /// The folder holding every work item's worktree
     pub fn worktrees(&self) -> PathBuf {
         self.worktrees.clone()

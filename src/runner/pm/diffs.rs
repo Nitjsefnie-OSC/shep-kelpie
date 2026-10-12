@@ -7,11 +7,18 @@
 //! The diffs are those the board's last write read, with the runner's lock
 //! let go, so a wake runs no git. The folder is emptied first, so a diff
 //! never outlives its work item or a write whose git failed for it.
+//!
+//! A work item parked on a follow-up ruling has merged, so its branch's diff
+//! from `main` is empty. Its file holds the merged pull request's diff
+//! instead, which is the one thing a wake reads from git itself.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::runner::Runner;
+use crate::runner::briefing::patch;
+use crate::state::RulingKind;
+use crate::work_item::Phase;
 
 /// The folder in the project manager's that holds the diffs
 const DIFFS: &str = "diffs";
@@ -50,11 +57,15 @@ impl Runner {
         }
         let issues: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         for issue in issues {
-            let file = format!("{DIFFS}/{issue}.diff");
-            let written = match self.brief_patch(issue) {
+            let file = diff_file(issue);
+            let read = match self.merged_branch(issue) {
+                Some(branch) => Some(self.merged_patch(&branch, issue)),
+                None => self.brief_patch(issue).cloned(),
+            };
+            let written = match read {
                 Some(Ok(diff)) => std::fs::write(folder.join(&file), diff)
                     .map_err(|e| format!("cannot write it: {}", e.kind())),
-                Some(Err(why)) => Err(why.clone()),
+                Some(Err(why)) => Err(why),
                 None => Err("the board has not read its branch yet".to_owned()),
             };
             let diff = match written {
@@ -75,4 +86,29 @@ impl Runner {
         }
         out
     }
+
+    // The branch of `issue`'s work item if it is parked on a follow-up
+    // ruling, since its pull request merged and the board's diff of it
+    // from `main` is empty.
+    fn merged_branch(&self, issue: u64) -> Option<String> {
+        let item = self.state.item(issue)?;
+        let Phase::Ruling { id } = item.phase else {
+            return None;
+        };
+        let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
+        matches!(ruling.kind, RulingKind::FollowUp { .. }).then(|| item.branch.clone())
+    }
+
+    // What the merged pull request of `issue`'s `branch` changed. A merged
+    // diff is read by a wake for a follow-up ruling alone, once, so unlike
+    // the board's diffs it runs git as the wake starts.
+    fn merged_patch(&self, branch: &str, issue: u64) -> Result<Vec<u8>, String> {
+        let repo = &self.settings.git.checkout;
+        patch::merged(repo, branch, &self.paths.worktree(issue))
+    }
+}
+
+/// The diff of `issue`'s work item, in the project manager's folder
+pub(super) fn diff_file(issue: u64) -> String {
+    format!("{DIFFS}/{issue}.diff")
 }

@@ -218,3 +218,177 @@ fn a_thumbs_up_alone_is_a_review_with_nothing_in_it() {
         "the round does not wait out two hours"
     );
 }
+
+fn summoned_again(head: &str) -> Option<StepReport> {
+    Some(StepReport::SummonedAgain {
+        issue: 7,
+        pull_request: 71,
+        head: head.to_owned(),
+    })
+}
+
+#[test]
+fn a_failed_codex_review_is_summoned_once_more() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    let summon = now(&rig);
+    rig.forge.coderabbit.codex_start(71, summon + 8);
+    rig.forge.coderabbit.codex_failed(71, summon + 120);
+    rig.clock.advance(120);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+    assert_eq!(comments_of(&rig, SUMMON), 2);
+    assert!(
+        now(&rig) < summon + REVIEW_WAIT,
+        "it did not wait out the two hours"
+    );
+    assert!(
+        rig.leases.held(&codex()),
+        "the lease stays for the second try"
+    );
+
+    let again = now(&rig);
+    rig.forge.coderabbit.codex_clean(71, &head, again + 230);
+    rig.clock.advance(230);
+    assert_eq!(rig.threads_read(&runner), bot_reviewed(3, "codex", 0));
+    assert_eq!(comments_of(&rig, SUMMON), 2, "no third summon");
+}
+
+#[test]
+fn a_second_failed_review_passes_codex_over_with_the_reason() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    let summon = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, summon + 120);
+    rig.clock.advance(120);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+
+    let again = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, again + 100);
+    rig.clock.advance(100);
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped {
+            issue: 7,
+            pull_request: 71,
+            round: 3,
+            reviewer: AgentName::kelpies("codex"),
+            reason: format!(
+                "its review of {} failed twice, once when summoned and once when summoned again",
+                &head[..7]
+            ),
+        })
+    );
+    assert!(!rig.leases.held(&codex()));
+    assert_eq!(comments_of(&rig, SUMMON), 2, "no third summon");
+    let skipped = &rig.ask(&runner, "status", None)["work_item"]["bots_skipped"];
+    assert_eq!(
+        *skipped,
+        serde_json::json!([{ "why": "failed", "reviewer": "codex", "head": head }])
+    );
+}
+
+// Its notice comes seconds after the summon and is read before the failure
+// is, so the lease is given back by the time the failure arrives.
+#[test]
+fn a_failure_after_the_notice_asks_for_the_lease_again_and_summons_once_more() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    let summon = now(&rig);
+    rig.forge.coderabbit.codex_start(71, summon + 8);
+    rig.clock.advance(8);
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "the notice is a sign it heard"
+    );
+    assert!(!rig.leases.held(&codex()), "its answer took the summon");
+
+    rig.forge.coderabbit.codex_failed(71, summon + 120);
+    rig.clock.advance(112);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+    assert_eq!(comments_of(&rig, SUMMON), 2);
+    assert!(rig.leases.held(&codex()), "held for the second try");
+
+    let again = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, again + 100);
+    rig.clock.advance(100);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { round: 3, .. })
+    ));
+    assert_eq!(comments_of(&rig, SUMMON), 2, "no third summon");
+}
+
+#[test]
+fn a_failure_whose_lease_is_never_granted_is_passed_over_at_two_hours() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    let summon = now(&rig);
+    rig.forge.coderabbit.codex_start(71, summon + 8);
+    rig.clock.advance(8);
+    assert_eq!(step(&runner).unwrap(), None);
+
+    rig.leases.close(&codex(), true);
+    rig.forge.coderabbit.codex_failed(71, summon + 120);
+    rig.clock.advance(112);
+    assert_eq!(step(&runner).unwrap(), None, "waits for the lease");
+    assert_eq!(comments_of(&rig, SUMMON), 1);
+
+    rig.clock.advance(REVIEW_WAIT);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { round: 3, .. })
+    ));
+}
+
+#[test]
+fn one_failure_after_a_summon_sent_again_for_silence_is_not_a_second_failure() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    rig.clock.advance(HEARD_WAIT);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+    assert_eq!(comments_of(&rig, SUMMON), 2, "sent again for silence");
+
+    let silent = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, silent + 60);
+    rig.clock.advance(60);
+    assert_eq!(
+        step(&runner).unwrap(),
+        summoned_again(&head),
+        "its first failure is asked for once more"
+    );
+    assert_eq!(comments_of(&rig, SUMMON), 3);
+
+    let again = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, again + 60);
+    rig.clock.advance(60);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { round: 3, .. })
+    ));
+    assert_eq!(comments_of(&rig, SUMMON), 3, "no fourth summon");
+}
+
+#[test]
+fn the_first_failure_s_comment_is_not_the_re_summon_s_answer() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    let summon = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, summon + 15);
+    rig.clock.advance(20);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+
+    rig.clock.advance(30);
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "still waiting on the second summon"
+    );
+    assert_eq!(comments_of(&rig, SUMMON), 2);
+}

@@ -1,5 +1,7 @@
 use super::*;
 
+mod test_command;
+
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
 
 // The example's first table, before which a test writes a key at the top level
@@ -847,6 +849,18 @@ fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone
 }
 
 #[test]
+fn full_panel_paths_default_to_none_and_take_globs() {
+    assert!(parse(EXAMPLE).unwrap().rulings.full_panel_paths.is_empty());
+    let on = "\n[app.dogs.kelpie.rulings]\n\
+              full_panel_paths = [\"src/guard/**\", \".github/workflows/**\"]\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(
+        rulings.full_panel_paths,
+        ["src/guard/**", ".github/workflows/**"]
+    );
+}
+
+#[test]
 fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
     let kind = parse_err(&format!(
         "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"coffee\"]\n"
@@ -868,4 +882,116 @@ fn only_a_merge_kind_makes_the_list_refuse() {
     .rulings;
     assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
     assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
+}
+
+// The example settings, with its budget table taken out and `table` put in its place
+fn with_budget(table: &str) -> String {
+    let (before, rest) = EXAMPLE.split_once("[app.dogs.kelpie.budget]").unwrap();
+    let (_, after) = rest.split_once("per_item_usd = 10\n").unwrap();
+    format!("{before}{table}{after}")
+}
+
+#[test]
+fn a_per_item_budget_is_ten_dollars_when_the_table_does_not_say() {
+    assert_eq!(parse(EXAMPLE).unwrap().budget.per_item_usd.cents(), 1000);
+    let absent = with_budget("");
+    assert_eq!(parse(&absent).unwrap().budget.per_item_usd.cents(), 1000);
+    let empty = with_budget("[app.dogs.kelpie.budget]\n");
+    assert_eq!(parse(&empty).unwrap().budget.per_item_usd.cents(), 1000);
+    let set = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 2.5\n");
+    assert_eq!(parse(&set).unwrap().budget.per_item_usd.cents(), 250);
+    let whole = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 25\n");
+    assert_eq!(parse(&whole).unwrap().budget.per_item_usd.cents(), 2500);
+}
+
+#[test]
+fn a_negative_or_non_numeric_per_item_budget_is_refused() {
+    for bad in ["-1", "0", "0.004", "0.005", "0.0099", "\"ten\"", "true"] {
+        let text = with_budget(&format!("[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n"));
+        let err = parse_err(&text);
+        assert!(err.contains("per_item_usd"), "{bad}: {err}");
+    }
+}
+
+// The example with its commented e2e table taken out and `[e2e]` put in its place
+fn with_e2e(keys: &str) -> String {
+    let off = "# [app.dogs.kelpie.e2e]\n# host = \"e2e-box\"\n# command = \"scripts/e2e-remote.sh\"\n# results = \"test-results\"\n";
+    assert!(EXAMPLE.contains(off), "the example's e2e table moved");
+    EXAMPLE.replace(off, &format!("[app.dogs.kelpie.e2e]\n{keys}\n"))
+}
+
+#[test]
+fn e2e_is_absent_by_default() {
+    assert_eq!(parse(EXAMPLE).unwrap().e2e, None);
+}
+
+#[test]
+fn an_e2e_table_reads_host_command_and_results() {
+    let set = with_e2e("host = \"e2e-box\"\ncommand = \"ci/e2e.sh\"\nresults = \"out/pw\"");
+    let e2e = parse(&set).unwrap().e2e.unwrap();
+    assert_eq!(e2e.host.as_str(), "e2e-box");
+    assert_eq!(e2e.command.as_path(), Path::new("ci/e2e.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("out/pw"));
+    let host_only = with_e2e("host = \"e2e-box\"");
+    let e2e = parse(&host_only).unwrap().e2e.unwrap();
+    assert_eq!(e2e.command.as_path(), Path::new("scripts/e2e-remote.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("test-results"));
+}
+
+#[test]
+fn a_path_with_a_dot_component_is_read_without_it() {
+    let set = with_e2e("host = \"box\"\ncommand = \"./scripts/e2e.sh\"\nresults = \"./out/./pw\"");
+    let e2e = parse(&set).unwrap().e2e.unwrap();
+    assert_eq!(e2e.command.as_path(), Path::new("scripts/e2e.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("out/pw"));
+    for (key, bad) in [("command", "."), ("results", "./.git"), ("results", "./")] {
+        let err = parse_err(&with_e2e(&format!("host = \"box\"\n{key} = {bad:?}")));
+        assert!(err.contains(key), "{key} {bad:?}: {err}");
+    }
+}
+
+#[test]
+fn a_host_that_reads_as_an_ssh_option_is_refused() {
+    for bad in [
+        "-oProxyCommand=x",
+        "-",
+        "",
+        "box name",
+        "box;rm",
+        "me@box",
+        "a/b",
+    ] {
+        let err = parse_err(&with_e2e(&format!("host = {bad:?}")));
+        assert!(err.contains("an ssh alias"), "{bad:?}: {err}");
+    }
+    for good in ["box", "e2e-box.lan", "e2e_box2", "9box"] {
+        assert!(
+            parse(&with_e2e(&format!("host = {good:?}"))).is_ok(),
+            "{good}"
+        );
+    }
+}
+
+#[test]
+fn a_command_or_results_path_that_leaves_the_repo_is_refused() {
+    for (key, bad) in [
+        ("command", "/bin/sh"),
+        ("command", "../run.sh"),
+        ("command", "a/../../run.sh"),
+        ("command", ""),
+        ("results", "/tmp/out"),
+        ("results", "../out"),
+        ("results", ""),
+        ("results", ".git"),
+        ("results", ".git/hooks"),
+    ] {
+        let err = parse_err(&with_e2e(&format!("host = \"box\"\n{key} = {bad:?}")));
+        assert!(err.contains(key), "{key} {bad:?}: {err}");
+    }
+}
+
+#[test]
+fn an_unknown_e2e_key_is_refused() {
+    let err = parse_err(&with_e2e("host = \"box\"\nretries = 2"));
+    assert!(err.contains("retries"), "{err}");
 }

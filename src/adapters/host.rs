@@ -23,6 +23,10 @@ impl Host for SystemHost {
     fn login_token(&self) -> bool {
         env::var(LOGIN_VAR).is_ok_and(|token| LoginToken::new(token).is_some())
     }
+
+    fn on_path(&self, program: &str) -> bool {
+        on_path(program)
+    }
 }
 
 // A program is on the path when a folder of `PATH` holds an executable file

@@ -42,6 +42,7 @@ mod reviewer;
 mod sandbox;
 mod script;
 mod shepherd;
+mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
@@ -55,6 +56,7 @@ pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
+pub(crate) use test_runner::FakeTests;
 
 /// Makes an owner-only FIFO at `path`
 ///
@@ -85,6 +87,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         session: SessionId("5e55".into()),
         turn: Turn::Running {
             since: Timestamp(9),
+            prompt: None,
         },
         pull_request: Some(51),
         phase: Phase::Ci {
@@ -113,6 +116,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         late_from: None,
         claude_files_accepted: None,
         qwen: crate::work_item::QwenTally::default(),
+        budget_raises: 0,
         merge_refused: false,
         sent_back: false,
         asked_to_commit: false,
@@ -137,6 +141,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         local_unreviewed_by: None,
         rebased: false,
         held: Vec::new(),
+        test_checks: Vec::new(),
         follow_ups: None,
         retro: false,
         summary: None,
@@ -203,6 +208,9 @@ pub(crate) const RIG_REVIEWERS: &str = "reviewers = [\"qwen\", \"claude\"]\n";
 
 /// What the rig adds to its settings to run no retro
 pub(crate) const NO_RETRO: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"none\" }\n";
+
+// What [`Rig::retro_on`] puts in its place, a retro being off when left out
+const RETRO_ON: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"kelpie\" }\n";
 
 /// The rig's own session reviewer, as the older Claude round ran: Sonnet 5
 /// at medium, asked for findings in kelpie's format
@@ -289,6 +297,7 @@ pub(crate) struct Rig {
     pub(crate) local_leases: LocalReviewer,
     pub(crate) alerts: FakeAlerts,
     pub(crate) leases: FakeLeases,
+    pub(crate) tests: FakeTests,
     pub(crate) clock: FakeClock,
     /// GitHub as kelpie's App sees it: the rig has registered no App until
     /// [`Rig::with_app`]
@@ -347,6 +356,7 @@ impl Rig {
                 .with_naps(|_| Duration::from_millis(100)),
             alerts: FakeAlerts::on(clock.clone()),
             leases: FakeLeases::default(),
+            tests: FakeTests::default(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
             clock,
             home,
@@ -610,6 +620,14 @@ impl Rig {
     pub(crate) fn retro_on(&self) {
         self.edit_settings(|s| {
             assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
+            s.replace(NO_RETRO, RETRO_ON)
+        });
+    }
+
+    /// Leaves the retro out of the project's settings, read when a runner next opens
+    pub(crate) fn retro_left_out(&self) {
+        self.edit_settings(|s| {
+            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
             s.replace(NO_RETRO, "")
         });
     }
@@ -629,6 +647,15 @@ impl Rig {
         self.edit_settings(|s| {
             assert!(s.contains(none), "the example's `ci.fix_attempts` moved");
             s.replace(none, &format!("fix_attempts = {cap}"))
+        });
+    }
+
+    /// Sets the project's `ci.test_command`, read when a runner next opens
+    pub(crate) fn test_command(&self, command: &str) {
+        let off = "# test_command = \"cargo test --test {name}\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(off), "the example's `ci.test_command` moved");
+            s.replace(off, &format!("test_command = \"{command}\""))
         });
     }
 
@@ -670,6 +697,11 @@ impl Rig {
         });
     }
 
+    /// Gives the project an e2e host, `e2e-box`, read when a runner next opens
+    pub(crate) fn e2e_on(&self) {
+        self.edit_settings(|s| s + "\n[app.dogs.kelpie.e2e]\nhost = \"e2e-box\"\n");
+    }
+
     pub(crate) fn edit_settings(&self, edit: impl FnOnce(String) -> String) {
         let file = self.settings_file();
         let text = std::fs::read_to_string(&file).unwrap();
@@ -682,7 +714,7 @@ impl Rig {
     }
 
     // The rig keeps the runner's Flockfile entry where the old settings file was.
-    fn try_settings(&self) -> Result<Settings, SettingsError> {
+    pub(crate) fn try_settings(&self) -> Result<Settings, SettingsError> {
         let paths = self.paths();
         let entry = std::fs::read_to_string(self.settings_file()).unwrap();
         let folder = &paths.folder;
@@ -713,6 +745,7 @@ impl Rig {
             review_bots,
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
+            test_runner: Arc::new(self.tests.clone()),
             clock: Arc::new(self.clock.clone()),
             flock: Vec::new(),
         };

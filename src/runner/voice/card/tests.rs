@@ -17,6 +17,7 @@ fn ruling(id: u64, kind: RulingKind) -> Ruling {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     }
 }
 
@@ -209,6 +210,7 @@ fn a_follow_up_ruling_counts_the_findings_it_would_file() {
         line: 3,
         what: "unused variable".into(),
         why: "dead code".into(),
+        test: None,
     };
     let kind = RulingKind::FollowUp {
         findings: vec![finding("src/lib.rs"), finding("src/main.rs")],

@@ -104,10 +104,21 @@ pub(super) struct Reading {
     decided: BTreeMap<u64, Ruling>,
 }
 
+/// How a reply names the ruling it answers
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Naming {
+    /// It names none
+    Not,
+    /// By the ruling's id
+    Id,
+    /// By the number of its issue or pull request
+    Number,
+}
+
 /// What a comment on a watched thread is a reply to
 enum Aimed {
     /// A pending ruling, named or not
-    At(u64, bool),
+    At(u64, Naming),
     /// A ruling that was answered already
     Settled(u64),
     /// A ruling pending on another thread
@@ -391,12 +402,12 @@ impl Runner {
     // Acts on a reply by the login a ruling mentions, with write access.
     fn respond(&mut self, comment: &ThreadComment, aimed: &[u64]) {
         let words = comment.body.trim();
-        let (named, words) = self.threads.name_of(words, comment);
+        let (named, words) = self.threads.name_of(words, comment, &self.state.rulings);
         let open = |id: &u64| self.state.rulings.iter().any(|r| r.id == *id);
         let waiting: Vec<u64> = aimed.iter().copied().filter(open).collect();
         let aimed = match named {
-            Some(id) if waiting.contains(&id) => Aimed::At(id, true),
-            Some(id) => match self.threads.watching.get(&id) {
+            Some((id, naming)) if waiting.contains(&id) => Aimed::At(id, naming),
+            Some((id, _)) => match self.threads.watching.get(&id) {
                 Some(Watch {
                     settled: Some(_), ..
                 }) => Aimed::Settled(id),
@@ -404,7 +415,7 @@ impl Runner {
                 None => Aimed::Nothing,
             },
             None => match waiting.as_slice() {
-                [id] => Aimed::At(*id, false),
+                [id] => Aimed::At(*id, Naming::Not),
                 [] => match self.undecided(aimed, words) {
                     Some(id) => Aimed::Undecided(id),
                     None => Aimed::Nothing,
@@ -416,7 +427,7 @@ impl Runner {
         let thread = comment.thread;
         match aimed {
             Aimed::Nothing => {}
-            Aimed::At(id, named) => self.answer(comment, id, named, words),
+            Aimed::At(id, naming) => self.answer(comment, id, naming, words),
             Aimed::Settled(id) if self.reopens(comment, id, words) => {}
             Aimed::Settled(id) => {
                 let told =
@@ -460,13 +471,20 @@ impl Runner {
     // Answers ruling `id` with `words`, reacting if it took, or says why not.
     // A ruling that takes a yes or a no is answered only by a reply that
     // names it, so a conversational yes never merges.
-    fn answer(&mut self, comment: &ThreadComment, id: u64, named: bool, words: &str) {
+    fn answer(&mut self, comment: &ThreadComment, id: u64, naming: Naming, words: &str) {
         let (who, thread) = (&comment.author, comment.thread);
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
             return;
         };
         let wants = Wants::of(&ruling.kind);
-        let ruled = if named || wants == Wants::Answer {
+        let stale = naming == Naming::Number
+            && ruling.raised.is_some_and(|raised| comment.created < raised);
+        let ruled = if stale {
+            let asks = ruling.question.lines().next().unwrap_or_default();
+            Err(format!(
+                "the ruling changed since that comment was written, and it asks now: {asks}"
+            ))
+        } else if naming != Naming::Not || wants == Wants::Answer {
             read_answer(wants, words).and_then(|answer| {
                 (self.rule_by(id, answer, Settler::Thread)).map_err(|e| e.to_string())
             })
@@ -643,18 +661,47 @@ impl Reading {
             .collect()
     }
 
-    // The id of a ruling a reply starts with, and the rest of it. A number
-    // that names no ruling this author may answer, or the whole of a reply, is its text.
-    fn name_of<'a>(&self, words: &'a str, comment: &ThreadComment) -> (Option<u64>, &'a str) {
+    // The id of a ruling a reply starts with, and the rest of it. The number
+    // is the id of a ruling still waiting, or failing that the number of the
+    // issue or pull request of the one ruling in `rulings` this author may
+    // answer, or failing that the id of a ruling settled lately, so a late
+    // answer is told so. A number that names no ruling this author may
+    // answer, or the whole of a reply, is its text.
+    fn name_of<'a>(
+        &self,
+        words: &'a str,
+        comment: &ThreadComment,
+        rulings: &[Ruling],
+    ) -> (Option<(u64, Naming)>, &'a str) {
         let Some((first, rest)) = words.split_once(char::is_whitespace) else {
             return (None, words);
         };
-        let id = first.trim_start_matches('#').parse().ok();
+        let Ok(number) = first.trim_start_matches('#').parse::<u64>() else {
+            return (None, words);
+        };
+        if rest.trim().is_empty() {
+            return (None, words);
+        }
         let mentioned = |id: &u64| {
             (self.watching.get(id)).is_some_and(|w| w.heard.is_mentioned(&comment.author))
         };
-        match id {
-            Some(id) if mentioned(&id) && !rest.trim().is_empty() => (Some(id), rest.trim_start()),
+        let waiting = |id: &u64| (self.watching.get(id)).is_some_and(|w| w.settled.is_none());
+        let rest = rest.trim_start();
+        if mentioned(&number) && waiting(&number) {
+            return (Some((number, Naming::Id)), rest);
+        }
+        let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
+        // A ruling that takes any text is answered by a reply that names no
+        // ruling when it is the only one waiting, so a number opening the
+        // reply is part of the answer, not its name.
+        let named_by_number = |r: &&Ruling| Wants::of(&r.kind) != Wants::Answer;
+        let mut about = (rulings.iter())
+            .filter(about)
+            .filter(named_by_number)
+            .filter(|r| mentioned(&r.id));
+        match (about.next(), about.next()) {
+            (Some(ruling), None) => (Some((ruling.id, Naming::Number)), rest),
+            _ if mentioned(&number) => (Some((number, Naming::Id)), rest),
             _ => (None, words),
         }
     }

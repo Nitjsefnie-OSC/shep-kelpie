@@ -391,13 +391,28 @@ fn a_gateway_gets_its_own_key_in_place_of_the_workers() {
     let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
     let body = "{}";
     let request = format!(
-        "{CHAT}authorization: Bearer kelpie\r\ncontent-length: {}\r\n\r\n{body}",
+        "{CHAT}authorization: Bearer kelpie\r\nauthorization: Bearer forged\r\n\
+         content-length: {}\r\n\r\n{body}",
         body.len()
     );
     let reply = send(&forwarder, request.as_bytes());
     assert!(status(&reply).contains("200"), "{reply}");
     assert_eq!(
-        server.authorizations(),
-        [Some("Bearer pk-gateway".to_owned())]
+        server.authorization_headers(),
+        [["Bearer pk-gateway".to_owned()]]
     );
+}
+
+#[test]
+fn a_key_with_a_line_break_is_refused_and_no_request_is_sent() {
+    for key in ["pk-1\r\nx-evil: 1", "pk-1\nx-evil: 1", "pk-1\rx-evil: 1"] {
+        let server = StandInEndpoint::start([Answer::Says("ok")]);
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let keyed = upstream(server.url()).with_key(crate::settings::GatewayKey::for_test(key));
+        let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
+        let reply = send(&forwarder, &chat("{}"));
+        assert!(status(&reply).contains("502"), "{reply}");
+        assert!(!reply.contains("pk-1"), "{reply}");
+        assert_eq!(server.seen(), Vec::<String>::new(), "{key:?}");
+    }
 }

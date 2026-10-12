@@ -21,7 +21,10 @@ mod table;
 
 pub use table::table_of;
 mod agents;
+mod budget;
 mod ci;
+mod domains;
+mod e2e;
 mod gateway;
 mod git;
 mod hooks;
@@ -35,7 +38,9 @@ pub use agents::{
     Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
     PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
-pub use ci::{Ci, Concurrency, FixAttempts};
+pub use budget::{Budget, PerItemUsd};
+pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
+pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
@@ -59,6 +64,10 @@ pub struct Settings {
     /// before the board opens no more. Its defaults when absent.
     #[serde(default)]
     pub concurrency: Concurrency,
+    /// What one work item may spend before kelpie raises a ruling. Its default
+    /// when absent.
+    #[serde(default)]
+    pub budget: Budget,
     /// The agents that build the project's work items and review its pull
     /// requests, from kelpie's agent files
     #[serde(default)]
@@ -82,6 +91,12 @@ pub struct Settings {
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
+    /// The host that runs the project's end-to-end tests for a worker, whose
+    /// sandbox cannot. It must be disposable: the project's script runs there
+    /// as the ssh alias's account, and a worker edits that script. None when
+    /// absent, and a worker asking for a run is told the project has none.
+    #[serde(default)]
+    pub e2e: Option<E2e>,
 }
 
 pub use removed::removed_command;
@@ -405,8 +420,10 @@ pub struct Researcher {
     #[serde(default)]
     pub transcripts: Vec<PathBuf>,
     /// Domains the researcher's web fetch may reach, such as a library's
-    /// docs. Its web search needs none. Empty when absent.
-    #[serde(default)]
+    /// docs. Its web search needs none. Each is a host with an optional
+    /// leading `*.` and `:port`, as in `worker.allowed_domains`. Empty when
+    /// absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
 }
 
@@ -415,8 +432,11 @@ pub struct Researcher {
 #[serde(deny_unknown_fields)]
 pub struct Worker {
     /// Domains the worker's sandbox may reach besides GitHub, such as a
-    /// package registry. Empty when absent.
-    #[serde(default)]
+    /// package registry. Each is a host such as `crates.io`, with one
+    /// optional leading `*.` label (`*.crates.io`) and an optional `:port`.
+    /// A `*` anywhere else, a scheme or a path is refused when the settings
+    /// load, since the sandbox would refuse to start. Empty when absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
     /// Environment variables set to a folder inside the worker's build
     /// folder, for tool caches the sandbox would refuse elsewhere. Empty when

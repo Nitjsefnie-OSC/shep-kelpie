@@ -98,6 +98,17 @@ fn resolved(path: &Path) -> PathBuf {
     real
 }
 
+/// The lease an ask names to run a project's end-to-end tests on its host
+pub const E2E: &str = "e2e";
+
+/// What the dog says, first, when the project that asked for [`E2E`] has no
+/// host to run it on
+pub const NO_E2E_HOST: &str = "this project has no e2e host";
+
+/// What an e2e run is `Done` with when it ran past the dog's ceiling and was
+/// ended, as `timeout` exits
+pub const TIMED_OUT: i32 = 124;
+
 /// What a command asks for, its first and only line
 // wire format: changing this is a breaking change to the door
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +125,12 @@ pub struct Ask {
     /// The dog takes it on trust, as it does the rest of the ask.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub running: bool,
+    /// The folder an `e2e` ask runs from, which the dog resolves to the
+    /// project whose worktree holds it. The ask never names a host, a command
+    /// or a results folder: the dog takes those from the project's own
+    /// settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<PathBuf>,
 }
 
 /// What the dog answers, one line each
@@ -125,6 +142,11 @@ pub enum Answer {
     Queued(usize),
     /// Held until the connection closes
     Granted,
+    /// A line of an e2e run's output, as it arrives
+    Output(String),
+    /// An e2e run is over, with the exit code of its command, and the dog
+    /// closes the connection
+    Done(i32),
     /// Refused, saying why, and the dog closes the connection
     Error(String),
 }
@@ -147,6 +169,15 @@ impl Visit {
         let stream = UnixStream::connect(socket)
             .await
             .map_err(|e| format!("cannot reach the dog at {}: {e}", socket.display()))?;
+        Self::over(stream, ask).await
+    }
+
+    /// Asks over `stream`, which is already connected to the dog
+    ///
+    /// # Errors
+    ///
+    /// A message when the ask cannot be sent.
+    pub async fn over(stream: UnixStream, ask: &Ask) -> Result<Self, String> {
         let (read, mut write) = stream.into_split();
         let mut line = serde_json::to_vec(ask).expect("an ask serializes to JSON");
         line.push(b'\n');
@@ -274,6 +305,7 @@ mod tests {
             pid: 42,
             what: "cargo test".into(),
             running: false,
+            worktree: None,
         };
         assert_eq!(
             serde_json::to_value(&ask).unwrap(),
@@ -289,23 +321,49 @@ mod tests {
             serde_json::to_value(&rejoining).unwrap()["running"],
             json!(true)
         );
+        let from = Ask {
+            take: E2E.into(),
+            worktree: Some(PathBuf::from("/k/koji/worktrees/7")),
+            ..ask.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(&from).unwrap(),
+            json!({
+                "take": "e2e",
+                "pid": 42,
+                "what": "cargo test",
+                "worktree": "/k/koji/worktrees/7"
+            })
+        );
         assert_eq!(
             serde_json::to_value([
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ])
             .unwrap(),
-            json!([{ "queued": 2 }, "granted", { "error": "no" }])
+            json!([
+                { "queued": 2 },
+                "granted",
+                { "error": "no" },
+                { "output": "ok 1" },
+                { "done": 3 }
+            ])
         );
-        let read: Vec<Answer> =
-            serde_json::from_str(r#"[{"queued":2},"granted",{"error":"no"}]"#).unwrap();
+        let read: Vec<Answer> = serde_json::from_str(
+            r#"[{"queued":2},"granted",{"error":"no"},{"output":"ok 1"},{"done":3}]"#,
+        )
+        .unwrap();
         assert_eq!(
             read,
             [
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ]
         );
     }

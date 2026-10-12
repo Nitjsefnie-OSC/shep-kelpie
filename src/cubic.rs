@@ -141,6 +141,7 @@ fn finding(thread: &Thread) -> Finding {
         line: thread.line.unwrap_or(0),
         what: one_line(text),
         why,
+        test: None,
     }
 }
 

@@ -1,11 +1,12 @@
 //! What a work item's calls have cost, by role, and how many qwen rounds ran
 //!
-//! For `status` and the log only. Nothing here reaches a prompt.
+//! For `status`, the log and the work item's budget. Nothing here reaches a prompt.
 
 use serde::{Deserialize, Serialize};
 
 use super::{CallRecord, WorkItem};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
+use crate::settings::PerItemUsd;
 
 /// What one role's calls have cost
 ///
@@ -36,6 +37,37 @@ pub struct Spend {
     pub worker: RoleSpend,
     /// The reviewers' sessions, on any harness
     pub reviewer: RoleSpend,
+}
+
+/// What a work item's priced calls have cost, by role, in the state's own units
+///
+/// It is what the work item's budget compares with its cap. A call whose
+/// harness reports no dollars counts nothing.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Priced {
+    /// The worker's turns
+    pub worker: Cost,
+    /// The reviewers' sessions, on any harness
+    pub reviewer: Cost,
+}
+
+impl Priced {
+    /// Both roles together
+    pub fn total(self) -> Cost {
+        Cost(self.worker.0.saturating_add(self.reviewer.0))
+    }
+}
+
+/// The cap an answer to an over-budget ruling lifts `cap` to when its calls have
+/// cost `spent`: doubled, and doubled again while that is still below `spent`
+pub fn raised_cap(cap: Cost, spent: Cost) -> Cost {
+    let mut raised = cap.0.saturating_mul(2).max(1);
+    while raised < spent.0 {
+        raised = raised.saturating_mul(2);
+    }
+    Cost(raised)
 }
 
 /// A work item's qwen rounds. They cost no money, so it is the count and the
@@ -73,6 +105,46 @@ impl WorkItem {
         spend
     }
 
+    /// What its priced calls have cost so far, by role
+    ///
+    /// Only the worker and the reviewers spend on a work item.
+    pub fn priced(&self) -> Priced {
+        let mut priced = Priced::default();
+        for call in self.calls.iter().filter(|c| !c.unpriced) {
+            let role = match call.role {
+                Role::Worker => &mut priced.worker,
+                Role::Reviewer => &mut priced.reviewer,
+                Role::IssueWriter | Role::Pm | Role::Advisor | Role::Researcher => continue,
+            };
+            role.0 = role.0.saturating_add(call.cost.0);
+        }
+        priced
+    }
+
+    /// The most its priced calls may cost before its worker's next turn
+    /// waits on a ruling: `per_item`, doubled once for each such ruling answered
+    pub fn budget_cap(&self, per_item: PerItemUsd) -> Cost {
+        let doubled = 2u64.saturating_pow(self.budget_raises);
+        Cost(per_item.cost().0.saturating_mul(doubled))
+    }
+
+    /// What its priced calls have cost and the cap they are over, or `None`
+    /// while they cost no more than the cap
+    pub fn over_budget(&self, per_item: PerItemUsd) -> Option<(Priced, Cost)> {
+        let (priced, cap) = (self.priced(), self.budget_cap(per_item));
+        (priced.total() > cap).then_some((priced, cap))
+    }
+
+    /// Lifts its cap for an answer to an over-budget ruling: one doubling, and
+    /// more while its priced calls still cost more than the cap, so one answer
+    /// always lets the worker's next turn start
+    pub fn raise_budget(&mut self, per_item: PerItemUsd) {
+        self.budget_raises = self.budget_raises.saturating_add(1);
+        while self.over_budget(per_item).is_some() {
+            self.budget_raises = self.budget_raises.saturating_add(1);
+        }
+    }
+
     /// Records a call that ended at `at`, whose session had cost
     /// `session_cost` by then, and returns what the call itself cost, or
     /// `None` when its harness reports no cost
@@ -104,3 +176,6 @@ impl WorkItem {
         (!unpriced).then_some(cost)
     }
 }
+
+#[cfg(test)]
+mod tests;

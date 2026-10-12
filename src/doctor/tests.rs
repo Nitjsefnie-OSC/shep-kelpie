@@ -29,9 +29,14 @@ struct FakeHost {
     gaps: Vec<&'static str>,
     keychain: bool,
     token: bool,
+    off_path: Vec<&'static str>,
 }
 
 impl Host for FakeHost {
+    fn on_path(&self, program: &str) -> bool {
+        !self.off_path.contains(&program)
+    }
+
     fn sandbox_gaps(&self) -> Vec<&'static str> {
         self.gaps.clone()
     }
@@ -818,6 +823,41 @@ async fn a_test_alert_with_no_webhook_says_there_is_none_and_posts_nothing() {
 }
 
 #[tokio::test]
+async fn a_trusted_topic_is_said_to_take_replies_without_a_code() {
+    let scene = Scene::new().await;
+    let report = scene.report().await;
+    assert!(
+        !subjects(&report).contains(&"replies"),
+        "not said unless set"
+    );
+
+    let trusted = format!("{WEBHOOK}token = \"tk_s3cr3t\"\ntrusted = true\n");
+    scene.shepherd.holds_section(&trusted);
+    let report = scene.report().await;
+    let found = ok(&report, "replies");
+    assert!(found.contains("trusted without a code"), "{found}");
+    assert!(found.contains("yes on a merge"), "{found}");
+    assert!(report.passed(), "{:#?}", report.render());
+    let printed = report.render().join("\n");
+    assert!(!printed.contains("s3cr3t"), "{printed}");
+
+    // Discord's webhook is never read for replies, so nothing is trusted there.
+    let discord = "[webhook]\nkind = \"discord\"\nurl = \"https://discord.com/api/webhooks/1/abc\"\n\
+                   token = \"tk_s3cr3t\"\ntrusted = true\n";
+    scene.shepherd.holds_section(discord);
+    let report = scene.report().await;
+    assert!(!subjects(&report).contains(&"replies"));
+
+    // Without a token the settings are refused, not trusted.
+    let no_token = format!("{WEBHOOK}trusted = true\n");
+    scene.shepherd.holds_section(&no_token);
+    let report = scene.report().await;
+    let (what, _) = missing(&report, "kelpie settings");
+    assert!(what.contains("`webhook.trusted`"), "{what}");
+    assert!(!subjects(&report).contains(&"replies"));
+}
+
+#[tokio::test]
 async fn kelpie_settings_that_do_not_parse_are_missing_and_never_quote_the_url() {
     let scene = Scene::new().await;
     scene
@@ -921,4 +961,5 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
     assert!(!report.passed());
 }
 
+mod e2e;
 mod github;

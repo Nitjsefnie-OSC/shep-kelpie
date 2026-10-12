@@ -14,10 +14,12 @@ use crate::board::Skip;
 use crate::lease::gpu::LockHolder;
 use crate::ports::{ModelSeat, SessionId, Timestamp};
 use crate::review_bot::Bot;
-use crate::settings::{AgentName, Merging};
+use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::StepSkill;
 use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
-use crate::work_item::{Attached, BotSkipped, Phase, QwenTally, Spend, Split, Turn, WorkItem};
+use crate::work_item::{
+    Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
+};
 
 /// The triggers a runner answers
 pub const ACTIONS: [&str; 18] = [
@@ -199,6 +201,8 @@ pub struct WorkItemStatus<'a> {
     pub unpriced_calls: usize,
     /// Calls and cost by role
     pub by_role: Spend,
+    /// What its priced calls have cost against its cap, in US dollars
+    pub budget: BudgetStatus,
     /// Its qwen rounds, which cost no money
     pub qwen: QwenTally,
     /// The maintainer's `attach` holding it, while one does
@@ -215,6 +219,10 @@ pub struct WorkItemStatus<'a> {
     /// Why its last review pass ended with no reviewer having read it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unreviewed: Option<&'a str>,
+    /// What kelpie ran of the tests reviewers attached to findings: the
+    /// outcome before the fix and after it, per finding
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub test_checks: &'a [TestCheck],
     /// Where its wall time went, and the phase it is in now
     pub timings: Split,
 }
@@ -224,8 +232,9 @@ fn is_zero(n: &usize) -> bool {
 }
 
 impl<'a> WorkItemStatus<'a> {
-    /// `item` as `status` shows it, with its time read as `timings`
-    pub(super) fn new(item: &'a WorkItem, timings: Split) -> Self {
+    /// `item` as `status` shows it, against a cap of `per_item` before any
+    /// raise, and with its time read as `timings`
+    pub(super) fn new(item: &'a WorkItem, per_item: PerItemUsd, timings: Split) -> Self {
         Self {
             issue: item.issue,
             title: &item.title,
@@ -245,14 +254,28 @@ impl<'a> WorkItemStatus<'a> {
             cost_usd: item.cost().usd(),
             unpriced_calls: item.calls.iter().filter(|c| c.unpriced).count(),
             by_role: item.spend(),
+            budget: BudgetStatus {
+                spent_usd: item.priced().total().usd(),
+                cap_usd: item.budget_cap(per_item).usd(),
+            },
             qwen: item.qwen,
             attached: item.attached.as_ref(),
             local_reviewers_down: item.local_reviewers_down(),
             reviewers_skipped: &item.reviewers_skipped,
             unreviewed: item.unreviewed.as_deref(),
+            test_checks: &item.test_checks,
             timings,
         }
     }
+}
+
+/// A work item's priced spend against its cap, as `status` shows it
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct BudgetStatus {
+    /// What its worker's and reviewers' priced calls have cost
+    pub spent_usd: f64,
+    /// What they may cost before its worker's next turn waits on a ruling
+    pub cap_usd: f64,
 }
 
 /// A trigger, read

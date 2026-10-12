@@ -22,7 +22,7 @@ use crate::ports::{
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
-    Account, AgentName, ForgeSlug, ListedReviewer, RoleAgents, Settings, SettingsError,
+    Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
 use crate::skills::Skills;
 use crate::state::ids::RulingIds;
@@ -48,6 +48,7 @@ mod coderabbit;
 mod compact;
 mod dispatch;
 mod drain;
+mod e2e;
 mod finishing;
 mod flight;
 mod follow_up;
@@ -137,7 +138,7 @@ pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
 pub use timings::{Totals, settle};
 use trigger::issue_list;
-pub use trigger::{ACTIONS, Status, WorkItemStatus, answer, wakes};
+pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, answer, wakes};
 pub use trigger::{GateError, WhichItem};
 pub use words::{Wants, read_answer};
 
@@ -277,6 +278,8 @@ pub struct Runner {
     home: PathBuf,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,
+    // The gateways the adapters were built with, which a change waits to replace
+    gateways: Gateways,
     // None when kelpie's settings set no webhook
     webhook: Option<Webhook>,
     // The last failed webhook post, kept in memory so a restart tries at once
@@ -384,13 +387,16 @@ impl Runner {
         let (book, mut notes) = kept::keep_old_agents(&store, &paths.agents, book)?;
         notes.extend(book.skipped());
         notes.extend(worker_files::remove_old(&paths.worker));
+        notes.extend(e2e::record(settings.e2e.as_ref(), &paths.e2e()));
+        notes.extend(e2e::dog_cannot_find(settings.e2e.as_ref(), paths));
         told.extend(notes);
         let agents = settings.role_agents(&book)?;
         let lineup = settings.lineup(&book, home)?;
         let listed = agents.implementers.iter().map(|i| &i.name);
         let reviewers = lineup.iter().map(|r| &r.name);
         let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
-        (kelpie_settings.gateways()).check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        let gateways = kelpie_settings.gateways();
+        gateways.check_listed(&book, listed.chain(reviewers).chain(experts))?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -480,6 +486,7 @@ impl Runner {
             book,
             home: home.to_owned(),
             gpu,
+            gateways,
             webhook,
             retry: None,
             reading: replies::Reading::default(),
@@ -523,6 +530,11 @@ impl Runner {
         &self.settings
     }
 
+    /// Kelpie's gateways, as read when the runner started
+    pub fn gateways(&self) -> &Gateways {
+        &self.gateways
+    }
+
     /// The project's repo on the forge, as read when the runner started
     pub fn remote(&self) -> &ForgeSlug {
         &self.remote
@@ -548,6 +560,7 @@ impl Runner {
         Names {
             project: self.project.as_str(),
             ids: RulingIds::under(&self.paths.kelpie_home),
+            now: self.ports.clock.now(),
         }
     }
 
@@ -601,7 +614,7 @@ impl Runner {
         let split = item.split(now, self.timing_phase(item));
         WorkItemStatus {
             waiting: self.model_wait(item.issue),
-            ..WorkItemStatus::new(item, split)
+            ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
 
@@ -703,6 +716,7 @@ impl Runner {
             late_from: None,
             claude_files_accepted: None,
             qwen: QwenTally::default(),
+            budget_raises: 0,
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,
@@ -727,6 +741,7 @@ impl Runner {
             local_unreviewed_by: None,
             rebased: false,
             held: Vec::new(),
+            test_checks: Vec::new(),
             follow_ups: None,
             retro: false,
             summary: None,
@@ -859,11 +874,13 @@ fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsE
     Ok(())
 }
 
-// What a ruling's question names: its project, and where its id comes from.
+// What a ruling's question names: its project, where its id comes from, and
+// when it is raised.
 #[derive(Debug, Clone)]
 struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
+    now: Timestamp,
 }
 
 // Every listed review bot needs a profile.

@@ -82,6 +82,9 @@ fix_attempts = -1
 active_items = 1
 pending_rulings = 2
 
+[budget]
+per_item_usd = 10
+
 [agents]
 implementers = ["sonnet-high"]
 

@@ -140,7 +140,11 @@ impl Runner {
 }
 
 /// The files `worktree` changes from `base`, as git names them
-fn changed_files(repo: &Path, worktree: &Path, base: &str) -> Result<Vec<String>, String> {
+pub(in crate::runner) fn changed_files(
+    repo: &Path,
+    worktree: &Path,
+    base: &str,
+) -> Result<Vec<String>, String> {
     let output = crate::worktree::trusted_command(repo, worktree)
         .map_err(|e| e.to_string())?
         .args(["diff", "--name-only", "--no-renames"])

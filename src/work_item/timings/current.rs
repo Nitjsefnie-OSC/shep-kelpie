@@ -161,6 +161,7 @@ mod tests {
             at: Timestamp(1),
             full: false,
             resent: false,
+            failed: false,
         });
         let fixing = bot(ReviewStage::Fixing {
             head: Some("c0ffee".into()),

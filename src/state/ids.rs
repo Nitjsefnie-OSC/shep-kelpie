@@ -147,6 +147,7 @@ mod tests {
                 panel: None,
                 verdict: None,
                 unposted: false,
+                raised: None,
             })
             .collect();
         let path = home.join(name).join("state.json");

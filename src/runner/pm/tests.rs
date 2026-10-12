@@ -14,6 +14,7 @@ use crate::test::{Hold, Rig, Scripted, Seen};
 
 mod attach;
 mod code;
+mod follow_up;
 mod question;
 mod red;
 
@@ -31,13 +32,18 @@ fn with_pm(project: &str) -> (Rig, Mutex<Runner>) {
 
 /// ... on `rig`, whose runner is opened here
 fn pm_on(rig: Rig) -> (Rig, Mutex<Runner>) {
+    name_pm(&rig);
+    let runner = rig.open().unwrap();
+    (rig, runner)
+}
+
+/// Names the project manager in `rig`'s settings, before its runner is opened
+fn name_pm(rig: &Rig) {
     rig.edit_settings(|s| {
         let listed = "\nimplementers = [\"sonnet-high\"]\n";
         assert!(s.contains(listed), "the example's implementers moved");
         s.replace(listed, "\nimplementers = [\"sonnet-high\"]\npm = \"pm\"\n")
     });
-    let runner = rig.open().unwrap();
-    (rig, runner)
 }
 
 /// The project manager's calls, in order

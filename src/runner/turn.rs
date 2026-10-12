@@ -37,6 +37,7 @@ use handover::{Handover, Refused};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
+mod budget;
 mod handover;
 mod unfinished;
 pub(super) mod unreachable;
@@ -205,6 +206,9 @@ impl Runner {
         if due && let Some(parked) = self.claude_files_changed(Unchecked::CarryOn)? {
             return Ok(parked);
         }
+        if due && let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
+        }
         if due && let Some(held) = self.pace_worker(Scope::Turn)?.holds() {
             return Ok(held);
         }
@@ -216,8 +220,8 @@ impl Runner {
         // call it resumes gets only however much of the ceiling is left.
         let (session, prompt, since) = match &item.turn {
             Turn::Due => (Session::New(id), None, now),
-            Turn::Running { since } if start_over => (Session::New(id), None, *since),
-            Turn::Running { since } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
+            Turn::Running { since, .. } if start_over => (Session::New(id), None, *since),
+            Turn::Running { since, .. } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
             // An adopted work item's session begins with whatever the gate sends it.
             Turn::Next { prompt } if adopt::unborn(item) => {
                 let (command, then) = split_command(prompt);
@@ -244,6 +248,13 @@ impl Runner {
         let compacting = matches!(item.turn, Turn::Next { .. })
             && matches!(session, Session::Resume(_))
             && item.context.is_some_and(|c| c > WORKER_COMPACT_PAST);
+        // What a yes on this turn's failure sends again: the prompt a resumed
+        // turn was sent, which a restart of the turn leaves as it was.
+        let kept = match &item.turn {
+            Turn::Next { prompt } if !start_over => Some(prompt.clone()),
+            Turn::Running { prompt, .. } if !start_over => prompt.clone(),
+            _ => None,
+        };
         let prompt = if compacting {
             Some(COMPACT.to_owned())
         } else {
@@ -291,7 +302,10 @@ impl Runner {
                     .current_in(&mut next)
                     .expect("the work item checked above");
                 if !compacting {
-                    item.turn = Turn::Running { since };
+                    item.turn = Turn::Running {
+                        since,
+                        prompt: kept,
+                    };
                 }
                 let deadline = Timestamp(since.0.saturating_add(ceiling.as_secs()));
                 Begin::Call {
@@ -335,11 +349,7 @@ impl Runner {
         session: Session,
         prompt: Option<String>,
     ) -> Result<AgentCall, String> {
-        let start = if item.rework || item.adopted {
-            Start::Pushed
-        } else {
-            Start::Main
-        };
+        let start = start_of(item);
         let WorkerAgent {
             harness,
             limit,
@@ -372,6 +382,7 @@ impl Runner {
                 project: self.extra_instructions.as_deref(),
                 // Its token opens no pull request, so kelpie opens it.
                 pull_request_file: handed_over.as_deref(),
+                e2e: self.settings.e2e.as_ref(),
             },
             &item.worktree,
             &self.skills,
@@ -807,6 +818,16 @@ impl Runner {
         open.into_iter()
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
+    }
+}
+
+// Where a worktree made for `item` starts: a rework or adopted branch is the
+// one `origin` holds.
+pub(super) fn start_of(item: &WorkItem) -> Start {
+    if item.rework || item.adopted {
+        Start::Pushed
+    } else {
+        Start::Main
     }
 }
 

@@ -66,6 +66,12 @@ pub(crate) enum Scripted {
     /// Answers with this exact text and no cost: a review round, whose
     /// reply is read rather than acted on
     Text(&'static str),
+    /// Writes this file with this text below the one folder the call's fence
+    /// lets it write, as a reviewer leaves a test, and answers with this text
+    Attach(&'static str, &'static str, &'static str),
+    /// Links this file below that folder to a file outside it, and answers
+    /// with this text
+    AttachLinked(&'static str, &'static str),
     /// Answers like [`Self::Text`], with this cost for the session
     Billed(&'static str, Cost),
     /// Answers with this final message
@@ -351,6 +357,19 @@ impl Agents for FakeClaude {
                 hold.block();
                 Err(error)
             }
+            Some(Scripted::Attach(file, text, reply)) => {
+                write_in(&attach_folder(call), file, text);
+                Ok(said(reply))
+            }
+            Some(Scripted::AttachLinked(file, reply)) => {
+                let folder = attach_folder(call);
+                let outside = folder.parent().unwrap().join("outside.rs");
+                std::fs::write(&outside, "fn outside() {}\n").unwrap();
+                let link = folder.join(file);
+                std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+                std::os::unix::fs::symlink(&outside, link).unwrap();
+                Ok(said(reply))
+            }
             Some(Scripted::Plant(file, text)) => {
                 write_in(&call.cwd, file, text);
                 Ok(said("done"))
@@ -421,6 +440,15 @@ impl Agents for FakeClaude {
                 "the rig scripts no reply".into(),
             )),
         }
+    }
+}
+
+// The one folder a call's fence lets it write.
+fn attach_folder(call: &AgentCall) -> std::path::PathBuf {
+    let fence = call.reach.fence.as_ref().expect("a fenced call");
+    match fence.write.as_slice() {
+        [folder] => folder.clone(),
+        other => panic!("one folder to write: {other:?}"),
     }
 }
 

@@ -1,12 +1,14 @@
 //! Rulings through the runner's stand-ins
 
+use std::sync::Mutex;
+
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Checks, Session};
+use crate::ports::{Checks, Cost, Session, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
-use crate::test::{Rig, Scripted};
+use crate::test::{Rig, Scripted, ScriptedRound};
 
 // The pull request is public: it gets what happened and who it waits on,
 // and never a command, which the webhook carries instead.
@@ -389,5 +391,183 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     assert!(
         reply["error"].as_str().unwrap().contains("holds work"),
         "{reply}"
+    );
+}
+
+// A turn that failed before the harness started never saw its prompt, so the
+// yes sends it again behind a line saying the last turn failed.
+#[test]
+fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let finding = |line| crate::ports::Finding {
+        severity: crate::ports::Severity::Medium,
+        file: "src/lib.rs".into(),
+        line,
+        what: "the flag is misnamed".into(),
+        why: "it reads as its opposite".into(),
+        test: None,
+    };
+    rig.reviewer
+        .script([ScriptedRound::Findings((1..=5).map(finding).collect())]);
+    step(&runner).unwrap(); // round 1's qwen call
+    step(&runner).unwrap(); // the five findings go to the worker
+
+    rig.claude
+        .script([Scripted::Fail(crate::ports::AgentError::Failed(
+            crate::settings::Harness::ClaudeCode,
+            "the sandbox refused the settings file".into(),
+        ))]);
+    let Some(StepReport::Failed { id, .. }) = step(&runner).unwrap() else {
+        panic!("the fix turn did not fail");
+    };
+    let sent = rig.claude.calls().last().unwrap().prompt.clone();
+    assert!(sent.contains("found 5 finding(s)"), "{sent}");
+
+    rig.ask(&runner, "rule", Some(&format!("{id} yes")));
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap();
+    let retried = rig.claude.calls().last().unwrap().prompt.clone();
+    let (line, rest) = retried.split_once('\n').expect("a line, then the prompt");
+    assert!(line.contains("last turn failed"), "{line}");
+    assert_eq!(rest.trim_start(), sent);
+}
+
+// The retried turn's prompt is kept in its turn, so a second failure and a
+// second yes must not stack another line on it.
+#[test]
+fn a_prompt_that_already_carries_the_failed_turn_line_gets_no_second_one() {
+    for prompt in ["fix the five", "/plugin:review check the diff"] {
+        let once = failed_again(prompt.to_owned());
+        assert_eq!(failed_again(once.clone()), once);
+        assert_eq!(once.matches("last turn failed").count(), 1, "{once}");
+    }
+}
+
+// A command only runs from the very start of a prompt, so a retried prompt
+// that begins with one keeps it first.
+#[test]
+fn the_failed_turn_line_goes_after_a_command_the_prompt_starts_with() {
+    let again = failed_again("/plugin:review check the diff".to_owned());
+    assert_eq!(
+        again,
+        "/plugin:review Your last turn failed before it finished. \
+         Kelpie sends its prompt again.\n\ncheck the diff"
+    );
+}
+
+const DOLLAR: u64 = 1_000_000_000;
+
+// Issue 7 under a $5 cap, whose first turn cost `dollars` and so waits on ruling 1
+fn over_its_cap_by(dollars: u64) -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("acme");
+    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(dollars * DOLLAR))]);
+    step(&runner).unwrap();
+    let Some(StepReport::Failed { id: 1, .. }) = step(&runner).unwrap() else {
+        panic!("the work item did not wait on a ruling");
+    };
+    assert_eq!(rig.claude.calls().len(), 1);
+    (rig, runner)
+}
+
+fn over_its_cap() -> (Rig, Mutex<Runner>) {
+    over_its_cap_by(6)
+}
+
+fn cap_usd(rig: &Rig, runner: &Mutex<Runner>) -> f64 {
+    rig.ask(runner, "status", None)["work_item"]["budget"]["cap_usd"]
+        .as_f64()
+        .unwrap()
+}
+
+#[test]
+fn a_yes_on_an_over_budget_ruling_lets_the_work_item_run_to_twice_its_cap() {
+    let (rig, runner) = over_its_cap();
+    rig.ask(&runner, "rule", Some("1 yes"));
+    // $9 in all is past $5 and under the doubled $10.
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
+    step(&runner).unwrap();
+    assert_eq!(rig.claude.calls().len(), 2, "the worker carried on");
+    assert_eq!(cap_usd(&rig, &runner), 10.0);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_no_on_an_over_budget_ruling_sends_the_note_and_raises_the_cap_once() {
+    let (rig, runner) = over_its_cap();
+    rig.ask(
+        &runner,
+        "rule",
+        Some("1 no  stop polishing and open the pull request "),
+    );
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
+    step(&runner).unwrap();
+    let calls = rig.claude.calls();
+    let (first, noted) = (&calls[0], calls.last().unwrap());
+    assert_eq!(calls.len(), 2);
+    assert_eq!(noted.session, Session::Resume(first.session.id().clone()));
+    let (note, owed) = noted
+        .prompt
+        .split_once("The turn that was due is still yours, and follows:\n\n")
+        .unwrap();
+    assert_eq!(
+        note,
+        "The maintainer answered no on your work item, with this note:\n\n\
+         stop polishing and open the pull request\n\n"
+    );
+    assert!(
+        owed.starts_with("Your last turn ended with no pull request"),
+        "the turn that was due is kept: {owed}"
+    );
+    assert_eq!(cap_usd(&rig, &runner), 10.0, "raised once, not twice");
+}
+
+#[test]
+fn a_yes_lifts_the_cap_past_what_one_long_turn_cost_so_the_worker_is_not_asked_again() {
+    // $11 is past the doubled $10, so the cap goes to $20 and the next turn starts.
+    let (rig, runner) = over_its_cap_by(11);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(12 * DOLLAR))]);
+    step(&runner).unwrap();
+    assert_eq!(rig.claude.calls().len(), 2, "the worker carried on");
+    assert_eq!(cap_usd(&rig, &runner), 20.0);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_no_on_a_first_turn_that_has_no_session_to_resume_starts_it_and_says_the_note_was_not_sent() {
+    let (rig, runner) = over_its_cap();
+    runner
+        .lock()
+        .unwrap()
+        .update(|item| item.turn = Turn::Due)
+        .unwrap();
+    rig.ask(&runner, "rule", Some("1 no  polish less"));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(7 * DOLLAR))]);
+    step(&runner).unwrap();
+    let calls = rig.claude.calls();
+    assert_eq!(calls.len(), 2);
+    assert!(
+        matches!(calls[1].session, Session::New(_)),
+        "{:?}",
+        calls[1].session
+    );
+    assert_eq!(cap_usd(&rig, &runner), 10.0);
+    let notes = runner.lock().unwrap().take_notes();
+    assert_eq!(
+        notes,
+        ["ruling 1: the worker's session has not begun, so your note was not sent"]
     );
 }

@@ -30,6 +30,7 @@ mod rate_limit;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod test_runner;
 mod thread;
 mod voice;
 
@@ -47,6 +48,7 @@ pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
 
@@ -613,6 +615,9 @@ pub enum Takes {
     Answer,
     /// The merge ruling: a yes, or a no or a rework with a note
     Merge,
+    /// The merge ruling, alerted while coded answers are off: a no or a
+    /// rework with a note, and a yes only after the terminal turns them on
+    MergeCodedOff,
     /// A yes, or a no with a note
     YesOrNo,
 }
@@ -719,6 +724,13 @@ pub struct Finding {
     pub what: String,
     /// Why it matters
     pub why: String,
+    /// The failing test the reviewer wrote for it, as the path it should have
+    /// in the repo
+    ///
+    /// A relative path with no `..` and no spaces; see [`is_test_path`]. Left out
+    /// of the state file while none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
 }
 
 /// How `what` begins in the line qwen-review.sh writes for a file it did not
@@ -816,7 +828,7 @@ fn without_thread_number(line: &str) -> &str {
 }
 
 fn parse_finding_line(line: &str) -> Option<Finding> {
-    let mut parts = without_thread_number(line).splitn(4, '|');
+    let mut parts = without_thread_number(line).splitn(5, '|');
     let severity = match parts.next()? {
         "LOW" => Severity::Low,
         "MEDIUM" => Severity::Medium,
@@ -825,7 +837,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
     };
     let location = parts.next()?;
     let what = parts.next()?;
-    let why = parts.next()?;
+    let mut why = parts.next()?.to_owned();
+    // A fifth segment that reads as a path is taken as the test here. A round
+    // that finds no such file folds it back into the why, where a pipe may have
+    // put it.
+    let mut test = None;
+    if let Some(fifth) = parts.next() {
+        match is_test_path(fifth) {
+            true => test = Some(fifth.to_owned()),
+            // Not a path, so a pipe in the why.
+            false => why = format!("{why}|{fifth}"),
+        }
+    }
     let (file, line) = location.rsplit_once(':')?;
     let line = line.parse().ok()?;
     Some(Finding {
@@ -833,8 +856,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
         file: file.to_owned(),
         line,
         what: what.to_owned(),
-        why: why.to_owned(),
+        why,
+        test,
     })
+}
+
+/// Whether `path` is one a reviewer may name as its finding's test: not empty,
+/// relative, with no `..` step, no space and no pipe
+pub fn is_test_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains([' ', '|'])
+        && path.split('/').all(|step| step != "..")
 }
 
 /// A runner's side of the dog's book leases
@@ -882,6 +915,8 @@ pub struct Ports {
     pub gpu: Arc<dyn GpuMetrics>,
     /// The maintainer's webhook, shared so a post runs without holding the runner
     pub alerts: Arc<dyn Alerts>,
+    /// Runs a reviewer's test, inside the worker's sandbox
+    pub test_runner: Arc<dyn TestRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold

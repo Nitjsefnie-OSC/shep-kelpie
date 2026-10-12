@@ -28,6 +28,7 @@ fn big_state(n: u64) -> ProjectState {
             panel: None,
             verdict: None,
             unposted: false,
+            raised: None,
         })
         .collect();
     state
@@ -69,6 +70,7 @@ fn a_saved_state_loads_back_whole() {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     });
     state.last_ruling = 1;
     state.leases.push(LeaseHeld {
@@ -117,7 +119,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], saved.get("work_item")),
-        (&serde_json::json!(31), None)
+        (&serde_json::json!(35), None)
     );
     assert_eq!(store.load().unwrap(), Some(state));
 
@@ -158,6 +160,7 @@ fn the_file_format_is_pinned() {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     };
     state.rulings = vec![
         ruling(
@@ -275,7 +278,7 @@ fn the_file_format_is_pinned() {
     assert_eq!(
         value,
         serde_json::json!({
-            "version": 31,
+            "version": 35,
             "work_items": [],
             "rulings": [
                 pinned(1, serde_json::json!({
@@ -422,7 +425,7 @@ fn a_finished_work_item_is_pinned() {
 // A version 17 file has no `closed`: every finished item and `done` phase
 // reads as not closed, and saves with none.
 #[test]
-fn a_version_17_file_loads_with_nothing_closed_and_saves_as_31() {
+fn a_version_17_file_loads_with_nothing_closed_and_saves_as_35() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -445,7 +448,7 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_31() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 31);
+    assert_eq!(saved["version"], 35);
     assert_eq!(saved["history"], old["history"]);
     assert_eq!(
         saved["work_items"][0]["phase"],
@@ -455,7 +458,7 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_31() {
 
 // A version 18 file has no `finishing`, so it loads with the board picking.
 #[test]
-fn a_version_18_file_loads_not_finishing_and_saves_as_31() {
+fn a_version_18_file_loads_not_finishing_and_saves_as_35() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -469,7 +472,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_31() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (saved["version"].clone(), saved.get("finishing")),
-        (31.into(), None)
+        (35.into(), None)
     );
 
     loaded.finishing = true;
@@ -499,7 +502,7 @@ fn a_finished_work_item_closed_with_no_change_is_pinned() {
 }
 
 #[test]
-fn a_version_9_file_loads_with_nothing_counted_and_saves_as_31() {
+fn a_version_9_file_loads_with_nothing_counted_and_saves_as_35() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -523,11 +526,11 @@ fn a_version_9_file_loads_with_nothing_counted_and_saves_as_31() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 31);
+    assert_eq!(saved["version"], 35);
 }
 
 #[test]
-fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_31() {
+fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_35() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -557,7 +560,7 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_31() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 31);
+    assert_eq!(saved["version"], 35);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
     assert_eq!(
         saved["work_items"][0]["counts"],
@@ -581,6 +584,45 @@ fn a_timeout_keeps_the_phase_its_turn_ran_in() {
         })
     );
     assert_eq!(serde_json::from_value::<RulingKind>(saved).unwrap(), kind);
+}
+
+#[test]
+fn a_running_turn_saved_before_it_kept_a_prompt_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.work_items.push(a_work_item());
+    let mut old = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        old["work_items"][0]["turn"],
+        serde_json::json!({ "state": "running", "since": 9 }),
+        "a turn with no prompt saves as it always did"
+    );
+    old["work_items"][0]["turn"] = serde_json::json!({ "state": "running", "since": 9 });
+    std::fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(
+        loaded.work_items[0].turn,
+        Turn::Running {
+            since: Timestamp(9),
+            prompt: None,
+        }
+    );
+}
+
+#[test]
+fn a_running_turn_keeps_the_prompt_it_was_sent() {
+    let turn = Turn::Running {
+        since: Timestamp(9),
+        prompt: Some("fix the five".into()),
+    };
+    let saved = serde_json::to_value(&turn).unwrap();
+    assert_eq!(
+        saved,
+        serde_json::json!({ "state": "running", "since": 9, "prompt": "fix the five" })
+    );
+    assert_eq!(serde_json::from_value::<Turn>(saved).unwrap(), turn);
 }
 
 #[test]
@@ -717,14 +759,14 @@ fn a_newer_format_is_reported_as_one() {
     let store = store_in(dir.path());
     fs::write(
         dir.path().join("state.json"),
-        r#"{"version": 32, "shape": "new"}"#,
+        r#"{"version": 36, "shape": "new"}"#,
     )
     .unwrap();
     assert_eq!(
         store.load().unwrap_err(),
         StateError::Version {
             path: store.path.clone(),
-            found: 32
+            found: 36
         }
     );
 }

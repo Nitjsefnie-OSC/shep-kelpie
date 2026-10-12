@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 /// The project's CI: whether a merge waits for it, and how many times the
 /// worker is sent back to fix a red run
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "CI")]
 pub struct Ci {
@@ -30,6 +30,42 @@ pub struct Ci {
     /// when absent.
     #[serde(default)]
     pub fix_attempts: FixAttempts,
+    /// A command that runs one failing test a reviewer wrote, with the test's
+    /// path at `{test}` or its file stem at `{name}`, such as
+    /// `cargo test --test {name}`
+    ///
+    /// Set, a reviewer on Claude Code is asked to leave a failing test for each
+    /// finding it can, in a folder it may write. Absent, no reviewer is asked
+    /// for one.
+    #[serde(default)]
+    pub test_command: Option<TestCommand>,
+}
+
+/// A command that runs one test file: it holds `{test}`, the file's path in
+/// the repo, or `{name}`, the file's name without its extension
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "String")]
+// schemars describes a `try_from` type by its source, so the bound goes here.
+#[schemars(extend("pattern" = "\\{(test|name)\\}"))]
+pub struct TestCommand(String);
+
+impl TestCommand {
+    /// The command as written
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for TestCommand {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.contains("{test}") || value.contains("{name}") {
+            true => Ok(Self(value)),
+            false => Err("must hold `{test}`, the test file's path, or `{name}`, its file stem"),
+        }
+    }
 }
 
 /// A cap on the worker's fix turns for red runs: a count from 0, or -1 for none

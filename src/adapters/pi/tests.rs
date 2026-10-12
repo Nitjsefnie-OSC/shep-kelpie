@@ -565,7 +565,7 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
         w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))),
     ];
     for call in &mut calls {
-        let policy = |call: &AgentCall| policy(call, &Files::of(call), &upstream, &socket);
+        let policy = |call: &AgentCall| policy(call, &Files::of(call), &upstream, &socket, &[]);
         assert!(!policy(call).no_keychain);
         call.reach.block_keychain = true;
         assert!(policy(call).no_keychain);
@@ -595,7 +595,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         .pi()
         .upstream(server(&call).unwrap())
         .unwrap();
-    let policy = policy(&call, &files, &upstream, &socket);
+    let policy = policy(&call, &files, &upstream, &socket, &[]);
     let home = w.path("worker/settings.pi");
     assert!(policy.write.contains(&home.join("sessions")));
     assert!(!policy.write.contains(&home));
@@ -626,7 +626,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         );
     }
     let open = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let policy = super::policy(&open, &Files::of(&open), &upstream, &socket);
+    let policy = super::policy(&open, &Files::of(&open), &upstream, &socket, &[]);
     assert_eq!(
         policy.write,
         [
@@ -646,6 +646,31 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         policy.forward.map(|f| f.host),
         Some("model.kelpie.test".into())
     );
+}
+
+// The shepherd's home holds the sheep entries' `env`, a gateway's key with
+// it, and `dogs.toml`. A session with no fence reads none of it, but for
+// its own folder.
+#[test]
+fn an_unfenced_pi_session_is_denied_the_shepherds_home_but_its_own_folder() {
+    let w = World::new();
+    stand_in(&w, FRESH);
+    let sandbox = OpenSandbox::default();
+    let pi = ClaudeCli::default()
+        .unfenced_unread(&w.path("shep"))
+        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
+        .pi()
+        .with_program(w.path("pi"));
+    let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
+    pi.prepare(&call).unwrap();
+    pi.run(&call, &Ending::default()).unwrap();
+    let shep = format!("{}/**", w.path("shep").display());
+    let wrapped = sandbox.wrapped();
+    let [(open, _)] = wrapped.as_slice() else {
+        panic!("wrapped once, not {wrapped:?}")
+    };
+    assert!(open.no_read.contains(&shep), "{:?}", open.no_read);
+    assert!(open.read.contains(&w.path("wt")), "{:?}", open.read);
 }
 
 #[test]

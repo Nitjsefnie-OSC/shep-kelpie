@@ -27,9 +27,9 @@ pub use bots::BotSkipped;
 pub use follow_ups::FollowUps;
 pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
-pub use review::{Awaited, Review, ReviewStage};
+pub use review::{Awaited, Reading, Review, ReviewStage, TestCheck};
 pub use seat::Seat;
-pub use spend::{QwenTally, RoleSpend, Spend};
+pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
 pub use tally::{Counts, RoleTally, Tally};
 pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
@@ -200,6 +200,9 @@ pub struct WorkItem {
     /// Its qwen rounds so far
     #[serde(default)]
     pub qwen: QwenTally,
+    /// How many times a ruling for going over its budget has doubled its cap
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub budget_raises: u32,
     /// Whether the forge refused a merge under `auto` since the last
     /// ruling on one. A second refusal raises a `stuck` ruling for `merge-refused`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -243,6 +246,10 @@ pub struct WorkItem {
     /// rounds. Only one of these is filed when the worker defers it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held: Vec<Finding>,
+    /// What kelpie ran of the tests reviewers attached to findings, before
+    /// and after the fix, oldest first
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test_checks: Vec<TestCheck>,
     /// The findings the worker left unfixed, read once the pull request
     /// merges. None until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -482,6 +489,10 @@ pub enum Turn {
     Running {
         /// When it started
         since: Timestamp,
+        /// The prompt a resumed turn was sent, which a turn that failed
+        /// before the harness started never saw. A first turn has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// A later turn waits to resume the session with this prompt
     Next {
@@ -683,8 +694,21 @@ mod tests {
                 at: Timestamp(12),
                 full: false,
                 resent: true,
+                failed: false,
             })["stage"],
             json!({ "stage": "summoned", "bot": "coderabbit", "started": 10, "head": "c0ffee", "at": 12, "resent": true })
+        );
+        assert_eq!(
+            bot(ReviewStage::Summoned {
+                bot: Bot::Codex,
+                started: Timestamp(10),
+                head: "c0ffee".into(),
+                at: Timestamp(12),
+                full: true,
+                resent: false,
+                failed: true,
+            })["stage"],
+            json!({ "stage": "summoned", "bot": "codex", "started": 10, "head": "c0ffee", "at": 12, "full": true, "failed": true })
         );
         let found = ReviewStage::Found {
             findings: Vec::new(),

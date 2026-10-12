@@ -75,6 +75,10 @@ pub struct Endpoint {
     /// The lease kelpie holds around each round: `gpu` is this machine's
     /// GPU lock, and any other name a lock of its own. None when absent.
     pub lease: Option<LeaseName>,
+    /// The agent file's body. It replaces the opening sentence and what the
+    /// fixed prompt asks to report; kelpie still adds the diff's format and
+    /// the answer's format. None when the file has no body.
+    pub prompt: Option<String>,
 }
 
 /// A command run for each local round
@@ -185,6 +189,7 @@ mod tests {
             model: "coder".to_owned().try_into().unwrap(),
             context: ContextSize::try_from(8192).unwrap(),
             lease: None,
+            prompt: None,
         };
         assert_eq!(LocalRound::Endpoint(endpoint.clone()).ollama(), None);
         endpoint.lease = Some(LeaseName::gpu());

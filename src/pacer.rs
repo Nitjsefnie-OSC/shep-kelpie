@@ -425,6 +425,16 @@ mod tests {
     }
 
     #[test]
+    fn a_window_that_has_not_started_holds_nothing() {
+        // The meter reads `Current session: 0% used` as ending five hours on.
+        let now = at(0, 1);
+        let mut fresh = usage(0, 0);
+        fresh.session.resets_at = Timestamp(now.0 + 5 * 3600);
+        let a = assess(Account::Claude, now, &fresh, None, eight());
+        assert_eq!((a.hold(Scope::Dispatch), a.hold(Scope::Turn)), (None, None));
+    }
+
+    #[test]
     fn two_holds_report_the_one_that_lasts_longer() {
         let start = DayStart {
             week_resets_at: Timestamp(RESETS),

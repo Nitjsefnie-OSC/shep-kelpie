@@ -295,6 +295,7 @@ fn finding(thread: &Thread) -> Finding {
         line: thread.line.unwrap_or(0),
         what,
         why,
+        test: None,
     }
 }
 

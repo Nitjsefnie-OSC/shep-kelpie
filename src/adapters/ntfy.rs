@@ -1,7 +1,8 @@
 //! What an ntfy post carries beyond its text, and reading the topic back
 //!
 //! A ruling's alert ends with the replies that answer it, each ending with
-//! the maintainer's authenticator code. Everything kelpie posts is tagged
+//! the maintainer's authenticator code, except on a trusted topic, where only
+//! the yes on a merge ruling does. Everything kelpie posts is tagged
 //! `kelpie`, so reading the topic back skips it.
 
 use serde::Deserialize;
@@ -13,9 +14,26 @@ use crate::ports::{Reply, ReplyWith, Since, Takes, Timestamp};
 pub(super) const TAG: &str = "kelpie";
 
 /// The line that ends a ruling's alert: the replies that answer it
-pub(super) fn reply_line(reply: &ReplyWith) -> String {
+///
+/// On a `trusted` topic only a yes on a merge ruling names the code.
+pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
     let ruling = reply.id;
+    if trusted {
+        return match reply.takes {
+            Takes::MergeCodedOff => coded_off(ruling),
+            Takes::Answer => format!("\n\nReply here with `{ruling} <text>`."),
+            Takes::Merge => format!(
+                "\n\nReply here with `{ruling} yes <code>`, `{ruling} no <note>` or \
+                 `{ruling} rework <note>`, where <code> is kelpie's authenticator code, \
+                 which only the yes needs."
+            ),
+            Takes::YesOrNo => {
+                format!("\n\nReply here with `{ruling} yes` or `{ruling} no <note>`.")
+            }
+        };
+    }
     let replies = match reply.takes {
+        Takes::MergeCodedOff => return coded_off(ruling),
         Takes::Answer => format!("`{ruling} <text> <code>`"),
         Takes::Merge => format!(
             "`{ruling} yes <code>`, `{ruling} no <note> <code>` or `{ruling} rework <note> <code>`"
@@ -23,6 +41,15 @@ pub(super) fn reply_line(reply: &ReplyWith) -> String {
         Takes::YesOrNo => format!("`{ruling} yes <code>` or `{ruling} no <note> <code>`"),
     };
     format!("\n\nReply here with {replies}, where <code> is kelpie's authenticator code.")
+}
+
+// A merge ruling alerted while coded answers are off: only the replies that
+// need no code, since the yes would be dropped until the terminal unlocks.
+fn coded_off(ruling: u64) -> String {
+    format!(
+        "\n\nReply here with `{ruling} no <note>` or `{ruling} rework <note>`. A yes on a \
+         merge ruling needs `shep kelpie totp --unlock` on the terminal first."
+    )
 }
 
 /// The URL that reads the topic's cached messages since `since` and closes
@@ -190,7 +217,7 @@ mod tests {
             takes: Takes::YesOrNo,
         };
         assert_eq!(
-            reply_line(&yes_or_no),
+            reply_line(&yes_or_no, false),
             "\n\nReply here with `3 yes <code>` or `3 no <note> <code>`, \
              where <code> is kelpie's authenticator code."
         );
@@ -199,7 +226,7 @@ mod tests {
             ..yes_or_no.clone()
         };
         assert_eq!(
-            reply_line(&merge),
+            reply_line(&merge, false),
             "\n\nReply here with `3 yes <code>`, `3 no <note> <code>` or \
              `3 rework <note> <code>`, where <code> is kelpie's authenticator code."
         );
@@ -207,6 +234,41 @@ mod tests {
             takes: Takes::Answer,
             ..yes_or_no
         };
-        assert!(reply_line(&question).contains("`3 <text> <code>`"));
+        assert!(reply_line(&question, false).contains("`3 <text> <code>`"));
+    }
+
+    // With coded answers off, a merge yes cannot be sent from the topic at all.
+    #[test]
+    fn a_merge_alerted_while_coded_answers_are_off_does_not_offer_the_yes() {
+        let reply = ReplyWith {
+            id: 3,
+            takes: Takes::MergeCodedOff,
+        };
+        let line = reply_line(&reply, true);
+        assert_eq!(
+            line,
+            "\n\nReply here with `3 no <note>` or `3 rework <note>`. A yes on a merge ruling \
+             needs `shep kelpie totp --unlock` on the terminal first."
+        );
+        assert!(!line.contains("<code>"), "{line}");
+    }
+
+    // On a trusted topic only the merge yes takes a code.
+    #[test]
+    fn on_a_trusted_topic_the_reply_line_names_the_code_only_on_the_merge_yes() {
+        let reply = |takes| ReplyWith { id: 3, takes };
+        assert_eq!(
+            reply_line(&reply(Takes::YesOrNo), true),
+            "\n\nReply here with `3 yes` or `3 no <note>`."
+        );
+        assert_eq!(
+            reply_line(&reply(Takes::Answer), true),
+            "\n\nReply here with `3 <text>`."
+        );
+        assert_eq!(
+            reply_line(&reply(Takes::Merge), true),
+            "\n\nReply here with `3 yes <code>`, `3 no <note>` or `3 rework <note>`, \
+             where <code> is kelpie's authenticator code, which only the yes needs."
+        );
     }
 }

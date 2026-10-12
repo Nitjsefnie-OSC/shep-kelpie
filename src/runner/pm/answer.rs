@@ -6,9 +6,19 @@
 
 use serde_json::{Map, Value};
 
+use crate::board::{READY, TRIAGE};
+
 /// The keys an answer takes, an object with none of them being none: `why`
 /// is left out, since an unstick inside an answer has one of its own
-const KEYS: [&str; 6] = ["pick", "hold", "unstick", "answer", "votes", "reply"];
+const KEYS: [&str; 7] = [
+    "pick",
+    "hold",
+    "unstick",
+    "answer",
+    "follow_up",
+    "votes",
+    "reply",
+];
 
 /// The most of a reply or a why kept, in characters
 const LONGEST: usize = 2_000;
@@ -24,6 +34,8 @@ pub(super) struct Answer {
     pub(super) unstick: Option<Unstick>,
     /// What to do about one worker's question
     pub(super) answer: Option<Settle>,
+    /// What to do about one follow-up ruling's findings
+    pub(super) follow_up: Option<Decide>,
     /// Its votes on rulings before the panel: each ruling, and the object it voted with
     pub(super) votes: Vec<(u64, Map<String, Value>)>,
     /// A message for the maintainer
@@ -54,6 +66,26 @@ pub(super) struct Settle {
     pub(super) how: How,
     /// Why, in its own words
     pub(super) why: String,
+}
+
+/// The project manager's call on one follow-up ruling
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Decide {
+    /// The work item's issue, parked on the follow-up ruling
+    pub(super) item: u64,
+    /// Whether the findings are filed or dropped
+    pub(super) call: Call,
+    /// Why, in its own words
+    pub(super) why: String,
+}
+
+/// What the project manager decides about a follow-up ruling's findings
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Call {
+    /// Filed as issues, labelled `needs-triage` if `unread` and `ready-for-agent` if not
+    File { unread: bool },
+    /// Dropped, and nothing is filed
+    Drop,
 }
 
 /// How the project manager settles a worker's question
@@ -134,6 +166,16 @@ pub(super) fn read(text: &str) -> Option<Answer> {
                     None => answer
                         .unread
                         .push(unread("`item`, then `text` or `escalate`, and `why`")),
+                },
+            },
+            "follow_up" => match &value {
+                Value::Null => {}
+                value => match decide(value) {
+                    Some(d) => answer.follow_up = Some(d),
+                    None => answer.unread.push(unread(
+                        "`item`, a `decision` of yes or no, a `label` of ready-for-agent or \
+                         needs-triage with a yes, and `why`",
+                    )),
                 },
             },
             "votes" => match &value {
@@ -260,6 +302,29 @@ fn settle(value: &Value) -> Option<Settle> {
     })
 }
 
+fn decide(value: &Value) -> Option<Decide> {
+    let item = number(value.get("item")?)?;
+    let label = match value.get("label") {
+        None | Some(Value::Null) => None,
+        Some(label) => Some(label.as_str()?.trim().to_ascii_lowercase()),
+    };
+    let call = match value.get("decision")?.as_str()?.trim() {
+        yes if yes.eq_ignore_ascii_case("yes") => match label.as_deref() {
+            None | Some(READY) => Call::File { unread: false },
+            Some(TRIAGE) => Call::File { unread: true },
+            Some(_) => return None,
+        },
+        no if no.eq_ignore_ascii_case("no") && label.is_none() => Call::Drop,
+        _ => return None,
+    };
+    let why = value.get("why").and_then(Value::as_str).unwrap_or("");
+    Some(Decide {
+        item,
+        call,
+        why: why.trim().to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +347,7 @@ mod tests {
                     why: "split the parser out".into(),
                 }),
                 answer: None,
+                follow_up: None,
                 votes: Vec::new(),
                 reply: None,
                 why: Some("#12 touches nothing open.".into()),
@@ -321,6 +387,46 @@ mod tests {
         ] {
             let read = read(bad).unwrap();
             assert_eq!((read.answer, read.unread.len()), (None, 1), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_follow_up_answer_is_a_yes_or_a_no_and_a_yes_may_name_its_label() {
+        let call = |text: &str| {
+            read(text)
+                .unwrap()
+                .follow_up
+                .map(|d| (d.item, d.call, d.why))
+        };
+        assert_eq!(
+            call("{\"follow_up\": {\"item\": \"#7\", \"decision\": \" Yes \", \"why\": \" r \"}}"),
+            Some((7, Call::File { unread: false }, "r".into()))
+        );
+        assert_eq!(
+            call(
+                "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"needs-triage\"}}"
+            ),
+            Some((7, Call::File { unread: true }, String::new()))
+        );
+        assert_eq!(
+            call(
+                "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"ready-for-agent\"}}"
+            ),
+            Some((7, Call::File { unread: false }, String::new()))
+        );
+        assert_eq!(
+            call("{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"why\": \"fixed\"}}"),
+            Some((7, Call::Drop, "fixed".into()))
+        );
+        for bad in [
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"maybe\"}}",
+            "{\"follow_up\": {\"item\": 7}}",
+            "{\"follow_up\": {\"decision\": \"yes\"}}",
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"yes\", \"label\": \"bug\"}}",
+            "{\"follow_up\": {\"item\": 7, \"decision\": \"no\", \"label\": \"needs-triage\"}}",
+        ] {
+            let read = read(bad).unwrap();
+            assert_eq!((read.follow_up, read.unread.len()), (None, 1), "{bad}");
         }
     }
 
