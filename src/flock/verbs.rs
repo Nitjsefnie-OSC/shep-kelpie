@@ -481,7 +481,12 @@ mod tests {
         if let Some(says) = says {
             shepherd.says("koji", &[says]);
         }
-        let args: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
+        // Only a bare `status` needs no project; the rest find theirs from the folder.
+        let project = (command != "status").then_some("-p koji");
+        let args: Vec<String> = (project.into_iter().flat_map(str::split_whitespace))
+            .chain(args.split_whitespace())
+            .map(str::to_owned)
+            .collect();
         let ask = run(shepherd.home(), command, &args);
         tokio::time::timeout(std::time::Duration::from_secs(40), ask)
             .await
