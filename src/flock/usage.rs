@@ -1,9 +1,11 @@
-//! `shep kelpie usage [<project>] [--since <date>]` and
-//! `shep kelpie usage <project> --import <log file>`: the usage ledger,
-//! read here with no shepherd asked
+//! `shep kelpie usage [<project>] [--since <date>]`,
+//! `shep kelpie usage <project> --import <log file>` and
+//! `shep kelpie usage --forge [--since <date>]`: the usage ledger and the
+//! forge ledger, read here with no shepherd asked
 
 use std::path::Path;
 
+use crate::forge_ledger;
 use crate::runner::ProjectName;
 use crate::usage::{self, baselines};
 
@@ -12,6 +14,7 @@ use crate::usage::{self, baselines};
 enum Ask<'a> {
     Report { since: Option<&'a str> },
     Import { log: &'a str },
+    Forge { since: Option<&'a str> },
 }
 
 /// Runs `usage` with `args`, the project `named` or taken first from them,
@@ -28,6 +31,16 @@ pub(super) fn usage(
 ) -> Result<Vec<String>, String> {
     let (project, ask) = read_args(named, args)?;
     match ask {
+        Ask::Forge { since } => {
+            if project.is_some() {
+                return Err("`usage --forge` reports every project's forge calls together".into());
+            }
+            let since = since.map(since_date).transpose()?;
+            let path = kelpie_home.join(forge_ledger::FILE);
+            let lines = forge_ledger::read(&path)
+                .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            Ok(forge_ledger::report(&lines, since))
+        }
         Ask::Import { log } => {
             let project = project.ok_or("`usage --import` takes the project to import into")?;
             let text = std::fs::read(log).map_err(|e| format!("cannot read {log}: {e}"))?;
@@ -71,6 +84,8 @@ fn read_args<'a>(
 ) -> Result<(Option<ProjectName>, Ask<'a>), String> {
     let (positional, ask) = match args {
         [] => (None, Ask::Report { since: None }),
+        ["--forge"] => (None, Ask::Forge { since: None }),
+        ["--forge", "--since", date] => (None, Ask::Forge { since: Some(date) }),
         ["--since", date] => (None, Ask::Report { since: Some(date) }),
         ["--import", log] => (None, Ask::Import { log }),
         [name] if !name.starts_with('-') => (Some(*name), Ask::Report { since: None }),
@@ -143,6 +158,33 @@ mod tests {
         assert!(err.contains("2026-10-01"), "{err}");
         let named = ProjectName::try_from("koji").ok();
         assert!(usage(home.path(), named, &["koji"]).is_err(), "named twice");
+    }
+
+    #[test]
+    fn the_forge_report_reads_the_ledger_every_project_shares() {
+        use crate::forge_ledger::{Ended, Kind, Ledger};
+        use crate::ports::Timestamp;
+
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(
+            usage(home.path(), None, &["--forge"]).unwrap(),
+            ["no forge calls recorded"]
+        );
+        let at = Timestamp(1_791_000_005);
+        Ledger::in_home(home.path(), "koji").record(at, Kind::Reviewed, 100, Ended::Ok);
+        Ledger::in_home(home.path(), "shep").record(at, Kind::Viewer, 100, Ended::Ok);
+
+        let out = usage(home.path(), None, &["--forge"]).unwrap();
+        assert_eq!(
+            out[0],
+            "forge calls from 2026-10-03T04:00:05Z to 2026-10-03T04:00:05Z: 2 made, 0 held, 0 used up"
+        );
+        assert!(out.contains(&"  koji: 1, 1, 1.0, 1".to_owned()), "{out:#?}");
+        assert!(out.contains(&"  shep: 1, 1, 1.0, 1".to_owned()), "{out:#?}");
+        let later = usage(home.path(), None, &["--forge", "--since", "2030-01-01"]).unwrap();
+        assert_eq!(later, ["no forge calls recorded"]);
+        let named = ProjectName::try_from("koji").ok();
+        assert!(usage(home.path(), named, &["--forge"]).is_err());
     }
 
     #[test]

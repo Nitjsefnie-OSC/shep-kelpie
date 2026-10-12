@@ -21,12 +21,14 @@ use crate::webhook::Webhook;
 
 mod agent;
 mod forge_error;
+mod git;
 mod gpu;
 mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
 mod rate_limit;
+mod recorded_voice;
 mod reviewer;
 mod routed;
 mod sandbox;
@@ -39,12 +41,14 @@ pub use agent::{
     Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::ForgeError;
+pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
 pub use rate_limit::{ForgeHold, RateHeld, Say};
+pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
@@ -911,6 +915,8 @@ pub struct Ports {
     pub local_leases: Arc<dyn LocalLeases>,
     /// A profile for each review bot a round may summon
     pub review_bots: Vec<Arc<dyn Profile>>,
+    /// The runner's own git, for the marketplaces a repo's plugins come from
+    pub git: Arc<dyn Git>,
     /// The GPU's figures, for `status`
     pub gpu: Arc<dyn GpuMetrics>,
     /// The maintainer's webhook, shared so a post runs without holding the runner

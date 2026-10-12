@@ -18,10 +18,10 @@ mod tests;
 /// `*.` and then a host, with an optional `:port` after it, and an IPv6
 /// address in brackets. A `*` anywhere else, a scheme, a path, a user or a
 /// blank is refused. The port is allowed because the runtime reads it
-/// (measured with `srt` 0.0.77, see the design log), and the pi harness
+/// (measured with `srt` 0.0.77, see `docs/facts/worker-profile-and-sandbox.md`), and the pi harness
 /// check in `settings::agents` reads it too.
 ///
-/// The rule is written from the design log's measurements of the runtime and
+/// The rule is written from the measurements of the runtime in `docs/facts/` and
 /// the failure that showed it (`productionresultssa*.blob.core.windows.net`),
 /// not from the runtime's source, which could not be read when it was
 /// written. The runtime stays the last word on a host's spelling.

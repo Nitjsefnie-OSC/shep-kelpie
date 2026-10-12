@@ -1,0 +1,46 @@
+# The second harness
+
+Measured 2026-09-30 for #130: pi 0.85.1 against codex-cli 0.146.0 (`codex exec` with a custom provider on the Responses API), both on qwen3.8:27b through Ollama 0.34.0 on the maintainer's Windows box (RTX 4090, 64k context). One run each of the playground's issue 34 (the `RuleList` component, 170 lines when a person did it), on the commit before its fix, with the same prompt. Each ran whole under `srt` 0.0.77 with a worker-shaped fence: its folder, its own home and a scratch folder writable, the model's host the only host, the credential paths unreadable. Each held the GPU lease for the whole run.
+
+| | pi | Codex |
+|---|---|---|
+| wall time | 286 s | 710 s |
+| model turns | 44 | not reported per turn |
+| tool calls | 53 (25 bash, 13 edit, 11 read, 4 write) | 121 shell commands |
+| uncached input | 25,569 | 142,202 |
+| cache read | 1,032,549 | 4,113,264 |
+| output | 18,186 | 36,062 |
+| refused by the sandbox | 1 | 14 |
+| `bun run test` and `typecheck` | pass (330 tests) | pass (333 tests) |
+
+- Both changed the same five files and nothing outside their folder. `bun run lint` failed in both for want of a git repo around the folder, not the change.
+- pi's one refusal was a test file it tried to write in `/tmp`.
+  - Codex has no file tool on this model: it wrote every file through its shell, `zsh -lc`, whose heredocs need a temporary file outside the fence, so its first writes were refused and it worked around them. Its other refusals were writes to `/tmp`, a move outside its folder and `nice(5)`.
+  - Codex also reached for `chatgpt.com`, `ab.chatgpt.com` and `api.github.com`, which the sandbox refused, warned it had no metadata for the model, and listed 81 skills it found outside the `CODEX_HOME` it was given.
+- pi takes the caller's session id as its own (`--session-id`), and Codex makes its own thread id. pi's `tool_call` extension event can refuse any tool call with a reason the model reads. Codex has Claude-shaped hooks, but its writes all go through the shell, where `kelpie confine` cannot see a path.
+- So pi is the second harness.
+- A pi call's sandbox allows no host of the model's: a forwarder kelpie runs outside it, one per call, passes only the chat completions call (shep-pm/shep-kelpie#235).
+  - With the model's host in the sandbox, `srt` allows it on every port: from inside, through the proxy, ports 11434, 22, 445 and 3389 on the Windows box all connected, and ssh answered.
+  - Ollama has no authentication, so a worker's commands could reach its whole API (`/api/delete`, `/api/pull`, `/api/create`), and any other service the box runs. Claude Code's endpoint needs a key the sandbox hides; this one needs nothing.
+- Measured 2026-10-01 for #235, against a stand-in server on 127.0.0.1 (`srt` 0.0.77, pi 0.85.1): the forwarder takes the model's traffic through `srt`'s `network.mitmProxy`, not a loopback port.
+  - A forwarder on a loopback port would not do: `allowedDomains: ["localhost"]` through the proxy reached an arbitrary local port, and `allowLocalBinding` let a direct connect reach it, so either opens every local service.
+  - `srt`'s `network.mitmProxy` (`socketPath` and `domains`) hands a listed host's traffic to a Unix socket outside, as `CONNECT <host>:<port>` for a tunnel or an absolute-URI request for plain HTTP, and the sandbox needs neither the host nor the socket. A host not listed still answers "Connection blocked by network allowlist".
+  - curl and Node's `fetch` send the absolute-URI request. pi's own client opens a tunnel first, `CONNECT model.kelpie.test:80`, and sends its one request through it, so the forwarder accepts a tunnel to the worker's host on port 80 and judges the request inside as any other.
+  - The worker's host, `model.kelpie.test`, resolves nowhere.
+- The forwarder passes only a chat call and refuses everything else.
+  - It reads each request whole, sends the server only a chat call, `POST` to the base path's `/chat/completions`, with its own request line, a counted `Content-Length` and `Connection: close`, and copies the reply back as it arrives.
+  - Everything else is refused with a 403 whose body names the method and path asked, and nothing of it is sent on, so a second request behind a chat call in one connection never reaches the server.
+  - It dials plain `http://` only (kelpie has no TLS client), so settings refuse a pi agent whose `url` is `https://`. It lists no models: pi runs offline with its one model, and `GET /v1/models` is refused with the rest.
+  - Anything in the sandbox can reach the forwarder through the proxy, so it holds a client to limits: a head of 64 KiB, a chunk or trailer line of 1 KiB, a body of 64 MiB, 30 seconds to send the whole request, 8 connections at once (the rest get a 503), and no control character in a header.
+  - A worker's `allowed_domains` entry that equals the model's host, or names a loopback host, is refused when settings load, since either would give the worker the host's ports again. Loopback is caught in any spelling (`127.1`, `127.0.0.2`, `::ffff:127.0.0.1`, a trailing dot, `*.localhost`), but another name or address for the same machine cannot be told without resolving it.
+  - An entry may carry a port (`host:11434`) or be an IPv4-mapped address (`[::ffff:192.0.2.9]`), both of which `srt` 0.0.77 accepts, so the check reads those too.
+  - As a second layer, a pi call's `srt` settings deny the model's host, `localhost`, `127.0.0.1` and `[::1]` on every port, and refuse any allowed name that resolves to the model's address; a deny beat an allow of the same host and port in the live test, and left the forwarder's route alone.
+  - Worst case the forwarder buffers 8 bodies of 64 MiB. A forwarder clears the sockets an earlier killed kelpie left in its folder.
+- Under the real sandbox and the stand-in, with the policy the pi adapter builds (the ignored tests in `src/adapters/pi/escapes.rs`, `KELPIE_TOOLS` set): a chat call through the worker's host answered 200 with the stand-in's reply; `DELETE /api/delete`, `POST /api/pull` and `GET /api/tags` each answered 403 naming themselves; the stand-in's own address, straight and through the proxy, and port 22 on a documentation address (192.0.2.9) were not reached; and the stand-in saw one request, the chat call. The real pi, given the forwarder's host as its model's, answered `ok` through it in under a second.
+- A model server on this machine (`localhost`) now works the same way, since the forwarder dials it from outside the sandbox: the stand-in's tests ran on 127.0.0.1. The Codex CLI stays the candidate for ChatGPT's models (#126), on its own account, where it would have its file tool.
+- `srt` sets `no_proxy` to every private address range, so a model on the LAN dialled by its address is refused by the sandbox. The worker's host is a name outside those ranges, so its calls go through the proxy with `no_proxy` as `srt` sets it. pi is Node, so it needs `NODE_USE_ENV_PROXY=1`.
+- pi opens `auth.json` and `models-store.json` in its home at start and takes a lock folder beside each, `auth.json.lock` and `models-store.json.lock`, even when it changes neither. Kelpie writes both files and lets the sandbox write only the two lock folders and the sessions folder. A session is `<sessions>/<time>_<id>.jsonl`. With `--session-id` and no file for it, pi warns and starts a new session with that id.
+- `pi -p --mode json` prints one event per line: a session header carrying the id, every streaming delta, and each message when it ends.
+  - On a resume it prints only the new call's messages, so the sum of its assistant messages' `usage` is the call's own. A local model's cost there is zero, so kelpie records the call as unpriced. Tokens spent on pi's own compaction are not in those messages, so a long session reports fewer than it used.
+  - Only a last message that stopped with `stop` is an answer: `length` fails as out of output tokens, and any other reason fails naming it. An error carries the last 2 KB of pi's output, since a worker's runs to megabytes.
+- The adapter live, with this branch's build as the checks (`record_a_turn_a_resumed_turn_and_two_refusals`, ignored): a new session answered `ok`, its resume named the word, and a worker had a write to `.claude/settings.json` refused by `kelpie confine`, `echo hi` into a folder outside refused by the sandbox ("Operation not permitted"), and `gh pr merge 1` refused by `kelpie guard`. The three calls took 11 seconds. The recordings are `fixtures/pi-p-*.jsonl`. Against an older kelpie whose `guard` takes other arguments, the check printed its usage and exited 1, and the extension refused the command, as it must.

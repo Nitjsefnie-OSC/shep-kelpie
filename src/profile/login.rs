@@ -51,30 +51,23 @@ pub fn write(build: &Path, token: &InstallationToken) -> io::Result<()> {
     Ok(())
 }
 
-/// The variables that point `gh` and git at that login
+/// What a covered worker's `GIT_CONFIG_PARAMETERS` carries to point git at that
+/// login, after the settings every worker's git gets
 ///
 /// `GIT_CONFIG_PARAMETERS` is what `git -c` sets for the commands it runs. Git
 /// reads it after every config file, so the helper list is emptied after
 /// whatever the maintainer's own files named, and github.com's is the only one
 /// left. None of the names holds `KEY`, `SECRET` or `TOKEN`.
-///
-/// The sandbox runtime sets the same variable to
-/// `http.proxyAuthMethod=basic`, and this one replaces it, so it carries that
-/// setting too. Without it git connects to the sandbox's proxy without its
-/// login, the proxy answers 407 and closes the connection, and git's retry on
-/// that connection fails as "Proxy CONNECT aborted": no covered worker could
-/// push.
+pub(super) const GIT_CONFIG: &str = "'credential.helper'='' \
+     'credential.https://github.com.helper'='!gh auth git-credential'";
+
+/// The variables that point `gh` at that login, and keep git from prompting
 pub(super) fn env(build: &Path) -> Vec<(String, String)> {
     let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
     vec![
         pair("GH_CONFIG_DIR", &config_dir(build).to_string_lossy()),
         pair("GH_PROMPT_DISABLED", "1"),
         pair("GIT_TERMINAL_PROMPT", "0"),
-        pair(
-            "GIT_CONFIG_PARAMETERS",
-            "'http.proxyAuthMethod'='basic' 'credential.helper'='' \
-             'credential.https://github.com.helper'='!gh auth git-credential'",
-        ),
     ]
 }
 
@@ -180,6 +173,7 @@ mod tests {
             .env("GIT_CONFIG_GLOBAL", &global)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .envs(env(build.path()))
+            .env("GIT_CONFIG_PARAMETERS", GIT_CONFIG)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

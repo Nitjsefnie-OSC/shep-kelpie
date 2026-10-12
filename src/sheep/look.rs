@@ -77,6 +77,12 @@ impl Look {
         };
         if before == self.last {
             self.failed = None;
+            // The repo's plugins come from its default branch, which no
+            // setting of kelpie's announces.
+            let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(line) = runner.reread_plugins() {
+                eprintln!("{line}");
+            }
             return;
         }
         let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);

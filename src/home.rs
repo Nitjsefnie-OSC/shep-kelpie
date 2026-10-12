@@ -30,12 +30,13 @@ pub fn is_own(name: &str) -> bool {
 pub const OLD: &str = ".kelpie";
 
 /// Kelpie's own entries in its home, which no project may be named for
-pub const OWN: [&str; 13] = [
+pub const OWN: [&str; 14] = [
     "agents",
     "builds",
     "codex",
     "dog",
     "github",
+    "marketplaces",
     "relay",
     "retro-reports",
     "rulings",

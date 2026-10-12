@@ -15,7 +15,7 @@ use crate::lease::gpu::LockHolder;
 use crate::ports::{ModelSeat, SessionId, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
-use crate::skills::StepSkill;
+use crate::skills::{RepoPlugin, StepSkill};
 use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
 use crate::work_item::{
     Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
@@ -96,6 +96,10 @@ pub struct Status<'a> {
     pub pacer: PacerStatus<'a>,
     /// The skill each step runs, and why any chosen one could not load
     pub skills: &'a [StepSkill],
+    /// The plugins the repo turns on, with their skills or why each was
+    /// skipped; left out when it turns on none
+    #[serde(skip_serializing_if = "<[RepoPlugin]>::is_empty")]
+    pub plugins: &'a [RepoPlugin],
     /// Where the local model sat when a round last looked, when there was
     /// an Ollama host to ask
     #[serde(skip_serializing_if = "Option::is_none")]
