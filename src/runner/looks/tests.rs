@@ -285,10 +285,12 @@ fn the_board_is_read_again_once_its_backoff_has_passed() {
 fn no_board_step_runs_before_the_rate_limit_hold_ends() {
     let rig = Rig::new("acme");
     let runner = rig.open().unwrap();
+    let before = rig.forge.board_reads();
     rig.forge
         .set_used_up(Some(Timestamp(rig.clock.now().0 + 1800)));
     wake(&runner);
     let reads = rig.forge.board_reads();
+    assert_eq!(reads, before + 1, "the read the hold began on");
 
     for _ in 0..29 {
         rig.clock.advance(60);
