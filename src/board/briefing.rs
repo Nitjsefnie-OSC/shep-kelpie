@@ -2,7 +2,7 @@
 //!
 //! Code writes it from what the runner already holds, so the agent never
 //! runs git or gh. It has one entry per open work item with its session's
-//! activity, the rulings waiting, the ready queue in the board rule's order,
+//! activity, the rulings waiting, the ready queue in the board's order,
 //! the events since the agent's last wake, and an overlap table of the
 //! files open branches and ready issues share. Its shape follows what was
 //! measured: a PM briefed this way decided as well as one that looked for
@@ -160,7 +160,7 @@ pub struct RulingLine {
 pub struct Ready {
     /// When it was read
     pub read: Timestamp,
-    /// Its issues in the board rule's order, none of them open as a work item
+    /// Its issues in the board's order, none of them open as a work item
     pub issues: Vec<ReadyLine>,
 }
 
@@ -326,7 +326,7 @@ fn ready_queue(out: &mut String, ready: Option<&Ready>, now: Timestamp) {
     };
     let _ = writeln!(
         out,
-        "## Ready queue, read {} ago (board rule order: priority, then oldest by number)\n",
+        "## Ready queue, read {} ago (the board's order, first taken first; a new issue joins after the last of its priority)\n",
         age(now, ready.read)
     );
     if ready.issues.is_empty() {
