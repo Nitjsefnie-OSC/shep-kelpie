@@ -13,6 +13,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0007 [Review rules for a live pull request](0007-review-rules-for-a-live-pull-request.md): nits and a merge ruling's `no` get a fix turn, a late bot is read, and a parked item frees its slot.
 - 0008 [No reviewer reads a head until CI has passed on it](0008-no-reviewer-reads-a-head-until-ci-has-passed-on-it.md): a reviewer starts, or a bot is summoned, only on a pushed head that is green, and a red run is the worker's CI fix turn first.
 - 0009 [A project's own hooks run at kelpie's points](0009-a-projects-own-hooks-run-at-kelpies-points.md): `hooks` runs a project's commands at `publish`, `commit`, `push`, `handover` and nine points for the events Claude Code and Codex offer (`command`, `write`, `after_command`, `turn_start`, `turn_end`, `reset`, `ruling`, `ci`, `done`), for every harness and role, with `worker.guard_hooks` kept as the Claude Code-only layer.
+- 0010 [Kelpie finishes a contribution on its contributor's branch](0010-kelpie-finishes-a-contribution-on-its-contributors-branch.md): a quiet contributor is asked, a yes or silence is a release, and kelpie then pushes to their branch, never a second pull request.
 
 ## Decided against
 
@@ -46,3 +47,6 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - have `publish` cover only the text an agent wrote (0009)
 - one hook point for each Claude Code or Codex event (0009)
 - run the work item loop's hook points as Claude Code hooks (0009)
+- a second pull request from a new branch, for a contribution (0010)
+- adopt a quiet contribution without asking its contributor (0010)
+- wait for a contributor's explicit yes before adopting (0010)
