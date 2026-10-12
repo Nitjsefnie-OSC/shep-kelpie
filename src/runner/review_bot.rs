@@ -359,7 +359,7 @@ impl Runner {
             at,
             full: false,
             resent: again,
-            failed: false,
+            failed: self.failed_so_far(),
         })?;
         Ok(self.summoned(number, head, again))
     }
@@ -403,7 +403,7 @@ impl Runner {
             at,
             full: true,
             resent: again,
-            failed: false,
+            failed: self.failed_so_far(),
         })?;
         let profile = self.profile(bot);
         let body = profile.full_review().unwrap_or_default();
@@ -592,7 +592,7 @@ impl Runner {
             // that drew it is not read as its answer. A bot summoned by
             // marking ready is never asked by comment, so waits like one
             // that is still reading.
-            Reading::Failed if !self.bot_reviewer(bot).reviews_on_ready => {
+            Reading::Failed if waited < REVIEW_WAIT && !self.bot_reviewer(bot).reviews_on_ready => {
                 self.failed_review(bot, (started, head), Timestamp(now), full_again)
             }
             Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
