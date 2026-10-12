@@ -203,20 +203,37 @@ fn locate(
         .collect();
     // A clone's own project answers before the others do.
     let here = waiting.here.map(ProjectName::as_str);
-    if on.is_none() && found.iter().any(|(p, _)| Some(p.as_str()) == here) {
+    let narrowed = on.is_none() && found.iter().any(|(p, _)| Some(p.as_str()) == here);
+    if narrowed {
         found.retain(|(p, _)| Some(p.as_str()) == here);
     }
-    match found.as_slice() {
-        [(project, ruling)] => {
+    // A project whose rulings cannot be read may have a ruling on the number
+    // too, so with none named, nor a clone's own to answer first, the ones
+    // that can be read are not all there are.
+    let unread = (on.is_none() && !narrowed && !waiting.unread.is_empty()).then(|| {
+        (waiting.unread.iter())
+            .map(|p| format!("{p}'s"))
+            .collect::<Vec<_>>()
+            .join(" and ")
+    });
+    let name_one = format!("so name the project: `shep kelpie rule <project>#{number} <answer>`");
+    match (found.as_slice(), unread) {
+        ([(project, _)], Some(unread)) => Err(format!(
+            "#{number} has a ruling on {project}, and {unread} rulings cannot be read, {name_one}"
+        )),
+        ([(project, ruling)], None) => {
             let project = ProjectName::try_from(project.as_str()).map_err(|e| e.to_string())?;
             Ok((project, ruling.clone()))
         }
-        [] if *bare => find(ids, waiting, named, *number),
-        [] => Err(format!(
+        ([], _) if *bare => find(ids, waiting, named, *number),
+        ([], Some(unread)) => Err(format!(
+            "no ruling on #{number} is waiting, and {unread} rulings cannot be read, {name_one}"
+        )),
+        ([], None) => Err(format!(
             "no ruling on {} is waiting: `shep kelpie rule` lists those that are",
             reference.label()
         )),
-        more => {
+        (more, _) => {
             let mut projects: Vec<&str> = more.iter().map(|(p, _)| p.as_str()).collect();
             projects.sort_unstable();
             projects.dedup();

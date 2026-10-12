@@ -415,6 +415,46 @@ fn an_unclaimed_id_with_a_state_file_unread_needs_the_project() {
     assert_eq!(sent, Ok((project("koji"), "16 yes".into())));
 }
 
+// Probed in review: with lab's state unreadable, koji's one ruling on #13
+// could share the number with a ruling of lab's.
+#[test]
+fn a_number_with_a_state_file_unread_needs_the_project() {
+    let home = tempfile::tempdir().unwrap();
+    let on_13 = Ruling {
+        issue: Some(13),
+        pull_request: None,
+        ..yes_or_no(5)
+    };
+    waiting(home.path(), "koji", vec![on_13]);
+    let broken = home.path().join("lab/state.json");
+    std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
+    std::fs::write(&broken, "{").unwrap();
+    let ids = RulingIds::under(home.path());
+    for number in ["13", "#13"] {
+        let err = prepare(&ids, None, &[number, "yes"], None).unwrap_err();
+        assert!(
+            err.starts_with(
+                "#13 has a ruling on koji, and lab's rulings cannot be read, \
+                 so name the project: `shep kelpie rule <project>#13 <answer>`\n"
+            ),
+            "{err}"
+        );
+    }
+    // A number that names nothing readable may still be lab's.
+    let err = prepare(&ids, None, &["#99", "yes"], None).unwrap_err();
+    assert!(
+        err.starts_with("no ruling on #99 is waiting, and lab's rulings cannot be read"),
+        "{err}"
+    );
+    let sent = prepare(&ids, None, &["koji#13", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
+    let sent = prepare(&ids, Some(&project("koji")), &["13", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
+    // A clone's own project answers first, whatever cannot be read.
+    let sent = prepare_in(&ids, None, Some(&project("koji")), &["13", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
+}
+
 #[test]
 fn the_picker_takes_the_answer_on_the_id_s_line() {
     let (_home, ids) = two_projects();
