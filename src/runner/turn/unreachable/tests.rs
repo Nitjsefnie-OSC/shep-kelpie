@@ -2,6 +2,7 @@
 //! driven through the runner's scripted agent
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -9,7 +10,7 @@ use super::super::tests::{usage, with_issue_7};
 use crate::ports::{AgentError, Cost};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Rig, Scripted};
+use crate::test::{Hold, Rig, Scripted};
 
 // Seconds since the first failure past which the wait parks the work item
 const LIMIT: u64 = 30 * 60;
@@ -168,6 +169,32 @@ fn the_waiting_mark_says_unreachable_and_since_when() {
         "{board}"
     );
     assert!(board.contains("Waiting for its model since "), "{board}");
+}
+
+#[test]
+fn a_retry_in_flight_sets_no_look_at_the_pause_that_has_passed() {
+    let (rig, runner) = with_issue_7("acme");
+    let hold = Hold::default();
+    rig.claude
+        .script([down("502"), Scripted::Hold(hold.clone())]);
+    step(&runner).unwrap();
+    assert_eq!(
+        runner.lock().unwrap().next_look(),
+        Some(Duration::from_secs(30)),
+        "the pause is what the runner waits for"
+    );
+    rig.clock.advance(30);
+    std::thread::scope(|scope| {
+        let retry = scope.spawn(|| step(&runner));
+        assert!(hold.entered(Duration::from_secs(10)), "no retry began");
+        let look = runner.lock().unwrap().next_look();
+        assert!(
+            look.is_none_or(|look| look > Duration::from_secs(1)),
+            "a look at once while the retry runs: {look:?}"
+        );
+        hold.release();
+        retry.join().unwrap().unwrap();
+    });
 }
 
 #[test]

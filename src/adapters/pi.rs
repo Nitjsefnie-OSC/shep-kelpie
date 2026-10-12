@@ -579,23 +579,24 @@ const ERROR_TAIL: usize = 2048;
 
 // Whether pi's error says its model host could not be reached: a 502 or 503
 // as the SDK leads its message with the status, or a connection refused or
-// reset. Any other error is the call's own.
+// reset. Any other error is the call's own, and so is one that leads with
+// another status, whatever its text goes on to mention.
 fn reaches_no_host(detail: &str) -> bool {
     let lower = detail.trim_start().to_ascii_lowercase();
-    let status = ["502", "503"].iter().any(|code| {
-        lower
-            .strip_prefix(code)
-            .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_alphanumeric()))
-    });
-    status
-        || [
-            "econnrefused",
-            "econnreset",
-            "connection refused",
-            "connection reset",
-        ]
-        .iter()
-        .any(|sign| lower.contains(sign))
+    let digits = lower.bytes().take_while(u8::is_ascii_digit).count();
+    let leads_with_status =
+        digits == 3 && !lower[digits..].starts_with(|c: char| c.is_ascii_alphanumeric());
+    if leads_with_status {
+        return matches!(&lower[..digits], "502" | "503");
+    }
+    [
+        "econnrefused",
+        "econnreset",
+        "connection refused",
+        "connection reset",
+    ]
+    .iter()
+    .any(|sign| lower.contains(sign))
 }
 
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to

@@ -163,7 +163,7 @@ impl Runner {
     pub fn next_look(&self) -> Option<Duration> {
         let now = self.ports.clock.now();
         let looks = self.looks.next_due(now, &self.rotation());
-        let host = self.unreachable.next_try(now).map(|d| d.max(DUE_FLOOR));
+        let host = self.next_retry().map(|d| d.max(DUE_FLOOR));
         [looks, host].into_iter().flatten().min()
     }
 }

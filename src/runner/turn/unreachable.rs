@@ -60,12 +60,6 @@ impl Unreachable {
         })
     }
 
-    /// When the soonest turn waiting for its host is tried again
-    pub(in crate::runner) fn next_try(&self, now: Timestamp) -> Option<Duration> {
-        let soonest = self.0.values().map(|pause| pause.until).min()?;
-        Some(Duration::from_secs(soonest.0.saturating_sub(now.0)))
-    }
-
     /// Forgets the waits of work items no longer open
     pub(in crate::runner) fn keep_only(&mut self, open: &[u64]) {
         self.0.retain(|issue, _| open.contains(issue));
@@ -90,11 +84,14 @@ impl Runner {
             return false;
         };
         let now = self.ports.clock.now();
-        let Some(flight) = self.flights.turn_call(issue) else {
+        let held = self.unreachable.0.remove(&issue);
+        let Some((call, first, left)) = self.flights.turn_call(issue) else {
+            // Not a worker's turn, so no call to keep and no wait to hold.
+            if held.is_some() {
+                self.board_changed();
+            }
             return false;
         };
-        let (call, first, left) = flight;
-        let held = self.unreachable.0.remove(&issue);
         let since = held.as_ref().map_or(now, |pause| pause.since);
         let failures = held.as_ref().map_or(0, |pause| pause.failures) + 1;
         self.board_changed();
@@ -126,6 +123,19 @@ impl Runner {
             },
         );
         true
+    }
+
+    /// When the soonest turn waiting for its host is tried again
+    ///
+    /// A turn whose retry is in flight is not waiting for a pause any more,
+    /// so its due time does not count.
+    pub(in crate::runner) fn next_retry(&self) -> Option<Duration> {
+        let now = self.ports.clock.now();
+        let soonest = (self.unreachable.0.iter())
+            .filter(|(issue, _)| !self.flights.flying(**issue))
+            .map(|(_, pause)| pause.until)
+            .min()?;
+        Some(Duration::from_secs(soonest.0.saturating_sub(now.0)))
     }
 
     /// The call of `issue`'s turn waiting for its host, once its pause has

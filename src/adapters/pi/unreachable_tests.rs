@@ -46,6 +46,18 @@ fn a_model_host_that_cannot_be_reached_is_unreachable_and_any_other_error_fails(
         errored_with(message),
         Err(AgentError::Failed(Harness::Pi, message.into()))
     );
+    // An error that leads with another status is the call's own, even when
+    // its text mentions a refused or reset connection.
+    for message in [
+        r#"400 "upstream connection refused""#,
+        "429 read ECONNRESET while retrying",
+    ] {
+        assert_eq!(
+            errored_with(message),
+            Err(AgentError::Failed(Harness::Pi, message.into())),
+            "{message}"
+        );
+    }
     // A status number inside other text is not the host's status.
     let message = "the model said 502 things";
     assert_eq!(
