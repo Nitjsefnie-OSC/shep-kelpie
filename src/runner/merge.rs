@@ -425,14 +425,15 @@ impl Runner {
             listed.push(item.issue);
         }
         next.record_finished(record);
-        self.save(next)?;
-        self.ledger.append(&crate::usage::Line::Finished(line));
-        self.tell_done(&ended);
-        // After the save, so a step that fails here is not run again with the
-        // work item gone, and a comment is never posted twice.
+        // Before the save, so a runner that stops partway still has the work
+        // item and comes back here. The step reads the issue first, so it
+        // closes nothing twice.
         if let (true, Some(number)) = (merged, pull_request) {
             self.close_merged_issue(issue, number);
         }
+        self.save(next)?;
+        self.ledger.append(&crate::usage::Line::Finished(line));
+        self.tell_done(&ended);
         self.mark_held(issue, false);
         self.late_reads.remove(&issue);
         self.parked_reads.remove(&issue);
@@ -916,6 +917,7 @@ mod tests {
     #[test]
     fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
         let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
         rig.forge.list_ready(7, false);
         rig.ask(&runner, "rule", Some("1 yes"));
         rig.forge.set_state(71, PullRequestState::Merged);
@@ -923,6 +925,19 @@ mod tests {
         assert!(finished(step(&runner).unwrap()));
         assert_eq!(rig.forge.closings(), [7]);
         assert_eq!(rig.forge.comments().len(), 1);
+    }
+
+    #[test]
+    fn an_issue_the_pull_request_names_is_left_to_the_forge_though_it_still_reads_open() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.list_ready(7, false);
+        rig.ask(&runner, "rule", Some("1 yes"));
+        // The forge has merged it and not yet closed #7, which #71 names.
+        rig.forge.set_state(71, PullRequestState::Merged);
+
+        assert!(finished(step(&runner).unwrap()));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
     }
 
     #[test]

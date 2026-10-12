@@ -24,6 +24,12 @@ impl Runner {
     /// fails, a close the forge refuses [`TRIES`] times, or an issue that
     /// cannot be read is told in the log, and the work item goes on.
     pub(super) fn close_merged_issue(&mut self, issue: u64, pull_request: u64) {
+        // The forge closes a named issue a moment after the merge, so one that
+        // still reads as open then is left to it.
+        let named = (self.ports.forge).reviewed(&self.remote, pull_request);
+        if named.is_ok_and(|pr| pr.closes.contains(&issue)) {
+            return;
+        }
         match (self.ports.forge).issue(&self.remote, issue) {
             Ok(read) if !read.open => return,
             Ok(_) => {}
