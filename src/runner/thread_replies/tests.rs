@@ -477,6 +477,7 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     });
     next.heard.insert(
         2,

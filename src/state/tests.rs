@@ -28,6 +28,7 @@ fn big_state(n: u64) -> ProjectState {
             panel: None,
             verdict: None,
             unposted: false,
+            raised: None,
         })
         .collect();
     state
@@ -69,6 +70,7 @@ fn a_saved_state_loads_back_whole() {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     });
     state.last_ruling = 1;
     state.leases.push(LeaseHeld {
@@ -158,6 +160,7 @@ fn the_file_format_is_pinned() {
         panel: None,
         verdict: None,
         unposted: false,
+        raised: None,
     };
     state.rulings = vec![
         ruling(

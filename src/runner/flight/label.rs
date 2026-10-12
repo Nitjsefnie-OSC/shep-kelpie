@@ -251,6 +251,7 @@ impl Runner {
             panel: None,
             verdict: None,
             unposted: false,
+            raised: Some(names.now),
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {
