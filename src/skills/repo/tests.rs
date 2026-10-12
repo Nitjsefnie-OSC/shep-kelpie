@@ -7,9 +7,11 @@ use crate::ports::{AgentCall, Role};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced};
 
-// A `directory` marketplace named `market` in the rig's home, holding each of `plugins` with one skill
+// A `directory` marketplace named `market` in the rig's checkout, holding each of `plugins`
+// with one skill, and its path from the checkout
 fn marketplace(rig: &Rig, market: &str, plugins: &[(&str, &str)]) -> PathBuf {
-    let dir = rig.home.path().join("markets").join(market);
+    let relative = Path::new("markets").join(market);
+    let dir = rig.repo().join(&relative);
     let listed: Vec<_> = plugins
         .iter()
         .map(|(name, _)| json!({ "name": name, "source": format!("./plugins/{name}") }))
@@ -34,7 +36,7 @@ fn marketplace(rig: &Rig, market: &str, plugins: &[(&str, &str)]) -> PathBuf {
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "---\nname: style\n---\nRules.\n").unwrap();
     }
-    dir
+    relative
 }
 
 // A marketplace read where it is
@@ -279,7 +281,9 @@ const HOUSE: &str = "https://github.com/shep-pm/house.git";
 #[test]
 fn a_github_marketplace_is_fetched_into_kelpies_home_through_git() {
     let rig = Rig::new("shep");
-    let served = marketplace(&rig, "served", &[("style", "style")]);
+    let served = rig
+        .repo()
+        .join(marketplace(&rig, "served", &[("style", "style")]));
     rig.git.serve(HOUSE, &served);
     land_settings(
         &rig,
@@ -310,7 +314,9 @@ fn a_github_marketplace_is_fetched_into_kelpies_home_through_git() {
 #[test]
 fn a_git_marketplace_is_fetched_at_its_ref() {
     let rig = Rig::new("shep");
-    let served = marketplace(&rig, "served", &[("style", "style")]);
+    let served = rig
+        .repo()
+        .join(marketplace(&rig, "served", &[("style", "style")]));
     rig.git
         .serve("ssh://git@example.invalid/house.git", &served);
     let source =
@@ -324,7 +330,9 @@ fn a_git_marketplace_is_fetched_at_its_ref() {
 #[test]
 fn a_failed_fetch_keeps_the_last_copy() {
     let rig = Rig::new("shep");
-    let served = marketplace(&rig, "served", &[("style", "style")]);
+    let served = rig
+        .repo()
+        .join(marketplace(&rig, "served", &[("style", "style")]));
     rig.git.serve(HOUSE, &served);
     land_settings(
         &rig,
@@ -429,5 +437,168 @@ fn inspecting_lists_what_a_runner_would_load_and_why_it_would_not() {
             ),
             ("style@house", vec!["style".to_owned()], None),
         ]
+    );
+}
+
+#[test]
+fn a_directory_that_is_not_inside_the_checkout_is_refused() {
+    let rig = Rig::new("shep");
+    let far = rig.home.path().join("far");
+    fs::rename(
+        rig.repo()
+            .join(marketplace(&rig, "far", &[("style", "style")])),
+        &far,
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&far, rig.repo().join("link")).unwrap();
+    land_settings(
+        &rig,
+        &[
+            ("style@absolute", true),
+            ("style@dots", true),
+            ("style@link", true),
+        ],
+        &[
+            ("absolute", directory(&far)),
+            ("dots", directory(Path::new("../../far"))),
+            ("link", directory(Path::new("link"))),
+        ],
+    );
+
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    let reasons: Vec<_> = status["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["skipped"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(reasons.len(), 3, "{status}");
+    for reason in reasons {
+        assert!(
+            reason.ends_with("is not a folder inside the checkout"),
+            "{reason}"
+        );
+    }
+    assert!(!rig.paths().skills.join("repo/style").exists());
+}
+
+#[test]
+fn a_plugin_folder_that_leads_out_of_its_marketplace_is_refused() {
+    let rig = Rig::new("shep");
+    let dir = marketplace(&rig, "house", &[("style", "style")]);
+    let outside = rig.home.path().join("outside");
+    fs::rename(rig.repo().join(&dir).join("plugins/style"), &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, rig.repo().join(&dir).join("plugins/style")).unwrap();
+    land_settings(
+        &rig,
+        &[("style@house", true)],
+        &[("house", directory(&dir))],
+    );
+
+    let runner = rig.open().unwrap();
+
+    let plugin = skipped(&rig, &runner);
+    assert_eq!(
+        plugin["skipped"],
+        "its source ./plugins/style leaves the marketplace"
+    );
+}
+
+#[test]
+fn two_plugins_of_one_name_from_two_marketplaces_load_only_the_first() {
+    let rig = Rig::new("shep");
+    let one = marketplace(&rig, "one", &[("style", "first")]);
+    let two = marketplace(&rig, "two", &[("style", "second")]);
+    land_settings(
+        &rig,
+        &[("style@one", true), ("style@two", true)],
+        &[("one", directory(&one)), ("two", directory(&two))],
+    );
+
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["plugins"],
+        json!([
+            { "plugin": "style@one", "skills": ["first"] },
+            {
+                "plugin": "style@two",
+                "skills": [],
+                "skipped": "style@one already supplies a plugin named style"
+            },
+        ])
+    );
+    let skills = rig.paths().skills.join("repo/style/skills");
+    assert!(skills.join("first/SKILL.md").is_file());
+    assert!(!skills.join("second").exists());
+}
+
+#[test]
+fn a_link_in_a_plugin_is_neither_listed_nor_copied() {
+    let rig = Rig::new("shep");
+    let dir = marketplace(&rig, "house", &[("style", "style")]);
+    let skills = rig.repo().join(&dir).join("plugins/style/skills");
+    let secret = rig.home.path().join("secret");
+    fs::write(&secret, "private\n").unwrap();
+    // A skill that is a link to a folder, and a file in a skill that is a link to a file.
+    let other = rig.home.path().join("other-skill");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(other.join("SKILL.md"), "x\n").unwrap();
+    std::os::unix::fs::symlink(&other, skills.join("linked")).unwrap();
+    std::os::unix::fs::symlink(&secret, skills.join("style/notes.md")).unwrap();
+    land_settings(
+        &rig,
+        &[("style@house", true)],
+        &[("house", directory(&dir))],
+    );
+
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["plugins"],
+        json!([{ "plugin": "style@house", "skills": ["style"] }])
+    );
+    let copied = rig.paths().skills.join("repo/style/skills");
+    assert!(copied.join("style/SKILL.md").is_file());
+    assert!(!copied.join("linked").exists());
+    assert!(!copied.join("style/notes.md").exists());
+}
+
+#[test]
+fn a_reread_that_fails_leaves_the_plugins_the_runner_is_using() {
+    let rig = Rig::new("shep");
+    let dir = marketplace(&rig, "house", &[("style", "style")]);
+    land_settings(
+        &rig,
+        &[("style@house", true)],
+        &[("house", directory(&dir))],
+    );
+    let runner = rig.open().unwrap();
+    // The repo turns the plugin off, and the settings the reread is given do not hold.
+    land_settings(
+        &rig,
+        &[("style@house", false)],
+        &[("house", directory(&dir))],
+    );
+    let (mut settings, kelpie) = (rig.settings(), rig.kelpie_settings());
+    settings.worker.instructions_file = Some(rig.home.path().join("missing.md"));
+
+    let failed = runner.lock().unwrap().reread(settings, kelpie);
+
+    assert!(failed.is_err());
+    assert!(
+        rig.paths()
+            .skills
+            .join("repo/style/skills/style/SKILL.md")
+            .is_file()
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["plugins"],
+        json!([{ "plugin": "style@house", "skills": ["style"] }])
     );
 }

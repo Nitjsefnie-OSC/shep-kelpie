@@ -86,7 +86,9 @@ impl Runner {
             changed.push("gpu_metrics_url");
         }
         // The default branch may have turned a plugin on or off since the last read.
-        let repo_plugins = RepoPlugins::load(
+        // Planned here and written once the checks below hold, so a reread that
+        // fails leaves the plugin folders the runner is using as they were.
+        let repo_plugins = RepoPlugins::plan(
             &self.settings.git.checkout,
             &self.paths.kelpie_home,
             &self.paths.skills,
@@ -146,6 +148,7 @@ impl Runner {
             self.skills = skills;
         }
         if repo_plugins != self.repo_plugins {
+            let repo_plugins = repo_plugins.install(&self.paths.skills);
             for notice in repo_plugins.notices() {
                 line.push_str(&format!("\n{notice}"));
             }

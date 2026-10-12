@@ -18,9 +18,10 @@ impl Git for SystemGit {
     fn sync(&self, url: &str, reference: Option<&str>, into: &Path) -> Result<(), GitError> {
         if into.join(".git").exists() {
             let target = reference.unwrap_or("HEAD");
+            // From `url` itself, not `origin`: the settings may name another repo now.
             run(
                 into,
-                ["fetch", "--quiet", "--depth", "1", "origin", "--", target],
+                ["fetch", "--quiet", "--depth", "1", "--", url, target],
             )?;
             return run(into, ["reset", "--quiet", "--hard", "FETCH_HEAD"]);
         }
@@ -107,6 +108,19 @@ mod tests {
         commit(&home.path().join("remote"), "two");
         SystemGit.sync(&url, None, &into).unwrap();
         assert!(into.join("two").is_file());
+    }
+
+    #[test]
+    fn it_fetches_from_the_address_it_is_given_when_that_changed() {
+        let home = tempfile::tempdir().unwrap();
+        let first = repo_with(&home.path().join("first"), "one");
+        let second = repo_with(&home.path().join("second"), "other");
+        let into = home.path().join("marketplaces/house");
+
+        SystemGit.sync(&first, None, &into).unwrap();
+        SystemGit.sync(&second, None, &into).unwrap();
+
+        assert!(into.join("other").is_file());
     }
 
     #[test]

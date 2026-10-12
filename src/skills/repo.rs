@@ -19,7 +19,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::{copy_folder, is_kelpies_own};
+use super::is_kelpies_own;
 use crate::ports::{Git, GitError};
 use crate::settings::SkillName;
 
@@ -58,6 +58,9 @@ pub struct RepoPlugin {
     pub stale: Option<String>,
     #[serde(skip)]
     dir: Option<PathBuf>,
+    // Where it is read from, until `install` has copied it to `dir`.
+    #[serde(skip)]
+    found: Option<Found>,
 }
 
 /// The plugins the repo turns on, as the runner loaded them
@@ -72,27 +75,40 @@ impl RepoPlugins {
     ///
     /// Nothing here fails: a plugin that cannot load is skipped.
     pub fn load(checkout: &Path, kelpie_home: &Path, skills: &Path, git: &dyn Git) -> Self {
+        Self::plan(checkout, kelpie_home, skills, git).install(skills)
+    }
+
+    /// What [`Self::load`] would load, with the marketplaces fetched and
+    /// nothing written under `skills`
+    ///
+    /// A reread plans first, so a reread that fails later leaves the folders
+    /// the runner is using as they were.
+    pub fn plan(checkout: &Path, kelpie_home: &Path, skills: &Path, git: &dyn Git) -> Self {
         let into = skills.join(FOLDER);
-        let plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, git, true)
+        let plugins = resolve(checkout, kelpie_home, git, true)
             .into_iter()
-            .map(|resolved| match resolved {
-                Err(skipped) => RepoPlugin::skipped(skipped.id, skipped.reason),
-                Ok(found) => {
-                    let dir = into.join(&found.name);
-                    match install(&found, &dir) {
-                        Ok(skills) => RepoPlugin {
-                            plugin: found.id,
-                            skills,
-                            skipped: None,
-                            stale: found.stale,
-                            dir: Some(dir),
-                        },
-                        Err(reason) => RepoPlugin::skipped(found.id, reason),
-                    }
+            .map(|resolved| plan_one(resolved, &into))
+            .collect();
+        Self { plugins }
+    }
+
+    /// Writes each planned plugin under `skills/repo/<name>`, and takes out
+    /// what the repo no longer turns on, so no call keeps it
+    #[must_use]
+    pub fn install(self, skills: &Path) -> Self {
+        let into = skills.join(FOLDER);
+        let plugins: Vec<RepoPlugin> = (self.plugins.into_iter())
+            .map(|mut plugin| {
+                let failed = match (&plugin.found, &plugin.dir) {
+                    (Some(found), Some(dir)) => install(found, dir).err(),
+                    _ => None,
+                };
+                if let Some(reason) = failed {
+                    plugin = RepoPlugin::skipped(plugin.plugin, reason);
                 }
+                plugin
             })
             .collect();
-        // A plugin the repo no longer turns on is taken out, so no call keeps it.
         let loaded: Vec<&PathBuf> = plugins.iter().filter_map(|p| p.dir.as_ref()).collect();
         if let Ok(entries) = fs::read_dir(&into) {
             for entry in entries.filter_map(Result::ok) {
@@ -140,7 +156,28 @@ impl RepoPlugin {
             skipped: Some(reason),
             stale: None,
             dir: None,
+            found: None,
         }
+    }
+}
+
+// A plugin that was found, read for its skills and aimed at its folder under
+// `into`, or the reason it cannot load.
+fn plan_one(resolved: Result<Found, Skipped>, into: &Path) -> RepoPlugin {
+    let found = match resolved {
+        Ok(found) => found,
+        Err(skipped) => return RepoPlugin::skipped(skipped.id, skipped.reason),
+    };
+    match skills_in(&found.folder) {
+        Ok(skills) => RepoPlugin {
+            plugin: found.id.clone(),
+            skills,
+            skipped: None,
+            stale: found.stale.clone(),
+            dir: Some(into.join(&found.name)),
+            found: Some(found),
+        },
+        Err(reason) => RepoPlugin::skipped(found.id, reason),
     }
 }
 
@@ -185,6 +222,7 @@ pub(crate) fn resolve(
     let enabled = settings["enabledPlugins"].as_object();
     let known = settings["extraKnownMarketplaces"].as_object();
     let mut markets: BTreeMap<String, Result<(PathBuf, Option<String>), String>> = BTreeMap::new();
+    let mut supplied: BTreeMap<String, String> = BTreeMap::new();
     let mut resolved = Vec::new();
     for (id, on) in enabled.into_iter().flatten() {
         if on != &Value::Bool(true) {
@@ -219,6 +257,14 @@ pub(crate) fn resolve(
             }),
             Err(reason) => Err(reason.clone()),
         };
+        // Two plugins of one name would share a folder, the last overwriting the first.
+        let found = found.and_then(|found| match supplied.get(name) {
+            Some(first) => Err(format!("{first} already supplies a plugin named {name}")),
+            None => {
+                supplied.insert(name.to_owned(), id.clone());
+                Ok(found)
+            }
+        });
         resolved.push(found.map_err(skip));
     }
     resolved
@@ -276,7 +322,9 @@ fn marketplace(
         None => return Err(format!("the {name} marketplace names no source")),
     };
     if let Some(path) = directory {
-        return Ok((checkout.join(path), None));
+        return inside(checkout, Path::new(path))
+            .map(|folder| (folder, None))
+            .map_err(|()| format!("its directory {path} is not a folder inside the checkout"));
     }
     let url = url.unwrap_or_default();
     // A leading `-` would be taken for an option, and `::` names a transport
@@ -317,22 +365,38 @@ fn plugin_in(root: &Path, name: &str) -> Result<PathBuf, String> {
     let Some(source) = entry["source"].as_str() else {
         return Err("it comes from outside its marketplace, which kelpie does not load yet".into());
     };
-    let relative = Path::new(source);
-    let inside = relative
+    inside(root, Path::new(source))
+        .map_err(|()| format!("its source {source} leaves the marketplace"))
+}
+
+// `relative` under `root`, if it names a place there: no `..`, no absolute
+// path, and no link that leads out. A place that does not exist yet is
+// returned for the caller to find missing.
+fn inside(root: &Path, relative: &Path) -> Result<PathBuf, ()> {
+    let plain = relative
         .components()
         .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-    if !inside {
-        return Err(format!("its source {source} leaves the marketplace"));
+    if !plain {
+        return Err(());
     }
-    Ok(root.join(relative))
+    let place = root.join(relative);
+    match (place.canonicalize(), root.canonicalize()) {
+        (Ok(place_now), Ok(root_now)) if !place_now.starts_with(&root_now) => Err(()),
+        _ => Ok(place),
+    }
 }
 
 // The names of the skills in the plugin at `folder`.
 fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
-    let mut skills: Vec<String> = fs::read_dir(folder.join("skills"))
+    let root = folder.join("skills");
+    if !is_folder(&root) {
+        return Err(format!("{} has no skills folder", folder.display()));
+    }
+    // Only what `copy_plain` copies counts.
+    let mut skills: Vec<String> = fs::read_dir(root)
         .map_err(|_| format!("{} has no skills folder", folder.display()))?
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().join("SKILL.md").is_file())
+        .filter(|entry| is_folder(&entry.path()) && is_file(&entry.path().join("SKILL.md")))
         .filter_map(|entry| entry.file_name().into_string().ok())
         .collect();
     skills.sort();
@@ -347,19 +411,7 @@ fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
 pub fn inspect(checkout: &Path, kelpie_home: &Path) -> Vec<RepoPlugin> {
     resolve(checkout, kelpie_home, &Fetched, false)
         .into_iter()
-        .map(|resolved| match resolved {
-            Err(skipped) => RepoPlugin::skipped(skipped.id, skipped.reason),
-            Ok(found) => match skills_in(&found.folder) {
-                Ok(skills) => RepoPlugin {
-                    plugin: found.id,
-                    skills,
-                    skipped: None,
-                    stale: None,
-                    dir: None,
-                },
-                Err(reason) => RepoPlugin::skipped(found.id, reason),
-            },
-        })
+        .map(|resolved| plan_one(resolved, Path::new("")))
         .collect()
 }
 
@@ -378,9 +430,8 @@ impl Git for Fetched {
 }
 
 // Writes the plugin's skills and a trimmed manifest into `dir`, replacing
-// what was there, and returns the skills' names.
-fn install(found: &Found, dir: &Path) -> Result<Vec<String>, String> {
-    let skills = skills_in(&found.folder)?;
+// what was there.
+fn install(found: &Found, dir: &Path) -> Result<(), String> {
     let from = found.folder.join("skills");
     let manifest = manifest(&found.folder, &found.name);
     let written = (|| {
@@ -390,17 +441,45 @@ fn install(found: &Found, dir: &Path) -> Result<Vec<String>, String> {
         }
         fs::create_dir_all(dir.join(".claude-plugin"))?;
         fs::write(dir.join(".claude-plugin/plugin.json"), manifest)?;
-        copy_folder(&from, &dir.join("skills"))
+        copy_plain(&from, &dir.join("skills"))
     })();
-    written.map_err(|e| format!("cannot copy it into {}: {e}", dir.display()))?;
-    Ok(skills)
+    written.map_err(|e| format!("cannot copy it into {}: {e}", dir.display()))
+}
+
+// Copies `from` into `to`, files and folders only. A link is left out, since
+// a marketplace is not kelpie's and one could point at any file kelpie can read.
+fn copy_plain(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_plain(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+// Whether `path` is a folder itself and no link to one.
+fn is_folder(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
+}
+
+// Whether `path` is a file itself and no link to one.
+fn is_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
 }
 
 // The plugin's manifest with its name forced and its parts left out, or a
 // bare one where the plugin has none.
 fn manifest(plugin: &Path, name: &str) -> String {
-    let read: Value = fs::read_to_string(plugin.join(".claude-plugin/plugin.json"))
+    let file = plugin.join(".claude-plugin/plugin.json");
+    let read: Value = fs::read_to_string(&file)
         .ok()
+        .filter(|_| is_file(&file))
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or(Value::Null);
     let mut kept = Map::new();

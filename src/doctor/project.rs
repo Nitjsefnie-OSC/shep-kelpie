@@ -164,21 +164,19 @@ fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<
     if plugins.is_empty() {
         return None;
     }
-    let loaded = |p: &crate::skills::RepoPlugin| format!("{} ({})", p.plugin, p.skills.join(", "));
-    let skipped: Vec<String> = (plugins.iter())
-        .filter_map(|p| {
-            p.skipped
-                .as_ref()
-                .map(|why| format!("{} is skipped: {why}", p.plugin))
+    // Every plugin, so the line shows what a runner would load as well as what it would not.
+    let parts: Vec<String> = (plugins.iter())
+        .map(|p| match &p.skipped {
+            Some(why) => format!("{} is skipped: {why}", p.plugin),
+            None => format!("{} ({})", p.plugin, p.skills.join(", ")),
         })
         .collect();
-    if skipped.is_empty() {
-        let names: Vec<String> = plugins.iter().map(loaded).collect();
-        return Some(Line::ok(subject, format!("loads {}", names.join("; "))));
+    if plugins.iter().all(|p| p.skipped.is_none()) {
+        return Some(Line::ok(subject, format!("loads {}", parts.join("; "))));
     }
     Some(Line::unsure(
         subject,
-        skipped.join("; "),
+        parts.join("; "),
         "correct the repo's .claude/settings.json on its default branch, or let a runner fetch the marketplace by starting it",
     ))
 }
