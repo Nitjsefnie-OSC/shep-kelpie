@@ -613,6 +613,48 @@ fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
 }
 
 #[test]
+fn the_question_for_a_round_past_the_cap_names_the_round_and_not_a_worker_turn() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+        panic!("the round was not parked");
+    };
+    assert_eq!(
+        question,
+        "The work on pull request #71 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
+         the reviewers $0.00, so the review round has not started. \
+         `shep kelpie rule 1 yes` raises the cap to $10.00 and the round starts, and \
+         `shep kelpie rule 1 no <note>` sends the worker your note, raises the cap the same \
+         and has the pull request reviewed again."
+    );
+    drop(rig);
+}
+
+#[test]
+fn a_no_on_a_round_past_the_cap_sends_the_worker_the_note_and_reviews_again() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    step(&runner).unwrap(); // parked before round 1
+    rig.claude.script([Scripted::Push("more.txt", "more\n")]);
+    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+
+    step(&runner).unwrap(); // the worker's fix turn
+    let sent = rig.claude.calls();
+    let note = sent.last().unwrap();
+    assert!(note.prompt.contains("rename the flag"), "{}", note.prompt);
+    assert!(
+        rig.reviewer.seen().is_empty(),
+        "no round ran before the fix"
+    );
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "review",
+        "the pull request goes through the review again"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
 fn a_round_under_the_cap_starts_as_before() {
     let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
     spend(&runner, 5);

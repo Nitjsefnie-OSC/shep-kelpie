@@ -17,6 +17,7 @@ use super::super::words::{NO_NOTE, Wants};
 use super::merge_notes;
 use crate::panel::Voter;
 use crate::state::{Ruling, RulingKind, Stuck};
+use crate::work_item::Phase;
 
 /// What the project manager's `no` is in a table, when it has no more to say
 const SENDS_BACK: &str = "Sends the worker back with a note, and the review reads its change again";
@@ -26,6 +27,7 @@ const STOPS: &str = "Stops the work item, keeping its branch and pull request on
 
 /// What a no does to a work item over its budget
 const RAISES: &str = "Sends the worker your note, and raises the work item's cap as a yes does";
+const RAISES_AND_REVIEWS: &str = "Sends the worker your note, raises the work item's cap as a yes does, and has the pull request reviewed again";
 
 /// One way to answer a ruling, as its table lists it
 struct Choice {
@@ -322,6 +324,14 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "The worker's turn failed. Try again?",
             "Tries that step again",
             Some(STOPS),
+        ),
+        Stuck::OverBudget {
+            phase: Phase::Review(_),
+            ..
+        } => (
+            "The work item is over its budget. Raise the cap?",
+            "Doubles the work item's cap, and again until it covers the spend, and the review round starts",
+            Some(RAISES_AND_REVIEWS),
         ),
         Stuck::OverBudget { .. } => (
             "The work item is over its budget. Raise the cap?",

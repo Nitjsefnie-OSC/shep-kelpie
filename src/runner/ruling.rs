@@ -721,7 +721,11 @@ fn decide(
         // The cap doubles on either answer, in `apply`, and the turn that was due
         // goes on in its phase. A no sends the worker its note in that turn.
         (Answer::Yes, RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => phase,
-        (Answer::No(note), RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => {
+        // A review round has no worker turn due to take a note, so a no there is
+        // a fix turn like any other ruling's, and the pull request is reviewed again.
+        (Answer::No(note), RulingKind::Stuck(Stuck::OverBudget { phase, .. }))
+            if !matches!(phase, Phase::Review(_)) =>
+        {
             return Ok(Move::Noted {
                 note: note_prompt(ruling.pull_request, &note),
                 phase,
