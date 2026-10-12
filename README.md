@@ -442,7 +442,7 @@ Every thread a review bot leaves open goes to the worker as a finding. The fix t
 
 An endpoint takes `url` (the base, up to and including `/v1`) or a `gateway` (see [Gateways](#gateways)), `model`, and `context`, the context size in tokens the server gives that model. Kelpie diffs the pull request, cuts the diff to fit that context, and sends each piece with its own review prompt. Set `context` to what the server really uses: Ollama gives its OpenAI-compatible endpoint a small default context unless `OLLAMA_CONTEXT_LENGTH` says more, and drops whatever doesn't fit without saying so.
 
-A command is run as `<command> --dir <worktree> --round <n> --diff <base>`, with:
+A command is run as `<command> --dir <worktree> --round <n> --diff <base>`, where `<base>` is the commit the branch started from (the merge base of the project's base and the head), so a diff of it against the worktree holds the pull request's own change, with:
 
 - `QWEN_REVIEW_OUT`: the folder to write in
 - `KELPIE_REVIEW_HEAD`: the commit under review

@@ -250,9 +250,9 @@ fn diff(at: Linked<'_>, base: &str) -> Result<String, ReviewerError> {
             "--no-ext-diff",
             "--no-textconv",
             CONTEXT_LINES,
-            base,
-            "--",
         ])
+        .arg(crate::worktree::change_since(base))
+        .arg("--")
         .stdin(Stdio::null())
         .output()
         .map_err(|e| ReviewerError::Spawn(e.to_string()))?;

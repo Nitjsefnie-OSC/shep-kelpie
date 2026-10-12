@@ -874,6 +874,26 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
+/// Gives `main` in `repo` a commit that sets `file` to `contents`, and moves
+/// `origin/main` to it
+///
+/// Before a branch is cut, it is the base the branch starts from. After, it
+/// is `main` moving on.
+pub(crate) fn main_commits(repo: &Path, file: &str, contents: &str) {
+    let path = repo.join(file);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+    git(repo, &["add", file]);
+    git(repo, &["commit", "--quiet", "-m", "main moves on"]);
+    let tip = git(repo, &["rev-parse", "main"]);
+    git(repo, &["update-ref", "refs/remotes/origin/main", &tip]);
+}
+
+/// Moves `worktree`'s branch to where `main` stands, the way a branch is cut
+pub(crate) fn cut_from_main(worktree: &Path) {
+    git(worktree, &["reset", "--quiet", "--hard", "main"]);
+}
+
 /// A repo at `home/repo` with one commit on `main`, and a worktree of it at
 /// `home/wt` on its own branch, the way kelpie cuts one
 pub(crate) fn linked_worktree(home: &Path) -> (PathBuf, PathBuf) {
