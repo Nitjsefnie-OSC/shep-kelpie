@@ -74,6 +74,7 @@ mod ledger_tests;
 mod left;
 #[cfg(test)]
 mod limits_tests;
+mod lineup;
 mod login_refresh;
 mod looks;
 mod merge;
@@ -127,6 +128,7 @@ pub use gpu::GpuStatus;
 pub use in_flight::Stopping;
 pub use ledger::count_stopped;
 pub use left::leave as leave_answer;
+pub use lineup::{Board, MoveError, Place};
 pub use looks::BOARD_POLL;
 pub use merge::DropError;
 pub use pace::PacerStatus;
