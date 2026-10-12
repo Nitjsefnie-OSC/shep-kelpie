@@ -145,7 +145,10 @@ impl Reads for Activity {
             return Reading::Processing;
         }
         // A skip a push set just before the summon is not its answer, so
-        // this is read from the summon itself, with no slack.
+        // this is read from the summon itself, with no slack (#399). A
+        // clock ahead of GitHub's by more than CodeRabbit's reply time
+        // reads the answer as Silent, which the two hours then pass over,
+        // as before: a missed skip costs that wait, a mistaken one a review.
         let declined = SKIPS.into_iter().find(|skip| *skip == newest.description);
         match declined {
             Some(status) if newest.at.0 >= since.0 => Reading::Declined { status },
