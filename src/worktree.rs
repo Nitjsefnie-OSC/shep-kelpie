@@ -11,6 +11,9 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::SystemTime;
+
+mod stale_lock;
 
 /// The branch every work item is cut from, on `origin`
 pub const BASE: &str = "main";
@@ -133,6 +136,7 @@ pub fn prepare(
     build: &Path,
 ) -> Result<Worktree, WorktreeError> {
     let foreign = || WorktreeError::Foreign(worktree.to_owned());
+    stale_lock::clear(&repo.join(".git"), SystemTime::now());
     let full_ref = format!("refs/heads/{branch}");
     if worktree.exists() {
         if listed_branch(repo, worktree)?.as_deref() != Some(full_ref.as_str()) {
