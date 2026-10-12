@@ -59,10 +59,14 @@ pub(crate) enum Scripted {
     /// Stages this file with this text, commits nothing, and deletes the
     /// working copy, so only the index holds it, and answers
     Stage(&'static str, &'static str),
-    /// Merges `origin/main` into the worktree's branch, keeping main's
-    /// side of any conflict, and pushes it without force, as a worker
+    /// Aborts the merge kelpie started, then commits this file with this
+    /// text and pushes it, as a worker that gives the merge up does
+    AbortAndPush(&'static str, &'static str),
+    /// Finishes the merge of `origin/main` that kelpie started in the
+    /// worktree: keeps main's side of each conflicted file, stages it,
+    /// commits with `--no-edit`, and pushes without force, as a worker
     /// resolving a conflict does
-    MergeMain,
+    FinishMerge,
     /// Answers with this exact text and no cost: a review round, whose
     /// reply is read rather than acted on
     Text(&'static str),
@@ -419,19 +423,18 @@ impl Agents for FakeClaude {
                     false => "done",
                 }))
             }
-            Some(Scripted::MergeMain) => {
-                git(&call.cwd, &["fetch", "--quiet", "origin", "main"]);
-                git(
-                    &call.cwd,
-                    &[
-                        "merge",
-                        "--quiet",
-                        "-X",
-                        "theirs",
-                        "--no-edit",
-                        "origin/main",
-                    ],
-                );
+            Some(Scripted::AbortAndPush(file, text)) => {
+                git(&call.cwd, &["merge", "--abort"]);
+                push(&call.cwd, &[(file, text)], file);
+                Ok(said("pushed"))
+            }
+            Some(Scripted::FinishMerge) => {
+                let conflicted = git(&call.cwd, &["diff", "--name-only", "--diff-filter=U"]);
+                for file in conflicted.lines() {
+                    git(&call.cwd, &["checkout", "--theirs", "--", file]);
+                    git(&call.cwd, &["add", file]);
+                }
+                git(&call.cwd, &["commit", "--quiet", "--no-edit"]);
                 git(&call.cwd, &["push", "--quiet", "origin", "HEAD"]);
                 Ok(said("merged"))
             }
