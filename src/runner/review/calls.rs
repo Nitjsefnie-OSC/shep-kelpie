@@ -67,7 +67,8 @@ pub(in crate::runner) fn diff_against(
     // attributes pick turns the diff a reviewer reads into something else.
     let output = crate::worktree::trusted_command(repo, worktree)
         .map_err(|e| e.to_string())?
-        .args(["diff", "--no-ext-diff", "--no-textconv", base])
+        .args(["diff", "--no-ext-diff", "--no-textconv"])
+        .arg(crate::worktree::change_since(base))
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("cannot run git diff: {e}"))?;
@@ -94,8 +95,48 @@ mod tests {
 
     use super::*;
     use crate::runner::step;
-    use crate::test::{Rig, Scripted};
+    use crate::test::{Rig, Scripted, git, linked_worktree, main_commits};
     use crate::trim::deny_with_trim;
+
+    // `origin/main` at the commit the branch was cut from, and one commit of
+    // the branch's own on top: `work.txt`.
+    fn branch_cut_from_main(home: &Path) -> (PathBuf, PathBuf) {
+        let (repo, worktree) = linked_worktree(home);
+        git(&repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        std::fs::write(worktree.join("work.txt"), "work\n").unwrap();
+        git(&worktree, &["add", "."]);
+        git(&worktree, &["commit", "--quiet", "-m", "work"]);
+        (repo, worktree)
+    }
+
+    #[test]
+    fn main_gaining_a_commit_after_the_branch_is_cut_leaves_the_reviewers_diff_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let (repo, worktree) = branch_cut_from_main(home.path());
+        main_commits(&repo, "only_main.txt", "only main has this\n");
+
+        let diff = diff_against(&repo, &worktree, "origin/main").unwrap();
+
+        assert!(diff.contains("+++ b/work.txt"), "{diff}");
+        assert!(!diff.contains("only_main.txt"), "{diff}");
+    }
+
+    #[test]
+    fn an_adopted_item_still_reviews_only_what_came_after_its_arrived_head() {
+        let home = tempfile::tempdir().unwrap();
+        let (repo, worktree) = branch_cut_from_main(home.path());
+        let arrived = git(&worktree, &["rev-parse", "HEAD"]);
+        std::fs::write(worktree.join("later.txt"), "later\n").unwrap();
+        git(&worktree, &["add", "."]);
+        git(&worktree, &["commit", "--quiet", "-m", "later"]);
+        main_commits(&repo, "only_main.txt", "only main has this\n");
+
+        let diff = diff_against(&repo, &worktree, &arrived).unwrap();
+
+        assert!(diff.contains("+++ b/later.txt"), "{diff}");
+        assert!(!diff.contains("work.txt"), "{diff}");
+        assert!(!diff.contains("only_main.txt"), "{diff}");
+    }
 
     #[test]
     fn a_reviewers_session_keeps_its_read_tools_to_check_its_own_work() {

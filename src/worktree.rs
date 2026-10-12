@@ -727,6 +727,28 @@ pub fn rebase(
     Ok(Rebase::Pushed(rebased))
 }
 
+/// The range of a work item's own change for `git diff`: from the merge base
+/// of `base` and the worktree's `HEAD` to `HEAD`
+///
+/// A branch behind `main` read against `main`'s tip shows what `main` gained
+/// as the branch undoing it. An adopted item's `base` is a commit on the
+/// branch, where the merge base is that commit itself.
+pub(crate) fn change_since(base: &str) -> String {
+    format!("{base}...HEAD")
+}
+
+/// The commit a work item's own change starts from: the merge base of `base`
+/// and the worktree's `HEAD`
+///
+/// For a script that diffs a ref of its own, which a range would not suit.
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn change_start(repo: &Path, worktree: &Path, base: &str) -> Result<String, WorktreeError> {
+    trusted(repo, worktree)?(&["merge-base", base, "HEAD"])
+}
+
 // Git for the worktree, with its git dirs named rather than found, as every
 // git kelpie runs on a worker's worktree must be: git that finds them reads
 // the config of whatever repo the worker points it at. The worker can write
