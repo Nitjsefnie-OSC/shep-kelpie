@@ -58,11 +58,12 @@ jobs:
   # the GPU lock's temp folder and the Seatbelt policy `src/adapters/srt.rs`
   # writes run for real. Apart from the runner and the timeout it is the
   # `test` job.
-  # The 20 minutes comes from a local macOS run (about 5 minutes of tests
-  # after the build), to be tightened from this job's first run.
+  # The 30 minutes comes from a local macOS run (about 5 minutes of tests
+  # after the build) and a hosted run where every test passed but the lib
+  # suite alone took 17 minutes, so 20 cancelled the job before the rest ran.
   test-macos:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
