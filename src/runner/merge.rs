@@ -504,6 +504,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_build_folder_holding_a_read_only_module_cache_is_removed_with_the_item() {
+        use std::os::unix::fs::PermissionsExt;
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.ask(&runner, "rule", Some("1 yes"));
+        let build = rig.home.path().join("shep/kelpie/koji/builds/7");
+        let cache = build.join("gomod/cache/download");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("list"), "v1.0.0\n").unwrap();
+        for dir in [&cache, &build.join("gomod")] {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(!build.exists());
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"], json!(null));
+    }
+
     // A hook on the bare origin that refuses the worker branch's delete,
     // after the forge's own delete has taken the branch first when `forge_won`
     fn refuse_delete(rig: &Rig, forge_won: bool) {
