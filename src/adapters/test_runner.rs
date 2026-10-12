@@ -118,6 +118,12 @@ async fn granted(door: &Path, ask: &Ask) -> Result<Visit, String> {
             Some(Answer::Granted) => return Ok(visit),
             Some(Answer::Queued(_)) => {}
             Some(Answer::Error(why)) => return Err(format!("the dog refused: {why}")),
+            // A lease ask draws neither: they belong to an e2e run.
+            Some(Answer::Output(_) | Answer::Done(_)) => {
+                return Err(format!(
+                    "the dog answered {CARGO_TEST} with an e2e run's line"
+                ));
+            }
             None => {
                 return Err(format!(
                     "the dog closed the door before granting {CARGO_TEST}"
