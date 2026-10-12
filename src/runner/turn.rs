@@ -349,11 +349,7 @@ impl Runner {
         session: Session,
         prompt: Option<String>,
     ) -> Result<AgentCall, String> {
-        let start = if item.rework || item.adopted {
-            Start::Pushed
-        } else {
-            Start::Main
-        };
+        let start = start_of(item);
         let WorkerAgent {
             harness,
             limit,
@@ -822,6 +818,16 @@ impl Runner {
         open.into_iter()
             .find(|pr| pr.head == branch)
             .map(|pr| pr.number)
+    }
+}
+
+// Where a worktree made for `item` starts: a rework or adopted branch is the
+// one `origin` holds.
+pub(super) fn start_of(item: &WorkItem) -> Start {
+    if item.rework || item.adopted {
+        Start::Pushed
+    } else {
+        Start::Main
     }
 }
 

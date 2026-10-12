@@ -24,6 +24,7 @@ mod pi;
 mod process;
 mod srt;
 mod stop;
+mod test_runner;
 mod usage;
 
 #[cfg(test)]
@@ -48,6 +49,7 @@ pub use srt::SandboxRuntime;
 #[cfg(test)]
 pub(crate) use srt::srt_settings;
 pub use stop::stop_calls;
+pub use test_runner::SandboxedTests;
 pub use usage::UsageMeter;
 
 /// The machine's wall clock

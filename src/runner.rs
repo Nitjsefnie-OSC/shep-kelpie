@@ -739,6 +739,7 @@ impl Runner {
             local_unreviewed_by: None,
             rebased: false,
             held: Vec::new(),
+            test_checks: Vec::new(),
             follow_ups: None,
             retro: false,
             summary: None,

@@ -627,6 +627,8 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
             pull_request: 71,
             round: 3,
             head: Some(fixed.clone()),
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0", "PRRT_71_1"]);
@@ -739,6 +741,8 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
             pull_request: 71,
             round: 3,
             head: fixed,
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_71_0"]);

@@ -176,6 +176,8 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             pull_request: 71,
             round: 1,
             head: fixed,
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     step(&runner).unwrap(); // round 2, claude: scripted clean above

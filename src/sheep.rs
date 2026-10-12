@@ -199,6 +199,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         local_leases: Arc::new(reviewer.clone()),
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),
+        test_runner: Arc::new(claude.test_runner()),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
         flock,

@@ -17,7 +17,9 @@ use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::StepSkill;
 use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
-use crate::work_item::{Attached, BotSkipped, Phase, QwenTally, Spend, Split, Turn, WorkItem};
+use crate::work_item::{
+    Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
+};
 
 /// The triggers a runner answers
 pub const ACTIONS: [&str; 17] = [
@@ -214,6 +216,10 @@ pub struct WorkItemStatus<'a> {
     /// Why its last review pass ended with no reviewer having read it
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unreviewed: Option<&'a str>,
+    /// What kelpie ran of the tests reviewers attached to findings: the
+    /// outcome before the fix and after it, per finding
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub test_checks: &'a [TestCheck],
     /// Where its wall time went, and the phase it is in now
     pub timings: Split,
 }
@@ -254,6 +260,7 @@ impl<'a> WorkItemStatus<'a> {
             local_reviewers_down: item.local_reviewers_down(),
             reviewers_skipped: &item.reviewers_skipped,
             unreviewed: item.unreviewed.as_deref(),
+            test_checks: &item.test_checks,
             timings,
         }
     }
