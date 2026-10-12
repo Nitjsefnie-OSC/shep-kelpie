@@ -62,6 +62,20 @@ pub(super) fn channel(subject: String, kelpie: &KelpieSettings) -> Line {
     }
 }
 
+/// The line saying replies on the topic need no code, when the maintainer
+/// has marked the webhook `trusted`
+pub(super) fn trusted(kelpie: &KelpieSettings) -> Option<Line> {
+    let webhook = kelpie.webhook.as_ref().filter(|w| w.trusted)?;
+    Some(Line::ok(
+        "replies",
+        format!(
+            "replies are trusted without a code on this {} topic, except a yes on a merge \
+             ruling: only your token can post to it, as you say",
+            kind(webhook.kind)
+        ),
+    ))
+}
+
 /// Posts one test alert to the webhook, and reports whether it was taken
 pub(super) fn test_alert(kelpie: Option<&KelpieSettings>, alerts: &dyn Alerts) -> Line {
     let subject = "test alert";

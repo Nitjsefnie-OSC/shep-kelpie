@@ -255,7 +255,18 @@ token = "tk_..."
 - `ca_cert` is the absolute path of your private CA's certificate file, which curl trusts for the post and for reading replies. The dog does not start when the file is missing or unreadable, and says `webhook.ca_cert` is the key.
 - `token` is an ntfy access token, sent as `Authorization: Bearer <token>` on the post and on reading replies. Like the URL, it is a credential and no error, log line or status shows it.
 
-`shep kelpie doctor --test-alert` posts through the same settings. Replies still need the authenticator code.
+`shep kelpie doctor --test-alert` posts through the same settings. Replies still need the authenticator code, unless the topic is `trusted`:
+
+```toml
+[kelpie.webhook]
+token = "tk_..."
+trusted = true
+```
+
+- `trusted = true` is your word that the server lets only that `token` post to the topic, such as an `ntfy access` rule denying everyone else. Kelpie cannot see the server's rules. The dog does not start with `trusted` and no `token`, and says `webhook.trusted` is the key.
+- On a trusted topic `14 no <note>`, `14 rework <note>`, a yes on any ruling but a merge and a worker's answer need no code. A yes on a merge ruling still takes the code, since the topic alone never merges.
+- Five wrong codes still turn coded answers off until `shep kelpie totp --unlock`, and replies that need no code go on working.
+- The alert's last line shows the reply each ruling takes, and `shep kelpie doctor` prints a `replies` line while the topic is trusted.
 
 ### 10. Pause, and find the log
 

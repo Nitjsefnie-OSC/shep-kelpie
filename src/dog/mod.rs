@@ -164,7 +164,8 @@ fn windows_in(folder: &std::path::Path) -> Reviewers {
 // Kelpie's section, for its leases. One that cannot be read holds them at
 // the default capacities.
 // A webhook's `ca_cert` that cannot be read stops the dog, since every
-// ruling's post would fail on it.
+// ruling's post would fail on it, and so does `trusted` with no `token`,
+// since replies would then be taken on a topic anyone can post to.
 async fn settings(client: &ReconnectingClient) -> Result<KelpieSettings, String> {
     let section = client.request(Request::DogConfig {
         name: crate::shepherd::DOG.into(),
@@ -190,6 +191,7 @@ fn read_section(text: &str) -> Result<KelpieSettings, String> {
     // The text is checked, not the settings, so a mistake elsewhere in the
     // section that salvage works around cannot drop the certificate.
     KelpieSettings::check_ca_cert(text).map_err(|e| e.to_string())?;
+    KelpieSettings::check_trusted(text).map_err(|e| e.to_string())?;
     Ok(KelpieSettings::from_section(text).unwrap_or_else(|e| {
         println!("{e}");
         salvage(text)
@@ -618,6 +620,17 @@ mod tests {
         std::fs::write(&ca, "-----BEGIN CERTIFICATE-----\n").unwrap();
         let settings = read_section(&section).unwrap();
         assert_eq!(settings.leases.cargo_test_capacity().get(), 5);
+    }
+
+    #[test]
+    fn a_trusted_webhook_with_no_token_stops_the_dog_naming_the_key() {
+        let section = "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example/t\"\n\
+                       trusted = true\n[leases]\ncargo-test = 5\n";
+        let err = read_section(section).unwrap_err();
+        assert!(err.contains("`webhook.trusted`"), "{err}");
+
+        let with_token = section.replace("trusted", "token = \"tk_abc\"\ntrusted");
+        assert!(read_section(&with_token).unwrap().webhook.unwrap().trusted);
     }
 
     #[test]

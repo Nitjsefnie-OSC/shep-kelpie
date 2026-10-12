@@ -940,3 +940,5 @@ fn a_replay_of_a_next_step_code_after_a_gap_finds_it_spent() {
     );
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
 }
+
+mod trusted;

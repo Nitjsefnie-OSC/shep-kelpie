@@ -244,6 +244,7 @@ async fn projects(client: &Client, probes: Probes<'_>, here: Here<'_>, ask: Ask<
         }
     };
     lines.extend(rulings::old_file(&section, here.kelpie_home));
+    lines.extend(kelpie.as_ref().and_then(rulings::trusted));
     if let Some(kelpie) = &kelpie {
         // An agents folder that cannot be read is each project's line to report.
         let folder = here.kelpie_home.join(crate::agents::FOLDER);
