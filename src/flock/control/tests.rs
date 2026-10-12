@@ -520,6 +520,26 @@ fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
 }
 
 #[test]
+fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
+    let list = r#"{"project":"koji","board":[
+        {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
+        {"position":2,"issue":282,"title":"Order it","priority":null,"blocked":true,"held":false},
+        {"position":3,"issue":285,"title":"Show it","priority":"P2","blocked":true,"held":true}]}"#;
+    assert_eq!(
+        plain_reply("koji", "board", None, list),
+        [
+            "1. #284 Add the list (P0)",
+            "2. #282 Order it (no priority, blocked)",
+            "3. #285 Show it (P2, blocked, held)",
+        ]
+    );
+    assert_eq!(
+        plain_reply("koji", "board", None, r#"{"project":"koji","board":[]}"#),
+        ["koji: no issue is ready on the board"]
+    );
+}
+
+#[test]
 fn a_plain_status_of_an_idle_runner_says_so() {
     let idle = r#"{"project":"koji","work_items":[],"rulings":[],
         "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;

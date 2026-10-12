@@ -23,14 +23,14 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// `attach` and `pm`, which run a worker's or the project manager's session
 /// here, `usage`, which reads the usage ledger here, and `watch`, which
 /// follows the runner's log and the sessions' transcripts here
-pub const VERBS: [&str; 19] = [
+pub const VERBS: [&str; 20] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
-    "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch",
+    "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch", "board",
 ];
 
 /// The verbs that print the runner's JSON instead of plain text with `--json`
-const JSON_VERBS: [&str; 9] = [
-    "add", "finish", "status", "gate", "drop", "timings", "tell", "drain", "undrain",
+const JSON_VERBS: [&str; 10] = [
+    "add", "finish", "status", "gate", "drop", "timings", "tell", "drain", "undrain", "board",
 ];
 
 /// What the verbs take, as their help says
@@ -44,6 +44,9 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie rule [<id> <answer>]
        shep kelpie rework <pr> | adopt <pr>
        shep kelpie gate [<issue>] | drop [<issue>]
+       shep kelpie board                 the ready issues in the order the board takes them
+       shep kelpie board move <issue> <position> | board top <issue>
+                                         puts an issue at a place in that list, or first
        shep kelpie timings [<n>]         where the last n finished items' time went
        shep kelpie issue \"<request>\"     files issues for it, for you to read
        shep kelpie issue --interactive \"<request>\"
@@ -61,8 +64,8 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          adds a runner's logged calls to its ledger
 
 `--json` goes anywhere in the line of `add <issue>`, `finish`, `status`, `gate`,
-`drop`, `timings`, `tell`, `drain` and `undrain`, and prints the runner's JSON
-object in place of plain text.
+`drop`, `timings`, `tell`, `drain`, `undrain` and `board`, and prints the runner's
+JSON object in place of plain text.
 
 `-p <project>` or `--project <project>` goes anywhere in the line, before a
 ruling's answer. Without it, the project is the one whose repo holds this
@@ -221,6 +224,13 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         ("rework" | "adopt", [number]) => send(command, Some(number)).await,
         ("gate" | "drop", []) => print(command, None).await,
         ("gate" | "drop", [issue]) => print(command, Some(issue)).await,
+        ("board", []) => print("board", None).await,
+        ("board", ["top", issue]) if is_number(issue) => {
+            print("board", Some(&format!("top {issue}"))).await
+        }
+        ("board", ["move", issue, position]) if is_number(issue) && is_number(position) => {
+            print("board", Some(&format!("move {issue} {position}"))).await
+        }
         ("timings", []) => print("timings", None).await,
         ("timings", [count]) => print("timings", Some(count)).await,
         ("drain" | "undrain", []) => print(command, None).await,
@@ -246,6 +256,11 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         }
         _ => Err(USAGE.to_owned()),
     }
+}
+
+// Whether `text` is digits only, as an issue or a position is.
+fn is_number(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
 }
 
 // Where `issue` finds the project's settings and files.
@@ -511,6 +526,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn board_prints_the_numbered_list_with_titles_and_priorities() {
+        let list = r#"{"project":"koji","board":[
+            {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
+            {"position":2,"issue":282,"title":"Order it","priority":null,"blocked":true,"held":false},
+            {"position":3,"issue":285,"title":"Show it","priority":"P2","blocked":false,"held":true}]}"#;
+        let (plain, json) = both("board", "", list).await;
+        assert_eq!(
+            plain,
+            [
+                "1. #284 Add the list (P0)",
+                "2. #282 Order it (no priority, blocked)",
+                "3. #285 Show it (P2, held)",
+            ]
+        );
+        assert_eq!(json, [list]);
+        let empty = r#"{"project":"koji","board":[]}"#;
+        let (plain, _) = both("board", "", empty).await;
+        assert_eq!(plain, ["koji: no issue is ready on the board"]);
+    }
+
+    #[tokio::test]
+    async fn board_top_and_board_move_print_the_list_as_it_now_stands() {
+        let list = r#"{"project":"koji","board":[
+            {"position":1,"issue":282,"title":"Order it","priority":null,"blocked":false,"held":false},
+            {"position":2,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false}]}"#;
+        for args in ["top 282", "move 282 1"] {
+            let (plain, _) = both("board", args, list).await;
+            assert_eq!(
+                plain,
+                [
+                    "1. #282 Order it (no priority)",
+                    "2. #284 Add the list (P0)"
+                ],
+                "board {args}"
+            );
+        }
+        for args in ["top", "move 282", "top x", "move 282 x", "up 282"] {
+            let err = verb("board", args, Some(list)).await.unwrap_err();
+            assert!(err.starts_with("usage: shep kelpie add"), "{args}: {err}");
+        }
+    }
+
+    #[tokio::test]
     async fn drain_names_the_calls_still_running_and_undrain_says_calls_start() {
         let running =
             r#"{"draining":{"calls":[{"issue":7,"role":"worker"},{"role":"pm"}],"ceiling":3600}}"#;
@@ -585,6 +643,8 @@ mod tests {
         let refused = r#"{"error":"no work item for #8 is open"}"#;
         for (command, args) in [
             ("timings", "20"),
+            ("board", ""),
+            ("board", "top 8"),
             ("drain", ""),
             ("undrain", ""),
             ("gate", "8"),

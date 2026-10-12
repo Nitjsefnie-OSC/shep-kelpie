@@ -44,6 +44,7 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
             vec![format!("{sheep} is not draining: calls start again")]
         }
         "drain" | "undrain" => vec![body.to_owned()],
+        "board" => board(sheep, &answer["board"]),
         "gate" => vec![format!("{sheep}: sent {} to the review gate", of())],
         "drop" => vec![format!("{sheep}: dropped {}", of())],
         "add" => vec![format!(
@@ -52,6 +53,36 @@ pub(super) fn reply(sheep: &str, action: &str, params: Option<&str>, body: &str)
         )],
         _ => vec![body.to_owned()],
     }
+}
+
+// The board's list, one numbered line an issue.
+fn board(sheep: &str, list: &Value) -> Vec<String> {
+    let Some(places) = list.as_array() else {
+        return vec![list.to_string()];
+    };
+    if places.is_empty() {
+        return vec![format!("{sheep}: no issue is ready on the board")];
+    }
+    places
+        .iter()
+        .map(|place| {
+            let mut notes = vec![place["priority"].as_str().unwrap_or("no priority")];
+            notes.extend(
+                place["blocked"]
+                    .as_bool()
+                    .unwrap_or(false)
+                    .then_some("blocked"),
+            );
+            notes.extend(place["held"].as_bool().unwrap_or(false).then_some("held"));
+            format!(
+                "{}. #{} {} ({})",
+                place["position"],
+                place["issue"],
+                place["title"].as_str().unwrap_or_default(),
+                notes.join(", ")
+            )
+        })
+        .collect()
 }
 
 fn draining(sheep: &str, draining: &Value) -> String {
