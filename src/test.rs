@@ -37,6 +37,7 @@ mod endpoint;
 mod forge;
 mod github;
 mod leases;
+mod marketplaces;
 mod reads;
 mod reviewer;
 mod sandbox;
@@ -51,6 +52,7 @@ pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use leases::{FakeLeases, Told};
+pub(crate) use marketplaces::FakeMarketplaces;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
 pub(crate) use sandbox::OpenSandbox;
@@ -293,6 +295,7 @@ pub(crate) struct Rig {
     pub(crate) reviewer: FakeReviewer,
     pub(crate) local_leases: LocalReviewer,
     pub(crate) alerts: FakeAlerts,
+    pub(crate) marketplaces: FakeMarketplaces,
     pub(crate) leases: FakeLeases,
     pub(crate) tests: FakeTests,
     pub(crate) clock: FakeClock,
@@ -352,6 +355,7 @@ impl Rig {
                 .with_temp_dir(home.path().join("tmp"))
                 .with_naps(|_| Duration::from_millis(100)),
             alerts: FakeAlerts::on(clock.clone()),
+            marketplaces: FakeMarketplaces::default(),
             leases: FakeLeases::default(),
             tests: FakeTests::default(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
@@ -733,6 +737,7 @@ impl Rig {
             local_leases: Arc::new(self.local_leases.clone()),
             review_bots,
             alerts: Arc::new(self.alerts.clone()),
+            marketplaces: Arc::new(self.marketplaces.clone()),
             leases: Arc::new(self.leases.clone()),
             test_runner: Arc::new(self.tests.clone()),
             clock: Arc::new(self.clock.clone()),

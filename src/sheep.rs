@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl, ShepLeases,
-    SystemClock, stop_calls,
+    ClaudeCli, Curl, CurlGithub, Gh, GitMarketplaces, GpuCurl, LocalReviewer, LoginToken, Openssl,
+    ShepLeases, SystemClock, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -200,6 +200,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),
         test_runner: Arc::new(claude.test_runner()),
+        marketplaces: Arc::new(GitMarketplaces),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
         flock,

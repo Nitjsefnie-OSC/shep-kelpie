@@ -22,6 +22,7 @@ const CLAUDE: Harness = Harness::ClaudeCode;
 
 #[cfg(test)]
 mod escapes;
+mod mcp;
 pub(crate) mod sandbox;
 pub(crate) mod settings;
 
@@ -260,6 +261,7 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
     }
+    mcp::allow(&mut value, &call.mcp_servers);
     let text = serde_json::to_string_pretty(&value).expect("settings are JSON");
     let folder = call.settings.parent().unwrap_or(std::path::Path::new("/"));
     let write = |path: &std::path::Path, text: String| {
@@ -275,6 +277,7 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
         ))
     })?;
     write(&call.settings, text)?;
+    mcp::write(call)?;
     match call.compact_window {
         Some(_) => write(&again, compacted_prompt(&call.prompt)),
         None => Ok(()),
@@ -345,6 +348,10 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
     };
     if let Some(tools) = tools {
         argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
+    }
+    // The servers the repo's plugins bring, which the strict config would drop.
+    if !call.mcp_servers.is_empty() {
+        argv.extend(["--mcp-config".into(), mcp::config_file(call).into()]);
     }
     argv
 }
@@ -548,11 +555,11 @@ mod tests {
         Session::Resume(SessionId(id.into()))
     }
 
-    fn fresh() -> Session {
+    pub(super) fn fresh() -> Session {
         Session::New(SessionId("7e812e8a-3bf1-42a7-bddf-0ab283b7372a".into()))
     }
 
-    fn call(role: Role, session: Session) -> AgentCall {
+    pub(super) fn call(role: Role, session: Session) -> AgentCall {
         AgentCall {
             harness: crate::settings::AgentHarness::ClaudeCode,
             role,
@@ -565,6 +572,7 @@ mod tests {
             instructions: Some(PathBuf::from("/k/worker/instructions.md")),
             prompt: "implement #6".into(),
             plugin_dirs: Vec::new(),
+            mcp_servers: Vec::new(),
             tools: Tools::Work,
             agent_tools: None,
             reach: Reach::default(),
@@ -573,7 +581,7 @@ mod tests {
         }
     }
 
-    fn strings(call: &AgentCall) -> Vec<String> {
+    pub(super) fn strings(call: &AgentCall) -> Vec<String> {
         argv(call)
             .into_iter()
             .map(|a| a.into_string().unwrap())

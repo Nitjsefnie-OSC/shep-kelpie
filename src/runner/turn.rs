@@ -418,6 +418,7 @@ impl Runner {
             instructions: Some(instructions),
             prompt,
             plugin_dirs: self.skills.plugin_dirs().to_vec(),
+            mcp_servers: Vec::new(),
             tools: Tools::Work,
             agent_tools,
             reach,
@@ -526,7 +527,8 @@ impl Runner {
     ///
     /// Done before the call is marked running, so a failure keeps the turn
     /// it would have run for a retry.
-    pub(super) fn prepared(&self, call: AgentCall) -> Result<AgentCall, String> {
+    pub(super) fn prepared(&self, mut call: AgentCall) -> Result<AgentCall, String> {
+        self.repo_plugins.apply(&mut call);
         self.ports
             .agents
             .prepare(&call)

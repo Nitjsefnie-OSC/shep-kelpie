@@ -16,6 +16,7 @@ use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
+use crate::plugins::RepoPlugins;
 use crate::ports::{
     Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld,
     Say, SessionId, Timestamp, Visibility,
@@ -255,6 +256,8 @@ pub struct Runner {
     extra_instructions: Option<String>,
     // Each step's skill, loaded when the runner starts or its settings change
     skills: Skills,
+    // The plugins the repo turns on, loaded when the runner starts or its settings change
+    repo_plugins: RepoPlugins,
     paths: ProjectPaths,
     kelpie: PathBuf,
     store: StateStore,
@@ -441,6 +444,7 @@ impl Runner {
         check_bots(&lineup, &ports)?;
         crate::skills::check(&settings.skills, &paths.skills)?;
         let skills = Skills::load(&settings.skills, &paths.skills);
+        let repo_plugins = load_plugins(&settings, &remote, paths, &ports);
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
@@ -471,6 +475,7 @@ impl Runner {
             remote,
             extra_instructions,
             skills,
+            repo_plugins,
             paths: paths.clone(),
             kelpie: kelpie.to_owned(),
             store,
@@ -551,7 +556,7 @@ impl Runner {
 
     /// A log line for each step whose skill could not load
     pub fn skill_notices(&self) -> impl Iterator<Item = String> + '_ {
-        self.skills.notices()
+        self.skills.notices().chain(self.repo_plugins.notices())
     }
 
     fn names(&self) -> Names<'_> {
@@ -597,6 +602,7 @@ impl Runner {
                 .saturating_sub(trigger::STATUS_HISTORY)..],
             pacer: self.pacer_status(now),
             skills: self.skills.status(),
+            plugins: self.repo_plugins.status(),
             local_model: self.ports.reviewer.seat().map(Into::into),
             gpu: self.gpu.status(),
             local_leases: self.local_leases(),
@@ -853,6 +859,29 @@ pub(crate) fn check_checkout(settings: &Settings) -> Result<ForgeSlug, SettingsE
 /// [`SettingsError::Invalid`] naming `worker.instructions_file`.
 pub(crate) fn check_instructions(settings: &Settings) -> Result<(), SettingsError> {
     instructions::read_extra(settings).map(drop)
+}
+
+// The plugins the repo turns on and the project asks for, copied under the
+// project's skills folder, which is emptied of the last copies first.
+fn load_plugins(
+    settings: &Settings,
+    remote: &ForgeSlug,
+    paths: &ProjectPaths,
+    ports: &Ports,
+) -> RepoPlugins {
+    let branch = ports.forge.default_branch(remote).ok();
+    let marketplaces = paths.kelpie_home.join("marketplaces");
+    let source = crate::plugins::Source {
+        checkout: &settings.git.checkout,
+        branch: branch.as_deref(),
+        marketplaces: &marketplaces,
+        git: ports.marketplaces.as_ref(),
+    };
+    RepoPlugins::load(
+        &settings.plugins,
+        &source,
+        Some(&paths.skills.join("plugins")),
+    )
 }
 
 // Each local reviewer's command is there, or its endpoint answers.

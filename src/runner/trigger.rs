@@ -96,6 +96,9 @@ pub struct Status<'a> {
     pub pacer: PacerStatus<'a>,
     /// The skill each step runs, and why any chosen one could not load
     pub skills: &'a [StepSkill],
+    /// Each plugin the repo turns on or the project asks for, and what it
+    /// loaded or why it was skipped
+    pub plugins: &'a [crate::plugins::PluginStatus],
     /// Where the local model sat when a round last looked, when there was
     /// an Ollama host to ask
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -662,6 +665,7 @@ mod tests {
                 "leases": [],
                 "history": [],
                 "pacer": { "enabled": true, "claude": { "reading": null, "holding": null } },
+                "plugins": [],
                 "skills": Step::ALL.map(|step| json!({
                     "step": step.as_str(),
                     "skill": format!("/mattpocock:{}", step.default_skill()),

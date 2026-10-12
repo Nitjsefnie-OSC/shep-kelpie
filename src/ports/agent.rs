@@ -190,6 +190,23 @@ pub struct Guard {
     pub hooks: Hooks,
 }
 
+/// An MCP server a plugin brings, in the form Claude Code's MCP config takes
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServer {
+    /// The server's name, which its tools' names start with as `mcp__<name>__`
+    pub name: String,
+    /// Its entry in the config: a command, or a URL
+    pub config: serde_json::Value,
+}
+
+impl McpServer {
+    /// The rule that allows every tool of the server, as `--tools` and a
+    /// settings file's allow-list take it
+    pub fn tools(&self) -> String {
+        format!("mcp__{}", self.name)
+    }
+}
+
 /// One session call to an agent
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentCall {
@@ -219,6 +236,10 @@ pub struct AgentCall {
     pub prompt: String,
     /// The plugin folders its steps' skills are in
     pub plugin_dirs: Vec<PathBuf>,
+    /// The MCP servers the repo's plugins bring, which a strict MCP config
+    /// would drop: added to the call's MCP config, and their tools to what
+    /// it may use
+    pub mcp_servers: Vec<McpServer>,
     /// The kinds of tool it may use
     pub tools: Tools,
     /// The tools its agent file names, as `claude --tools` takes them, in

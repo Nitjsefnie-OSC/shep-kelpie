@@ -402,6 +402,7 @@ fn call(
         instructions: Some(prompt_file),
         prompt: format!("The maintainer's request:\n\n{}", request.trim()),
         plugin_dirs: Vec::new(),
+        mcp_servers: Vec::new(),
         tools: Tools::Issues,
         agent_tools: None,
         reach,

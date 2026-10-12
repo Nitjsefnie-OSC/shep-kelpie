@@ -734,6 +734,7 @@ impl World {
             instructions: None,
             prompt: String::new(),
             plugin_dirs: Vec::new(),
+            mcp_servers: Vec::new(),
             tools: Tools::Answer,
             agent_tools: None,
             reach: Reach::default(),

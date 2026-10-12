@@ -18,6 +18,7 @@ mod gpu;
 mod host;
 mod leases;
 mod local;
+mod marketplaces;
 mod ntfy;
 pub(crate) mod paddock;
 mod pi;
@@ -45,6 +46,7 @@ pub use gpu::GpuCurl;
 pub use host::SystemHost;
 pub use leases::ShepLeases;
 pub use local::LocalReviewer;
+pub use marketplaces::GitMarketplaces;
 pub use pi::PiCli;
 pub use srt::SandboxRuntime;
 #[cfg(test)]

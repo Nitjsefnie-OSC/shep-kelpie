@@ -138,6 +138,9 @@ pub(super) fn checks(
             probes.host,
         ));
     }
+    if let Some(repo) = &remote {
+        lines.extend(super::plugins::lines(&at, repo, &settings, here, probes));
+    }
     lines.push(reviewers(at("reviewers"), &settings, (&book, here), probes));
     if let Some(kelpie) = kelpie.filter(|_| spends_codex(&settings, &book, here)) {
         lines.push(match kelpie.codex_home(here.home, here.kelpie_home) {

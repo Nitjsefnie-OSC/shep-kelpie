@@ -429,13 +429,21 @@ fn in_plugin(plugin: &Path, skill: &SkillName) -> Result<Loaded, String> {
 // Copies `from` into `to`, following links to files and skipping links to
 // folders, which could loop.
 fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+    copy_folder_without(from, to, "")
+}
+
+// The same, leaving out every file or folder named `except`.
+pub(crate) fn copy_folder_without(from: &Path, to: &Path, except: &str) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
+        if entry.file_name() == except {
+            continue;
+        }
         let (source, target) = (entry.path(), to.join(entry.file_name()));
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            copy_folder(&source, &target)?;
+            copy_folder_without(&source, &target, except)?;
         } else if kind.is_file() || source.is_file() {
             fs::copy(&source, &target)?;
         }

@@ -78,6 +78,7 @@ impl Runner {
             instructions: Some(instructions),
             prompt,
             plugin_dirs: Vec::new(),
+            mcp_servers: Vec::new(),
             tools: Tools::Pm,
             agent_tools: None,
             lease: agent.limit.lease().cloned(),

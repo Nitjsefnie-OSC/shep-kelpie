@@ -265,6 +265,7 @@ mod tests {
                 instructions: None,
                 prompt: "go".into(),
                 plugin_dirs: Vec::new(),
+                mcp_servers: Vec::new(),
                 tools: Tools::Answer,
                 agent_tools: None,
                 reach: Reach::default(),

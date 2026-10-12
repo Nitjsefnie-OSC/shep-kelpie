@@ -29,6 +29,7 @@ mod gateway;
 mod git;
 mod hooks;
 mod local;
+mod plugins;
 mod removed;
 mod reviewers;
 mod rulings;
@@ -45,6 +46,7 @@ pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost,
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
+pub use plugins::{MarketplaceSource, PluginId, PluginPart, PluginRole, Plugins, plain};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
@@ -91,6 +93,11 @@ pub struct Settings {
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
+    /// The Claude Code plugins every worker, reviewer and project manager
+    /// call loads: the ones the repo turns on, narrowed here. All of them,
+    /// whole, when absent.
+    #[serde(default)]
+    pub plugins: Plugins,
     /// The host that runs the project's end-to-end tests for a worker, whose
     /// sandbox cannot. It must be disposable: the project's script runs there
     /// as the ssh alias's account, and a worker edits that script. None when
@@ -728,6 +735,7 @@ impl Settings {
             .flatten()
             .chain(self.researcher.transcripts.iter_mut())
             .chain(self.skills.paths_mut())
+            .chain(self.plugins.paths_mut())
     }
 }
 

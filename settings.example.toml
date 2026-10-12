@@ -259,3 +259,29 @@ compact_window = 200000
 # implement = { kind = "path", path = "~/skills/implement" }
 # ci_fix = { kind = "plugin", plugin = "~/plugins/house", skill = "debug" }
 # retro = { kind = "none" }
+
+# The plugins the repo turns on in `.claude/settings.json` (`enabledPlugins`,
+# with their marketplaces in `extraKnownMarketplaces`). A headless Claude Code
+# never installs one, so kelpie does: it reads that file from the default
+# branch, never from a worker's branch, copies each plugin it can find into
+# `$SHEP_HOME/kelpie/<project>/skills/plugins/`, and gives the calls below one
+# more `--plugin-dir` each. A plugin's MCP servers join the call's MCP config
+# and their tools its allow-list; the hosts they reach still need
+# `worker.allowed_domains`. A plugin that cannot load is skipped, and the log
+# and `status` say why. Every key is optional.
+# `repo = false` loads none of the repo's plugins. `parts` are the parts of a
+# plugin that load, from `skills`, `agents`, `commands`, `hooks` and `mcp`.
+# `roles` are the calls that get them, from `worker`, `reviewer` and `pm`.
+# `skip` lists plugins (`name@marketplace`) left out though the repo turns them
+# on. `extra` lists plugins the repo does not turn on, and `marketplaces` says
+# where their marketplaces are (a `github` repo, a `git` URL or a `directory`),
+# as the repo's file does for the rest.
+# [app.dogs.kelpie.plugins]
+# repo = true
+# parts = ["skills", "agents", "commands", "hooks", "mcp"]
+# roles = ["worker", "reviewer", "pm"]
+# skip = ["noisy@house"]
+# extra = ["rust-house-style@shep-pm"]
+# [app.dogs.kelpie.plugins.marketplaces.shep-pm]
+# source = "github"
+# repo = "shep-pm/rust-house-style"

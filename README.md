@@ -379,6 +379,27 @@ A step that runs a skill starts its prompt with the skill's slash command, such 
 
 A skill that can't load runs shep-kelpie's own prompt instead. The runner logs why, and `status` shows it under `skills`.
 
+#### Repo plugins
+
+A repo turns a Claude Code plugin on for everyone who works in it: `.claude/settings.json` names a marketplace in `extraKnownMarketplaces` and the plugin in `enabledPlugins`. Claude Code loads an enabled plugin only if it is installed, and a headless run never installs one, so shep-kelpie does. As a runner starts, and when it rereads its settings, it reads `.claude/settings.json` from the checkout's default branch, never from a worker's branch, so a branch cannot turn a plugin on for itself. For each `enabledPlugins` entry set to `true` it finds the marketplace:
+
+- a `github` or `git` source is cloned, or fetched if it is already there, into `<kelpie home>/marketplaces/<name>` with the runner's own git
+- a `directory` source is read where it is
+
+It reads the marketplace's `.claude-plugin/marketplace.json`, finds the plugin's folder and copies the plugin under the project's `skills/plugins/` folder, which a runner rewrites at every load. The plugin keeps its name, so its skills are invoked as its docs name them, such as `rust-house-style:rust-house-style`. Every worker, reviewer and project manager call gets it as one more `--plugin-dir`. Its hooks run beside shep-kelpie's own and cannot replace them. Its MCP servers are added to the call's MCP config and their tools to the call's allow-list, and the hosts a server reaches still need `worker.allowed_domains`. All of it runs inside the call's fence like anything else the call runs.
+
+A plugin that cannot load is skipped and logged, and the run goes on: its marketplace is not listed, the fetch failed and there is no copy from an earlier one, the marketplace lists no such plugin, or its name is one shep-kelpie keeps (`mattpocock` and `kelpie-*`). A fetch that fails keeps the copy from the last good one. `status` lists each plugin under `plugins` with the parts it loaded or why it was skipped, and `doctor` reports the same.
+
+The project's `[app.dogs.kelpie.plugins]` table narrows it. Every key is optional:
+
+- `repo`: `true` by default; `false` loads none of the repo's plugins
+- `parts`: which parts of a plugin load, from `skills`, `agents`, `commands`, `hooks` and `mcp`. All by default
+- `roles`: which calls get the plugins, from `worker`, `reviewer` and `pm`. All by default
+- `skip`: plugins, as `name@marketplace`, left out though the repo turns them on
+- `extra`: plugins the repo does not turn on, in the same form. `marketplaces` says where theirs are, as `[app.dogs.kelpie.plugins.marketplaces.<name>]` with `source = "github"` and `repo`, `source = "git"` and `url`, or `source = "directory"` and `path`; a marketplace the repo's file names needs no entry
+
+A plugin whose marketplace entry gives a folder of the marketplace loads; one given by a git URL of its own is skipped, and a marketplace's `ref` is ignored. On a Codex or pi call the plugin folders carry only skills. A change to the table, or to the repo's file on its default branch, takes effect at the next reread.
+
 #### Retros
 
 When a work item finishes, merged or closed, shep-kelpie resumes its worker's session once with the `retro` step's prompt, before the worktree is removed. The worker only reports. The turn can read and search its worktree and nothing else: it edits no file, runs no command and pushes nothing, on every harness a worker runs on. On Claude Code that is an allow-list, `--tools Read,Glob,Grep,Skill` with no MCP server loaded, so nothing a project's settings allow adds to it. Its reply is the report, and the runner writes it, since the worker's fence can't reach shep-kelpie's home, to `<kelpie home>/retro-reports/unverified/<project>-<issue>-<time>.md`, headed with the project, issue, pull request, whether it merged, the worker's agent and its session.
@@ -990,6 +1011,7 @@ A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in t
 - `hooks` is a list of `{ point, command }`: your own checks, which kelpie runs itself for every harness and role. A point is a gate, which can refuse, or a notice, which only tells. The gates are `publish` (any text before it goes to the forge, kelpie's own included), `commit` (a worker's message and staged diff), `push` (the commits being pushed), `handover` (a worker's finished branch, before review), `command` (every shell command an agent runs, with its `command` line and `cwd`), `write` (every file an agent writes or edits, with its `path`, `tool` and `content` or `patch`), `after_command` (a shell command's `exit` and output tail, once it has run), `turn_start` (a prompt kelpie is about to send a worker, reviewer or the project manager) and `turn_end` (a worker's turn, with its `last_message`). The notices are `reset` (before kelpie compacts a session), `ruling` (a ruling raised, with its `kind`, `question` and `choices`), `ci` (CI settled on a `head`, with its `conclusion` and `failed` checks) and `done` (a work item ended, with its `history` entry). The command gets a JSON payload on stdin. `commit`, `push`, `command`, `write`, `after_command` and a worker's `publish` run inside kelpie's sandbox, in the worker's fence, so they read only what the worker can; the rest run in the runner, outside it. At a gate, exit 0 passes, 2 refuses with stderr as the reason, and anything else, a hook that runs past 30 seconds included, refuses as a hook that failed. At a notice, a non-zero exit or a hang is logged by hook name and kelpie goes on. A refused commit, push, command, write or `gh` post goes back to the agent as the tool's error, a refused `after_command` as feedback on the result, a refused pull request file, branch or `turn_end` back to the worker once, and a refused `turn_start` or post of kelpie's own parks on a ruling naming the hook. Each command must resolve when the runner starts, and a runner reads `hooks` only then, so a change waits for its next start. A point that is not one of these stops the runner at load, naming the points there are. Use `hooks` for a check that must hold on every harness (a git gate is a `command` hook that reads `command` from the payload and exits 2 to refuse), and `worker.guard_hooks` for a Claude Code hook on a tool call kelpie has no point for
 - `e2e.host`, `e2e.command` and `e2e.results`: an ssh host that runs the project's end-to-end tests, and the script and results folder in the repo. A runner reads them when it starts. See [End-to-end tests](#end-to-end-tests)
 - `skills.<step>`: see [Skills](#skills)
+- `plugins.repo`, `plugins.parts`, `plugins.roles`, `plugins.skip`, `plugins.extra` and `plugins.marketplaces`: see [Repo plugins](#repo-plugins)
 
 shep-kelpie's own settings, shared by every project, are the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Start from `kelpie-settings.example.toml`, and keep `dogs.toml` private: the webhook's URL is a credential.
 

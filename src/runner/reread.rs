@@ -10,7 +10,9 @@
 //! checked as a start checks it, and one that fails keeps the settings the
 //! runner has.
 
-use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
+use super::{
+    OpenError, Runner, check_bots, check_coderabbit, check_local, instructions, load_plugins,
+};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
 use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
@@ -85,7 +87,10 @@ impl Runner {
         if gpu_metrics_url != self.gpu.url() {
             changed.push("gpu_metrics_url");
         }
-        if changed.is_empty() && waiting.is_empty() {
+        // The repo's file moving is a reason to load again though no setting did.
+        let plugins_due = settings.plugins != self.settings.plugins
+            || self.repo_plugins.moved(&self.settings.git.checkout);
+        if changed.is_empty() && waiting.is_empty() && !plugins_due {
             return Ok(None);
         }
         let extra_instructions = instructions::read_extra(&settings)?;
@@ -103,6 +108,14 @@ impl Runner {
         crate::skills::check(&settings.skills, &self.paths.skills)?;
         let skills = (settings.skills != self.settings.skills)
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
+        let plugins =
+            plugins_due.then(|| load_plugins(&settings, &self.remote, &self.paths, &self.ports));
+        if let Some(plugins) = &plugins
+            && !plugins.loads_like(&self.repo_plugins)
+            && !changed.contains(&"plugins")
+        {
+            changed.push("plugins");
+        }
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
         self.settings = settings;
         self.lineup = lineup;
@@ -134,6 +147,12 @@ impl Runner {
                 line.push_str(&format!("\n{notice}"));
             }
             self.skills = skills;
+        }
+        if let Some(plugins) = plugins {
+            for notice in plugins.notices() {
+                line.push_str(&format!("\n{notice}"));
+            }
+            self.repo_plugins = plugins;
         }
         Ok(Some(line))
     }
@@ -172,6 +191,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: old_rulings,
         hooks: _, // waits for the next start, so `reread` keeps the old
         skills: old_skills,
+        plugins: old_plugins,
         e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
     let Settings {
@@ -186,6 +206,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: new_rulings,
         hooks: _,
         skills: new_skills,
+        plugins: new_plugins,
         e2e: _,
     } = new;
     let Git {
@@ -212,6 +233,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("pacing", old_pacing != new_pacing),
         ("worker", old_worker != new_worker),
         ("skills", old_skills != new_skills),
+        ("plugins", old_plugins != new_plugins),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),

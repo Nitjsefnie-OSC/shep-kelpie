@@ -102,6 +102,7 @@ mod tests {
             instructions: None,
             prompt: "go".into(),
             plugin_dirs: Vec::new(),
+            mcp_servers: Vec::new(),
             tools: Tools::Work,
             agent_tools: None,
             lease: None,

@@ -174,7 +174,19 @@ mod tests {
                 "[app.dogs.kelpie.e2e]\nhost =",
             )
             .replace("# command = \"scripts/", "command = \"scripts/")
-            .replace("# results =", "results =");
+            .replace("# results =", "results =")
+            .replace(
+                "# [app.dogs.kelpie.plugins]\n# repo = true",
+                "[app.dogs.kelpie.plugins]\nrepo = true",
+            )
+            .replace("# parts = [\"skills\"", "parts = [\"skills\"")
+            .replace("# roles = [\"worker\"", "roles = [\"worker\"")
+            .replace("# skip = [", "skip = [")
+            .replace("# extra = [", "extra = [")
+            .replace(
+                "# [app.dogs.kelpie.plugins.marketplaces.shep-pm]\n# source = \"github\"\n# repo =",
+                "[app.dogs.kelpie.plugins.marketplaces.shep-pm]\nsource = \"github\"\nrepo =",
+            );
         assert!(
             text.contains("reviewers = [\"qwen\"]"),
             "the example's list moved"

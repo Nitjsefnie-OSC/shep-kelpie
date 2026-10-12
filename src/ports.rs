@@ -25,6 +25,7 @@ mod gpu;
 mod keychain;
 mod leased;
 mod local_paths;
+mod marketplaces;
 mod model_seat;
 mod rate_limit;
 mod reviewer;
@@ -35,14 +36,15 @@ mod thread;
 mod voice;
 
 pub use agent::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
-    Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, McpServer,
+    PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::ForgeError;
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
+pub use marketplaces::Marketplaces;
 pub use model_seat::ModelSeat;
 pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
@@ -917,6 +919,8 @@ pub struct Ports {
     pub alerts: Arc<dyn Alerts>,
     /// Runs a reviewer's test, inside the worker's sandbox
     pub test_runner: Arc<dyn TestRunner>,
+    /// Clones the plugin marketplaces a repo names into kelpie's home
+    pub marketplaces: Arc<dyn Marketplaces>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold

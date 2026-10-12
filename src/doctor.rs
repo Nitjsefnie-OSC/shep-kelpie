@@ -10,6 +10,7 @@ mod gateways;
 mod github;
 pub mod host;
 mod machine;
+mod plugins;
 mod project;
 mod rulings;
 
@@ -21,13 +22,14 @@ use shep_client::Client;
 
 use self::host::Host;
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemClock, SystemHost,
+    ClaudeCli, Curl, CurlGithub, Gh, GitMarketplaces, LocalReviewer, Openssl, SystemClock,
+    SystemHost,
 };
 use crate::agents::Agents;
 use crate::coderabbit::CodeRabbit;
 use crate::flock;
 use crate::github::{AppTokens, Apps, GithubApp};
-use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer};
+use crate::ports::{Alerts, Clock, Forge, Marketplaces, Meter, Reviewer};
 use crate::review_bot::Profile;
 use crate::runner::ProjectName;
 use crate::shep_home;
@@ -155,6 +157,8 @@ pub struct Probes<'a> {
     pub codex_meter: &'a dyn Fn(&Path) -> Box<dyn Meter>,
     /// The forge
     pub forge: &'a dyn Forge,
+    /// The git that fetches a plugin marketplace
+    pub marketplaces: &'a dyn Marketplaces,
     /// Kelpie's GitHub App
     pub github: &'a dyn GithubApp,
     /// The local round's reviewer
@@ -316,6 +320,7 @@ pub fn main(args: &[String]) -> ExitCode {
             meter: &meter,
             codex_meter: &codex_meter,
             forge: &Gh,
+            marketplaces: &GitMarketplaces,
             github: &github,
             reviewer: &LocalReviewer::default(),
             review_bot: &CodeRabbit,
