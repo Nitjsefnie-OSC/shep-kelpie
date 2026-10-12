@@ -741,9 +741,12 @@ fn a_missing_file_costs_its_finding_only_the_test() {
 
     assert_eq!(found.test, None);
     assert_eq!(found.what, "the flag is read first");
-    assert_eq!(found.why, "a caller sees nothing");
-    assert!(text.contains(FLAG_FINDING), "{text}");
-    assert!(!text.contains("tests/flag.rs"), "{text}");
+    // The reviewer may have meant a pipe in its why, so no word of it is lost.
+    assert_eq!(found.why, "a caller sees nothing|tests/flag.rs");
+    assert!(
+        text.contains(&format!("{FLAG_FINDING}|tests/flag.rs")),
+        "{text}"
+    );
     assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(notes.contains("tests/flag.rs"), "{notes}");

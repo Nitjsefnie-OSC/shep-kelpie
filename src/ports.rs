@@ -836,11 +836,14 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
     let location = parts.next()?;
     let what = parts.next()?;
     let mut why = parts.next()?.to_owned();
+    // A fifth segment that reads as a path is taken as the test here. A round
+    // that finds no such file folds it back into the why, where a pipe may have
+    // put it.
     let mut test = None;
     if let Some(fifth) = parts.next() {
         match is_test_path(fifth) {
             true => test = Some(fifth.to_owned()),
-            // A pipe in the why is not a field.
+            // Not a path, so a pipe in the why.
             false => why = format!("{why}|{fifth}"),
         }
     }

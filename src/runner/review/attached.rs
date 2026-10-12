@@ -110,12 +110,14 @@ impl Runner {
                 finding.why = format!("{}|{test}", finding.why);
             } else {
                 match keep(&written, &kept, worktree, &test) {
-                    Ok(()) => finding.test = Some(test),
-                    Err(reason) => self.notes.push(format!(
-                        "issue #{issue}: the test {test} for {}:{} is dropped and the finding \
-                         stays: {reason}",
-                        finding.file, finding.line
-                    )),
+                    Ok(true) => finding.test = Some(test),
+                    // A pipe in the why can read as a path. With no file left, it
+                    // is part of the why again.
+                    Ok(false) => {
+                        self.notes.push(refused(issue, &finding, &test, NO_FILE));
+                        finding.why = format!("{}|{test}", finding.why);
+                    }
+                    Err(reason) => self.notes.push(refused(issue, &finding, &test, &reason)),
                 }
             }
             checked.push(finding);
@@ -124,17 +126,29 @@ impl Runner {
     }
 }
 
-// Checks `test` below `written` and copies it below `kept`.
-fn keep(written: &Path, kept: &Path, worktree: &Path, test: &str) -> Result<(), String> {
+const NO_FILE: &str = "the reviewer left no such file";
+
+// The note for a test that is dropped while its finding stays.
+fn refused(issue: u64, finding: &Finding, test: &str, reason: &str) -> String {
+    format!(
+        "issue #{issue}: the test {test} for {}:{} is dropped and the finding stays: {reason}",
+        finding.file, finding.line
+    )
+}
+
+// Checks `test` below `written` and copies it below `kept`: whether the
+// reviewer left the file, and why a file it left is refused.
+fn keep(written: &Path, kept: &Path, worktree: &Path, test: &str) -> Result<bool, String> {
     let rel = Path::new(test);
-    let text = worker_folder::read(written, rel)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "the reviewer left no such file".to_owned())?;
+    let Some(text) = worker_folder::read(written, rel).map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
     // A link there is as much the worktree's as a file.
     match worktree.join(rel).symlink_metadata() {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Ok(_) => return Err("the worktree already holds a file of that name".to_owned()),
         Err(e) => return Err(format!("cannot look for it in the worktree: {e}")),
     }
-    worker_folder::write(kept, rel, &text).map_err(|e| format!("cannot keep a copy: {e}"))
+    worker_folder::write(kept, rel, &text).map_err(|e| format!("cannot keep a copy: {e}"))?;
+    Ok(true)
 }
