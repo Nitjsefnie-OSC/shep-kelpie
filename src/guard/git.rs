@@ -15,6 +15,7 @@ mod runs;
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::shell::Quoting;
 use super::wrap::Reach;
 use super::{Checkout, Home, REWRITE, WRITE, files, moved, values};
 use crate::worktree::{self, BASE, WorktreeError};
@@ -30,6 +31,8 @@ pub(super) struct Reads(HashMap<Read, Result<Vec<String>, String>>);
 pub(super) struct Git<'a> {
     /// Its words, `git` first
     pub words: &'a [String],
+    /// How each of its words was written, aligned to `words`
+    pub quoting: &'a [Quoting],
     /// The heredoc bodies it reads
     pub heredocs: &'a [String],
     /// Whether an assignment in front points it at another repo
@@ -42,6 +45,41 @@ pub(super) struct Git<'a> {
     pub after_new_repo: bool,
 }
 
+// `words` without the redirections a shell reads: `2>&1`, `>out`, `&>out`, and the
+// target word after a bare `>` or `2>`. A quoted `>` is text. A heredoc's `<<` stays,
+// since `git commit -F -` reads it. `quoting` has no entry for a word it does not know,
+// and that word is bare.
+fn without_redirects(words: &[String], quoting: &[Quoting]) -> Vec<String> {
+    let mut kept = Vec::with_capacity(words.len());
+    let mut target = false;
+    for (at, word) in words.iter().enumerate() {
+        if std::mem::take(&mut target) {
+            continue;
+        }
+        let held = |i: usize| {
+            quoting
+                .get(at)
+                .is_some_and(|q| q.quoted.get(i) == Some(&true))
+        };
+        match (at > 0).then(|| redirect(word, held)).flatten() {
+            Some(bare) => target = bare,
+            None => kept.push(word.clone()),
+        }
+    }
+    kept
+}
+
+// Whether `word` is a redirection to an output file, and if so, whether it is bare, so
+// that the next word is its target: an optional run of digits or a `&`, then `>` or `>>`.
+fn redirect(word: &str, held: impl Fn(usize) -> bool) -> Option<bool> {
+    let digits = word.chars().take_while(char::is_ascii_digit).count();
+    let lead = if word.starts_with('&') { 1 } else { digits };
+    let rest = word.get(lead..)?.strip_prefix('>')?;
+    let marks = 1 + usize::from(rest.starts_with('>'));
+    let operator = lead + marks;
+    (!(0..operator).any(held)).then_some(word.len() == operator)
+}
+
 /// Judges one git command run in `cwd`
 pub(super) fn judge(
     git: Git<'_>,
@@ -50,6 +88,12 @@ pub(super) fn judge(
     checkout: Checkout<'_>,
     reads: &mut Reads,
 ) -> Vec<String> {
+    // A redirect is the shell's, and git is never given it.
+    let words = without_redirects(git.words, git.quoting);
+    let git = Git {
+        words: &words,
+        ..git
+    };
     let runs = git.reach == Reach::Runs;
     // A program kelpie does not know may only name git, as `rg git` does.
     let front = match front(git.words) {
