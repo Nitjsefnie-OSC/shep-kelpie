@@ -138,6 +138,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         git: old_git,
         ci: old_ci,
         concurrency: old_concurrency,
+        budget: old_budget,
         agents: _, // `reread` compares the agents it resolves, with the files
         pacing: old_pacing,
         worker: old_worker,
@@ -150,6 +151,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         git: new_git,
         ci: new_ci,
         concurrency: new_concurrency,
+        budget: new_budget,
         agents: _,
         pacing: new_pacing,
         worker: new_worker,
@@ -178,6 +180,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("git.maintainer", old_maintainer != new_maintainer),
         ("ci", old_ci != new_ci),
         ("concurrency", old_concurrency != new_concurrency),
+        ("budget", old_budget != new_budget),
         ("pacing", old_pacing != new_pacing),
         ("worker", old_worker != new_worker),
         ("skills", old_skills != new_skills),
@@ -245,6 +248,21 @@ mod tests {
             Some("settings changed: researcher now in effect")
         );
         assert_eq!(runner.settings().researcher.allowed_domains.len(), 1);
+    }
+
+    #[test]
+    fn a_changed_budget_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| s.replace("per_item_usd = 10", "per_item_usd = 4"));
+        let mut runner = runner.lock().unwrap();
+        assert_eq!(runner.settings().budget.per_item_usd.cents(), 1000);
+        let line = runner.reread(next, rig.kelpie_settings()).unwrap();
+        assert_eq!(
+            line.as_deref(),
+            Some("settings changed: budget now in effect")
+        );
+        assert_eq!(runner.settings().budget.per_item_usd.cents(), 400);
     }
 
     #[test]

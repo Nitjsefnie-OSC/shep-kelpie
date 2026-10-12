@@ -106,9 +106,11 @@ const TWO_BRANCHES: &str = r#"# Board: acme, 2026-09-21 14:18 UTC
 
 - #7 "Title of #7": review round 2; PR #71, opened 5m ago, on sonnet-high; touches 1 file
   - Session: no call in flight; the worker's last turn ended 5m ago
+  - Spend: $0.00 of $10.00
   - Last turn: "pushed"
 - #8 "Title of #8": review round 2; PR #81, opened 5m ago, on sonnet-high; touches 1 file
   - Session: no call in flight; the worker's last turn ended 5m ago
+  - Spend: $0.00 of $10.00
   - Last turn: "pushed"
 
 ## Ready queue, read 5m ago (the board's order, first taken first; a new issue joins after the last of its priority)

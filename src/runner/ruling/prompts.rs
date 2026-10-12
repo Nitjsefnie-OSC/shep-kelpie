@@ -21,6 +21,17 @@ pub(super) fn failed_again(prompt: String) -> String {
     }
 }
 
+// A no on an over-budget ruling sends its note and then the turn that was due,
+// which would otherwise be lost. A command only runs from the very start of a
+// prompt, so the note goes after it.
+pub(super) fn noted_prompt(note: &str, owed: &str) -> String {
+    let lead = format!("{note}\nThe turn that was due is still yours, and follows:\n\n");
+    match split_command(owed) {
+        (Some(command), rest) => format!("{command} {lead}{rest}"),
+        (None, rest) => format!("{lead}{rest}"),
+    }
+}
+
 pub(super) fn note_prompt(number: Option<u64>, note: &str) -> String {
     let about = number.map_or_else(
         || "your work item".to_owned(),

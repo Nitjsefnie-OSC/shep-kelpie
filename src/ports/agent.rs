@@ -288,6 +288,9 @@ pub struct Cost(pub u64);
 impl Cost {
     const PER_USD: f64 = 1e9;
 
+    /// Billionths of a dollar in a cent
+    pub const PER_CENT: u64 = 10_000_000;
+
     /// The nearest amount to `usd` dollars, or `None` when it is negative or not a number
     pub fn from_usd(usd: f64) -> Option<Self> {
         // The cast saturates, so an absurd figure cannot wrap.
