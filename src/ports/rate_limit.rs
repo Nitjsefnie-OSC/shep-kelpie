@@ -8,12 +8,14 @@
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use super::{
     Clock, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding,
     Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
+use crate::forge_ledger::{Ended, Kind, Ledger};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
@@ -74,6 +76,7 @@ pub struct RateHeld {
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
+    ledger: Option<Ledger>,
 }
 
 impl RateHeld {
@@ -85,20 +88,38 @@ impl RateHeld {
             clock,
             hold,
             say,
+            ledger: None,
         }
+    }
+
+    /// Records each call in `ledger`, held ones included
+    #[must_use]
+    pub fn with_ledger(mut self, ledger: Ledger) -> Self {
+        self.ledger = Some(ledger);
+        self
     }
 
     fn call<T>(
         &self,
+        kind: Kind,
         call: impl FnOnce(&dyn Forge) -> Result<T, ForgeError>,
     ) -> Result<T, ForgeError> {
         let now = self.clock.now();
         if let Some(until) = self.hold.until(now) {
+            self.record(now, kind, 0, Ended::Held);
             return Err(ForgeError::Held(until));
         }
+        let started = Instant::now();
         let result = call(self.forge.as_ref());
+        let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let ended = match &result {
+            Ok(_) => Ended::Ok,
+            Err(error) if used_up(error) => Ended::UsedUp,
+            Err(_) => Ended::Failed,
+        };
+        self.record(self.clock.now(), kind, millis, ended);
         if let Err(error) = &result
-            && used_up(error)
+            && ended == Ended::UsedUp
         {
             let until = match self.forge.rate_limit_reset() {
                 Ok(Some(reset)) if reset > now => reset,
@@ -113,6 +134,12 @@ impl RateHeld {
         }
         result
     }
+
+    fn record(&self, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
+        if let Some(ledger) = &self.ledger {
+            ledger.record(at, kind, millis, ended);
+        }
+    }
 }
 
 impl fmt::Debug for RateHeld {
@@ -125,51 +152,51 @@ impl fmt::Debug for RateHeld {
 
 impl Forge for RateHeld {
     fn visibility(&self, repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
-        self.call(|f| f.visibility(repo))
+        self.call(Kind::Visibility, |f| f.visibility(repo))
     }
 
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError> {
-        self.call(|f| f.default_branch(repo))
+        self.call(Kind::DefaultBranch, |f| f.default_branch(repo))
     }
 
     fn repo_labels(&self, repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {
-        self.call(|f| f.repo_labels(repo))
+        self.call(Kind::RepoLabels, |f| f.repo_labels(repo))
     }
 
     fn create_label(&self, repo: &ForgeSlug, label: &NewLabel) -> Result<(), ForgeError> {
-        self.call(|f| f.create_label(repo, label))
+        self.call(Kind::CreateLabel, |f| f.create_label(repo, label))
     }
 
     fn can_push(&self, repo: &ForgeSlug) -> Result<bool, ForgeError> {
-        self.call(|f| f.can_push(repo))
+        self.call(Kind::CanPush, |f| f.can_push(repo))
     }
 
     fn review_bot_seen(&self, repo: &ForgeSlug, login: Login<'_>) -> Result<bool, ForgeError> {
-        self.call(|f| f.review_bot_seen(repo, login))
+        self.call(Kind::ReviewBotSeen, |f| f.review_bot_seen(repo, login))
     }
 
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.call(|f| f.issue(repo, number))
+        self.call(Kind::Issue, |f| f.issue(repo, number))
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        self.call(|f| f.ready_issues(repo))
+        self.call(Kind::ReadyIssues, |f| f.ready_issues(repo))
     }
 
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
-        self.call(|f| f.open_pull_requests(repo))
+        self.call(Kind::OpenPullRequests, |f| f.open_pull_requests(repo))
     }
 
     fn pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<PullRequest, ForgeError> {
-        self.call(|f| f.pull_request(repo, number))
+        self.call(Kind::PullRequest, |f| f.pull_request(repo, number))
     }
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
-        self.call(|f| f.reviewed(repo, number))
+        self.call(Kind::Reviewed, |f| f.reviewed(repo, number))
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {
-        self.call(|f| f.viewer())
+        self.call(Kind::Viewer, |f| f.viewer())
     }
 
     fn comments_since(
@@ -177,23 +204,23 @@ impl Forge for RateHeld {
         repo: &ForgeSlug,
         since: Timestamp,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        self.call(|f| f.comments_since(repo, since))
+        self.call(Kind::CommentsSince, |f| f.comments_since(repo, since))
     }
 
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
-        self.call(|f| f.can_write(repo, login))
+        self.call(Kind::CanWrite, |f| f.can_write(repo, login))
     }
 
     fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
-        self.call(|f| f.comment_marks(repo, comment))
+        self.call(Kind::CommentMarks, |f| f.comment_marks(repo, comment))
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
-        self.call(|f| f.comment(repo, number, body))
+        self.call(Kind::Comment, |f| f.comment(repo, number, body))
     }
 
     fn open_issues(&self, repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-        self.call(|f| f.open_issues(repo))
+        self.call(Kind::OpenIssues, |f| f.open_issues(repo))
     }
 
     fn create_issue(
@@ -203,11 +230,13 @@ impl Forge for RateHeld {
         body: &str,
         labels: &[&str],
     ) -> Result<u64, ForgeError> {
-        self.call(|f| f.create_issue(repo, title, body, labels))
+        self.call(Kind::CreateIssue, |f| {
+            f.create_issue(repo, title, body, labels)
+        })
     }
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.call(|f| f.close_issue(repo, number))
+        self.call(Kind::CloseIssue, |f| f.close_issue(repo, number))
     }
 
     fn create_pull_request(
@@ -218,7 +247,9 @@ impl Forge for RateHeld {
         title: &str,
         body: &str,
     ) -> Result<u64, ForgeError> {
-        self.call(|f| f.create_pull_request(repo, head, base, title, body))
+        self.call(Kind::CreatePullRequest, |f| {
+            f.create_pull_request(repo, head, base, title, body)
+        })
     }
 
     fn edit_pull_request(
@@ -228,7 +259,9 @@ impl Forge for RateHeld {
         title: &str,
         body: &str,
     ) -> Result<(), ForgeError> {
-        self.call(|f| f.edit_pull_request(repo, number, title, body))
+        self.call(Kind::EditPullRequest, |f| {
+            f.edit_pull_request(repo, number, title, body)
+        })
     }
 
     fn failed_run_logs(
@@ -237,11 +270,13 @@ impl Forge for RateHeld {
         head: &str,
         merge_group: bool,
     ) -> Result<String, ForgeError> {
-        self.call(|f| f.failed_run_logs(repo, head, merge_group))
+        self.call(Kind::FailedRunLogs, |f| {
+            f.failed_run_logs(repo, head, merge_group)
+        })
     }
 
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.call(|f| f.mark_ready(repo, number))
+        self.call(Kind::MarkReady, |f| f.mark_ready(repo, number))
     }
 
     fn set_label(
@@ -251,7 +286,7 @@ impl Forge for RateHeld {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
-        self.call(|f| f.set_label(repo, number, label, on))
+        self.call(Kind::SetLabel, |f| f.set_label(repo, number, label, on))
     }
 
     fn set_issue_label(
@@ -261,7 +296,9 @@ impl Forge for RateHeld {
         label: &str,
         on: bool,
     ) -> Result<(), ForgeError> {
-        self.call(|f| f.set_issue_label(repo, number, label, on))
+        self.call(Kind::SetIssueLabel, |f| {
+            f.set_issue_label(repo, number, label, on)
+        })
     }
 
     fn review_bot(
@@ -270,11 +307,11 @@ impl Forge for RateHeld {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
-        self.call(|f| f.review_bot(repo, number, login))
+        self.call(Kind::ReviewBot, |f| f.review_bot(repo, number, login))
     }
 
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
-        self.call(|f| f.resolve_thread(repo, thread))
+        self.call(Kind::ResolveThread, |f| f.resolve_thread(repo, thread))
     }
 
     fn reply_to_thread(
@@ -283,19 +320,23 @@ impl Forge for RateHeld {
         thread: &str,
         body: &str,
     ) -> Result<(), ForgeError> {
-        self.call(|f| f.reply_to_thread(repo, thread, body))
+        self.call(Kind::ReplyToThread, |f| {
+            f.reply_to_thread(repo, thread, body)
+        })
     }
 
     fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
-        self.call(|f| f.merge(repo, number, head))
+        self.call(Kind::Merge, |f| f.merge(repo, number, head))
     }
 
     fn merge_queue(&self, repo: &ForgeSlug, number: u64) -> Result<QueueStanding, ForgeError> {
-        self.call(|f| f.merge_queue(repo, number))
+        self.call(Kind::MergeQueue, |f| f.merge_queue(repo, number))
     }
 
     fn disable_auto_merge(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
-        self.call(|f| f.disable_auto_merge(repo, number))
+        self.call(Kind::DisableAutoMerge, |f| {
+            f.disable_auto_merge(repo, number)
+        })
     }
 
     // Free of the limits, and asked only once a call finds them used up.
@@ -333,6 +374,98 @@ mod tests {
         ];
         for error in other {
             assert!(!used_up(&error), "{error}");
+        }
+    }
+
+    mod ledger {
+        use super::*;
+        use crate::forge_ledger::{self, Api, Line};
+        use crate::test::{FakeClock, FakeForge};
+
+        fn repo() -> ForgeSlug {
+            ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap()
+        }
+
+        struct Rig {
+            held: RateHeld,
+            forge: FakeForge,
+            clock: FakeClock,
+            home: tempfile::TempDir,
+        }
+
+        impl Rig {
+            fn new() -> Self {
+                let home = tempfile::tempdir().unwrap();
+                let forge = FakeForge::new(home.path().join("origin"));
+                let clock = FakeClock::at(1_000);
+                let held = RateHeld::new(
+                    Arc::new(forge.clone()),
+                    Arc::new(clock.clone()),
+                    ForgeHold::default(),
+                    Box::new(|_| {}),
+                )
+                .with_ledger(Ledger::in_home(home.path(), "koji"));
+                Self {
+                    held,
+                    forge,
+                    clock,
+                    home,
+                }
+            }
+
+            fn lines(&self) -> Vec<Line> {
+                forge_ledger::read(&self.home.path().join(forge_ledger::FILE)).unwrap()
+            }
+        }
+
+        #[test]
+        fn each_call_adds_a_line_with_its_kind_and_how_it_ended() {
+            let rig = Rig::new();
+            rig.held.visibility(&repo()).unwrap();
+            rig.clock.advance(30);
+            rig.held.default_branch(&repo()).unwrap();
+            rig.forge.set_down(true);
+            rig.clock.advance(30);
+            rig.held.repo_labels(&repo()).unwrap_err();
+
+            let lines = rig.lines();
+            let seen: Vec<_> = lines
+                .iter()
+                .map(|l| (l.at.0, l.project.as_str(), l.kind, l.api, l.ended))
+                .collect();
+            assert_eq!(
+                seen,
+                [
+                    (1_000, "koji", Kind::Visibility, Api::GraphQl, Ended::Ok),
+                    (1_030, "koji", Kind::DefaultBranch, Api::GraphQl, Ended::Ok),
+                    (1_060, "koji", Kind::RepoLabels, Api::GraphQl, Ended::Failed),
+                ]
+            );
+        }
+
+        #[test]
+        fn a_used_up_answer_is_recorded_and_the_calls_it_holds_are_recorded_as_held() {
+            let rig = Rig::new();
+            rig.forge.set_used_up(Some(Timestamp(1_600)));
+            rig.held.visibility(&repo()).unwrap_err();
+            rig.clock.advance(60);
+            rig.held.viewer().unwrap_err();
+            rig.forge.set_down(false);
+            rig.clock.advance(600);
+            rig.held.viewer().unwrap();
+
+            let lines = rig.lines();
+            let seen: Vec<_> = lines.iter().map(|l| (l.at.0, l.kind, l.ended)).collect();
+            assert_eq!(
+                seen,
+                [
+                    (1_000, Kind::Visibility, Ended::UsedUp),
+                    (1_060, Kind::Viewer, Ended::Held),
+                    (1_660, Kind::Viewer, Ended::Ok),
+                ]
+            );
+            assert_eq!(lines[1].api, Api::Rest);
+            assert_eq!(lines[1].millis, 0);
         }
     }
 }
