@@ -437,7 +437,7 @@ mod tests {
         );
     }
 
-    // The gateway's key is read from `HOME`, which every test process has set.
+    // The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
     const LOCAL: &str = "---\nrole: implementer\nharness: pi\nmodel: m\neffort: low\n\
                          gateway: paddock\ncontext: 65536\n---\n";
 
@@ -446,19 +446,20 @@ mod tests {
         rig.implementers(&["sonnet-high", "local"]);
     }
 
-    fn paddock_keyed_by_home(rig: &Rig) {
+    fn paddock_keyed_by_cargo(rig: &Rig) {
         let webhook = format!(
             "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
             Rig::WEBHOOK_URL
         );
-        let gateway = "[gateways.paddock]\nurl = \"http://gpu:8700\"\nkey_env = \"HOME\"\n";
+        let gateway =
+            "[gateways.paddock]\nurl = \"http://gpu:8700\"\nkey_env = \"CARGO_PKG_NAME\"\n";
         rig.set_kelpie_settings(&format!("{webhook}{gateway}"));
     }
 
     #[test]
     fn a_gateway_taken_away_from_a_listed_agent_is_refused_as_a_start_refuses_it() {
         let rig = Rig::new("shep");
-        paddock_keyed_by_home(&rig);
+        paddock_keyed_by_cargo(&rig);
         list_local(&rig);
         let runner = rig.open().unwrap();
         let webhook = format!(
@@ -480,7 +481,7 @@ mod tests {
     fn agents_naming_a_gateway_added_with_them_wait_with_it_for_the_next_start() {
         let rig = Rig::new("shep");
         let runner = rig.open().unwrap();
-        paddock_keyed_by_home(&rig);
+        paddock_keyed_by_cargo(&rig);
         list_local(&rig);
         let mut runner = runner.lock().unwrap();
         let line = runner.reread(rig.settings(), rig.kelpie_settings());
