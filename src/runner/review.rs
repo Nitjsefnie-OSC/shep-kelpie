@@ -196,7 +196,7 @@ impl Runner {
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         let body = chosen.prompt.as_deref().unwrap_or_default();
-        let tests = match self.begin_tests(model, (issue, &worktree, &build), first.is_none()) {
+        let tests = match self.begin_tests(model, (&worktree, &build), first.is_none()) {
             Ok(tests) => tests,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };

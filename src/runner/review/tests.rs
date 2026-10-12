@@ -731,6 +731,47 @@ fn an_attached_file_is_kept_for_its_finding() {
 }
 
 #[test]
+fn a_later_reviewers_first_look_keeps_the_tests_kept_before() {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    rig.write_agent("second", crate::test::CLAUDE_REVIEWER);
+    rig.reviewers(&["claude", "second"]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Attach(
+            "tests/flag.rs",
+            "#[test]\nfn flag_is_read() { assert!(false); }\n",
+            "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+        ),
+    ]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, the first claude reviewer
+    step(&runner).unwrap(); // its findings sent
+    let kept = kept_tests(&rig).join("tests/flag.rs");
+    assert!(kept.is_file(), "the first reviewer's test is kept");
+
+    rig.claude.script([
+        Scripted::Push("fixed.txt", "fixed\n"),
+        Scripted::Text("CLEAN"),
+    ]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap(); // the fix pushed
+    step(&runner).unwrap(); // round 2, the second claude reviewer
+
+    assert_eq!(
+        rig.claude.all_seen().len(),
+        4,
+        "worker, reviewer, fix, reviewer"
+    );
+    assert!(kept.is_file(), "a later reviewer's first look keeps it");
+    let held = runner.lock().unwrap().state.work_items[0].held.clone();
+    assert_eq!(held[0].test.as_deref(), Some("tests/flag.rs"));
+}
+
+#[test]
 fn a_missing_file_costs_its_finding_only_the_test() {
     let (rig, runner) = at_round_2_asking_tests();
     rig.claude.script([Scripted::Text(

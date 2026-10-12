@@ -42,8 +42,10 @@ impl Runner {
     /// Readies the folders for a session round, and gives a reviewer asked for
     /// tests the reach that lets it write its own folder alone
     ///
-    /// A first look starts both folders empty. A second look finds the first's
-    /// files where they are.
+    /// A first look of a reviewer asked for tests starts its own folder empty. A
+    /// second look finds the first's files where they are. The checked copies
+    /// stay across reviewers and passes: a held finding still names its file,
+    /// and a path kept again is written over.
     ///
     /// # Errors
     ///
@@ -51,22 +53,20 @@ impl Runner {
     pub(super) fn begin_tests(
         &self,
         model: &RoleModel,
-        (issue, worktree, build): (u64, &Path, &Path),
+        (worktree, build): (&Path, &Path),
         first_look: bool,
     ) -> Result<Option<Reach>, String> {
-        let (written, kept) = (tests_folder(build), kept_folder(&self.paths.worker, issue));
-        if first_look {
-            for folder in [&written, &kept] {
-                match std::fs::remove_dir_all(folder) {
-                    Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                        return Err(format!("cannot clear {}: {e}", folder.display()));
-                    }
-                    _ => {}
-                }
-            }
-        }
         if self.test_command_for(model).is_none() {
             return Ok(None);
+        }
+        let written = tests_folder(build);
+        if first_look {
+            match std::fs::remove_dir_all(&written) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    return Err(format!("cannot clear {}: {e}", written.display()));
+                }
+                _ => {}
+            }
         }
         std::fs::create_dir_all(&written)
             .map_err(|e| format!("cannot make {}: {e}", written.display()))?;
