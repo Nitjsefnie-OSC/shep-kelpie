@@ -13,18 +13,22 @@ use crate::ports::Timestamp;
 /// How many of the busiest minutes are listed
 const BUSIEST: usize = 10;
 
-/// How many kinds a minute or a window names
-const TOP_KINDS: usize = 5;
-
 /// How far before a used-up answer its calls are counted, in seconds
 const BEFORE: u64 = 60;
 
-/// The plain-text report on `lines`, those at or after `since` when given
-pub fn report(lines: &[Line], since: Option<Timestamp>) -> Vec<String> {
-    let lines: Vec<&Line> = (lines.iter())
+/// The plain-text report on `ledger`, its lines at or after `since` when
+/// given
+///
+/// A used-up answer's calls before it are read from the whole ledger, so
+/// `since` does not cut a window short.
+pub fn report(ledger: &[Line], since: Option<Timestamp>) -> Vec<String> {
+    let lines: Vec<&Line> = (ledger.iter())
         .filter(|line| since.is_none_or(|since| line.at >= since))
         .collect();
-    let (Some(first), Some(last)) = (lines.first(), lines.last()) else {
+    let (Some(first), Some(last)) = (
+        lines.iter().map(|l| l.at).min(),
+        lines.iter().map(|l| l.at).max(),
+    ) else {
         return vec!["no forge calls recorded".to_owned()];
     };
     let held = lines.iter().filter(|l| l.ended == Ended::Held).count();
@@ -34,8 +38,8 @@ pub fn report(lines: &[Line], since: Option<Timestamp>) -> Vec<String> {
         .collect();
     let mut out = vec![format!(
         "forge calls from {} to {}: {} made, {held} held, {used_up} used up",
-        time(first.at.0),
-        time(last.at.0),
+        time(first.0),
+        time(last.0),
         made.len(),
     )];
 
@@ -59,13 +63,21 @@ pub fn report(lines: &[Line], since: Option<Timestamp>) -> Vec<String> {
 
     out.push("used up:".to_owned());
     let mut any = false;
-    for (at, line) in lines.iter().enumerate() {
-        if line.ended != Ended::UsedUp {
+    for (index, line) in ledger.iter().enumerate() {
+        if line.ended != Ended::UsedUp || since.is_some_and(|since| line.at < since) {
             continue;
         }
         any = true;
-        let before: Vec<&Line> = (lines[..at].iter().copied())
-            .filter(|l| l.ended != Ended::Held && l.at.0 + BEFORE >= line.at.0)
+        // Judged by time, not by place in the file, which runners appending
+        // together do not keep in order; a call in the same second counts
+        // when it was appended first.
+        let before: Vec<&Line> = (ledger.iter().enumerate())
+            .filter(|(i, l)| {
+                l.ended != Ended::Held
+                    && l.at.0 + BEFORE >= line.at.0
+                    && (l.at < line.at || (l.at == line.at && *i < index))
+            })
+            .map(|(_, l)| l)
             .collect();
         out.push(format!(
             "  {} {} {} ({}); the {BEFORE} seconds before: {}",
@@ -82,12 +94,12 @@ pub fn report(lines: &[Line], since: Option<Timestamp>) -> Vec<String> {
     out
 }
 
-// The calls, then the projects and the most frequent kinds among them
+// The calls, then the projects and the kinds among them, the most first
 fn tally(calls: &[&Line]) -> String {
     let by_project = counts(calls, |l| l.project.clone());
     let by_kind = counts(calls, |l| l.kind.name());
     let list = |counts: Vec<(String, usize)>| {
-        let named: Vec<String> = (counts.into_iter().take(TOP_KINDS))
+        let named: Vec<String> = (counts.into_iter())
             .map(|(name, n)| format!("{name} {n}"))
             .collect();
         named.join(", ")

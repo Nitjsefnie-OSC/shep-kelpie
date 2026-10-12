@@ -17,12 +17,12 @@ use crate::settings::ForgeSlug;
 pub struct RecordedVoice {
     voice: Arc<dyn Voice>,
     clock: Arc<dyn Clock>,
-    ledger: Ledger,
+    ledger: Arc<Ledger>,
 }
 
 impl RecordedVoice {
     /// `voice`, adding each call to `ledger` at `clock`'s time
-    pub fn new(voice: Arc<dyn Voice>, clock: Arc<dyn Clock>, ledger: Ledger) -> Self {
+    pub fn new(voice: Arc<dyn Voice>, clock: Arc<dyn Clock>, ledger: Arc<Ledger>) -> Self {
         Self {
             voice,
             clock,
@@ -152,7 +152,7 @@ mod tests {
         let voice = RecordedVoice::new(
             Arc::new(AppVoice::new(tokens, Box::new(github.clone()))),
             Arc::new(clock.clone()),
-            Ledger::in_home(home.path(), "koji"),
+            Arc::new(Ledger::in_home(home.path(), "koji")),
         );
 
         voice.comment(&koji(), 7, "hello").unwrap();

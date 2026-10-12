@@ -76,7 +76,7 @@ pub struct RateHeld {
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
-    ledger: Option<Ledger>,
+    ledger: Option<Arc<Ledger>>,
 }
 
 impl RateHeld {
@@ -94,7 +94,7 @@ impl RateHeld {
 
     /// Records each call in `ledger`, held ones included
     #[must_use]
-    pub fn with_ledger(mut self, ledger: Ledger) -> Self {
+    pub fn with_ledger(mut self, ledger: Arc<Ledger>) -> Self {
         self.ledger = Some(ledger);
         self
     }
@@ -121,7 +121,7 @@ impl RateHeld {
         if let Err(error) = &result
             && ended == Ended::UsedUp
         {
-            let until = match self.forge.rate_limit_reset() {
+            let until = match self.reset() {
                 Ok(Some(reset)) if reset > now => reset,
                 _ => Timestamp(now.0.saturating_add(FALLBACK)),
             };
@@ -132,6 +132,20 @@ impl RateHeld {
                 time_of(until)
             ));
         }
+        result
+    }
+
+    // The reset is a call to the forge too, so it is recorded like the rest.
+    fn reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        let started = Instant::now();
+        let result = self.forge.rate_limit_reset();
+        let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let ended = if result.is_ok() {
+            Ended::Ok
+        } else {
+            Ended::Failed
+        };
+        self.record(self.clock.now(), Kind::RateLimitReset, millis, ended);
         result
     }
 
@@ -341,7 +355,7 @@ impl Forge for RateHeld {
 
     // Free of the limits, and asked only once a call finds them used up.
     fn rate_limit_reset(&self) -> Result<Option<Timestamp>, ForgeError> {
-        self.forge.rate_limit_reset()
+        self.reset()
     }
 }
 
@@ -404,7 +418,7 @@ mod tests {
                     ForgeHold::default(),
                     Box::new(|_| {}),
                 )
-                .with_ledger(Ledger::in_home(home.path(), "koji"));
+                .with_ledger(Arc::new(Ledger::in_home(home.path(), "koji")));
                 Self {
                     held,
                     forge,
@@ -460,6 +474,7 @@ mod tests {
                 seen,
                 [
                     (1_000, Kind::Visibility, Ended::UsedUp),
+                    (1_000, Kind::RateLimitReset, Ended::Ok),
                     (1_060, Kind::Viewer, Ended::Held),
                     (1_660, Kind::Viewer, Ended::Ok),
                 ]

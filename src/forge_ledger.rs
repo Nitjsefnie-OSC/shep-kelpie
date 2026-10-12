@@ -9,7 +9,7 @@
 //! kelpie usage --forge` reads it, and nothing else does.
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -113,15 +113,34 @@ fn wire_name(value: &impl Serialize) -> String {
     }
 }
 
-// One write of the whole line, so runners appending together do not mix lines.
+// The whole line goes in one `write`, never retried: on a file opened to
+// append, that lands at the end whole, so runners appending together do not
+// mix lines. A short write is an error and leaves a torn tail, which the
+// next append ends with a newline of its own.
 fn append_to(path: &Path, line: &Line) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(line).map_err(io::Error::other)?;
     bytes.push(b'\n');
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    file.write_all(&bytes)
+    let mut file = (OpenOptions::new().create(true).read(true).append(true)).open(path)?;
+    let length = file.metadata()?.len();
+    if length > 0 {
+        let mut last = [0u8];
+        file.seek(SeekFrom::Start(length - 1))?;
+        file.read_exact(&mut last)?;
+        if last != *b"\n" {
+            bytes.insert(0, b'\n');
+        }
+    }
+    if file.write(&bytes)? == bytes.len() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "the line was only partly written",
+        ))
+    }
 }
 
 /// Every line of the ledger at `path` that reads as one, oldest first: a

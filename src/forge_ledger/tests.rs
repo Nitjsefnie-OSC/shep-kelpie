@@ -59,6 +59,12 @@ fn a_torn_line_and_a_kind_a_newer_kelpie_wrote_are_passed_over() {
     std::fs::write(&path, text).unwrap();
 
     assert_eq!(read(&path).unwrap().len(), 12);
+    // The next append ends the torn tail with a newline of its own.
+    let ledger = Ledger::in_home(home.path(), "koji");
+    ledger.record(Timestamp(START + 300), Kind::Issue, 5, Ended::Ok);
+    let lines = read(&path).unwrap();
+    assert_eq!(lines.len(), 13);
+    assert_eq!(lines[12].kind, Kind::Issue);
     assert!(read(&home.path().join("none.jsonl")).unwrap().is_empty());
 }
 
@@ -114,4 +120,55 @@ fn a_ledger_with_no_used_up_answer_says_so_and_an_empty_one_says_it_is_empty() {
     let out = report(&lines, None);
     assert_eq!(&out[out.len() - 2..], ["used up:", "  none"]);
     assert_eq!(report(&[], None), ["no forge calls recorded"]);
+}
+
+#[test]
+fn a_used_up_answer_reads_its_window_from_the_whole_ledger_by_time() {
+    let home = tempfile::tempdir().unwrap();
+    let koji = Ledger::in_home(home.path(), "koji");
+    let shep = Ledger::in_home(home.path(), "shep");
+    let at = |seconds: u64| Timestamp(START + seconds);
+    koji.record(at(100), Kind::Reviewed, 5, Ended::Ok);
+    koji.record(at(150), Kind::Reviewed, 5, Ended::UsedUp);
+    // Appended after the used-up answer, though made before it
+    shep.record(at(140), Kind::Viewer, 5, Ended::Ok);
+    let lines = read(&home.path().join(FILE)).unwrap();
+
+    let last = |out: Vec<String>| out.last().unwrap().clone();
+    let tail = "the 60 seconds before: 2 calls (koji 1, shep 1); reviewed 1, viewer 1";
+    assert!(last(report(&lines, None)).ends_with(tail));
+    // A date after the first call leaves it in the window all the same
+    assert!(last(report(&lines, Some(at(120)))).ends_with(tail));
+}
+
+#[test]
+fn a_minute_names_every_project_and_kind_in_it() {
+    let home = tempfile::tempdir().unwrap();
+    let kinds = [
+        Kind::Issue,
+        Kind::PullRequest,
+        Kind::Reviewed,
+        Kind::ReviewBot,
+        Kind::MergeQueue,
+        Kind::Viewer,
+        Kind::CanPush,
+    ];
+    for (n, kind) in kinds.into_iter().enumerate() {
+        let project = format!("p{n}");
+        Ledger::in_home(home.path(), &project).record(Timestamp(START), kind, 5, Ended::Ok);
+    }
+    let out = report(&read(&home.path().join(FILE)).unwrap(), None);
+
+    let minute = out
+        .iter()
+        .find(|l| l.starts_with("  2026-10-03T04:00:00Z:"))
+        .unwrap();
+    assert!(
+        minute.starts_with(
+            "  2026-10-03T04:00:00Z: 7 calls (p0 1, p1 1, p2 1, p3 1, p4 1, p5 1, p6 1)"
+        )
+    );
+    for kind in kinds {
+        assert!(minute.contains(&format!("{} 1", kind.name())), "{minute}");
+    }
 }

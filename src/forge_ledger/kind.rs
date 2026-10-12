@@ -70,6 +70,8 @@ pub enum Kind {
     MergeQueue,
     /// Auto-merge turned off
     DisableAutoMerge,
+    /// When the used-up rate limit resets, asked once a call finds it used up
+    RateLimitReset,
     /// The App's token for a worker
     AppWorkerToken,
     /// The App's comment, or its post of one
@@ -125,6 +127,7 @@ impl Kind {
             | Self::AppResolveThread
             | Self::AppReplyToThread => Api::GraphQl,
             Self::CreateLabel
+            | Self::RateLimitReset
             | Self::ReviewBotSeen
             | Self::Viewer
             | Self::CommentsSince
