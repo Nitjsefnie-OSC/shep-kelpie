@@ -482,6 +482,10 @@ pub enum Turn {
     Running {
         /// When it started
         since: Timestamp,
+        /// The prompt a resumed turn was sent, which a turn that failed
+        /// before the harness started never saw. A first turn has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// A later turn waits to resume the session with this prompt
     Next {

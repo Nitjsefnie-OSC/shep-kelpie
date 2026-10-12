@@ -216,8 +216,8 @@ impl Runner {
         // call it resumes gets only however much of the ceiling is left.
         let (session, prompt, since) = match &item.turn {
             Turn::Due => (Session::New(id), None, now),
-            Turn::Running { since } if start_over => (Session::New(id), None, *since),
-            Turn::Running { since } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
+            Turn::Running { since, .. } if start_over => (Session::New(id), None, *since),
+            Turn::Running { since, .. } => (Session::Resume(id), Some(CONTINUE.to_owned()), *since),
             // An adopted work item's session begins with whatever the gate sends it.
             Turn::Next { prompt } if adopt::unborn(item) => {
                 let (command, then) = split_command(prompt);
@@ -244,6 +244,13 @@ impl Runner {
         let compacting = matches!(item.turn, Turn::Next { .. })
             && matches!(session, Session::Resume(_))
             && item.context.is_some_and(|c| c > WORKER_COMPACT_PAST);
+        // What a yes on this turn's failure sends again: the prompt a resumed
+        // turn was sent, which a restart of the turn leaves as it was.
+        let kept = match &item.turn {
+            Turn::Next { prompt } if !start_over => Some(prompt.clone()),
+            Turn::Running { prompt, .. } if !start_over => prompt.clone(),
+            _ => None,
+        };
         let prompt = if compacting {
             Some(COMPACT.to_owned())
         } else {
@@ -291,7 +298,10 @@ impl Runner {
                     .current_in(&mut next)
                     .expect("the work item checked above");
                 if !compacting {
-                    item.turn = Turn::Running { since };
+                    item.turn = Turn::Running {
+                        since,
+                        prompt: kept,
+                    };
                 }
                 let deadline = Timestamp(since.0.saturating_add(ceiling.as_secs()));
                 Begin::Call {

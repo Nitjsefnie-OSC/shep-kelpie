@@ -8,6 +8,11 @@ fn keep_body_true(number: Option<u64>) -> String {
     number.map_or_else(String::new, |_| format!(" {KEEP_BODY_TRUE}"))
 }
 
+// A turn that failed before the harness started never saw its prompt.
+pub(super) fn failed_again(prompt: String) -> String {
+    format!("Your last turn failed before it finished. Kelpie sends its prompt again.\n\n{prompt}")
+}
+
 pub(super) fn note_prompt(number: Option<u64>, note: &str) -> String {
     let about = number.map_or_else(
         || "your work item".to_owned(),

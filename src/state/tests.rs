@@ -584,6 +584,45 @@ fn a_timeout_keeps_the_phase_its_turn_ran_in() {
 }
 
 #[test]
+fn a_running_turn_saved_before_it_kept_a_prompt_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.work_items.push(a_work_item());
+    let mut old = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        old["work_items"][0]["turn"],
+        serde_json::json!({ "state": "running", "since": 9 }),
+        "a turn with no prompt saves as it always did"
+    );
+    old["work_items"][0]["turn"] = serde_json::json!({ "state": "running", "since": 9 });
+    std::fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(
+        loaded.work_items[0].turn,
+        Turn::Running {
+            since: Timestamp(9),
+            prompt: None,
+        }
+    );
+}
+
+#[test]
+fn a_running_turn_keeps_the_prompt_it_was_sent() {
+    let turn = Turn::Running {
+        since: Timestamp(9),
+        prompt: Some("fix the five".into()),
+    };
+    let saved = serde_json::to_value(&turn).unwrap();
+    assert_eq!(
+        saved,
+        serde_json::json!({ "state": "running", "since": 9, "prompt": "fix the five" })
+    );
+    assert_eq!(serde_json::from_value::<Turn>(saved).unwrap(), turn);
+}
+
+#[test]
 fn a_failed_turn_keeps_its_phase_and_the_turn_to_retry() {
     let kind = RulingKind::from(Stuck::TurnFailed {
         why: "no worktree".into(),
