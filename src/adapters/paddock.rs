@@ -40,7 +40,7 @@ pub(crate) struct Timing {
     pub(crate) renew: Duration,
     /// How long a take paddock turned away as busy waits to ask again
     pub(crate) retry: Duration,
-    /// How long after its last renewal the lease counts as lost, if none since was taken: its ttl
+    /// How long after its last renewal paddock took the lease counts as lost, if none since was taken: its ttl
     pub(crate) lapse: Duration,
 }
 
@@ -176,36 +176,45 @@ impl Lease {
         // Not joined: a renewal in flight must not hold up the release.
         thread::spawn(move || {
             let mut renewed_at = Instant::now();
+            let mut last = "no renewal was due before it ran out".to_owned();
             let mut told = false;
-            while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(timing.renew) {
-                let answer = send(&renewer, ("PUT", &path), None, true, timing.answer);
-                let why = match answer {
-                    Ok((204 | 200, _)) => {
-                        renewed_at = Instant::now();
-                        continue;
-                    }
-                    Ok((status, _)) => format!("paddock answered HTTP {status}"),
-                    // The ttl runs from the last renewal paddock took, so one more
-                    // try that would land past it is a lease already run out.
-                    Err(why) if renewed_at.elapsed() + timing.renew < timing.lapse => {
+            let why = loop {
+                // The ttl runs from the last renewal paddock took, so the lease
+                // is lost at that boundary and not before: tries go on up to it,
+                // the last of them cut short so none runs past it.
+                let left = timing.lapse.saturating_sub(renewed_at.elapsed());
+                if left.is_zero() {
+                    break last;
+                }
+                let waited = stopped.recv_timeout(timing.renew.min(left));
+                if !matches!(waited, Err(RecvTimeoutError::Timeout)) {
+                    return;
+                }
+                let left = timing.lapse.saturating_sub(renewed_at.elapsed());
+                if left.is_zero() {
+                    continue;
+                }
+                let within = timing.answer.min(left);
+                match send(&renewer, ("PUT", &path), None, true, within) {
+                    Ok((204 | 200, _)) => renewed_at = Instant::now(),
+                    Ok((status, _)) => break format!("paddock answered HTTP {status}"),
+                    Err(why) => {
                         if !told {
                             eprintln!("kelpie: cannot renew the gateway's lease {path}: {why}");
                             told = true;
                         }
-                        continue;
+                        last = why;
                     }
-                    Err(why) => why,
-                };
-                // Under the lock the holder lets go under, so a lease let go of
-                // has its call over already and is not ended.
-                let mut held = record.lock().unwrap();
-                if matches!(*held, Held::Renewing) {
-                    *held = Held::Lost(format!(
-                        "the gateway's lease {path} cannot be renewed: {why}"
-                    ));
-                    ending.end();
                 }
-                return;
+            };
+            // Under the lock the holder lets go under, so a lease let go of
+            // has its call over already and is not ended.
+            let mut held = record.lock().unwrap();
+            if matches!(*held, Held::Renewing) {
+                *held = Held::Lost(format!(
+                    "the gateway's lease {path} cannot be renewed: {why}"
+                ));
+                ending.end();
             }
         });
         Self {
@@ -465,6 +474,24 @@ mod tests {
         let mut lease = held(&server, &ending, timing);
         until("end", &server, || ending.asked());
         assert!(lease.finish().unwrap().contains("did not answer"));
+    }
+
+    #[test]
+    fn unanswered_renewals_are_tried_until_the_ttl_has_run_out_and_not_before() {
+        let server = StandInEndpoint::start([])
+            .like_paddock("pk", &[])
+            .hanging_renewals();
+        let timing = Timing {
+            answer: Duration::from_millis(20),
+            renew: Duration::from_millis(100),
+            lapse: Duration::from_millis(400),
+            ..QUICK
+        };
+        let ending = Ending::default();
+        let started = Instant::now();
+        let _lease = held(&server, &ending, timing);
+        until("end", &server, || ending.asked());
+        assert!(started.elapsed() >= timing.lapse, "{:?}", started.elapsed());
     }
 
     #[test]
