@@ -244,12 +244,47 @@ pub fn remove(
             return Err(e);
         }
     }
-    match std::fs::remove_dir_all(build) {
+    let removed = match std::fs::remove_dir_all(build) {
+        // Go writes its module cache with read-only folders, which cannot
+        // be emptied until they are made writable.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            make_writable(build);
+            std::fs::remove_dir_all(build)
+        }
+        other => other,
+    };
+    match removed {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(WorktreeError::Remove {
             path: build.to_owned(),
             kind: e.kind(),
         }),
         _ => Ok(()),
+    }
+}
+
+/// Gives the owner read, write and execute on every folder under `root`, and
+/// on `root`, so the tree can be unlinked
+///
+/// A link is never followed and never changed, so nothing outside `root` is
+/// touched. What cannot be read or changed is skipped: the removal that
+/// follows reports it.
+fn make_writable(root: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(meta) = std::fs::symlink_metadata(root) else {
+        return;
+    };
+    if !meta.is_dir() {
+        return;
+    }
+    let mut mode = meta.permissions();
+    mode.set_mode(mode.mode() | 0o700);
+    let _ = std::fs::set_permissions(root, mode);
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        make_writable(&entry.path());
     }
 }
 
@@ -454,7 +489,67 @@ fn status_names(status: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{git, has_ref, status_names};
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::Path;
+
+    use super::{git, has_ref, remove, status_names};
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    fn set_mode(path: &Path, mode: u32) {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    // A repo with nothing to remove but the build folder
+    fn remove_build(repo: &Path, build: &Path) -> Result<(), super::WorktreeError> {
+        git(repo, ["init", "--quiet"]).unwrap();
+        remove(repo, &repo.join("none"), "kelpie/7", build, false)
+    }
+
+    #[test]
+    fn a_build_folder_holding_read_only_folders_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let cache = build.join("gomod/cache/mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache.join("go.mod"), 0o444);
+        set_mode(&cache, 0o555);
+        set_mode(&build.join("gomod"), 0o555);
+
+        remove_build(dir.path(), &build).unwrap();
+        assert!(!build.exists());
+    }
+
+    #[test]
+    fn a_build_folder_already_gone_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        remove_build(dir.path(), &dir.path().join("build")).unwrap();
+    }
+
+    #[test]
+    fn a_link_in_the_build_folder_leaves_what_it_points_at_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        set_mode(&outside, 0o555);
+        let build = dir.path().join("build");
+        let cache = build.join("mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache, 0o555);
+        symlink(&outside, build.join("link")).unwrap();
+
+        let removed = remove_build(dir.path(), &build);
+        let mode = mode_of(&outside);
+        set_mode(&outside, 0o755);
+        removed.unwrap();
+        assert!(!build.exists());
+        assert!(outside.exists());
+        assert_eq!(mode, 0o555);
+    }
 
     #[test]
     fn a_missing_ref_is_absent_but_a_folder_git_cannot_read_is_an_error() {
