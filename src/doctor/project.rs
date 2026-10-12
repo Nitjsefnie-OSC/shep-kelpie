@@ -11,6 +11,7 @@ use crate::flock::add::LABELS;
 use crate::ports::{NewLabel, Visibility};
 use crate::runner::{
     NO_ORIGIN, ProjectName, ProjectPaths, SUMMON_LABEL, check_checkout, check_instructions,
+    source_of,
 };
 use crate::settings::{Account, ForgeSlug, Limit, Settings, SettingsError};
 use crate::webhook::KelpieSettings;
@@ -237,6 +238,20 @@ fn forge_lines(
             format!("run `gh label list --repo {slug}` to see why"),
         ),
     });
+
+    lines.push(
+        match source_of(&settings.git.checkout, probes.forge, repo.owner()) {
+            Ok(source) => Line::ok(at("pull request template"), source.to_string()),
+            Err(e) => Line::unsure(
+                at("pull request template"),
+                format!("cannot read {}'s .github repository: {e}", repo.owner()),
+                format!(
+                    "run `gh api repos/{}/.github/contents` to see why",
+                    repo.owner()
+                ),
+            ),
+        },
+    );
 
     if coderabbit {
         lines.push(review_bot(

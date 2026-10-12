@@ -81,6 +81,9 @@ mod merge;
 mod older_bots;
 #[cfg(test)]
 mod overlap_tests;
+mod owner_template;
+#[cfg(test)]
+mod owner_template_tests;
 mod pace;
 mod panel;
 mod parent;
@@ -131,6 +134,7 @@ pub use left::leave as leave_answer;
 pub use lineup::{Board, MoveError, Place};
 pub use looks::BOARD_POLL;
 pub use merge::DropError;
+pub use owner_template::{TemplateSource, source_of};
 pub use pace::PacerStatus;
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths};
 pub use pm::{PmAttaching, PmError, PmStatus};
@@ -257,6 +261,9 @@ pub struct Runner {
     remote: ForgeSlug,
     // The project's extra worker instructions, read once when the runner starts
     extra_instructions: Option<String>,
+    // What the repo's owner's `.github` repository holds as a pull request template,
+    // read when the runner starts or its settings change
+    owner_template: Option<owner_template::OwnerTemplate>,
     // Each step's skill, loaded when the runner starts or its settings change
     skills: Skills,
     // The plugins the repo turns on, loaded with them
@@ -444,6 +451,9 @@ impl Runner {
         let voice = Arc::clone(&ports.voice);
         ports.agents = Arc::new(KeychainBlocked::new(ports.agents, voice, remote.clone()));
         let extra_instructions = instructions::read_extra(&settings)?;
+        let (owner_template, note) =
+            owner_template::refreshed(ports.forge.as_ref(), remote.owner(), None);
+        told.extend(note);
         let env_home = std::env::var_os("HOME").map(PathBuf::from);
         guard_hooks::check(
             &settings,
@@ -490,6 +500,7 @@ impl Runner {
             settings,
             remote,
             extra_instructions,
+            owner_template,
             skills,
             repo_plugins,
             plugins_head,
@@ -620,6 +631,7 @@ impl Runner {
             pacer: self.pacer_status(now),
             skills: self.skills.status(),
             plugins: self.repo_plugins.status(),
+            pull_request_template: self.template_source(),
             local_model: self.ports.reviewer.seat().map(Into::into),
             gpu: self.gpu.status(),
             local_leases: self.local_leases(),

@@ -2,6 +2,7 @@
 
 mod access;
 mod board;
+mod contents;
 mod issues;
 mod pulls;
 mod queue;
@@ -17,7 +18,7 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    Checks, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
+    Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
     PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
@@ -46,6 +47,14 @@ impl Forge for Gh {
             "--json",
             "defaultBranchRef",
         ])?)
+    }
+
+    fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
+        contents::folder(repo, path)
+    }
+
+    fn file_text(&self, repo: &ForgeSlug, path: &str) -> Result<String, ForgeError> {
+        contents::file_text(repo, path)
     }
 
     fn repo_labels(&self, repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {

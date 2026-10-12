@@ -15,8 +15,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment, PullRequest,
-    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility, Voice,
+    CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment,
+    PullRequest, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -146,6 +146,14 @@ impl Forge for Guarded {
 
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError> {
         self.forge.default_branch(repo)
+    }
+
+    fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
+        self.forge.folder(repo, path)
+    }
+
+    fn file_text(&self, repo: &ForgeSlug, path: &str) -> Result<String, ForgeError> {
+        self.forge.file_text(repo, path)
     }
 
     fn repo_labels(&self, repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {

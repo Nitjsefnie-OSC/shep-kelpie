@@ -91,7 +91,7 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.instructions = Some(PathBuf::from("/k/worker/instructions.md"));
     call.prompt = "implement #7".into();
-    let home = w.path("worker/settings.pi");
+    let home = w.path("settings.pi");
     assert_eq!(
         strings(&call),
         [
@@ -117,7 +117,7 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
             "--append-system-prompt",
             "/k/worker/instructions.md",
             "--extension",
-            w.path("worker/settings.guard.ts").to_str().unwrap(),
+            w.path("settings.guard.ts").to_str().unwrap(),
             "--",
             "implement #7",
         ]
@@ -193,7 +193,7 @@ fn prepare_writes_pis_own_home_with_the_one_model() {
     let w = World::new();
     let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
     stand_in(&w, FRESH).prepare(&call).unwrap();
-    let home = w.path("worker/settings.pi");
+    let home = w.path("settings.pi");
     let models: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(home.join("models.json")).unwrap()).unwrap();
     assert_eq!(
@@ -206,7 +206,7 @@ fn prepare_writes_pis_own_home_with_the_one_model() {
         } } })
     );
     assert!(home.join("sessions").is_dir());
-    assert!(!w.path("worker/settings.guard.ts").exists());
+    assert!(!w.path("settings.guard.ts").exists());
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn a_fenced_call_gets_a_guard_that_runs_kelpies_checks() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     stand_in(&w, FRESH).prepare(&call).unwrap();
-    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let guard = std::fs::read_to_string(w.path("settings.guard.ts")).unwrap();
     assert!(!guard.contains("__CHECKS__"), "{guard}");
     let (wt, build) = (w.path("wt"), w.path("build"));
     let line = guard
@@ -259,7 +259,7 @@ fn the_projects_hooks_reach_a_pi_workers_guard() {
     call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
     stand_in(&w, FRESH).prepare(&call).unwrap();
 
-    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let guard = std::fs::read_to_string(w.path("settings.guard.ts")).unwrap();
     let line = guard
         .lines()
         .find(|l| l.starts_with("const CHECKS"))
@@ -388,7 +388,7 @@ fn checks_for(w: &World, hooks: crate::hooks::Hooks) -> serde_json::Value {
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.reach.fence.as_mut().unwrap().guard.hooks = hooks;
     stand_in(w, FRESH).prepare(&call).unwrap();
-    let guard = std::fs::read_to_string(w.path("worker/settings.guard.ts")).unwrap();
+    let guard = std::fs::read_to_string(w.path("settings.guard.ts")).unwrap();
     let line = guard
         .lines()
         .find(|l| l.starts_with("const CHECKS"))
@@ -569,7 +569,7 @@ fn what_pi_cannot_give_a_worker_fails_before_the_call() {
 #[test]
 fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
     let w = World::new();
-    let socket = w.path("worker/forwarder.sock");
+    let socket = w.path("forwarder.sock");
     let upstream = ClaudeCli::default()
         .pi()
         .upstream(server(&w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)))).unwrap())
@@ -593,7 +593,7 @@ fn a_calls_transcript_is_in_pis_sessions_folder() {
     assert_eq!(
         stand_in(&w, "").transcript(&call),
         Some(crate::ports::Transcript {
-            folder: w.path("worker/settings.pi/sessions"),
+            folder: w.path("settings.pi/sessions"),
             threads: None,
         })
     );
@@ -604,18 +604,18 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let files = Files::of(&call);
-    let socket = w.path("worker/forwarder.sock");
+    let socket = w.path("forwarder.sock");
     let upstream = ClaudeCli::default()
         .pi()
         .upstream(server(&call).unwrap())
         .unwrap();
     let policy = policy(&call, &files, &upstream, &socket, &[]);
-    let home = w.path("worker/settings.pi");
+    let home = w.path("settings.pi");
     assert!(policy.write.contains(&home.join("sessions")));
     assert!(!policy.write.contains(&home));
     assert!(policy.write.contains(&w.path("wt")));
     assert!(policy.read.contains(&home));
-    assert!(policy.read.contains(&w.path("worker/settings.guard.ts")));
+    assert!(policy.read.contains(&w.path("settings.guard.ts")));
     assert!(
         !policy.hosts.iter().any(|h| h.contains("192.0.2.9")),
         "{:?}",
@@ -645,7 +645,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
         policy.write,
         [
             home.join("sessions"),
-            w.path("worker/settings.tmp"),
+            w.path("settings.tmp"),
             home.join("auth.json.lock"),
             home.join("models-store.json.lock"),
         ]
@@ -712,7 +712,7 @@ fn a_resumed_turn_reports_only_its_own_tokens() {
     assert_eq!(err, AgentError::NoSession(Harness::Pi, id(FRESH_ID)));
     assert_eq!(err.to_string(), format!("pi has no session {FRESH_ID}"));
 
-    let sessions = w.path("worker/settings.pi/sessions");
+    let sessions = w.path("settings.pi/sessions");
     std::fs::write(
         sessions.join(format!("2026-10-01T03-00-00-000Z_{FRESH_ID}.jsonl")),
         "",
@@ -855,11 +855,11 @@ pub(super) struct World {
 }
 
 impl World {
-    // Under `/tmp`, and canonical, so a recorded path reads the same each time.
+    // Short, and canonical, so a recorded path reads the same each time.
     pub(super) fn new() -> Self {
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let dir = crate::test::short_tempdir();
         let root = dir.path().canonicalize().unwrap();
-        for folder in ["wt", "build", "worker", "outside"] {
+        for folder in ["wt", "build", "outside"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
         }
         Self { _dir: dir, root }
@@ -885,7 +885,7 @@ impl World {
             effort: Effort::Low,
             session,
             cwd: self.path("wt"),
-            settings: self.path("worker/settings.json"),
+            settings: self.path("settings.json"),
             instructions: None,
             prompt: String::new(),
             plugin_dirs: Vec::new(),

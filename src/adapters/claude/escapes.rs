@@ -21,9 +21,9 @@ struct World {
 }
 
 impl World {
-    // Under `/tmp`, short enough for a socket, and canonical from the start.
+    // Short enough for a socket, and canonical from the start.
     fn new() -> Self {
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let dir = crate::test::short_tempdir();
         let root = dir.path().canonicalize().unwrap();
         for folder in ["home", "wt/src", "build", "worker", "outside", "repo/.git"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -247,7 +247,7 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
         "run `cargo build` first: {}",
         kelpie.display()
     );
-    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let dir = crate::test::short_tempdir();
     let root = dir.path().canonicalize().unwrap();
     let repo = root.join("repo");
     std::fs::create_dir_all(&repo).unwrap();

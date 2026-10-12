@@ -12,6 +12,10 @@ pub enum Kind {
     Visibility,
     /// The repo's default branch
     DefaultBranch,
+    /// A folder of the repo's default branch, listed
+    Folder,
+    /// A file of the repo's default branch, read
+    FileText,
     /// The repo's label names
     RepoLabels,
     /// A label made on the repo
@@ -126,7 +130,9 @@ impl Kind {
             | Self::DisableAutoMerge
             | Self::AppResolveThread
             | Self::AppReplyToThread => Api::GraphQl,
-            Self::CreateLabel
+            Self::Folder
+            | Self::FileText
+            | Self::CreateLabel
             | Self::RateLimitReset
             | Self::ReviewBotSeen
             | Self::Viewer

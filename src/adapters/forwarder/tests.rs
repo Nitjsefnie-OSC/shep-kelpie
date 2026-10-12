@@ -11,13 +11,13 @@ fn upstream(url: &str) -> Upstream {
     Upstream::new(&EndpointUrl::try_from(url.to_owned()).unwrap()).unwrap()
 }
 
-// In `/tmp`, as macOS's own temporary folder is too long for a socket.
+// A short folder, as macOS's own temporary folder can be too long for a socket.
 fn forwarder(url: &str) -> (tempfile::TempDir, Forwarder) {
     forwarder_with(url, Limits::default())
 }
 
 fn forwarder_with(url: &str, limits: Limits) -> (tempfile::TempDir, Forwarder) {
-    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let dir = crate::test::short_tempdir();
     let folder = dir.path().canonicalize().unwrap();
     let forwarder = Forwarder::open_with(&folder, upstream(url), limits).unwrap();
     (dir, forwarder)
@@ -364,7 +364,7 @@ fn dropping_the_forwarder_ends_a_call_the_model_server_never_answers() {
 
 #[test]
 fn a_sweep_clears_only_old_sockets_nothing_answers_on() {
-    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let dir = crate::test::short_tempdir();
     let folder = dir.path().canonicalize().unwrap();
     let name = |c: char| format!("{}.sock", c.to_string().repeat(32));
     let stale = folder.join(name('a'));
@@ -377,7 +377,7 @@ fn a_sweep_clears_only_old_sockets_nothing_answers_on() {
     sweep(&folder, SystemTime::UNIX_EPOCH);
     assert!(stale.exists());
     sweep(&folder, SystemTime::now() + Duration::from_secs(5));
-    assert!(!stale.exists());
+    assert!(!stale.exists(), "{:?}", UnixStream::connect(&stale));
     assert!(live.exists());
     assert!(other.exists());
 }
@@ -385,7 +385,7 @@ fn a_sweep_clears_only_old_sockets_nothing_answers_on() {
 #[test]
 fn a_gateway_gets_its_own_key_in_place_of_the_workers() {
     let server = StandInEndpoint::start([Answer::Says("ok")]);
-    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let dir = crate::test::short_tempdir();
     let key = crate::settings::GatewayKey::for_test("pk-gateway");
     let keyed = upstream(server.url()).with_key(key);
     let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
@@ -407,7 +407,7 @@ fn a_gateway_gets_its_own_key_in_place_of_the_workers() {
 fn a_key_with_a_line_break_is_refused_and_no_request_is_sent() {
     for key in ["pk-1\r\nx-evil: 1", "pk-1\nx-evil: 1", "pk-1\rx-evil: 1"] {
         let server = StandInEndpoint::start([Answer::Says("ok")]);
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let dir = crate::test::short_tempdir();
         let keyed = upstream(server.url()).with_key(crate::settings::GatewayKey::for_test(key));
         let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
         let reply = send(&forwarder, &chat("{}"));
