@@ -19,8 +19,10 @@ use serde::Serialize;
 
 use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
+mod repo;
 mod vendored;
 
+pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
 
 /// The skill `shep kelpie issue --interactive` starts with: it runs
@@ -37,6 +39,12 @@ pub const GRILL_WITH_DOCS: &str = "grill-with-docs";
 pub fn write_vendored(dir: &Path, skill: &str) -> io::Result<String> {
     vendored::write(dir)?;
     Ok(format!("/{PLUGIN}:{skill}"))
+}
+
+/// Whether a plugin of this name would collide with the plugins kelpie
+/// writes itself: the vendored one and each step's own
+pub(crate) fn is_kelpies_own(name: &str) -> bool {
+    name == PLUGIN || name.starts_with("kelpie-")
 }
 
 /// A step kelpie drives an agent through
@@ -403,7 +411,7 @@ fn in_plugin(plugin: &Path, skill: &SkillName) -> Result<Loaded, String> {
         .filter(|n| !n.is_empty())
         .ok_or_else(|| format!("{} names no plugin", manifest_path.display()))?;
     // Two plugins of one name would leave Claude Code to pick which skill runs.
-    if name == PLUGIN || name.starts_with("kelpie-") {
+    if is_kelpies_own(name) {
         return Err(format!(
             "the plugin in {} is named {name}, which is kelpie's own",
             plugin.display()
@@ -433,7 +441,7 @@ fn in_plugin(plugin: &Path, skill: &SkillName) -> Result<Loaded, String> {
 
 // Copies `from` into `to`, following links to files and skipping links to
 // folders, which could loop.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;

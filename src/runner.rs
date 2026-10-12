@@ -24,7 +24,7 @@ use crate::review_bot::{Bot, Profile};
 use crate::settings::{
     Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
-use crate::skills::Skills;
+use crate::skills::{RepoPlugins, Skills};
 use crate::state::ids::RulingIds;
 use crate::state::{ProjectState, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
@@ -255,6 +255,8 @@ pub struct Runner {
     extra_instructions: Option<String>,
     // Each step's skill, loaded when the runner starts or its settings change
     skills: Skills,
+    // The plugins the repo turns on, loaded with them
+    repo_plugins: RepoPlugins,
     paths: ProjectPaths,
     kelpie: PathBuf,
     store: StateStore,
@@ -441,6 +443,12 @@ impl Runner {
         check_bots(&lineup, &ports)?;
         crate::skills::check(&settings.skills, &paths.skills)?;
         let skills = Skills::load(&settings.skills, &paths.skills);
+        let repo_plugins = RepoPlugins::load(
+            checkout,
+            &paths.kelpie_home,
+            &paths.skills,
+            ports.git.as_ref(),
+        );
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
@@ -471,6 +479,7 @@ impl Runner {
             remote,
             extra_instructions,
             skills,
+            repo_plugins,
             paths: paths.clone(),
             kelpie: kelpie.to_owned(),
             store,
@@ -551,7 +560,7 @@ impl Runner {
 
     /// A log line for each step whose skill could not load
     pub fn skill_notices(&self) -> impl Iterator<Item = String> + '_ {
-        self.skills.notices()
+        self.skills.notices().chain(self.repo_plugins.notices())
     }
 
     fn names(&self) -> Names<'_> {
@@ -597,6 +606,7 @@ impl Runner {
                 .saturating_sub(trigger::STATUS_HISTORY)..],
             pacer: self.pacer_status(now),
             skills: self.skills.status(),
+            plugins: self.repo_plugins.status(),
             local_model: self.ports.reviewer.seat().map(Into::into),
             gpu: self.gpu.status(),
             local_leases: self.local_leases(),

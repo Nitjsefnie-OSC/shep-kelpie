@@ -21,6 +21,7 @@ use crate::webhook::Webhook;
 
 mod agent;
 mod forge_error;
+mod git;
 mod gpu;
 mod keychain;
 mod leased;
@@ -39,6 +40,7 @@ pub use agent::{
     Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::ForgeError;
+pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
@@ -911,6 +913,8 @@ pub struct Ports {
     pub local_leases: Arc<dyn LocalLeases>,
     /// A profile for each review bot a round may summon
     pub review_bots: Vec<Arc<dyn Profile>>,
+    /// The runner's own git, for the marketplaces a repo's plugins come from
+    pub git: Arc<dyn Git>,
     /// The GPU's figures, for `status`
     pub gpu: Arc<dyn GpuMetrics>,
     /// The maintainer's webhook, shared so a post runs without holding the runner

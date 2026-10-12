@@ -35,6 +35,7 @@ mod cubic;
 mod elsewhere;
 mod endpoint;
 mod forge;
+mod git;
 mod github;
 mod leases;
 mod reads;
@@ -49,6 +50,7 @@ pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
+pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use leases::{FakeLeases, Told};
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
@@ -291,6 +293,7 @@ pub(crate) struct Rig {
     pub(crate) project: ProjectName,
     pub(crate) claude: FakeClaude,
     pub(crate) forge: FakeForge,
+    pub(crate) git: FakeGit,
     pub(crate) meter: FakeMeter,
     pub(crate) codex_meter: FakeMeter,
     pub(crate) reviewer: FakeReviewer,
@@ -347,6 +350,7 @@ impl Rig {
             project: ProjectName::try_from(project).unwrap(),
             claude: FakeClaude::metered(meter.clone()),
             forge: FakeForge::new(home.path().join("origin.git")),
+            git: FakeGit::default(),
             meter,
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
@@ -740,6 +744,7 @@ impl Rig {
             meter: Box::new(self.meter.clone()),
             codex_meter: Box::new(self.codex_meter.clone()),
             reviewer: Arc::new(self.reviewer.clone()),
+            git: Arc::new(self.git.clone()),
             gpu: Arc::new(GpuCurl),
             local_leases: Arc::new(self.local_leases.clone()),
             review_bots,

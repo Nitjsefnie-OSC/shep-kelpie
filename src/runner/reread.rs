@@ -14,7 +14,7 @@ use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instru
 use crate::agents::Agents;
 use crate::review_bot::Bot;
 use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
-use crate::skills::Skills;
+use crate::skills::{RepoPlugins, Skills};
 use crate::webhook::{KelpieSettings, Webhook};
 
 impl Runner {
@@ -85,6 +85,16 @@ impl Runner {
         if gpu_metrics_url != self.gpu.url() {
             changed.push("gpu_metrics_url");
         }
+        // The default branch may have turned a plugin on or off since the last read.
+        let repo_plugins = RepoPlugins::load(
+            &self.settings.git.checkout,
+            &self.paths.kelpie_home,
+            &self.paths.skills,
+            self.ports.git.as_ref(),
+        );
+        if repo_plugins != self.repo_plugins {
+            changed.push("repo plugins");
+        }
         if changed.is_empty() && waiting.is_empty() {
             return Ok(None);
         }
@@ -134,6 +144,12 @@ impl Runner {
                 line.push_str(&format!("\n{notice}"));
             }
             self.skills = skills;
+        }
+        if repo_plugins != self.repo_plugins {
+            for notice in repo_plugins.notices() {
+                line.push_str(&format!("\n{notice}"));
+            }
+            self.repo_plugins = repo_plugins;
         }
         Ok(Some(line))
     }
