@@ -436,6 +436,7 @@ What was built and later changed or removed, one line each. Where a section abov
 - 2026-10-11: Claude Code compacts a worker's session in the middle of a turn at `worker.compact_window` tokens, 200000 by default, and hands the turn's prompt back after (#476)
 - 2026-10-11: `hooks` runs a project's own commands at kelpie's `publish`, `commit`, `push` and `handover` points for every harness and role, replacing `private_names` where `worker.guard_hooks` reached a Claude Code worker alone (ADR 0009, #436)
 - 2026-10-11: `hooks` gains nine points for the events Claude Code and Codex offer, run by kelpie so they hold on every harness: gates `command` (a shell command), `write` (a file write or edit), `after_command` (a command's result, as feedback), `turn_start` (a prompt kelpie sends) and `turn_end` (a worker's turn), and notices `reset`, `ruling`, `ci` and `done`, which log a non-zero exit or a hang by name and go on. The maintainer's git gate is a `command` hook (ADR 0009, #454)
+- 2026-10-11: a pull request merged by hand ends a parked work item and withdraws its ruling, and one closed without merging replaces the ruling with `closed` (#377)
 
 ## Lift list
 

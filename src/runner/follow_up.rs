@@ -280,4 +280,4 @@ fn details(finding: &Finding) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
