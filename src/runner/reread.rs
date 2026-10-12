@@ -69,9 +69,10 @@ impl Runner {
         if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
             waiting.push("agents");
             settings.agents.clone_from(&self.settings.agents);
-            agents.clone_from(&self.agents);
-            lineup.clone_from(&self.lineup);
             book.clone_from(&self.book);
+            // The agents the runner has, under the new settings as a start reads them.
+            agents = settings.role_agents(&book)?;
+            lineup = settings.lineup(&book, &self.home)?;
         }
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
@@ -475,6 +476,36 @@ mod tests {
             "{err}"
         );
         assert!(runner.gateways().get(&paddock()).is_some());
+    }
+
+    #[test]
+    fn held_agents_are_checked_against_the_new_settings_as_a_start_checks_them() {
+        let rig = Rig::new("shep");
+        paddock_keyed_by_cargo(&rig);
+        list_local(&rig);
+        let runner = rig.open().unwrap();
+        // `local` runs on pi, which a start refuses beside guard hooks.
+        let hook = "[[app.dogs.kelpie.worker.guard_hooks]]\nevent = \"PreToolUse\"\n\
+                    matcher = \"Bash\"\ncommand = \"~/check.sh\"\n";
+        rig.edit_settings(|s| format!("{s}\n{hook}"));
+        // A reviewer on `other`, a gateway the runner lacks, holds the new
+        // list, which drops `local`.
+        let reviewer = "---\nrole: reviewer\nharness: endpoint\ngateway: other\nmodel: coder\n\
+                        context: 32768\n---\n";
+        rig.write_agent("other", reviewer);
+        rig.implementers(&["sonnet-high"]);
+        rig.reviewers(&["claude", "other"]);
+        let webhook = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+        let other = "[gateways.other]\nurl = \"http://gpu:8701\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+        rig.set_kelpie_settings(&format!("{webhook}{other}"));
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(rig.settings(), rig.kelpie_settings());
+        let err = err.unwrap_err().to_string();
+        assert!(
+            err.contains("implementer local runs on pi, which cannot run `worker.guard_hooks`"),
+            "{err}"
+        );
+        assert!(runner.settings().worker.guard_hooks.is_empty());
     }
 
     #[test]
