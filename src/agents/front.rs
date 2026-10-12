@@ -207,7 +207,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
             second_look: false,
         }),
         Front::Reviewer(keys) => {
-            let runs = keys.runs(prompt.is_some(), &yaml)?;
+            let runs = keys.runs(prompt.as_deref(), &yaml)?;
             Ok(Agent {
                 role: Role::Reviewer,
                 runs,
@@ -310,9 +310,9 @@ impl OnClaude {
 }
 
 impl Reviewer {
-    /// What runs it, or why its keys cannot: `prompted` says whether the
-    /// file has a body
-    fn runs(&self, prompted: bool, yaml: &str) -> Result<Runs, String> {
+    /// What runs it, or why its keys cannot: `prompt` is the file's body, if
+    /// it has one
+    fn runs(&self, prompt: Option<&str>, yaml: &str) -> Result<Runs, String> {
         let harness = match self.harness {
             ReviewerHarness::ClaudeCode => Harness::ClaudeCode,
             ReviewerHarness::Pi => Harness::Pi,
@@ -321,16 +321,16 @@ impl Reviewer {
             ReviewerHarness::StandIn => Harness::StandIn,
             ReviewerHarness::Command => {
                 self.no_bot_keys("command", yaml)?;
-                return self.command(prompted).map(Runs::Command);
+                return self.command(prompt.is_some()).map(Runs::Command);
             }
             ReviewerHarness::Endpoint => {
                 self.no_bot_keys("endpoint", yaml)?;
-                return self.endpoint(prompted).map(Runs::Endpoint);
+                return self.endpoint(prompt).map(Runs::Endpoint);
             }
             ReviewerHarness::Bot => {
                 let key = if self.bot.is_some() { "bot" } else { "harness" };
                 return self
-                    .bot(prompted)
+                    .bot(prompt.is_some())
                     .map(Runs::Bot)
                     .map_err(|m| at_key(yaml, key, &m));
             }
@@ -348,7 +348,7 @@ impl Reviewer {
                 "runs a session on {name}, which needs `model` and `effort`"
             ));
         };
-        if !prompted {
+        if prompt.is_none() {
             return Err(format!(
                 "runs a session on {name}, whose prompt is the file's body: write it \
                  below the closing `---`"
@@ -405,8 +405,18 @@ impl Reviewer {
         }
     }
 
-    fn endpoint(&self, prompted: bool) -> Result<Endpoint, String> {
-        self.on_its_own("endpoint", prompted)?;
+    // An endpoint takes a body for what to report. Kelpie sends the diff in
+    // chunks, so the body cannot place the whole diff or its base.
+    fn endpoint(&self, prompt: Option<&str>) -> Result<Endpoint, String> {
+        self.on_its_own("endpoint", false)?;
+        for placeholder in ["{{BASE}}", "{{DIFF}}"] {
+            if prompt.is_some_and(|body| body.contains(placeholder)) {
+                return Err(format!(
+                    "runs on endpoint, which sends the diff in chunks of its own, so its \
+                     body cannot name {placeholder}: leave it out"
+                ));
+            }
+        }
         let other = self.effort.is_some()
             || self.command.is_some()
             || self.ollama.is_some()
@@ -431,6 +441,7 @@ impl Reviewer {
             model: model.clone(),
             context,
             lease: self.lease.clone(),
+            prompt: prompt.map(str::to_owned),
         })
     }
 
