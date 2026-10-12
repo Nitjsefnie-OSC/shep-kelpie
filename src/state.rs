@@ -346,6 +346,11 @@ pub struct Ruling {
     /// a runner that restarts posts it once the hold ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unposted: bool,
+    /// What each option leads to, in the order the card lists them, as kelpie
+    /// worded it from what it knew when it raised the ruling. An option with
+    /// none, or a ruling with none, shows the phrase its kind always had.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<String>,
     /// When it was raised. None in a file from before, and then an answer
     /// by number is never refused as stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]

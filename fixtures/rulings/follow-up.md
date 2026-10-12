@@ -2,7 +2,7 @@
 
 This pull request merged with 2 confirmed findings left unfixed.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Yes | Files each finding as an issue on the board |
 | **B** | No | Drops the findings |

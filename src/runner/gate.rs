@@ -381,6 +381,13 @@ pub(super) mod tests {
                 "kind": { "kind": "merge", "head": head },
                 "alerted": false,
                 "raised": Rig::EPOCH + 120,
+                "effects": [
+                    "Merges it into main and closes #7: Title of #7. CI passed. \
+                     2 review rounds read it.",
+                    "Sends the worker back for a fix that goes to CI and back to you, \
+                     with no new review round.",
+                    "Sends the worker back for a change the whole review reads again.",
+                ],
             }])
         );
         assert_eq!(

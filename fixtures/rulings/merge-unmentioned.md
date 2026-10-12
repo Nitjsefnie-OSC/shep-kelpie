@@ -1,6 +1,6 @@
 ### Merge this pull request at 6b0606e into main?
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Merge | Merges it into main |
 | **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |

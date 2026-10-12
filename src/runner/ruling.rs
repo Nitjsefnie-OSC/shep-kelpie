@@ -437,6 +437,7 @@ impl Runner {
         let issue = self.current().expect("a ruling is about a work item").issue;
         let (id, question) = park(self.names(), &mut next, issue, Some(number), kind);
         self.save(next)?;
+        self.word_effects(id)?;
         let comment_failed = self.post_ruling(Some(number), id);
         Ok(Begin::Report(StepReport::Ruling {
             issue,
@@ -550,6 +551,7 @@ pub(super) fn park(
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: Some(names.now),
     });
     (id, text)

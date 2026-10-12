@@ -10,7 +10,7 @@ use crate::ports::PM_NOTES;
 /// shows again to a session that has seen the answer without it
 macro_rules! answer_key {
     () => {
-        "\"answer\": null or {\"item\": <the work item whose worker asked, or whose follow-up you pass on>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"why\": \"<one sentence>\"}"
+        "\"answer\": null or {\"item\": <the work item whose worker asked, or whose follow-up you pass on>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"problem\": \"<optional>\", \"board\": \"<optional>\", \"why\": \"<one sentence>\"}"
     };
 }
 
@@ -23,7 +23,13 @@ macro_rules! questions {
          asked. For a decision only the maintainer can make, give `escalate` with the \
          choice you recommend, which is added to the question as `PM recommends: \
          <choice>`; kelpie checks that the item is parked on a question, and drops the \
-         answer if not, when the question goes to the maintainer as it stands."
+         answer if not, when the question goes to the maintainer as it stands. A worker \
+         writes the problem on a `Problem:` line and what each option leads to after \
+         its ` => `, and the card shows both. When you pass a question on, give \
+         `problem` to replace the worker's with one or two plain sentences a maintainer \
+         who has not followed the item can act on, and `board` with what the board \
+         shows of picking an option: the items held behind this one, and whether a slot \
+         is freed or kept. Both are optional, and each goes on one line."
     };
 }
 
@@ -402,13 +408,13 @@ mod tests {
     fn a_wake_for_a_ruling_before_the_panel_shows_it_and_asks_for_a_vote_alone() {
         let vote = Wake::Vote {
             id: 4,
-            asked: "### Merge #455 into main?\n\n| | Option | What it does |".into(),
+            asked: "### Merge #455 into main?\n\n| | Option | If you pick it |".into(),
         };
         let fresh = wake("koji", std::slice::from_ref(&vote), &[], true);
         assert!(
             fresh.contains(
                 "- ruling 4 is before the panel, and your vote is due:\n  \n  > ### Merge #455 \
-                 into main?\n  >\n  > | | Option | What it does |"
+                 into main?\n  >\n  > | | Option | If you pick it |"
             ),
             "{fresh}"
         );
