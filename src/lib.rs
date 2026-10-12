@@ -19,6 +19,7 @@ pub mod doctor;
 pub mod dog;
 pub mod fence;
 pub mod flock;
+pub mod forge_ledger;
 pub mod forwarder;
 pub mod github;
 pub mod guard;
