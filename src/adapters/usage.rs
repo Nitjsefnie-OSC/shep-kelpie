@@ -21,6 +21,10 @@ const LIMIT: Duration = Duration::from_secs(30);
 // so a window that reset while `/usage` ran is not moved a year or a day on.
 const STALE_SECS: u64 = 3600;
 
+// How long a window lasts, for one that has not started
+const SESSION_SECS: u64 = 5 * 3600;
+const WEEK_SECS: u64 = 7 * 24 * 3600;
+
 /// Reads the account's usage through `claude`, one process per read
 #[derive(Debug, Clone)]
 pub struct UsageMeter {
@@ -83,12 +87,20 @@ pub(super) fn parse(stdout: &str, now: Timestamp) -> Result<Utilization, MeterEr
         return Err(unreadable(&message.result));
     }
     Ok(Utilization {
-        session: window(&message.result, "Current session:", now)?,
-        week: window(&message.result, "Current week (all models):", now)?,
+        session: window(&message.result, "Current session:", SESSION_SECS, now)?,
+        week: window(
+            &message.result,
+            "Current week (all models):",
+            WEEK_SECS,
+            now,
+        )?,
     })
 }
 
-fn window(text: &str, label: &str, now: Timestamp) -> Result<Window, MeterError> {
+// Right after a reset the line is `Current session: 0% used`, with no reset
+// time: the window has not started, so it ends a full `length` from now. The
+// next reading replaces that guess with the real time.
+fn window(text: &str, label: &str, length: u64, now: Timestamp) -> Result<Window, MeterError> {
     let unreadable = |what: String| MeterError::Unreadable(what);
     let line = text
         .lines()
@@ -96,10 +108,15 @@ fn window(text: &str, label: &str, now: Timestamp) -> Result<Window, MeterError>
         .ok_or_else(|| unreadable(format!("no `{label}` line")))?;
     let read = || -> Option<Window> {
         let (used, resets) = line.split_once("% used")?;
-        let (_, when) = resets.split_once("resets ")?;
+        let used_pct = used.trim().parse().ok()?;
+        let resets_at = match resets.split_once("resets ") {
+            Some((_, when)) => reset_time(when.trim(), now)?,
+            None if resets.trim().is_empty() => Timestamp(now.0.checked_add(length)?),
+            None => return None,
+        };
         Some(Window {
-            used_pct: used.trim().parse().ok()?,
-            resets_at: reset_time(when.trim(), now)?,
+            used_pct,
+            resets_at,
         })
     };
     read().ok_or_else(|| unreadable(format!("cannot read `{label}{line}`")))
@@ -307,6 +324,62 @@ mod tests {
             parse(&json, ts("2026-09-26T12:00:00-04:00")),
             Err(MeterError::Unreadable(
                 "cannot read `Current session: soon`".into()
+            ))
+        );
+    }
+
+    fn read(text: &str, now: Timestamp) -> Result<Utilization, MeterError> {
+        let json = serde_json::json!({ "is_error": false, "result": text }).to_string();
+        parse(&json, now)
+    }
+
+    #[test]
+    fn a_session_that_has_not_started_resets_five_hours_from_now() {
+        let now = ts("2026-10-02T01:00:06-04:00");
+        let text = "Current session: 0% used\n\
+                    Current week (all models): 21% used · resets Oct 2 at 11pm (America/New_York)";
+        assert_eq!(
+            read(text, now),
+            Ok(Utilization {
+                session: Window {
+                    used_pct: 0,
+                    resets_at: ts("2026-10-02T06:00:06-04:00"),
+                },
+                week: Window {
+                    used_pct: 21,
+                    resets_at: ts("2026-10-02T23:00:00-04:00"),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_week_that_has_not_started_resets_seven_days_from_now() {
+        let now = ts("2026-10-02T01:00:06-04:00");
+        let text = "Current session: 3% used · resets 3am (America/New_York)\n\
+                    Current week (all models): 0% used";
+        assert_eq!(
+            read(text, now),
+            Ok(Utilization {
+                session: Window {
+                    used_pct: 3,
+                    resets_at: ts("2026-10-02T03:00:00-04:00"),
+                },
+                week: Window {
+                    used_pct: 0,
+                    resets_at: ts("2026-10-09T01:00:06-04:00"),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_percentage_that_is_not_a_number_is_unreadable_even_without_a_reset() {
+        let text = "Current session: lots% used\nCurrent week (all models): 1% used";
+        assert_eq!(
+            read(text, ts("2026-10-02T01:00:06-04:00")),
+            Err(MeterError::Unreadable(
+                "cannot read `Current session: lots% used`".into()
             ))
         );
     }
