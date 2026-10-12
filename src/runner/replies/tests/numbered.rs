@@ -1,6 +1,7 @@
 //! A reply that names a ruling by the number of its issue or pull request
 
 use super::*;
+use crate::state::{ProjectState, Ruling, StateStore};
 
 // A reply of `text` and the code of `at`, written at `at`
 fn coded(rig: &Rig, text: &str, at: Timestamp) {
@@ -102,6 +103,26 @@ fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     );
     rig.clock.advance(READ_EVERY);
     rig.reply("koji#71 yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyAnswered { id: 1 })
+    );
+}
+
+// The reply kelpie tells the maintainer to send must work: a project named in
+// it owns the number, whatever another project's ruling is called.
+#[test]
+fn naming_the_project_answers_though_another_has_a_ruling_with_that_id() {
+    let (rig, runner, _) = alerted("koji");
+    let mut lab = ProjectState::new();
+    lab.rulings = vec![Ruling {
+        id: 71,
+        ..lock(&runner).state.rulings[0].clone()
+    }];
+    let path = rig.paths().kelpie_home.join("lab/state.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    StateStore::new(path).save(&lab).unwrap();
+    rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyAnswered { id: 1 })

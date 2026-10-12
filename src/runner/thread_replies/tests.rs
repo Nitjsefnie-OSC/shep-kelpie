@@ -349,6 +349,24 @@ fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
     assert_eq!(rig.github.reactions(), [comment, answer]);
 }
 
+// A question takes any text, so a number that opens it is part of the answer.
+#[test]
+fn a_number_opening_a_question_s_answer_is_not_taken_for_its_name() {
+    let (rig, runner) = a_question_on_7_mentioning("octocat");
+    let answer = "7 is the wrong issue, patch 8 instead";
+    let comment = rig.writes_on(7, "octocat", answer);
+    rig.claude.script([Scripted::Say("Done.")]);
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    assert_eq!(pending(&rig, &runner), none());
+    assert_eq!(rig.github.reactions(), [comment]);
+    let calls = rig.claude.calls();
+    let resumed = &calls.last().unwrap().prompt;
+    assert!(resumed.contains(answer), "{resumed}");
+}
+
 #[test]
 fn comment_reads_stay_within_one_per_board_poll_however_often_the_loop_wakes() {
     let (rig, runner, _) = a_merge_ruling_on_71();

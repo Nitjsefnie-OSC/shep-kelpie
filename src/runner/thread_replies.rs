@@ -691,7 +691,14 @@ impl Reading {
             return (Some((number, Naming::Id)), rest);
         }
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
-        let mut about = rulings.iter().filter(about).filter(|r| mentioned(&r.id));
+        // A ruling that takes any text is answered by a reply that names no
+        // ruling when it is the only one waiting, so a number opening the
+        // reply is part of the answer, not its name.
+        let named_by_number = |r: &&Ruling| Wants::of(&r.kind) != Wants::Answer;
+        let mut about = (rulings.iter())
+            .filter(about)
+            .filter(named_by_number)
+            .filter(|r| mentioned(&r.id));
         match (about.next(), about.next()) {
             (Some(ruling), None) => (Some((ruling.id, Naming::Number)), rest),
             _ if mentioned(&number) => (Some((number, Naming::Id)), rest),

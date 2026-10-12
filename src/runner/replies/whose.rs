@@ -94,7 +94,7 @@ pub(super) struct Named {
 
 impl Runner {
     // The ruling `reply` names. A number is a ruling's id when a ruling is
-    // open under it, here or on another project, or when none here is about
+    // open under it, here or (unnamed) on another project, or when none here is about
     // it. Otherwise it is the number of the issue or pull request that the
     // ruling here is about.
     pub(super) fn which(&self, reply: &Reply<'_>) -> Named {
@@ -108,10 +108,12 @@ impl Runner {
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
         let here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
         let ids = RulingIds::under(&self.paths.kelpie_home);
+        // A reply that names this project is ignored by the others, so a
+        // ruling of theirs under the number does not make it an id.
         let counter = !by_number
             && (here.is_empty()
                 || self.state.rulings.iter().any(|r| r.id == number)
-                || open_elsewhere(&ids, project, number));
+                || (named.is_none() && open_elsewhere(&ids, project, number)));
         if counter {
             return Named {
                 whose: self.whose(named, number),
