@@ -18,6 +18,7 @@ use crate::ports::{Fence, Guard, Reach};
 use crate::settings::{BuildDir, EnvName, GuardHook, NonBlank};
 use crate::worktree::BASE;
 
+mod housekeeping;
 mod login;
 
 pub use login::write as write_login;
@@ -217,6 +218,10 @@ impl WorkerProfile<'_> {
             git("logs/refs/remotes/origin").join(self.branch),
             with_suffix(&tracking_ref, ".lock"),
             tracking_ref,
+            // A commit locks `packed-refs` before it finds nothing to delete from
+            // it. The lock is all it needs then, and the file stays denied
+            // below, so a write that needs the file still fails.
+            git("packed-refs.lock"),
         ];
         // The clone's own base branch, which a push of every branch would carry.
         let no_write: Vec<PathBuf> = GIT_DENY
@@ -293,11 +298,21 @@ impl WorkerProfile<'_> {
             )
         });
         let github = self.token.into_iter().flat_map(|_| login::env(self.build));
-        [cargo, door]
+        // One variable, so a covered worker's value carries both lists.
+        let git_config = [housekeeping::PARAMETERS]
             .into_iter()
-            .chain(project)
-            .chain(github)
-            .collect()
+            .chain(self.token.map(|_| login::GIT_CONFIG))
+            .collect::<Vec<_>>()
+            .join(" ");
+        [
+            cargo,
+            door,
+            ("GIT_CONFIG_PARAMETERS".to_owned(), git_config),
+        ]
+        .into_iter()
+        .chain(project)
+        .chain(github)
+        .collect()
     }
 }
 
@@ -403,7 +418,7 @@ mod tests {
                     // github.com's is gh's, which answers from the config folder.
                     // The sandbox's own proxy setting, which this replaces, stays.
                     "GIT_CONFIG_PARAMETERS".to_owned(),
-                    "'http.proxyAuthMethod'='basic' 'credential.helper'='' 'credential.https://github.com.helper'='!gh auth git-credential'"
+                    "'http.proxyAuthMethod'='basic' 'gc.auto'='0' 'maintenance.auto'='false' 'fetch.prune'='false' 'credential.helper'='' 'credential.https://github.com.helper'='!gh auth git-credential'"
                         .to_owned()
                 ),
             ])
@@ -435,10 +450,22 @@ mod tests {
     }
 
     #[test]
-    fn with_no_app_a_worker_runs_as_the_maintainer_as_before() {
+    fn with_no_app_a_worker_runs_as_the_maintainer_and_its_git_still_skips_housekeeping() {
         let fence = profile(&[], &[]).reach().fence.expect("a worker is fenced");
         let names: Vec<&str> = fence.env.keys().map(String::as_str).collect();
-        assert_eq!(names, ["CARGO_TARGET_DIR", "KELPIE_LEASE_SOCKET"]);
+        assert_eq!(
+            names,
+            [
+                "CARGO_TARGET_DIR",
+                "GIT_CONFIG_PARAMETERS",
+                "KELPIE_LEASE_SOCKET"
+            ]
+        );
+        // The sandbox's own proxy setting, which this replaces, stays.
+        assert_eq!(
+            fence.env["GIT_CONFIG_PARAMETERS"],
+            "'http.proxyAuthMethod'='basic' 'gc.auto'='0' 'maintenance.auto'='false' 'fetch.prune'='false'"
+        );
         assert!(!fence.no_read.iter().any(|p| p.contains(".config/gh")));
         assert!(!fence.no_commands.contains(&"security".to_owned()));
     }
@@ -548,6 +575,7 @@ mod tests {
                 "/k/repos/shep/.git/logs/refs/remotes/origin/kelpie/7",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7.lock",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7",
+                "/k/repos/shep/.git/packed-refs.lock",
             ]
         );
         assert_eq!(
@@ -604,6 +632,7 @@ mod tests {
             json!({
                 "CARGO_TARGET_DIR": "/k/targets/lab/7",
                 "BUN_INSTALL_CACHE_DIR": "/k/targets/lab/7/bun",
+                "GIT_CONFIG_PARAMETERS": housekeeping::PARAMETERS,
                 "KELPIE_LEASE_SOCKET": "/k/dog/lease.sock",
             })
         );
