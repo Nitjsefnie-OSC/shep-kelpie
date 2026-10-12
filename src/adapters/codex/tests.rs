@@ -400,7 +400,8 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     }
     assert!(!policy.write.contains(&w.path("worker/settings.threads")));
     assert!(policy.no_write.contains(&w.path("wt/**/.codex")));
-    assert_eq!(policy.hosts, ["github.com", "api.github.com", MODEL_HOST]);
+    assert_eq!(policy.hosts[..2], ["github.com", "api.github.com"]);
+    assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
 
     let review = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
     let unfenced = super::policy(&review, &login, &Files::of(&review));

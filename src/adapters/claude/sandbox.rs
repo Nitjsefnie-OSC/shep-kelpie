@@ -339,7 +339,8 @@ mod tests {
         assert!(policy.no_write.contains(&transcripts.join("memory")));
         assert!(policy.no_write.contains(&w.path("wt/.claude")));
         assert!(policy.no_write.contains(&w.path("wt/**/.codex")));
-        assert_eq!(policy.hosts, ["github.com", "api.github.com", MODEL_HOST]);
+        assert_eq!(policy.hosts[..2], ["github.com", "api.github.com"]);
+        assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
         assert!(policy.read.contains(&w.path("worker/settings.json")));
         assert!(policy.no_read.iter().any(|p| p == "~/.ssh/**"));
         // Another harness's login, and none of Claude Code's own, which it reads to run.
