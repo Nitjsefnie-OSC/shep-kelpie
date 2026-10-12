@@ -19,6 +19,7 @@ use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
+use super::e2e::Remote;
 use super::{Kept, lock_desk};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
 use crate::lease::door::{Answer, Ask, E2E};
@@ -78,14 +79,17 @@ pub fn open(socket: &Path) -> Result<UnixListener, String> {
 /// Answers every command that knocks at `listener`, for as long as it runs,
 /// granting nothing new for `grace` from now
 ///
-/// An `e2e` ask is placed by the worktree it names under `kelpie_home`.
-pub async fn serve(
+/// An `e2e` ask is placed by the worktree it names under `kelpie_home`, and
+/// run through `remote`.
+pub(super) async fn serve(
     listener: UnixListener,
     desk: Arc<Mutex<Kept>>,
     grace: Duration,
     kelpie_home: PathBuf,
+    remote: Remote,
 ) {
     let kelpie_home = Arc::new(kelpie_home);
+    let remote = Arc::new(remote);
     let fresh_from = tokio::time::Instant::now() + grace;
     let waiters = Waiters::default();
     let mut next = 0;
@@ -104,24 +108,45 @@ pub async fn serve(
             desk: Arc::clone(&desk),
             waiters: Arc::clone(&waiters),
             kelpie_home: Arc::clone(&kelpie_home),
+            remote: Arc::clone(&remote),
+            e2e_host: None,
         };
         tokio::spawn(visit(stream, place, fresh_from));
     }
 }
 
 // One connection's hold on the lease, given back however the visit ends.
-struct Place {
-    ticket: Ticket,
-    desk: Arc<Mutex<Kept>>,
+pub(super) struct Place {
+    pub(super) ticket: Ticket,
+    pub(super) desk: Arc<Mutex<Kept>>,
     waiters: Waiters,
-    kelpie_home: Arc<PathBuf>,
+    pub(super) kelpie_home: Arc<PathBuf>,
+    pub(super) remote: Arc<Remote>,
+    // The host whose e2e lease this connection holds or waits for, if it is
+    // an e2e ask; otherwise it is for cargo-test.
+    pub(super) e2e_host: Option<String>,
+}
+
+impl Place {
+    // Lists the waiter before it asks, so a grant cannot miss it.
+    pub(super) fn list_waiter(&self, wake: oneshot::Sender<()>) {
+        self.waiters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(self.ticket, wake);
+    }
 }
 
 impl Drop for Place {
     fn drop(&mut self) {
         let mut waiters = self.waiters.lock().unwrap_or_else(PoisonError::into_inner);
         waiters.remove(&self.ticket);
-        let granted = lock_desk(&self.desk).desk.leave_test(self.ticket);
+        let mut kept = lock_desk(&self.desk);
+        let granted = match &self.e2e_host {
+            Some(host) => kept.desk.leave_e2e(host, self.ticket),
+            None => kept.desk.leave_test(self.ticket),
+        };
+        drop(kept);
         for ticket in granted {
             if let Some(wake) = waiters.remove(&ticket) {
                 let _ = wake.send(());
@@ -130,7 +155,7 @@ impl Drop for Place {
     }
 }
 
-async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instant) {
+async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::Instant) {
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     let mut first = Vec::new();
@@ -142,8 +167,7 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
     let ask = match serde_json::from_slice::<Ask>(&first) {
         Ok(ask) if ask.take == CARGO_TEST => ask,
         Ok(ask) if ask.take == E2E => {
-            let why = super::e2e::reply(&place.kelpie_home, ask.worktree.as_deref());
-            return say(&mut write, &Answer::Error(why)).await;
+            return super::e2e::visit(&mut place, ask, &mut reader, &mut write).await;
         }
         Ok(ask) => {
             let why = format!(
@@ -200,13 +224,13 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
 
 // Whether the connection sent anything, which it discards: a fixed buffer
 // bounds what the dog holds however much a holder writes.
-async fn heard(reader: &mut BufReader<OwnedReadHalf>) -> bool {
+pub(super) async fn heard(reader: &mut BufReader<OwnedReadHalf>) -> bool {
     let mut sink = [0; 1024];
     matches!(reader.read(&mut sink).await, Ok(1..))
 }
 
 // A command that went away is heard as the connection's end.
-async fn say(write: &mut OwnedWriteHalf, answer: &Answer) {
+pub(super) async fn say(write: &mut OwnedWriteHalf, answer: &Answer) {
     let mut line = serde_json::to_vec(answer).expect("an answer serializes to JSON");
     line.push(b'\n');
     let _ = write.write_all(&line).await;

@@ -3,7 +3,10 @@
 //! The ask carries the folder the command runs from and nothing else. The
 //! dog works out the project from that folder, and takes the host from the
 //! project's own settings, so a worker cannot name one.
+//! The dog streams the command's output back, a line at a time, and ends
+//! with its exit code.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -18,8 +21,15 @@ pub(crate) const NOT_CONFIGURED: u8 = 78;
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// Asks the dog at `socket` to run the e2e tests for the project holding
-/// `worktree`, and returns the number to exit with
+/// `worktree`, prints the command's output as it arrives, and returns the
+/// number to exit with: the command's own, or [`NO_LEASE`] when the dog is
+/// not reached or goes away
 pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
+    run_printing(socket, worktree, &mut std::io::stdout()).await
+}
+
+// `run`, printing the command's lines to `out`.
+async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> u8 {
     let ask = Ask {
         take: E2E.into(),
         pid: std::process::id(),
@@ -27,20 +37,55 @@ pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
         running: false,
         worktree: Some(worktree),
     };
-    let mut visit = match Visit::knock(socket, &ask).await {
+    let visit = match Visit::knock(socket, &ask).await {
         Ok(visit) => visit,
         Err(why) => return failed(&unreached(&why), NO_LEASE),
     };
-    match tokio::time::timeout(ANSWER_WITHIN, visit.answer()).await {
-        Err(_) => failed("the dog took the ask and never answered", NO_LEASE),
-        Ok(Err(why)) => failed(&unreached(&why), NO_LEASE),
-        Ok(Ok(Some(Answer::Error(why)))) if why.starts_with(NO_E2E_HOST) => {
-            failed(&why, NOT_CONFIGURED)
+    follow(visit, out).await
+}
+
+// The dog's answers to an ask, printed and turned into a code.
+async fn follow(mut visit: Visit, out: &mut impl Write) -> u8 {
+    let first = match tokio::time::timeout(ANSWER_WITHIN, visit.answer()).await {
+        Ok(answer) => answer,
+        Err(_) => return failed("the dog took the ask and never answered", NO_LEASE),
+    };
+    let mut granted = false;
+    let mut next = first;
+    loop {
+        match next {
+            Err(why) if granted => return failed(&gone(&why), NO_LEASE),
+            Err(why) => return failed(&unreached(&why), NO_LEASE),
+            Ok(None) if granted => return failed(&gone("the dog closed the door"), NO_LEASE),
+            Ok(None) => {
+                return failed("the dog closed the door without answering", NO_LEASE);
+            }
+            Ok(Some(Answer::Queued(ahead))) => {
+                eprintln!("shep kelpie lease: waiting for the e2e host, {ahead} ahead");
+            }
+            Ok(Some(Answer::Granted)) => granted = true,
+            Ok(Some(Answer::Output(line))) => {
+                // A reader that went away leaves the run going; its code still counts.
+                let _ = writeln!(out, "{line}").and_then(|()| out.flush());
+            }
+            Ok(Some(Answer::Done(code))) => return u8::try_from(code).unwrap_or(1),
+            Ok(Some(Answer::Error(why))) if why.starts_with(NO_E2E_HOST) => {
+                return failed(&why, NOT_CONFIGURED);
+            }
+            Ok(Some(Answer::Error(why))) => {
+                return failed(&format!("the dog refused: {why}"), 1);
+            }
         }
-        Ok(Ok(Some(Answer::Error(why)))) => failed(&format!("the dog refused: {why}"), 1),
-        Ok(Ok(Some(other))) => failed(&format!("the dog answered {other:?}"), 1),
-        Ok(Ok(None)) => failed("the dog closed the door without answering", NO_LEASE),
+        next = visit.answer().await;
     }
+}
+
+// What a run says when the dog goes away after granting the host: the
+// command's end is then unknown, and the dog ended the run with its worker.
+fn gone(why: &str) -> String {
+    format!(
+        "{why} before the e2e run ended: the e2e tests did not finish, so say so in your final message"
+    )
 }
 
 // A worker cannot start the dog, so it is told to go on without the run.
@@ -94,12 +139,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lease_e2e_prints_the_output_and_exits_with_the_runs_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("lease.sock");
+        let _dog = dog_answering(
+            &socket,
+            "{\"queued\":1}\n\"granted\"\n{\"output\":\"ok 1\"}\n{\"output\":\"not ok 2\"}\n{\"done\":3}",
+        );
+        let mut printed = Vec::new();
+
+        let code = run_printing(&socket, dir.path().to_owned(), &mut printed).await;
+
+        assert_eq!(code, 3);
+        assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\nnot ok 2\n");
+    }
+
+    #[tokio::test]
+    async fn lease_e2e_exits_75_when_the_dog_goes_away_mid_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("lease.sock");
+        let _dog = dog_answering(&socket, "\"granted\"\n{\"output\":\"ok 1\"}");
+        let mut printed = Vec::new();
+
+        let code = run_printing(&socket, dir.path().to_owned(), &mut printed).await;
+
+        assert_eq!(code, 75);
+        assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\n");
+    }
+
+    #[tokio::test]
     async fn lease_e2e_exits_1_when_the_dog_refuses_for_any_other_reason() {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("lease.sock");
         let _dog = dog_answering(
             &socket,
-            r#"{"error":"this dog cannot run e2e yet: update kelpie and restart the dog"}"#,
+            r#"{"error":"a results folder in the worktree is a link"}"#,
         );
 
         assert_eq!(run(&socket, dir.path().to_owned()).await, 1);
