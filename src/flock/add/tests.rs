@@ -246,6 +246,25 @@ async fn a_public_repo_with_no_ci_gets_no_ci_and_still_lists_no_review_bot() {
 }
 
 #[tokio::test]
+async fn add_writes_both_files_and_lists_neither() {
+    let scene = Scene::new().await;
+    scene.add().await.unwrap();
+    for (axis, text) in [
+        ("standards", include_str!("../../../agents/standards.md")),
+        ("spec", include_str!("../../../agents/spec.md")),
+    ] {
+        let written = std::fs::read_to_string(scene.agents().join(format!("{axis}.md")));
+        assert_eq!(
+            written.unwrap(),
+            text,
+            "written, though no project lists it"
+        );
+    }
+    let reviewers = scene.settings().agents.reviewers.unwrap();
+    assert_eq!(reviewers, [AgentName::kelpies("defect-hunter")]);
+}
+
+#[tokio::test]
 async fn another_default_branch_is_refused_before_anything_changes() {
     let mut scene = Scene::new().await;
     scene.forge.set_default_branch("trunk");
