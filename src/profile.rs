@@ -136,6 +136,33 @@ const KEYCHAIN_COMMANDS: [&str; 6] = [
 // What `git push` and `gh` reach. A project adds its own, such as a registry.
 const GITHUB: [&str; 2] = ["github.com", "api.github.com"];
 
+// Where GitHub redirects a download of a run's logs, a job's logs or an
+// artifact to. Listed by name, since `*.blob.core.windows.net` would reach any
+// Azure storage account. The storage hosts are the range GitHub's docs list.
+const GITHUB_DOWNLOADS: [&str; 21] = [
+    "results-receiver.actions.githubusercontent.com",
+    "productionresultssa0.blob.core.windows.net",
+    "productionresultssa1.blob.core.windows.net",
+    "productionresultssa2.blob.core.windows.net",
+    "productionresultssa3.blob.core.windows.net",
+    "productionresultssa4.blob.core.windows.net",
+    "productionresultssa5.blob.core.windows.net",
+    "productionresultssa6.blob.core.windows.net",
+    "productionresultssa7.blob.core.windows.net",
+    "productionresultssa8.blob.core.windows.net",
+    "productionresultssa9.blob.core.windows.net",
+    "productionresultssa10.blob.core.windows.net",
+    "productionresultssa11.blob.core.windows.net",
+    "productionresultssa12.blob.core.windows.net",
+    "productionresultssa13.blob.core.windows.net",
+    "productionresultssa14.blob.core.windows.net",
+    "productionresultssa15.blob.core.windows.net",
+    "productionresultssa16.blob.core.windows.net",
+    "productionresultssa17.blob.core.windows.net",
+    "productionresultssa18.blob.core.windows.net",
+    "productionresultssa19.blob.core.windows.net",
+];
+
 /// Where one worker may write, and what it runs under
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerProfile<'a> {
@@ -224,6 +251,7 @@ impl WorkerProfile<'_> {
             .collect();
         let hosts = GITHUB
             .into_iter()
+            .chain(GITHUB_DOWNLOADS)
             .chain(self.allowed_domains.iter().map(NonBlank::as_str))
             .map(str::to_owned)
             .collect();
@@ -583,15 +611,41 @@ mod tests {
 
     #[test]
     fn the_network_is_github_and_the_projects_own_domains_only() {
-        assert_eq!(
-            strings(&settings(&[])["sandbox"]["network"]["allowedDomains"]),
-            ["github.com", "api.github.com"]
-        );
+        let plain = settings(&[]);
+        let hosts = strings(&plain["sandbox"]["network"]["allowedDomains"]);
+        assert_eq!(hosts[..2], ["github.com", "api.github.com"]);
         let npm = [NonBlank::try_from("registry.npmjs.org".to_owned()).unwrap()];
-        assert_eq!(
-            strings(&with_domains(&[], &npm)["sandbox"]["network"]["allowedDomains"]),
-            ["github.com", "api.github.com", "registry.npmjs.org"]
-        );
+        let extended = with_domains(&[], &npm);
+        let with_npm = strings(&extended["sandbox"]["network"]["allowedDomains"]);
+        assert_eq!(with_npm[..hosts.len()], hosts[..]);
+        assert_eq!(with_npm[hosts.len()..], ["registry.npmjs.org"]);
+    }
+
+    #[test]
+    fn a_fresh_profile_allows_the_hosts_a_log_download_redirects_to() {
+        let settings = settings(&[]);
+        let hosts = strings(&settings["sandbox"]["network"]["allowedDomains"]);
+        let storage = (0..20).map(|n| format!("productionresultssa{n}.blob.core.windows.net"));
+        for host in ["results-receiver.actions.githubusercontent.com".to_owned()]
+            .into_iter()
+            .chain(storage)
+        {
+            assert!(
+                hosts.contains(&host.as_str()),
+                "{host} missing from {hosts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fresh_profile_allows_no_other_blob_host() {
+        let settings = settings(&[]);
+        let hosts = strings(&settings["sandbox"]["network"]["allowedDomains"]);
+        let blobs: Vec<_> = hosts.iter().filter(|h| h.contains("windows.net")).collect();
+        assert_eq!(blobs.len(), 20, "{blobs:?}");
+        assert!(!hosts.iter().any(|h| h.contains('*')), "{hosts:?}");
+        assert!(!hosts.contains(&"evil.blob.core.windows.net"));
+        assert!(!hosts.contains(&"productionresultssa20.blob.core.windows.net"));
     }
 
     #[test]
