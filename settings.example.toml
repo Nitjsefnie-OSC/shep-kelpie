@@ -250,12 +250,13 @@ compact_window = 200000
 
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
-# lists each step and its default. `path` is a skill folder of your own,
-# `plugin` a skill in a Claude Code plugin's folder, and `none` runs kelpie's
-# own prompt. A skill that cannot load runs kelpie's prompt too, and the log
+# lists each step and its default. `retro` is the exception: it is off
+# unless named. `path` is a skill folder of your own, `plugin` a skill in a
+# Claude Code plugin's folder, `kelpie` the step's default from kelpie's copy,
+# and `none` runs kelpie's own prompt, or no retro at all. A skill that cannot load runs kelpie's prompt too, and the log
 # and `status` say why. Kelpie rewrites `$SHEP_HOME/kelpie/<project>/skills/`
 # at every start, so a folder of your own inside it stops the runner.
 # [app.dogs.kelpie.skills]
 # implement = { kind = "path", path = "~/skills/implement" }
 # ci_fix = { kind = "plugin", plugin = "~/plugins/house", skill = "debug" }
-# retro = { kind = "none" }
+# retro = { kind = "kelpie" }

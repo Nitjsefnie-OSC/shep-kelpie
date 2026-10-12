@@ -147,10 +147,15 @@ impl Skills {
         let steps: Vec<StepSkill> = Step::ALL
             .into_iter()
             .map(|step| {
-                let loaded = match chosen.choice(step) {
-                    None => written
+                let kelpies = || {
+                    written
                         .clone()
-                        .map(|()| Some(Loaded::new(&vendored, PLUGIN, step.default_skill()))),
+                        .map(|()| Some(Loaded::new(&vendored, PLUGIN, step.default_skill())))
+                };
+                let loaded = match chosen.choice(step) {
+                    // A retro is a call of its own at every work item's end, so it runs only when named.
+                    None if step == Step::Retro => Ok(None),
+                    None | Some(SkillChoice::Kelpie {}) => kelpies(),
                     Some(SkillChoice::None {}) => Ok(None),
                     Some(SkillChoice::Path { path }) => {
                         wrap(path, &folder.join(step.as_str()), step).map(Some)
@@ -263,7 +268,7 @@ pub fn check(chosen: &StepSkills, folder: &Path) -> Result<(), SettingsError> {
         let path = match chosen.choice(step) {
             Some(SkillChoice::Path { path }) => path,
             Some(SkillChoice::Plugin { plugin, .. }) => plugin,
-            Some(SkillChoice::None {}) | None => continue,
+            Some(SkillChoice::None {} | SkillChoice::Kelpie {}) | None => continue,
         };
         if inside(path) {
             return Err(SettingsError::Invalid {
