@@ -7,7 +7,7 @@
 //! worker's sandbox may connect to this socket and to no shep socket.
 
 use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use nix::fcntl::{FcntlArg, FdFlag, fcntl};
 use serde::{Deserialize, Serialize};
@@ -37,13 +37,15 @@ pub fn socket() -> Result<PathBuf, String> {
     named.map_or_else(|| Ok(default(&home::shep_home()?)), |n| Ok(n.into()))
 }
 
-/// The door a runner of the shepherd at `shep_home` lets its workers reach:
-/// [`socket`], unless that is relative or under the shepherd's home outside
-/// kelpie's, when it is the default and the message says why
+/// The door of the shepherd at `shep_home`, which the dog binds and a runner
+/// lets its workers reach: `KELPIE_LEASE_SOCKET`, unless that is relative or
+/// under the shepherd's home outside kelpie's, when it is the default and the
+/// message says why
 ///
 /// The path goes into the worker's sandbox, so it must never be shep's
-/// own socket.
-pub fn worker_socket(shep_home: &Path) -> (PathBuf, Option<String>) {
+/// own socket. The dog and the runner both ask this, so they cannot
+/// disagree. The comparison resolves `..`, symlinks and a volume's case.
+pub fn checked_socket(shep_home: &Path) -> (PathBuf, Option<String>) {
     let named = std::env::var_os(SOCKET_VAR).filter(|n| !n.is_empty());
     checked(named.map(PathBuf::from), shep_home)
 }
@@ -57,7 +59,12 @@ fn checked(named: Option<PathBuf>, shep_home: &Path) -> (PathBuf, Option<String>
     let Some(named) = named else {
         return (default, None);
     };
-    let shepherds = named.starts_with(shep_home) && !named.starts_with(home::under(shep_home));
+    let (real, shep, kelpie) = (
+        resolved(&named),
+        resolved(shep_home),
+        resolved(&home::under(shep_home)),
+    );
+    let shepherds = real.starts_with(&shep) && !real.starts_with(&kelpie);
     if named.is_absolute() && !shepherds {
         return (named, None);
     }
@@ -67,6 +74,29 @@ fn checked(named: Option<PathBuf>, shep_home: &Path) -> (PathBuf, Option<String>
         default.display()
     );
     (default, Some(why))
+}
+
+// Where `path` leads: `..` applied after the symlinks before it, and each
+// part that exists spelled as the volume does, so a case-insensitive one
+// cannot be asked for shep's socket by another name. What does not exist
+// yet is kept as written.
+fn resolved(path: &Path) -> PathBuf {
+    let mut real = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                real.pop();
+            }
+            Component::CurDir => {}
+            part => {
+                real.push(part);
+                if let Ok(there) = real.canonicalize() {
+                    real = there;
+                }
+            }
+        }
+    }
+    real
 }
 
 /// What a command asks for, its first and only line
@@ -196,6 +226,47 @@ mod tests {
             let (door, why) = checked(Some(PathBuf::from(bad)), shep);
             assert_eq!(door, default, "{bad}");
             assert!(why.unwrap().contains(bad));
+        }
+    }
+
+    // The dog binds what the runner hands its workers, so both ask `checked`.
+    #[test]
+    fn the_dog_and_the_runner_resolve_one_door() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let shep = base.join("shep");
+        std::fs::create_dir_all(shep.join("run")).unwrap();
+        std::fs::create_dir_all(home::dog_folder(&shep)).unwrap();
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(shep.join("run"), outside.join("link")).unwrap();
+        let default = default(&shep);
+
+        let mut bad = vec![
+            PathBuf::from("door.sock"),
+            shep.join("run/shep.sock"),
+            shep.join("kelpie/../run/shep.sock"),
+            outside.join("link/shep.sock"),
+            outside.join("link/../shep/run/shep.sock"),
+        ];
+        // Only a case-insensitive volume finds the folder spelled this way.
+        let shouting = shep.join("RUN/shep.sock");
+        if shouting.parent().unwrap().exists() {
+            bad.push(shouting);
+        }
+        for named in bad {
+            let (door, why) = checked(Some(named.clone()), &shep);
+            assert_eq!(door, default, "{}", named.display());
+            assert!(why.unwrap().contains(&named.display().to_string()));
+        }
+
+        let fine = [
+            outside.join("door.sock"),
+            shep.join("kelpie/dog/other.sock"),
+            shep.join("kelpie/../kelpie/dog/other.sock"),
+        ];
+        for named in fine {
+            assert_eq!(checked(Some(named.clone()), &shep), (named, None));
         }
     }
 

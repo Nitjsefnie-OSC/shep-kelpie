@@ -128,7 +128,7 @@ fn what_it_missed_while_held_in_a_terminal_wakes_it_once_it_is_back() {
     assert_eq!(
         woke_for,
         [
-            "#7 is stuck: its worker's turn failed or stopped short twice, and ruling 1 asks \
+            "#7 is stuck: its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice, and ruling 1 asks \
           the maintainer"
         ]
     );

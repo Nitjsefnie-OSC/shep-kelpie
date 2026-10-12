@@ -313,7 +313,7 @@ A worker whose first turn ends with no pull request and no question is sent back
 
 A work item with no pull request ends when its issue is closed and it holds no work: no commit on its branch or in its worktree that `main` lacks, and no file left uncommitted. The worker found nothing to change, or you closed the issue. It ends as soon as the worker's turn does, with no ruling. Parked on a ruling, its issue is read at most once every five minutes, and it ends once a read finds the issue closed, its ruling withdrawn. The log, the webhook (when one is set), `status`, the board and `usage` say the issue was closed with no change, and its history entry has `closed` set, `merged` not. shep-kelpie cannot tell who closed the issue, so a worker that closes it on its own ends its work item the same way. Work on the branch or in the worktree, or an open pull request that closes the issue, leaves the work item to go on as before. A turn still running at `worker.turn_timeout` minutes is ended and asks you whether to go on.
 
-Each worker runs inside the sandbox with its fence: it writes only its worktree and build folder, reaches only GitHub, the model's API and the project's `allowed_domains`, and never merges, marks a pull request ready or summons a review bot. `kelpie confine` checks every file write and `kelpie guard` every command. Workers run their test suites under the `cargo-test` lease (see [Leases](#leases)).
+Each worker runs inside the sandbox with its fence: it writes only its worktree and build folder, reaches only GitHub (including the hosts its log and artifact downloads redirect to), the model's API and the project's `allowed_domains`, and never merges, marks a pull request ready or summons a review bot. `kelpie confine` checks every file write and `kelpie guard` every command. Workers run their test suites under the `cargo-test` lease (see [Leases](#leases)).
 
 Kelpie keeps what is private off the forge. It refuses, and never sends, any commit message, issue, comment, reply or pull request text that names:
 
@@ -494,7 +494,7 @@ An issue labelled `agent:<name>` (the prefix in any case) runs on that agent, wh
 
 A work item keeps the agent it opened on, and each turn runs that agent's file as it is then, with one exception. With `agents.fallback_after` set, in minutes, a work item's first turn that has waited that long for its model is stopped and moves to the next implementer listed after its own that no other work item is waiting on or moving to. Its first turn has no output and no session yet, so nothing is lost, and its next turn starts fresh on the new agent. The log's `fell-back` line names both agents. A later turn never moves, nor does an item whose label ends in `!`. With no implementer after its own free, it goes on waiting.
 
-A turn waits for its model while it asks for a lease on it, from a gateway or the GPU lock, while its gateway answers busy, or while it has shown no output for `agents.fallback_after` (10 minutes with that off). `status` shows it on the work item as `waiting`, with `since` and `why` (`lease`, `busy` or `silent`), and the board as "Waiting for its model since". Its first output clears it. That covers a turn behind a gateway's lease or the GPU lock, and a harness whose output kelpie reads as it comes, such as pi. A Claude Code turn is not reliably marked: headless Claude Code retries a provider's overloaded or rate-limit answer inside the call and says so only when it ends, and kelpie reads its activity from the session's transcript, which can hold lines before any output. So a Claude Code turn may never be marked waiting, and its fallback is unreliable.
+A turn waits for its model while it asks for a lease on it, from a gateway or the GPU lock, while its gateway answers busy, or while it has shown no output for `agents.fallback_after` (10 minutes with that off). `status` shows it on the work item as `waiting`, with `since` and `why` (`lease`, `busy`, `silent` or `unreachable`), and the board as "Waiting for its model since". Its first output clears it. A turn whose model host cannot be reached, a pi call that got a 502 or 503 from it or had its connection refused or reset, is not parked on a ruling. It keeps its session and is tried again after 30 seconds, then after twice as long each time up to 5 minutes, and `status` shows `unreachable` from the first failure. Past 30 minutes since that failure it parks on a `turn-failed` ruling that carries the last error. The 30 minutes is not a setting, and `agents.fallback_after` never moves an item for this wait. A restart begins a new wait, since the retry is held in memory only. That covers a turn behind a gateway's lease or the GPU lock, and a harness whose output kelpie reads as it comes, such as pi. A Claude Code turn is not reliably marked: headless Claude Code retries a provider's overloaded or rate-limit answer inside the call and says so only when it ends, and kelpie reads its activity from the session's transcript, which can hold lines before any output. So a Claude Code turn may never be marked waiting, and its fallback is unreliable.
 
 `usage` says how an agent's usage is read, and so which account paces it: `claude` (the default on Claude Code) reads `/usage`, `codex` reads Codex's own 5-hour and weekly windows, and `none` is a local model that is never paced. It must be the harness's own reader, so leave it out: Claude Code reads `claude`, pi reads `none` and Codex reads `codex`.
 
@@ -789,7 +789,9 @@ Before it restarts a runner, the upgrade drains it, so the restart cuts no worke
 
 A bare `upgrade` is for after `cargo install`, which has already put the new build at the installed path. It runs the same checks as `--binary <installed path>` (the build's shep line against your shepherd's) and then restarts, with no staging and no swap. Kelpie records the installed file's size and modification time in `$SHEP_HOME/kelpie/builds/installed.seen` after every upgrade that finishes its restarts, and a bare run compares against it. If the file is the same, it says nothing changed since the last upgrade and restarts nothing. With no record, it counts as changed. If the file differs, it restarts and says that `--rollback` has no copy of the build cargo replaced (the previous build kept is the one before it), while `--ref`, `--release` and `--binary` keep one. `--now` and the drain apply as for the other forms.
 
-If an upgrade stops after the swap (a merge or a call that outlasts the wait, a sheep that does not come back, Ctrl-C), the new build is already installed and the message says so. `shep kelpie upgrade --binary <installed path>` finishes the restarts and touches no file. `--rollback` does not: it swaps the two builds again.
+If an upgrade stops after the swap (a merge or a call that outlasts the wait, a sheep that does not come back, Ctrl-C), the new build is already installed and the message says so. `shep kelpie upgrade --binary <installed path>` finishes the restarts and touches no file. `--rollback` does not: it swaps the two builds again. After a `--rollback` that stops, the older build is the one installed, and the same command finishes its restarts.
+
+The upgrade reads the flock again just before the restarts, since the wait for a build or a merge can be long, but a sheep can still change after that read. A stop that lands between the re-read and the restart is undone: the restart starts that sheep again. A sheep started during the wait stays on the old build. In both cases run `shep kelpie upgrade --binary <installed path>` again, which restarts every running sheep and touches no file.
 
 This build writes each project's state file as version 31, and every older build refuses a version 31 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
 
@@ -825,7 +827,7 @@ shep kelpie add        # labels, settings, agent files, and the runner, stopped
 shep kelpie start      # starts the runner, which runs the project
 shep kelpie pause      # stops it once its calls end
 shep kelpie finish     # stops it once its open work items end, picking nothing new
-shep kelpie status     # every project
+shep kelpie status     # every project, or --json for the runner's whole object
 shep kelpie doctor     # what each project still needs on this machine
 shep kelpie rule 14 yes
 shep kelpie issue "<request>"   # issues for you to read, or --interactive
@@ -837,6 +839,24 @@ shep kelpie github setup   # once per repo owner, with --org <org> for an organi
 shep kelpie totp       # once, to answer rulings from ntfy
 shep kelpie lease status
 ```
+
+`status` prints a short block per project: its run state, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.
+
+```text
+$ shep kelpie status
+koji (finishing)
+  run: finishing
+  work items:
+    #7 Add a thing: phase ruling, turn ended, PR #71
+    #9 Fix the other: phase implement, turn running, no PR
+  rulings waiting: 1
+    ruling 1: merge, #7, PR #71
+  pacer: on
+    claude: session 3%, week 15%, 15% of the week spent today of 14.3% allowed
+    claude holding (allowance): today's allowance is spent
+```
+
+`status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
 Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works.
 

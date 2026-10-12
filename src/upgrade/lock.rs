@@ -70,7 +70,7 @@ fn held(path: &Path, by: &str) -> String {
 }
 
 // Whether a process with this pid exists.
-fn alive(pid: u32) -> bool {
+pub(super) fn alive(pid: u32) -> bool {
     crate::spawn::command("kill")
         .args(["-0", &pid.to_string()])
         .stdin(Stdio::null())

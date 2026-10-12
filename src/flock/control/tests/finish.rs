@@ -167,11 +167,11 @@ async fn status_marks_a_runner_finishing() {
     shepherd.says("koji", &[FINISHING, both]);
     let client = client(&shepherd).await;
     assert_eq!(
-        in_time(status(&client)).await.unwrap(),
+        in_time(status(&client, Format::Json)).await.unwrap(),
         [format!("koji (finishing): {FINISHING}")]
     );
     assert_eq!(
-        in_time(status(&client)).await.unwrap(),
+        in_time(status(&client, Format::Json)).await.unwrap(),
         [format!("koji (draining, finishing): {both}")]
     );
 }

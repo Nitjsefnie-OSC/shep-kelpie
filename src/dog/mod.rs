@@ -222,7 +222,8 @@ async fn serve() -> Result<(), String> {
     if !shepherd.is_active() {
         return Err(no_channel());
     }
-    let socket = shep_home::required(shep_home::DOG_FIX)?.join("run/shep.sock");
+    let shep_home = shep_home::required(shep_home::DOG_FIX)?;
+    let socket = shep_home.join("run/shep.sock");
     let identity = link::identity();
     let listener = link::connect(&socket, &identity, "for events").await?;
     let client = link::connect(&socket, &identity, "for requests").await?;
@@ -249,8 +250,12 @@ async fn serve() -> Result<(), String> {
     let desk = Arc::new(Mutex::new(kept));
     // The other leases do not need the door, so the dog runs on without it.
     // It is bound before any handler can start a process that inherits it.
-    let opened = crate::lease::door::socket()
-        .and_then(|socket| door::open(&socket).map(|listener| (socket, listener)));
+    // The runner hands its workers the same door, or the default with this message.
+    let (socket, refused) = crate::lease::door::checked_socket(&shep_home);
+    if let Some(why) = refused {
+        println!("{why}");
+    }
+    let opened = door::open(&socket).map(|listener| (socket, listener));
     match opened {
         Ok((socket, listener)) => {
             println!("the door is {}, {capacity} at a time", socket.display());

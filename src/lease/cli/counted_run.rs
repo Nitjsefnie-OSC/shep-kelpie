@@ -21,24 +21,38 @@ pub(crate) const NO_LEASE: u8 = 75;
 pub(crate) const NOT_RUN: u8 = 127;
 
 /// How often a run whose dog went away knocks again; a restart takes seconds
-const REJOIN_EVERY: Duration = Duration::from_secs(1);
+pub(crate) const REJOIN_EVERY: Duration = Duration::from_secs(1);
 
 /// How many knocks before a run stops asking again, waiting or running
-const REJOIN_TRIES: u32 = 60;
+pub(crate) const REJOIN_TRIES: u32 = 60;
 
 /// How long a dog has to answer an ask; a live one answers at once
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
+
+/// How long a run keeps asking for a dog that is gone
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Patience {
+    /// How many knocks before it stops
+    pub(crate) tries: u32,
+    /// How long between knocks
+    pub(crate) every: Duration,
+}
+
+/// What a run has: [`REJOIN_TRIES`] knocks, one every [`REJOIN_EVERY`]
+pub(crate) const PATIENCE: Patience = Patience {
+    tries: REJOIN_TRIES,
+    every: REJOIN_EVERY,
+};
 
 /// Runs `command` once the door at `socket` grants `cargo-test`, and
 /// returns the number to exit with: the command's own, or [`NO_LEASE`],
 /// [`NOT_RUN`], or a caught signal's
 pub(crate) async fn run(socket: &Path, command: &[&str]) -> u8 {
-    run_with_patience(socket, command, REJOIN_TRIES).await
+    run_with_patience(socket, command, PATIENCE).await
 }
 
-/// [`run`], knocking at most `tries` more times when the dog is gone
-pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], tries: u32) -> u8 {
-    let patience = tries;
+/// [`run`], knocking as `patience` says when the dog is gone
+pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], patience: Patience) -> u8 {
     let Some((program, args)) = command.split_first() else {
         return NOT_RUN;
     };
@@ -58,13 +72,9 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], tries: u3
         Err(e) => return failed(&unreached(&e), NO_LEASE),
     };
     // A signal before the start reached nobody else, so it ends the run.
-    tokio::select! {
-        biased;
-        caught = signals.recv() => {
-            visit.give_back().await;
-            return caught.number();
-        }
-        () = std::future::ready(()) => {}
+    if let Some(caught) = signals.already().await {
+        visit.give_back().await;
+        return caught.number();
     }
     if let Err(e) = visit.inheritable(true) {
         say(&format!("{e}: the lease is held by this process alone"));
@@ -87,12 +97,12 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], tries: u3
     let mut held = Some(visit);
     let mut tries = 0;
     loop {
-        let rejoining = held.is_none() && tries < patience;
+        let rejoining = held.is_none() && tries < patience.tries;
         let event = tokio::select! {
             status = child.wait() => Event::Ended(status),
             caught = signals.recv() => Event::Caught(caught),
             () = closed(held.as_mut()) => Event::DogGone,
-            () = tokio::time::sleep(REJOIN_EVERY), if rejoining => Event::Rejoin,
+            () = tokio::time::sleep(patience.every), if rejoining => Event::Rejoin,
         };
         match event {
             Event::Ended(status) => {
@@ -118,7 +128,7 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], tries: u3
                         held = Some(visit);
                         say("the dog counts this run again");
                     }
-                    Err(_) if tries == patience => {
+                    Err(_) if tries == patience.tries => {
                         say("the dog did not come back, so this run is not counted");
                     }
                     Err(_) => {}
@@ -142,7 +152,7 @@ async fn wait_for_turn(
     socket: &Path,
     ask: &Ask,
     signals: &mut Signals,
-    patience: u32,
+    patience: Patience,
 ) -> Result<Result<Visit, Caught>, String> {
     let mut tries = 0;
     loop {
@@ -150,20 +160,37 @@ async fn wait_for_turn(
             Turn::Granted(visit) => return Ok(Ok(visit)),
             Turn::Caught(caught) => return Ok(Err(caught)),
             Turn::Refused(why) => return Err(why),
-            Turn::Lost(why) => why,
+            Turn::Lost { why, answered } => {
+                // A dog that answered was there; the next one is a fresh wait.
+                // A run queued behind hours of work may outlast many restarts,
+                // so only a dog that never answers wears the tries down.
+                if answered {
+                    tries = 0;
+                }
+                why
+            }
         };
         tries += 1;
-        if tries > patience {
+        if tries > patience.tries {
             return Err(lost);
         }
         if tries == 1 {
-            say(&format!("{lost}: asking again while the dog comes back"));
+            say(&asking_again(&lost, patience));
         }
         tokio::select! {
-            () = tokio::time::sleep(REJOIN_EVERY) => {}
+            () = tokio::time::sleep(patience.every) => {}
             caught = signals.recv() => return Ok(Err(caught)),
         }
     }
+}
+
+// What the first failed knock says, so a worker reading it knows how long
+// the run holds out before it exits without the lease.
+fn asking_again(lost: &str, patience: Patience) -> String {
+    format!(
+        "{lost}: asking again every {:?}, up to {} times while the dog comes back, then exiting {NO_LEASE}",
+        patience.every, patience.tries
+    )
 }
 
 enum Turn {
@@ -171,16 +198,22 @@ enum Turn {
     Caught(Caught),
     // The dog said no, which asking again would not change.
     Refused(String),
-    // No dog, or it went away before granting.
-    Lost(String),
+    // No dog, or it went away before granting, after answering or not.
+    Lost { why: String, answered: bool },
 }
 
 async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Signals) -> Turn {
     let mut visit = match Visit::knock(socket, ask).await {
         Ok(visit) => visit,
-        Err(e) => return Turn::Lost(e),
+        Err(why) => {
+            return Turn::Lost {
+                why,
+                answered: false,
+            };
+        }
     };
     let mut first = true;
+    let mut answered = false;
     loop {
         // The first answer comes at once from a live dog; a queue's grant can take hours.
         let next = async {
@@ -199,17 +232,19 @@ async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Signals) -> Turn {
         match answer {
             Ok(Some(Answer::Granted)) => return Turn::Granted(visit),
             Ok(Some(Answer::Queued(ahead))) => {
+                answered = true;
                 say(&format!("waiting for {CARGO_TEST}, {ahead} ahead"));
             }
             Ok(Some(Answer::Error(why))) => {
                 return Turn::Refused(format!("the dog refused: {why}"));
             }
             Ok(None) => {
-                return Turn::Lost(format!(
-                    "the dog closed the door before granting {CARGO_TEST}"
-                ));
+                return Turn::Lost {
+                    why: format!("the dog closed the door before granting {CARGO_TEST}"),
+                    answered,
+                };
             }
-            Err(e) => return Turn::Lost(e),
+            Err(why) => return Turn::Lost { why, answered },
         }
     }
 }
@@ -247,4 +282,17 @@ fn failed(message: &str, code: u8) -> u8 {
 
 fn say(message: &str) {
     eprintln!("shep kelpie lease: {message}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_failed_knock_says_how_long_it_will_ask() {
+        assert_eq!(
+            asking_again("cannot reach the dog", PATIENCE),
+            "cannot reach the dog: asking again every 1s, up to 60 times while the dog comes back, then exiting 75"
+        );
+    }
 }
