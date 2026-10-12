@@ -111,7 +111,7 @@ const TWO_BRANCHES: &str = r#"# Board: acme, 2026-09-21 14:18 UTC
   - Session: no call in flight; the worker's last turn ended 5m ago
   - Last turn: "pushed"
 
-## Ready queue, read 5m ago (board rule order: priority, then oldest by number)
+## Ready queue, read 5m ago (the board's order, first taken first; a new issue joins after the last of its priority)
 
 1. #9 [P1] "Title of #9"; waits: blocked by #4; names README.md, src/missing.rs
 

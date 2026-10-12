@@ -32,6 +32,7 @@ impl Runner {
                 }));
             }
         };
+        self.follow_order(&ready)?;
         self.trim_finished(&ready)?;
         self.trim_dropped(&ready)?;
         // An issue in flight is left out, and not listed in `skipped`: it is
@@ -73,7 +74,8 @@ impl Runner {
         loop {
             let implementers = self.agents.implementer_names();
             let (finished, dropped) = (&self.state.finished, &self.state.dropped);
-            let pick = board::pick(&ready, &open, finished, dropped, &implementers);
+            let order = &self.state.order;
+            let pick = board::pick(&ready, &open, finished, dropped, &implementers, order);
             let mut skipped = pick.skipped;
             skipped.extend(failed.iter().cloned());
             skipped.extend(overlaps.iter().cloned());
@@ -185,7 +187,7 @@ fn takeable(
     (ready.iter())
         .filter(|i| {
             let one = std::slice::from_ref(*i);
-            board::pick(one, open, finished, dropped, implementers)
+            board::pick(one, open, finished, dropped, implementers, &[])
                 .issue
                 .is_some()
         })
@@ -194,6 +196,18 @@ fn takeable(
 }
 
 impl Runner {
+    // Each read of the board updates the order it takes the ready issues in:
+    // a new issue joins it, and one the forge stopped listing leaves it.
+    fn follow_order(&mut self, ready: &[ReadyIssue]) -> Result<(), StateError> {
+        let order = board::keep_order(&self.state.order, ready);
+        if order == self.state.order {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        next.order = order;
+        self.save(next)
+    }
+
     // The board skips a finished issue until the forge closes it, so an entry
     // goes only once its issue reads as closed. One the forge lists ready is
     // open, and one it cannot answer for stays.
@@ -276,6 +290,54 @@ mod tests {
         let rig = Rig::new(project);
         let runner = rig.open().unwrap();
         (rig, runner)
+    }
+
+    // Both wait on #32 while the board reads them, and #9 is P0 only after
+    // that read, so the rule alone would take #9 first.
+    #[test]
+    fn the_order_the_board_kept_survives_a_runner_restart() {
+        let (rig, runner) = running("shep");
+        for issue in [8, 9] {
+            rig.forge.list_ready(issue, false);
+            rig.forge.block(issue, 32);
+        }
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.forge.label(9, "priority: P0");
+        drop(runner);
+
+        let runner = rig.open().unwrap();
+        rig.forge.close_issue(32);
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 8, .. })
+        ));
+    }
+
+    #[test]
+    fn a_read_of_the_board_puts_a_new_p0_after_the_last_p0_and_status_shows_the_first_five() {
+        let (rig, runner) = running("shep");
+        for issue in [1, 2, 3, 4, 5] {
+            rig.forge.list_ready(issue, false);
+            rig.forge.block(issue, 32);
+        }
+        rig.forge.label(1, "priority: P0");
+        rig.forge.label(2, "priority: P0");
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["order"],
+            json!([1, 2, 3, 4, 5])
+        );
+
+        rig.forge.list_ready(6, false);
+        rig.forge.block(6, 32);
+        rig.forge.label(6, "priority: P0");
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["order"],
+            json!([1, 2, 6, 3, 4])
+        );
     }
 
     #[test]

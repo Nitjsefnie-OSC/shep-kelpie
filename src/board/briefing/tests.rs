@@ -103,7 +103,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
          \n\
          - 3 on #13 (PR #31): Merge PR #31?\n\
          \n\
-         ## Ready queue, read 1m ago (board rule order: priority, then oldest by number)\n\
+         ## Ready queue, read 1m ago (the board's order, first taken first; a new issue joins after the last of its priority)\n\
          \n\
          (empty)\n\
          \n\
