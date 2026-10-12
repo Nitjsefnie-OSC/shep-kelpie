@@ -29,6 +29,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [CodeRabbit](coderabbit.md)
 - [cubic](cubic.md)
 - [Codex](codex.md)
+- [Review bots and the GitHub App](review-bots-and-the-github-app.md)
 - [The deep review round](the-deep-review-round.md)
 - [Builds and plans](builds-and-plans.md)
 - [The maintainer's reviews](the-maintainers-reviews.md)
