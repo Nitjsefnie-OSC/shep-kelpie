@@ -146,8 +146,9 @@ fn a_merge_card_says_what_waits_behind_it_and_who_read_the_pull_request() {
     );
 }
 
-#[test]
-fn a_merge_card_says_roughly_what_another_review_round_costs() {
+// The merge card after review round 1 (qwen, which reports no dollars) and
+// round 2 (claude), which `billed` paid for
+fn merge_card_after_a_billed_round(billed: Cost) -> String {
     let rig = Rig::new("shep");
     rig.with_app();
     rig.maintainer("octocat");
@@ -156,7 +157,7 @@ fn a_merge_card_says_roughly_what_another_review_round_costs() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
-        Scripted::Billed("CLEAN", Cost(420_000_000)),
+        Scripted::Billed("CLEAN", billed),
     ]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // review round 1, qwen: clean by default
@@ -169,12 +170,31 @@ fn a_merge_card_says_roughly_what_another_review_round_costs() {
         Some(StepReport::Ruling { id: 1, .. })
     ));
 
-    let card = merge_card(&rig);
+    merge_card(&rig)
+}
+
+#[test]
+fn a_merge_card_says_roughly_what_another_review_round_costs() {
+    let card = merge_card_after_a_billed_round(Cost(420_000_000));
+
+    // Round 1 reported no dollars, so the one priced round is the whole average.
+    assert!(
+        card.contains(
+            "| **C** | Rework | Sends the worker back for a change the whole review reads \
+             again. Another review round costs about $0.42. |"
+        ),
+        "{card}"
+    );
+}
+
+#[test]
+fn a_review_round_under_a_cent_is_not_called_free() {
+    let card = merge_card_after_a_billed_round(Cost(1_000_000));
 
     assert!(
         card.contains(
             "| **C** | Rework | Sends the worker back for a change the whole review reads \
-             again. Another review round costs about $0.21. |"
+             again. Another review round costs under $0.01. |"
         ),
         "{card}"
     );

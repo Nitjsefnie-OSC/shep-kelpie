@@ -10,6 +10,7 @@
 use super::Runner;
 use super::ruling::needs_pass;
 use super::voice::phrases;
+use crate::ports::{Cost, Role};
 use crate::state::{Ruling, RulingKind, StateError};
 use crate::work_item::WorkItem;
 
@@ -107,19 +108,28 @@ fn reviewed(item: &WorkItem, kind: &RulingKind) -> Option<String> {
     }
 }
 
-// What another review round costs, roughly: the average of the work item's
-// priced rounds so far. None before one was priced.
+// What another review round costs, roughly: the average of the reviewer calls
+// the work item has had priced, one to a round. A call whose harness reported
+// no dollars is left out of the sum and the count alike. None before one was
+// priced.
 fn round_cost(item: &WorkItem) -> Option<String> {
-    let rounds = u64::from(item.counts.review_rounds);
-    let spent = item.priced().reviewer.0;
-    if rounds == 0 || spent == 0 {
+    let priced = item
+        .calls
+        .iter()
+        .filter(|call| call.role == Role::Reviewer && !call.unpriced);
+    let (calls, spent) = priced.fold((0_u64, 0_u64), |(calls, spent), call| {
+        (calls + 1, spent.saturating_add(call.cost.0))
+    });
+    if calls == 0 || spent == 0 {
         return None;
     }
-    let each = crate::ports::Cost(spent / rounds);
-    Some(format!(
-        "Another review round costs about ${:.2}.",
-        each.usd()
-    ))
+    let each = Cost(spent / calls).usd();
+    // Two decimals would print a real, small cost as $0.00.
+    Some(if each < 0.005 {
+        "Another review round costs under $0.01.".to_owned()
+    } else {
+        format!("Another review round costs about ${each:.2}.")
+    })
 }
 
 // The sentences that are there, as one line

@@ -711,7 +711,7 @@ The push hook rejects two commits, and nothing says why.
 |---|---|---|
 | **A** | Wait | #495 stays parked until the hook is fixed. |
 | **B** | Push anyway | Publishes both commits to main, and the hook stays broken. |
-| **C** | Other | Sends the worker your reply |
+| **C** | Other | Reply with your own answer |
 
 **On the board**
 Nine ready issues are held behind #495.
