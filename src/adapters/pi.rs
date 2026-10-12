@@ -158,7 +158,7 @@ impl Agents for PiCli {
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
         // The forwarder and the lease stay until the call has ended.
         let (mut command, _forwarder) = self.sandboxed_command(call)?;
-        let lease = self.gateway_lease(call, ending)?;
+        let mut lease = self.gateway_lease(call, ending)?;
         let label = call.label();
         let spawned = |pid| {
             if let Some(lambs) = &self.lambs {
@@ -168,8 +168,8 @@ impl Agents for PiCli {
         let run = self
             .processes
             .output_telling(&mut command, Some(ending), &spawned);
-        // A lease the gateway took back ended the call, whatever the run says of it.
-        if let Some(why) = lease.as_ref().and_then(paddock::Lease::lost) {
+        // A lease the gateway took back ended the call, whatever the run says of it. Finishing it first settles that no later renewal can end the call.
+        if let Some(why) = lease.as_mut().and_then(paddock::Lease::finish) {
             return Err(AgentError::Failed(PI, why));
         }
         let output = run.map_err(|e| match e {

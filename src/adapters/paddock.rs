@@ -10,7 +10,7 @@
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
-use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -40,7 +40,7 @@ pub(crate) struct Timing {
     pub(crate) renew: Duration,
     /// How long a take paddock turned away as busy waits to ask again
     pub(crate) retry: Duration,
-    /// How long renewals nobody answers are ridden out before the lease counts as lost: its ttl
+    /// How long after its last renewal the lease counts as lost, if none since was taken: its ttl
     pub(crate) lapse: Duration,
 }
 
@@ -91,15 +91,25 @@ pub(crate) fn key_taken(gateway: &Upstream) -> Result<bool, String> {
 ///
 /// A renewal paddock refuses, or renewals it leaves unanswered for the lease's
 /// whole ttl, mean the lease is gone: the call's [`Ending`] is asked to end
-/// and [`Lease::lost`] says why.
+/// and [`Lease::finish`] says why.
 #[derive(Debug)]
 pub(crate) struct Lease {
     gateway: Upstream,
     id: String,
     release: Duration,
-    lost: Arc<Mutex<Option<String>>>,
+    held: Arc<Mutex<Held>>,
     // Dropping the sender stops the renewals, which are not waited for.
     renewing: Option<mpsc::Sender<()>>,
+}
+
+// What a lease is, as its holder and the renewing thread see it under one lock.
+#[derive(Debug)]
+enum Held {
+    Renewing,
+    /// Why it cannot be renewed, with the call asked to end
+    Lost(String),
+    /// Let go of by its holder, so nothing may end the call for it any more
+    Finished,
 }
 
 impl Lease {
@@ -146,16 +156,23 @@ impl Lease {
         Ok(Some(Self::renewed(gateway, id, ending, timing)))
     }
 
-    /// Why the lease is gone, once it cannot be renewed
-    pub(crate) fn lost(&self) -> Option<String> {
-        self.lost.lock().unwrap().clone()
+    /// Stops the lease's renewals, and says why it was lost, if it was
+    ///
+    /// Once this returns, a renewal still in flight can no longer end the
+    /// call: the thread settles that under the same lock.
+    pub(crate) fn finish(&mut self) -> Option<String> {
+        drop(self.renewing.take());
+        match std::mem::replace(&mut *self.held.lock().unwrap(), Held::Finished) {
+            Held::Lost(why) => Some(why),
+            Held::Renewing | Held::Finished => None,
+        }
     }
 
     fn renewed(gateway: &Upstream, id: &str, ending: &Ending, timing: Timing) -> Self {
         let (stop, stopped) = mpsc::channel::<()>();
-        let lost = Arc::new(Mutex::new(None));
+        let held = Arc::new(Mutex::new(Held::Renewing));
         let (renewer, path) = (gateway.clone(), format!("/paddock/leases/{id}"));
-        let (record, ending) = (Arc::clone(&lost), ending.clone());
+        let (record, ending) = (Arc::clone(&held), ending.clone());
         // Not joined: a renewal in flight must not hold up the release.
         thread::spawn(move || {
             let mut renewed_at = Instant::now();
@@ -168,7 +185,9 @@ impl Lease {
                         continue;
                     }
                     Ok((status, _)) => format!("paddock answered HTTP {status}"),
-                    Err(why) if renewed_at.elapsed() < timing.lapse => {
+                    // The ttl runs from the last renewal paddock took, so one more
+                    // try that would land past it is a lease already run out.
+                    Err(why) if renewed_at.elapsed() + timing.renew < timing.lapse => {
                         if !told {
                             eprintln!("kelpie: cannot renew the gateway's lease {path}: {why}");
                             told = true;
@@ -177,14 +196,15 @@ impl Lease {
                     }
                     Err(why) => why,
                 };
-                // A lease already dropped is released, and its call over.
-                if stopped.try_recv() == Err(TryRecvError::Disconnected) {
-                    return;
+                // Under the lock the holder lets go under, so a lease let go of
+                // has its call over already and is not ended.
+                let mut held = record.lock().unwrap();
+                if matches!(*held, Held::Renewing) {
+                    *held = Held::Lost(format!(
+                        "the gateway's lease {path} cannot be renewed: {why}"
+                    ));
+                    ending.end();
                 }
-                *record.lock().unwrap() = Some(format!(
-                    "the gateway's lease {path} cannot be renewed: {why}"
-                ));
-                ending.end();
                 return;
             }
         });
@@ -192,7 +212,7 @@ impl Lease {
             gateway: gateway.clone(),
             id: id.to_owned(),
             release: timing.release,
-            lost,
+            held,
             renewing: Some(stop),
         }
     }
@@ -200,7 +220,7 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        drop(self.renewing.take());
+        self.finish();
         // A release that fails still ends once the ttl runs out unrenewed.
         let path = format!("/paddock/leases/{}", self.id);
         let _ = send(&self.gateway, ("DELETE", &path), None, true, self.release);
@@ -425,9 +445,9 @@ mod tests {
             .like_paddock("pk", &[])
             .refusing_renewals(404);
         let ending = Ending::default();
-        let lease = held(&server, &ending, QUICK);
+        let mut lease = held(&server, &ending, QUICK);
         until("end", &server, || ending.asked());
-        let lost = lease.lost().unwrap();
+        let lost = lease.finish().unwrap();
         assert!(lost.contains("L1") && lost.contains("HTTP 404"), "{lost}");
     }
 
@@ -442,21 +462,42 @@ mod tests {
             ..QUICK
         };
         let ending = Ending::default();
-        let lease = held(&server, &ending, timing);
+        let mut lease = held(&server, &ending, timing);
         until("end", &server, || ending.asked());
-        assert!(lease.lost().unwrap().contains("did not answer"));
+        assert!(lease.finish().unwrap().contains("did not answer"));
+    }
+
+    #[test]
+    fn a_lease_let_go_of_with_a_renewal_in_flight_never_ends_the_call() {
+        let server = StandInEndpoint::start([])
+            .like_paddock("pk", &[])
+            .hanging_renewals();
+        let timing = Timing {
+            answer: Duration::from_millis(200),
+            lapse: Duration::from_millis(100),
+            ..QUICK
+        };
+        let ending = Ending::default();
+        let mut lease = held(&server, &ending, timing);
+        until("renewal", &server, || {
+            calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
+        });
+        assert_eq!(lease.finish(), None);
+        // Long enough for the renewal in flight to give up on its answer.
+        thread::sleep(Duration::from_millis(600));
+        assert!(!ending.asked());
     }
 
     #[test]
     fn a_healthy_lease_is_not_lost() {
         let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
         let ending = Ending::default();
-        let lease = held(&server, &ending, QUICK);
+        let mut lease = held(&server, &ending, QUICK);
         until("renewal", &server, || {
             calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
         });
         assert!(!ending.asked());
-        assert_eq!(lease.lost(), None);
+        assert_eq!(lease.finish(), None);
     }
 
     #[test]
