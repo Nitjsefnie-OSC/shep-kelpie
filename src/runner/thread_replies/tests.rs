@@ -72,6 +72,48 @@ fn a_yes_naming_the_ruling_from_the_login_it_mentions_merges_the_pull_request() 
 }
 
 #[test]
+fn the_number_of_the_pull_request_or_its_issue_names_the_ruling_too() {
+    for named in ["71 yes", "#71 yes", "7 yes"] {
+        let (rig, runner, head) = a_merge_ruling_on_71();
+        let comment = rig.writes_on(71, "octocat", named);
+
+        rig.next_look();
+        step(&runner).unwrap();
+        rig.clock.advance(CHECKS_SETTLE);
+        step(&runner).unwrap();
+
+        assert_eq!(rig.forge.merges(), [(71, head)], "{named}");
+        assert_eq!(rig.github.reactions(), [comment], "{named}");
+    }
+}
+
+#[test]
+fn a_reply_by_number_from_before_the_ruling_was_raised_is_told_it_changed() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    let written = rig.clock.now();
+    rig.writes_on(71, "octocat", "71 yes");
+    {
+        // The ruling was raised again after the comment was written.
+        let mut runner = runner.lock().unwrap();
+        let mut next = runner.state.clone();
+        next.rulings[0].raised = Some(Timestamp(written.0 + 1));
+        runner.save(next).unwrap();
+    }
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let [told] = replies_on_71(&rig).try_into().unwrap();
+    assert!(
+        told.starts_with("@octocat Ruling 1 was not answered: the ruling changed since that comment was written, and it asks now:"),
+        "{told}"
+    );
+    assert!(rig.forge.merges().is_empty());
+    assert!(rig.github.reactions().is_empty());
+    assert_eq!(pending(&rig, &runner), [1]);
+}
+
+#[test]
 fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     rig.writes_on(71, "octocat", "yes");
