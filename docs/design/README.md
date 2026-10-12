@@ -27,6 +27,8 @@ Rules live in Rust code; a model is called only for work and judgement.
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
+Each file stays under 8 KB, and a changed decision updates its bullet in the same PR. An area past 8 KB splits in two, with a new row here. `scripts/design-size.sh` checks both, in CI too.
+
 ## Elsewhere
 
 - `docs/design-log.md`: full record, mechanics, history, old file formats
