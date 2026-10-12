@@ -733,7 +733,11 @@ pub fn rebase(
                 files: conflicts.lines().map(str::to_owned).collect(),
             });
         }
-        caught_up(&["commit", "--quiet", "--no-edit"])?;
+        if let Err(e) = caught_up(&["commit", "--quiet", "--no-edit"]) {
+            // Best effort: a merge left in progress is refused on the next look.
+            let _ = in_worktree(&["merge", "--abort"]);
+            return Err(e);
+        }
     }
     let caught = in_worktree(&["rev-parse", "HEAD"])?;
     let lease = format!("--force-with-lease={full_ref}:{head}");

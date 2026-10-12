@@ -263,6 +263,35 @@ mod tests {
     }
 
     #[test]
+    fn a_clean_merge_that_cannot_be_committed_is_aborted_so_the_next_look_can_retry() {
+        let (rig, runner, head) = Rig::with_pull_request("koji");
+        rig.land_on_origin("work.txt");
+        step(&runner).unwrap();
+        rig.claude
+            .script([Scripted::AbortAndPush("work.txt", "final\n")]);
+        step(&runner).unwrap();
+        let pushed = rig.forge.head_of("kelpie/7").unwrap();
+        rig.land("work.txt", "final\n");
+        // Signing fails, so the merge cannot be committed.
+        let worktree = rig.worktree_7();
+        git(&worktree, &["config", "commit.gpgsign", "true"]);
+        git(&worktree, &["config", "gpg.program", "false"]);
+
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::GateFailed { .. })
+        ));
+        assert_eq!(rig.forge.head_of("kelpie/7"), Some(pushed.clone()));
+        assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), pushed);
+        assert_eq!(git(&worktree, &["status", "--porcelain"]), "");
+        assert_ne!(pushed, head);
+        let merge_head = std::fs::read_dir(rig.repo().join(".git/worktrees"))
+            .unwrap()
+            .any(|dir| dir.unwrap().path().join("MERGE_HEAD").exists());
+        assert!(!merge_head, "the merge was left in progress");
+    }
+
+    #[test]
     fn a_conflict_turn_does_not_ask_for_the_body() {
         let (rig, runner, _) = Rig::with_pull_request("koji");
         rig.land_on_origin("work.txt");
