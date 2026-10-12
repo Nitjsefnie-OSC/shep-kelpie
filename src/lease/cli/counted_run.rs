@@ -65,6 +65,7 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], patience:
         pid: std::process::id(),
         what: command.join(" "),
         running: false,
+        worktree: None,
     };
     let visit = match wait_for_turn(socket, &ask, &mut signals, patience).await {
         Ok(Ok(visit)) => visit,

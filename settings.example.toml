@@ -210,6 +210,19 @@ compact_window = 200000
 # transcripts = ["~/.claude/projects"]
 # allowed_domains = ["docs.rs"]
 
+# The host that runs the project's end-to-end tests, which a worker cannot run
+# in its sandbox. A worker asks for a run with `kelpie lease e2e`: the dog
+# copies the worktree to `host`, runs `command` there and copies `results`
+# back, one run at a time. `host` is an ssh alias from your ssh config, and
+# `command` is a file in the repo and `results` a folder in it, both relative
+# with no `..`. The host must be disposable: the project's script runs there
+# as the alias's account, and a worker edits that script. Left out, a worker's
+# ask is answered that the project has no e2e host.
+# [app.dogs.kelpie.e2e]
+# host = "e2e-box"
+# command = "scripts/e2e-remote.sh"
+# results = "test-results"
+
 # Whether the panel decides a ruling. `shadow` (when absent) has it vote and
 # post on every ruling while you still answer, and `status` counts the run of
 # rulings where its recommendation matched your answer. `panel` has it decide:

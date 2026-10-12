@@ -1,20 +1,22 @@
-//! Settling a worker's question on the project manager's answer
+//! Settling a worker's question or a follow-up ruling on the project manager's answer
 //!
 //! The item must be parked on a question ruling now. Its text then answers
 //! the ruling as the maintainer's would, led by `PM answered:`, and its
 //! escalation puts the ruling to the maintainer with the recommendation
 //! added. Anything else is dropped, and the ruling goes out as it stands.
 //!
-//! An item parked on a follow-up ruling takes an escalation alone: the
-//! maintainer's yes or no is theirs, so its text is dropped, and so is an
-//! escalation whose choice is neither `yes` nor `no`.
+//! An item parked on a follow-up ruling takes an escalation alone through
+//! `answer`: its text is dropped, and so is an escalation whose choice is
+//! neither `yes` nor `no`. Its own `follow_up` key decides the ruling: a yes
+//! files the findings as the maintainer's yes does, a no drops them.
 
 use std::io::Write as _;
 
 use super::act::{WORDS, plain};
-use super::answer::{How, Settle};
+use super::answer::{Call, Decide, How, Settle};
 use super::maintainer::Settled;
-use crate::ports::PM_NOTES;
+use crate::board::{READY, TRIAGE};
+use crate::ports::{Finding, PM_NOTES};
 use crate::runner::ruling::question;
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer as Ruled, RuleError, Runner};
@@ -67,13 +69,14 @@ impl Runner {
             How::Text(_) if self.follow_up_ruling(id) => {
                 return Ok(Err(format!(
                     "answer #{n}: ruling {id} is a follow-up, which the project manager \
-                     passes on with a recommendation and cannot answer"
+                     decides with `follow_up` or passes on with a recommendation, not with text"
                 )));
             }
             How::Text(text) => {
                 let by = Settler::Pm {
                     answer: text.clone(),
                     why: why.clone(),
+                    unread: false,
                 };
                 match self.rule_by(id, Ruled::Text(format!("{ANSWERED} {text}")), by) {
                     Ok(()) => {}
@@ -100,20 +103,126 @@ impl Runner {
                 )
             }
         };
-        self.pm.settled.push(Settled {
+        let said = recommends
+            .as_ref()
+            .map_or_else(String::new, |c| format!(", recommending {c}"));
+        let line = format!("ruling {id} on #{n}: the project manager {outcome} it{said}: {why}");
+        let settled = Settled {
             ruling: id,
             issue: n,
             how: outcome,
-            recommends: recommends.clone(),
-            why: why.clone(),
-        });
-        let over = self.pm.settled.len().saturating_sub(KEPT);
-        self.pm.settled.drain(..over);
-        let said = recommends.map_or_else(String::new, |c| format!(", recommending {c}"));
-        let line = format!("ruling {id} on #{n}: the project manager {outcome} it{said}: {why}");
-        self.note_settled(&line);
-        self.record(vec![line])?;
+            recommends,
+            why,
+        };
+        self.keep_settled(settled, line)?;
         Ok(Ok(done))
+    }
+
+    /// Settles the follow-up ruling `decide` names: its findings are filed
+    /// as the maintainer's yes would, or dropped as their no would. Says what
+    /// it did, or why it was dropped.
+    ///
+    /// # Errors
+    ///
+    /// [`StateError`] when what it did cannot be saved.
+    pub(super) fn settle_follow_up(
+        &mut self,
+        decide: &Decide,
+    ) -> Result<Result<String, String>, StateError> {
+        let n = decide.item;
+        let id = match self.asked_on(n) {
+            Asked::On(id) if self.follow_up_ruling(id) => id,
+            Asked::On(id) => {
+                return Ok(Err(format!(
+                    "follow_up #{n}: ruling {id} is a worker's question, not a follow-up"
+                )));
+            }
+            Asked::Alerted(id) => {
+                return Ok(Err(format!(
+                    "follow_up #{n}: ruling {id} already went to the maintainer"
+                )));
+            }
+            Asked::Not => {
+                return Ok(Err(format!(
+                    "follow_up #{n}: not a work item parked on a follow-up ruling"
+                )));
+            }
+        };
+        if self.refused_ruling(id) {
+            return Ok(Err(format!(
+                "follow_up #{n}: ruling {id} asks whether to try the forge again, which is \
+                 the maintainer's to decide"
+            )));
+        }
+        let why = plain(&self.shown(decide.why.clone()), WORDS);
+        let found = self.findings_of(id);
+        let count = match found.len() {
+            1 => "1 finding".to_owned(),
+            many => format!("{many} findings"),
+        };
+        let at = plain(&self.shown(found.join(", ")), WORDS);
+        let (answer, verb, label) = match decide.call {
+            Call::File { unread: false } => (Ruled::Yes, "filing", Some(READY)),
+            Call::File { unread: true } => (Ruled::Yes, "filing", Some(TRIAGE)),
+            Call::Drop => (Ruled::No(why.clone()), "dropping", None),
+        };
+        let as_label = label.map_or_else(String::new, |l| format!(" as {l}"));
+        let by = Settler::Pm {
+            answer: format!(
+                "{}, {verb} {count}{as_label}: {at}",
+                if label.is_some() { "yes" } else { "no" }
+            ),
+            why: why.clone(),
+            unread: decide.call == Call::File { unread: true },
+        };
+        match self.rule_by(id, answer, by) {
+            Ok(()) => {}
+            Err(RuleError::State(e)) => return Err(e),
+            Err(e) => return Ok(Err(format!("follow_up #{n}: {e}"))),
+        }
+        let how = if label.is_some() { "filed" } else { "dropped" };
+        let line = format!(
+            "ruling {id} on #{n}: the project manager {how} {count}{as_label}: {at}: {why}"
+        );
+        let settled = Settled {
+            ruling: id,
+            issue: n,
+            how,
+            recommends: None,
+            why,
+        };
+        self.keep_settled(settled, line)?;
+        Ok(Ok(format!(
+            "{verb} {count} of ruling {id} on #{n}{as_label}: {at}"
+        )))
+    }
+
+    // Whether follow-up ruling `id` was raised after the forge refused the
+    // findings, and so asks about trying again, not about the findings.
+    fn refused_ruling(&self, id: u64) -> bool {
+        let ruling = self.state.rulings.iter().find(|r| r.id == id);
+        ruling.is_some_and(|r| {
+            matches!(
+                r.kind,
+                RulingKind::FollowUp {
+                    refused: Some(_),
+                    ..
+                }
+            )
+        })
+    }
+
+    // The place of each finding of follow-up ruling `id`.
+    fn findings_of(&self, id: u64) -> Vec<String> {
+        let ruling = self.state.rulings.iter().find(|r| r.id == id);
+        let Some(RulingKind::FollowUp { findings, .. }) = ruling.map(|r| &r.kind) else {
+            return Vec::new();
+        };
+        let place = |f: &Finding| match f.line {
+            0 => f.file.clone(),
+            line => format!("{}:{line}", f.file),
+        };
+        findings.iter().map(place).collect()
     }
 
     // The question or follow-up ruling the work item for `issue` is parked
@@ -169,6 +278,15 @@ impl Runner {
         }
         ruling.alerted = false;
         self.save(next)
+    }
+
+    // Keeps `settled` for `status`, and `line` in the notes and the log.
+    fn keep_settled(&mut self, settled: Settled, line: String) -> Result<(), StateError> {
+        self.pm.settled.push(settled);
+        let over = self.pm.settled.len().saturating_sub(KEPT);
+        self.pm.settled.drain(..over);
+        self.note_settled(&line);
+        self.record(vec![line])
     }
 
     // Adds `line` to the end of the project manager's notes, since what it

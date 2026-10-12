@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 
 use super::{Kept, lock_desk};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
-use crate::lease::door::{Answer, Ask};
+use crate::lease::door::{Answer, Ask, E2E};
 
 /// How long a connection has to send its ask before the dog hangs up
 const ASK_WITHIN: Duration = Duration::from_secs(10);
@@ -77,7 +77,15 @@ pub fn open(socket: &Path) -> Result<UnixListener, String> {
 
 /// Answers every command that knocks at `listener`, for as long as it runs,
 /// granting nothing new for `grace` from now
-pub async fn serve(listener: UnixListener, desk: Arc<Mutex<Kept>>, grace: Duration) {
+///
+/// An `e2e` ask is placed by the worktree it names under `kelpie_home`.
+pub async fn serve(
+    listener: UnixListener,
+    desk: Arc<Mutex<Kept>>,
+    grace: Duration,
+    kelpie_home: PathBuf,
+) {
+    let kelpie_home = Arc::new(kelpie_home);
     let fresh_from = tokio::time::Instant::now() + grace;
     let waiters = Waiters::default();
     let mut next = 0;
@@ -95,6 +103,7 @@ pub async fn serve(listener: UnixListener, desk: Arc<Mutex<Kept>>, grace: Durati
             ticket: Ticket(next),
             desk: Arc::clone(&desk),
             waiters: Arc::clone(&waiters),
+            kelpie_home: Arc::clone(&kelpie_home),
         };
         tokio::spawn(visit(stream, place, fresh_from));
     }
@@ -105,6 +114,7 @@ struct Place {
     ticket: Ticket,
     desk: Arc<Mutex<Kept>>,
     waiters: Waiters,
+    kelpie_home: Arc<PathBuf>,
 }
 
 impl Drop for Place {
@@ -131,9 +141,13 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
     };
     let ask = match serde_json::from_slice::<Ask>(&first) {
         Ok(ask) if ask.take == CARGO_TEST => ask,
+        Ok(ask) if ask.take == E2E => {
+            let why = super::e2e::reply(&place.kelpie_home, ask.worktree.as_deref());
+            return say(&mut write, &Answer::Error(why)).await;
+        }
         Ok(ask) => {
             let why = format!(
-                "{:?} is not a lease the door holds: only {CARGO_TEST}",
+                "{:?} is not a lease the door holds: only {CARGO_TEST} and {E2E}",
                 ask.take
             );
             return say(&mut write, &Answer::Error(why)).await;

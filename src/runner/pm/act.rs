@@ -98,6 +98,12 @@ impl Runner {
                 Err(why) => dropped.push(why),
             }
         }
+        if let Some(decide) = &answer.follow_up {
+            match self.settle_follow_up(decide)? {
+                Ok(done) => acted.push(done),
+                Err(why) => dropped.push(why),
+            }
+        }
         if let Some(reply) = &answer.reply {
             self.pm.reply = Some(reply.clone());
         }
@@ -183,6 +189,7 @@ impl Runner {
             let by = Settler::Pm {
                 answer: said.to_owned(),
                 why: why.clone(),
+                unread: false,
             };
             return match self.rule_by(id, answer, by) {
                 Ok(()) => Ok(Ok(())),

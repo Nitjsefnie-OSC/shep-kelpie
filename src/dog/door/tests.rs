@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::*;
 use crate::dog::open as open_book;
 use crate::lease::cli::counted_run;
-use crate::lease::door::Visit;
+use crate::lease::door::{NO_E2E_HOST, Visit};
 use crate::lease::gpu::GpuLock;
 use crate::lease::saved::BookFile;
 use crate::review_bot::Reviewers;
@@ -37,7 +37,8 @@ fn door(capacity: u32) -> (tempfile::TempDir, PathBuf, Arc<Mutex<Kept>>) {
     let desk = kept(dir.path(), capacity);
     let socket = dir.path().join("lease.sock");
     let listener = open(&socket).unwrap();
-    tokio::spawn(serve(listener, Arc::clone(&desk), Duration::ZERO));
+    let home = dir.path().join("kelpie");
+    tokio::spawn(serve(listener, Arc::clone(&desk), Duration::ZERO, home));
     (dir, socket, desk)
 }
 
@@ -47,6 +48,7 @@ fn ask(what: &str) -> Ask {
         pid: std::process::id(),
         what: what.into(),
         running: false,
+        worktree: None,
     }
 }
 
@@ -134,7 +136,9 @@ async fn door_child() {
         }
         _ if job == "dog" => {
             let dir = tempfile::tempdir().unwrap();
-            serve(open(&socket).unwrap(), kept(dir.path(), 1), Duration::ZERO).await;
+            let home = dir.path().join("kelpie");
+            let desk = kept(dir.path(), 1);
+            serve(open(&socket).unwrap(), desk, Duration::ZERO, home).await;
         }
         _ if job == "bind" => {
             let _left = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -318,6 +322,7 @@ async fn a_run_whose_dog_restarts_is_seated_by_the_next_even_when_full() {
         open(&socket).unwrap(),
         Arc::clone(&next_desk),
         Duration::ZERO,
+        dir.path().join("kelpie"),
     ));
     let mut holder = Visit::knock(&socket, &ask("holder")).await.unwrap();
     assert_eq!(answer(&mut holder).await, Some(Answer::Granted));
@@ -351,6 +356,7 @@ async fn a_queued_run_whose_dog_restarts_waits_for_the_next() {
         open(&socket).unwrap(),
         Arc::clone(&next_desk),
         Duration::ZERO,
+        dir.path().join("kelpie"),
     ));
     assert_eq!(exited(&mut run).await, Some(0));
     assert!(marker.exists());
@@ -409,7 +415,13 @@ async fn a_new_door_seats_running_commands_before_any_new_ask() {
     let desk = kept(dir.path(), 1);
     let socket = dir.path().join("lease.sock");
     let grace = Duration::from_secs(2);
-    tokio::spawn(serve(open(&socket).unwrap(), Arc::clone(&desk), grace));
+    let home = dir.path().join("kelpie");
+    tokio::spawn(serve(
+        open(&socket).unwrap(),
+        Arc::clone(&desk),
+        grace,
+        home,
+    ));
     let mut fresh = Visit::knock(&socket, &ask("fresh")).await.unwrap();
     let early = tokio::time::timeout(Duration::from_millis(500), fresh.answer()).await;
     assert!(
@@ -451,7 +463,7 @@ async fn a_line_that_is_not_an_ask_is_refused() {
 }
 
 #[tokio::test]
-async fn any_other_lease_is_refused_at_the_door() {
+async fn an_ask_for_any_other_lease_is_still_refused() {
     let (_dir, socket, _desk) = door(3);
     let other = Ask {
         take: "coderabbit".into(),
@@ -461,8 +473,72 @@ async fn any_other_lease_is_refused_at_the_door() {
     let Some(Answer::Error(why)) = answer(&mut visit).await else {
         panic!("the door let coderabbit in");
     };
-    assert!(why.contains("only cargo-test"), "{why}");
+    assert!(why.contains("only cargo-test and e2e"), "{why}");
     assert_eq!(answer(&mut visit).await, None);
+}
+
+// An e2e ask from a worktree of `project` under the door's kelpie home,
+// whose folder holds `e2e.json` when `table` is set.
+async fn e2e_answer(table: Option<&str>) -> (Answer, Vec<Answer>) {
+    let (dir, socket, _desk) = door(1);
+    let project = dir.path().join("kelpie/koji");
+    let worktree = project.join("worktrees/7");
+    std::fs::create_dir_all(&worktree).unwrap();
+    if let Some(table) = table {
+        std::fs::write(project.join("e2e.json"), table).unwrap();
+    }
+    let ask = Ask {
+        take: E2E.into(),
+        worktree: Some(worktree),
+        ..ask("e2e")
+    };
+    let mut visit = Visit::knock(&socket, &ask).await.unwrap();
+    let first = answer(&mut visit).await.expect("the dog answered");
+    let mut rest = Vec::new();
+    while let Some(more) = answer(&mut visit).await {
+        rest.push(more);
+    }
+    (first, rest)
+}
+
+#[tokio::test]
+async fn an_e2e_ask_from_a_project_without_the_table_is_told_it_is_not_configured() {
+    let (first, rest) = e2e_answer(None).await;
+    let Answer::Error(why) = first else {
+        panic!("the door did not refuse: {first:?}");
+    };
+    assert!(why.starts_with(NO_E2E_HOST), "{why}");
+    assert!(why.contains("[app.dogs.kelpie.e2e]"), "{why}");
+    assert_eq!(rest, [], "the dog closes after refusing");
+}
+
+#[tokio::test]
+async fn an_e2e_ask_from_a_path_that_names_no_project_is_told_it_is_not_configured() {
+    let (dir, socket, _desk) = door(1);
+    let ask = |worktree: Option<PathBuf>| Ask {
+        take: E2E.into(),
+        worktree,
+        ..ask("e2e")
+    };
+    for worktree in [None, Some(dir.path().to_owned()), Some("/nowhere".into())] {
+        let mut visit = Visit::knock(&socket, &ask(worktree.clone())).await.unwrap();
+        let Some(Answer::Error(why)) = answer(&mut visit).await else {
+            panic!("the door did not refuse {worktree:?}");
+        };
+        assert!(why.starts_with(NO_E2E_HOST), "{why}");
+    }
+}
+
+#[tokio::test]
+async fn an_e2e_ask_from_a_configured_project_is_told_this_dog_cannot_run_it_yet() {
+    let table = r#"{"host":"e2e-box","command":"scripts/e2e-remote.sh","results":"test-results"}"#;
+    let (first, rest) = e2e_answer(Some(table)).await;
+    let Answer::Error(why) = first else {
+        panic!("the door did not refuse: {first:?}");
+    };
+    assert!(why.contains("cannot run e2e yet"), "{why}");
+    assert!(!why.starts_with(NO_E2E_HOST), "{why}");
+    assert_eq!(rest, []);
 }
 
 // The dead socket is bound in a child that has exited, so no process
