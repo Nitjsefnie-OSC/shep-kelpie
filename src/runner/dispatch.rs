@@ -464,6 +464,26 @@ mod tests {
     }
 
     #[test]
+    fn a_reopened_runner_keeps_its_own_parked_in_progress_item_out_of_skipped() {
+        let (rig, runner) = running("hoenn");
+        rig.forge.list_ready(3, false);
+        step(&runner).unwrap();
+        rig.claude.script([Scripted::Say(
+            "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
+        )]);
+        step(&runner).unwrap();
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+
+        drop(runner);
+        let runner = rig.open().unwrap();
+        assert_eq!(step(&runner).unwrap(), None);
+
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["parked"], json!([3]));
+        assert_eq!(status["skipped"], json!([]));
+    }
+
+    #[test]
     fn a_board_with_only_taken_issues_dispatches_nothing() {
         let (rig, runner) = running("rotom");
         rig.forge.list_ready(3, true);

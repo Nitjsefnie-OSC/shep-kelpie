@@ -254,6 +254,10 @@ pub struct Pick {
 /// Picks the ready issue that nobody is working on, highest priority first and
 /// oldest first within a priority
 ///
+/// A ready issue labelled `in-progress` is passed over as held by an earlier
+/// worker. The caller drops the issues its own work items hold before it asks,
+/// so only an issue it does not hold reaches this check.
+///
 /// `finished` lists the issues whose work items kelpie already finished. The
 /// forge can still list one as open and ready for a while after its pull
 /// request merges, so the board never takes one again.
