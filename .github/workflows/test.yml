@@ -107,8 +107,10 @@ jobs:
           cp src/tools/package.json "$KELPIE_TOOLS/package.json"
           (cd "$KELPIE_TOOLS" && npm install --no-audit --no-fund)
       - run: cargo test --locked --no-run
-      # A filter that matches nothing passes, so the run must show tests
-      # that passed; a failing test fails the step on its own.
+      # A filter that matches nothing passes, and so does one that matches
+      # only some tests, so the run must show each test below as passed. A
+      # failing test fails the step on its own. A test given a Linux-only
+      # `ignore` for a gap in the fence (see #214) comes off this list.
       - name: Run the sandbox tests
         run: |
           set -o pipefail
@@ -118,7 +120,15 @@ jobs:
             --skip a_live_worker_turn_runs_inside_the_sandbox_and_resumes \
             --skip pi_answers_through_the_forwarder_with_no_model_host_in_its_sandbox \
             | tee sandbox.log
-          grep -Eq 'test result: ok\. [1-9][0-9]* passed' sandbox.log
+          for name in \
+            the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
+            claude_codes_own_files_are_refused_in_any_case_and_spelling \
+            codexs_own_files_are_refused_in_any_case \
+            a_host_not_allowed_and_a_socket_not_listed_are_refused \
+            a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat; do
+            grep -Eq "^test .*::${name} \.\.\. ok$" sandbox.log \
+              || { echo "::error::$name did not run and pass"; exit 1; }
+          done
 
   msrv:
     runs-on: ubuntu-latest
