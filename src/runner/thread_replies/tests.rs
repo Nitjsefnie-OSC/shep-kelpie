@@ -87,6 +87,32 @@ fn the_number_of_the_pull_request_or_its_issue_names_the_ruling_too() {
     }
 }
 
+// A settled ruling with the id 71 is still watched, as a pull request's
+// number may come up as the id of a ruling that ended not long ago.
+#[test]
+fn a_settled_ruling_with_the_number_as_its_id_does_not_shadow_the_pending_one() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    // A first look has the ruling's thread watched.
+    rig.next_look();
+    step(&runner).unwrap();
+    {
+        let mut runner = runner.lock().unwrap();
+        let mut old = runner.threads.watching[&1].clone();
+        old.ruling = 71;
+        old.settled = Some(Timestamp(rig.clock.now().0 + 3600));
+        runner.threads.watching.insert(71, old);
+    }
+    let comment = rig.writes_on(71, "octocat", "71 yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
 #[test]
 fn a_reply_by_number_from_before_the_ruling_was_raised_is_told_it_changed() {
     let (rig, runner, _) = a_merge_ruling_on_71();

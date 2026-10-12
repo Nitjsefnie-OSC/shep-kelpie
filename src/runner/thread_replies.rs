@@ -662,9 +662,11 @@ impl Reading {
     }
 
     // The id of a ruling a reply starts with, and the rest of it. The number
-    // is a ruling's id, or failing that the number of the issue or pull
-    // request of the one ruling in `rulings` this author may answer. A number
-    // that names no ruling this author may answer, or the whole of a reply, is its text.
+    // is the id of a ruling still waiting, or failing that the number of the
+    // issue or pull request of the one ruling in `rulings` this author may
+    // answer, or failing that the id of a ruling settled lately, so a late
+    // answer is told so. A number that names no ruling this author may
+    // answer, or the whole of a reply, is its text.
     fn name_of<'a>(
         &self,
         words: &'a str,
@@ -683,13 +685,16 @@ impl Reading {
         let mentioned = |id: &u64| {
             (self.watching.get(id)).is_some_and(|w| w.heard.is_mentioned(&comment.author))
         };
-        if mentioned(&number) {
-            return (Some((number, Naming::Id)), rest.trim_start());
+        let waiting = |id: &u64| (self.watching.get(id)).is_some_and(|w| w.settled.is_none());
+        let rest = rest.trim_start();
+        if mentioned(&number) && waiting(&number) {
+            return (Some((number, Naming::Id)), rest);
         }
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
         let mut about = rulings.iter().filter(about).filter(|r| mentioned(&r.id));
         match (about.next(), about.next()) {
-            (Some(ruling), None) => (Some((ruling.id, Naming::Number)), rest.trim_start()),
+            (Some(ruling), None) => (Some((ruling.id, Naming::Number)), rest),
+            _ if mentioned(&number) => (Some((number, Naming::Id)), rest),
             _ => (None, words),
         }
     }
