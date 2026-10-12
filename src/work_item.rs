@@ -687,8 +687,21 @@ mod tests {
                 at: Timestamp(12),
                 full: false,
                 resent: true,
+                failed: false,
             })["stage"],
             json!({ "stage": "summoned", "bot": "coderabbit", "started": 10, "head": "c0ffee", "at": 12, "resent": true })
+        );
+        assert_eq!(
+            bot(ReviewStage::Summoned {
+                bot: Bot::Codex,
+                started: Timestamp(10),
+                head: "c0ffee".into(),
+                at: Timestamp(12),
+                full: true,
+                resent: false,
+                failed: true,
+            })["stage"],
+            json!({ "stage": "summoned", "bot": "codex", "started": 10, "head": "c0ffee", "at": 12, "full": true, "failed": true })
         );
         let found = ReviewStage::Found {
             findings: Vec::new(),

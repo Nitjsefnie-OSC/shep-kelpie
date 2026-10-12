@@ -26,6 +26,7 @@
 //! and found clean, unless a summon is owed: that one asks once more, for a
 //! full review.
 
+mod failed;
 mod late;
 mod lease;
 mod on_ready;
@@ -358,6 +359,7 @@ impl Runner {
             at,
             full: false,
             resent: again,
+            failed: false,
         })?;
         Ok(self.summoned(number, head, again))
     }
@@ -401,6 +403,7 @@ impl Runner {
             at,
             full: true,
             resent: again,
+            failed: false,
         })?;
         let profile = self.profile(bot);
         let body = profile.full_review().unwrap_or_default();
@@ -414,6 +417,7 @@ impl Runner {
                     at,
                     full: true,
                     resent: false,
+                    failed: false,
                 }
             } else {
                 ReviewStage::Summon {
@@ -588,16 +592,8 @@ impl Runner {
             // that drew it is not read as its answer. A bot summoned by
             // marking ready is never asked by comment, so waits like one
             // that is still reading.
-            Reading::Failed if resent => {
-                self.release(bot)?;
-                if let Err(reason) = self.label(bot, number, false) {
-                    return Ok(self.gate_failed(reason));
-                }
-                let reviewer = self.round_reviewer(bot);
-                self.pass_over(number, BotSkipped::Failed { reviewer, head })
-            }
-            Reading::Failed if resends => {
-                self.resend(bot, (started, head), Timestamp(now), full_again)
+            Reading::Failed if !self.bot_reviewer(bot).reviews_on_ready => {
+                self.failed_review(bot, (started, head), Timestamp(now), full_again)
             }
             Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
                 if waited >= REVIEW_WAIT =>

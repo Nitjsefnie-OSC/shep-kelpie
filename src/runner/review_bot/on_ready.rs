@@ -56,6 +56,7 @@ impl Runner {
             at: now,
             full: true,
             resent: false,
+            failed: false,
         })?;
         if let Err(e) = self.ports.forge.mark_ready(&repo, number) {
             self.set_stage(ReviewStage::Summon {

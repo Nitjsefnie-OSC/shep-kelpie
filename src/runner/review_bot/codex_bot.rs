@@ -290,6 +290,35 @@ fn a_second_failed_review_passes_codex_over_with_the_reason() {
 }
 
 #[test]
+fn one_failure_after_a_summon_sent_again_for_silence_is_not_a_second_failure() {
+    let rig = listing("shep", &["codex"]);
+    let (runner, head) = ready(&rig);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+    rig.clock.advance(HEARD_WAIT);
+    assert_eq!(step(&runner).unwrap(), summoned_again(&head));
+    assert_eq!(comments_of(&rig, SUMMON), 2, "sent again for silence");
+
+    let silent = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, silent + 60);
+    rig.clock.advance(60);
+    assert_eq!(
+        step(&runner).unwrap(),
+        summoned_again(&head),
+        "its first failure is asked for once more"
+    );
+    assert_eq!(comments_of(&rig, SUMMON), 3);
+
+    let again = now(&rig);
+    rig.forge.coderabbit.codex_failed(71, again + 60);
+    rig.clock.advance(60);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { round: 3, .. })
+    ));
+    assert_eq!(comments_of(&rig, SUMMON), 3, "no fourth summon");
+}
+
+#[test]
 fn the_first_failure_s_comment_is_not_the_re_summon_s_answer() {
     let rig = listing("shep", &["codex"]);
     let (runner, head) = ready(&rig);
