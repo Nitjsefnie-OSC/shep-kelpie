@@ -200,6 +200,77 @@ async fn a_link_inside_the_results_folder_is_not_written_through() {
 }
 
 #[tokio::test]
+async fn a_hard_link_in_the_results_folder_is_replaced_not_written_through() {
+    let stand = StandIn::new();
+    let worktree = stand.project(
+        "koji",
+        TABLE,
+        7,
+        "mkdir -p test-results; echo new > test-results/report.txt",
+    );
+    let outside = stand.outside();
+    std::fs::write(outside.join("target.txt"), "mine\n").unwrap();
+    std::fs::create_dir_all(worktree.join("test-results")).unwrap();
+    std::fs::hard_link(
+        outside.join("target.txt"),
+        worktree.join("test-results/report.txt"),
+    )
+    .unwrap();
+
+    let (result, lines) = go(&stand, &worktree).await;
+
+    assert_eq!(result, Ok(0));
+    assert_eq!(lines, [] as [String; 0]);
+    assert_eq!(
+        std::fs::read_to_string(outside.join("target.txt")).unwrap(),
+        "mine\n"
+    );
+    let back = std::fs::read_to_string(worktree.join("test-results/report.txt"));
+    assert_eq!(back.unwrap(), "new\n");
+}
+
+// The run is on a thread and runtime of its own, so a copy that blocks on the
+// FIFO fails this test by timeout instead of hanging it.
+#[tokio::test]
+async fn a_fifo_in_the_results_folder_does_not_hold_the_run() {
+    let stand = StandIn::new();
+    let script = format!(
+        "mkdir -p test-results; {}; echo new > test-results/report.txt",
+        stand.wait_at_gate()
+    );
+    let worktree = stand.project("koji", TABLE, 7, &script);
+    let (tx, mut rx) = mpsc::channel(256);
+    let (remote, plan) = (stand.remote.clone(), plan(&stand, &worktree));
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _ = done.send(runtime.block_on(run(&remote, &plan, tx)));
+    });
+
+    // The FIFO appears after the copy out, which would block on it.
+    while stand.ssh_pid().is_none() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    std::fs::create_dir_all(worktree.join("test-results")).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(worktree.join("test-results/report.txt"))
+        .status();
+    assert!(made.unwrap().success());
+    stand.open_gate();
+
+    let result = ended
+        .recv_timeout(BOUND)
+        .expect("the run was held by the FIFO");
+    assert_eq!(result, Ok(0));
+    assert_eq!(rx.recv().await, None);
+    let back = std::fs::read_to_string(worktree.join("test-results/report.txt"));
+    assert_eq!(back.unwrap(), "new\n");
+}
+
+#[tokio::test]
 async fn the_local_side_starts_only_ssh_and_rsync() {
     let stand = StandIn::new();
     let worktree = stand.project("koji", TABLE, 7, "mkdir -p test-results");

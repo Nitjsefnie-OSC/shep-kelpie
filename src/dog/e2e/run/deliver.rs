@@ -6,7 +6,9 @@
 //! used. Each folder is instead opened from the one before it with
 //! `O_NOFOLLOW`, and each file is created through the folder it is in, so a
 //! link anywhere on the way is refused wherever it appears, and nothing is
-//! written through it.
+//! written through it. A file that is already there is unlinked and made
+//! again, never opened: a hard link would be written through, and a FIFO
+//! would block the dog.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -14,7 +16,7 @@ use std::io;
 use std::os::fd::OwnedFd;
 use std::path::Path;
 
-use rustix::fs::{AtFlags, FileType, Mode, OFlags, mkdirat, openat, statat};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, mkdirat, openat, statat, unlinkat};
 use rustix::io::Errno;
 
 /// Copies what is in `staging` into the `results` folder of `worktree`,
@@ -98,10 +100,18 @@ fn copy_tree(from: &Path, into: &OwnedFd, shown: &Path) -> Result<(), String> {
 fn copy_file(from: &Path, into: &OwnedFd, name: &OsStr, shown: &Path) -> Result<(), String> {
     let failed = |e: &dyn std::fmt::Display| format!("cannot write {}: {e}", shown.display());
     let mut source = File::open(from).map_err(|e| failed(&e))?;
+    // What is there is unlinked, not opened: opening a hard link would write
+    // through it to a file outside the worktree, and opening a FIFO would
+    // block this thread for good. A new file is made with O_EXCL, so one put
+    // back in between is refused too.
+    match unlinkat(into, name, AtFlags::empty()) {
+        Ok(()) | Err(Errno::NOENT) => {}
+        Err(e) => return Err(failed(&e)),
+    }
     let fd = openat(
         into,
         name,
-        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         FILE,
     )
     .map_err(|e| failed(&e))?;
