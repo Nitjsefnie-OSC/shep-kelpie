@@ -609,7 +609,7 @@ fn yaml_error(yaml: &str, error: &serde_saphyr::Error) -> String {
 }
 
 // The frontmatter between the opening and closing `---` lines, and the body after.
-fn split(text: &str) -> Option<(&str, &str)> {
+pub(super) fn split(text: &str) -> Option<(&str, &str)> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let rest = text
         .strip_prefix("---\n")

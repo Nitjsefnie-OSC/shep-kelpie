@@ -9,6 +9,7 @@ fn url(text: &str) -> EndpointUrl {
 
 mod bots;
 mod experts;
+mod extends;
 mod issue_writer;
 mod pm;
 mod tools;
