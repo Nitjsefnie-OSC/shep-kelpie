@@ -954,6 +954,21 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_the_forge_refuses_is_noted_and_the_issue_is_closed_without_it() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.set_comments_down(true);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert_eq!(rig.forge.closings(), [7]);
+        let notes = runner.lock().unwrap().take_notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("cannot comment on issue #7"), "{notes:?}");
+    }
+
+    #[test]
     fn an_item_that_ended_without_a_merge_leaves_its_issue_untouched() {
         let (rig, runner, _) = Rig::parked("koji");
         rig.forge.set_closes(71, &[]);
