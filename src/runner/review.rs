@@ -13,6 +13,7 @@
 //! [`super::review_bot`]'s, and its open threads are its findings. After the
 //! last reviewer the work item goes on to [`super::gate`].
 
+mod attached;
 mod awaited;
 pub(super) mod calls;
 mod criteria;
@@ -185,6 +186,7 @@ impl Runner {
         }
         let item = self.current().expect("a review is a work item's");
         let (issue, worktree, base) = (item.issue, item.worktree.clone(), item.review_base());
+        let build = item.build.clone();
         let criteria = match self.criteria(issue) {
             Ok(criteria) => criteria,
             Err(reason) => return Ok(self.gate_failed(reason)),
@@ -194,9 +196,28 @@ impl Runner {
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         let body = chosen.prompt.as_deref().unwrap_or_default();
-        let prompt = prompts::reviewer_prompt(body, &base, &diff, &criteria, first.as_deref());
-        let call =
-            calls::reviewer_call(issue, &worktree, &self.paths.worker, (model, limit), prompt);
+        let tests = match self.begin_tests(model, (issue, &worktree, &build), first.is_none()) {
+            Ok(tests) => tests,
+            Err(reason) => return Ok(self.gate_failed(reason)),
+        };
+        let ask = (tests.as_ref().and(self.test_command_for(model)))
+            .map(|command| (command.as_str(), attached::tests_folder(&build)));
+        let prompt = prompts::reviewer_prompt(
+            body,
+            &base,
+            &diff,
+            &criteria,
+            first.as_deref(),
+            ask.as_ref().map(|(command, folder)| (*command, folder.as_path())),
+        );
+        let call = calls::reviewer_call(
+            issue,
+            &worktree,
+            &self.paths.worker,
+            (model, limit),
+            prompt,
+            tests,
+        );
         match call.and_then(|call| self.prepared(call)) {
             Ok(call) => {
                 match first {
@@ -570,6 +591,7 @@ impl Runner {
             return Ok(None);
         }
         let issue = item.issue;
+        let (worktree, build) = (item.worktree.clone(), item.build.clone());
         let number = item
             .pull_request
             .expect("review runs once a pull request is known");
@@ -618,6 +640,10 @@ impl Runner {
             .unwrap_or_else(|| AgentName::kelpies(if local_round { QWEN } else { DEFECT_HUNTER }));
         let unreviewed: Vec<String> = unreviewed.into_iter().map(|f: Finding| f.file).collect();
         let reviewer_name = reviewer.as_str().to_owned();
+        // A test a reviewer attached is kept only once its file has been checked.
+        let asked = self.round_asked_tests(&reviewer);
+        let result = result
+            .map(|found| self.checked_tests(asked, (issue, &worktree, &build), found));
         // What a round that read the pull request found, to post once it is saved.
         let mut ended: Option<Vec<Finding>> = None;
 

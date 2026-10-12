@@ -5,6 +5,8 @@
 //! a second look what the first found. A body with no `{{DIFF}}` gets the
 //! diff after it.
 
+use std::path::Path;
+
 use super::calls::severity_tag;
 use crate::ports::Finding;
 
@@ -19,14 +21,16 @@ fn filled(body: &str, base: &str, diff: &str) -> String {
 }
 
 /// What a reviewer's session is asked: its `body` over `diff`, which is
-/// against `base`, the issue's `criteria`, and on a second look what the
-/// first found
+/// against `base`, the issue's `criteria`, on a project with a test command
+/// the `tests` it may write, as that command and the folder, and on a second
+/// look what the first found
 pub(super) fn reviewer_prompt(
     body: &str,
     base: &str,
     diff: &str,
     criteria: &str,
     first: Option<&[Finding]>,
+    tests: Option<(&str, &Path)>,
 ) -> String {
     let mut prompt = filled(body, base, diff);
     if !criteria.trim().is_empty() {
@@ -34,6 +38,20 @@ pub(super) fn reviewer_prompt(
             "\n\nThe issue this pull request resolves asks for the following. \
              Report anything it asks for that the diff leaves undone or gets wrong, \
              in the same format.\n\n{criteria}"
+        ));
+    }
+    if let Some((command, folder)) = tests {
+        let folder = folder.display();
+        prompt.push_str(&format!(
+            "\n\nWhere a finding's trigger can be written as a test, also write one failing \
+             test per finding with the Write tool. Write it into {folder}, which is the only \
+             place you may write, at the path the test should have in the repo: a test for \
+             tests/flag.rs is written to {folder}/tests/flag.rs. Name that path as a fifth \
+             field on the finding's line, SEVERITY|file:line|what|why|tests/flag.rs, and leave \
+             the field off a finding with no test. The test must fail on the code as it stands, \
+             for the reason the finding gives, and pass once the finding is fixed. Name no path \
+             the repo already holds. The project runs a test with `{command}`, where {{test}} \
+             is the file's path in the repo and {{name}} its name without the extension."
         ));
     }
     if let Some(first) = first {
@@ -51,10 +69,11 @@ pub(super) fn reviewer_prompt(
     prompt
 }
 
-// One finding as the readers write it.
+// One finding as the readers write it, its test as a fifth field.
 fn line(f: &Finding) -> String {
+    let test = (f.test.as_ref()).map_or_else(String::new, |t| format!("|{t}"));
     format!(
-        "{}|{}:{}|{}|{}\n",
+        "{}|{}:{}|{}|{}{test}\n",
         severity_tag(f.severity),
         f.file,
         f.line,
@@ -132,16 +151,52 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
     }
 
     #[test]
+    fn the_prompt_asks_for_a_test_only_when_the_project_has_a_test_command() {
+        let body = defect_hunter();
+        let plain = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", None, None);
+        let folder = Path::new("/k/targets/shep/7/review-tests");
+        let asked = reviewer_prompt(
+            &body,
+            "origin/main",
+            "D",
+            "#7 the issue",
+            None,
+            Some(("cargo test --test {name}", folder)),
+        );
+
+        assert!(!plain.contains("review-tests"), "{plain}");
+        assert!(asked.starts_with(&plain), "the paragraph is appended: {asked}");
+        let paragraph = &asked[plain.len()..];
+        assert!(paragraph.contains("/k/targets/shep/7/review-tests"), "{paragraph}");
+        assert!(paragraph.contains("one failing test per finding"), "{paragraph}");
+        assert!(paragraph.contains("fifth field"), "{paragraph}");
+        assert!(paragraph.contains("`cargo test --test {name}`"), "{paragraph}");
+    }
+
+    #[test]
+    fn a_finding_with_a_test_is_listed_with_its_fifth_field() {
+        let mut found = finding(Severity::High, 3);
+        found.test = Some("tests/flag.rs".into());
+        let prompt = reviewer_prompt(&defect_hunter(), "b", "D", "", Some(&[found]), None);
+        assert!(
+            prompt.ends_with(
+                "HIGH|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs\n--- end ---"
+            ),
+            "{prompt}"
+        );
+    }
+
+    #[test]
     fn the_prompt_adds_the_issue_and_on_a_second_look_the_first_s_findings() {
         let body = defect_hunter();
-        let first = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", None);
+        let first = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", None, None);
         assert!(first.starts_with(&filled(&body, "origin/main", "D")));
         assert!(first.contains("asks for the following"));
         assert!(first.ends_with("#7 the issue"));
         assert!(!first.contains("the first reader's findings"));
 
         let found = [finding(Severity::High, 3)];
-        let second = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", Some(&found));
+        let second = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", Some(&found), None);
         assert!(second.starts_with(&first));
         assert!(second.contains("Report only what it missed"));
         assert!(

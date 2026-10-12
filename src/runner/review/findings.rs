@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::attached::tests_folder;
 use super::calls::severity_tag;
 use crate::ports::{Finding, parse_findings};
 use crate::runner::turn;
@@ -103,13 +104,21 @@ pub(in crate::runner) fn write_findings_file(
              report on it.",
         );
     }
+    if findings.iter().any(|f| f.test.is_some()) {
+        text.push_str(&format!(
+            " A line with a fifth field names a failing test the reviewer wrote for it, \
+             which is not in your worktree: read it at {}/<that path>.",
+            tests_folder(folder).display()
+        ));
+    }
     text.push_str("\n\n");
     for (at, f) in findings.iter().enumerate() {
         if numbered {
             text.push_str(&format!("thread {}|", at + 1));
         }
+        let test = (f.test.as_ref()).map_or_else(String::new, |t| format!("|{t}"));
         text.push_str(&format!(
-            "{}|{}:{}|{}|{}\n",
+            "{}|{}:{}|{}|{}{test}\n",
             severity_tag(f.severity),
             f.file,
             f.line,
@@ -218,6 +227,41 @@ mod tests {
             text.contains("LOW|src/main.rs:1|unused import|dead code\n"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_findings_test_is_its_fifth_field_and_the_header_says_where_to_read_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("review-findings.md");
+        let with = Finding {
+            test: Some("tests/flag.rs".into()),
+            ..bot_finding("first")
+        };
+        let without = bot_finding("second");
+
+        write_findings_file(dir.path(), &path, 1, &[with.clone(), without.clone()], false)
+            .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("\nMEDIUM|src/lib.rs:3|first|it matters|tests/flag.rs\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nMEDIUM|src/lib.rs:3|second|it matters\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "read it at {}/<that path>",
+                dir.path().join("review-tests").display()
+            )),
+            "the header says where the reviewer's file is: {text}"
+        );
+        assert_eq!(parse_findings(&text), [with, without]);
+
+        write_findings_file(dir.path(), &path, 1, &[bot_finding("third")], false).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("review-tests"), "{text}");
     }
 
     fn bot_finding(what: &str) -> Finding {

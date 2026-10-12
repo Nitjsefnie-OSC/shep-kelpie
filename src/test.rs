@@ -634,6 +634,15 @@ impl Rig {
         });
     }
 
+    /// Sets the project's `ci.test_command`, read when a runner next opens
+    pub(crate) fn test_command(&self, command: &str) {
+        let off = "# test_command = \"cargo test --test {name}\"";
+        self.edit_settings(|s| {
+            assert!(s.contains(off), "the example's `ci.test_command` moved");
+            s.replace(off, &format!("test_command = \"{command}\""))
+        });
+    }
+
     /// Writes kelpie's agent file `name.md` holding `text`, read when a runner next opens
     pub(crate) fn write_agent(&self, name: &str, text: &str) {
         write_in(&self.paths().agents, &format!("{name}.md"), text);
