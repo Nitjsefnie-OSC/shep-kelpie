@@ -18,8 +18,14 @@ struct Setup {
 
 impl Setup {
     fn new() -> Self {
+        Self::with(|_| {})
+    }
+
+    // The same, after `prepare` has set the rig up
+    fn with(prepare: impl FnOnce(&Rig)) -> Self {
         let rig = Rig::new("acme");
         rig.implementers(&["sonnet-high", "opus-high"]);
+        prepare(&rig);
         let settings = rig.settings();
         let paths = rig.paths();
         let agents = Agents::load(&paths.agents).unwrap();
@@ -59,6 +65,7 @@ impl Setup {
             REQUEST,
             forge,
             &self.rig.claude,
+            &self.rig.git,
         )
     }
 
@@ -648,4 +655,44 @@ fn a_reply_is_read_from_its_first_brace_to_its_last() {
     for not in ["Done.", "{\"issues\": [7]}", "{\"filed\": \"7\"}"] {
         assert_eq!(read_reply(not), None, "{not}");
     }
+}
+
+// Lands a marketplace `house` holding the plugin `style` on the default branch, the repo's
+// settings turning it on, and the project's `repo_setup` roles
+fn style_for(roles: &str) -> impl FnOnce(&Rig) + '_ {
+    move |rig| {
+        let market = r#"{"name":"house","plugins":[{"name":"style","source":"./style"}]}"#;
+        rig.land("markets/house/.claude-plugin/marketplace.json", market);
+        rig.land(
+            "markets/house/style/skills/style/SKILL.md",
+            "---\nname: style\n---\nRules.\n",
+        );
+        let settings = r#"{
+            "extraKnownMarketplaces": {"house": {"source": {"source": "directory", "path": "markets/house"}}},
+            "enabledPlugins": {"style@house": true}
+        }"#;
+        rig.land(".claude/settings.json", settings);
+        rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.repo_setup]\nroles = {roles}\n"));
+    }
+}
+
+fn plugin_dirs_of_the_run(roles: &str) -> Vec<PathBuf> {
+    let s = Setup::with(style_for(roles));
+    s.rig.forge.set_repo_labels(&[HUMAN]);
+    s.filed(41, "Pause a project", BODY, &[HUMAN, "agent:sonnet-high"]);
+    s.headless("{\"filed\": [41]}").unwrap();
+    let calls = s.rig.claude.all_calls();
+    assert_eq!(calls.len(), 1);
+    calls[0].plugin_dirs.clone()
+}
+
+#[test]
+fn the_repos_plugins_reach_the_issue_writer_when_its_role_is_listed() {
+    let dirs = plugin_dirs_of_the_run("[\"issue-writer\"]");
+    assert!(dirs.iter().any(|d| d.ends_with("repo/style")), "{dirs:?}");
+}
+
+#[test]
+fn the_repos_plugins_do_not_reach_the_issue_writer_when_its_role_is_left_out() {
+    assert!(plugin_dirs_of_the_run("[\"worker\"]").is_empty());
 }
