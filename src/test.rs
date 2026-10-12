@@ -698,7 +698,7 @@ impl Rig {
     }
 
     // The rig keeps the runner's Flockfile entry where the old settings file was.
-    fn try_settings(&self) -> Result<Settings, SettingsError> {
+    pub(crate) fn try_settings(&self) -> Result<Settings, SettingsError> {
         let paths = self.paths();
         let entry = std::fs::read_to_string(self.settings_file()).unwrap();
         let folder = &paths.folder;

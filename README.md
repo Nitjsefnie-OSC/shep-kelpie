@@ -218,7 +218,7 @@ It ends up holding:
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 ```
 
-For npm, that is `registry.npmjs.org`. A change reaches a running runner at its next wake.
+For npm, that is `registry.npmjs.org`. An entry is a host, with one optional leading `*.` label to take its subdomains (`*.crates.io`) and an optional `:port`. A `*` anywhere else, such as `productionresultssa*.blob.core.windows.net`, a scheme and a path are refused when the settings load, since the sandbox would refuse to start on them: a live reread keeps the running settings and names the entry. `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
 
 ### 8. Start it, and label a first issue
 

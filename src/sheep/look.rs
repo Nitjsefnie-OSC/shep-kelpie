@@ -254,6 +254,41 @@ mod tests {
         assert_eq!(runner.settings().git.merging, Merging::Auto);
     }
 
+    #[test]
+    fn a_domain_the_sandbox_would_refuse_keeps_the_settings_and_is_named() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let before = runner.lock().unwrap().settings().clone();
+        let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
+        let table = Arc::new(Mutex::new(project_table(&entry)));
+        let shep_home = tempfile::tempdir().unwrap();
+        let _shepherd = shepherd(shep_home.path(), Arc::clone(&table));
+        let paths = rig.paths();
+        let mut look = Look::new(
+            shep_home.path().to_owned(),
+            "shep".into(),
+            Sources {
+                folder: paths.folder.clone(),
+                agents: paths.agents.clone(),
+            },
+            rig.home.path().to_owned(),
+        );
+        look.read().unwrap();
+
+        let bad = "productionresultssa*.blob.core.windows.net";
+        let mut table = table.lock().unwrap();
+        let worker = table.get_mut("worker").and_then(Value::as_object_mut);
+        worker
+            .unwrap()
+            .insert("allowed_domains".into(), Value::Array(vec![bad.into()]));
+        drop(table);
+        look.again(&runner);
+
+        assert_eq!(runner.lock().unwrap().settings(), &before);
+        let failed = look.failed.unwrap();
+        assert!(failed.contains(&format!("`{bad}`")), "{failed}");
+    }
+
     const MINE: &str = "---\nrole: implementer\nharness: claude-code\nmodel: claude-mine-1\n\
                         effort: low\n---\n";
 

@@ -23,6 +23,7 @@ pub use table::table_of;
 mod agents;
 mod budget;
 mod ci;
+mod domains;
 mod e2e;
 mod gateway;
 mod git;
@@ -419,8 +420,10 @@ pub struct Researcher {
     #[serde(default)]
     pub transcripts: Vec<PathBuf>,
     /// Domains the researcher's web fetch may reach, such as a library's
-    /// docs. Its web search needs none. Empty when absent.
-    #[serde(default)]
+    /// docs. Its web search needs none. Each is a host with an optional
+    /// leading `*.` and `:port`, as in `worker.allowed_domains`. Empty when
+    /// absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
 }
 
@@ -429,8 +432,11 @@ pub struct Researcher {
 #[serde(deny_unknown_fields)]
 pub struct Worker {
     /// Domains the worker's sandbox may reach besides GitHub, such as a
-    /// package registry. Empty when absent.
-    #[serde(default)]
+    /// package registry. Each is a host such as `crates.io`, with one
+    /// optional leading `*.` label (`*.crates.io`) and an optional `:port`.
+    /// A `*` anywhere else, a scheme or a path is refused when the settings
+    /// load, since the sandbox would refuse to start. Empty when absent.
+    #[serde(default, deserialize_with = "domains::allowed_domains")]
     pub allowed_domains: Vec<NonBlank>,
     /// Environment variables set to a folder inside the worker's build
     /// folder, for tool caches the sandbox would refuse elsewhere. Empty when

@@ -141,7 +141,10 @@ enabled = true
 kickoff_hours = 8
 
 # Domains a worker's sandbox may reach besides GitHub: here the crates
-# registry, for a cold cargo cache. `build_env` points tool caches into the
+# registry, for a cold cargo cache. An entry is a host such as `crates.io`,
+# with one optional leading `*.` label (`*.crates.io`) and an optional
+# `:port`; a `*` anywhere else, a scheme or a path is refused when the settings
+# load. `build_env` points tool caches into the
 # worker's build folder, such as `BUN_INSTALL_CACHE_DIR = "bun"` for bun.
 # `CARGO_TARGET_DIR` is always the build folder itself.
 [app.dogs.kelpie.worker]
@@ -205,7 +208,8 @@ compact_window = 200000
 # `~/.pi/agent/sessions`), read only and off while empty; only a session that
 # ran in this project's checkout is read, the latest dozen, and only what was
 # asked and said. `allowed_domains` are the hosts its web fetch may reach, such
-# as a library's docs; its web search needs none.
+# as a library's docs; its web search needs none. An entry is written as
+# `worker.allowed_domains` is, a host with an optional leading `*.`.
 # [app.dogs.kelpie.researcher]
 # transcripts = ["~/.claude/projects"]
 # allowed_domains = ["docs.rs"]
