@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use crate::github::ApiError;
-use crate::ports::{Checks, Finding, ForgeError, Severity};
+use crate::ports::{Checks, Cost, Finding, ForgeError, Severity, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -11,7 +11,7 @@ const QUESTION: &str = "Should it be `--dry-run` or `--check`?";
 
 // A question that lists no options, as its comment reads up to who answers it
 const OPEN_QUESTION: &str = "### Should it be `--dry-run` or `--check`?\n\n\
-     | | Option | What it does |\n|---|---|---|\n| | Other | Reply with your own answer |\n\n";
+     | | Option | If you pick it |\n|---|---|---|\n| | Other | Reply with your own answer |\n\n";
 
 // ... and how it is answered when someone is mentioned
 const REPLY: &str =
@@ -89,11 +89,11 @@ fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the
     let short = &head[..7];
     let body = format!(
         "### Merge this pull request at {short} into main?\n\n\
-         | | Option | What it does |\n\
+         | | Option | If you pick it |\n\
          |---|---|---|\n\
-         | **A** | Merge | Merges it into main |\n\
-         | **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |\n\
-         | **C** | Rework | Sends the worker back for a change the whole review reads again |\n\n\
+         | **A** | Merge | Merges it into main and closes #7: Title of #7. CI passed. 2 review rounds read it. |\n\
+         | **B** | Send back | Sends the worker back for a fix that goes to CI and back to you, with no new review round. |\n\
+         | **C** | Rework | Sends the worker back for a change the whole review reads again. |\n\n\
          @octocat\n\
          - 👍 or 👎 answers, or tick one:\n\
          - [ ] A\n\
@@ -117,6 +117,195 @@ fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the
         rig.forge.comments(),
         [],
         "nothing posted as the maintainer's login"
+    );
+}
+
+// The merge ruling's comment on pull request 71, the last of its thread
+fn merge_card(rig: &Rig) -> String {
+    let (_, body) = rig.github.comments().pop().expect("the ruling's comment");
+    body
+}
+
+#[test]
+fn a_merge_card_says_what_waits_behind_it_and_who_read_the_pull_request() {
+    let (rig, _runner, _) = Rig::parked_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        rig.edit_settings(|s| s.replace("pending_rulings = 2", "pending_rulings = 1"));
+    });
+
+    let card = merge_card(&rig);
+
+    assert!(
+        card.contains(
+            "| **A** | Merge | Merges it into main and closes #7: Title of #7. CI passed. \
+             2 review rounds read it. 1 ruling is waiting, and `concurrency.pending_rulings` \
+             is 1, so no new work item opens until one is answered. |"
+        ),
+        "{card}"
+    );
+}
+
+// The merge card after review round 1 (qwen, which reports no dollars) and
+// round 2 (claude), which `billed` paid for
+fn merge_card_after_a_billed_round(billed: Cost) -> String {
+    let (rig, runner, head) = at_ci_after_a_billed_round(billed);
+    raise_the_merge_ruling(&rig, &runner, &head, Checks::Passed)
+}
+
+// ... stopped where CI is next, with the head CI will read
+fn at_ci_after_a_billed_round(billed: Cost) -> (Rig, Mutex<Runner>, String) {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.maintainer("octocat");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Billed("CLEAN", billed),
+    ]);
+    step(&runner).unwrap(); // the worker's first turn: opens the pull request
+    step(&runner).unwrap(); // review round 1, qwen: clean by default
+    step(&runner).unwrap(); // review round 2, claude: billed
+    let head = rig.forge.head_of("kelpie/7").expect("the worker pushed");
+    rig.ci_on_now(&runner);
+    (rig, runner, head)
+}
+
+// CI comes back `checks` on `head`, and the merge ruling's card is posted
+fn raise_the_merge_ruling(rig: &Rig, runner: &Mutex<Runner>, head: &str, checks: Checks) -> String {
+    rig.forge.set_checks(head, checks);
+    assert!(matches!(
+        rig.verdict(runner),
+        Some(StepReport::Ruling { id: 1, .. })
+    ));
+    merge_card(rig)
+}
+
+// ... after a change from outside kelpie, which the maintainer accepts first
+fn raise_the_merge_ruling_after_a_change(
+    rig: &Rig,
+    runner: &Mutex<Runner>,
+    head: &str,
+    checks: Checks,
+) -> String {
+    rig.forge.set_checks(head, checks.clone());
+    assert!(matches!(
+        rig.verdict(runner),
+        Some(StepReport::Ruling { id: 1, .. })
+    ));
+    rig.ask(runner, "rule", Some("1 yes"));
+    rig.forge.set_checks(head, checks);
+    assert!(matches!(
+        rig.verdict(runner),
+        Some(StepReport::Ruling { id: 2, .. })
+    ));
+    merge_card(rig)
+}
+
+#[test]
+fn a_merge_card_does_not_say_ci_passed_when_every_check_was_skipped() {
+    let (rig, runner, head) = at_ci_after_a_billed_round(Cost(420_000_000));
+    rig.forge.ready_pull_request(71);
+
+    let card = raise_the_merge_ruling_after_a_change(&rig, &runner, &head, Checks::Skipped);
+
+    assert!(
+        card.contains("closes #7: Title of #7. No CI check ran."),
+        "{card}"
+    );
+    assert!(!card.contains("CI passed."), "{card}");
+}
+
+#[test]
+fn a_merge_card_does_not_say_rounds_read_a_head_that_no_round_read() {
+    let (rig, runner, head) = at_ci_after_a_billed_round(Cost(420_000_000));
+    // CI stays red after the worker's fix turn, and the maintainer fixes it by hand.
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["lint".into()]));
+    rig.verdict(&runner);
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    step(&runner).unwrap();
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::Ruling { id: 1, .. })
+    ));
+    let pushed = rig.push_by_hand("kelpie/7", "lint.txt");
+    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.forge.set_checks(&pushed, Checks::Passed);
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::Ruling { id: 2, .. })
+    ));
+
+    let card = merge_card(&rig);
+
+    assert!(
+        card.contains("closes #7: Title of #7. CI passed. No review round read this head."),
+        "{card}"
+    );
+    assert!(!card.contains("review rounds read it"), "{card}");
+}
+
+#[test]
+fn a_round_with_a_second_look_costs_both_looks() {
+    let rig = Rig::new("shep");
+    rig.default_review();
+    rig.with_app();
+    rig.maintainer("octocat");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Push("work.txt", "work\n"),
+        Scripted::Billed("CLEAN", Cost(400_000_000)), // the first look
+        Scripted::Billed("CLEAN", Cost(400_000_000)), // the second look
+    ]);
+    step(&runner).unwrap(); // the worker's first turn: opens the pull request
+    step(&runner).unwrap(); // round 1, qwen
+    for _ in 0..4 {
+        if rig.ask(&runner, "status", None)["work_item"]["phase"]["state"] == "ci" {
+            break;
+        }
+        step(&runner).unwrap(); // round 2: both looks of `defect-hunter`
+    }
+    let head = rig.forge.head_of("kelpie/7").expect("the worker pushed");
+    rig.ci_on_now(&runner);
+
+    let card = raise_the_merge_ruling(&rig, &runner, &head, Checks::Passed);
+
+    assert!(
+        card.contains("Another review round costs about $0.80."),
+        "{card}"
+    );
+}
+
+#[test]
+fn a_merge_card_says_roughly_what_another_review_round_costs() {
+    let card = merge_card_after_a_billed_round(Cost(420_000_000));
+
+    // Round 1 reported no dollars, so the one priced round is the whole average.
+    assert!(
+        card.contains(
+            "| **C** | Rework | Sends the worker back for a change the whole review reads \
+             again. Another review round costs about $0.42. |"
+        ),
+        "{card}"
+    );
+}
+
+#[test]
+fn a_review_round_under_a_cent_is_not_called_free() {
+    let card = merge_card_after_a_billed_round(Cost(1_000_000));
+
+    assert!(
+        card.contains(
+            "| **C** | Rework | Sends the worker back for a change the whole review reads \
+             again. Another review round costs under $0.01. |"
+        ),
+        "{card}"
     );
 }
 

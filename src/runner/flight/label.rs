@@ -251,6 +251,7 @@ impl Runner {
             panel: None,
             verdict: None,
             unposted: false,
+            effects: Vec::new(),
             raised: Some(names.now),
         });
         self.save(next)?;

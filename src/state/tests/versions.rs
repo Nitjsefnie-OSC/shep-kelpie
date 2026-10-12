@@ -222,6 +222,7 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     });
     let mut old = serde_json::to_value(&state).unwrap();
@@ -272,6 +273,7 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     });
     let old = serde_json::to_value(&state).unwrap();

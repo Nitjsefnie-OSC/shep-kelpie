@@ -19,6 +19,7 @@ use crate::board::{READY, TRIAGE};
 use crate::ports::{Finding, PM_NOTES};
 use crate::runner::ruling::question;
 use crate::runner::thread_replies::Settler;
+use crate::runner::voice::{BOARD, PROBLEM, effect_of};
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::Phase;
@@ -95,7 +96,16 @@ impl Runner {
             }
             How::Escalate(choice) => {
                 let choice = (choice.as_deref()).map(|c| plain(&self.shown(c.to_owned()), WORDS));
-                self.recommend(id, choice.as_deref(), &why)?;
+                let words = |text: &Option<String>| {
+                    (text.as_ref()).map(|t| plain(&self.shown(t.clone()), WORDS))
+                };
+                let passed = Passed {
+                    choice: choice.as_deref(),
+                    why: &why,
+                    problem: words(&settle.problem),
+                    board: words(&settle.board),
+                };
+                self.recommend(id, &passed)?;
                 (
                     format!("put ruling {id} on #{n} to the maintainer"),
                     "passed on",
@@ -260,19 +270,25 @@ impl Runner {
     }
 
     // Adds the recommendation to ruling `id`, to be posted as it is.
-    fn recommend(&mut self, id: u64, choice: Option<&str>, why: &str) -> Result<(), StateError> {
+    fn recommend(&mut self, id: u64, passed: &Passed<'_>) -> Result<(), StateError> {
         let mut next = self.state.clone();
         let ruling = (next.rulings.iter_mut().find(|r| r.id == id)).expect("found by the caller");
         let issue = ruling.issue.expect("a question parks a work item");
         match &mut ruling.kind {
             RulingKind::Question { asked, .. } => {
-                *asked = recommended(asked, choice, why);
+                *asked = recommended(asked, passed);
                 ruling.question = question(id, issue, ruling.pull_request, &ruling.kind);
             }
             // Its kind holds no words of the project manager's, so only the
-            // question the maintainer reads does.
+            // question the maintainer reads does. It has no problem or board
+            // note of its own to rewrite.
             RulingKind::FollowUp { .. } => {
-                ruling.question = recommended(&ruling.question, choice, why);
+                let passed = Passed {
+                    problem: None,
+                    board: None,
+                    ..*passed
+                };
+                ruling.question = recommended(&ruling.question, &passed);
             }
             _ => {}
         }
@@ -308,11 +324,27 @@ impl Runner {
 // `asked` with the project manager's `choice` on a line of its own, and
 // first in the `- ` list that ends it if it has one: a choice it lists moves
 // up, and one it does not is added. The list stays last.
-fn recommended(asked: &str, choice: Option<&str>, why: &str) -> String {
+//
+// Its `problem` replaces the worker's `Problem:` line, which leads the question,
+// and its `board` note goes under its recommendation.
+fn recommended(asked: &str, passed: &Passed<'_>) -> String {
+    let Passed {
+        choice,
+        why,
+        problem,
+        board,
+    } = passed;
+    let (choice, why) = (*choice, *why);
     let lines: Vec<&str> = asked.lines().collect();
     let listed = |line: &str| line.trim_start().starts_with("- ");
     let start = lines.iter().rposition(|l| !listed(l)).map_or(0, |i| i + 1);
     let (head, list) = lines.split_at(start);
+    let head: Vec<&str> = head
+        .iter()
+        .copied()
+        .filter(|line| problem.is_none() || !line.starts_with(PROBLEM))
+        .filter(|line| board.is_none() || !line.starts_with(BOARD))
+        .collect();
     let list: Vec<String> = {
         let named = choice.map(plain_choice);
         let at = list
@@ -330,12 +362,17 @@ fn recommended(asked: &str, choice: Option<&str>, why: &str) -> String {
         list
     };
     let shown = match (choice, list.first()) {
-        (Some(_), Some(first)) => Some(first.trim_start().trim_start_matches("- ").to_owned()),
+        (Some(_), Some(first)) => Some(effect_of(first.trim_start().trim_start_matches("- ")).0),
         (Some(choice), None) => Some(choice.to_owned()),
         (None, _) => None,
     };
-    let mut out: Vec<String> = head.iter().map(|l| (*l).to_owned()).collect();
+    let mut out: Vec<String> = problem
+        .iter()
+        .map(|p| format!("{PROBLEM} {p}"))
+        .chain(head.iter().map(|l| (*l).to_owned()))
+        .collect();
     out.extend(shown.map(|c| format!("PM recommends: {c}")));
+    out.extend(board.iter().map(|b| format!("{BOARD} {b}")));
     if !why.is_empty() {
         out.push(format!("PM says: {why}"));
     }
@@ -343,9 +380,23 @@ fn recommended(asked: &str, choice: Option<&str>, why: &str) -> String {
     out.join("\n")
 }
 
-// A choice as it is compared: without its `- `, its backticks or its case.
+// A choice as it is compared: without its `- `, the effect written after it,
+// its backticks or its case.
 fn plain_choice(text: &str) -> String {
     let text = text.trim();
     let text = text.strip_prefix("- ").unwrap_or(text);
-    text.trim().trim_matches('`').to_lowercase()
+    let (option, _) = effect_of(text.trim());
+    option.trim_matches('`').to_lowercase()
+}
+
+// What the project manager adds to a question it passes on
+struct Passed<'a> {
+    /// The choice it recommends
+    choice: Option<&'a str>,
+    /// Why
+    why: &'a str,
+    /// The problem in its own words, to replace the worker's
+    problem: Option<String>,
+    /// What the board shows of picking an option
+    board: Option<String>,
 }

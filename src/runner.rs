@@ -50,6 +50,7 @@ mod compact;
 mod dispatch;
 mod drain;
 mod e2e;
+mod effects;
 mod finishing;
 mod flight;
 mod follow_up;

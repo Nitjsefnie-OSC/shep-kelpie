@@ -22,6 +22,9 @@ use crate::work_item::Phase;
 /// What the project manager's `no` is in a table, when it has no more to say
 const SENDS_BACK: &str = "Sends the worker back with a note, and the review reads its change again";
 
+/// What picking an option of a worker's question does, when the worker wrote no effect
+const SENDS_ANSWER: &str = "Sends the worker this answer";
+
 /// What a no does to a work item that cannot go on
 const STOPS: &str = "Stops the work item, keeping its branch and pull request on the forge";
 
@@ -41,11 +44,16 @@ struct Choice {
 
 /// What a ruling's comment says before it says how to answer
 struct Card {
+    /// What is wrong, in plain words, where the worker or the project manager
+    /// wrote it: the comment opens with it
+    problem: Option<String>,
     title: String,
     /// What happened, when the title leaves something unsaid
     facts: Option<String>,
     /// The options a ruling lists, A first
     choices: Vec<Choice>,
+    /// What the board shows of picking an option, in the project manager's words
+    board: Option<String>,
 }
 
 /// The comment a ruling is posted as, through the App
@@ -53,10 +61,10 @@ struct Card {
 /// `mention` is the login whose reaction, tick or reply answers it. With none
 /// the comment says only that the terminal does.
 pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
-    let card = Card::of(&ruling.kind);
-    let mut blocks = vec![format!("### {}", card.title)];
-    blocks.extend(card.facts.clone());
+    let card = Card::for_ruling(ruling);
+    let mut blocks = card.opening();
     blocks.push(table(&card.choices, &ruling.kind));
+    blocks.extend(card.on_the_board());
     blocks.extend(panel(ruling, &card.choices));
     blocks.extend(recommendation(ruling));
     blocks.push(match mention {
@@ -70,10 +78,10 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
 /// happened and the table of its options, as the comment opens, and how
 /// many options there are
 pub(in crate::runner) fn brief(ruling: &Ruling) -> (String, usize) {
-    let card = Card::of(&ruling.kind);
-    let mut blocks = vec![format!("### {}", card.title)];
-    blocks.extend(card.facts.clone());
+    let card = Card::for_ruling(ruling);
+    let mut blocks = card.opening();
     blocks.push(table(&card.choices, &ruling.kind));
+    blocks.extend(card.on_the_board());
     (blocks.join("\n\n"), card.choices.len())
 }
 
@@ -83,11 +91,19 @@ pub(in crate::runner) fn brief(ruling: &Ruling) -> (String, usize) {
 /// The question stays under it, with the panel's words, and no option, tick,
 /// reaction or reply is offered.
 pub(in crate::runner) fn settled_comment(ruling: &Ruling, line: &str) -> String {
-    let card = Card::of(&ruling.kind);
-    let mut blocks = vec![line.to_owned(), format!("### {}", card.title)];
-    blocks.extend(card.facts.clone());
+    let card = Card::for_ruling(ruling);
+    let mut blocks = vec![line.to_owned()];
+    blocks.extend(card.opening());
     blocks.extend(panel(ruling, &card.choices));
     blocks.join("\n\n")
+}
+
+/// What each option of a ruling of `kind` does when kelpie words nothing more,
+/// in the order the card lists them
+pub(in crate::runner) fn phrases(kind: &RulingKind) -> Vec<String> {
+    (Card::of(kind).choices.into_iter())
+        .map(|c| c.does)
+        .collect()
 }
 
 /// The option key a `answer` is to a ruling of `kind`, if it is one of its options
@@ -175,6 +191,32 @@ fn boxes(kind: &RulingKind) -> bool {
 }
 
 impl Card {
+    // The card of `ruling`: its kind's, with the effect kelpie worded when it
+    // raised the ruling where it worded one
+    fn for_ruling(ruling: &Ruling) -> Self {
+        let mut card = Self::of(&ruling.kind);
+        for (choice, effect) in card.choices.iter_mut().zip(&ruling.effects) {
+            if !effect.trim().is_empty() {
+                choice.does.clone_from(effect);
+            }
+        }
+        card
+    }
+
+    // What the comment opens with: the problem, then the title and the facts
+    fn opening(&self) -> Vec<String> {
+        let mut blocks: Vec<String> = self.problem.clone().into_iter().collect();
+        blocks.push(format!("### {}", self.title));
+        blocks.extend(self.facts.clone());
+        blocks
+    }
+
+    // The project manager's note on what the board shows, after the table
+    fn on_the_board(&self) -> Option<String> {
+        let note = self.board.as_ref()?;
+        Some(format!("**On the board**\n{note}"))
+    }
+
     fn of(kind: &RulingKind) -> Self {
         match kind {
             RulingKind::Merge { head, .. } => {
@@ -196,22 +238,31 @@ impl Card {
                     choices.push(choice("Rework", does, Answer::Rework(NO_NOTE.to_owned())));
                 }
                 Self {
+                    problem: None,
                     title: format!("Merge this pull request at {} into main?", short(head)),
                     facts: (!facts.is_empty()).then_some(facts),
                     choices,
+                    board: None,
                 }
             }
             RulingKind::Stuck(reason) => {
                 let (title, yes, no) = stuck(reason);
                 Self {
+                    problem: None,
                     title: title.to_owned(),
                     facts: (!matches!(reason, Stuck::Unlabelled { .. }))
                         .then(|| stuck_comment(reason)),
                     choices: yes_no(yes, no),
+                    board: None,
                 }
             }
             RulingKind::Question { asked, .. } => {
-                let (stem, options) = split_question(asked);
+                let Asking {
+                    problem,
+                    stem,
+                    options,
+                    board,
+                } = split_question(asked);
                 let (title, facts) = match stem.split_once('\n') {
                     Some((title, rest)) => (title.trim(), rest.trim()),
                     None => (stem.as_str(), ""),
@@ -221,17 +272,21 @@ impl Card {
                     false => title,
                 };
                 Self {
+                    problem,
                     title: title.to_owned(),
                     facts: (!facts.is_empty()).then(|| facts.to_owned()),
                     choices: (options.into_iter())
-                        .map(|option| {
+                        .map(|(option, effect)| {
                             let answer = Answer::Text(option.trim_matches('`').to_owned());
-                            choice(&option, "Sends the worker this answer", answer)
+                            choice(&option, effect.as_deref().unwrap_or(SENDS_ANSWER), answer)
                         })
                         .collect(),
+                    board,
                 }
             }
             RulingKind::AgentFiles { .. } => Self {
+                problem: None,
+                board: None,
                 title: "Accept changes to agents' own files?".to_owned(),
                 facts: Some(super::said(kind)),
                 choices: yes_no(
@@ -240,6 +295,8 @@ impl Card {
                 ),
             },
             RulingKind::ForeignChange { .. } => Self {
+                problem: None,
+                board: None,
                 title: "Accept a change made outside kelpie?".to_owned(),
                 facts: Some(super::said(kind)),
                 choices: yes_no("Accepts the change and kelpie carries on", Some(SENDS_BACK)),
@@ -266,6 +323,8 @@ impl Card {
                     n => format!("{n} confirmed findings"),
                 };
                 Self {
+                    problem: None,
+                    board: None,
                     title,
                     facts: Some(format!(
                         "This pull request merged with {held} left unfixed{left}."
@@ -363,20 +422,74 @@ fn yes_no(yes: &str, no: Option<&str>) -> Vec<Choice> {
         .collect()
 }
 
+/// A worker's question, read
+struct Asking {
+    /// What is wrong, from its `Problem:` line
+    problem: Option<String>,
+    /// What it says, without the lines the worker and the project manager lead
+    stem: String,
+    /// The options it lists, each with the effect written after its ` => `
+    options: Vec<(String, Option<String>)>,
+    /// What the project manager's `PM board:` line says
+    board: Option<String>,
+}
+
 // A worker's question without the project manager's lines, split into what it
 // says and the options it lists, one `- ` line each at its end
-fn split_question(asked: &str) -> (String, Vec<String>) {
-    let lines: Vec<&str> = (asked.lines())
-        .filter(|line| !line.starts_with(RECOMMENDS) && !line.starts_with(SAYS))
-        .collect();
+fn split_question(asked: &str) -> Asking {
+    let leads = |line: &str| {
+        [RECOMMENDS, SAYS, PROBLEM, BOARD]
+            .iter()
+            .any(|l| line.starts_with(l))
+    };
+    let lines: Vec<&str> = asked.lines().filter(|line| !leads(line)).collect();
     let listed = |line: &&str| line.trim_start().starts_with("- ");
     let start = lines.iter().rposition(|l| !listed(l)).map_or(0, |i| i + 1);
     let (stem, list) = lines.split_at(start);
-    let options = (list.iter())
-        .map(|line| line.trim_start().trim_start_matches("- ").trim().to_owned())
-        .collect();
-    (stem.join("\n").trim().to_owned(), options)
+    Asking {
+        problem: led_by(asked, PROBLEM),
+        stem: stem.join("\n").trim().to_owned(),
+        options: (list.iter())
+            .map(|line| effect_of(line.trim_start().trim_start_matches("- ").trim()))
+            .collect(),
+        board: led_by(asked, BOARD),
+    }
 }
+
+// The rest of the last line of `text` that starts with `lead`
+fn led_by(text: &str, lead: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .rev()
+        .find_map(|l| l.strip_prefix(lead))?
+        .trim();
+    (!line.is_empty()).then(|| line.to_owned())
+}
+
+/// The option a `- ` line of a question lists, and the effect written after
+/// its ` => `, if one is. A ` => ` inside backticks is part of the option.
+pub(in crate::runner) fn effect_of(line: &str) -> (String, Option<String>) {
+    let mut ticks = 0;
+    for (at, c) in line.char_indices() {
+        match c {
+            '`' => ticks += 1,
+            '=' if ticks % 2 == 0 && line[..at].ends_with(' ') && line[at..].starts_with("=> ") => {
+                let effect = line[at + 3..].trim();
+                let option = line[..at].trim_end().to_owned();
+                return (option, (!effect.is_empty()).then(|| effect.to_owned()));
+            }
+            _ => {}
+        }
+    }
+    (line.to_owned(), None)
+}
+
+/// What leads the line where a worker says what is wrong, and where the
+/// project manager rewrites it when it passes the question on
+pub(in crate::runner) const PROBLEM: &str = "Problem:";
+
+/// What leads the line where the project manager says what the board shows
+pub(in crate::runner) const BOARD: &str = "PM board:";
 
 /// What leads the project manager's pick in a worker's question
 const RECOMMENDS: &str = "PM recommends:";
@@ -468,7 +581,7 @@ fn after_last<'a>(text: &'a str, lead: &str) -> Option<&'a str> {
 
 fn table(choices: &[Choice], kind: &RulingKind) -> String {
     let mut rows = vec![
-        "| | Option | What it does |".to_owned(),
+        "| | Option | If you pick it |".to_owned(),
         "|---|---|---|".to_owned(),
     ];
     for (key, choice) in ('A'..='Z').zip(choices) {

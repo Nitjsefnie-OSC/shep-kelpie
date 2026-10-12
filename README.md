@@ -682,16 +682,16 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling's id is unique across projects, so `rule` needs no project. You can name a ruling by the number of its pull request or its issue instead: `rule 427 yes` and `rule 407 yes` answer the same ruling when 427 is the pull request and 407 its issue. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` always means a number, and a bare `427` is a ruling's id when one is waiting under it. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling:
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
 
 ```markdown
 ### Merge this pull request at 6b0606e into main?
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
-| **A** | Merge | Merges it into main |
-| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |
-| **C** | Rework | Sends the worker back for a change the whole review reads again |
+| **A** | Merge | Merges it into main and closes #567: the worker retro is off unless a project names it. CI passed. 2 review rounds read it. |
+| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you, with no new review round. |
+| **C** | Rework | Sends the worker back for a change the whole review reads again. Another review round costs about $0.80. |
 
 @octocat
 - 👍 or 👎 answers, or tick one:
@@ -699,6 +699,23 @@ Where an App covers the repo, a ruling's comment is one short format, whatever i
 - [ ] B
 - [ ] C
 - Or reply `14 no <note>` or `14 rework <note>`
+```
+
+A worker's question opens with the problem, and each option carries its effect. The worker writes both in its `<kelpie-question>` block: a first line `Problem: ` of one or two plain sentences, then each option as `- label => what picking it leads to`. The project manager rewrites the problem when it passes the question on, and adds a `board` note of what the board shows (items held behind this one, a slot freed or kept), which the card shows under the table. An option the worker gave no effect keeps the phrase its kind always had ("Sends the worker this answer"). The effect is no part of the answer the option gives.
+
+```markdown
+The push hook rejects two commits, and nothing says why.
+
+### Which way should the push go?
+
+| | Option | If you pick it |
+|---|---|---|
+| **A** | Wait | #495 stays parked until the hook is fixed. |
+| **B** | Push anyway | Publishes both commits to main, and the hook stays broken. |
+| **C** | Other | Reply with your own answer |
+
+**On the board**
+Nine ready issues are held behind #495.
 ```
 
 You answer it in the thread, from the comment itself or a reply:
