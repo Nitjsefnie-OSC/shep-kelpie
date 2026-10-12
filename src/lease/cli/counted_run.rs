@@ -72,13 +72,9 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], patience:
         Err(e) => return failed(&unreached(&e), NO_LEASE),
     };
     // A signal before the start reached nobody else, so it ends the run.
-    tokio::select! {
-        biased;
-        caught = signals.recv() => {
-            visit.give_back().await;
-            return caught.number();
-        }
-        () = std::future::ready(()) => {}
+    if let Some(caught) = signals.already().await {
+        visit.give_back().await;
+        return caught.number();
     }
     if let Err(e) = visit.inheritable(true) {
         say(&format!("{e}: the lease is held by this process alone"));

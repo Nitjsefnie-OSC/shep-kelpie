@@ -379,10 +379,8 @@ async fn ask_dog(action: &str, params: &str) -> Result<Value, String> {
 // without starting it.
 async fn run_command(command: &[&str], signals: &mut Signals) -> Result<ExitCode, String> {
     let (program, args) = command.split_first().ok_or("no command to run")?;
-    tokio::select! {
-        biased;
-        caught = signals.recv() => return Ok(caught.exit_code()),
-        () = std::future::ready(()) => {}
+    if let Some(caught) = signals.already().await {
+        return Ok(caught.exit_code());
     }
     let mut child = tokio::process::Command::from(crate::spawn::command(program))
         .args(args)
@@ -470,6 +468,19 @@ impl Signals {
         })
     }
 
+    // A signal that has already come, if one has. The OS may have handed
+    // kelpie a signal that the streams have not been told of yet, since
+    // tokio flags it from its driver, not from the handler. One yield lets
+    // the driver catch up before the streams are asked.
+    async fn already(&mut self) -> Option<Caught> {
+        tokio::task::yield_now().await;
+        tokio::select! {
+            biased;
+            caught = self.recv() => Some(caught),
+            () = std::future::ready(()) => None,
+        }
+    }
+
     async fn recv(&mut self) -> Caught {
         tokio::select! {
             _ = self.interrupt.recv() => Caught::Interrupt,
@@ -522,8 +533,10 @@ mod tests {
     }
 
     // The signal lands after the handler exists and before the command
-    // does, which is the gap between taking a lease and spawning.
-    #[tokio::test]
+    // does, which is the gap between taking a lease and spawning. A
+    // current-thread runtime runs its signal driver only when the test
+    // yields, so the stream has not seen the signal when the run starts.
+    #[tokio::test(flavor = "current_thread")]
     async fn an_interrupt_before_the_command_starts_ends_the_run_without_it() {
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("ran");
@@ -532,8 +545,6 @@ mod tests {
             .args(["-INT", &std::process::id().to_string()])
             .status()
             .unwrap();
-        // Delivery is asynchronous; wait until the handler has seen it.
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let command = ["touch", marker.to_str().unwrap()];
         let ended = run_command(&command, &mut signals).await;
         assert_eq!(ended, Ok(ExitCode::from(130)));
