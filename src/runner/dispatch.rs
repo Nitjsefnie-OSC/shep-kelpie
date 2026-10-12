@@ -338,6 +338,10 @@ mod tests {
     #[test]
     fn a_merged_item_the_forge_still_lists_ready_stays_skipped() {
         let (rig, runner, _) = Rig::parked("acme");
+        // The forge keeps the issue open: the pull request closes nothing and
+        // kelpie's own close is refused.
+        rig.forge.set_closes(71, &[]);
+        rig.forge.set_closes_down(true);
         rig.ask(&runner, "rule", Some("1 yes"));
         step(&runner).unwrap();
         rig.clock.advance(crate::runner::CHECKS_SETTLE);

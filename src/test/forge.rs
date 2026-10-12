@@ -304,6 +304,15 @@ impl FakeForge {
         prs.get_mut(&number).expect("an opened pull request").state = state;
     }
 
+    /// Makes pull request `number` close `closes` when kelpie merges it, in
+    /// place of the issues it was opened to close
+    pub(crate) fn set_closes(&self, number: u64, closes: &[u64]) {
+        let mut open = self.open.lock().unwrap();
+        for listed in open.iter_mut().filter(|l| l.number == number) {
+            listed.closes = closes.to_vec();
+        }
+    }
+
     /// Whether pull request `number` is a draft
     pub(crate) fn draft(&self, number: u64) -> bool {
         let prs = self.pull_requests.lock().unwrap();
@@ -928,6 +937,12 @@ impl Forge for FakeForge {
             return Ok(());
         }
         self.set_state(number, PullRequestState::Merged);
+        // The forge closes the issues the pull request names as it merges.
+        let closes = (self.open.lock().unwrap().iter())
+            .rfind(|l| l.number == number)
+            .map(|l| l.closes.clone())
+            .unwrap_or_default();
+        self.closed.lock().unwrap().extend(closes);
         if self.merge_answers_lost.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("the answer was lost".into()));
         }
