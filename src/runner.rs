@@ -41,6 +41,7 @@ mod briefing;
 mod ci_help;
 mod claim;
 mod claude_files;
+mod close_merged;
 mod closed;
 #[cfg(test)]
 mod coderabbit;
