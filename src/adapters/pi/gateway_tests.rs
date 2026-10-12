@@ -135,5 +135,5 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
             assert!(!text.contains(KEY), "{} holds the key", path.display());
         }
     }
-    assert!(Path::new(&w.path("worker/settings.pi/models.json")).is_file());
+    assert!(Path::new(&w.path("settings.pi/models.json")).is_file());
 }

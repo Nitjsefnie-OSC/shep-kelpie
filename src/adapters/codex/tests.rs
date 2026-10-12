@@ -723,9 +723,9 @@ struct World {
 }
 
 impl World {
-    // Under `/tmp`, and canonical, so a recorded path reads the same each time.
+    // Short, and canonical, so a recorded path reads the same each time.
     fn new() -> Self {
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let dir = crate::test::short_tempdir();
         let root = dir.path().canonicalize().unwrap();
         for folder in ["wt", "build", "worker", "outside", "home", "login"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
