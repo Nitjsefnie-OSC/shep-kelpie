@@ -142,6 +142,21 @@ impl FakeCodeRabbit {
         );
     }
 
+    /// Sets the skip status `description` on `head` of pull request
+    /// `number` at `at`, as CodeRabbit answers a summon its settings do not
+    /// let start a review
+    pub(crate) fn skip(&self, number: u64, head: &str, at: u64, description: &str) {
+        let mut activity = self.activity.lock().unwrap();
+        activity.entry(ours(number)).or_default().statuses.insert(
+            0,
+            Status {
+                commit: head.to_owned(),
+                description: description.into(),
+                at: Timestamp(at),
+            },
+        );
+    }
+
     /// Resolves thread `id` as CodeRabbit does once it sees a fix
     pub(crate) fn settle(&self, id: &str) {
         let mut activity = self.activity.lock().unwrap();

@@ -79,6 +79,11 @@ const LIMIT: &str = "Review limit reached";
 // A rate limit and a skip are marked done too, under other words.
 const COMPLETED: &str = "Review completed";
 const RUNNING: &str = "Review in progress";
+// The statuses of a repo whose settings do not let the summon start a review.
+const SKIPS: [&str; 2] = [
+    "Review skipped: automatic reviews are disabled",
+    "Review skipped: excluded by label configuration",
+];
 
 const WAITS: [&str; 2] = [
     "Next included review available in ",
@@ -133,10 +138,19 @@ impl Reads for Activity {
         // Only the newest status says where it stands: a running review
         // that ended in a status this does not parse is not still running.
         let newest = ours.max_by_key(|s| s.at);
-        if newest.is_some_and(|s| s.description == RUNNING) {
+        let Some(newest) = newest else {
+            return Reading::Silent;
+        };
+        if newest.description == RUNNING {
             return Reading::Processing;
         }
-        Reading::Silent
+        // A skip a push set just before the summon is not its answer, so
+        // this is read from the summon itself, with no slack.
+        let declined = SKIPS.into_iter().find(|skip| *skip == newest.description);
+        match declined {
+            Some(status) if newest.at.0 >= since.0 => Reading::Declined { status },
+            _ => Reading::Silent,
+        }
     }
 
     // Any comment edited or posted, review posted, or status set on the
@@ -326,6 +340,12 @@ mod tests {
     const STATUSES_614: &str = include_str!("../fixtures/coderabbit-statuses-614.jsonl");
     const HEAD_614: &str = "7d30d0f6f8d03314fe9f060b4627643bb32db8cc";
 
+    // A repo whose `.coderabbit.yaml` has automatic reviews off: the status
+    // it set 12 seconds after a summon at 10:00:00. The text is as the
+    // maintainer saw it on the pull request; the head and times are made up.
+    const STATUSES_DISABLED: &str = include_str!("../fixtures/coderabbit-statuses-399.jsonl");
+    const HEAD_DISABLED: &str = "5e1c0de5a7b3c9d2f4a6b8c0d2e4f6a8b0c2d4e6";
+
     fn activity(comments: &str, reviews: &str, threads: &str) -> Activity {
         Activity {
             comments: parse_comments(comments.as_bytes()).unwrap(),
@@ -338,6 +358,14 @@ mod tests {
 
     const NO_THREADS: &str =
         r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}"#;
+
+    // The skip notice a push set on the head at 04:57:57
+    fn skips_of_614() -> Vec<Status> {
+        let all = parse_statuses(STATUSES_614.as_bytes()).unwrap();
+        all.into_iter()
+            .filter(|s| s.description.starts_with("Review skipped"))
+            .collect()
+    }
 
     fn iso(text: &str) -> Timestamp {
         let at: jiff::Timestamp = text.parse().unwrap();
@@ -429,14 +457,77 @@ mod tests {
             description: description.into(),
             at: Timestamp(100),
         };
+        let limited = Activity {
+            statuses: vec![status("Review rate limited")],
+            ..Activity::default()
+        };
+        assert_eq!(limited.read("c0ffee", Timestamp(0)), Reading::Silent);
+        let skipped = Activity {
+            statuses: vec![status("Review skipped: excluded by label configuration")],
+            ..Activity::default()
+        };
+        assert_ne!(
+            skipped.read("c0ffee", Timestamp(0)),
+            Reading::Completed { at: Timestamp(100) }
+        );
+    }
+
+    #[test]
+    fn a_summon_answered_with_automatic_reviews_disabled_skips_coderabbit_at_once() {
+        let seen = Activity {
+            statuses: parse_statuses(STATUSES_DISABLED.as_bytes()).unwrap(),
+            ..Activity::default()
+        };
+        assert_eq!(
+            seen.read(HEAD_DISABLED, iso("2026-10-09T10:00:00Z")),
+            Reading::Declined {
+                status: "Review skipped: automatic reviews are disabled"
+            }
+        );
+    }
+
+    // Shaped like shep#614's statuses, whose skip came from a push.
+    #[test]
+    fn a_summon_answered_with_excluded_by_label_configuration_skips_coderabbit_at_once() {
+        let seen = Activity {
+            statuses: skips_of_614(),
+            ..Activity::default()
+        };
+        assert_eq!(
+            seen.read(HEAD_614, iso("2026-09-29T04:57:50Z")),
+            Reading::Declined {
+                status: "Review skipped: excluded by label configuration"
+            }
+        );
+    }
+
+    #[test]
+    fn a_skip_status_set_before_the_summon_is_not_its_answer() {
+        let seen = Activity {
+            statuses: skips_of_614(),
+            ..Activity::default()
+        };
+        // 04:57:57 is inside CLOCK_SLACK of this summon, and still before it
+        let summoned = iso("2026-09-29T04:58:20Z");
+        assert_eq!(seen.read(HEAD_614, summoned), Reading::Silent);
+        assert!(seen.heard(HEAD_614, summoned), "a sign, if no answer");
+    }
+
+    #[test]
+    fn a_later_review_in_progress_status_beats_an_earlier_skip() {
+        let status = |description: &str, at: u64| Status {
+            commit: "c0ffee".into(),
+            description: description.into(),
+            at: Timestamp(at),
+        };
         let seen = Activity {
             statuses: vec![
-                status("Review rate limited"),
-                status("Review skipped: excluded by label configuration"),
+                status("Review in progress", 110),
+                status("Review skipped: automatic reviews are disabled", 100),
             ],
             ..Activity::default()
         };
-        assert_eq!(seen.read("c0ffee", Timestamp(0)), Reading::Silent);
+        assert_eq!(seen.read("c0ffee", Timestamp(90)), Reading::Processing);
     }
 
     #[test]
