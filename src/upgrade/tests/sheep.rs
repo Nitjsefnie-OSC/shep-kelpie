@@ -186,8 +186,12 @@ async fn a_runner_stopped_while_the_upgrade_waits_stays_stopped() {
     looks.push(IDLE);
     rig.shepherd.says("koji", &looks);
     let new = rig.build("new", "0.3.0", "0.12.0");
+    // Stopped once it has been looked at a few times, not after a delay: the upgrade
+    // checks the new build first, and how long that takes depends on the machine.
     let stopping = async {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        while rig.shepherd.answers_left("koji") > looks.len() - 5 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
         rig.shepherd.stops("koji");
     };
     let ((ran, said), ()) = tokio::join!(rig.install(&new), stopping);

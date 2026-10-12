@@ -337,6 +337,7 @@ impl Judging<'_> {
                 }
                 let git = git::Git {
                     words,
+                    quoting: last(input.quoting, words.len()),
                     heredocs: input.heredocs,
                     redirected: run.git_redirected || state.git_redirected,
                     configured: run.git_configured || state.git_configured,

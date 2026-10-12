@@ -105,17 +105,20 @@ fn text_from(word: &str, next: &mut bool) -> Option<usize> {
 
 // How many characters of `word` a shell reads as a redirection: `>`, `2>`, `<<`.
 // It builds no word for gh, and a heredoc's `<<` is how `--body-file -` is fed.
+// The `&` of `2>&1`, `<&0` and `&>out` is part of it: the shell splitter keeps it in the word.
 fn redirect_len(word: &str, quoted: impl Fn(usize) -> bool) -> usize {
     let digits = word.chars().take_while(char::is_ascii_digit).count();
+    let lead = if word.starts_with('&') { 1 } else { digits };
     let marks = word
         .chars()
-        .skip(digits)
+        .skip(lead)
         .take_while(|c| matches!(c, '<' | '>'))
         .count();
+    let dup = usize::from(word.chars().nth(lead + marks) == Some('&'));
     match marks {
         0 => 0,
-        _ if (0..digits + marks).any(quoted) => 0,
-        _ => digits + marks,
+        _ if (0..lead + marks + dup).any(quoted) => 0,
+        _ => lead + marks + dup,
     }
 }
 

@@ -136,6 +136,14 @@ impl FakeShepherd {
         sheep.says = answers.iter().map(|b| b.map(str::to_owned)).collect();
     }
 
+    /// How many scripted `status` answers `name` has left, the last one counting
+    /// as it repeats: a test waits on this for the looks it has had so far
+    pub(crate) fn answers_left(&self, name: &str) -> usize {
+        let flock = self.flock.lock().unwrap();
+        let sheep = flock.iter().find(|s| s.config.name == name).unwrap();
+        sheep.says.len()
+    }
+
     /// Puts an adopted dog named `name` in the flock, running, with the
     /// shepherd channel or without
     pub(crate) fn holds_dog(&self, name: &str, channel: bool) {

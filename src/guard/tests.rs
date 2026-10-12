@@ -130,6 +130,8 @@ fn a_conventional_pull_request_goes_through() {
         "gh pr edit 12 --title 'refactor(core)!: split the loop'",
         "gh pr edit 12 --body 'only the body'",
         "gh pr view 12",
+        "gh pr view 12 2>&1",
+        "gh pr create --title 'fix: x' --body y &>out.txt",
         "git push origin HEAD",
     ] {
         assert_eq!(bash(command), Verdict::Allow, "{command}");
@@ -350,6 +352,58 @@ fn a_push_sending_the_home_folder_is_refused_naming_where() {
     tree.git(&["update-ref", "refs/remotes/origin/kelpie/7", "HEAD"]);
     let why = refusal(tree.bash("git push origin HEAD"));
     assert!(why.contains("`notes.md`"), "{why}");
+}
+
+// The shell takes a redirect out of the words git is given.
+#[test]
+fn a_push_with_a_redirect_is_judged_as_without_it() {
+    let tree = WorkerTree::new();
+    tree.git(&["branch", "kelpie/51"]);
+    for command in [
+        "git push origin HEAD 2>&1",
+        "git push origin HEAD 2>/dev/null",
+        "git push origin HEAD >out.txt",
+        "git push origin HEAD &>out.txt",
+        "git push origin HEAD > out.txt",
+        "git push -u origin kelpie/51 2>&1 | tail -5",
+    ] {
+        assert_eq!(tree.bash(command), Verdict::Allow, "{command}");
+    }
+    // What follows a redirect is still git's, though the shell splits on its `&`.
+    for command in [
+        "git push origin main 2>&1",
+        "git push origin main 2> err.txt",
+        "git push origin 2>&1 main",
+        "git push origin HEAD 2>&1 main",
+        "git push origin &>out.txt main",
+        "git push origin >&out.txt main",
+    ] {
+        let why = refusal(tree.bash(command));
+        assert!(why.contains("only the project manager"), "{command}: {why}");
+    }
+}
+
+#[test]
+fn a_commit_with_a_redirect_keeps_its_message_and_its_heredoc() {
+    let tree = WorkerTree::new();
+    tree.write("a.md", "a\n");
+    tree.git(&["add", "a.md"]);
+    assert_eq!(tree.bash("git commit -m 'fix: x' 2>&1"), Verdict::Allow);
+    for command in [
+        "git commit -m 'fix: see /home/me' 2>&1",
+        "git commit -m 'fix: x' 2>&1 -m /home/me",
+        "git commit -F - 2>&1 <<'EOF'\nfix: x\n\nin /home/me/wt\nEOF",
+        // A quoted `2>&1` is the message, not a redirect.
+        "git commit -m '2>&1 /home/me'",
+        "git commit -m '2>' -m '/home/me'",
+        // A heredoc's `<<` is not a redirect to drop.
+        "git commit -F - <<'EOF'\nfix: x\n\nin /home/me/wt\nEOF",
+    ] {
+        let Verdict::Refuse(why) = tree.bash(command) else {
+            panic!("{command}: let through");
+        };
+        assert!(why.contains("a path on this machine"), "{command}: {why}");
+    }
 }
 
 #[test]
