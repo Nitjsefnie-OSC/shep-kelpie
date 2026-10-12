@@ -264,6 +264,8 @@ fn a_reply_written_as_the_terminal_command_answers_the_ruling() {
         "shep-kelpie rule 1 yes",
         "shep kelpie rule koji 1 yes",
         "shep-kelpie rule koji 1 yes",
+        "shep  kelpie   rule  1 yes",
+        "shep-kelpie rule   koji   1 yes",
     ] {
         let (rig, runner, head) = alerted("koji");
         rig.reply(command);

@@ -29,11 +29,12 @@ fn without_command(text: &str) -> &str {
         (Some("shep-kelpie"), Some("rule"), _) => 2,
         _ => return text,
     };
-    (0..called).fold(text, |rest, _| {
+    let rest = (0..called).fold(text, |rest, _| {
         let rest = rest.trim_start();
         rest.split_once(char::is_whitespace)
             .map_or("", |(_, after)| after)
-    })
+    });
+    rest.trim_start()
 }
 
 /// Whose ruling a reply's id names
