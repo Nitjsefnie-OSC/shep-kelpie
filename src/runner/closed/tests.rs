@@ -467,6 +467,23 @@ fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead(
 }
 
 #[test]
+fn a_pull_request_reopened_and_merged_after_it_was_found_closed_ends_its_item() {
+    let (rig, runner) = asked_with_a_pull_request("shep");
+    rig.forge.set_state(71, PullRequestState::Closed);
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 2 }));
+    rig.forge.set_state(71, PullRequestState::Merged);
+    rig.forge.close_issue(7);
+    rig.clock.advance(PARKED_READ);
+    let reports = steps(&runner);
+    assert!(reports.iter().any(finished_merged), "{reports:?}");
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        (&status["work_item"], &status["rulings"]),
+        (&json!(null), &json!([]))
+    );
+}
+
+#[test]
 fn an_item_parked_on_its_follow_up_ruling_after_kelpies_own_merge_is_left_alone() {
     let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
     assert_eq!(rig.forge.merges().len(), 1);

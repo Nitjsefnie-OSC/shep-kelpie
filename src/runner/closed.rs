@@ -58,9 +58,10 @@ impl Runner {
     /// counted in memory, so a restart reads it at once: its pull request
     /// when it has one, else its issue. An open pull request that closes the
     /// issue keeps an item with none. An attached item is left alone, and so
-    /// is one parked on its follow-up ruling, whose merge kelpie made, or on
-    /// `closed` already. A forge that cannot be asked is noted and asked
-    /// again at the next read.
+    /// is one parked on its follow-up ruling, whose merge kelpie made. One
+    /// parked on `closed` is read on, but only a merge changes it, so a pull
+    /// request reopened and merged still ends the item. A forge that cannot
+    /// be asked is noted and asked again at the next read.
     ///
     /// # Errors
     ///
@@ -76,7 +77,7 @@ impl Runner {
             i.parked()
                 && i.attached.is_none()
                 && due(i.issue)
-                && !self.settled_on_its_pull_request(i)
+                && !self.parked_on(i, |k| matches!(k, RulingKind::FollowUp { .. }))
         });
         let mut ended = Vec::new();
         let mut found = Vec::new();
@@ -86,6 +87,13 @@ impl Runner {
             if let Some(number) = item.pull_request {
                 match self.ports.forge.pull_request(&self.remote, number) {
                     Ok(pr) if pr.state == PullRequestState::Open => {}
+                    // Found closed already, the ruling stands. A merge after
+                    // a reopen still ends the item.
+                    Ok(pr)
+                        if pr.state == PullRequestState::Closed
+                            && self.parked_on(item, |k| {
+                                matches!(k, RulingKind::Stuck(Stuck::Closed))
+                            }) => {}
                     Ok(pr) => found.push((issue, number, pr.state)),
                     Err(e) => self.notes.push(format!("cannot read #{number}: {e}")),
                 }
@@ -152,22 +160,14 @@ impl Runner {
         Ok(())
     }
 
-    // Whether `item` has a pull request that needs no read: kelpie made its
-    // merge and the item is parked on the follow-up ruling, or it was found
-    // closed already and the item is parked on that.
-    fn settled_on_its_pull_request(&self, item: &WorkItem) -> bool {
+    // Whether `item` is parked on a ruling that `kind` matches
+    fn parked_on(&self, item: &WorkItem, kind: impl Fn(&RulingKind) -> bool) -> bool {
         let Phase::Ruling { id } = item.phase else {
             return false;
         };
-        item.pull_request.is_some()
-            && (self.state.rulings.iter())
-                .find(|r| r.id == id)
-                .is_some_and(|r| {
-                    matches!(
-                        r.kind,
-                        RulingKind::FollowUp { .. } | RulingKind::Stuck(Stuck::Closed)
-                    )
-                })
+        (self.state.rulings.iter())
+            .find(|r| r.id == id)
+            .is_some_and(|r| kind(&r.kind))
     }
 
     /// Logs that pull request `number` was merged, so `issue`'s work item
