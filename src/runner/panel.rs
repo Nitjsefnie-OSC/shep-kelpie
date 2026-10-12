@@ -392,8 +392,10 @@ impl Runner {
         }
     }
 
-    // Whether the diff of ruling `id`'s work item from its merge base touches
-    // a path on `rulings.full_panel_paths`, which calls the full panel. With
+    // Whether the diff of ruling `id`'s work item from `main`'s merge base touches
+    // a path on `rulings.full_panel_paths`, which calls the full panel. It is
+    // read from `main`, not the review base: an adopted pull request's review
+    // leaves out the commits it arrived with, and those are as risky. With
     // no list, or no work item, there is nothing to read. A diff that cannot
     // be read counts as touching one, since this only ever raises scrutiny.
     fn panel_risky(&mut self, id: u64, issue: Option<u64>) -> bool {
@@ -405,7 +407,8 @@ impl Runner {
             return false;
         };
         let (repo, worktree) = (&self.settings.git.checkout, &item.worktree);
-        let changed = super::review::changed_files(repo, worktree, &item.review_base());
+        let base = format!("origin/{}", crate::worktree::BASE);
+        let changed = super::review::changed_files(repo, worktree, &base);
         match changed {
             Ok(files) => files
                 .iter()
