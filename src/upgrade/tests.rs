@@ -95,6 +95,7 @@ impl Rig {
 
     // What `cargo install` does: the new build written over the installed path.
     fn cargo_installs(&self, kelpie: &str, shep: &str) {
+        std::fs::remove_file(&self.installed).unwrap();
         write_script(&self.installed, &answering(kelpie, shep));
     }
 
