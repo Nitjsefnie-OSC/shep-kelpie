@@ -6,7 +6,8 @@
 //! reviewer's, the issue writer's, the project manager's, the advisor's or
 //! the researcher's is its prompt.
 //! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
-//! missing. A file that cannot be read or used stops the runner, naming the
+//! missing. A file with `extends: <name>` builds on another agent, setting
+//! only the keys it changes. A file that cannot be read or used stops the runner, naming the
 //! file and what is wrong with it. A `.md` file whose name is no agent's,
 //! such as a `README.md`, is skipped and named in the log. A review bot's
 //! file is named for its bot, since the bot's window is its account's.
@@ -25,6 +26,7 @@ use crate::settings::{
     ModelHost, ModelServer, NonBlank, RoleModel,
 };
 
+mod extends;
 mod front;
 
 /// The folder in kelpie's home that holds the agent files
@@ -273,6 +275,8 @@ impl Agents {
             }
         }
         files.sort();
+        // Every file is read first, since one may extend another that sorts after it.
+        let mut texts = BTreeMap::new();
         for path in files {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let Ok(name) = AgentName::try_from(stem.to_owned()) else {
@@ -280,12 +284,28 @@ impl Agents {
                 continue;
             };
             let text = fs::read_to_string(&path).map_err(|e| failed(&path, e))?;
-            let agent =
-                front::parse_named(name.as_str(), &text).map_err(|message| AgentsError::File {
-                    path: path.clone(),
-                    message,
-                })?;
-            agents.agents.insert(name, agent);
+            texts.insert(name, (path, text));
+        }
+        let parent = |name: &str| {
+            if let Some((_, text)) = AgentName::try_from(name.to_owned())
+                .ok()
+                .and_then(|name| texts.get(&name))
+            {
+                return Some(extends::ParentText::File(text));
+            }
+            DEFAULTS
+                .iter()
+                .find(|(default, ..)| *default == name)
+                .map(|(_, text, _)| extends::ParentText::Default(text))
+        };
+        for (name, (path, text)) in &texts {
+            let file_error = |message| AgentsError::File {
+                path: path.clone(),
+                message,
+            };
+            let merged = extends::merged(name.as_str(), text, &parent).map_err(file_error)?;
+            let agent = front::parse_named(name.as_str(), &merged).map_err(file_error)?;
+            agents.agents.insert(name.clone(), agent);
         }
         Ok(agents)
     }
