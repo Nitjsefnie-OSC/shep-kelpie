@@ -147,6 +147,7 @@ impl StepReport {
         | Self::ReplyToSettled { line_failed, .. }
         | Self::ReplyCodeUsed { line_failed, .. }
         | Self::RepliesLocked { line_failed }
+        | Self::ReplyUnreadable { line_failed }
         | Self::ReplyTooLong { line_failed } = &mut self
         {
             *line_failed = failed.map(|e| e.to_string());
@@ -402,7 +403,16 @@ impl Runner {
             }
         };
         let Some((named, id, words)) = read_reply(rest) else {
-            return ignored;
+            // Every project reads the one topic, and the first to claim the
+            // code says so; the others find it claimed and stay silent.
+            if claim == Claim::Replayed {
+                return ignored;
+            }
+            let text = "That reply named no ruling kelpie could read, so it answered nothing \
+                        and its code is spent. Send `<ruling> <answer> <code>` with a new code."
+                .to_owned();
+            let report = StepReport::ReplyUnreadable { line_failed: None };
+            return (report, self.line(None, text));
         };
         let whose = self.whose(named, id);
         if whose == Whose::Theirs {

@@ -105,7 +105,6 @@ fn a_reply_without_the_right_code_is_ignored() {
         format!("1 yes {}", &code[..5]),
         format!("1 yes {code}0"),
         format!("{code} 1 yes"),
-        format!("1 {code}"),
         format!("2 yes {code}"),
         "hello from the phone".to_owned(),
     ] {
@@ -255,6 +254,89 @@ fn a_reply_takes_the_same_answers_as_the_terminal_without_the_project() {
         status["work_item"]["phase"],
         json!({ "state": "ruling", "id": 1 })
     );
+}
+
+// The terminal's command pasted into the reply reads as the reply without it.
+#[test]
+fn a_reply_written_as_the_terminal_command_answers_the_ruling() {
+    for command in [
+        "shep kelpie rule 1 yes",
+        "shep-kelpie rule 1 yes",
+        "shep kelpie rule koji 1 yes",
+        "shep-kelpie rule koji 1 yes",
+    ] {
+        let (rig, runner, head) = alerted("koji");
+        rig.reply(command);
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::ReplyAnswered { id: 1 }),
+            "{command}"
+        );
+        assert_eq!(
+            phase(&rig, &runner),
+            json!({ "state": "merge", "head": head, "readied": null }),
+            "{command}"
+        );
+        assert_eq!(lines(&rig), [""; 0], "{command}");
+    }
+}
+
+// Only the exact words are dropped, so a project can be named `shep-kelpie`.
+#[test]
+fn a_project_named_shep_kelpie_is_still_addressed_by_its_name() {
+    let (rig, runner, head) = alerted("shep-kelpie");
+    rig.reply("shep-kelpie 1 yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyAnswered { id: 1 })
+    );
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "merge", "head": head, "readied": null })
+    );
+}
+
+#[test]
+fn a_reply_with_a_right_code_and_no_readable_ruling_says_its_code_is_spent() {
+    let (rig, runner, _) = alerted("koji");
+    let code = rig.reply("shep kelpie rule yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyUnreadable { line_failed: None })
+    );
+    assert_eq!(
+        lines(&rig),
+        [
+            "That reply named no ruling kelpie could read, so it answered nothing and its \
+          code is spent. Send `<ruling> <answer> <code>` with a new code."
+        ]
+    );
+    let (_, line) = &rig.alerts.posts()[1];
+    assert_eq!(line.title, "kelpie: koji answers");
+    assert_eq!(line.reply, None);
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
+
+    rig.alerts
+        .reply(&format!("koji 1 yes {code}"), rig.clock.now());
+    rig.clock.advance(READ_EVERY);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyCodeUsed { id: 1, .. })
+    ));
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
+}
+
+#[test]
+fn a_reply_to_another_project_s_ruling_in_the_terminal_form_posts_nothing() {
+    let (rig, runner, _) = alerted("koji");
+    let ids = RulingIds::under(&rig.paths().kelpie_home);
+    assert_eq!(ids.claim("rotom", 0), 2);
+    for command in ["shep kelpie rule 2 yes", "shep kelpie rule rotom 2 yes"] {
+        rig.reply(command);
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
+        rig.clock.advance(STEP);
+    }
+    assert_eq!(lines(&rig), [""; 0]);
 }
 
 #[test]
@@ -483,7 +565,10 @@ fn a_secret_kelpie_did_not_write_stops_the_runner_naming_the_file() {
 fn a_right_code_is_spent_even_when_its_reply_answers_nothing() {
     let (rig, runner, _) = alerted("koji");
     let code = rig.reply("koji 1");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyUnreadable { line_failed: None })
+    );
     rig.alerts
         .reply(&format!("koji 1 yes {code}"), rig.clock.now());
     rig.clock.advance(READ_EVERY);

@@ -7,7 +7,8 @@ use crate::state::ids::RulingIds;
 /// A reply's text without its code, read as the project it names, if it
 /// names one, the ruling's id and the answer's words
 pub(super) fn read_reply(text: &str) -> Option<(Option<&str>, u64, &str)> {
-    let (first, rest) = text.trim().split_once(char::is_whitespace)?;
+    let text = without_command(text.trim());
+    let (first, rest) = text.split_once(char::is_whitespace)?;
     let (named, id, words) = match number(first) {
         Some(id) => (None, id, rest),
         None => {
@@ -17,6 +18,22 @@ pub(super) fn read_reply(text: &str) -> Option<(Option<&str>, u64, &str)> {
     };
     let words = words.trim();
     (!words.is_empty()).then_some((named, id, words))
+}
+
+// A reply written as the terminal command, without the words that call it.
+// Only the exact words go: `shep-kelpie 40 yes` names a project.
+fn without_command(text: &str) -> &str {
+    let mut words = text.split_whitespace();
+    let called = match (words.next(), words.next(), words.next()) {
+        (Some("shep"), Some("kelpie"), Some("rule")) => 3,
+        (Some("shep-kelpie"), Some("rule"), _) => 2,
+        _ => return text,
+    };
+    (0..called).fold(text, |rest, _| {
+        let rest = rest.trim_start();
+        rest.split_once(char::is_whitespace)
+            .map_or("", |(_, after)| after)
+    })
 }
 
 /// Whose ruling a reply's id names
