@@ -85,6 +85,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         session: SessionId("5e55".into()),
         turn: Turn::Running {
             since: Timestamp(9),
+            prompt: None,
         },
         pull_request: Some(51),
         phase: Phase::Ci {

@@ -6,7 +6,7 @@ use super::*;
 use crate::ports::{Checks, Session};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
-use crate::test::{Rig, Scripted};
+use crate::test::{Rig, Scripted, ScriptedRound};
 
 // The pull request is public: it gets what happened and who it waits on,
 // and never a command, which the webhook carries instead.
@@ -389,5 +389,70 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     assert!(
         reply["error"].as_str().unwrap().contains("holds work"),
         "{reply}"
+    );
+}
+
+// A turn that failed before the harness started never saw its prompt, so the
+// yes sends it again behind a line saying the last turn failed.
+#[test]
+fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let finding = |line| crate::ports::Finding {
+        severity: crate::ports::Severity::Medium,
+        file: "src/lib.rs".into(),
+        line,
+        what: "the flag is misnamed".into(),
+        why: "it reads as its opposite".into(),
+    };
+    rig.reviewer
+        .script([ScriptedRound::Findings((1..=5).map(finding).collect())]);
+    step(&runner).unwrap(); // round 1's qwen call
+    step(&runner).unwrap(); // the five findings go to the worker
+
+    rig.claude
+        .script([Scripted::Fail(crate::ports::AgentError::Failed(
+            crate::settings::Harness::ClaudeCode,
+            "the sandbox refused the settings file".into(),
+        ))]);
+    let Some(StepReport::Failed { id, .. }) = step(&runner).unwrap() else {
+        panic!("the fix turn did not fail");
+    };
+    let sent = rig.claude.calls().last().unwrap().prompt.clone();
+    assert!(sent.contains("found 5 finding(s)"), "{sent}");
+
+    rig.ask(&runner, "rule", Some(&format!("{id} yes")));
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap();
+    let retried = rig.claude.calls().last().unwrap().prompt.clone();
+    let (line, rest) = retried.split_once('\n').expect("a line, then the prompt");
+    assert!(line.contains("last turn failed"), "{line}");
+    assert_eq!(rest.trim_start(), sent);
+}
+
+// The retried turn's prompt is kept in its turn, so a second failure and a
+// second yes must not stack another line on it.
+#[test]
+fn a_prompt_that_already_carries_the_failed_turn_line_gets_no_second_one() {
+    for prompt in ["fix the five", "/plugin:review check the diff"] {
+        let once = failed_again(prompt.to_owned());
+        assert_eq!(failed_again(once.clone()), once);
+        assert_eq!(once.matches("last turn failed").count(), 1, "{once}");
+    }
+}
+
+// A command only runs from the very start of a prompt, so a retried prompt
+// that begins with one keeps it first.
+#[test]
+fn the_failed_turn_line_goes_after_a_command_the_prompt_starts_with() {
+    let again = failed_again("/plugin:review check the diff".to_owned());
+    assert_eq!(
+        again,
+        "/plugin:review Your last turn failed before it finished. \
+         Kelpie sends its prompt again.\n\ncheck the diff"
     );
 }

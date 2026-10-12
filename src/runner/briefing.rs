@@ -470,7 +470,7 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
 fn still(turn: &Turn, now: Timestamp, shown: &dyn Fn(String) -> String) -> String {
     match turn {
         Turn::Due => "no call in flight; its first turn is due".into(),
-        Turn::Running { since } => format!(
+        Turn::Running { since, .. } => format!(
             "no call in flight; a turn saved as running {} ago resumes on the next pass",
             age(now, *since)
         ),

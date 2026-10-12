@@ -21,7 +21,7 @@ use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreig
 use crate::worktree;
 
 mod prompts;
-use prompts::{answer_prompt, declined_prompt, note_prompt, rework_prompt};
+use prompts::{answer_prompt, declined_prompt, failed_again, note_prompt, rework_prompt};
 
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
@@ -670,8 +670,8 @@ fn decide(
         // waiting is not held against it.
         (Answer::Yes, RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. })) => {
             let turn = match retry {
-                Turn::Running { .. } => Turn::Next {
-                    prompt: FAILED_CONTINUE.to_owned(),
+                Turn::Running { prompt, .. } => Turn::Next {
+                    prompt: prompt.map_or_else(|| FAILED_CONTINUE.to_owned(), failed_again),
                 },
                 other => other,
             };
