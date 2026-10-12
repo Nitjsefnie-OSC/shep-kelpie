@@ -24,6 +24,7 @@ fn fix_round_due(context: u64) -> (Rig, Mutex<Runner>) {
         line: 3,
         what: "the flag is misnamed".into(),
         why: "it reads as its opposite".into(),
+        test: None,
     }])]);
     step(&runner).unwrap(); // round 1's call
     step(&runner).unwrap(); // the findings go out

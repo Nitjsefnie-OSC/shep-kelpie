@@ -159,6 +159,7 @@ fn a_round_sends_the_diff_with_the_prompt_and_reads_the_findings() {
             line: 2,
             what: "b panics".into(),
             why: "callers crash".into(),
+            test: None,
         }]
     );
     let requests = server.requests();

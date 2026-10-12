@@ -76,6 +76,7 @@ impl LocalReviewer {
                     Err(e) => combined.push(Finding {
                         what: format!("not reviewed: {}", first_line(&e.to_string())),
                         why: "the hunk's review failed".into(),
+                        test: None,
                         ..finding
                     }),
                 }
@@ -476,6 +477,7 @@ esac
                 line: 5,
                 what: "leftover debug print".into(),
                 why: "noisy logs".into(),
+                test: None,
             }]
         );
     }
@@ -570,6 +572,7 @@ esac
             line: 0,
             what: "not reviewed: 900 lines exceeds the chunk limit".into(),
             why: "split the file or review it by hand".into(),
+            test: None,
         };
         assert_eq!(
             reviewer
@@ -634,6 +637,7 @@ esac
                     line: 9,
                     what: "a real finding".into(),
                     why: "it matters".into(),
+                    test: None,
                 },
                 Finding {
                     severity: Severity::Low,
@@ -643,6 +647,7 @@ esac
                             gpu.box port 8080"
                         .into(),
                     why: "the hunk's review failed".into(),
+                    test: None,
                 },
             ]
         );
@@ -717,6 +722,7 @@ esac
             line: 0,
             what: "not reviewed: 900 lines exceeds the chunk limit".into(),
             why: "split the file or review it by hand".into(),
+            test: None,
         };
         assert!(skip.is_skipped_for_size());
 

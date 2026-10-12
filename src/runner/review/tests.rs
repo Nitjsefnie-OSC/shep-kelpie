@@ -114,6 +114,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         },
         Finding {
             severity: Severity::Low,
@@ -121,6 +122,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
             line: 9,
             what: "unused variable".into(),
             why: "dead code".into(),
+            test: None,
         },
     ])]);
     let report = step(&runner).unwrap(); // round 1's qwen call

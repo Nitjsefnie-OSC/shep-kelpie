@@ -77,6 +77,7 @@ mod tests {
             line,
             what: "the flag is read first".into(),
             why: "a caller sees nothing".into(),
+            test: None,
         }
     }
 

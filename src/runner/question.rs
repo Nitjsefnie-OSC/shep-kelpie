@@ -306,6 +306,7 @@ mod tests {
             line: 3,
             what: "unused variable".into(),
             why: "dead code".into(),
+            test: None,
         }])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the finding goes to the worker

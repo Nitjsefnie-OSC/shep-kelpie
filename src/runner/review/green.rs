@@ -14,6 +14,7 @@ fn finding(severity: Severity) -> Finding {
         line: 3,
         what: "unused variable".into(),
         why: "dead code".into(),
+        test: None,
     }
 }
 

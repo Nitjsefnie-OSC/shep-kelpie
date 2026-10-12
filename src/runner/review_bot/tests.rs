@@ -109,6 +109,7 @@ impl Profile for StandIn {
             line: thread.line.unwrap_or(0),
             what: what.to_owned(),
             why: why.to_owned(),
+            test: None,
         }
     }
 }

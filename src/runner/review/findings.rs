@@ -186,6 +186,7 @@ mod tests {
                 line: 9,
                 what: "looks racy".into(),
                 why: "two threads write the same field".into(),
+                test: None,
             },
             Finding {
                 severity: Severity::Low,
@@ -193,6 +194,7 @@ mod tests {
                 line: 1,
                 what: "unused import".into(),
                 why: "dead code".into(),
+                test: None,
             },
         ];
         write_findings_file(dir.path(), &path, 3, &findings, false).unwrap();
@@ -225,6 +227,7 @@ mod tests {
             line: 3,
             what: what.into(),
             why: "it matters".into(),
+            test: None,
         }
     }
 
@@ -301,6 +304,7 @@ mod tests {
             line: 1,
             what: "nit".into(),
             why: "style".into(),
+            test: None,
         };
         let err = write_findings_file(
             &folder,
@@ -331,6 +335,7 @@ mod tests {
             line: 1,
             what: "nit".into(),
             why: "style".into(),
+            test: None,
         };
 
         write_findings_file(&build, &findings_path(&build), 1, &[finding], false).unwrap();
@@ -370,6 +375,7 @@ mod tests {
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         }])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next
@@ -568,6 +574,7 @@ mod tests {
             line: 3,
             what: "the flag is misnamed".into(),
             why: "it reads as its opposite".into(),
+            test: None,
         }])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next

@@ -410,6 +410,7 @@ fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
         line,
         what: "the flag is misnamed".into(),
         why: "it reads as its opposite".into(),
+        test: None,
     };
     rig.reviewer
         .script([ScriptedRound::Findings((1..=5).map(finding).collect())]);
