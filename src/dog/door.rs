@@ -4,8 +4,8 @@
 //! or when room opens. A command already running under a dog that went
 //! away is seated at once, and for a [`REJOIN_GRACE`] after the door opens
 //! only such commands are: the others wait, so the runs a restart left
-//! going are counted before anyone new. Any line from a holder, or its
-//! connection closing, gives its place back.
+//! going are counted before anyone new. A holder's connection closing gives
+//! its place back; a line on it does not.
 
 use std::collections::HashMap;
 use std::io;
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::oneshot;
 
@@ -33,7 +33,8 @@ const LONGEST_ASK: u64 = 64 * 1024;
 const ACCEPT_REST: Duration = Duration::from_millis(500);
 
 /// How long after the door opens only running commands are seated. A run
-/// whose dog went away knocks every second, so three seconds covers it.
+/// whose dog went away knocks every second, so three seconds covers it, with
+/// room for a knock that lands late.
 pub const REJOIN_GRACE: Duration = Duration::from_secs(3);
 
 // Waiters to wake when the lease grants them, by ticket.
@@ -139,11 +140,10 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
         }
         Err(e) => return say(&mut write, &Answer::Error(format!("not an ask: {e}"))).await,
     };
-    let mut lines = reader.lines();
     if !ask.running {
         tokio::select! {
             () = tokio::time::sleep_until(fresh_from) => {}
-            _ = lines.next_line() => return,
+            _ = heard(&mut reader) => return,
         }
     }
     let (wake, woken) = oneshot::channel();
@@ -172,14 +172,23 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
         tokio::select! {
             _ = woken => {}
             // Anything but a grant first, even a line, ends the wait.
-            _ = lines.next_line() => return,
+            _ = heard(&mut reader) => return,
         }
     }
     println!("{CARGO_TEST}: granted to pid {pid} running {what}");
     say(&mut write, &Answer::Granted).await;
-    // Any line, or the connection's end, gives it back.
-    let _ = lines.next_line().await;
+    // Only the connection's end gives it back: a descendant of the command
+    // holds the connection too, and a line from it is not the command ending.
+    // What it writes is dropped as it arrives, never kept.
+    while heard(&mut reader).await {}
     println!("{CARGO_TEST}: pid {pid} gave it back");
+}
+
+// Whether the connection sent anything, which it discards: a fixed buffer
+// bounds what the dog holds however much a holder writes.
+async fn heard(reader: &mut BufReader<OwnedReadHalf>) -> bool {
+    let mut sink = [0; 1024];
+    matches!(reader.read(&mut sink).await, Ok(1..))
 }
 
 // A command that went away is heard as the connection's end.

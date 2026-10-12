@@ -120,7 +120,12 @@ async fn door_child() {
             std::process::exit(code.into());
         }
         Some(("hurry", script)) => {
-            let code = counted_run::run_with_patience(&socket, &["sh", "-c", script], 1).await;
+            let hurried = counted_run::Patience {
+                tries: 1,
+                ..counted_run::PATIENCE
+            };
+            let code =
+                counted_run::run_with_patience(&socket, &["sh", "-c", script], hurried).await;
             std::process::exit(code.into());
         }
         Some(("exec", program)) => {
@@ -176,6 +181,31 @@ async fn a_holder_that_dies_gives_its_place_back() {
     holder.wait().unwrap();
     assert_eq!(answer(&mut waiter).await, Some(Answer::Granted));
     assert_eq!(holders(&desk), ["waiter"]);
+}
+
+// A descendant of the command inherits the connection and may write to it;
+// only the connection's end, with the last holder of it gone, gives it back.
+#[tokio::test]
+async fn a_stray_line_from_a_descendant_does_not_give_the_lease_back() {
+    let (_dir, socket, desk) = door(1);
+    let mut stream = UnixStream::connect(&socket).await.unwrap();
+    let mut line = serde_json::to_vec(&ask("holder")).unwrap();
+    line.push(b'\n');
+    stream.write_all(&line).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut reply = String::new();
+    while !reply.contains("granted") {
+        reply.clear();
+        let read = reader.read_line(&mut reply);
+        assert_ne!(tokio::time::timeout(BOUND, read).await.unwrap().unwrap(), 0);
+    }
+    reader.get_mut().write_all(b"stray\n").await.unwrap();
+    let mut waiter = Visit::knock(&socket, &ask("waiter")).await.unwrap();
+    assert_eq!(answer(&mut waiter).await, Some(Answer::Queued(0)));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(holders(&desk), ["holder"]);
+    drop(reader);
+    assert_eq!(answer(&mut waiter).await, Some(Answer::Granted));
 }
 
 #[tokio::test]
@@ -326,6 +356,52 @@ async fn a_queued_run_whose_dog_restarts_waits_for_the_next() {
     assert!(marker.exists());
 }
 
+// A dog that answers `queued` and goes away `restarts` times, then grants and
+// holds the lease until the run ends. Each life takes the one ask it hears.
+async fn fake_dog(socket: PathBuf, restarts: u32) {
+    for life in 0..=restarts {
+        let listener = open(&socket).unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut stream = BufReader::new(stream);
+        stream.read_line(&mut String::new()).await.unwrap();
+        let mut said = vec![Answer::Queued(0)];
+        if life == restarts {
+            said.push(Answer::Granted);
+        }
+        for answer in said {
+            let mut line = serde_json::to_vec(&answer).unwrap();
+            line.push(b'\n');
+            stream.get_mut().write_all(&line).await.unwrap();
+        }
+        if life == restarts {
+            stream.read_line(&mut String::new()).await.unwrap();
+        }
+        drop(listener);
+        std::fs::remove_file(&socket).unwrap();
+    }
+}
+
+// Every restart is a dog that answered, so a run that has waited minutes in
+// the queue is not out of patience for the next. The run knocks every few
+// milliseconds here, not every second.
+#[tokio::test]
+async fn a_queued_run_keeps_asking_after_each_dog_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("lease.sock");
+    let restarts = counted_run::REJOIN_TRIES + 5;
+    let dog = tokio::spawn(fake_dog(socket.clone(), restarts));
+    let patience = counted_run::Patience {
+        every: Duration::from_millis(5),
+        ..counted_run::PATIENCE
+    };
+    let run = counted_run::run_with_patience(&socket, &["true"], patience);
+    let code = tokio::time::timeout(BOUND, run)
+        .await
+        .expect("the run never ended");
+    assert_eq!(code, 0);
+    tokio::time::timeout(BOUND, dog).await.unwrap().unwrap();
+}
+
 // A restarted dog grants nothing new until the runs it lost have rejoined.
 #[tokio::test]
 async fn a_new_door_seats_running_commands_before_any_new_ask() {
@@ -348,6 +424,13 @@ async fn a_new_door_seats_running_commands_before_any_new_ask() {
     assert_eq!(answer(&mut rejoin).await, Some(Answer::Granted));
     assert_eq!(answer(&mut fresh).await, Some(Answer::Queued(0)));
     assert_eq!(holders(&desk), ["rejoining"]);
+}
+
+// The tests above pass no grace, so this is what keeps the real one from
+// opening before a run whose dog went away has knocked twice.
+#[test]
+fn the_production_grace_outlasts_a_runs_knock() {
+    assert!(REJOIN_GRACE > 2 * counted_run::REJOIN_EVERY);
 }
 
 #[tokio::test]
