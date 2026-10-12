@@ -18,6 +18,7 @@ fn finding(file: &str, what: &str) -> Finding {
         line: 9,
         what: what.into(),
         why: "two threads write the same field".into(),
+        test: None,
     }
 }
 

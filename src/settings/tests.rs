@@ -1,5 +1,7 @@
 use super::*;
 
+mod test_command;
+
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
 
 // The example's first table, before which a test writes a key at the top level

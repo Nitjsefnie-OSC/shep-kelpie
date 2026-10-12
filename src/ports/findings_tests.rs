@@ -13,6 +13,7 @@ fn well_formed_lines_parse_in_order() {
                 line: 42,
                 what: "does the bad thing".into(),
                 why: "breaks prod".into(),
+                test: None,
             },
             Finding {
                 severity: Severity::Low,
@@ -20,6 +21,7 @@ fn well_formed_lines_parse_in_order() {
                 line: 0,
                 what: "not reviewed: 900 lines exceeds the chunk limit".into(),
                 why: "split the file or review it by hand".into(),
+                test: None,
             },
         ]
     );
@@ -60,6 +62,7 @@ fn a_finding_is_the_same_by_its_file_line_and_what_and_not_its_why_or_severity()
         line: 3,
         what: "the flag is read first".into(),
         why: why.into(),
+        test: None,
     };
     let one = finding(Severity::High, "a caller sees nothing");
     assert!(one.is_same_as(&finding(Severity::Low, "worded again")));
@@ -75,4 +78,38 @@ fn a_finding_is_the_same_by_its_file_line_and_what_and_not_its_why_or_severity()
         what: "another thing".into(),
         ..one.clone()
     }));
+    assert!(one.is_same_as(&Finding {
+        test: Some("tests/a.rs".into()),
+        ..one.clone()
+    }));
+}
+
+#[test]
+fn a_fifth_field_naming_a_relative_path_is_the_findings_test() {
+    let found = parse_findings("HIGH|src/lib.rs:3|it panics|a caller sees it|tests/panics.rs");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].test.as_deref(), Some("tests/panics.rs"));
+    assert_eq!(found[0].why, "a caller sees it");
+}
+
+#[test]
+fn a_fifth_field_that_is_not_a_relative_path_stays_part_of_why() {
+    for fifth in [
+        "../tests/a.rs",
+        "tests/../../a.rs",
+        "/etc/passwd",
+        "a test.rs",
+    ] {
+        let line = format!("HIGH|src/lib.rs:3|it panics|a caller sees it|{fifth}");
+        let found = parse_findings(&line);
+        assert_eq!(found.len(), 1, "{fifth}");
+        assert_eq!(found[0].test, None, "{fifth}");
+        assert_eq!(found[0].why, format!("a caller sees it|{fifth}"), "{fifth}");
+    }
+}
+
+#[test]
+fn a_four_field_line_has_no_test() {
+    let found = parse_findings("HIGH|src/lib.rs:3|it panics|a caller sees it");
+    assert_eq!(found[0].test, None);
 }

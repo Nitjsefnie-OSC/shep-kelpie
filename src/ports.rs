@@ -722,6 +722,13 @@ pub struct Finding {
     pub what: String,
     /// Why it matters
     pub why: String,
+    /// The failing test the reviewer wrote for it, as the path it should have
+    /// in the repo
+    ///
+    /// A relative path with no `..` and no spaces; see [`is_test_path`]. Left out
+    /// of the state file while none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
 }
 
 /// How `what` begins in the line qwen-review.sh writes for a file it did not
@@ -819,7 +826,7 @@ fn without_thread_number(line: &str) -> &str {
 }
 
 fn parse_finding_line(line: &str) -> Option<Finding> {
-    let mut parts = without_thread_number(line).splitn(4, '|');
+    let mut parts = without_thread_number(line).splitn(5, '|');
     let severity = match parts.next()? {
         "LOW" => Severity::Low,
         "MEDIUM" => Severity::Medium,
@@ -828,7 +835,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
     };
     let location = parts.next()?;
     let what = parts.next()?;
-    let why = parts.next()?;
+    let mut why = parts.next()?.to_owned();
+    // A fifth segment that reads as a path is taken as the test here. A round
+    // that finds no such file folds it back into the why, where a pipe may have
+    // put it.
+    let mut test = None;
+    if let Some(fifth) = parts.next() {
+        match is_test_path(fifth) {
+            true => test = Some(fifth.to_owned()),
+            // Not a path, so a pipe in the why.
+            false => why = format!("{why}|{fifth}"),
+        }
+    }
     let (file, line) = location.rsplit_once(':')?;
     let line = line.parse().ok()?;
     Some(Finding {
@@ -836,8 +854,18 @@ fn parse_finding_line(line: &str) -> Option<Finding> {
         file: file.to_owned(),
         line,
         what: what.to_owned(),
-        why: why.to_owned(),
+        why,
+        test,
     })
+}
+
+/// Whether `path` is one a reviewer may name as its finding's test: not empty,
+/// relative, with no `..` step, no space and no pipe
+pub fn is_test_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains([' ', '|'])
+        && path.split('/').all(|step| step != "..")
 }
 
 /// A runner's side of the dog's book leases

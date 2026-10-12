@@ -7,23 +7,33 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use crate::adapters::CLAUDE_REVIEW_TOOLS;
 use crate::ports::{AgentCall, Reach, Role, Session, Severity, Tools};
 use crate::settings::{Limit, RoleModel};
 use crate::work_item::new_session_id;
 
 /// A fresh session of a reviewer on `model` over issue `issue`'s
 /// `worktree`, asked `prompt`, its settings in `worker_folder`
+///
+/// With `tests`, the fenced reach of a reviewer that may write a failing test
+/// for a finding, it also has `Write`, which the reach holds to that folder.
 pub(super) fn reviewer_call(
     issue: u64,
     worktree: &Path,
     worker_folder: &Path,
     (model, limit): (&RoleModel, &Limit),
     prompt: String,
+    tests: Option<Reach>,
 ) -> Result<AgentCall, String> {
     let mut call = build_call(Role::Reviewer, issue, worktree, (model, limit), prompt)?;
     // Named for the work item, whose reviewer runs beside other items' calls.
     call.settings = worker_folder.join(format!("review-settings-{issue}.json"));
     call.tools = Tools::Review;
+    if let Some(reach) = tests {
+        let own = call.agent_tools.as_deref().unwrap_or(CLAUDE_REVIEW_TOOLS);
+        call.agent_tools = Some(format!("{own},Write"));
+        call.reach = reach;
+    }
     Ok(call)
 }
 
@@ -163,5 +173,64 @@ mod tests {
             "Read, Grep and Glob stay"
         );
         assert!(!reviewer.settings.to_string().contains("\"Read\""));
+    }
+
+    #[test]
+    fn a_reviewer_writes_only_its_review_tests_folder_when_a_test_command_is_set() {
+        let rig = Rig::new("shep");
+        rig.test_command("cargo test --test {name}");
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude.script([
+            Scripted::Push("work.txt", "work\n"),
+            Scripted::Text("CLEAN"),
+        ]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, qwen: clean by default
+        step(&runner).unwrap(); // round 2, claude: scripted clean above
+
+        let build = runner.lock().unwrap().current().unwrap().build.clone();
+        let folder = build.join("review-tests");
+        assert!(folder.is_dir(), "kelpie made it before the call");
+        let all = rig.claude.all_seen();
+        let reviewer = all
+            .iter()
+            .find(|s| s.call.role == Role::Reviewer)
+            .expect("a reviewer round ran");
+        assert_eq!(
+            reviewer.call.agent_tools.as_deref(),
+            Some("Read,Glob,Grep,Write")
+        );
+        let settings = &reviewer.settings;
+        let deny: Vec<&str> = (settings["permissions"]["deny"].as_array().unwrap().iter())
+            .filter_map(|d| d.as_str())
+            .collect();
+        assert!(
+            ["Agent", "Task", "Bash"].iter().all(|t| deny.contains(t)),
+            "{deny:?}"
+        );
+        assert!(!deny.contains(&"Write"), "{deny:?}");
+        assert_eq!(
+            settings["permissions"]["allow"],
+            serde_json::json!([format!("Write(/{}/**)", folder.display())])
+        );
+        let confine = settings["hooks"]["PreToolUse"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["matcher"].as_str().is_some_and(|m| m.contains("Write")))
+            .expect("a hook holds the file tools")["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(confine.contains("'confine' "), "{confine}");
+        // What follows `confine` is every folder it lets the tools write.
+        let allowed: Vec<&str> = (confine.split("'confine' ").nth(1).unwrap())
+            .split_whitespace()
+            .map(|a| a.trim_matches('\''))
+            .collect();
+        let folder = folder.display().to_string();
+        assert_eq!(allowed, [folder.as_str(), folder.as_str()], "{confine}");
     }
 }

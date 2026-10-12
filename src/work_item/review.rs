@@ -239,6 +239,7 @@ mod tests {
             line: 3,
             what: "bad".into(),
             why: "breaks".into(),
+            test: None,
         };
         assert_eq!(
             value(ReviewStage::SecondLook {

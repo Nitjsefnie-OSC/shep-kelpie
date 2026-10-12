@@ -258,6 +258,15 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
         }
         // Their reply is the vote, so a file tool that got past the allow-list is refused.
         Tools::Advise | Tools::Research => refusing_hooks(),
+        // Its session asks no one, so a write nothing allows is refused. Only a reviewer
+        // given a folder to write has one, and `confine` holds its tools to that folder.
+        Tools::Review if !fence.write.is_empty() => {
+            let folders = (fence.write.iter())
+                .map(|p| rule("Write", &format!("{}/**", p.display())))
+                .collect::<Vec<_>>();
+            permissions["allow"] = json!(folders);
+            hooks(fence)
+        }
         Tools::Work | Tools::Review | Tools::Answer | Tools::Retro => hooks(fence),
     };
     trimmed(json!({

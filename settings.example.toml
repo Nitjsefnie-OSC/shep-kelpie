@@ -47,6 +47,11 @@ block = true
 # kelpie raises a ruling. 0 raises it on the first red run, and -1 sets no
 # cap. A head red twice with nothing pushed raises it whatever this is.
 fix_attempts = -1
+# A command that runs one failing test a reviewer wrote, which a reviewer on
+# Claude Code is then asked to leave for each finding it can. It must hold
+# `{test}`, the file's path in the repo, or `{name}`, the file's name without
+# its extension. Absent, no reviewer is asked for a test.
+# test_command = "cargo test --test {name}"
 
 [app.dogs.kelpie.concurrency]
 # How many work items may hold a slot, which a worker's turn or a review

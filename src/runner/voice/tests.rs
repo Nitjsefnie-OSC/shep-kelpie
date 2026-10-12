@@ -47,6 +47,7 @@ fn asking_on_a_pull_request(rig: &Rig) -> (Mutex<Runner>, StepReport) {
         line: 3,
         what: "unused variable".into(),
         why: "dead code".into(),
+        test: None,
     }])]);
     step(&runner).unwrap(); // round 1's qwen call
     step(&runner).unwrap(); // the finding goes to the worker
@@ -359,6 +360,7 @@ fn each_local_round_is_posted_on_the_pull_request_as_it_ends() {
             line: 3,
             what: "unused variable".into(),
             why: "dead code".into(),
+            test: None,
         },
         Finding {
             severity: Severity::Low,
@@ -366,6 +368,7 @@ fn each_local_round_is_posted_on_the_pull_request_as_it_ends() {
             line: 0,
             what: "typo".into(),
             why: "reads badly".into(),
+            test: None,
         },
     ])]);
 

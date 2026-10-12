@@ -106,6 +106,7 @@ fn a_fix_goes_to_the_next_reviewer_and_no_reviewer_runs_twice() {
         line: 1,
         what: "still wrong".into(),
         why: "it is".into(),
+        test: None,
     }])]);
     rig.claude
         .script([Scripted::Push("again.txt", "fixed again\n")]);
@@ -240,6 +241,7 @@ fn every_round_s_prompt_carries_the_issue_s_acceptance_criteria() {
         line: 1,
         what: "a nit".into(),
         why: "it is".into(),
+        test: None,
     }])]);
     rig.claude.script([
         Scripted::Push("tidy.txt", "tidied\n"),

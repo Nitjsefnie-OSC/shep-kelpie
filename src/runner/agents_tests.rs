@@ -33,6 +33,7 @@ fn whole_work_item(rig: &Rig, runner: &Mutex<Runner>) {
         line: 1,
         what: "a typo".into(),
         why: "it reads wrong".into(),
+        test: None,
     }])]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),

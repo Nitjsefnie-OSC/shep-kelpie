@@ -350,6 +350,7 @@ mod tests {
             line,
             what: what.into(),
             why: "two threads write it".into(),
+            test: None,
         };
         let follow_up = Wake::FollowUp {
             issue: 7,

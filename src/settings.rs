@@ -38,7 +38,7 @@ pub use agents::{
     PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
 pub use budget::{Budget, PerItemUsd};
-pub use ci::{Ci, Concurrency, FixAttempts};
+pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};

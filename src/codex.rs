@@ -207,6 +207,7 @@ fn finding(thread: &Thread) -> Finding {
         line: thread.line.unwrap_or(0),
         what: one_line(&what),
         why: level.map_or_else(String::new, |l| format!("Codex rates it {l}.")),
+        test: None,
     }
 }
 
