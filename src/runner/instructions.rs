@@ -216,6 +216,26 @@ mod tests {
     }
 
     #[test]
+    fn the_worker_is_told_kelpie_owns_the_draft_and_ready_state() {
+        const TOLD: [&str; 2] = [
+            "Kelpie owns the pull request's draft and ready state",
+            "Never change it and never ask about it.",
+        ];
+        let own = Rig::new("koji");
+        let runner = own.open().unwrap();
+        let text = first_instructions(&own, &runner);
+        assert!(!text.contains("pull-request.md"), "{text}");
+        assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
+
+        let handed_over = Rig::new("koji");
+        handed_over.with_app();
+        let runner = handed_over.open().unwrap();
+        let text = first_instructions(&handed_over, &runner);
+        assert!(text.contains("pull-request.md"), "{text}");
+        assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
+    }
+
+    #[test]
     fn a_repo_with_a_template_tells_the_worker_to_fill_it() {
         let rig = Rig::new("koji");
         rig.land_on_origin("PULL_REQUEST_TEMPLATE.md");
