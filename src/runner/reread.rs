@@ -314,6 +314,29 @@ mod tests {
         );
     }
 
+    // A settings file with an entry the sandbox would refuse never becomes
+    // `Settings`, so `reread` is not handed it and the running ones stay.
+    #[test]
+    fn a_reread_with_a_bad_entry_keeps_the_running_settings() {
+        let bad = "productionresultssa*.blob.core.windows.net";
+        let worker = "allowed_domains = [\"crates.io\", \"index.crates.io\", \"static.crates.io\"]";
+        for table in ["worker", "researcher"] {
+            let rig = Rig::new("shep");
+            let runner = rig.open().unwrap();
+            let before = runner.lock().unwrap().settings().clone();
+            rig.edit_settings(|s| match table {
+                "worker" => s.replace(worker, &format!("allowed_domains = [\"{bad}\"]")),
+                _ => format!("{s}\n[app.dogs.kelpie.researcher]\nallowed_domains = [\"{bad}\"]\n"),
+            });
+            let err = rig.try_settings().expect_err("the entry should be refused");
+            assert!(
+                err.to_string().contains(&format!("`{bad}`")),
+                "{table}: {err}"
+            );
+            assert_eq!(runner.lock().unwrap().settings(), &before, "{table}");
+        }
+    }
+
     #[test]
     fn a_merge_kind_added_to_pm_alone_is_refused_and_the_settings_kept() {
         let rig = Rig::new("shep");
