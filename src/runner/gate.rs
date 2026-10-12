@@ -380,6 +380,7 @@ pub(super) mod tests {
                 "pull_request": 71,
                 "kind": { "kind": "merge", "head": head },
                 "alerted": false,
+                "raised": Rig::EPOCH + 120,
             }])
         );
         assert_eq!(

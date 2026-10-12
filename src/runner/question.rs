@@ -174,6 +174,7 @@ mod tests {
                     "resume": { "state": "nothing" },
                 },
                 "alerted": false,
+                "raised": Rig::EPOCH,
             }])
         );
         assert_eq!(
