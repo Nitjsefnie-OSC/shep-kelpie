@@ -881,3 +881,23 @@ fn only_a_merge_kind_makes_the_list_refuse() {
     assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
     assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
 }
+
+#[test]
+fn a_per_item_budget_is_ten_dollars_when_the_table_does_not_say() {
+    assert_eq!(parse(EXAMPLE).unwrap().budget.per_item_usd.cents(), 1000);
+    let set = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = 2.5\n");
+    assert_eq!(parse(&set).unwrap().budget.per_item_usd.cents(), 250);
+    let whole = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = 25\n");
+    assert_eq!(parse(&whole).unwrap().budget.per_item_usd.cents(), 2500);
+    let empty = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\n");
+    assert_eq!(parse(&empty).unwrap().budget.per_item_usd.cents(), 1000);
+}
+
+#[test]
+fn a_negative_or_non_numeric_per_item_budget_is_refused() {
+    for bad in ["-1", "0", "0.004", "\"ten\"", "true"] {
+        let text = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n");
+        let err = parse_err(&text);
+        assert!(err.contains("per_item_usd"), "{bad}: {err}");
+    }
+}

@@ -138,6 +138,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         git: old_git,
         ci: old_ci,
         concurrency: old_concurrency,
+        budget: old_budget,
         agents: _, // `reread` compares the agents it resolves, with the files
         pacing: old_pacing,
         worker: old_worker,
@@ -150,6 +151,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         git: new_git,
         ci: new_ci,
         concurrency: new_concurrency,
+        budget: new_budget,
         agents: _,
         pacing: new_pacing,
         worker: new_worker,
@@ -178,6 +180,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("git.maintainer", old_maintainer != new_maintainer),
         ("ci", old_ci != new_ci),
         ("concurrency", old_concurrency != new_concurrency),
+        ("budget", old_budget != new_budget),
         ("pacing", old_pacing != new_pacing),
         ("worker", old_worker != new_worker),
         ("skills", old_skills != new_skills),

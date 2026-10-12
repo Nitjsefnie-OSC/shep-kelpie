@@ -21,6 +21,7 @@ mod table;
 
 pub use table::table_of;
 mod agents;
+mod budget;
 mod ci;
 mod gateway;
 mod git;
@@ -35,6 +36,7 @@ pub use agents::{
     Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
     PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
+pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
@@ -59,6 +61,10 @@ pub struct Settings {
     /// before the board opens no more. Its defaults when absent.
     #[serde(default)]
     pub concurrency: Concurrency,
+    /// What one work item may spend before kelpie raises a ruling. Its default
+    /// when absent.
+    #[serde(default)]
+    pub budget: Budget,
     /// The agents that build the project's work items and review its pull
     /// requests, from kelpie's agent files
     #[serde(default)]
