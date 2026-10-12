@@ -533,10 +533,10 @@ mod tests {
     }
 
     // The signal lands after the handler exists and before the command
-    // does, which is the gap between taking a lease and spawning. The test
-    // runtime runs its signal driver only when the run yields, so the
-    // stream has not seen the signal when the run starts.
-    #[tokio::test]
+    // does, which is the gap between taking a lease and spawning. A
+    // current-thread runtime runs its signal driver only when the test
+    // yields, so the stream has not seen the signal when the run starts.
+    #[tokio::test(flavor = "current_thread")]
     async fn an_interrupt_before_the_command_starts_ends_the_run_without_it() {
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("ran");
