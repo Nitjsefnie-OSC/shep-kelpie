@@ -559,7 +559,7 @@ pub fn plain_status(sheep: &str, body: &str) -> Vec<String> {
 }
 
 /// `sheep`'s runner's answer `body` to `action` with `params` as the plain
-/// lines `timings`, `drain`, `undrain`, `gate`, `drop` and `add` print
+/// lines `timings`, `board`, `drain`, `undrain`, `gate`, `drop` and `add` print
 pub fn plain_reply(sheep: &str, action: &str, params: Option<&str>, body: &str) -> Vec<String> {
     plain::reply(sheep, action, params, body)
 }

@@ -261,6 +261,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: implementers",
             "golbat: push access",
             "golbat: labels",
+            "golbat: pull request template",
             "golbat: coderabbit",
             "golbat: github app",
             "golbat: workers",
@@ -271,6 +272,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "koji: implementers",
             "koji: push access",
             "koji: labels",
+            "koji: pull request template",
             "koji: github app",
             "koji: workers",
             "koji: maintainer",
@@ -964,3 +966,4 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
 mod e2e;
 mod github;
 mod plugins;
+mod template;

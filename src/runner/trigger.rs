@@ -22,9 +22,9 @@ use crate::work_item::{
 };
 
 /// The triggers a runner answers
-pub const ACTIONS: [&str; 17] = [
+pub const ACTIONS: [&str; 18] = [
     "status", "add", "rework", "adopt", "rule", "gate", "drop", "timings", "attach", "detach",
-    "tell", "pm", "drain", "undrain", "finish", "start", "pausing",
+    "tell", "pm", "drain", "undrain", "finish", "start", "pausing", "board",
 ];
 
 /// How many finished work items `timings` totals when given no count
@@ -46,6 +46,9 @@ const PM_USAGE: &str = "takes `attach <pid>`, `attach <pid> <session pid>` or `d
 /// What `rule` takes, as its refusals say
 const RULE_USAGE: &str =
     "takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`";
+
+/// What `board` takes, as its refusals say
+const BOARD_USAGE: &str = "takes `move <issue> <position>` or `top <issue>`, or nothing to list";
 
 /// What `status` answers
 #[derive(Debug, Serialize)]
@@ -100,6 +103,9 @@ pub struct Status<'a> {
     /// skipped; left out when it turns on none
     #[serde(skip_serializing_if = "<[RepoPlugin]>::is_empty")]
     pub plugins: &'a [RepoPlugin],
+    /// Where a worker's pull request template comes from: the repo, its
+    /// owner's `.github` repository, or none
+    pub pull_request_template: super::TemplateSource,
     /// Where the local model sat when a round last looked, when there was
     /// an Ollama host to ask
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -299,6 +305,7 @@ enum Request {
     Finish,
     Start,
     Pausing,
+    Board(Option<(u64, u64)>),
 }
 
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
@@ -314,7 +321,10 @@ enum Request {
 /// [`Attaching`](super::Attaching) rather than the status, `tell` takes a
 /// note for the project manager, `pm` takes `attach` or `detach` with the
 /// same pids and answers [`PmAttaching`](super::PmAttaching) for `attach`,
-/// and every other action takes nothing. `drain` holds back every new call
+/// `board` takes nothing to list the ready issues in the order the board
+/// takes them, `move <issue> <position>` or `top <issue>` to move one, and
+/// answers [`Board`](super::Board) either way, and every other action takes
+/// nothing. `drain` holds back every new call
 /// and answers the status with the calls still running, and `undrain` lets
 /// calls start again. `finish` holds the board back until the open work
 /// items end, `start` lets it pick again, and `pausing`, which `pause` sends
@@ -347,6 +357,14 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
             };
         }
         Request::PmDetach(pid) => runner.detach_pm(pid).map_err(|e| e.to_string()),
+        Request::Board(moving) => {
+            if let Some((issue, position)) = moving
+                && let Err(e) = runner.move_on_board(issue, position)
+            {
+                return error(e.to_string());
+            }
+            return serde_json::to_string(&runner.board()).expect("the list serializes to JSON");
+        }
         Request::Tell(note) => runner.tell(&note).map_err(|e| e.to_string()),
         Request::Status | Request::Timings(_) => Ok(()),
         Request::Drain => {
@@ -447,6 +465,22 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
         }
         ("pm", None) => Err(format!("`pm` {PM_USAGE}")),
         ("rule", None) => Err(format!("`{action}` {RULE_USAGE}")),
+        ("board", None) => Ok(Request::Board(None)),
+        ("board", Some(p)) => {
+            let words: Vec<&str> = p.split_whitespace().collect();
+            let read = match words.as_slice() {
+                // A position of 0 is read, so the runner can say positions start at 1.
+                ["move", issue, position] => {
+                    let place = position.bytes().all(|b| b.is_ascii_digit());
+                    number(issue).zip(place.then(|| position.parse().ok()).flatten())
+                }
+                // The first place, which no position reads as past the end.
+                ["top", issue] => number(issue).map(|issue| (issue, 1)),
+                _ => None,
+            };
+            read.map(|moving| Request::Board(Some(moving)))
+                .ok_or_else(|| format!("`board` {BOARD_USAGE}, not {p:?}"))
+        }
         (_, _) if !ACTIONS.contains(&action) => Err(format!("unknown action `{action}`")),
         (_, Some(_)) => Err(format!("`{action}` takes no params")),
         ("gate", None) => Ok(Request::Gate(None)),
@@ -627,6 +661,8 @@ mod tests {
     use crate::skills::Step;
     use crate::test::{Rig, Scripted};
 
+    mod board;
+
     // A running project with issue 7 in flight
     fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
         let rig = Rig::new(project);
@@ -671,6 +707,7 @@ mod tests {
                     "skill": format!("/mattpocock:{}", step.default_skill()),
                     "fallback": null,
                 })),
+                "pull_request_template": "none",
                 "board": rig.paths().board,
             })
         );

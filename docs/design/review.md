@@ -12,6 +12,7 @@ Review passes, bots, CI, the merge, rulings.
 - Reviewer = agent file on session harness (read-only), `command`, `endpoint` or `bot`; runs no commands (running tests found fewer bugs). #314
 - `paths` limit a reviewer to matching changes; every round reads `<base>...HEAD`. Gets issue title + acceptance criteria (4,000 bytes), so no whole-issue check. #314, #484
 - `defect-hunter` (Opus 5.5 high, maintainer's prompt verbatim) uses `second_look`. `add` lists `["qwen", "defect-hunter"]` where qwen script exists, else `["defect-hunter"]`. `agents/defect-hunter.md`, `src/flock/verbs.rs`
+- `standards` and `spec` (Opus 5.5 high, one read, no `second_look`) are the two axes of the vendored `code-review` skill, one agent each since parallel sub-agents are forbidden. Smells are `LOW`; `add` writes both and lists neither, and a project's `reviewers` list replaces the default, so it names them with `defect-hunter`. They sit beside `defect-hunter`, which finds behaviour defects they do not. `agents/standards.md`, `agents/spec.md`, `src/agents.rs`. #363
 - Reviewer failing 3 times passed over; pass nobody read marks item unreviewed (API outage can't auto-merge). #314
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290

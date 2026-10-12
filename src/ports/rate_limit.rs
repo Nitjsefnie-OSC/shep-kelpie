@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use super::{
-    Clock, CommentMarks, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest, QueueStanding,
-    Reviewed, ThreadComment, Timestamp, Visibility,
+    Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
+    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Kind, Ledger};
@@ -171,6 +171,14 @@ impl Forge for RateHeld {
 
     fn default_branch(&self, repo: &ForgeSlug) -> Result<String, ForgeError> {
         self.call(Kind::DefaultBranch, |f| f.default_branch(repo))
+    }
+
+    fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
+        self.call(Kind::Folder, |f| f.folder(repo, path))
+    }
+
+    fn file_text(&self, repo: &ForgeSlug, path: &str) -> Result<String, ForgeError> {
+        self.call(Kind::FileText, |f| f.file_text(repo, path))
     }
 
     fn repo_labels(&self, repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {
