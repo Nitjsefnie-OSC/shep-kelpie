@@ -19,7 +19,7 @@ Measured with `cargo test --lib` in a worker: 335 of 3027 tests fail, 2675 pass,
 | `ps` cannot say whether a process runs | `runner::attach`, `runner::pm::tests::attach`, `runner::slots_tests` |
 | Process groups: a group check or signal the sandbox does not allow | `adapters::process` (3 tests), `adapters::local::queue` (2), `adapters::local::watched` (1) |
 | The temp folder is under `~/.shep`, which these tests' fences refuse to read | `issues::tests` (2 tests), `runner::panel::tests::fences` (2), `runner::pm::tests::code` (1) |
-| Socket path too long: `pi`'s test world nests `worker/` under the temp folder, and a worker's `TMPDIR` is already about 60 bytes | `adapters::pi::tests` (3 tests that open a forwarder) |
+| Socket path too long: `pi`'s test world nests `w/` under the temp folder, and a worker's `TMPDIR` leaves one byte too few | `adapters::pi::tests` (3 tests that open a forwarder) |
 
 ## The tests behind `short_tempdir`
 

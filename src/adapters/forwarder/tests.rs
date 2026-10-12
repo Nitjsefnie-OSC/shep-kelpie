@@ -377,7 +377,7 @@ fn a_sweep_clears_only_old_sockets_nothing_answers_on() {
     sweep(&folder, SystemTime::UNIX_EPOCH);
     assert!(stale.exists());
     sweep(&folder, SystemTime::now() + Duration::from_secs(5));
-    assert!(!stale.exists());
+    assert!(!stale.exists(), "{:?}", UnixStream::connect(&stale));
     assert!(live.exists());
     assert!(other.exists());
 }
