@@ -6,6 +6,9 @@ use crate::ports::{Clock, Timestamp};
 use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
 use crate::test::Rig;
 
+// The first wait of a failed step, in seconds
+const RETRY_FIRST: u64 = 15;
+
 // The loop's pass after a wake, whatever woke it
 fn wake(runner: &std::sync::Mutex<crate::runner::Runner>) -> Option<StepReport> {
     match advance(runner).unwrap() {
@@ -230,4 +233,73 @@ fn the_wait_of_a_work_item_that_ended_sets_no_wait() {
     let wait = runner.lock().unwrap().next_look();
 
     assert_eq!(wait, Some(Duration::from_secs(BOARD_POLL.as_secs() - 20)));
+}
+
+// A work item takes the one slot, which shuts the board, and then frees it,
+// with the forge up for the work item to be added and down again after
+fn take_and_free_the_slot(rig: &Rig, runner: &std::sync::Mutex<crate::runner::Runner>) {
+    rig.forge.set_down(false);
+    let added = rig.ask(runner, "add", Some("7"));
+    assert_eq!(added.get("error"), None, "{added}");
+    wake(runner);
+    rig.ask(runner, "drop", Some("7"));
+    rig.forge.set_down(true);
+}
+
+#[test]
+fn a_failed_board_read_waits_its_backoff_when_the_board_leaves_and_re_enters_the_rotation() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "drain", None);
+    rig.forge.set_down(true);
+    assert!(matches!(
+        wake(&runner),
+        Some(StepReport::BoardFailed { .. })
+    ));
+    take_and_free_the_slot(&rig, &runner);
+    let reads = rig.forge.board_reads();
+
+    rig.clock.advance(RETRY_FIRST - 1);
+    wake(&runner);
+
+    assert_eq!(rig.forge.board_reads(), reads, "read inside the backoff");
+}
+
+#[test]
+fn the_board_is_read_again_once_its_backoff_has_passed() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "drain", None);
+    rig.forge.set_down(true);
+    wake(&runner);
+    take_and_free_the_slot(&rig, &runner);
+    let reads = rig.forge.board_reads();
+
+    rig.clock.advance(RETRY_FIRST);
+    wake(&runner);
+
+    assert_eq!(rig.forge.board_reads(), reads + 1);
+}
+
+#[test]
+fn no_board_step_runs_before_the_rate_limit_hold_ends() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.forge
+        .set_used_up(Some(Timestamp(rig.clock.now().0 + 1800)));
+    wake(&runner);
+    let reads = rig.forge.board_reads();
+
+    for _ in 0..29 {
+        rig.clock.advance(60);
+        wake(&runner);
+    }
+    rig.clock.advance(59);
+    wake(&runner);
+    assert_eq!(rig.forge.board_reads(), reads, "read inside the hold");
+
+    rig.forge.set_down(false);
+    rig.clock.advance(1);
+    wake(&runner);
+    assert_eq!(rig.forge.board_reads(), reads + 1);
 }

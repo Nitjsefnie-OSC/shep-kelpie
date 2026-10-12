@@ -110,10 +110,14 @@ impl Looks {
         self.board_moved = true;
     }
 
-    /// Forgets the waits of steps no pass runs now: a work item that ended
-    /// or has a call in flight, or the board while it opens nothing
+    /// Forgets the waits of work items no pass runs now: one that ended or
+    /// has a call in flight
+    ///
+    /// The board's wait stays while it opens nothing, since a slot taken
+    /// and freed again must not let a failed read run before its backoff.
     pub(super) fn keep_only(&mut self, open: &[Slot]) {
-        self.retries.retain(|slot, _| open.contains(slot));
+        self.retries
+            .retain(|slot, _| *slot == Slot::Board || open.contains(slot));
     }
 
     /// How long until the soonest of the `open` steps is due: the board's
