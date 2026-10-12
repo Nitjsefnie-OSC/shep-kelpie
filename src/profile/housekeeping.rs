@@ -7,7 +7,9 @@
 //! permitted`. The commit or fetch itself went through, but the message reads
 //! as a failure and workers spent turns on `git log` to be sure. So the
 //! worker's git is told not to try. A commit locks the file on its own, which
-//! no setting stops, and the fence lets it make the lock instead.
+//! no setting stops. The fence does not let git make the lock, since a stale
+//! one in the shared `.git` would block every other worker's git, so the
+//! worker's instructions say the message is no failure.
 
 /// What `GIT_CONFIG_PARAMETERS` carries for every worker, whether or not
 /// kelpie's App covers its repo
@@ -137,8 +139,8 @@ mod tests {
 
     // Measured on git 2.50.1: a commit deletes `CHERRY_PICK_HEAD` and
     // `REVERT_HEAD` when it is done, and deleting a ref locks `packed-refs`
-    // first, though neither is there. No setting stops it: the fence has to
-    // let git make the lock.
+    // first, though neither is there. No setting stops it, and the fence keeps
+    // the lock denied, so the message stays and the instructions explain it.
     #[test]
     fn reproduction_a_commit_in_a_fenced_git_dir_prints_the_lock_message() {
         let fenced = Fenced::new();

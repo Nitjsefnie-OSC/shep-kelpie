@@ -218,10 +218,6 @@ impl WorkerProfile<'_> {
             git("logs/refs/remotes/origin").join(self.branch),
             with_suffix(&tracking_ref, ".lock"),
             tracking_ref,
-            // A commit locks `packed-refs` before it finds nothing to delete from
-            // it. The lock is all it needs then, and the file stays denied
-            // below, so a write that needs the file still fails.
-            git("packed-refs.lock"),
         ];
         // The clone's own base branch, which a push of every branch would carry.
         let no_write: Vec<PathBuf> = GIT_DENY
@@ -575,7 +571,6 @@ mod tests {
                 "/k/repos/shep/.git/logs/refs/remotes/origin/kelpie/7",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7.lock",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7",
-                "/k/repos/shep/.git/packed-refs.lock",
             ]
         );
         assert_eq!(
@@ -886,6 +881,13 @@ mod tests {
             s["hooks"]["PostToolUse"],
             json!([{ "hooks": [{ "type": "command", "command": "~/bin/after" }] }])
         );
+    }
+
+    // A commit locks `packed-refs` on its own, the fence denies the lock, and a
+    // worker that took the message for a failure spent turns checking `git log`.
+    #[test]
+    fn the_instructions_say_the_packed_refs_lock_message_is_no_failure() {
+        assert!(INSTRUCTIONS.contains("packed-refs.lock"), "{INSTRUCTIONS}");
     }
 
     #[test]
