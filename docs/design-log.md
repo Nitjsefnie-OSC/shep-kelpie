@@ -1020,6 +1020,12 @@ Run the same real work items as inline, inline with compaction, a phased chain w
 
 The model to fit: one session's cache reads grow with the square of its length. Splitting it into k pieces cuts reads about k times and adds a fixed cost per piece, so the best k is about √(0.025 × calls × growth ÷ per-piece cost). Worked example with guessed inputs (150 calls, a 41k floor, 500 output tokens a call): inline to 650k is about 6.9M units, three quarters of it cache reads; five phases, each with a 10k handoff and 30k of re-reading, is about 4.6M. The tests measure the real inputs.
 
+### The suite on macOS (shep-pm/shep-kelpie#485)
+
+- The `test-macos` job in `.github/workflows/test.yml` runs `cargo test --locked` on `macos-latest` beside the Ubuntu `test` job, which is unchanged. Code written for macOS (the APFS case folding in `src/fence.rs`, the GPU lock's temp folder in `src/lease/gpu.rs`, the Seatbelt policy `src/adapters/srt.rs` writes) runs in CI with it.
+- On the worker's own Mac, inside kelpie's sandbox, `fence`, `lease::gpu` and `adapters::srt` tests all pass. The rest of that run is no evidence: 358 tests failed on `Operation not permitted` when binding a socket or writing under `/tmp`, which the sandbox refuses and a runner does not.
+- The job's `timeout-minutes` is 20, a ceiling chosen before the runner's first run. The runner's duration and any test that had to be ignored are not measured yet; a test ignored on macOS carries `#[cfg_attr(target_os = "macos", ignore = "<reason>")]` and is listed here when there is one. None has been added.
+
 ### Other checks
 
 - Claude Code's sandbox with cargo, which writes to `~/.cargo`. A warm cache passes (see Worker profile and sandbox). A cold cache passes too: settled by #17's hands-on run, see The first hands-on run.
