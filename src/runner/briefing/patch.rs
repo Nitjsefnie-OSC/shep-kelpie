@@ -54,20 +54,27 @@ pub(in crate::runner) fn merged(
         return read(repo, &main, &head, None, worktree);
     }
     let since = format!("{head}..{main}");
-    let walk = ["rev-list", "--first-parent", "--ancestry-path", "--reverse"];
-    let path = git_line(repo, &[&walk[..], &[&since]].concat());
-    let Some(merge) = path.and_then(|p| p.lines().next().map(str::to_owned)) else {
+    let walk = [
+        "rev-list",
+        "--first-parent",
+        "--ancestry-path",
+        "--parents",
+        "--reverse",
+    ];
+    let path = git_line(repo, &[&walk[..], &[&since]].concat()).unwrap_or_default();
+    // Each line is a commit and its parents. The merge is the one whose
+    // second parent is the branch's head: a later merge of another branch
+    // also descends from the head, when it was fast-forwarded into main.
+    let merge = path.lines().find_map(|line| {
+        let mut ids = line.split_whitespace();
+        let (merge, _first, second) = (ids.next()?, ids.next()?, ids.next()?);
+        (second == head).then(|| merge.to_owned())
+    });
+    let Some(merge) = merge else {
         return Err(format!(
-            "{branch} is on main, with no merge commit after it"
+            "{branch} is on main, with no merge commit that took it in"
         ));
     };
-    // A merge commit has a second parent, the branch.
-    let second = format!("{merge}^2");
-    if git_line(repo, &["rev-parse", "--verify", "--quiet", &second]).is_none() {
-        return Err(format!(
-            "{branch} was fast-forwarded into main, so no commit holds its changes apart"
-        ));
-    }
     cut(repo, &[format!("{merge}^1"), merge], None, worktree)
 }
 
@@ -241,6 +248,40 @@ mod tests {
         for other in ["a.txt", "c.txt", "d.txt"] {
             assert!(!diff.contains(other), "{other} is in:\n{diff}");
         }
+    }
+
+    #[test]
+    fn a_fast_forwarded_branch_is_not_given_a_later_merge_of_another_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "--quiet", "--initial-branch=main"]);
+        write_in(repo, "a.txt", "base\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "base"]);
+        git(repo, &["checkout", "--quiet", "-b", "feature"]);
+        write_in(repo, "b.txt", "from the branch\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "feature"]);
+        git(repo, &["checkout", "--quiet", "main"]);
+        git(repo, &["merge", "--quiet", "--ff-only", "feature"]);
+        git(repo, &["checkout", "--quiet", "-b", "other"]);
+        write_in(repo, "other.txt", "unrelated\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "other"]);
+        git(repo, &["checkout", "--quiet", "main"]);
+        write_in(repo, "c.txt", "main moved\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "main moved"]);
+        git(
+            repo,
+            &["merge", "--quiet", "--no-ff", "-m", "merge", "other"],
+        );
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+
+        let diff = merged(repo, "feature", Path::new("/work/7"));
+
+        let why = diff.expect_err("no commit took the branch in");
+        assert!(why.contains("no merge commit that took it in"), "{why}");
     }
 
     #[test]
