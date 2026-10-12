@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 
 use super::is_kelpies_own;
 use crate::ports::{Git, GitError};
-use crate::settings::SkillName;
+use crate::settings::{RepoSetup, SkillName};
 
 /// The folder under the skills folder that holds the repo's plugins, so none
 /// is ever kelpie's own
@@ -78,8 +78,14 @@ impl RepoPlugins {
     /// under `skills/repo/<name>`
     ///
     /// Nothing here fails: a plugin that cannot load is skipped.
-    pub fn load(checkout: &Path, kelpie_home: &Path, skills: &Path, git: &dyn Git) -> Self {
-        Self::plan(checkout, kelpie_home, skills, git).install(skills)
+    pub fn load(
+        checkout: &Path,
+        kelpie_home: &Path,
+        skills: &Path,
+        git: &dyn Git,
+        setup: &RepoSetup,
+    ) -> Self {
+        Self::plan(checkout, kelpie_home, skills, git, setup).install(skills)
     }
 
     /// What [`Self::load`] would load, with the marketplaces fetched and
@@ -87,9 +93,15 @@ impl RepoPlugins {
     ///
     /// A reread plans first, so a reread that fails later leaves the folders
     /// the runner is using as they were.
-    pub fn plan(checkout: &Path, kelpie_home: &Path, skills: &Path, git: &dyn Git) -> Self {
+    pub fn plan(
+        checkout: &Path,
+        kelpie_home: &Path,
+        skills: &Path,
+        git: &dyn Git,
+        setup: &RepoSetup,
+    ) -> Self {
         let into = skills.join(FOLDER);
-        let plugins = resolve(checkout, kelpie_home, git, true)
+        let plugins = resolve(checkout, kelpie_home, git, true, setup)
             .into_iter()
             .map(|resolved| plan_one(resolved, &into))
             .collect();
@@ -211,24 +223,59 @@ pub(crate) struct Skipped {
 /// Finds the folder of each plugin the checkout's default branch turns on,
 /// fetching the marketplaces that need it, in the order of the repo's list
 /// and `origin`'s default branch first where `refresh` is set
+///
+/// What `setup` leaves out of the repo's plugins is not listed, and what it
+/// adds comes after them.
 pub(crate) fn resolve(
     checkout: &Path,
     kelpie_home: &Path,
     git: &dyn Git,
     refresh: bool,
+    setup: &RepoSetup,
 ) -> Vec<Result<Found, Skipped>> {
-    let (settings, enabled) = match settings_on_default_branch(checkout, refresh) {
-        Ok(Some(read)) => read,
-        Ok(None) => return Vec::new(),
-        Err(reason) => {
+    let mut resolved = Vec::new();
+    // The branch is read even where no plugin of the repo's loads, so the
+    // checkout is as fresh for the plugins `setup` adds.
+    let read = settings_on_default_branch(checkout, refresh);
+    let (settings, mut enabled) = match read {
+        Ok(Some(read)) if setup.plugins => read,
+        Err(reason) if setup.plugins => {
             let id = SETTINGS.to_owned();
-            return vec![Err(Skipped { id, reason })];
+            resolved.push(Err(Skipped { id, reason }));
+            (Value::Null, Vec::new())
         }
+        _ => (Value::Null, Vec::new()),
     };
-    let known = settings["extraKnownMarketplaces"].as_object();
+    enabled.retain(|(id, _)| !setup.skips(id));
+    // A marketplace the project gives takes the place of the repo's of that name.
+    let mut known = settings["extraKnownMarketplaces"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut given: BTreeMap<&str, (&str, Value)> = BTreeMap::new();
+    let mut disagreeing: Vec<(String, String)> = Vec::new();
+    for (plugin, source) in &setup.extra {
+        let (id, market, entry) = (plugin.as_str(), plugin.marketplace(), source.entry());
+        match given.get(market) {
+            Some((first, was)) if was != &entry => {
+                disagreeing.push((id.to_owned(), (*first).to_owned()));
+            }
+            Some(_) => {}
+            None => {
+                known.insert(market.to_owned(), entry.clone());
+                given.insert(market, (id, entry));
+            }
+        }
+        if !enabled
+            .iter()
+            .any(|(on, flag)| on == id && flag == &Value::Bool(true))
+        {
+            enabled.push((id.to_owned(), Value::Bool(true)));
+        }
+    }
+    let known = Some(&known);
     let mut markets: BTreeMap<String, Result<(PathBuf, Option<String>), String>> = BTreeMap::new();
     let mut supplied: BTreeMap<String, String> = BTreeMap::new();
-    let mut resolved = Vec::new();
     for (id, on) in &enabled {
         if on != &Value::Bool(true) {
             continue;
@@ -237,6 +284,13 @@ pub(crate) fn resolve(
             id: id.clone(),
             reason,
         };
+        if let Some((_, first)) = disagreeing.iter().find(|(extra, _)| extra == id) {
+            let market = id.split_once('@').map_or("", |(_, market)| market);
+            resolved.push(Err(skip(format!(
+                "{first} already gives the {market} marketplace another source"
+            ))));
+            continue;
+        }
         let Some((name, market)) = id.split_once('@') else {
             resolved.push(Err(skip("it is not written name@marketplace".into())));
             continue;
@@ -560,8 +614,8 @@ fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
 /// What a runner starting now would load of the checkout's plugins, from the
 /// marketplaces already fetched, fetching nothing and writing only the copy of a
 /// `directory` marketplace under kelpie's home
-pub fn inspect(checkout: &Path, kelpie_home: &Path) -> Vec<RepoPlugin> {
-    resolve(checkout, kelpie_home, &Fetched, false)
+pub fn inspect(checkout: &Path, kelpie_home: &Path, setup: &RepoSetup) -> Vec<RepoPlugin> {
+    resolve(checkout, kelpie_home, &Fetched, false, setup)
         .into_iter()
         .map(|resolved| plan_one(resolved, Path::new("")))
         .collect()

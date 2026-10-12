@@ -30,6 +30,7 @@ mod git;
 mod hooks;
 mod local;
 mod removed;
+mod repo_setup;
 mod reviewers;
 mod rulings;
 mod skills;
@@ -45,6 +46,7 @@ pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost,
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
+pub use repo_setup::{CallRole, MarketplaceSource, PluginId, RepoSetup};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
@@ -91,6 +93,11 @@ pub struct Settings {
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
+    /// Which of the repo's plugins reach which calls, and the plugins to add
+    /// that the repo does not turn on. Every plugin the repo turns on, for
+    /// every call, when absent.
+    #[serde(default)]
+    pub repo_setup: RepoSetup,
     /// The host that runs the project's end-to-end tests for a worker, whose
     /// sandbox cannot. It must be disposable: the project's script runs there
     /// as the ssh alias's account, and a worker edits that script. None when

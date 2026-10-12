@@ -7,6 +7,8 @@ use crate::ports::{AgentCall, Role};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced, git};
 
+mod narrow;
+
 // The files of a marketplace named `market` holding each of `plugins` with one skill, by path
 // from the marketplace
 fn files(market: &str, plugins: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -438,7 +440,8 @@ fn inspecting_lists_what_a_runner_would_load_and_why_it_would_not() {
         );
     });
 
-    let plugins = super::inspect(&rig.repo(), &rig.paths().kelpie_home);
+    let setup = crate::settings::RepoSetup::default();
+    let plugins = super::inspect(&rig.repo(), &rig.paths().kelpie_home, &setup);
 
     let seen: Vec<_> = plugins
         .iter()
