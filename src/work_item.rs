@@ -29,7 +29,7 @@ pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
 pub use review::{Awaited, Review, ReviewStage};
 pub use seat::Seat;
-pub use spend::{Priced, QwenTally, RoleSpend, Spend};
+pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
 pub use tally::{Counts, RoleTally, Tally};
 pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};

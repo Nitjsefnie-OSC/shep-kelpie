@@ -22,7 +22,9 @@ use crate::worktree;
 
 mod prompts;
 mod question;
-use prompts::{answer_prompt, declined_prompt, failed_again, note_prompt, rework_prompt};
+use prompts::{
+    answer_prompt, declined_prompt, failed_again, note_prompt, noted_prompt, rework_prompt,
+};
 pub(super) use question::question;
 
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
@@ -128,6 +130,9 @@ enum Move {
         phase: Phase,
         force: Option<Phase>,
     },
+    /// A no on a work item over its budget: its note goes ahead of the turn
+    /// that was due, which otherwise goes on as it stood
+    Noted { note: String, phase: Phase },
     /// A yes on a failed turn: the turn goes back as it stood, under its phase
     Retry { turn: Turn, phase: Phase },
     /// A yes on a foreign change: kelpie adopts it. A new head goes
@@ -207,7 +212,8 @@ impl Runner {
         );
         // Any answer to a refused merge gives the next one its catch-up again.
         let refusal_answered = matches!(ruling.kind, RulingKind::Stuck(Stuck::MergeRefused { .. }));
-        // Either answer to a work item over its budget lifts its cap, once.
+        // Either answer to a work item over its budget lifts its cap, as far as
+        // its next turn needs to start.
         let raises = matches!(
             (&answer, &ruling.kind),
             (
@@ -299,7 +305,7 @@ impl Runner {
                 item.merge_refused = false;
             }
             if raises {
-                item.budget_raises = item.budget_raises.saturating_add(1);
+                item.raise_budget(self.settings.budget.per_item_usd);
             }
             if answered {
                 item.sent_back = false;
@@ -316,6 +322,25 @@ impl Runner {
                     force,
                 } => Some((Turn::Next { prompt }, phase, force)),
                 Move::Retry { turn, phase } => Some((turn, phase, None)),
+                Move::Noted { note, phase } => match &item.turn {
+                    Turn::Next { prompt } => Some((
+                        Turn::Next {
+                            prompt: noted_prompt(&note, prompt),
+                        },
+                        phase,
+                        None,
+                    )),
+                    // No session has begun for a first turn to resume, so no note can reach it.
+                    other => {
+                        if matches!(other, Turn::Due) {
+                            self.notes.push(format!(
+                                "ruling {id}: the worker's session has not begun, so your note was not sent"
+                            ));
+                        }
+                        item.phase = phase;
+                        None
+                    }
+                },
                 Move::Accept(known) => {
                     let (from, to) = (item.known.head.take(), known.head.clone());
                     item.phase = match (from, to) {
@@ -697,10 +722,9 @@ fn decide(
         // goes on in its phase. A no sends the worker its note in that turn.
         (Answer::Yes, RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => phase,
         (Answer::No(note), RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => {
-            return Ok(Move::Turn {
-                prompt: note_prompt(ruling.pull_request, &note),
+            return Ok(Move::Noted {
+                note: note_prompt(ruling.pull_request, &note),
                 phase,
-                force: None,
             });
         }
         // A worker cannot write agents' own files, so a note would not help it.

@@ -5,6 +5,7 @@ use crate::ports::Cost;
 use crate::runner::gate::short;
 use crate::runner::review::pushed::off_text;
 use crate::state::{Fix, RulingKind, Stuck};
+use crate::work_item::raised_cap;
 
 pub(in crate::runner) fn question(
     id: u64,
@@ -158,14 +159,14 @@ pub(in crate::runner) fn question(
             } => {
                 return format!(
                     "The work on {about} has cost {} against its cap of {}: the worker {} and the \
-                     reviewers {}, so the worker's next turn has not started. {yes} doubles \
+                     reviewers {}, so the worker's next turn has not started. {yes} raises \
                      the cap to {} and the worker carries on, and {no} sends the worker your \
-                     note and doubles the cap too.",
+                     note and raises the cap the same.",
                     dollars(*spent),
                     dollars(*cap),
                     dollars(by_role.worker),
                     dollars(by_role.reviewer),
-                    dollars(Cost(cap.0.saturating_mul(2)))
+                    dollars(raised_cap(*cap, *spent))
                 );
             }
             Stuck::Unlabelled { why } => {

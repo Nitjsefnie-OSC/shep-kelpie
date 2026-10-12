@@ -16,7 +16,8 @@ pub struct Budget {
     ///
     /// The worker's and the reviewers' calls count, and a call whose harness
     /// reports no dollars counts nothing. A yes doubles the work item's cap,
-    /// and so does a no with a note. More than 0, and rounded to a cent.
+    /// and so does a no with a note, and each doubles it again while the cap is
+    /// still below what the item has spent. More than 0, and rounded to a cent.
     /// 10 when absent.
     #[serde(default)]
     pub per_item_usd: PerItemUsd,

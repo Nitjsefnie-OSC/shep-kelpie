@@ -47,3 +47,19 @@ fn a_call_made_for_a_role_a_work_item_does_not_record_counts_nothing() {
     item.calls = vec![call(Role::Pm, DOLLAR, false)];
     assert_eq!(item.priced().total(), Cost(0));
 }
+
+#[test]
+fn an_answer_doubles_the_cap_and_again_until_it_covers_what_was_spent() {
+    for (spent, cap) in [(4, 10), (6, 10), (10, 10), (11, 20), (41, 80)] {
+        assert_eq!(
+            raised_cap(Cost(5 * DOLLAR), Cost(spent * DOLLAR)),
+            Cost(cap * DOLLAR)
+        );
+    }
+    let mut item = a_work_item();
+    item.calls.push(call(Role::Worker, 11 * DOLLAR, false));
+    let five = PerItemUsd::try_from(5.0).unwrap();
+    item.raise_budget(five);
+    assert_eq!(item.budget_cap(five), Cost(20 * DOLLAR));
+    assert_eq!(item.over_budget(five), None);
+}

@@ -25,7 +25,7 @@ const SENDS_BACK: &str = "Sends the worker back with a note, and the review read
 const STOPS: &str = "Stops the work item, keeping its branch and pull request on the forge";
 
 /// What a no does to a work item over its budget
-const RAISES: &str = "Sends the worker your note, and doubles the work item's cap as a yes does";
+const RAISES: &str = "Sends the worker your note, and raises the work item's cap as a yes does";
 
 /// One way to answer a ruling, as its table lists it
 struct Choice {
@@ -324,8 +324,8 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             Some(STOPS),
         ),
         Stuck::OverBudget { .. } => (
-            "The work item is over its budget. Double the cap?",
-            "Doubles the work item's cap and the worker carries on",
+            "The work item is over its budget. Raise the cap?",
+            "Doubles the work item's cap, and again until it covers the spend, and the worker carries on",
             Some(RAISES),
         ),
         Stuck::Unlabelled { .. } => (

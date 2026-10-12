@@ -586,8 +586,9 @@ pub enum Stuck {
         retry: Turn,
     },
     /// A work item's priced calls cost more than its cap, so its worker's
-    /// next turn did not start. A yes doubles the cap and goes back to the
-    /// phase; a no sends the worker its note, and doubles the cap too.
+    /// next turn did not start. A yes doubles the cap, again while it is
+    /// below the spend, and goes back to the phase; a no sends the worker its
+    /// note ahead of the turn that was due, and raises the cap the same.
     OverBudget {
         /// The phase the next turn was due in, which an answer goes back to
         phase: Phase,

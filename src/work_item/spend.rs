@@ -60,6 +60,16 @@ impl Priced {
     }
 }
 
+/// The cap an answer to an over-budget ruling lifts `cap` to when its calls have
+/// cost `spent`: doubled, and doubled again while that is still below `spent`
+pub fn raised_cap(cap: Cost, spent: Cost) -> Cost {
+    let mut raised = cap.0.saturating_mul(2).max(1);
+    while raised < spent.0 {
+        raised = raised.saturating_mul(2);
+    }
+    Cost(raised)
+}
+
 /// A work item's qwen rounds. They cost no money, so it is the count and the
 /// time they took.
 // wire format: changing this is a breaking change to the state file
@@ -123,6 +133,16 @@ impl WorkItem {
     pub fn over_budget(&self, per_item: PerItemUsd) -> Option<(Priced, Cost)> {
         let (priced, cap) = (self.priced(), self.budget_cap(per_item));
         (priced.total() > cap).then_some((priced, cap))
+    }
+
+    /// Lifts its cap for an answer to an over-budget ruling: one doubling, and
+    /// more while its priced calls still cost more than the cap, so one answer
+    /// always lets the worker's next turn start
+    pub fn raise_budget(&mut self, per_item: PerItemUsd) {
+        self.budget_raises = self.budget_raises.saturating_add(1);
+        while self.over_budget(per_item).is_some() {
+            self.budget_raises = self.budget_raises.saturating_add(1);
+        }
     }
 
     /// Records a call that ended at `at`, whose session had cost
