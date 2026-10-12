@@ -3,9 +3,10 @@
 
 use std::path::Path;
 
-/// The longest folder that still leaves room for a forwarder's socket, a
-/// 32-character name and `.sock`, under macOS's 104-byte limit
-const LONGEST_FOLDER: usize = 66;
+/// The longest folder that still leaves room for a forwarder's socket: a
+/// separator, a 32-character name and `.sock` (38 bytes) under the 103 bytes
+/// macOS allows a socket path
+const LONGEST_FOLDER: usize = 65;
 
 /// A new folder under `TMPDIR`, named by four random characters
 ///
