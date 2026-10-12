@@ -172,8 +172,12 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             _ => {}
         }
     }
-    shared.lock().unwrap().every_auth.push(every);
-    shared.lock().unwrap().auths.push(auth.clone());
+    {
+        // Under one lock, so the two records stay in the same order.
+        let mut held = shared.lock().unwrap();
+        held.every_auth.push(every);
+        held.auths.push(auth.clone());
+    }
     let mut body = vec![0; length];
     if reader.read_exact(&mut body).is_err() {
         return;
