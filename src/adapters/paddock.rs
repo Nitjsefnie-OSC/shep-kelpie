@@ -500,8 +500,8 @@ mod tests {
             .like_paddock("pk", &[])
             .hanging_renewals();
         let timing = Timing {
-            answer: Duration::from_millis(200),
-            lapse: Duration::from_millis(100),
+            answer: Duration::from_secs(2),
+            lapse: Duration::from_millis(500),
             ..QUICK
         };
         let ending = Ending::default();
@@ -510,8 +510,8 @@ mod tests {
             calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
         });
         assert_eq!(lease.finish(), None);
-        // Long enough for the renewal in flight to give up on its answer.
-        thread::sleep(Duration::from_millis(600));
+        // The renewal in flight is cut short at the lapse, after the lease was let go of.
+        thread::sleep(Duration::from_millis(900));
         assert!(!ending.asked());
     }
 
