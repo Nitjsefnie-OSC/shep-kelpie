@@ -38,7 +38,13 @@ fn door(capacity: u32) -> (tempfile::TempDir, PathBuf, Arc<Mutex<Kept>>) {
     let socket = dir.path().join("lease.sock");
     let listener = open(&socket).unwrap();
     let home = dir.path().join("kelpie");
-    tokio::spawn(serve(listener, Arc::clone(&desk), Duration::ZERO, home));
+    tokio::spawn(serve(
+        listener,
+        Arc::clone(&desk),
+        Duration::ZERO,
+        home,
+        Remote::default(),
+    ));
     (dir, socket, desk)
 }
 
@@ -138,7 +144,14 @@ async fn door_child() {
             let dir = tempfile::tempdir().unwrap();
             let home = dir.path().join("kelpie");
             let desk = kept(dir.path(), 1);
-            serve(open(&socket).unwrap(), desk, Duration::ZERO, home).await;
+            serve(
+                open(&socket).unwrap(),
+                desk,
+                Duration::ZERO,
+                home,
+                Remote::default(),
+            )
+            .await;
         }
         _ if job == "bind" => {
             let _left = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -323,6 +336,7 @@ async fn a_run_whose_dog_restarts_is_seated_by_the_next_even_when_full() {
         Arc::clone(&next_desk),
         Duration::ZERO,
         dir.path().join("kelpie"),
+        Remote::default(),
     ));
     let mut holder = Visit::knock(&socket, &ask("holder")).await.unwrap();
     assert_eq!(answer(&mut holder).await, Some(Answer::Granted));
@@ -357,6 +371,7 @@ async fn a_queued_run_whose_dog_restarts_waits_for_the_next() {
         Arc::clone(&next_desk),
         Duration::ZERO,
         dir.path().join("kelpie"),
+        Remote::default(),
     ));
     assert_eq!(exited(&mut run).await, Some(0));
     assert!(marker.exists());
@@ -421,6 +436,7 @@ async fn a_new_door_seats_running_commands_before_any_new_ask() {
         Arc::clone(&desk),
         grace,
         home,
+        Remote::default(),
     ));
     let mut fresh = Visit::knock(&socket, &ask("fresh")).await.unwrap();
     let early = tokio::time::timeout(Duration::from_millis(500), fresh.answer()).await;
@@ -477,16 +493,12 @@ async fn an_ask_for_any_other_lease_is_still_refused() {
     assert_eq!(answer(&mut visit).await, None);
 }
 
-// An e2e ask from a worktree of `project` under the door's kelpie home,
-// whose folder holds `e2e.json` when `table` is set.
-async fn e2e_answer(table: Option<&str>) -> (Answer, Vec<Answer>) {
+// An e2e ask from a worktree of a project under the door's kelpie home
+// that has no `e2e.json`.
+async fn e2e_answer() -> (Answer, Vec<Answer>) {
     let (dir, socket, _desk) = door(1);
-    let project = dir.path().join("kelpie/koji");
-    let worktree = project.join("worktrees/7");
+    let worktree = dir.path().join("kelpie/koji/worktrees/7");
     std::fs::create_dir_all(&worktree).unwrap();
-    if let Some(table) = table {
-        std::fs::write(project.join("e2e.json"), table).unwrap();
-    }
     let ask = Ask {
         take: E2E.into(),
         worktree: Some(worktree),
@@ -503,7 +515,7 @@ async fn e2e_answer(table: Option<&str>) -> (Answer, Vec<Answer>) {
 
 #[tokio::test]
 async fn an_e2e_ask_from_a_project_without_the_table_is_told_it_is_not_configured() {
-    let (first, rest) = e2e_answer(None).await;
+    let (first, rest) = e2e_answer().await;
     let Answer::Error(why) = first else {
         panic!("the door did not refuse: {first:?}");
     };
@@ -529,18 +541,6 @@ async fn an_e2e_ask_from_a_path_that_names_no_project_is_told_it_is_not_configur
     }
 }
 
-#[tokio::test]
-async fn an_e2e_ask_from_a_configured_project_is_told_this_dog_cannot_run_it_yet() {
-    let table = r#"{"host":"e2e-box","command":"scripts/e2e-remote.sh","results":"test-results"}"#;
-    let (first, rest) = e2e_answer(Some(table)).await;
-    let Answer::Error(why) = first else {
-        panic!("the door did not refuse: {first:?}");
-    };
-    assert!(why.contains("cannot run e2e yet"), "{why}");
-    assert!(!why.starts_with(NO_E2E_HOST), "{why}");
-    assert_eq!(rest, []);
-}
-
 // The dead socket is bound in a child that has exited, so no process
 // this one forks can have inherited it.
 #[tokio::test]
@@ -556,3 +556,5 @@ async fn a_live_door_is_never_taken_over_and_a_dead_one_is() {
     let mode = std::fs::metadata(&stale).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 }
+
+mod e2e;

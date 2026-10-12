@@ -35,7 +35,8 @@ pub const USAGE: &str = "\
        shep-kelpie lease e2e
        <kind> is gpu, the qwen scripts' lock, cargo-test, which a few
        commands hold at once and only for a run, or a lease the dog holds
-       e2e runs the project's end-to-end tests on its host, from a worktree";
+       e2e runs the project's end-to-end tests on its host, from a worktree, and
+       prints their output and exits with their code";
 
 /// What a `take` holder writes as the lock's `what`, and `return` looks for
 const TAKE_WHAT: &str =

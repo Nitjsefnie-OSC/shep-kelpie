@@ -55,6 +55,7 @@ impl Desk {
             "holder": holder,
         });
         let mut leases = vec![gpu, json!(self.tests.status())];
+        leases.extend(self.e2e.values().map(|l| json!(l.status())));
         leases.extend(self.book.status().iter().map(|l| json!(l)));
         json!({ "leases": leases })
     }
@@ -67,6 +68,7 @@ mod tests {
     use super::ACTIONS;
     use crate::dog::desk::tests::{grant, stand_in, world};
     use crate::lease::Epoch;
+    use crate::lease::counted::{Taker, Ticket};
     use crate::lease::wire::Asker;
 
     #[test]
@@ -134,6 +136,34 @@ mod tests {
             })
         );
         assert!(gpu["since"].as_u64().is_some(), "{gpu}");
+    }
+
+    #[test]
+    fn status_lists_a_hosts_e2e_lease_with_its_holder() {
+        let mut w = world();
+        assert_eq!(w.line("e2e:e2e-box"), json!(null), "no host asked yet");
+        let taker = |ticket, pid, what: &str| Taker {
+            ticket: Ticket(ticket),
+            pid,
+            what: what.into(),
+        };
+        w.desk
+            .take_e2e("e2e-box", taker(1, 4242, "shep-kelpie lease e2e"));
+        w.desk
+            .take_e2e("e2e-box", taker(2, 4243, "shep-kelpie lease e2e"));
+        w.desk
+            .take_e2e("other-box", taker(3, 4244, "shep-kelpie lease e2e"));
+
+        assert_eq!(
+            w.line("e2e:e2e-box"),
+            json!({
+                "kind": "e2e:e2e-box",
+                "capacity": 1,
+                "holders": [{ "pid": 4242, "what": "shep-kelpie lease e2e", "since": 1_790_000_000 }],
+                "queue": [{ "pid": 4243, "what": "shep-kelpie lease e2e" }],
+            })
+        );
+        assert_eq!(w.line("e2e:other-box")["holders"][0]["pid"], 4244);
     }
 
     #[test]

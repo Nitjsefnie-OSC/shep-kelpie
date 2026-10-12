@@ -105,6 +105,10 @@ pub const E2E: &str = "e2e";
 /// host to run it on
 pub const NO_E2E_HOST: &str = "this project has no e2e host";
 
+/// What an e2e run is `Done` with when it ran past the dog's ceiling and was
+/// ended, as `timeout` exits
+pub const TIMED_OUT: i32 = 124;
+
 /// What a command asks for, its first and only line
 // wire format: changing this is a breaking change to the door
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +142,11 @@ pub enum Answer {
     Queued(usize),
     /// Held until the connection closes
     Granted,
+    /// A line of an e2e run's output, as it arrives
+    Output(String),
+    /// An e2e run is over, with the exit code of its command, and the dog
+    /// closes the connection
+    Done(i32),
     /// Refused, saying why, and the dog closes the connection
     Error(String),
 }
@@ -160,6 +169,15 @@ impl Visit {
         let stream = UnixStream::connect(socket)
             .await
             .map_err(|e| format!("cannot reach the dog at {}: {e}", socket.display()))?;
+        Self::over(stream, ask).await
+    }
+
+    /// Asks over `stream`, which is already connected to the dog
+    ///
+    /// # Errors
+    ///
+    /// A message when the ask cannot be sent.
+    pub async fn over(stream: UnixStream, ask: &Ask) -> Result<Self, String> {
         let (read, mut write) = stream.into_split();
         let mut line = serde_json::to_vec(ask).expect("an ask serializes to JSON");
         line.push(b'\n');
@@ -321,19 +339,31 @@ mod tests {
             serde_json::to_value([
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ])
             .unwrap(),
-            json!([{ "queued": 2 }, "granted", { "error": "no" }])
+            json!([
+                { "queued": 2 },
+                "granted",
+                { "error": "no" },
+                { "output": "ok 1" },
+                { "done": 3 }
+            ])
         );
-        let read: Vec<Answer> =
-            serde_json::from_str(r#"[{"queued":2},"granted",{"error":"no"}]"#).unwrap();
+        let read: Vec<Answer> = serde_json::from_str(
+            r#"[{"queued":2},"granted",{"error":"no"},{"output":"ok 1"},{"done":3}]"#,
+        )
+        .unwrap();
         assert_eq!(
             read,
             [
                 Answer::Queued(2),
                 Answer::Granted,
-                Answer::Error("no".into())
+                Answer::Error("no".into()),
+                Answer::Output("ok 1".into()),
+                Answer::Done(3),
             ]
         );
     }
