@@ -701,6 +701,7 @@ impl Runner {
             late_from: None,
             claude_files_accepted: None,
             qwen: QwenTally::default(),
+            budget_raises: 0,
             merge_refused: false,
             sent_back: false,
             asked_to_commit: false,

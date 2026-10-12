@@ -3,6 +3,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::ports::Cost;
+
 /// What one work item may spend before kelpie raises a ruling
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +35,12 @@ impl PerItemUsd {
     #[inline]
     pub fn cents(self) -> u64 {
         self.0
+    }
+
+    /// The cap as the state counts money
+    #[inline]
+    pub fn cost(self) -> Cost {
+        Cost(self.0.saturating_mul(Cost::PER_CENT))
     }
 }
 

@@ -29,7 +29,7 @@ pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
 pub use review::{Awaited, Review, ReviewStage};
 pub use seat::Seat;
-pub use spend::{QwenTally, RoleSpend, Spend};
+pub use spend::{Priced, QwenTally, RoleSpend, Spend};
 pub use tally::{Counts, RoleTally, Tally};
 pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
@@ -200,6 +200,9 @@ pub struct WorkItem {
     /// Its qwen rounds so far
     #[serde(default)]
     pub qwen: QwenTally,
+    /// How many times a ruling for going over its budget has doubled its cap
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub budget_raises: u32,
     /// Whether the forge refused a merge under `auto` since the last
     /// ruling on one. A second refusal raises a `stuck` ruling for `merge-refused`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

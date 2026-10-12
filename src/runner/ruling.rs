@@ -14,7 +14,7 @@ use super::review::pushed::{off_text, push_prompt};
 use super::rework::HUMAN;
 use super::thread_replies::Settler;
 use super::{Names, Runner};
-use crate::ports::Timestamp;
+use crate::ports::{Cost, Timestamp};
 use crate::settings::Merging;
 use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
@@ -205,6 +205,14 @@ impl Runner {
         );
         // Any answer to a refused merge gives the next one its catch-up again.
         let refusal_answered = matches!(ruling.kind, RulingKind::Stuck(Stuck::MergeRefused { .. }));
+        // Either answer to a work item over its budget lifts its cap, once.
+        let raises = matches!(
+            (&answer, &ruling.kind),
+            (
+                Answer::Yes | Answer::No(_),
+                RulingKind::Stuck(Stuck::OverBudget { .. })
+            )
+        );
         // An answered question gives the next turn that stops short its nudge again.
         let answered = matches!(ruling.kind, RulingKind::Question { .. });
         // Only the ruling the work item is parked on moves it. Any other,
@@ -287,6 +295,9 @@ impl Runner {
             };
             if refusal_answered {
                 item.merge_refused = false;
+            }
+            if raises {
+                item.budget_raises = item.budget_raises.saturating_add(1);
             }
             if answered {
                 item.sent_back = false;
@@ -585,6 +596,9 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
         Stuck::TurnFailed { .. } => {
             "The work on this pull request hit an error and stopped.".to_owned()
         }
+        Stuck::OverBudget { .. } => {
+            "The work on this pull request is over its budget and waits for an answer.".to_owned()
+        }
     }
 }
 
@@ -676,6 +690,16 @@ fn decide(
                 other => other,
             };
             return Ok(Move::Retry { turn, phase });
+        }
+        // The cap doubles on either answer, in `apply`, and the turn that was due
+        // goes on in its phase. A no sends the worker its note in that turn.
+        (Answer::Yes, RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => phase,
+        (Answer::No(note), RulingKind::Stuck(Stuck::OverBudget { phase, .. })) => {
+            return Ok(Move::Turn {
+                prompt: note_prompt(ruling.pull_request, &note),
+                phase,
+                force: None,
+            });
         }
         // A worker cannot write agents' own files, so a note would not help it.
         (
@@ -896,6 +920,24 @@ pub(super) fn question(id: u64, issue: u64, number: Option<u64>, kind: &RulingKi
                     why.trim()
                 );
             }
+            Stuck::OverBudget {
+                spent,
+                cap,
+                by_role,
+                ..
+            } => {
+                return format!(
+                    "The work on {about} has cost {} against its cap of {}: the worker {} and the \
+                     reviewers {}, so the worker's next turn has not started. {yes} doubles \
+                     the cap to {} and the worker carries on, and {no} sends the worker your \
+                     note and doubles the cap too.",
+                    dollars(*spent),
+                    dollars(*cap),
+                    dollars(by_role.worker),
+                    dollars(by_role.reviewer),
+                    dollars(Cost(cap.0.saturating_mul(2)))
+                );
+            }
             Stuck::Unlabelled { why } => {
                 return format!(
                     "The issue writer could not pick an implementer for {about}: {}. Label \
@@ -976,6 +1018,11 @@ pub(super) fn needs_pass(kind: &RulingKind) -> bool {
         RulingKind::Merge { unreviewed, open_threads, unread_head, .. }
             if unreviewed.is_some() || open_threads.is_some() || *unread_head
     )
+}
+
+// An amount as dollars and cents
+fn dollars(cost: Cost) -> String {
+    format!("${:.2}", cost.usd())
 }
 
 fn capitalized(text: &str) -> String {

@@ -75,6 +75,8 @@ pub enum RulingName {
     TurnFailed,
     /// No implementer was picked
     Unlabelled,
+    /// A work item is over its budget
+    OverBudget,
 }
 
 impl RulingName {
@@ -97,6 +99,7 @@ impl RulingName {
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
                 Stuck::Unlabelled { .. } => Self::Unlabelled,
+                Stuck::OverBudget { .. } => Self::OverBudget,
             },
         }
     }
@@ -119,6 +122,7 @@ impl RulingName {
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
+            Self::OverBudget => "over-budget",
         }
     }
 }

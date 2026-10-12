@@ -37,6 +37,7 @@ use handover::{Handover, Refused};
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
+mod budget;
 mod handover;
 mod unfinished;
 pub(super) mod unreachable;
@@ -203,6 +204,9 @@ impl Runner {
         }
         // A rework can start on a branch that already changes them.
         if due && let Some(parked) = self.claude_files_changed(Unchecked::CarryOn)? {
+            return Ok(parked);
+        }
+        if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
         if due && let Some(held) = self.pace_worker(Scope::Turn)?.holds() {

@@ -114,6 +114,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         late_from: None,
         claude_files_accepted: None,
         qwen: crate::work_item::QwenTally::default(),
+        budget_raises: 0,
         merge_refused: false,
         sent_back: false,
         asked_to_commit: false,
