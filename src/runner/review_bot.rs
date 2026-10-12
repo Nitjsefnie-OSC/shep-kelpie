@@ -315,7 +315,9 @@ impl Runner {
     // Sends the summon, under the lease, in whichever form `full` says.
     // `again` is a re-send of a summon the bot gave no sign of: it goes
     // out as a fresh event, and `at` stays the first one's time, so the
-    // round is the same and its window is not counted twice.
+    // round is the same and its window is not counted twice. A summon sent
+    // again after a failure takes its own time: the first was heard, never
+    // counted, and its failure must not read as the second's answer.
     fn send(
         &mut self,
         bot: Bot,
@@ -580,7 +582,24 @@ impl Runner {
                     },
                 )
             }
-            Reading::Silent | Reading::Processing | Reading::Completed { .. }
+            // A review that failed is asked for once more, and the pass goes
+            // on without the bot when that one fails too. The summon sent
+            // again takes the time it went out as its own, so the failure
+            // that drew it is not read as its answer. A bot summoned by
+            // marking ready is never asked by comment, so waits like one
+            // that is still reading.
+            Reading::Failed if resent => {
+                self.release(bot)?;
+                if let Err(reason) = self.label(bot, number, false) {
+                    return Ok(self.gate_failed(reason));
+                }
+                let reviewer = self.round_reviewer(bot);
+                self.pass_over(number, BotSkipped::Failed { reviewer, head })
+            }
+            Reading::Failed if resends => {
+                self.resend(bot, (started, head), Timestamp(now), full_again)
+            }
+            Reading::Silent | Reading::Processing | Reading::Failed | Reading::Completed { .. }
                 if waited >= REVIEW_WAIT =>
             {
                 self.accepted(bot, at)?;
@@ -590,7 +609,7 @@ impl Runner {
                 let reviewer = self.round_reviewer(bot);
                 self.pass_over(number, BotSkipped::Silent { reviewer, head })
             }
-            Reading::Processing | Reading::Completed { .. } => {
+            Reading::Processing | Reading::Failed | Reading::Completed { .. } => {
                 self.accepted(bot, at).map(|()| Begin::Idle)
             }
             // No sign of the summon yet: it may never have been seen, so it
