@@ -62,6 +62,9 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          units and dollars per merged pull request
        shep kelpie usage <project> --import <log file>
                                          adds a runner's logged calls to its ledger
+       shep kelpie usage --forge [--since <date>]
+                                         GitHub calls per minute, the busiest minutes and
+                                         each used-up answer
 
 `--json` goes anywhere in the line of `add <issue>`, `finish`, `status`, `gate`,
 `drop`, `timings`, `tell`, `drain`, `undrain` and `board`, and prints the runner's
