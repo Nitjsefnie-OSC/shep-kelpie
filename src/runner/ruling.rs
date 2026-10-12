@@ -167,6 +167,7 @@ impl Runner {
         id: u64,
         answer: Answer,
         by: super::panel::Answerer,
+        unread: bool,
     ) -> Result<bool, RuleError> {
         let at = self.state.rulings.iter().position(|r| r.id == id);
         let at = at.ok_or(RuleError::NoSuchRuling(id))?;
@@ -187,6 +188,9 @@ impl Runner {
             (&answer, &ruling.kind),
             (Answer::Yes, RulingKind::FollowUp { refused: None, .. })
         );
+        // ... unless the project manager asks for them to be filed unread, as
+        // `needs-triage`.
+        let unread = triaged && unread;
         let accepts = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::AgentFiles { head, .. }) => Some(head.clone()),
             _ => None,
@@ -279,6 +283,7 @@ impl Runner {
             if let (Some(filed), Some(pending)) = (follow_up, item.follow_ups.as_mut()) {
                 if filed {
                     pending.ruled |= triaged;
+                    pending.unread |= unread;
                     pending.first_refused = None;
                 } else {
                     pending.findings.clear();

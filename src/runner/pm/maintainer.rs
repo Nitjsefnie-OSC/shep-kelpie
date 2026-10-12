@@ -52,7 +52,8 @@ pub struct Settled {
     pub ruling: u64,
     /// The work item's issue
     pub issue: u64,
-    /// What it did: `answered`, so the maintainer was not asked, or `passed on`
+    /// What it did: `answered`, so the maintainer was not asked, `passed on`, or
+    /// for a follow-up ruling `filed` or `dropped`
     pub how: &'static str,
     /// The choice it recommended, when it passed the question on with one
     #[serde(skip_serializing_if = "Option::is_none")]

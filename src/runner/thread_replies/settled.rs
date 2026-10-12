@@ -30,8 +30,14 @@ pub(in crate::runner) enum Settler {
     Alert,
     /// The maintainer, in the ruling's thread: a reply, a reaction or a tick
     Thread,
-    /// The project manager, with its answer in words and its one-line why
-    Pm { answer: String, why: String },
+    /// The project manager, with its answer in words and its one-line why;
+    /// a yes to a follow-up ruling says whether `unread` files the findings
+    /// `needs-triage`, not `ready-for-agent`
+    Pm {
+        answer: String,
+        why: String,
+        unread: bool,
+    },
     /// The panel, by its votes. Its decision is posted as a comment of its
     /// own, so no ruling's comment is edited.
     Panel,
@@ -71,7 +77,7 @@ impl Outcome {
                 line: None,
                 told: format!("is already decided by the panel: {words}"),
             },
-            Settler::Pm { answer, why } => {
+            Settler::Pm { answer, why, .. } => {
                 let (answer, why) = (bare(answer), bare(why));
                 let because = match why.is_empty() {
                     true => String::new(),
@@ -131,7 +137,8 @@ impl Runner {
             Settler::Panel => Answerer::Panel,
             _ => Answerer::Maintainer,
         };
-        let outcome = match self.apply(id, answer, answerer)? {
+        let unread = matches!(by, Settler::Pm { unread: true, .. });
+        let outcome = match self.apply(id, answer, answerer, unread)? {
             true => outcome,
             // The answer was about a head that is gone, so none was taken. An
             // answer in the ruling's own thread leaves its comment as it is.

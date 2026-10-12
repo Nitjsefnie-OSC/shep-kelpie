@@ -7,7 +7,8 @@ use serde_json::json;
 use crate::board::{READY, TRIAGE};
 use crate::ports::{Checks, Finding, Severity};
 use crate::runner::coderabbit::tests::{fixed, hold_a_finding, summoned};
-use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
+use crate::runner::thread_replies::Settler;
+use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn finding(file: &str, what: &str) -> Finding {
@@ -749,6 +750,45 @@ fn the_question_names_files_by_their_path_in_the_repo() {
     assert!(question.contains("- src/lib.rs:9 looks racy"), "{question}");
     let worktree = rig.worktree_7().display().to_string();
     assert!(!question.contains(&worktree), "{question}");
+}
+
+// The project manager's yes to ruling `id`, asking for `needs-triage` if `unread`
+fn pm_says_yes(runner: &Mutex<Runner>, id: u64, unread: bool) {
+    let by = Settler::Pm {
+        answer: "yes".into(),
+        why: "the diff shows the race".into(),
+        unread,
+    };
+    runner.lock().unwrap().rule_by(id, Answer::Yes, by).unwrap();
+}
+
+#[test]
+fn under_ask_a_yes_from_the_project_manager_files_what_the_maintainers_yes_does() {
+    let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
+    rig.forge.set_repo_labels(&["bug", READY]);
+    pm_says_yes(&runner, id, false);
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [READY], "the yes was its triage");
+    assert!(!issue.body.contains("triage"), "{}", issue.body);
+    assert_eq!(rig.forge.repo_labels_now(), ["bug", READY]);
+}
+
+#[test]
+fn under_ask_a_yes_from_the_project_manager_for_needs_triage_files_them_unread() {
+    let (rig, runner, id, _) = ask_after_the_merge(Rig::new("shep"), &[racy()]);
+    pm_says_yes(&runner, id, true);
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    let [issue] = rig.forge.created().try_into().unwrap();
+    assert_eq!(issue.labels, [TRIAGE]);
+    assert!(
+        issue.body.contains("Nobody has read this"),
+        "{}",
+        issue.body
+    );
+    assert!(rig.forge.repo_labels_now().contains(&TRIAGE.to_owned()));
 }
 
 #[test]

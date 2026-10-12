@@ -15,12 +15,12 @@ use crate::test::{Hold, Rig, Scripted};
 const CHOICES: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
                        - `--check`\n</kelpie-question>\n";
 
-const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-run` or \
+pub(super) const ASKS: &str = "I added the flag.\n\n<kelpie-question>\nShould it be `--dry-run` or \
                     `--check`?\n\nBoth appear in the docs.\n</kelpie-question>\n";
 
 /// A project with a project manager, and issue 7's worker asking `question`
 /// on its first turn, the ruling raised
-fn asking(project: &str, question: &'static str) -> (Rig, Mutex<Runner>) {
+pub(super) fn asking(project: &str, question: &'static str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = with_pm(project);
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Say(question)]);
