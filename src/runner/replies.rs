@@ -35,7 +35,7 @@ use crate::state::{LastRead, RulingKind, StateError};
 use crate::totp::answers::{Answers, Claim, FAILURES, Failure};
 use crate::totp::{STEP, Secret, steps_near};
 use crate::webhook::{Webhook, WebhookKind};
-use whose::{Whose, read_reply};
+use whose::{Named, Whose, read_reply};
 
 /// Seconds between reads of the topic while a ruling waits on it
 pub const READ_EVERY: u64 = 15;
@@ -424,7 +424,7 @@ impl Runner {
             None if trusted => (text.trim(), None),
             None => return ignored,
         };
-        let Some((named, id, words)) = read_reply(rest) else {
+        let Some(read) = read_reply(rest) else {
             // Chatter on a trusted topic is not worth a line from every project.
             if claim.is_none() {
                 return ignored;
@@ -438,7 +438,12 @@ impl Runner {
             let report = StepReport::ReplyUnreadable { line_failed: None };
             return (report, self.line(None, text));
         };
-        let whose = self.whose(named, id);
+        let Named {
+            whose,
+            id,
+            by_number,
+        } = self.which(&read);
+        let (number, words) = (read.number, read.words);
         if whose == Whose::Theirs {
             return ignored;
         }
@@ -457,11 +462,16 @@ impl Runner {
         if claim.is_some() {
             let _ = auth.answers.forgive();
         }
-        if let Whose::Unsure(why) = whose {
-            let code = if claim.is_some() { " <code>" } else { "" };
-            let reason =
-                format!("{why}, so name the project first: `{project} {id} <answer>{code}`");
-            return self.reply_refused(id, reason);
+        match whose {
+            Whose::Unsure(why) => {
+                let code = if claim.is_some() { " <code>" } else { "" };
+                let reason = format!(
+                    "{why}, so name the project first: `{project} {number} <answer>{code}`"
+                );
+                return self.reply_refused(id, reason);
+            }
+            Whose::Several(why) => return self.reply_refused(id, why),
+            Whose::Ours | Whose::Theirs => {}
         }
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let Some(pending) = pending else {
@@ -473,6 +483,16 @@ impl Runner {
             };
             return (report, self.line(Some(id), text));
         };
+        // A number can name a new ruling on the same issue or pull request,
+        // so a reply from before this one was raised may answer another question.
+        if by_number && pending.raised.is_some_and(|raised| reply.time < raised) {
+            let asks = pending.question.lines().next().unwrap_or_default();
+            let reason = format!(
+                "the ruling changed since that reply was written, and it asks now: {asks}. \
+                 Reply again to answer it"
+            );
+            return self.reply_refused(id, reason);
+        }
         let wants = Wants::of(&pending.kind);
         let answer = match read_answer(wants, words) {
             Ok(answer) => answer,
