@@ -1,7 +1,7 @@
 //! The rig's forge: issues, a board, and pull requests whose heads live on
 //! the rig's bare origin
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -10,8 +10,9 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
-    Checks, CommentMarks, Forge, ForgeError, Issue, MaintainerReview, NewLabel, OpenIssue,
-    PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
+    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp,
+    Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -73,6 +74,8 @@ pub(crate) struct FakeForge {
     watched: Arc<Mutex<Option<PathBuf>>>,
     saved_at_comment: Arc<Mutex<Vec<serde_json::Value>>>,
     default_branch: Arc<Mutex<String>>,
+    // The files of the repos a test filled, by lowercase slug and then path
+    files: Arc<Mutex<HashMap<String, BTreeMap<String, String>>>>,
     repo_labels: Arc<Mutex<Vec<String>>>,
     pushes: Arc<AtomicBool>,
     bot_seen: Arc<AtomicBool>,
@@ -158,6 +161,7 @@ impl FakeForge {
             watched: Arc::default(),
             saved_at_comment: Arc::default(),
             default_branch: Arc::new(Mutex::new("main".to_owned())),
+            files: Arc::default(),
             repo_labels: Arc::default(),
             pushes: Arc::new(AtomicBool::new(true)),
             bot_seen: Arc::new(AtomicBool::new(true)),
@@ -530,6 +534,22 @@ impl Forge for FakeForge {
     fn default_branch(&self, _repo: &ForgeSlug) -> Result<String, ForgeError> {
         self.ask()?;
         Ok(self.default_branch.lock().unwrap().clone())
+    }
+
+    fn folder(&self, repo: &ForgeSlug, path: &str) -> Result<Option<Vec<FolderEntry>>, ForgeError> {
+        self.ask()?;
+        Ok(self.folder_of(repo, path))
+    }
+
+    fn file_text(&self, repo: &ForgeSlug, path: &str) -> Result<String, ForgeError> {
+        self.ask()?;
+        let files = self.files.lock().unwrap();
+        let found = files
+            .get(&repo.as_str().to_lowercase())
+            .and_then(|f| f.get(path));
+        found
+            .cloned()
+            .ok_or_else(|| ForgeError::Failed("gh: Not Found (HTTP 404)".into()))
     }
 
     fn repo_labels(&self, _repo: &ForgeSlug) -> Result<Vec<String>, ForgeError> {

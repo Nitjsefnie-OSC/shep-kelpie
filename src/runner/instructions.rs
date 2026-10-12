@@ -8,6 +8,7 @@
 use std::fs;
 use std::path::Path;
 
+use super::owner_template::OwnerTemplate;
 use crate::profile;
 use crate::settings::{E2e, Settings, SettingsError};
 use crate::skills::{Skills, Step};
@@ -42,6 +43,9 @@ pub(super) struct Extra<'a> {
     pub(super) pull_request_file: Option<&'a Path>,
     /// The project's e2e host, when it names one
     pub(super) e2e: Option<&'a E2e>,
+    /// The template of the repo's owner's `.github` repository, which the
+    /// worktree's own template outranks
+    pub(super) owner_template: Option<&'a OwnerTemplate>,
 }
 
 /// The command that runs the project's end-to-end tests, for the prompt of a worker told of it
@@ -63,13 +67,15 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
             "Write your tests the way the `{tdd}` skill says.\n"
         ));
     }
-    match (template(worktree), skills.command(Step::Pr)) {
-        (Some(template), _) => lines.push(template_line(&template)),
-        (None, Some(pr)) => lines.push(format!(
+    let own = template(worktree);
+    match (own, extra.owner_template, skills.command(Step::Pr)) {
+        (Some(template), _, _) => lines.push(template_line(&template)),
+        (None, Some(owners), _) => lines.push(owners.line()),
+        (None, None, Some(pr)) => lines.push(format!(
             "Write your pull request's body with the `{pr}` skill, and still end it with \
              `Resolves #<issue>`.\n"
         )),
-        (None, None) => {}
+        (None, None, None) => {}
     }
     if let Some(e2e) = extra.e2e {
         lines.push(format!(
@@ -122,7 +128,7 @@ fn template_line(template: &Template) -> String {
 
 /// A pull request template, as a path from the worktree's root
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Template {
+pub(super) enum Template {
     File(String),
     Folder(String),
 }
@@ -132,35 +138,47 @@ enum Template {
 /// GitHub reads `pull_request_template.md` (or `.txt`) from the root, `.github/` or
 /// `docs/`, in any case, and a `PULL_REQUEST_TEMPLATE` folder of several from
 /// the same places.
-fn template(worktree: &Path) -> Option<Template> {
+pub(super) fn template(worktree: &Path) -> Option<Template> {
     for place in ["", ".github", "docs"] {
         let Ok(entries) = fs::read_dir(worktree.join(place)) else {
             continue;
         };
-        let found = entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let name = entry.file_name().into_string().ok()?;
-                let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                let path = if place.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{place}/{name}")
-                };
-                match name.to_lowercase().as_str() {
-                    "pull_request_template.md" | "pull_request_template.txt" if !is_dir => {
-                        Some(Template::File(path))
-                    }
-                    "pull_request_template" if is_dir => Some(Template::Folder(path)),
-                    _ => None,
-                }
-            })
-            .min();
+        let named = entries.filter_map(Result::ok).filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+            Some((name, is_dir))
+        });
+        let found = pick(place, named);
         if found.is_some() {
             return found;
         }
     }
     None
+}
+
+/// The template among the `entries` of folder `place` (empty for the root),
+/// each a name and whether it is a folder; the first by path when several match
+pub(super) fn pick<S: AsRef<str>>(
+    place: &str,
+    entries: impl Iterator<Item = (S, bool)>,
+) -> Option<Template> {
+    entries
+        .filter_map(|(name, is_dir)| {
+            let name = name.as_ref();
+            let path = if place.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{place}/{name}")
+            };
+            match name.to_lowercase().as_str() {
+                "pull_request_template.md" | "pull_request_template.txt" if !is_dir => {
+                    Some(Template::File(path))
+                }
+                "pull_request_template" if is_dir => Some(Template::Folder(path)),
+                _ => None,
+            }
+        })
+        .min()
 }
 
 #[cfg(test)]
