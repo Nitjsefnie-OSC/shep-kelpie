@@ -14,6 +14,8 @@ fn keep_body_true(number: Option<u64>) -> String {
 pub(super) fn failed_again(prompt: String) -> String {
     let line = "Your last turn failed before it finished. Kelpie sends its prompt again.";
     match split_command(&prompt) {
+        // A retry that fails again is kept with its line already on it.
+        (_, rest) if rest.starts_with(line) => prompt,
         (Some(command), rest) => format!("{command} {line}\n\n{rest}"),
         (None, rest) => format!("{line}\n\n{rest}"),
     }

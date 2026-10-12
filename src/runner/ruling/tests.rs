@@ -434,6 +434,17 @@ fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
     assert_eq!(rest.trim_start(), sent);
 }
 
+// The retried turn's prompt is kept in its turn, so a second failure and a
+// second yes must not stack another line on it.
+#[test]
+fn a_prompt_that_already_carries_the_failed_turn_line_gets_no_second_one() {
+    for prompt in ["fix the five", "/plugin:review check the diff"] {
+        let once = failed_again(prompt.to_owned());
+        assert_eq!(failed_again(once.clone()), once);
+        assert_eq!(once.matches("last turn failed").count(), 1, "{once}");
+    }
+}
+
 // A command only runs from the very start of a prompt, so a retried prompt
 // that begins with one keeps it first.
 #[test]
