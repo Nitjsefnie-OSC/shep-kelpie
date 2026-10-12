@@ -93,6 +93,11 @@ impl Rig {
         path
     }
 
+    // What `cargo install` does: the new build written over the installed path.
+    fn cargo_installs(&self, kelpie: &str, shep: &str) {
+        write_script(&self.installed, &answering(kelpie, shep));
+    }
+
     fn previous(&self) -> PathBuf {
         Layout::new(&self.home, &self.installed).previous()
     }
@@ -175,7 +180,7 @@ fn table() -> Map<String, Value> {
 }
 
 #[test]
-fn the_four_forms_are_read_and_nothing_else() {
+fn the_five_forms_are_read_and_nothing_else() {
     let args = |a: &[&str]| parse(&a.iter().map(|&s| s.to_owned()).collect::<Vec<_>>());
     assert_eq!(
         args(&["--ref", "main"]),
@@ -190,9 +195,9 @@ fn the_four_forms_are_read_and_nothing_else() {
         Ok(Action::Install(Source::Binary("/tmp/k".into())))
     );
     assert_eq!(args(&["--rollback"]), Ok(Action::Rollback));
+    assert_eq!(args(&[]), Ok(Action::Installed));
     for bad in [
-        &[][..],
-        &["--ref"],
+        &["--ref"][..],
         &["--rollback", "x"],
         &["--ref", "a", "b"],
         &["main"],

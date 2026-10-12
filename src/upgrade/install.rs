@@ -43,6 +43,11 @@ impl Layout {
         self.builds.join("shep-kelpie.previous")
     }
 
+    /// The record of the installed file the last upgrade left
+    pub fn seen(&self) -> PathBuf {
+        self.builds.join("installed.seen")
+    }
+
     // The file the installed path leads to: what an upgrade replaces, so a
     // link stays a link.
     fn target(&self) -> PathBuf {
