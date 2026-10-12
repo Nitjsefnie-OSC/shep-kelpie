@@ -46,8 +46,8 @@ fn adding(more: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
     let lab = marketplace(&rig, "lab", &[("quiet", "quiet")]);
     let extra = format!(
-        "extra = {{ \"quiet@lab\" = {{ source = \"directory\", path = {:?} }} }}\n{more}",
-        lab.display().to_string()
+        "extra = {{ \"quiet@lab\" = {:?} }}\n{more}",
+        format!("directory:{}", lab.display())
     );
     rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.repo_setup]\n{extra}\n"));
     let house = marketplace(&rig, "house", &[("style", "style")]);

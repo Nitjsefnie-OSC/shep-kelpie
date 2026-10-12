@@ -398,13 +398,13 @@ A project narrows what reaches each agent, and adds a plugin the repo does not n
 - `plugins`: `true` by default. `false` loads none of the plugins the repo turns on, and `extra` still loads.
 - `roles`: the calls that get plugins, from `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`. All of them by default. `roles = ["worker"]` keeps plugins from the reviewers, the issue writer, the project manager, the advisor and the researcher. It narrows `extra` as well.
 - `skip`: plugins, as `name@marketplace`, left out though the repo turns them on. A skipped plugin is not listed in `status`.
-- `extra`: plugins the repo does not turn on, each as `name@marketplace` with its marketplace's source: `source` is `github` (with `repo`), `git` (with `url`) or `directory` (with `path`, a folder inside the checkout), and `ref` is an optional branch or tag. The fields are those of the `source` in an `extraKnownMarketplaces` entry. A marketplace given here takes the place of the repo's of the same name, and two plugins of one marketplace must give the same source. An extra plugin that cannot load is skipped with its reason, as the repo's are.
+- `extra`: plugins the repo does not turn on, each as `name@marketplace` with its marketplace's source as one string: `github:owner/name`, `git:<url>` or `directory:<folder inside the checkout>`, and `#<branch or tag>` after a `github` or `git` address. The kinds are those of the `source` in an `extraKnownMarketplaces` entry. A marketplace given here takes the place of the repo's of the same name, and two plugins of one marketplace must give the same source. An extra plugin that cannot load is skipped with its reason, as the repo's are.
 
 ```toml
 [app.dogs.kelpie.repo_setup]
 roles = ["worker", "reviewer"]
 skip = ["noisy@house"]
-extra = { "style@lab" = { source = "github", repo = "acme/lab" } }
+extra = { "style@lab" = "github:acme/lab#v2" }
 ```
 
 #### Retros

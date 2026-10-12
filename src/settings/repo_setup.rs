@@ -31,9 +31,9 @@ pub struct RepoSetup {
     #[serde(default)]
     pub skip: Vec<PluginId>,
     /// Plugins the repo does not turn on, each as `name@marketplace` with
-    /// its marketplace's source: `source` is `github` (with `repo`, as
-    /// `owner/name`), `git` (with `url`) or `directory` (with `path`, a
-    /// folder inside the checkout), and `ref` is an optional branch or tag
+    /// its marketplace's source as one string: `github:owner/name`,
+    /// `git:<url>` or `directory:<folder inside the checkout>`, and
+    /// `#<branch or tag>` after a `github` or `git` address
     #[serde(default)]
     pub extra: BTreeMap<PluginId, MarketplaceSource>,
 }
@@ -130,42 +130,57 @@ impl TryFrom<String> for PluginId {
     }
 }
 
-/// Where a marketplace is, in the shape of the `source` of an
-/// `extraKnownMarketplaces` entry
+/// Where a marketplace is, written as one string: `github:owner/name`,
+/// `git:<url>` or `directory:<folder>`, and `#<branch or tag>` after a
+/// `github` or `git` address to fetch that ref
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "String")]
+#[schemars(extend("pattern" = "^(github|git|directory):.+$"))]
 pub struct MarketplaceSource {
-    /// `github`, `git` or `directory`
-    pub source: String,
-    /// The GitHub repo as `owner/name`, for `github`
-    #[serde(default)]
-    pub repo: Option<String>,
-    /// The git address, for `git`
-    #[serde(default)]
-    pub url: Option<String>,
-    /// A folder inside the checkout, for `directory`
-    #[serde(default)]
-    pub path: Option<String>,
-    /// A branch or tag to fetch, for `github` and `git`
-    #[serde(default, rename = "ref")]
-    pub reference: Option<String>,
+    kind: String,
+    address: String,
+    reference: Option<String>,
+}
+
+impl TryFrom<String> for MarketplaceSource {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        const WRITTEN: &str = "must be github:owner/name, git:<url> or directory:<folder>";
+        let (kind, rest) = value.split_once(':').ok_or(WRITTEN)?;
+        if !["github", "git", "directory"].contains(&kind) {
+            return Err(WRITTEN);
+        }
+        let (address, reference) = match rest.rsplit_once('#') {
+            Some((address, reference)) if kind != "directory" && !reference.is_empty() => {
+                (address, Some(reference.to_owned()))
+            }
+            _ => (rest, None),
+        };
+        if address.is_empty() {
+            return Err(WRITTEN);
+        }
+        Ok(Self {
+            kind: kind.to_owned(),
+            address: address.to_owned(),
+            reference,
+        })
+    }
 }
 
 impl MarketplaceSource {
     /// The marketplace as an `extraKnownMarketplaces` entry holds it
     pub fn entry(&self) -> Value {
+        let field = match self.kind.as_str() {
+            "github" => "repo",
+            "git" => "url",
+            _ => "path",
+        };
         let mut source = Map::new();
-        source.insert("source".into(), json!(self.source));
-        let keyed = [
-            ("repo", &self.repo),
-            ("url", &self.url),
-            ("path", &self.path),
-            ("ref", &self.reference),
-        ];
-        for (key, value) in keyed {
-            if let Some(value) = value {
-                source.insert(key.into(), json!(value));
-            }
+        source.insert("source".into(), json!(self.kind));
+        source.insert(field.into(), json!(self.address));
+        if let Some(reference) = &self.reference {
+            source.insert("ref".into(), json!(reference));
         }
         json!({ "source": source })
     }

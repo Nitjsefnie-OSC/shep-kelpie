@@ -64,8 +64,7 @@ fn a_plugin_is_written_name_at_marketplace() {
 
 #[test]
 fn extra_gives_each_plugin_its_marketplace() {
-    let keys =
-        "extra = { \"quiet@lab\" = { source = \"github\", repo = \"acme/lab\", ref = \"v2\" } }";
+    let keys = "extra = { \"quiet@lab\" = \"github:acme/lab#v2\" }";
     let setup = parse(&with(keys)).unwrap().repo_setup;
     let entries: Vec<_> = setup
         .extra
@@ -84,8 +83,19 @@ fn extra_gives_each_plugin_its_marketplace() {
 }
 
 #[test]
-fn an_unknown_key_in_a_marketplace_is_refused_by_name() {
-    let keys = "extra = { \"quiet@lab\" = { source = \"github\", repository = \"acme/lab\" } }";
-    let err = parse_err(&with(keys));
-    assert!(err.contains("repository"), "{err}");
+fn a_marketplace_is_written_kind_colon_address() {
+    for bad in ["acme/lab", "svn:acme/lab", "github:", "github:#v2"] {
+        let err = parse_err(&with(&format!("extra = {{ \"quiet@lab\" = {bad:?} }}")));
+        assert!(err.contains("github:owner/name"), "{bad}: {err}");
+    }
+    let keys = "extra = { \"a@x\" = \"git:https://h/r.git\", \"b@y\" = \"directory:plugins/y\" }";
+    let setup = parse(&with(keys)).unwrap().repo_setup;
+    let entries: Vec<_> = setup.extra.values().map(|s| s.entry()).collect();
+    assert_eq!(
+        entries,
+        [
+            serde_json::json!({ "source": { "source": "git", "url": "https://h/r.git" } }),
+            serde_json::json!({ "source": { "source": "directory", "path": "plugins/y" } }),
+        ]
+    );
 }

@@ -24,7 +24,7 @@ pub fn probe() {
 mod tests {
     use std::collections::BTreeSet;
 
-    use serde_json::{Value, json};
+    use serde_json::Value;
     use shep_client::dogs::{SECRET_KEY, SHEEP_SCHEMA_KEY, config_schema_with_sheep};
 
     use super::*;
@@ -226,10 +226,10 @@ mod tests {
         }
     }
 
-    // Lookout edits a string, a list of strings and a table of strings, so
-    // the repo setup uses nothing else.
+    // Lookout edits a boolean, a list of strings and a table of strings, and
+    // no table of tables, so the repo setup uses nothing else.
     #[test]
-    fn each_repo_setup_key_is_a_string_a_list_of_strings_or_a_table_of_strings() {
+    fn each_repo_setup_key_is_a_boolean_a_list_of_strings_or_a_table_of_strings() {
         let root = schema();
         let project = resolve(&root, &root[SHEEP_SCHEMA_KEY]);
         let setup = resolve(&root, &project["properties"]["repo_setup"]);
@@ -244,15 +244,7 @@ mod tests {
         assert_eq!(extra["type"], "object");
         let sources = extra["patternProperties"].as_object().unwrap();
         let source = resolve(&root, sources.values().next().unwrap());
-        let fields = source["properties"].as_object().unwrap();
-        assert_eq!(fields.len(), 5);
-        for (name, field) in fields {
-            let kind = &field["type"];
-            assert!(
-                kind == "string" || kind == &json!(["string", "null"]),
-                "{name}: {kind}"
-            );
-        }
+        assert_eq!(source["type"], "string");
     }
 
     #[test]

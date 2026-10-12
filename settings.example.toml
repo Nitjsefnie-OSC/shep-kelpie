@@ -268,12 +268,12 @@ compact_window = 200000
 # `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`, all
 # of them when absent. `skip` lists plugins, as `name@marketplace`, left out
 # though the repo turns them on. `extra` lists plugins the repo does not turn
-# on, each as `name@marketplace` with its marketplace's source in the shape of
-# an `extraKnownMarketplaces` entry's `source`: `github` with `repo`, `git`
-# with `url`, or `directory` with `path`, a folder inside the checkout, and
-# an optional `ref`. `roles` narrows `extra` too, and `plugins = false` does not.
+# on, each as `name@marketplace` with its marketplace's source as one string:
+# `github:owner/name`, `git:<url>` or `directory:<folder inside the checkout>`,
+# with `#<branch or tag>` after a `github` or `git` address. `roles` narrows
+# `extra` too, and `plugins = false` does not.
 # [app.dogs.kelpie.repo_setup]
 # plugins = true
 # roles = ["worker", "reviewer", "issue-writer", "pm", "advisor", "researcher"]
 # skip = ["noisy@house"]
-# extra = { "style@lab" = { source = "github", repo = "acme/lab" } }
+# extra = { "style@lab" = "github:acme/lab#v2" }
