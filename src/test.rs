@@ -43,6 +43,7 @@ mod reviewer;
 mod sandbox;
 mod script;
 mod shepherd;
+mod tempdir;
 mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
@@ -58,6 +59,7 @@ pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
+pub(crate) use tempdir::short_tempdir;
 pub(crate) use test_runner::FakeTests;
 
 /// Makes an owner-only FIFO at `path`

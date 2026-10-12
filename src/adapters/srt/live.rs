@@ -59,8 +59,7 @@ impl Drop for Logins {
 
 // `script` under the runtime, as a covered call (`blocked`) or an uncovered one runs it.
 fn probe(tools: &Tools, blocked: bool, script: &str) -> Output {
-    let (settings, work) = (tempfile::tempdir_in("/tmp"), tempfile::tempdir_in("/tmp"));
-    let (settings, work) = (settings.unwrap(), work.unwrap());
+    let (settings, work) = (crate::test::short_tempdir(), crate::test::short_tempdir());
     let policy = Policy {
         write: vec![work.path().canonicalize().unwrap()],
         hosts: HOSTS.map(str::to_owned).into(),
