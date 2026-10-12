@@ -164,7 +164,13 @@ mod tests {
             .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# issue_writer =", "issue_writer =")
             .replace("# fallback_after =", "fallback_after =")
-            .replace("# maintainer =", "maintainer =");
+            .replace("# maintainer =", "maintainer =")
+            .replace(
+                "# [app.dogs.kelpie.e2e]\n# host =",
+                "[app.dogs.kelpie.e2e]\nhost =",
+            )
+            .replace("# command = \"scripts/", "command = \"scripts/")
+            .replace("# results =", "results =");
         assert!(
             text.contains("reviewers = [\"qwen\"]"),
             "the example's list moved"

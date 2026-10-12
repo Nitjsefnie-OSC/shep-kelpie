@@ -172,6 +172,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: old_rulings,
         hooks: _, // waits for the next start, so `reread` keeps the old
         skills: old_skills,
+        e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
     let Settings {
         git: new_git,
@@ -185,6 +186,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: new_rulings,
         hooks: _,
         skills: new_skills,
+        e2e: _,
     } = new;
     let Git {
         checkout: _, // waits for the next start
