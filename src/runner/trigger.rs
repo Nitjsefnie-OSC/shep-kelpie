@@ -707,6 +707,7 @@ mod tests {
                     "skill": format!("/mattpocock:{}", step.default_skill()),
                     "fallback": null,
                 })),
+                "pull_request_template": "none",
                 "board": rig.paths().board,
             })
         );
