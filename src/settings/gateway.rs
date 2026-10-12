@@ -206,12 +206,19 @@ impl Gateways {
     ///
     /// # Errors
     ///
-    /// The reason, naming the variable, when it is unset or empty.
+    /// The reason, naming the variable, when it is unset or empty, or holds
+    /// a line break, which would start a header of its own in a request.
     pub fn key(&self, gateway: &Gateway) -> Result<GatewayKey, String> {
         let var = gateway.key_env.as_str();
-        (self.env)(var).map(GatewayKey).ok_or_else(|| {
+        let key = (self.env)(var).ok_or_else(|| {
             format!("{var}, which holds the gateway's key, is not set in kelpie's environment")
-        })
+        })?;
+        match key.contains(['\r', '\n']) {
+            true => Err(format!(
+                "{var}, which holds the gateway's key, holds a line break"
+            )),
+            false => Ok(GatewayKey(key)),
+        }
     }
 
     /// Where `host`'s requests go, and with what key
@@ -320,6 +327,22 @@ mod tests {
         assert!(err.starts_with("PADDOCK_KEY, which holds"), "{err}");
         for bad in ["paddock_key", "1KEY", "KEY-1", ""] {
             assert!(KeyVar::try_from(bad.to_owned()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_key_with_a_line_break_is_refused_where_it_is_read_without_showing_it() {
+        let host = ModelHost::Gateway(GatewayName::try_from("paddock".to_owned()).unwrap());
+        let reads: [fn(&str) -> Option<String>; 3] = [
+            |_| Some("pk-1\r\nx-evil: 1".into()),
+            |_| Some("pk-1\nx-evil: 1".into()),
+            |_| Some("pk-1\rx-evil: 1".into()),
+        ];
+        for env in reads {
+            let gateways = Gateways::reading(paddock("http://gpu:8700"), env);
+            let err = gateways.route(&host).unwrap_err();
+            assert!(err.starts_with("PADDOCK_KEY, which holds"), "{err}");
+            assert!(err.contains("line break") && !err.contains("pk-1"), "{err}");
         }
     }
 
