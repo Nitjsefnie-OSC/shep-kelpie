@@ -98,6 +98,13 @@ fn resolved(path: &Path) -> PathBuf {
     real
 }
 
+/// The lease an ask names to run a project's end-to-end tests on its host
+pub const E2E: &str = "e2e";
+
+/// What the dog says, first, when the project that asked for [`E2E`] has no
+/// host to run it on
+pub const NO_E2E_HOST: &str = "this project has no e2e host";
+
 /// What a command asks for, its first and only line
 // wire format: changing this is a breaking change to the door
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +121,12 @@ pub struct Ask {
     /// The dog takes it on trust, as it does the rest of the ask.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub running: bool,
+    /// The folder an `e2e` ask runs from, which the dog resolves to the
+    /// project whose worktree holds it. The ask never names a host, a command
+    /// or a results folder: the dog takes those from the project's own
+    /// settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<PathBuf>,
 }
 
 /// What the dog answers, one line each
@@ -274,6 +287,7 @@ mod tests {
             pid: 42,
             what: "cargo test".into(),
             running: false,
+            worktree: None,
         };
         assert_eq!(
             serde_json::to_value(&ask).unwrap(),
@@ -288,6 +302,20 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&rejoining).unwrap()["running"],
             json!(true)
+        );
+        let from = Ask {
+            take: E2E.into(),
+            worktree: Some(PathBuf::from("/k/koji/worktrees/7")),
+            ..ask.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(&from).unwrap(),
+            json!({
+                "take": "e2e",
+                "pid": 42,
+                "what": "cargo test",
+                "worktree": "/k/koji/worktrees/7"
+            })
         );
         assert_eq!(
             serde_json::to_value([

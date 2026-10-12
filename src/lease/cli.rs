@@ -24,6 +24,7 @@ use super::{GPU, LeaseKind};
 use crate::{dog, shepherd};
 
 pub(crate) mod counted_run;
+mod e2e;
 
 /// The usage lines for `shep-kelpie lease`
 pub const USAGE: &str = "\
@@ -31,8 +32,10 @@ pub const USAGE: &str = "\
        shep-kelpie lease take <kind>
        shep-kelpie lease return <kind>
        shep-kelpie lease status
+       shep-kelpie lease e2e
        <kind> is gpu, the qwen scripts' lock, cargo-test, which a few
-       commands hold at once and only for a run, or a lease the dog holds";
+       commands hold at once and only for a run, or a lease the dog holds
+       e2e runs the project's end-to-end tests on its host, from a worktree";
 
 /// What a `take` holder writes as the lock's `what`, and `return` looks for
 const TAKE_WHAT: &str =
@@ -82,6 +85,7 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
         ["return", GPU] => return_gpu().map(|()| ExitCode::SUCCESS),
         ["return", kind] => return_book(&kind_of(kind)?).await,
         ["status"] => status().await,
+        ["e2e"] => run_e2e().await,
         // take reads a holder's stdout alone, so its errors go there.
         ["hold", GPU] => Ok(hold_gpu().await.unwrap_or_else(|e| {
             println!("shep kelpie lease: {e}");
@@ -92,6 +96,15 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::from(2))
         }
     }
+}
+
+// Runs the project's e2e tests from the folder it is in, which the dog
+// places by the worktree that holds it.
+async fn run_e2e() -> Result<ExitCode, String> {
+    let worktree = std::env::current_dir()
+        .map_err(|e| format!("cannot tell which folder this runs from: {e}"))?;
+    let socket = door::socket()?;
+    Ok(ExitCode::from(e2e::run(&socket, worktree).await))
 }
 
 fn kind_of(kind: &str) -> Result<LeaseKind, String> {
