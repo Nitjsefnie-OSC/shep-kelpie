@@ -117,6 +117,9 @@ impl Runner {
                 if self.draining {
                     return Ok(Begin::Idle);
                 }
+                if let Some(parked) = self.park_over_budget()? {
+                    return Ok(parked);
+                }
                 let criteria = match self.criteria(issue) {
                     Ok(criteria) => criteria,
                     Err(reason) => return Ok(self.gate_failed(reason)),
@@ -173,6 +176,9 @@ impl Runner {
         };
         if self.draining {
             return Ok(Begin::Idle);
+        }
+        if let Some(parked) = self.park_over_budget()? {
+            return Ok(parked);
         }
         if let Some(held) = self.pace(Scope::Turn, limit)?.holds() {
             return Ok(held);

@@ -5,7 +5,7 @@ use crate::ports::Cost;
 use crate::runner::gate::short;
 use crate::runner::review::pushed::off_text;
 use crate::state::{Fix, RulingKind, Stuck};
-use crate::work_item::raised_cap;
+use crate::work_item::{Phase, raised_cap};
 
 pub(in crate::runner) fn question(
     id: u64,
@@ -149,6 +149,24 @@ pub(in crate::runner) fn question(
                     "The worker's turn on {about} failed: {}. {yes} tries that step again, \
                      and {no} stops the work item{kept}.",
                     why.trim()
+                );
+            }
+            Stuck::OverBudget {
+                phase: Phase::Review(_),
+                spent,
+                cap,
+                by_role,
+            } => {
+                return format!(
+                    "The work on {about} has cost {} against its cap of {}: the worker {} and the \
+                     reviewers {}, so the review round has not started. {yes} raises \
+                     the cap to {} and the round starts, and {no} sends the worker your \
+                     note, raises the cap the same and has the pull request reviewed again.",
+                    dollars(*spent),
+                    dollars(*cap),
+                    dollars(by_role.worker),
+                    dollars(by_role.reviewer),
+                    dollars(raised_cap(*cap, *spent))
                 );
             }
             Stuck::OverBudget {
