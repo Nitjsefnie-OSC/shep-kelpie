@@ -148,10 +148,138 @@ fn an_id_waiting_nowhere_or_named_badly_sends_nothing() {
         err,
         "no ruling 16 is waiting: `shep kelpie rule` lists those that are"
     );
-    let err = prepare(&ids, None, &["#14", "yes"], None).unwrap_err();
-    assert!(err.starts_with("\"#14\" is not a ruling's id"), "{err}");
+    let err = prepare(&ids, None, &["#16", "yes"], None).unwrap_err();
+    assert_eq!(
+        err,
+        "no ruling on #16 is waiting: `shep kelpie rule` lists those that are"
+    );
+    for bad in ["1x", "#", "#x", "koji#", "#0", "koji#1x", "a b#7", "a#b#7"] {
+        let err = prepare(&ids, None, &[bad, "yes"], None).unwrap_err();
+        assert!(
+            err.starts_with(&format!("{bad:?} is not a ruling")),
+            "{err}"
+        );
+    }
     let err = prepare(&ids, Some(&project("rotom")), &["14", "yes"], None).unwrap_err();
     assert!(err.starts_with("no ruling 14 is waiting"), "{err}");
+}
+
+// Koji's ruling 14 parks issue 407 and is about pull request 427.
+fn on_a_pull_request() -> (tempfile::TempDir, RulingIds) {
+    let home = tempfile::tempdir().unwrap();
+    let ruling = Ruling {
+        issue: Some(407),
+        pull_request: Some(427),
+        ..yes_or_no(14)
+    };
+    waiting(home.path(), "koji", vec![ruling]);
+    waiting(home.path(), "rotom", vec![question(15)]);
+    let ids = RulingIds::under(home.path());
+    (home, ids)
+}
+
+#[test]
+fn a_ruling_s_issue_and_its_pull_request_name_the_same_ruling() {
+    let (_home, ids) = on_a_pull_request();
+    let koji = Ok((project("koji"), "14 yes".into()));
+    for named in ["427", "407", "#427", "#407", "koji#427", "koji#407", "14"] {
+        let sent = prepare(&ids, None, &[named, "yes"], None);
+        assert_eq!(sent, koji, "{named}");
+    }
+    let sent = prepare(&ids, Some(&project("koji")), &["427", "no", "wrong"], None);
+    assert_eq!(sent, Ok((project("koji"), "14 no wrong".into())));
+}
+
+#[test]
+fn a_number_answers_by_the_ruling_s_kind_and_says_which_ruling_it_found() {
+    let (_home, ids) = on_a_pull_request();
+    let err = prepare(&ids, None, &["427", "maybe"], None).unwrap_err();
+    assert_eq!(
+        err,
+        format!("ruling 14 was not answered: it takes `yes`, or `no <note>`. {FORMS}")
+    );
+    let err = prepare(&ids, None, &["427"], None).unwrap_err();
+    assert_eq!(
+        err,
+        "ruling 14 takes `shep kelpie rule 14 yes` or `shep kelpie rule 14 no <note>`"
+    );
+}
+
+// Two projects number their issues from 1, so each can have a ruling on #12.
+fn both_on_12() -> (tempfile::TempDir, RulingIds) {
+    let home = tempfile::tempdir().unwrap();
+    let on_12 = |id| Ruling {
+        issue: Some(12),
+        pull_request: None,
+        ..yes_or_no(id)
+    };
+    waiting(home.path(), "shep-kelpie", vec![on_12(3)]);
+    waiting(home.path(), "rotom", vec![on_12(4)]);
+    let ids = RulingIds::under(home.path());
+    (home, ids)
+}
+
+#[test]
+fn a_number_on_two_projects_needs_the_project_and_names_both() {
+    let (_home, ids) = both_on_12();
+    for bare in ["12", "#12"] {
+        let err = prepare(&ids, None, &[bare, "yes"], None).unwrap_err();
+        assert_eq!(
+            err,
+            "#12 has a ruling on rotom and shep-kelpie, so name one: \
+             `shep kelpie rule <project>#12 <answer>`"
+        );
+    }
+    let sent = prepare(&ids, None, &["shep-kelpie#12", "yes"], None);
+    assert_eq!(sent, Ok((project("shep-kelpie"), "3 yes".into())));
+    let sent = prepare(&ids, Some(&project("rotom")), &["12", "yes"], None);
+    assert_eq!(sent, Ok((project("rotom"), "4 yes".into())));
+    let err = prepare(
+        &ids,
+        Some(&project("rotom")),
+        &["shep-kelpie#12", "yes"],
+        None,
+    );
+    assert_eq!(
+        err.unwrap_err(),
+        "`-p rotom` and `shep-kelpie#12` name different projects"
+    );
+}
+
+#[test]
+fn a_number_from_a_clone_is_the_clone_s_project_s_when_it_has_one() {
+    let (_home, ids) = both_on_12();
+    let here = project("rotom");
+    let sent = prepare_in(&ids, None, Some(&here), &["12", "yes"], None);
+    assert_eq!(sent, Ok((project("rotom"), "4 yes".into())));
+    // A clone with no ruling on it leaves the number to the others.
+    let (_home, ids) = on_a_pull_request();
+    let sent = prepare_in(&ids, None, Some(&project("rotom")), &["427", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
+}
+
+#[test]
+fn a_number_waiting_nowhere_says_so_and_a_counter_id_wins_over_a_number() {
+    let (_home, ids) = on_a_pull_request();
+    let err = prepare(&ids, None, &["koji#9", "yes"], None).unwrap_err();
+    assert_eq!(
+        err,
+        "no ruling on koji#9 is waiting: `shep kelpie rule` lists those that are"
+    );
+    // Rotom's ruling 15 is about issue 14, which is koji's ruling's id.
+    let home = tempfile::tempdir().unwrap();
+    let about_14 = Ruling {
+        issue: Some(14),
+        pull_request: None,
+        ..yes_or_no(15)
+    };
+    waiting(home.path(), "koji", vec![yes_or_no(14)]);
+    waiting(home.path(), "rotom", vec![about_14]);
+    let ids = RulingIds::under(home.path());
+    let sent = prepare(&ids, None, &["14", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
+    let sent = prepare(&ids, None, &["#14", "yes"], None);
+    assert_eq!(sent, Ok((project("rotom"), "15 yes".into())));
 }
 
 // Ids given before they were unique can still be open on two projects.

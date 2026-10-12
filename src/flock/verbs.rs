@@ -105,7 +105,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         args
     };
     if command == "rule" {
-        return answer(shep_home, &kelpie_home, named.as_ref(), &args).await;
+        return answer(shep_home, &home, &kelpie_home, named.as_ref(), &args).await;
     }
     if command == "usage" {
         return usage::usage(&kelpie_home, named, &args);
@@ -313,21 +313,34 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so
-// the shepherd is reached only to send it.
+// the shepherd is reached to send it, and before that only to find the
+// project of the clone a number is typed in.
 async fn answer(
     shep_home: &Path,
+    home: &Path,
     kelpie_home: &Path,
     named: Option<&ProjectName>,
     args: &[&str],
 ) -> Result<Vec<String>, String> {
     let ids = RulingIds::under(kelpie_home);
+    // Not in a clone, or no shepherd to ask, is a number with no project near.
+    let here = match (named, args.first()) {
+        (None, Some(first)) if rule::is_number(first) => {
+            let here = std::env::current_dir().ok();
+            match (shepherd::connect(shep_home).await, here) {
+                (Ok(client), Some(here)) => control::project_here(&client, &here, home).await.ok(),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
     let terminal = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     let (mut input, mut output) = (std::io::stdin().lock(), std::io::stdout());
     let ask = terminal.then_some((
         &mut input as &mut dyn BufRead,
         &mut output as &mut dyn Write,
     ));
-    let (project, params) = rule::prepare(&ids, named, args, ask)?;
+    let (project, params) = rule::prepare_in(&ids, named, here.as_ref(), args, ask)?;
     let client = shepherd::connect(shep_home)
         .await
         .map_err(|e| e.describe(shep_home))?;
