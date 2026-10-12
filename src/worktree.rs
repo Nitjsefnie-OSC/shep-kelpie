@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
+mod ref_folders;
 mod stale_lock;
 
 /// The branch every work item is cut from, on `origin`
@@ -197,6 +198,7 @@ pub fn prepare(
     )?;
     let git_common_dir = canonical(Path::new(&common));
     let git_dir = own_git_dir(&git_common_dir, worktree).ok_or_else(foreign)?;
+    ref_folders::ensure(&git_common_dir, branch)?;
     create(build)?;
     Ok(Worktree {
         git_common_dir,
