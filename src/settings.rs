@@ -23,6 +23,7 @@ pub use table::table_of;
 mod agents;
 mod budget;
 mod ci;
+mod e2e;
 mod gateway;
 mod git;
 mod hooks;
@@ -38,6 +39,7 @@ pub use agents::{
 };
 pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts};
+pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
@@ -88,6 +90,12 @@ pub struct Settings {
     /// The skill each step runs, over kelpie's vendored defaults
     #[serde(default)]
     pub skills: StepSkills,
+    /// The host that runs the project's end-to-end tests for a worker, whose
+    /// sandbox cannot. It must be disposable: the project's script runs there
+    /// as the ssh alias's account, and a worker edits that script. None when
+    /// absent, and a worker asking for a run is told the project has none.
+    #[serde(default)]
+    pub e2e: Option<E2e>,
 }
 
 pub use removed::removed_command;

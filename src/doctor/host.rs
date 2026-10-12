@@ -13,6 +13,9 @@ pub trait Host: Send + Sync + fmt::Debug {
 
     /// Whether this shell's environment holds the login token `claude setup-token` makes
     fn login_token(&self) -> bool;
+
+    /// Whether `program` is an executable file in a folder of `PATH`
+    fn on_path(&self, program: &str) -> bool;
 }
 
 /// The programs the sandbox runtime needs on `os`, as `std::env::consts::OS` names it

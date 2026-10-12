@@ -11,6 +11,7 @@
 
 pub mod desk;
 mod door;
+mod e2e;
 pub mod left_over;
 mod link;
 pub mod triggers;
@@ -271,7 +272,9 @@ async fn serve() -> Result<(), String> {
         Ok((socket, listener)) => {
             println!("the door is {}, {capacity} at a time", socket.display());
             let grace = door::REJOIN_GRACE;
-            tokio::spawn(door::serve(listener, Arc::clone(&desk), grace));
+            // Never `KELPIE_HOME`: shep starts the adopted dog without it.
+            let home = home::under(&shep_home);
+            tokio::spawn(door::serve(listener, Arc::clone(&desk), grace, home));
         }
         Err(e) => {
             println!("{e}: cargo-test cannot be taken until the dog restarts");
