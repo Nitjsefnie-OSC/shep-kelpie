@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::claude::sandbox::fence_policy;
+use super::claude::sandbox::call_policy;
 use super::claude::settings::shell_quote;
 use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
@@ -33,7 +33,6 @@ use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy, Sandbox,
     Session, SessionId, Tools, Transcript, Usage, written_at,
 };
-use crate::profile::CREDENTIALS;
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 #[cfg(test)]
@@ -125,6 +124,8 @@ pub struct CodexCli {
     program: OsString,
     lambs: Option<Arc<dyn LambLabels>>,
     sandbox: Arc<dyn Sandbox>,
+    // What a call with no fence may not read: the shepherd's home
+    unfenced_no_read: Vec<String>,
     login: PathBuf,
 }
 
@@ -137,6 +138,7 @@ impl ClaudeCli {
             program: "codex".into(),
             lambs: self.lambs.clone(),
             sandbox: Arc::clone(&self.sandbox),
+            unfenced_no_read: self.unfenced_no_read.clone(),
             login: codex_home,
         }
     }
@@ -282,7 +284,7 @@ impl CodexCli {
         }
         self.sandbox
             .wrap(
-                &policy(call, &self.login, &files),
+                &policy(call, &self.login, &files, &self.unfenced_no_read),
                 &files.sandbox_settings,
                 &command,
             )
@@ -657,14 +659,8 @@ fn hook_entry(matcher: &str, command: String) -> toml::Value {
 }
 
 /// The whole call's policy: its fence, or none, and what Codex itself needs
-fn policy(call: &AgentCall, login: &Path, files: &Files) -> Policy {
-    let mut policy = match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => Policy {
-            no_read: CREDENTIALS.map(str::to_owned).into(),
-            ..Policy::default()
-        },
-    };
+fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) -> Policy {
+    let mut policy = call_policy(call, unfenced);
     policy.no_read.extend(fence::others_credentials(HARNESS));
     policy.no_keychain = call.reach.block_keychain;
     policy

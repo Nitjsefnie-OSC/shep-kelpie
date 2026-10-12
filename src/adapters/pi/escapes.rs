@@ -36,7 +36,7 @@ fn curl_allowing(
         .pi()
         .upstream(server(call).unwrap())
         .unwrap();
-    let mut policy = policy(call, &Files::of(call), &upstream, &forwarder.socket);
+    let mut policy = policy(call, &Files::of(call), &upstream, &forwarder.socket, &[]);
     policy.hosts.extend(allowed.iter().cloned());
     let mut command = Command::new("env");
     command

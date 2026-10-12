@@ -333,7 +333,7 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
         w.call(Role::Reviewer, Session::New(id(WORKER_ID))),
     ];
     for call in &mut calls {
-        let policy = |call: &AgentCall| policy(call, &w.path("login"), &Files::of(call));
+        let policy = |call: &AgentCall| policy(call, &w.path("login"), &Files::of(call), &[]);
         assert!(!policy(call).no_keychain);
         call.reach.block_keychain = true;
         assert!(policy(call).no_keychain);
@@ -346,7 +346,7 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     let login = w.path("login");
     let call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let files = Files::of(&call);
-    let policy = policy(&call, &login, &files);
+    let policy = policy(&call, &login, &files, &[]);
     for unread in ["~/.codex/**", "~/.agents/**", "~/.claude.json", "~/.ssh/**"] {
         assert!(policy.no_read.iter().any(|p| p == unread), "{unread}");
     }
@@ -404,13 +404,38 @@ fn a_call_reads_the_login_and_writes_only_its_own_codex_home() {
     assert_eq!(policy.hosts.last().unwrap(), MODEL_HOST);
 
     let review = w.call(Role::Reviewer, Session::New(id(WORKER_ID)));
-    let unfenced = super::policy(&review, &login, &Files::of(&review));
+    let unfenced = super::policy(&review, &login, &Files::of(&review), &[]);
     assert_eq!(unfenced.hosts, [MODEL_HOST]);
     assert!(
         unfenced.verify_tls,
         "Codex cannot reach its model without it"
     );
     assert!(!unfenced.write.contains(&w.path("wt")));
+}
+
+// The shepherd's home holds the sheep entries' `env`, a gateway's key with
+// it, and `dogs.toml`. A session with no fence reads none of it, but for
+// its own folder.
+#[test]
+fn an_unfenced_codex_session_is_denied_the_shepherds_home_but_its_own_folder() {
+    let w = World::new();
+    stand_in(&w, FRESH);
+    let sandbox = OpenSandbox::default();
+    let codex = ClaudeCli::default()
+        .unfenced_unread(&w.path("shep"))
+        .sandboxed(Arc::new(sandbox.clone()), w.path("home"))
+        .codex(w.path("login"))
+        .with_program(w.path("codex"));
+    let call = w.call(Role::Reviewer, Session::New(id(REVIEW_ID)));
+    codex.prepare(&call).unwrap();
+    codex.run(&call, &Ending::default()).unwrap();
+    let shep = format!("{}/**", w.path("shep").display());
+    let wrapped = sandbox.wrapped();
+    let [(open, _)] = wrapped.as_slice() else {
+        panic!("wrapped once, not {wrapped:?}")
+    };
+    assert!(open.no_read.contains(&shep), "{:?}", open.no_read);
+    assert!(open.read.contains(&w.path("wt")), "{:?}", open.read);
 }
 
 // A call's files sit in kelpie's home inside the shepherd's, which a fenced
@@ -421,7 +446,7 @@ fn a_fenced_call_reads_its_codex_home_inside_the_shepherds() {
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.settings = w.path("shep/kelpie/koji/worker/settings.json");
     let files = Files::of(&call);
-    let policy = policy(&call, &w.path("login"), &files);
+    let policy = policy(&call, &w.path("login"), &files, &[]);
     let unread = |path: &Path| {
         policy
             .no_read

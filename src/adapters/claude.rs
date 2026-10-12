@@ -176,6 +176,8 @@ impl ClaudeCli {
 
     /// Keeps a call with no fence, such as a reviewer's session, out of
     /// `shep_home`, which holds the sheep entries' `env` and `dogs.toml`
+    ///
+    /// pi and Codex made from this after share it.
     pub fn unfenced_unread(mut self, shep_home: &Path) -> Self {
         self.unfenced_no_read = vec![format!("{}/**", shep_home.display())];
         self
