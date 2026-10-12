@@ -1,0 +1,10 @@
+# Codex's usage
+
+Measured 2026-09-30 on codex-cli 0.146.0, for #129. There is no Codex account to measure against: the local login belongs to a deactivated ChatGPT workspace.
+
+- `codex app-server` speaks JSON-RPC over stdio, one message per line. After `initialize` and `initialized`, `account/rateLimits/read` asks ChatGPT's backend (`/backend-api/wham/usage`) for the account's windows. It runs no model turn.
+- The app server answers only while its stdin is open. With the three requests written and stdin closed at once, it exited in 0.12 seconds with no output at all, not even the `initialize` answer. Kelpie writes them and holds the pipe until the read's answer arrives.
+- On the deactivated workspace the read answers a JSON-RPC error, code -32603, whose message carries the backend's `402 Payment Required` body with `"code": "deactivated_workspace"`. It came back after 5 seconds in one probe and 6.6 in another. Recorded in `fixtures/codex-rate-limits-402.json`.
+- `codex app-server generate-json-schema` gives the answer's shape: `rateLimits` with `primary` and `secondary` windows, each `usedPercent` (a whole number), `windowDurationMins` and `resetsAt`, all but the first nullable. `fixtures/codex-rate-limits.json` is written by hand from it.
+- Still unmeasured, until a Codex account exists: a successful answer's real values, whether `resetsAt` is in seconds (kelpie assumes so, and refuses a reset more than eight days from now), whether the windows are always 300 and 10080 minutes and in that order (kelpie places them by length, then by order), how long a successful read takes, and whether `rateLimitsByLimitId` ever carries a window `rateLimits` does not.
+- Measured 2026-10-01 on codex-cli 0.159.3, on kelpie's own login (#233), a Plus plan: the read answered in 0.5 seconds, `resetsAt` is in seconds, and the windows came as 300 and 10,080 minutes in that order, at 0% and 1%. `rateLimitsByLimitId` held the one `codex` limit, the same as `rateLimits`, so whether it ever carries another is still open. Recorded in `fixtures/codex-rate-limits-plus.json`, its account id zeroed.
