@@ -296,10 +296,11 @@ pub async fn finish(
     let runner = kelpie_runner(client, &flock(client).await?, project).await?;
     let name = project.as_str();
     if !matches!(runner.status, ProcStatus::Online | ProcStatus::Starting) {
-        return Ok(vec![format!(
+        let said = format!(
             "{name}'s runner is {}, so it has nothing to finish",
             runner.status
-        )]);
+        );
+        return Ok(vec![said_as(format, name, said)]);
     }
     come_up(client, name, patience, say).await?;
     let body = match trigger(client, name, "finish", None).await? {
@@ -654,12 +655,24 @@ pub async fn tell(
                 "told {project}'s project manager, which reads it on its next wake"
             )]),
         },
-        Answered::TimedOut => Ok(vec![format!(
-            "{runner}'s runner did not answer in time, and the note may have arrived: \
-             do not tell it again unless the project manager does not wake for it, \
-             and `shep bleats {runner}` says why"
-        )]),
+        Answered::TimedOut => {
+            let said = format!(
+                "{runner}'s runner did not answer in time, and the note may have arrived: \
+                 do not tell it again unless the project manager does not wake for it, \
+                 and `shep bleats {runner}` says why"
+            );
+            Ok(vec![said_as(format, runner, said)])
+        }
         other => Err(unanswered(runner, other)),
+    }
+}
+
+// What kelpie itself says when the runner gave no object to print: the
+// sentence, or under [`Format::Json`] an object that holds it.
+fn said_as(format: Format, sheep: &str, said: String) -> String {
+    match format {
+        Format::Plain => said,
+        Format::Json => serde_json::json!({ "sheep": sheep, "message": said }).to_string(),
     }
 }
 
