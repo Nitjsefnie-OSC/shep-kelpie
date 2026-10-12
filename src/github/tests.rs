@@ -732,8 +732,7 @@ fn a_key_that_is_no_regular_file_is_refused_before_it_is_signed_with() {
     github.registered(home.path(), "shep-pm/koji");
     let key = home.path().join("github/shep-pm/key.pem");
     std::fs::remove_file(&key).unwrap();
-    let owner_only = nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR;
-    nix::unistd::mkfifo(&key, owner_only).unwrap();
+    crate::test::make_fifo(&key);
 
     let err = github
         .tokens(home.path())

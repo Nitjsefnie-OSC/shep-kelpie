@@ -103,7 +103,7 @@ pub(crate) fn read(root: &Path, rel: &Path) -> Result<Option<String>, Error> {
     let regular = FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile;
     // A file with another name too is a hard link, which O_NOFOLLOW cannot see: the
     // worker could link a file of the maintainer's into its folder.
-    let ours = stat.st_uid == nix::unistd::geteuid().as_raw() && stat.st_nlink == 1;
+    let ours = stat.st_uid == rustix::process::geteuid().as_raw() && stat.st_nlink == 1;
     if !regular || !ours {
         return Err(Error::NotRegular);
     }
