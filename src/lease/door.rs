@@ -6,10 +6,9 @@
 //! connection open, so one that ends or dies gives its place back. A
 //! worker's sandbox may connect to this socket and to no shep socket.
 
-use std::os::fd::AsRawFd;
 use std::path::{Component, Path, PathBuf};
 
-use nix::fcntl::{FcntlArg, FdFlag, fcntl};
+use rustix::io::{FdFlags, fcntl_setfd};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::UnixStream;
@@ -188,13 +187,11 @@ impl Visit {
     /// A message when the connection's flags cannot be changed.
     pub fn inheritable(&self, inherit: bool) -> Result<(), String> {
         let flags = if inherit {
-            FdFlag::empty()
+            FdFlags::empty()
         } else {
-            FdFlag::FD_CLOEXEC
+            FdFlags::CLOEXEC
         };
-        let fd = self.ask.as_ref().as_raw_fd();
-        fcntl(fd, FcntlArg::F_SETFD(flags))
-            .map(drop)
+        fcntl_setfd(self.ask.as_ref(), flags)
             .map_err(|e| format!("cannot pass the lease to the command: {e}"))
     }
 

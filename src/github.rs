@@ -194,7 +194,7 @@ impl Apps {
         private_dir(&folder).map_err(|e| unusable(&folder, &e))?;
         for path in [&self.folder, &folder] {
             let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
-            if meta.file_type().is_symlink() || meta.uid() != nix::unistd::getuid().as_raw() {
+            if meta.file_type().is_symlink() || meta.uid() != rustix::process::getuid().as_raw() {
                 return Err(StoreError::Exposed(path.clone()));
             }
             fs::set_permissions(path, fs::Permissions::from_mode(0o700))
@@ -231,7 +231,7 @@ fn not_a_file(path: &Path) -> StoreError {
 // Refuses `path` when it is a link, someone else's, or open to others.
 fn private(path: &Path) -> Result<(), StoreError> {
     let meta = fs::symlink_metadata(path).map_err(|e| unusable(path, &e))?;
-    let theirs = meta.uid() != nix::unistd::getuid().as_raw();
+    let theirs = meta.uid() != rustix::process::getuid().as_raw();
     if meta.file_type().is_symlink() || theirs || meta.mode() & 0o077 != 0 {
         return Err(StoreError::Exposed(path.to_owned()));
     }

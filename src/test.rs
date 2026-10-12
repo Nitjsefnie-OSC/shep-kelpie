@@ -56,6 +56,19 @@ pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
 
+/// Makes an owner-only FIFO at `path`
+///
+/// Runs `mkfifo(1)`: `rustix` has no `mkfifoat` on macOS, and `nix` would put
+/// a second copy of itself in the tree beside the one `shep-core` builds.
+pub(crate) fn make_fifo(path: &Path) {
+    let made = Command::new("mkfifo")
+        .args(["-m", "600"])
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}: {made}", path.display());
+}
+
 /// A work item with one call, so every field of its format shows
 pub(crate) fn a_work_item() -> WorkItem {
     WorkItem {
