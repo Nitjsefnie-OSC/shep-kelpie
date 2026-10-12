@@ -163,14 +163,9 @@ impl LocalReviewer {
         let Linked { repo, worktree } = at.worktree;
         let diff = crate::worktree::trusted_command(repo, worktree)
             .map_err(|e| ReviewerError::Failed(e.to_string()))?
-            .args([
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                at.base,
-                "-U25",
-                "--",
-            ])
+            .args(["diff", "--no-ext-diff", "--no-textconv", "-U25"])
+            .arg(crate::worktree::change_since(at.base))
+            .arg("--")
             .arg(&skipped.file)
             .stdin(Stdio::null())
             .output()
@@ -477,6 +472,38 @@ esac
                 why: "noisy logs".into(),
             }]
         );
+    }
+
+    #[test]
+    fn main_gaining_a_commit_after_the_branch_is_cut_leaves_a_skipped_files_hunk_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("review");
+        write_script(
+            &script,
+            "#!/bin/sh\nmkdir -p \"$QWEN_REVIEW_OUT\"\n\
+             case \"$*\" in\n\
+               *--files*) : > \"$QWEN_REVIEW_OUT/round-1.txt\" ;;\n\
+               *) printf 'LOW|big.rs:0|not reviewed: 900 lines exceeds the chunk limit|split it\\n' \\\n\
+                    > \"$QWEN_REVIEW_OUT/round-1.txt\" ;;\n\
+             esac\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+        let (checkout, worktree) = crate::test::linked_worktree(home.path());
+        crate::test::main_commits(&checkout, "big.rs", "fn old() {}\n");
+        crate::test::cut_from_main(&worktree);
+        std::fs::write(worktree.join("big.rs"), "fn old() {}\nfn new_one() {}\n").unwrap();
+        crate::test::git(&worktree, &["commit", "--quiet", "-am", "change"]);
+        crate::test::main_commits(&checkout, "big.rs", "fn only_main() {}\nfn old() {}\n");
+        let wt = (checkout, worktree);
+        let out = home.path().join("out");
+
+        LocalReviewer::default()
+            .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
+            .unwrap();
+
+        let hunk = std::fs::read_to_string(out.join("hunks/1/big.rs")).unwrap();
+        assert!(hunk.contains("+fn new_one() {}"), "{hunk}");
+        assert!(!hunk.contains("only_main"), "{hunk}");
     }
 
     // A repo with no `origin/main`, so the `-U25` diff itself fails.

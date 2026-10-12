@@ -143,7 +143,8 @@ impl Runner {
 fn changed_files(repo: &Path, worktree: &Path, base: &str) -> Result<Vec<String>, String> {
     let output = crate::worktree::trusted_command(repo, worktree)
         .map_err(|e| e.to_string())?
-        .args(["diff", "--name-only", "--no-renames", base])
+        .args(["diff", "--name-only", "--no-renames"])
+        .arg(crate::worktree::change_since(base))
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("cannot run git diff: {e}"))?;
@@ -199,5 +200,21 @@ mod tests {
         assert!(matches("a?c", "abc"));
         assert!(!matches("a?c", "a/c"));
         assert!(!matches("Cargo.lock", "Cargo.lockx"));
+    }
+
+    #[test]
+    fn main_gaining_a_file_after_the_branch_is_cut_does_not_select_a_reviewer() {
+        let home = tempfile::tempdir().unwrap();
+        let (repo, worktree) = crate::test::linked_worktree(home.path());
+        crate::test::main_commits(&repo, "README.md", "readme\n");
+        crate::test::cut_from_main(&worktree);
+        std::fs::write(worktree.join("work.txt"), "work\n").unwrap();
+        crate::test::git(&worktree, &["add", "."]);
+        crate::test::git(&worktree, &["commit", "--quiet", "-m", "work"]);
+        crate::test::main_commits(&repo, "only_main.txt", "only main has this\n");
+
+        let changed = changed_files(&repo, &worktree, "origin/main").unwrap();
+
+        assert_eq!(changed, ["work.txt"]);
     }
 }

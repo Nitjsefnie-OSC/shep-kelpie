@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use super::*;
 use crate::ports::{Reviewer, Severity};
 use crate::settings::{ContextSize, EndpointUrl, LocalRound, ModelHost, NonBlank};
-use crate::test::{Answer, Elsewhere, StandInEndpoint, git, linked_worktree, unreachable_url};
+use crate::test::{
+    Answer, Elsewhere, StandInEndpoint, cut_from_main, git, linked_worktree, main_commits,
+    unreachable_url,
+};
 
 const DIFF: &str = "\
 diff --git a/src/lib.rs b/src/lib.rs
@@ -169,6 +172,34 @@ fn a_round_sends_the_diff_with_the_prompt_and_reads_the_findings() {
     assert!(diff.contains("     2 +fn b() { panic!() }\n"), "{diff}");
     assert!(out.join("round-3.txt.done").is_file());
     assert!(out.join("round-3/reply-0.json").is_file());
+}
+
+#[test]
+fn main_gaining_a_commit_after_the_branch_is_cut_leaves_the_diff_sent_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (checkout, worktree) = linked_worktree(dir.path());
+    main_commits(&checkout, "src/lib.rs", "fn a() {}\n");
+    cut_from_main(&worktree);
+    std::fs::write(worktree.join("src/lib.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+    git(&worktree, &["commit", "--quiet", "-am", "change"]);
+    main_commits(&checkout, "src/lib.rs", "fn only_main() {}\nfn a() {}\n");
+    let server = StandInEndpoint::start([Answer::Says("CLEAN")]);
+
+    LocalReviewer::default()
+        .round(
+            &local(server.url(), 8192),
+            linked(&(checkout, worktree)),
+            "origin/main",
+            &dir.path().join("out"),
+            1,
+            "",
+        )
+        .unwrap();
+
+    let requests = server.requests();
+    let diff = requests[0]["messages"][1]["content"].as_str().unwrap();
+    assert!(diff.contains("+fn b() {}"), "{diff}");
+    assert!(!diff.contains("only_main"), "{diff}");
 }
 
 #[test]
