@@ -239,6 +239,10 @@ async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Signals) -> Turn {
             Ok(Some(Answer::Error(why))) => {
                 return Turn::Refused(format!("the dog refused: {why}"));
             }
+            // Answers to an e2e ask; a dog never sends them to this one.
+            Ok(Some(other @ (Answer::Output(_) | Answer::Done(_)))) => {
+                return Turn::Refused(format!("the dog answered {other:?} to {CARGO_TEST}"));
+            }
             Ok(None) => {
                 return Turn::Lost {
                     why: format!("the dog closed the door before granting {CARGO_TEST}"),

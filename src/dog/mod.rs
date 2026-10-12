@@ -274,7 +274,14 @@ async fn serve() -> Result<(), String> {
             let grace = door::REJOIN_GRACE;
             // Never `KELPIE_HOME`: shep starts the adopted dog without it.
             let home = home::under(&shep_home);
-            tokio::spawn(door::serve(listener, Arc::clone(&desk), grace, home));
+            let remote = e2e::Remote::default();
+            tokio::spawn(door::serve(
+                listener,
+                Arc::clone(&desk),
+                grace,
+                home,
+                remote,
+            ));
         }
         Err(e) => {
             println!("{e}: cargo-test cannot be taken until the dog restarts");

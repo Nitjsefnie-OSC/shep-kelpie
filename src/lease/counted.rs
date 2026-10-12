@@ -1,12 +1,13 @@
 //! A counted lease: several holders at once, up to its capacity
 //!
-//! The `cargo-test` lease is one. Each holder is one command run under it,
+//! The `cargo-test` lease is one, and each e2e host has another. Each holder is one command run under it,
 //! from a worker or a shell, known by the connection it asked on. Waiters
 //! queue in arrival order and nobody is preempted. A holder or waiter whose
 //! connection closes, because it ended or died, gives its place back.
 //! Holders are never saved: a dog restart closes every connection, and
 //! each run still going asks the next dog to [`CountedLease::seat`] it.
 
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::num::NonZeroU32;
 
@@ -63,7 +64,7 @@ pub struct Held {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CountedStatus {
     /// What it is for
-    pub kind: &'static str,
+    pub kind: Cow<'static, str>,
     /// How many may hold it at once
     pub capacity: NonZeroU32,
     /// Who holds it, longest first
@@ -78,7 +79,7 @@ pub struct CountedStatus {
 /// A lease several commands hold at once
 #[derive(Debug)]
 pub struct CountedLease {
-    kind: &'static str,
+    kind: Cow<'static, str>,
     capacity: NonZeroU32,
     holders: Vec<Held>,
     queue: VecDeque<Taker>,
@@ -88,8 +89,13 @@ pub struct CountedLease {
 impl CountedLease {
     /// The `cargo-test` lease, held by up to `capacity` at once
     pub fn cargo_test(capacity: NonZeroU32) -> Self {
+        Self::named(Cow::Borrowed(CARGO_TEST), capacity)
+    }
+
+    /// A lease called `kind`, held by up to `capacity` at once
+    pub fn named(kind: Cow<'static, str>, capacity: NonZeroU32) -> Self {
         Self {
-            kind: CARGO_TEST,
+            kind,
             capacity,
             holders: Vec::new(),
             queue: VecDeque::new(),
@@ -138,7 +144,7 @@ impl CountedLease {
     /// Who holds and waits for it
     pub fn status(&self) -> CountedStatus {
         CountedStatus {
-            kind: self.kind,
+            kind: self.kind.clone(),
             capacity: self.capacity,
             holders: self.holders.clone(),
             queue: self.queue.iter().cloned().collect(),
