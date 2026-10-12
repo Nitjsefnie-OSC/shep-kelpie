@@ -27,20 +27,25 @@ fn a_standards_reviewer_and_a_spec_reviewer_are_among_the_defaults() {
     );
 }
 
-// The smell names the skill lists, as "- **Name**: what it is".
-fn smells() -> Vec<&'static str> {
-    let (_, from) = SKILL.split_once("Each smell reads").unwrap();
-    let (list, _) = from.split_once("### 4.").unwrap();
-    list.lines()
+// The smell names the skill lists, as "- **Name**: what it is", between the
+// line saying how each reads and the next step's heading.
+fn smells() -> Option<Vec<&'static str>> {
+    let (_, from) = SKILL.split_once("Each smell reads")?;
+    let (list, _) = from.split_once("### 4.")?;
+    let names = list
+        .lines()
         .filter_map(|line| line.strip_prefix("- **")?.split_once("**:"))
-        .map(|(name, _)| name)
-        .collect()
+        .map(|(name, _)| name);
+    Some(names.collect())
 }
 
 #[test]
 fn the_standards_prompt_carries_every_smell_the_skill_names() {
-    let smells = smells();
-    assert!(smells.len() >= 12, "{smells:?}");
+    let smells = smells().unwrap_or_default();
+    assert!(
+        smells.len() >= 12,
+        "SKILL.md's smell list moved or changed shape, so this test cannot find it: {smells:?}"
+    );
     let agents = Agents::embedded();
     let prompt = agents.get(&name("standards")).unwrap().prompt.clone();
     let prompt = prompt.unwrap();
