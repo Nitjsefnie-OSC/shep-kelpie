@@ -7,6 +7,7 @@ fn url(text: &str) -> EndpointUrl {
     EndpointUrl::try_from(text.to_owned()).unwrap()
 }
 
+mod axes;
 mod bots;
 mod experts;
 mod extends;
@@ -284,6 +285,8 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "sonnet-high",
             "opus-high",
             "defect-hunter",
+            "standards",
+            "spec",
             "coderabbit",
             "cubic",
             "codex",
