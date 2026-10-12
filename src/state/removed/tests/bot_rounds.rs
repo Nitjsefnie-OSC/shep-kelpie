@@ -71,6 +71,7 @@ fn a_summon_waits_on_as_its_bots_round() {
         at: Timestamp(12),
         full: false,
         resent: false,
+        failed: false,
     };
     assert_eq!(phase, bots_pass(stage, Some("coderabbit")));
 
@@ -85,6 +86,7 @@ fn a_summon_waits_on_as_its_bots_round() {
         at: Timestamp(12),
         full: true,
         resent: true,
+        failed: false,
     };
     assert_eq!(phase, bots_pass(stage, Some("cubic")));
 }

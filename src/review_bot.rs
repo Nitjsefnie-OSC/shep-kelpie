@@ -253,6 +253,8 @@ pub enum Reading {
         /// decides when it did not.
         opens: Option<Timestamp>,
     },
+    /// The bot said its review failed, and read no commit
+    Failed,
     /// The bot marked the head done and posted nothing that covers it:
     /// it found nothing new to read
     Completed {

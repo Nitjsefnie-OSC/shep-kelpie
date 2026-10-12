@@ -203,6 +203,10 @@ pub enum ReviewStage {
         /// Whether the bot gave no sign of it and it went out once more
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         resent: bool,
+        /// Whether the bot's review failed and the summon went out once
+        /// more for it, so a second failure passes the bot over
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
     },
     /// The bot's review covers the head, and its threads are read again
     /// until two reads agree, since the forge can show a review before

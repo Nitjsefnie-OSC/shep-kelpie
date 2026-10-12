@@ -80,6 +80,19 @@ impl FakeCodeRabbit {
         });
     }
 
+    /// Codex answers a summon on pull request `number` at `at` with its
+    /// review failed, as it did on a pull request that is not recorded
+    pub(crate) fn codex_failed(&self, number: u64, at: u64) {
+        self.post_as(number, LOGIN.rest, |seen| {
+            seen.comments.push(Comment {
+                body: "Codex Review: Something went wrong. Try again later by commenting \
+                       \"@codex review\".\n\nUnknown error"
+                    .into(),
+                at: Timestamp(at),
+            });
+        });
+    }
+
     /// Codex refuses a summon on pull request `number` at `at`
     pub(crate) fn codex_refuse(&self, number: u64, at: u64) {
         self.post_as(number, LOGIN.rest, |seen| {
