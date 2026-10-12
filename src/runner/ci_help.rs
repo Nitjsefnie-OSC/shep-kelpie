@@ -20,7 +20,8 @@ impl Runner {
         match &self.settings.e2e {
             Some(e2e) => format!(
                 "{help} {} runs the project's end-to-end tests on their host from your \
-                 worktree, and leaves the results in `{}`.",
+                 worktree, and leaves the results in `{}`. If it exits without results, say so in \
+                 your final message and report no e2e result.",
                 instructions::e2e_command(&self.kelpie),
                 e2e.results.as_path().display()
             ),

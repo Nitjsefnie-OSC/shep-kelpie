@@ -937,6 +937,18 @@ fn an_e2e_table_reads_host_command_and_results() {
 }
 
 #[test]
+fn a_path_with_a_dot_component_is_read_without_it() {
+    let set = with_e2e("host = \"box\"\ncommand = \"./scripts/e2e.sh\"\nresults = \"./out/./pw\"");
+    let e2e = parse(&set).unwrap().e2e.unwrap();
+    assert_eq!(e2e.command.as_path(), Path::new("scripts/e2e.sh"));
+    assert_eq!(e2e.results.as_path(), Path::new("out/pw"));
+    for (key, bad) in [("command", "."), ("results", "./.git"), ("results", "./")] {
+        let err = parse_err(&with_e2e(&format!("host = \"box\"\n{key} = {bad:?}")));
+        assert!(err.contains(key), "{key} {bad:?}: {err}");
+    }
+}
+
+#[test]
 fn a_host_that_reads_as_an_ssh_option_is_refused() {
     for bad in [
         "-oProxyCommand=x",

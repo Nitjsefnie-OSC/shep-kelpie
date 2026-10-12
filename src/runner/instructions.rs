@@ -75,7 +75,8 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
         lines.push(format!(
             "Your sandbox cannot run the project's end-to-end tests: run {} from your \
              worktree. It waits for the host, streams the output, and leaves the results in \
-             `{}` of your worktree.\n",
+             `{}` of your worktree. If it exits without results, such as when it says this dog \
+             cannot run e2e yet, say so in your final message and report no e2e result.\n",
             e2e_command(kelpie),
             e2e.results.as_path().display()
         ));
@@ -296,7 +297,8 @@ mod tests {
         let line = "Your sandbox cannot run the project's end-to-end tests: run \
                     `/opt/kelpie/bin/kelpie lease e2e` from your worktree. It waits for the \
                     host, streams the output, and leaves the results in `test-results` of \
-                    your worktree.\n";
+                    your worktree. If it exits without results, such as when it says this dog \
+                    cannot run e2e yet, say so in your final message and report no e2e result.\n";
         assert!(with.contains(line), "{with}");
         // Only that line differs, and it comes after the skills' lines.
         assert_eq!(with.replace(line, ""), without);

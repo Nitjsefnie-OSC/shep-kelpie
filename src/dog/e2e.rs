@@ -21,7 +21,9 @@ pub(super) fn reply(kelpie_home: &Path, worktree: Option<&Path>) -> String {
         .map(|name| ProjectPaths::under(kelpie_home, kelpie_home, &name).e2e())
         .is_some_and(|file| file.is_file());
     match recorded {
-        true => "this dog cannot run e2e yet: update kelpie and restart the dog".to_owned(),
+        true => {
+            "this dog cannot run e2e yet: the run is not built in this version of kelpie".to_owned()
+        }
         false => format!(
             "{NO_E2E_HOST}: the project's settings name none in [app.dogs.kelpie.e2e], or the \
              path asked from is not one of its worktrees"

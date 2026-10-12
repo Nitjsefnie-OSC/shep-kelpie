@@ -86,9 +86,16 @@ impl TryFrom<String> for RepoPath {
     type Error = &'static str;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let path = PathBuf::from(value);
-        let inside = path.components().all(|c| matches!(c, Component::Normal(_)));
-        if path.as_os_str().is_empty() || !inside {
+        // A `.` component names the folder it is in, so it is dropped.
+        let mut path = PathBuf::new();
+        for part in Path::new(&value).components() {
+            match part {
+                Component::Normal(name) => path.push(name),
+                Component::CurDir => {}
+                _ => return Err("must be a relative path inside the repo, with no `..`"),
+            }
+        }
+        if path.as_os_str().is_empty() {
             return Err("must be a relative path inside the repo, with no `..`");
         }
         Ok(Self(path))
