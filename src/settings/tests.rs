@@ -176,7 +176,10 @@ fn test_command_is_optional() {
     assert_eq!(command(EXAMPLE), None);
     assert_eq!(command(&on).as_deref(), Some("cargo test --test {name}"));
     let by_path = on.replace("{name}", "{test}");
-    assert_eq!(command(&by_path).as_deref(), Some("cargo test --test {test}"));
+    assert_eq!(
+        command(&by_path).as_deref(),
+        Some("cargo test --test {test}")
+    );
 }
 
 #[test]

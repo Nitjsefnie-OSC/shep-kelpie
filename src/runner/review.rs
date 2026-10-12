@@ -208,7 +208,8 @@ impl Runner {
             &diff,
             &criteria,
             first.as_deref(),
-            ask.as_ref().map(|(command, folder)| (*command, folder.as_path())),
+            ask.as_ref()
+                .map(|(command, folder)| (*command, folder.as_path())),
         );
         let call = calls::reviewer_call(
             issue,
@@ -642,8 +643,8 @@ impl Runner {
         let reviewer_name = reviewer.as_str().to_owned();
         // A test a reviewer attached is kept only once its file has been checked.
         let asked = self.round_asked_tests(&reviewer);
-        let result = result
-            .map(|found| self.checked_tests(asked, (issue, &worktree, &build), found));
+        let result =
+            result.map(|found| self.checked_tests(asked, (issue, &worktree, &build), found));
         // What a round that read the pull request found, to post once it is saved.
         let mut ended: Option<Vec<Finding>> = None;
 

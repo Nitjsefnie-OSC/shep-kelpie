@@ -676,3 +676,115 @@ fn a_round_under_the_cap_starts_as_before() {
         "ci"
     );
 }
+
+// Round 2, the claude reviewer's, is next, and the project asks for tests.
+fn at_round_2_asking_tests() -> (Rig, std::sync::Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    (rig, runner)
+}
+
+fn kept_tests(rig: &Rig) -> std::path::PathBuf {
+    rig.paths().worker.join("review-tests-7")
+}
+
+// The one finding the claude round holds after its reply, and the findings
+// file the worker is sent.
+fn held_after(rig: &Rig, runner: &std::sync::Mutex<Runner>) -> (Finding, String) {
+    step(runner).unwrap(); // round 2, claude
+    step(runner).unwrap(); // the findings sent
+    let held = runner.lock().unwrap().state.work_items[0].held.clone();
+    assert_eq!(held.len(), 1, "{held:?}");
+    let text = std::fs::read_to_string(rig.build_7().join("review-findings.md")).unwrap();
+    (held[0].clone(), text)
+}
+
+const FLAG_FINDING: &str = "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing";
+
+#[test]
+fn an_attached_file_is_kept_for_its_finding() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::Attach(
+        "tests/flag.rs",
+        "#[test]\nfn flag_is_read() { assert!(false); }\n",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test.as_deref(), Some("tests/flag.rs"));
+    assert_eq!(found.why, "a caller sees nothing");
+    assert!(
+        text.contains(&format!("{FLAG_FINDING}|tests/flag.rs")),
+        "{text}"
+    );
+    let kept = std::fs::read_to_string(kept_tests(&rig).join("tests/flag.rs")).unwrap();
+    assert!(kept.contains("flag_is_read"), "{kept}");
+    let original = rig.build_7().join("review-tests/tests/flag.rs");
+    assert_eq!(std::fs::read_to_string(original).unwrap(), kept);
+}
+
+#[test]
+fn a_missing_file_costs_its_finding_only_the_test() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::Text(
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert_eq!(found.what, "the flag is read first");
+    assert_eq!(found.why, "a caller sees nothing");
+    assert!(text.contains(FLAG_FINDING), "{text}");
+    assert!(!text.contains("tests/flag.rs"), "{text}");
+    assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("tests/flag.rs"), "{notes}");
+    assert!(notes.contains("no such file"), "{notes}");
+}
+
+#[test]
+fn a_path_the_worktree_already_holds_costs_its_finding_only_the_test() {
+    let (rig, runner) = at_round_2_asking_tests();
+    // `work.txt` is on the branch the reviewer reads.
+    rig.claude.script([Scripted::Attach(
+        "work.txt",
+        "not the work\n",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|work.txt",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert_eq!(found.why, "a caller sees nothing");
+    assert!(!text.contains("work.txt"), "{text}");
+    assert!(!kept_tests(&rig).join("work.txt").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("already holds"), "{notes}");
+    let work = std::fs::read_to_string(rig.worktree_7().join("work.txt")).unwrap();
+    assert_eq!(work, "work\n", "the branch's file is as it was");
+}
+
+#[test]
+fn a_linked_test_file_is_refused() {
+    let (rig, runner) = at_round_2_asking_tests();
+    rig.claude.script([Scripted::AttachLinked(
+        "tests/flag.rs",
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+
+    let (found, text) = held_after(&rig, &runner);
+
+    assert_eq!(found.test, None);
+    assert!(!text.contains("tests/flag.rs"), "{text}");
+    assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("tests/flag.rs"), "{notes}");
+}

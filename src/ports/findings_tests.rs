@@ -94,7 +94,12 @@ fn a_fifth_field_naming_a_relative_path_is_the_findings_test() {
 
 #[test]
 fn a_fifth_field_that_is_not_a_relative_path_stays_part_of_why() {
-    for fifth in ["../tests/a.rs", "tests/../../a.rs", "/etc/passwd", "a test.rs"] {
+    for fifth in [
+        "../tests/a.rs",
+        "tests/../../a.rs",
+        "/etc/passwd",
+        "a test.rs",
+    ] {
         let line = format!("HIGH|src/lib.rs:3|it panics|a caller sees it|{fifth}");
         let found = parse_findings(&line);
         assert_eq!(found.len(), 1, "{fifth}");

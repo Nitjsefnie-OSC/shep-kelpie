@@ -206,7 +206,10 @@ mod tests {
         let deny: Vec<&str> = (settings["permissions"]["deny"].as_array().unwrap().iter())
             .filter_map(|d| d.as_str())
             .collect();
-        assert!(["Agent", "Task", "Bash"].iter().all(|t| deny.contains(t)), "{deny:?}");
+        assert!(
+            ["Agent", "Task", "Bash"].iter().all(|t| deny.contains(t)),
+            "{deny:?}"
+        );
         assert!(!deny.contains(&"Write"), "{deny:?}");
         assert_eq!(
             settings["permissions"]["allow"],

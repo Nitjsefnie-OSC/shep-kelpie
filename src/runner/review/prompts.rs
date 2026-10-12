@@ -165,12 +165,24 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
         );
 
         assert!(!plain.contains("review-tests"), "{plain}");
-        assert!(asked.starts_with(&plain), "the paragraph is appended: {asked}");
+        assert!(
+            asked.starts_with(&plain),
+            "the paragraph is appended: {asked}"
+        );
         let paragraph = &asked[plain.len()..];
-        assert!(paragraph.contains("/k/targets/shep/7/review-tests"), "{paragraph}");
-        assert!(paragraph.contains("one failing test per finding"), "{paragraph}");
+        assert!(
+            paragraph.contains("/k/targets/shep/7/review-tests"),
+            "{paragraph}"
+        );
+        assert!(
+            paragraph.contains("one failing test per finding"),
+            "{paragraph}"
+        );
         assert!(paragraph.contains("fifth field"), "{paragraph}");
-        assert!(paragraph.contains("`cargo test --test {name}`"), "{paragraph}");
+        assert!(
+            paragraph.contains("`cargo test --test {name}`"),
+            "{paragraph}"
+        );
     }
 
     #[test]
@@ -196,7 +208,14 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
         assert!(!first.contains("the first reader's findings"));
 
         let found = [finding(Severity::High, 3)];
-        let second = reviewer_prompt(&body, "origin/main", "D", "#7 the issue", Some(&found), None);
+        let second = reviewer_prompt(
+            &body,
+            "origin/main",
+            "D",
+            "#7 the issue",
+            Some(&found),
+            None,
+        );
         assert!(second.starts_with(&first));
         assert!(second.contains("Report only what it missed"));
         assert!(

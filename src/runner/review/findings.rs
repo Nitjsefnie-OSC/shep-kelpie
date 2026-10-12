@@ -239,8 +239,14 @@ mod tests {
         };
         let without = bot_finding("second");
 
-        write_findings_file(dir.path(), &path, 1, &[with.clone(), without.clone()], false)
-            .unwrap();
+        write_findings_file(
+            dir.path(),
+            &path,
+            1,
+            &[with.clone(), without.clone()],
+            false,
+        )
+        .unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             text.contains("\nMEDIUM|src/lib.rs:3|first|it matters|tests/flag.rs\n"),

@@ -343,9 +343,8 @@ fn a_state_file_without_a_test_still_loads() {
         state.work_items.push(item);
         state
     };
-    let finding_of = |saved: &serde_json::Value| {
-        saved["work_items"][0]["phase"]["stage"]["findings"][0].clone()
-    };
+    let finding_of =
+        |saved: &serde_json::Value| saved["work_items"][0]["phase"]["stage"]["findings"][0].clone();
 
     let mut old = serde_json::to_value(state_with(None)).unwrap();
     old["version"] = 33.into();
