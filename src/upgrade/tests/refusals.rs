@@ -245,6 +245,60 @@ async fn a_rollback_to_a_build_from_before_the_verb_goes_ahead_and_says_so() {
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
 }
 
+// A sheep that is still coming up has exec'd the file the upgrade replaces,
+// so it is checked and restarted like one that is up.
+#[tokio::test]
+async fn a_starting_sheep_counts_as_running() {
+    let mut rig = Rig::new().await;
+    rig.runs("old", Path::new("/opt/kelpie/bin/kelpie"), true);
+    rig.shepherd.starts("old");
+    let new = rig.build("new", "0.3.0", "0.12.0");
+    let err = rig.install(&new).await.0.unwrap_err();
+    assert!(err.contains("`old` runs /opt/kelpie/bin/kelpie"), "{err}");
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert_eq!(rig.installed_says(), "0.1.0 for shep 0.12.0");
+}
+
+// The build can take minutes, and the dog may be pointed elsewhere meanwhile:
+// the file about to be replaced is then not the one the sheep run.
+#[tokio::test]
+async fn a_dog_that_moved_during_the_build_stops_the_upgrade_before_anything_is_installed() {
+    let mut rig = Rig::new().await;
+    let (started, gate) = (rig.builds.join("started"), rig.builds.join("gate"));
+    // The build says when it is asked, and answers once the gate is there.
+    let slow = rig.builds.join("slow");
+    let answer = answering("0.3.0", "0.12.0");
+    write_script(
+        &slow,
+        &format!(
+            "#!/bin/sh\ntouch {}\nwhile [ ! -f {} ]; do sleep 0.02; done\n{}",
+            started.display(),
+            gate.display(),
+            answer.trim_start_matches("#!/bin/sh\n")
+        ),
+    );
+    let moving = async {
+        while !started.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        for name in ["kelpie", "koji"] {
+            rig.shepherd.moves(name, "/opt/kelpie/bin/kelpie");
+        }
+        std::fs::write(&gate, "").unwrap();
+    };
+    let ((ran, said), ()) = tokio::join!(rig.install(&slow), moving);
+    let err = ran.unwrap_err();
+    assert!(
+        err.contains("the dog runs /opt/kelpie/bin/kelpie now"),
+        "{err}"
+    );
+    assert!(err.contains("Nothing was installed or restarted"), "{err}");
+    assert_eq!(said, Vec::<String>::new());
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert_eq!(rig.installed_says(), "0.1.0 for shep 0.12.0");
+    assert!(!rig.previous().exists());
+}
+
 #[test]
 fn a_release_must_hold_the_kelpie_it_names() {
     let build = Build {

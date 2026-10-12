@@ -25,6 +25,8 @@ use crate::shepherd::SHEP_VERSION;
 struct Sheep {
     config: AppConfig,
     online: bool,
+    // Whether it shows as `Starting` rather than `Online` while it runs
+    starting: bool,
     dog: Option<bool>,
     // Whether a runner just started is still taking its actions
     opening: bool,
@@ -96,6 +98,7 @@ impl FakeShepherd {
         let sheep = Sheep {
             config,
             online,
+            starting: false,
             dog: None,
             opening: false,
             heard: Heard::Named,
@@ -121,6 +124,20 @@ impl FakeShepherd {
         let mut flock = self.flock.lock().unwrap();
         let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
         sheep.opening = true;
+    }
+
+    /// Has the running sheep `name` show as starting, as one does before it is up
+    pub(crate) fn starts(&self, name: &str) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        sheep.starting = true;
+    }
+
+    /// Has the sheep `name` run `program` from now on, as if it were pointed elsewhere
+    pub(crate) fn moves(&self, name: &str, program: &str) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        program.clone_into(&mut sheep.config.script);
     }
 
     /// Has `name` answer its `status` triggers with `bodies` in turn, the last one from then on
@@ -155,6 +172,7 @@ impl FakeShepherd {
         let sheep = Sheep {
             config: AppConfig::minimal(name, program),
             online: true,
+            starting: false,
             dog: Some(channel),
             opening: false,
             heard: Heard::Named,
@@ -211,7 +229,9 @@ impl FakeShepherd {
 }
 
 fn info(id: usize, sheep: &Sheep) -> ProcessInfo {
-    let status = if sheep.online {
+    let status = if sheep.online && sheep.starting {
+        ProcStatus::Starting
+    } else if sheep.online {
         ProcStatus::Online
     } else {
         ProcStatus::Stopped
@@ -263,6 +283,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                     flock.push(Sheep {
                         config: app.clone(),
                         online: false,
+                        starting: false,
                         dog: None,
                         opening: false,
                         heard: Heard::Named,
@@ -307,6 +328,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
         Request::Restart { selector } => {
             let at = named(flock, selector).unwrap();
             flock[at].online = true;
+            flock[at].starting = false;
             flock[at].opening = true;
             Response::Restarted {
                 accepted: vec![info(at, &flock[at])],

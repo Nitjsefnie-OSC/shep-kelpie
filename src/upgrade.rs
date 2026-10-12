@@ -300,13 +300,24 @@ pub async fn run(
     .await
     .map_err(|e| {
         // A bare upgrade swapped nothing, so there is no swap for `--rollback` to undo.
-        let swapped = match action {
-            Action::Installed => String::new(),
-            _ => " `--rollback` would swap the builds back, not finish them".to_owned(),
+        // After a rollback the installed build is the older one, and another
+        // `--rollback` swaps forward again.
+        let (installed_is, still_runs, swapped) = match action {
+            Action::Installed => ("The new build", "the old one", String::new()),
+            Action::Install(_) => (
+                "The new build",
+                "the old one",
+                " `--rollback` would swap the builds back, not finish them".to_owned(),
+            ),
+            Action::Rollback => (
+                "The rolled back build",
+                "the build it replaced",
+                " `--rollback` would swap the builds forward again, not finish them".to_owned(),
+            ),
         };
         format!(
-            "{e}\nThe new build is installed at {installed}, and a sheep not yet restarted \
-                 may still run the old one. To finish the restarts: {finish}.{swapped}"
+            "{e}\n{installed_is} is installed at {installed}, and a sheep not yet restarted \
+                 may still run {still_runs}. To finish the restarts: {finish}.{swapped}"
         )
     })?;
     // Only a finished restart is recorded, so a bare run after a stop finishes it.
