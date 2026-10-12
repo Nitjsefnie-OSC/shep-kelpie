@@ -4,14 +4,16 @@
 //! it, except `git.checkout`, `git.remote`, `hooks` and kelpie's gateways: a
 //! work item's worktree and pull request belong to the first two, and the
 //! forge and voice ports hold the hooks built at start, as the adapters hold
-//! the gateways, so those wait for the runner's next start. The agent files are read again with them, and a
-//! change to those alone is a change too. A change is checked as a start
-//! checks it, and one that fails keeps the settings the runner has.
+//! the gateways, so those wait for the runner's next start. The agent files
+//! are read again with them, and a change to those alone is a change too,
+//! but agents that name a gateway the runner lacks wait with it. A change is
+//! checked as a start checks it, and one that fails keeps the settings the
+//! runner has.
 
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{Git, ListedReviewer, Settings, SettingsError};
+use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
 use crate::skills::Skills;
 use crate::webhook::{KelpieSettings, Webhook};
 
@@ -58,13 +60,19 @@ impl Runner {
             .into());
         }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
-        let book = Agents::load(&self.paths.agents)?;
-        let agents = settings.role_agents(&book)?;
-        let lineup = settings.lineup(&book, &self.home)?;
-        let listed = agents.implementers.iter().map(|i| &i.name);
-        let reviewers = lineup.iter().map(|r| &r.name);
-        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
-        (self.gateways).check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        let mut book = Agents::load(&self.paths.agents)?;
+        let mut agents = settings.role_agents(&book)?;
+        let mut lineup = settings.lineup(&book, &self.home)?;
+        // The gateways must hold as a start checks them.
+        check_gateways(&kelpie.gateways(), &book, &agents, &lineup)?;
+        // Agents the adapters cannot route yet wait with the gateways they name.
+        if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
+            waiting.push("agents");
+            settings.agents.clone_from(&self.settings.agents);
+            agents.clone_from(&self.agents);
+            lineup.clone_from(&self.lineup);
+            book.clone_from(&self.book);
+        }
         let webhook = kelpie.webhook;
         let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);
@@ -128,6 +136,19 @@ impl Runner {
         }
         Ok(Some(line))
     }
+}
+
+// Whether `gateways` route every listed agent that names one.
+fn check_gateways(
+    gateways: &Gateways,
+    book: &Agents,
+    agents: &RoleAgents,
+    lineup: &[ListedReviewer],
+) -> Result<(), SettingsError> {
+    let listed = agents.implementers.iter().map(|i| &i.name);
+    let reviewers = lineup.iter().map(|r| &r.name);
+    let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
+    gateways.check_listed(book, listed.chain(reviewers).chain(experts))
 }
 
 // A project's settings and the webhook.
@@ -386,14 +407,12 @@ mod tests {
     }
 
     fn url_of_paddock(runner: &crate::runner::Runner) -> String {
-        let name = GatewayName::try_from("paddock".to_owned()).unwrap();
-        runner
-            .gateways()
-            .get(&name)
-            .unwrap()
-            .url
-            .as_str()
-            .to_owned()
+        let gateway = runner.gateways().get(&paddock()).unwrap();
+        gateway.url.as_str().to_owned()
+    }
+
+    fn paddock() -> GatewayName {
+        GatewayName::try_from("paddock".to_owned()).unwrap()
     }
 
     #[test]
@@ -416,6 +435,66 @@ mod tests {
             url_of_paddock(&restarted.lock().unwrap()),
             "http://elsewhere:8700"
         );
+    }
+
+    // The gateway's key is read from `HOME`, which every test process has set.
+    const LOCAL: &str = "---\nrole: implementer\nharness: pi\nmodel: m\neffort: low\n\
+                         gateway: paddock\ncontext: 65536\n---\n";
+
+    fn list_local(rig: &Rig) {
+        rig.write_agent("local", LOCAL);
+        rig.implementers(&["sonnet-high", "local"]);
+    }
+
+    fn paddock_keyed_by_home(rig: &Rig) {
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        let gateway = "[gateways.paddock]\nurl = \"http://gpu:8700\"\nkey_env = \"HOME\"\n";
+        rig.set_kelpie_settings(&format!("{webhook}{gateway}"));
+    }
+
+    #[test]
+    fn a_gateway_taken_away_from_a_listed_agent_is_refused_as_a_start_refuses_it() {
+        let rig = Rig::new("shep");
+        paddock_keyed_by_home(&rig);
+        list_local(&rig);
+        let runner = rig.open().unwrap();
+        let webhook = format!(
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
+            Rig::WEBHOOK_URL
+        );
+        rig.set_kelpie_settings(&webhook);
+        let mut runner = runner.lock().unwrap();
+        let err = runner.reread(rig.settings(), rig.kelpie_settings());
+        let err = err.unwrap_err().to_string();
+        assert!(
+            err.contains("local: gateway paddock is not in kelpie's settings"),
+            "{err}"
+        );
+        assert!(runner.gateways().get(&paddock()).is_some());
+    }
+
+    #[test]
+    fn agents_naming_a_gateway_added_with_them_wait_with_it_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        paddock_keyed_by_home(&rig);
+        list_local(&rig);
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; gateways and agents from the runner's next start")
+        );
+        assert_eq!(runner.settings().agents.implementers.len(), 1);
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        let restarted = restarted.lock().unwrap();
+        assert_eq!(restarted.settings().agents.implementers.len(), 2);
+        assert!(restarted.gateways().get(&paddock()).is_some());
     }
 
     #[test]
