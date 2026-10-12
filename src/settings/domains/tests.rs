@@ -72,6 +72,19 @@ fn an_entry_with_a_scheme_a_path_or_a_bad_port_is_refused_naming_it() {
             ".crates.io",
             "crates..io",
             "*.",
+            "crates.io:+80",
+            "[::ffff:192.0.2.9]:+80",
+            "[abc]",
+            "[1:2:3]",
+            "[:::]",
+            "[....]",
+            "[::1]x",
+            "-.io",
+            "_",
+            "-crates.io",
+            "crates-.io",
+            "crates.-io",
+            "crates._",
         ] {
             let err = parse(table, &format!("[\"{bad}\"]")).unwrap_err();
             assert!(err.contains(&format!("`{bad}`")), "{table} {bad}: {err}");
@@ -89,6 +102,8 @@ fn a_host_with_a_port_or_an_address_is_accepted() {
         "[::ffff:192.0.2.9]",
         "[::1]:8080",
         "*.example.com:443",
+        "my_host.example-site.com",
+        "a-b.c1.io.",
     ] {
         parse("worker", &format!("[\"{ok}\"]")).unwrap_or_else(|e| panic!("{ok}: {e}"));
     }

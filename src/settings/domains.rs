@@ -1,5 +1,7 @@
 //! The domains a sandbox may reach, `worker.allowed_domains` and `researcher.allowed_domains`
 
+use std::net::Ipv6Addr;
+
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
@@ -57,11 +59,7 @@ fn check(entry: &str) -> Result<(), &'static str> {
             let (address, after) = inner
                 .split_once(']')
                 .ok_or("is refused: an IPv6 address needs its closing `]`")?;
-            if address.is_empty()
-                || !address
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
-            {
+            if address.parse::<Ipv6Addr>().is_err() {
                 return Err("is refused: not an IPv6 address");
             }
             return match after {
@@ -82,16 +80,31 @@ fn check(entry: &str) -> Result<(), &'static str> {
     if host.is_empty() {
         return Err("is refused: it names no host");
     }
-    let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
-    if host.starts_with('.') || host.contains("..") || !host.chars().all(plain) {
-        return Err("is refused: a host is letters, digits, `-` and `_` in labels split by `.`");
+    // One trailing dot is the root label, which the loopback check reads too.
+    let labels = host.strip_suffix('.').unwrap_or(host);
+    if !labels.split('.').all(label) {
+        return Err(
+            "is refused: a host is labels split by `.`, each of letters and digits, \
+             with `-` or `_` only between them",
+        );
     }
     Ok(())
 }
 
-// Whether `number` is a TCP port as written, 1 to 65535 with no leading zero.
+// Whether `label` starts and ends with a letter or digit, with only those, `-` and `_` between.
+fn label(label: &str) -> bool {
+    let edge = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+    edge(label.chars().next())
+        && edge(label.chars().next_back())
+        && label
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+// Whether `number` is a TCP port as written: digits only, 1 to 65535, no leading zero.
 fn port(number: &str) -> Result<(), &'static str> {
-    let valid = !number.starts_with('0') && number.parse::<u16>().is_ok();
+    let digits = number.bytes().all(|b| b.is_ascii_digit());
+    let valid = digits && !number.starts_with('0') && number.parse::<u16>().is_ok();
     if valid {
         Ok(())
     } else {
