@@ -335,7 +335,7 @@ The runner reads the board from GitHub at most once a minute, however often some
 
 ### Building
 
-A worker builds its work item inline, in a worktree of its own cut from `origin/main`, on the agent its issue's `agent:` label names or the project's default implementer. It commits, pushes, opens a draft pull request that ends `Resolves #<issue>`, and ends its turn. When the repo has a pull request template, it fills that. A project's `worker.instructions_file` adds rules the repo's own docs don't carry.
+A worker builds its work item inline, in a worktree of its own cut from `origin/main`, on the agent its issue's `agent:` label names or the project's default implementer. It commits, pushes, opens a draft pull request that ends `Resolves #<issue>`, and ends its turn. When the repo has a pull request template, or its owner's public `.github` repository has one for repos that have none, it fills that. A project's `worker.instructions_file` adds rules the repo's own docs don't carry.
 
 Every turn after the first that changes the pull request's diff ends its prompt by asking the worker to update the pull request's body to match the head it pushes: what changed, the files touched, the test evidence and the decisions. That covers a review fix, a CI fix, a merge queue removal, a no or a rework from you, and a rework or adoption of a pull request. A worker on your login runs `gh pr edit`, and a worker whose credential cannot edit the pull request rewrites the file kelpie sets the body from. A turn that only merges `main` in does not ask, since it changes no part of the pull request's own change.
 
@@ -364,7 +364,7 @@ Every step shep-kelpie drives an agent through runs a skill, by default from [ma
 | `implement` | `implement` | the worker's first turn on an issue |
 | `tests` | `tdd` | named in the worker's instructions |
 | `ci_fix` | `diagnosing-bugs` | the worker's turn on a red CI run |
-| `pr` | `pr` | named in the worker's instructions, unless the repo has a pull request template |
+| `pr` | `pr` | named in the worker's instructions, unless the repo or its owner's `.github` repository has a pull request template |
 | `reset` | `handoff` | not driven yet |
 | `retro` | off, `retro` with `{ kind = "kelpie" }` | the worker's session, resumed once when its work item finishes |
 | none, not a `[skills]` step | `code-review` | the `standards` and `spec` reviewers, when a project lists them (see [Agents](#agents)) |
