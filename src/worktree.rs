@@ -234,21 +234,18 @@ pub fn remove(
     if git(repo, ["rev-parse", "--verify", "--quiet", &full_ref]).is_ok() {
         git(repo, ["branch", "--quiet", "-D", branch])?;
     }
-    if remote && on_origin(repo, &full_ref)? {
-        // The forge deletes a merged head branch itself on some repos, and
-        // may do it between the check above and this push. Git's error for
-        // that varies by version and host, so a failed delete is judged by
-        // whether the ref is still there.
-        let deleted = git(repo, ["push", "--quiet", "origin", "--delete", &full_ref]);
-        if let Err(e) = deleted
-            && on_origin(repo, &full_ref)?
-        {
-            return Err(e);
-        }
-    }
     // Deleting the last loose ref in a folder removes the folder, and the
-    // workers still running have no leave to make it again.
-    ref_folders::ensure(&common_dir(repo)?, branch)?;
+    // workers still running have no leave to make it again. They must not
+    // wait out the round trips to origin, or an error from them, for it.
+    let common = common_dir(repo)?;
+    ref_folders::ensure(&common, branch)?;
+    let on_origin_deleted = if remote {
+        delete_on_origin(repo, &full_ref)
+    } else {
+        Ok(())
+    };
+    ref_folders::ensure(&common, branch)?;
+    on_origin_deleted?;
     let removed = match std::fs::remove_dir_all(build) {
         // Go writes its module cache with read-only folders, which cannot
         // be emptied until they are made writable.
@@ -263,6 +260,21 @@ pub fn remove(
             path: build.to_owned(),
             kind: e.kind(),
         }),
+        _ => Ok(()),
+    }
+}
+
+/// Deletes `full_ref` on `origin` when it is there
+fn delete_on_origin(repo: &Path, full_ref: &str) -> Result<(), WorktreeError> {
+    if !on_origin(repo, full_ref)? {
+        return Ok(());
+    }
+    // The forge deletes a merged head branch itself on some repos, and
+    // may do it between the check above and this push. Git's error for
+    // that varies by version and host, so a failed delete is judged by
+    // whether the ref is still there.
+    match git(repo, ["push", "--quiet", "origin", "--delete", full_ref]) {
+        Err(e) if on_origin(repo, full_ref)? => Err(e),
         _ => Ok(()),
     }
 }

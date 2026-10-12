@@ -177,4 +177,27 @@ mod tests {
             assert!(clone.git_dir().join(root).join("kelpie").is_dir());
         }
     }
+
+    #[test]
+    fn a_removal_that_cannot_reach_origin_still_leaves_the_folders() {
+        let clone = Clone::new();
+        clone.prepare();
+        git(
+            &clone.repo(),
+            &["remote", "set-url", "origin", "/nonexistent/origin.git"],
+        );
+
+        let removed = remove(
+            &clone.repo(),
+            &clone.worktree(),
+            "kelpie/7",
+            &clone.root.join("build"),
+            true,
+        );
+
+        assert!(removed.is_err());
+        for root in ["refs/heads", "logs/refs/heads"] {
+            assert!(clone.git_dir().join(root).join("kelpie").is_dir());
+        }
+    }
 }
