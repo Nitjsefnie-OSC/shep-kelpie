@@ -3,14 +3,16 @@
 //!
 //! Kelpie's `[kelpie]` section of `dogs.toml`, or the file under kelpie's
 //! home it had before one, shared by every project. Every part is
-//! optional: the `webhook` table, whose keys are both required, is the one way
-//! a ruling is posted, and with none rulings reach the maintainer only in the
-//! log, `status` and `shep kelpie rule`. The URL is a
-//! credential, so no error, log line or status carries it.
+//! optional: the `webhook` table, whose `kind` and `url` are required, is the
+//! one way a ruling is posted, and with none rulings reach the maintainer only
+//! in the log, `status` and `shep kelpie rule`. The URL and the `token` are
+//! credentials, and the `ca_cert` path is the maintainer's, so no error, log
+//! line or status carries any of them.
 //! `kelpie-settings.example.toml` beside this crate shows the section.
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::net::Ipv4Addr;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
@@ -76,6 +78,82 @@ pub struct Webhook {
     /// Where to post
     #[shep(secret)]
     pub url: WebhookUrl,
+    /// A private CA's certificate to trust the server by, for a self-hosted
+    /// ntfy behind its own certificate
+    #[serde(default)]
+    #[shep(secret)]
+    pub ca_cert: Option<CaCert>,
+    /// An ntfy access token, sent as a bearer token on the post and the poll
+    #[serde(default)]
+    #[shep(secret)]
+    pub token: Option<WebhookToken>,
+}
+
+/// The path of a CA certificate file: it names where the maintainer keeps
+/// things, so `Debug` and every error leave it out
+#[derive(Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "PathBuf")]
+pub struct CaCert(PathBuf);
+
+impl CaCert {
+    /// The path, for the adapter that gives it to curl and the check that reads it
+    #[inline]
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl fmt::Debug for CaCert {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("CaCert(..)")
+    }
+}
+
+impl TryFrom<PathBuf> for CaCert {
+    type Error = &'static str;
+
+    // Curl would read a relative path from wherever the runner stands, and
+    // the dog's check from wherever the dog does.
+    fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
+        if !value.is_absolute() {
+            return Err("must be an absolute path");
+        }
+        Ok(Self(value))
+    }
+}
+
+/// An ntfy access token: a credential, since it reads and posts to the topics it covers
+///
+/// `Debug` does not leak the token, and nothing else prints it.
+#[derive(Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "String")]
+pub struct WebhookToken(String);
+
+impl WebhookToken {
+    /// The token, for the adapter that sends it and nothing else
+    #[inline]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for WebhookToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("WebhookToken(..)")
+    }
+}
+
+impl TryFrom<String> for WebhookToken {
+    type Error = &'static str;
+
+    // A token is one word of printable characters, so it cannot end the
+    // header line it goes in.
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.is_empty() || !value.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err("must be one word of printable characters");
+        }
+        Ok(Self(value))
+    }
 }
 
 /// A service kelpie can post an alert to
@@ -112,23 +190,14 @@ impl fmt::Debug for WebhookUrl {
 impl TryFrom<String> for WebhookUrl {
     type Error = &'static str;
 
-    // Plain `http` is only for a stand-in on this machine: anything else
-    // would send the question, and the URL's secret, in the clear. The whole
-    // host and port are checked, since `127.0.0.1@elsewhere` names elsewhere.
+    // Plain `http` is only for a stand-in on this machine or a host on a
+    // tailnet, whose own tunnel encrypts it: anything else would send the
+    // question, and the URL's secret, in the clear. The whole host and port
+    // are checked, since `127.0.0.1@elsewhere` names elsewhere.
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let local = |authority: &str| {
-            ["127.0.0.1", "localhost", "[::1]"].iter().any(|host| {
-                authority.strip_prefix(host).is_some_and(|port| {
-                    port.is_empty()
-                        || port
-                            .strip_prefix(':')
-                            .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-                })
-            })
-        };
         let allowed = match value.split_once("://") {
             Some(("https", rest)) => !authority(rest).is_empty(),
-            Some(("http", rest)) => local(authority(rest)),
+            Some(("http", rest)) => private_host(authority(rest)),
             _ => false,
         };
         if !allowed || value.chars().any(|c| c.is_whitespace() || c.is_control()) {
@@ -143,13 +212,77 @@ fn authority(rest: &str) -> &str {
     rest.split(['/', '?', '#']).next().unwrap_or_default()
 }
 
+// Whether `authority` is this machine or a tailnet host, on a port that is
+// absent or all digits. Userinfo (`@`) is refused outright.
+fn private_host(authority: &str) -> bool {
+    if authority.contains('@') {
+        return false;
+    }
+    if authority == "[::1]" || authority.strip_prefix("[::1]:").is_some_and(is_port) {
+        return true;
+    }
+    let (host, port_ok) = match authority.split_once(':') {
+        Some((host, port)) => (host, is_port(port)),
+        None => (authority, true),
+    };
+    port_ok && (host == "localhost" || is_local_or_tailnet_address(host) || is_tailnet_name(host))
+}
+
+fn is_port(port: &str) -> bool {
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+// The loopback address, or one in Tailscale's block, the CGNAT range
+// 100.64.0.0/10.
+fn is_local_or_tailnet_address(host: &str) -> bool {
+    host.parse::<Ipv4Addr>().is_ok_and(|ip| {
+        let [a, b, ..] = ip.octets();
+        host == "127.0.0.1" || (a == 100 && b & 0b1100_0000 == 0b0100_0000)
+    })
+}
+
+// A name under `.ts.net`, with at least one label before it.
+fn is_tailnet_name(host: &str) -> bool {
+    host.len() > ".ts.net".len()
+        && host.is_ascii()
+        && host.to_ascii_lowercase().ends_with(".ts.net")
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
 /// What a malformed file is told, since the parser's own message could quote the URL
 const SHAPE: &str = "it takes a `[webhook]` table with `kind` (`discord` or `ntfy`) \
-                     and an `https://` `url`, a `[leases]` table with a \
+                     and an `https://` `url` (`http://` on a tailnet), an optional absolute \
+                     `ca_cert` path and an optional one-word `token`, a `[leases]` table with a \
                      `cargo-test` count, a `gpu_metrics_url`, a `codex_home` path, \
                      `[gateways.<name>]` tables with `url` and `key_env`, and nothing else";
 
 impl KelpieSettings {
+    /// Checks that the webhook's `ca_cert` file can be read
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `webhook.ca_cert` and never the path.
+    pub fn check_ca_cert(&self) -> Result<(), SettingsError> {
+        let Some(ca) = self.webhook.as_ref().and_then(|w| w.ca_cert.as_ref()) else {
+            return Ok(());
+        };
+        let invalid = |reason: &str| SettingsError::Invalid {
+            setting: "webhook.ca_cert",
+            reason: reason.into(),
+        };
+        let file = std::fs::File::open(ca.path())
+            .map_err(|e| invalid(&format!("cannot be read ({})", e.kind())))?;
+        if !file.metadata().is_ok_and(|m| m.is_file()) {
+            return Err(invalid("must be a certificate file"));
+        }
+        Ok(())
+    }
+
     /// The gateways, with each key read from kelpie's environment
     pub fn gateways(&self) -> Gateways {
         Gateways::new(self.gateways.clone())
@@ -363,7 +496,10 @@ mod tests {
             format!("[webhook]\nkind = \"slack\"\nurl = \"{SECRET}\"\n"),
             format!("[webhook]\nkind = \"{SECRET}\"\nurl = \"{SECRET}\"\n"),
             format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET} x\"\n"),
-            format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\ntoken = \"{SECRET}\"\n"),
+            format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\ntoken = 7\n"),
+            format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\nca_cert = 7\n"),
+            format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\ntoken = \"a b\"\n"),
+            format!("[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\nbearer = \"x\"\n"),
             format!(
                 "[webhook]\nkind = \"ntfy\"\nurl = \"{}\"\n",
                 SECRET.replace("https", "http")
@@ -380,9 +516,86 @@ mod tests {
         ));
         assert!(err.starts_with("line 2 is not right"), "{err}");
         let err = parse_err(&format!(
-            "[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\ntoken = \"x\"\n"
+            "[webhook]\nkind = \"ntfy\"\nurl = \"{SECRET}\"\nbearer = \"x\"\n"
         ));
         assert!(err.starts_with("line 4 is not right"), "{err}");
+    }
+
+    // A self-hosted ntfy: http on a tailnet, a private CA and an access token.
+    const SELF_HOSTED: &str = "[webhook]\nkind = \"ntfy\"\n\
+                               url = \"http://ntfy.tail1234.ts.net/kelpie-s3cr3t-topic\"\n\
+                               ca_cert = \"/etc/kelpie/s3cr3t-ca.pem\"\n\
+                               token = \"tk_s3cr3t0123456789\"\n";
+
+    #[test]
+    fn a_self_hosted_ntfys_ca_and_token_are_read() {
+        let webhook = KelpieSettings::parse(SELF_HOSTED).unwrap().webhook.unwrap();
+        assert_eq!(
+            webhook.ca_cert.as_ref().map(CaCert::path),
+            Some(Path::new("/etc/kelpie/s3cr3t-ca.pem"))
+        );
+        assert_eq!(
+            webhook.token.as_ref().map(WebhookToken::expose),
+            Some("tk_s3cr3t0123456789")
+        );
+        let bare = KelpieSettings::parse(&example()).unwrap().webhook.unwrap();
+        assert_eq!((bare.ca_cert, bare.token), (None, None));
+    }
+
+    #[test]
+    fn neither_the_token_nor_the_ca_path_shows_in_debug_or_an_error() {
+        let s = KelpieSettings::parse(SELF_HOSTED).unwrap();
+        let shown = format!("{s:?} {:#?}", s.webhook);
+        assert!(!shown.contains("s3cr3t"), "{shown}");
+
+        let bad_token = SELF_HOSTED.replace("tk_s3cr3t0123456789", "tk_s3cr3t 01");
+        let bad_ca = SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", "s3cr3t-ca.pem");
+        for text in [bad_token, bad_ca] {
+            let err = parse_err(&text);
+            assert!(!err.contains("s3cr3t"), "{err}");
+        }
+        let err = KelpieSettings::from_section(&SELF_HOSTED.replace("tk_s3cr3t0123456789", "a b"))
+            .unwrap_err()
+            .to_string();
+        assert!(!err.contains("s3cr3t"), "{err}");
+
+        // The file is not there, and the error says which key, not where
+        let err = s.check_ca_cert().unwrap_err().to_string();
+        assert!(!err.contains("s3cr3t"), "{err}");
+    }
+
+    #[test]
+    fn a_ca_cert_that_is_missing_or_unreadable_is_refused_naming_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca = dir.path().join("ca.pem");
+        let with = |path: &Path| {
+            let text =
+                SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", &path.display().to_string());
+            KelpieSettings::parse(&text).unwrap()
+        };
+
+        let err = with(&ca).check_ca_cert().unwrap_err().to_string();
+        assert!(err.contains("`webhook.ca_cert`"), "{err}");
+
+        // A folder, which curl cannot read as a certificate
+        let err = with(dir.path()).check_ca_cert().unwrap_err().to_string();
+        assert!(err.contains("`webhook.ca_cert`"), "{err}");
+
+        std::fs::write(&ca, "-----BEGIN CERTIFICATE-----\n").unwrap();
+        with(&ca).check_ca_cert().unwrap();
+
+        // No certificate named is nothing to check
+        KelpieSettings::parse(&example())
+            .unwrap()
+            .check_ca_cert()
+            .unwrap();
+        KelpieSettings::default().check_ca_cert().unwrap();
+    }
+
+    #[test]
+    fn a_relative_ca_cert_path_is_refused() {
+        let err = parse_err(&SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", "ca.pem"));
+        assert!(err.contains(SHAPE), "{err}");
     }
 
     #[test]
@@ -428,6 +641,46 @@ mod tests {
             "https://ntfy.sh/a b",
             "https://ntfy.sh/a\nb",
             "",
+        ] {
+            assert!(url(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn plain_http_is_also_for_a_tailnet() {
+        let url = |u: &str| WebhookUrl::try_from(u.to_owned()).map(|u| u.expose().to_owned());
+        for ok in [
+            "http://100.64.0.1/topic",
+            "http://100.127.255.254:2586/topic",
+            "http://100.101.102.103/topic",
+            "http://ntfy.tail1234.ts.net/topic",
+            "http://ntfy.tail1234.ts.net:8080/topic",
+            "http://NTFY.Tail1234.TS.NET/topic",
+        ] {
+            assert_eq!(url(ok).as_deref(), Ok(ok));
+        }
+        for bad in [
+            // A private LAN address is not a tailnet's
+            "http://192.168.1.5/topic",
+            "http://10.0.0.1/topic",
+            // Just either side of the CGNAT block, 100.64.0.0/10
+            "http://100.63.255.255/topic",
+            "http://100.128.0.0/topic",
+            // A tailnet address as userinfo before another host
+            "http://100.64.0.1@attacker.example/topic",
+            "http://100.64.0.1:80@attacker.example/topic",
+            "http://ntfy.tail1234.ts.net@attacker.example/topic",
+            // Names that only look like a tailnet's
+            "http://ts.net.attacker.example/topic",
+            "http://ts.net/topic",
+            "http://.ts.net/topic",
+            "http://evilts.net/topic",
+            "http://ntfy.ts.net.attacker.example/topic",
+            "http://ntfy.ts.net./topic",
+            "http://ntfy.ts.net:/topic",
+            "http://ntfy.ts.net:80a/topic",
+            "http://100.64.0.1:/topic",
+            "http://100.064.0.1/topic",
         ] {
             assert!(url(bad).is_err(), "{bad:?}");
         }
