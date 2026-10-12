@@ -42,6 +42,7 @@ mod reviewer;
 mod sandbox;
 mod script;
 mod shepherd;
+mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
@@ -55,6 +56,7 @@ pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
+pub(crate) use test_runner::FakeTests;
 
 /// Makes an owner-only FIFO at `path`
 ///
@@ -139,6 +141,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         local_unreviewed_by: None,
         rebased: false,
         held: Vec::new(),
+        test_checks: Vec::new(),
         follow_ups: None,
         retro: false,
         summary: None,
@@ -291,6 +294,7 @@ pub(crate) struct Rig {
     pub(crate) local_leases: LocalReviewer,
     pub(crate) alerts: FakeAlerts,
     pub(crate) leases: FakeLeases,
+    pub(crate) tests: FakeTests,
     pub(crate) clock: FakeClock,
     /// GitHub as kelpie's App sees it: the rig has registered no App until
     /// [`Rig::with_app`]
@@ -349,6 +353,7 @@ impl Rig {
                 .with_naps(|_| Duration::from_millis(100)),
             alerts: FakeAlerts::on(clock.clone()),
             leases: FakeLeases::default(),
+            tests: FakeTests::default(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
             clock,
             home,
@@ -729,6 +734,7 @@ impl Rig {
             review_bots,
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
+            test_runner: Arc::new(self.tests.clone()),
             clock: Arc::new(self.clock.clone()),
             flock: Vec::new(),
         };

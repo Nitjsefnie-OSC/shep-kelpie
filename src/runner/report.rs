@@ -12,7 +12,11 @@ use crate::board::Skip;
 use crate::pacer::HoldKind;
 use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Transcript, Usage};
 use crate::settings::{AgentName, LocalRound};
-use crate::work_item::{QwenTally, Spend, Split};
+use crate::work_item::{QwenTally, Spend, Split, TestCheck};
+
+fn none_left(n: &usize) -> bool {
+    *n == 0
+}
 
 /// What asked for a rework on the pull request itself
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -616,6 +620,13 @@ pub enum StepReport {
         round: u32,
         /// The head it pushed; none when an older state file kept no head
         head: Option<String>,
+        /// What the round's attached tests did, before the fix and after it
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        checks: Vec<TestCheck>,
+        /// How many attached tests were not run after the fix, because the
+        /// head it pushed is not the worker's own
+        #[serde(skip_serializing_if = "none_left")]
+        unchecked: usize,
     },
     /// The project manager answered a wake, and kelpie acted on what the
     /// board allowed

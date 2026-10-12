@@ -462,6 +462,8 @@ mod tests {
                 pull_request: 71,
                 round: 1,
                 head: fixed,
+                checks: Vec::new(),
+                unchecked: 0,
             })
         );
     }
@@ -538,6 +540,8 @@ mod tests {
                 pull_request: 71,
                 round: 1,
                 head: rig.forge.head_of("kelpie/7"),
+                checks: Vec::new(),
+                unchecked: 0,
             })
         );
         assert_eq!(

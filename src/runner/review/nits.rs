@@ -74,6 +74,8 @@ fn a_push_by_someone_else_during_a_nit_fix_is_not_a_nit_fixs_head() {
             pull_request: 71,
             round: 1,
             head: Some(by_hand.clone()),
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     let item = runner.lock().unwrap().state.work_items[0].clone();
@@ -111,6 +113,8 @@ fn a_round_of_nits_gets_one_fix_turn_and_the_pass_goes_on_to_the_next_reviewer()
             pull_request: 71,
             round: 1,
             head: Some(fixed.clone()),
+            checks: Vec::new(),
+            unchecked: 0,
         })
     );
     let status = rig.ask(&runner, "status", None);

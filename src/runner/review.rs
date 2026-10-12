@@ -16,6 +16,7 @@
 mod attached;
 mod awaited;
 pub(super) mod calls;
+mod checks;
 mod criteria;
 pub(super) mod findings;
 #[cfg(test)]
@@ -291,6 +292,7 @@ impl Runner {
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
         let mut left_open = None;
+        let (mut checks, mut unchecked) = (Vec::new(), 0);
         let pushed = match head {
             Some(before) => match self.origin_head() {
                 Ok(now) if now == before => {
@@ -336,6 +338,12 @@ impl Runner {
                                 item.nit_fixed(head);
                             }
                         })?;
+                        // The tests ran only at a head the worker holds: a
+                        // test is not run against code that is not its own.
+                        checks = self.tests_after(round, sent.findings)?;
+                    } else {
+                        checks = self.round_checks(round, sent.findings);
+                        unchecked = checks.len();
                     }
                     Some(now)
                 }
@@ -357,6 +365,8 @@ impl Runner {
                 pull_request: number,
                 round,
                 head: pushed,
+                checks,
+                unchecked,
             },
         }))
     }
@@ -510,7 +520,10 @@ impl Runner {
             Ok(deferred) => deferred,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
+        // Run at the head the reviewer read, before the worker's fix turn begins.
+        let checks = self.tests_before(round, &head, &findings);
         self.update(|item| {
+            item.test_checks.extend(checks);
             item.record_held(&findings);
             // In the findings' order, which the worker's lines number.
             item.threads_sent = threads;

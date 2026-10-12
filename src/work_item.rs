@@ -27,7 +27,7 @@ pub use bots::BotSkipped;
 pub use follow_ups::FollowUps;
 pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
-pub use review::{Awaited, Review, ReviewStage};
+pub use review::{Awaited, Reading, Review, ReviewStage, TestCheck};
 pub use seat::Seat;
 pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
 pub use tally::{Counts, RoleTally, Tally};
@@ -246,6 +246,10 @@ pub struct WorkItem {
     /// rounds. Only one of these is filed when the worker defers it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held: Vec<Finding>,
+    /// What kelpie ran of the tests reviewers attached to findings, before
+    /// and after the fix, oldest first
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test_checks: Vec<TestCheck>,
     /// The findings the worker left unfixed, read once the pull request
     /// merges. None until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]

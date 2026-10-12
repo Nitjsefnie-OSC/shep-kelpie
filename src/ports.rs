@@ -30,6 +30,7 @@ mod rate_limit;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod test_runner;
 mod thread;
 mod voice;
 
@@ -47,6 +48,7 @@ pub use rate_limit::{ForgeHold, RateHeld, Say};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
 
@@ -913,6 +915,8 @@ pub struct Ports {
     pub gpu: Arc<dyn GpuMetrics>,
     /// The maintainer's webhook, shared so a post runs without holding the runner
     pub alerts: Arc<dyn Alerts>,
+    /// Runs a reviewer's test, inside the worker's sandbox
+    pub test_runner: Arc<dyn TestRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold
