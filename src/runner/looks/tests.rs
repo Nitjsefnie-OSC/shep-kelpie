@@ -97,6 +97,31 @@ fn a_failing_gate_is_retried_on_a_growing_wait_that_a_success_ends() {
 }
 
 #[test]
+fn a_runner_s_forge_calls_land_in_kelpie_s_forge_ledger_under_its_project() {
+    use crate::forge_ledger::{self, Ended, Kind};
+
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    wake(&runner);
+    rig.forge
+        .set_used_up(Some(Timestamp(rig.clock.now().0 + 1800)));
+    rig.clock.advance(BOARD_POLL.as_secs());
+    wake(&runner);
+    rig.clock.advance(BOARD_POLL.as_secs());
+    wake(&runner);
+
+    let lines = forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE)).unwrap();
+    assert!(lines.iter().all(|line| line.project == "acme"), "{lines:?}");
+    let board = |ended| {
+        lines
+            .iter()
+            .filter(move |l| l.kind == Kind::ReadyIssues && l.ended == ended)
+    };
+    assert!(board(Ended::Ok).count() >= 1, "{lines:?}");
+    assert_eq!(board(Ended::UsedUp).count(), 1, "{lines:?}");
+}
+
+#[test]
 fn a_used_up_rate_limit_holds_every_forge_call_until_it_resets_and_says_so_once() {
     let rig = Rig::new("acme");
     let runner = rig.open().unwrap();

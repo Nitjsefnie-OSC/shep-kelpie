@@ -28,6 +28,7 @@ fn big_state(n: u64) -> ProjectState {
             panel: None,
             verdict: None,
             unposted: false,
+            effects: Vec::new(),
             raised: None,
         })
         .collect();
@@ -70,6 +71,7 @@ fn a_saved_state_loads_back_whole() {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     });
     state.last_ruling = 1;
@@ -160,6 +162,7 @@ fn the_file_format_is_pinned() {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     };
     state.rulings = vec![

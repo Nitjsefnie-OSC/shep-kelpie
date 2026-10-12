@@ -13,12 +13,13 @@ use std::sync::Arc;
 
 use crate::agents::{Agents, AgentsError};
 use crate::board::{LabelError, Skip, agent_label, old_worker_label, pinned};
+use crate::forge_ledger::Ledger as ForgeLedger;
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
     Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld,
-    Say, SessionId, Timestamp, Visibility,
+    RecordedVoice, Say, SessionId, Timestamp, Visibility,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -49,6 +50,7 @@ mod compact;
 mod dispatch;
 mod drain;
 mod e2e;
+mod effects;
 mod finishing;
 mod flight;
 mod follow_up;
@@ -423,9 +425,13 @@ impl Runner {
             Box::new(move |line| told.push(line))
         };
         // The guard sits outside the hold, so its own questions to the forge are held too.
-        let held: Arc<dyn Forge> =
-            Arc::new(RateHeld::new(ports.forge, clock, forge_hold.clone(), say));
-        let voice = GuardedVoice::new(ports.voice, local.clone())
+        let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
+        let held: Arc<dyn Forge> = Arc::new(
+            RateHeld::new(ports.forge, Arc::clone(&clock), forge_hold.clone(), say)
+                .with_ledger(Arc::clone(&forge_ledger)),
+        );
+        let recorded = RecordedVoice::new(ports.voice, clock, forge_ledger);
+        let voice = GuardedVoice::new(Arc::new(recorded), local.clone())
             .with_flock(ports.flock.clone(), Arc::clone(&held))
             .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);

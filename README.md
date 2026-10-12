@@ -687,16 +687,16 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 
 A ruling's id is unique across projects, so `rule` needs no project. You can name a ruling by the number of its pull request or its issue instead: `rule 427 yes` and `rule 407 yes` answer the same ruling when 427 is the pull request and 407 its issue. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` always means a number, and a bare `427` is a ruling's id when one is waiting under it. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
-Where an App covers the repo, a ruling's comment is one short format, whatever its kind: a title, a table of what each option does, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling:
+Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
 
 ```markdown
 ### Merge this pull request at 6b0606e into main?
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
-| **A** | Merge | Merges it into main |
-| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you |
-| **C** | Rework | Sends the worker back for a change the whole review reads again |
+| **A** | Merge | Merges it into main and closes #567: the worker retro is off unless a project names it. CI passed. 2 review rounds read it. |
+| **B** | Send back | Sends the worker back for a fix that goes to CI and back to you, with no new review round. |
+| **C** | Rework | Sends the worker back for a change the whole review reads again. Another review round costs about $0.80. |
 
 @octocat
 - 👍 or 👎 answers, or tick one:
@@ -704,6 +704,23 @@ Where an App covers the repo, a ruling's comment is one short format, whatever i
 - [ ] B
 - [ ] C
 - Or reply `14 no <note>` or `14 rework <note>`
+```
+
+A worker's question opens with the problem, and each option carries its effect. The worker writes both in its `<kelpie-question>` block: a first line `Problem: ` of one or two plain sentences, then each option as `- label => what picking it leads to`. The project manager rewrites the problem when it passes the question on, and adds a `board` note of what the board shows (items held behind this one, a slot freed or kept), which the card shows under the table. An option the worker gave no effect keeps the phrase its kind always had ("Sends the worker this answer"). The effect is no part of the answer the option gives.
+
+```markdown
+The push hook rejects two commits, and nothing says why.
+
+### Which way should the push go?
+
+| | Option | If you pick it |
+|---|---|---|
+| **A** | Wait | #495 stays parked until the hook is fixed. |
+| **B** | Push anyway | Publishes both commits to main, and the hook stays broken. |
+| **C** | Other | Reply with your own answer |
+
+**On the board**
+Nine ready issues are held behind #495.
 ```
 
 You answer it in the thread, from the comment itself or a reply:
@@ -730,7 +747,7 @@ Four experts vote on each ruling that lists two options or more, each blind to t
 |---|---|---|
 | Worker | the work item's own session, resumed once with the ruling | what it already holds, and its worktree. It abstains when the work item has no worker turn |
 | PM | the project manager, woken as for anything else | the board, the diffs and the CI logs |
-| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design log, ADRs, glossary and README |
+| Advisor | the `advisor` agent file | the codebase: the work item's worktree and your checkout, its diff, and the design docs, ADRs, glossary and README |
 | Researcher | the `researcher` agent file | everything outside the codebase: earlier rulings and their answers, the issue and pull request threads, the worker's session, your own agent sessions, and the web |
 
 A project has a panel once it names an advisor or a researcher:
@@ -837,7 +854,7 @@ The panel costs up to four agent calls on every ruling, one of them Opus at high
   - `all`: all four on every ruling
 
   For each: `decided` (rulings it would have decided without you), `matched` (of those, the ones it decided as you answered), `maintainer` (rulings it would have sent to you) and `cost`, per ruling, summed from the ledger lines of the votes it would have asked, an escalation's included. A call with no reported cost adds nothing, and `cost` is `null` when the usage ledger cannot be read. Only rulings answered under a build with `whatif` count, since an older line does not say whether it was a shadow run or a risky path.
-- After a project's first 30 panel rulings (`facts_due` in `status`) the design log gets a Facts entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
+- After a project's first 30 panel rulings (`facts_due` in `status`) `docs/facts/the-panel.md` gets an entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
 
 ## Upgrading
 
@@ -935,6 +952,8 @@ Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <
 - `timings [<n>]` totals where the time went over the last `n` finished work items (10 when left out), in six phases: `worker`, `review`, `ci`, `ruling`, `merge` and `other` (every second lands in exactly one), and prints the table, so `shep kelpie timings 20` shows it. With `--json` it prints the runner's object, the totals under `seconds` and the same text under `table`. `status` shows each open item's split under `timings`, and the ten most recent finished items under `history`. The state file keeps the last 100
 
 `usage` reads the project's usage ledger, `<kelpie home>/<project>/usage.jsonl`, here, without the shepherd. Each model call adds a line to it as it ends: the runner writes the worker's turns, every reviewer's sessions and local rounds, the retros of finished work items and the project manager's wakes and compactions, and `shep kelpie issue` the issue writer's headless runs (not `issue --interactive`, which is your own `claude` session). Each line has the call's four token counts, its units, its dollars where the harness reports them, and the pacer's last reading where there is one (the issue writer's and imported lines have none). A finished work item adds a line of its own. `shep kelpie usage [<project>] [--since <date>]` prints, for each merged pull request, its units, dollars and the calls those dollars leave out because their harness reported no cost, wall time, rulings and the worker's and reviewers' shares of the units, with their medians, the loaded units per merged pull request (every call, the project manager's, the issue writer's and those of work items dropped or closed with no change included, over the merged count), the work items that ended with their issue closed with no change and those dropped, then the project manager's and the issue writer's totals, and the retros' when any ran. Every dollar figure says how many unpriced calls it leaves out, as in `$4.20 + 3 unpriced calls`; with no project it prints every project that has a ledger. Units weigh tokens as the control room was measured: cache read 0.1, one-hour cache write 2, five-minute cache write 1.25, output 5, uncached input 1. `shep kelpie usage <project> --import <log file>` adds the turns a runner logged before the ledger, its `ended` and `asked` lines in `$SHEP_HOME/logs/<project>-0-out.log`, skipping any the ledger already holds. Baselines to compare with, such as the control room's own units per merged pull request, can go in `<kelpie home>/baselines/baselines.json`, which stays on your machine; `usage` holds each against kelpie's loaded figure and its median, as kelpie over the baseline, so below 1 is cheaper.
+
+`usage --forge [--since <date>]` reads the forge ledger, `<kelpie home>/forge.jsonl`, here, without the shepherd. Every project's runner appends to the one file: a line for each call through the forge port (the maintainer's login) and each write or token of the GitHub App's voice, with its time, project, kind (`pull_request`, `reviewed`, `review_bot`, `app_comment` and so on), `rest` or `graphql`, milliseconds, and how it ended: `ok`, `failed`, `held` (never made, because an earlier answer had the limit used up) or `used-up` (GitHub said a rate limit is used up). A line is one port call, and a port call can ask GitHub more than once, so the counts are a lower bound on requests. A call that asks both APIs counts as GraphQL. The report prints the calls made, held and used up, then calls per project and per kind (calls, minutes with a call, the average over those minutes, the busiest minute), the ten busiest minutes with every project and kind in them, and each used-up answer with the calls made in the 60 seconds before it (read from the whole ledger, so `--since` does not cut the window). The read of when a used-up limit resets (`rate_limit_reset`) is a call too, and is recorded. A minute is a clock minute in UTC, and held calls are left out of every count. Each line is one write to the end of the file, so runners appending together do not mix lines. A ledger that cannot be written is told once on stderr and costs no call.
 
 `watch [<issue> | pm] [--back <n>] [--full]` follows a project live, in one stream, without asking the runner. Each line is a time, who, and one of the prompt kelpie sent, what the agent said or thought, a tool it called, a tool's result, or a runner step. Who is `runner`, `pm`, or `#<issue> <role> (<agent>)` for a worker, a reviewer or the issue writer. It starts at the end of the stream, or `--back <n>` lines before it, sorted by time. `watch 7` shows only issue 7's sessions and steps, and `watch pm` only the project manager's. A line is one clipped row; `--full` shows prompts, results and thinking whole. It reads the runner's log, `$SHEP_HOME/logs/<project>-0-out.log`, and the transcripts of the sessions the log names, so it works for Claude Code, Codex and pi sessions alike, and from any terminal. A session is attributed by the id in the runner's `session-started` step, logged as its call starts, so a session started before this step existed shows its runner steps only.
 
@@ -1040,7 +1059,9 @@ For how it works and why:
 
 - `GLOSSARY.md`: the vocabulary
 - `docs/adr/`: decisions that are hard to reverse
-- `docs/design-log.md`: every decision so far, the facts behind them, and the test plan
+- `docs/design/`: every current decision, its reason and where it lives, split by area
+- `docs/design-log.md`: the full record behind them, and the test plan
+- `docs/facts/`: the measured facts, one file per topic
 - `docs/specs/`: each test series and its results
 
 ## License

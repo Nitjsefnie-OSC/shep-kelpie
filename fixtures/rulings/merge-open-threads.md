@@ -2,7 +2,7 @@
 
 No reviewer read it in its last review. Review bot threads are still open on it.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Merge | Merges it into main |
 | **B** | Send back | Sends the worker back for a change the whole review reads again |

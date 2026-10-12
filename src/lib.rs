@@ -3,7 +3,7 @@
 //!
 //! Each project runs as a sheep, kelpie's project runner, under kelpie's own
 //! shepherd. `GLOSSARY.md` at the repo root holds the vocabulary, and
-//! `docs/design-log.md` the design.
+//! `docs/design/` the design, read from its README.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(deny(warnings))))]
@@ -19,6 +19,7 @@ pub mod doctor;
 pub mod dog;
 pub mod fence;
 pub mod flock;
+pub mod forge_ledger;
 pub mod forwarder;
 pub mod github;
 pub mod guard;

@@ -1,0 +1,3 @@
+# codebase-memory-mcp
+
+DeusData/codebase-memory-mcp, MIT per its badge, written in C. Indexing is local CPU and costs no tokens ("average repo in milliseconds", the Linux kernel in 3 minutes), stored in SQLite under `~/.cache/codebase-memory-mcp/`, and a background watcher reindexes on git changes. It has 17 MCP tools, including `detect_changes` (git diff to affected symbols) and `trace_path`. Its installer writes to agent config files, so load it through `--mcp-config` instead. Claude Code lists its tools as deferred behind a tool search: in the implementation series no worker looked them up unprompted, in 12 runs out of 12.
