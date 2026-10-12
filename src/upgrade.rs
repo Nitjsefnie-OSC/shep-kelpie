@@ -24,6 +24,7 @@ pub mod fetch;
 pub mod install;
 pub mod lock;
 pub mod restart;
+pub mod seen;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -42,6 +43,9 @@ use crate::shepherd::{self, release_line};
 pub enum Action {
     /// Install a build
     Install(Source),
+    /// Restart onto the build already at the installed path, as `cargo install`
+    /// leaves it
+    Installed,
     /// Put back the build the last upgrade replaced
     Rollback,
 }
@@ -58,8 +62,8 @@ pub enum Source {
 }
 
 /// The usage `upgrade` prints for arguments it does not take
-pub const USAGE: &str = "usage: shep-kelpie upgrade [--now] --ref <git ref> | --release \
-                         <version> | --binary <path> | --rollback";
+pub const USAGE: &str = "usage: shep-kelpie upgrade [--now] [--ref <git ref> | --release \
+                         <version> | --binary <path> | --rollback]";
 
 /// Takes `--now` off the front or the end of `upgrade`'s arguments, and
 /// says whether it was there
@@ -75,9 +79,10 @@ pub fn now(args: &[String]) -> (bool, &[String]) {
 ///
 /// # Errors
 ///
-/// The usage line when they are not exactly one of the four forms.
+/// The usage line when they are not exactly one of the five forms.
 pub fn parse(args: &[String]) -> Result<Action, String> {
     match args {
+        [] => Ok(Action::Installed),
         [flag, value] if flag == "--ref" => Ok(Action::Install(Source::Ref(value.clone()))),
         [flag, value] if flag == "--release" => Ok(Action::Install(Source::Release(value.clone()))),
         [flag, value] if flag == "--binary" => {
@@ -161,6 +166,22 @@ pub async fn run(
     let early = Plan::read(&client, say).await?;
     let layout = Layout::new(scene.kelpie_home, &early.program);
     let staged = match action {
+        Action::Installed => {
+            if seen::unchanged(&layout) {
+                say(format!(
+                    "nothing changed since the last upgrade: {} is the build it restarted onto, \
+                     so nothing was restarted",
+                    layout.installed().display()
+                ));
+                return Ok(());
+            }
+            // Taken before the build is asked, so a file replaced after it is
+            // not recorded as the one restarted onto.
+            let taken = seen::stamp(&layout)?;
+            let build = Build::of(layout.installed())?;
+            fits(&build, &running, scene, layout.installed())?;
+            (None, Some(build), Some(taken))
+        }
         Action::Install(source) => {
             let binary = fetch_source(scene, source)?;
             let staged = install::stage(&layout, &binary)?;
@@ -169,7 +190,7 @@ pub async fn run(
                 check_release(version, &build)?;
             }
             fits(&build, &running, scene, &binary)?;
-            (staged, Some(build))
+            (Some(staged), Some(build), None)
         }
         Action::Rollback => {
             let staged = install::stage_previous(&layout)?;
@@ -183,7 +204,7 @@ pub async fn run(
                 )),
                 Err(e) => return Err(e.into()),
             }
-            (staged, None)
+            (Some(staged), None, None)
         }
     };
     // The build can take minutes: look at the shepherd and its flock again,
@@ -198,11 +219,39 @@ pub async fn run(
             early.program.display()
         ));
     }
-    let (staged, build) = staged;
-    let change = install::install(&layout, staged)?;
+    let (staged, build, taken) = staged;
+    // A bare upgrade has no copy to swap in: the file is the build already.
+    let change = match staged {
+        Some(staged) => install::install(&layout, staged)?,
+        None => Change::Unchanged,
+    };
+    // Before the restarts, which can wait on a merge while the file is replaced.
+    let taken = taken.map_or_else(|| seen::stamp(&layout), Ok);
     let installed = layout.installed().display().to_string();
     let finish = format!("`shep kelpie upgrade --binary {installed}`");
     match (action, change) {
+        (Action::Installed, _) => {
+            let build = build.expect("an install has a build");
+            say(format!(
+                "kelpie {} (shep {}) is installed as {installed}",
+                build.kelpie, build.shep
+            ));
+            // Without a record, a copy may be kept from an earlier upgrade: say which.
+            let kept = Build::of(&layout.previous()).map_or_else(
+                |_| "no earlier build is kept either".to_owned(),
+                |b| {
+                    format!(
+                        "the previous build kept, kelpie {}, is the one before it",
+                        b.kelpie
+                    )
+                },
+            );
+            say(format!(
+                "`--rollback` has no copy of the build cargo replaced: {kept} (unless the last \
+                 upgrade stopped after its own swap, which kept the build it replaced). `--ref`, \
+                 `--release` and `--binary` keep one"
+            ));
+        }
         (Action::Rollback, _) => {
             let back = match Build::of(layout.installed()) {
                 Ok(b) => format!("kelpie {} (shep {})", b.kelpie, b.shep),
@@ -250,12 +299,23 @@ pub async fn run(
     )
     .await
     .map_err(|e| {
+        // A bare upgrade swapped nothing, so there is no swap for `--rollback` to undo.
+        let swapped = match action {
+            Action::Installed => String::new(),
+            _ => " `--rollback` would swap the builds back, not finish them".to_owned(),
+        };
         format!(
             "{e}\nThe new build is installed at {installed}, and a sheep not yet restarted \
-                 may still run the old one. To finish the restarts: {finish}. `--rollback` \
-                 would swap the builds back, not finish them"
+                 may still run the old one. To finish the restarts: {finish}.{swapped}"
         )
-    })
+    })?;
+    // Only a finished restart is recorded, so a bare run after a stop finishes it.
+    if let Err(e) = taken.and_then(|taken| seen::record(&layout, &taken)) {
+        say(format!(
+            "{e}, so a bare `shep kelpie upgrade` will restart again"
+        ));
+    }
+    Ok(())
 }
 
 async fn connect(scene: &Scene<'_>) -> Result<shep_client::Client, String> {

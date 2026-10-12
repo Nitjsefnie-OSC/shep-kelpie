@@ -229,8 +229,10 @@ fn now_is_read_first_or_last_and_once() {
     assert_eq!(rest(&["--ref", "main", "--now"]), (true, main.clone()));
     assert_eq!(rest(&["--ref", "main"]), (false, main));
     assert_eq!(rest(&["--rollback", "--now"]), (true, Ok(Action::Rollback)));
+    // `--now` alone is a bare upgrade, restarted without draining.
+    assert_eq!(rest(&["--now"]), (true, Ok(Action::Installed)));
     for bad in [
-        &["--now"][..],
+        &["--now", "--now"][..],
         &["--now", "--rollback", "--now"],
         &["--ref", "--now", "main"],
     ] {

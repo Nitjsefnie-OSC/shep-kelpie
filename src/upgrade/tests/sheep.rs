@@ -245,3 +245,154 @@ async fn a_failure_after_the_swap_names_what_is_installed_and_the_command_that_f
     assert_eq!(rig.restarts(), ["kelpie", "koji"]);
     assert_eq!(says(&rig.previous()), "0.1.0 for shep 0.12.0");
 }
+
+#[tokio::test]
+async fn a_bare_upgrade_restarts_onto_the_installed_build() {
+    let mut rig = Rig::new().await;
+    // What `cargo install` leaves: the new build already at the installed path.
+    rig.cargo_installs("0.3.0", "0.12.0");
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert_eq!(rig.installed_says(), "0.3.0 for shep 0.12.0");
+    assert!(
+        said.iter().any(|l| l.contains("restarting onto it")),
+        "{said:?}"
+    );
+    assert!(
+        said.iter().any(|l| l.contains("restarted `koji`")),
+        "{said:?}"
+    );
+    assert!(
+        !rig.previous().exists(),
+        "a bare upgrade stages and swaps nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_with_nothing_changed_restarts_nothing_and_says_so() {
+    let mut rig = Rig::new().await;
+    // An upgrade leaves the installed file as the one restarted onto.
+    let new = rig.build("new", "0.3.0", "0.12.0");
+    rig.install(&new).await.0.unwrap();
+    rig.restarts();
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert!(
+        said.iter()
+            .any(|l| l.contains("nothing changed since the last upgrade")),
+        "{said:?}"
+    );
+
+    // A bare run records too: the next one finds the file it restarted onto.
+    rig.cargo_installs("0.10.0", "0.12.0");
+    rig.upgrade(Action::Installed).await.0.unwrap();
+    rig.restarts();
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert!(
+        said.iter()
+            .any(|l| l.contains("nothing changed since the last upgrade")),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_after_the_file_changed_says_rollback_has_no_copy() {
+    let mut rig = Rig::new().await;
+    let new = rig.build("new", "0.3.0", "0.12.0");
+    rig.install(&new).await.0.unwrap();
+    rig.restarts();
+
+    // `cargo install` replaces the file the upgrade left, with no copy kept.
+    rig.cargo_installs("0.10.0", "0.12.0");
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert_eq!(rig.installed_says(), "0.10.0 for shep 0.12.0");
+    assert!(
+        said.iter().any(|l| l.contains("`--rollback` has no copy")
+            && l.contains("the previous build kept, kelpie 0.1.0, is the one before it")
+            && l.contains("`--ref`, `--release` and `--binary` keep one")),
+        "{said:?}"
+    );
+    assert_eq!(
+        says(&rig.previous()),
+        "0.1.0 for shep 0.12.0",
+        "the kept previous build is the one before cargo's"
+    );
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_with_no_record_counts_as_changed() {
+    let mut rig = Rig::new().await;
+    assert!(!rig.home.join("builds/installed.seen").exists());
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(
+        said.iter().any(|l| l.contains("`--rollback` has no copy")
+            && l.contains("no earlier build is kept either")),
+        "{said:?}"
+    );
+    assert!(rig.home.join("builds/installed.seen").exists());
+}
+
+#[tokio::test]
+async fn a_bare_upgrade_that_stops_in_its_restarts_does_not_offer_rollback_as_an_undo() {
+    let mut rig = Rig::new().await;
+    rig.shepherd.says("koji", &[MERGING]);
+    rig.cargo_installs("0.3.0", "0.12.0");
+    let patience = Patience {
+        merge: Duration::from_millis(100),
+        ..FAST
+    };
+    let err = rig
+        .upgrade_within(Action::Installed, patience)
+        .await
+        .0
+        .unwrap_err();
+    assert!(err.contains("To finish the restarts"), "{err}");
+    assert!(!err.contains("--rollback"), "{err}");
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_file_replaced_while_a_bare_upgrade_waits_is_not_recorded_as_restarted_onto() {
+    let mut rig = Rig::new().await;
+    // The restart waits on a merge, and `cargo install` runs meanwhile.
+    let mut looks = vec![MERGING; 30];
+    looks.push(IDLE);
+    rig.shepherd.says("koji", &looks);
+    let installing = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        rig.cargo_installs("0.10.0", "0.12.0");
+    };
+    let ((ran, _), ()) = tokio::join!(rig.upgrade(Action::Installed), installing);
+    ran.unwrap();
+    rig.restarts();
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    ran.unwrap();
+    assert_eq!(rig.restarts(), ["kelpie", "koji"]);
+    assert!(said.iter().any(|l| l.contains("kelpie 0.10.0")), "{said:?}");
+}
+
+#[tokio::test]
+async fn a_build_that_does_not_fit_the_shepherd_stops_a_bare_upgrade_before_any_restart() {
+    let mut rig = Rig::new().await;
+    rig.cargo_installs("0.4.0", "0.13.0");
+
+    let (ran, said) = rig.upgrade(Action::Installed).await;
+    let err = ran.unwrap_err();
+    assert!(err.contains("shep 0.13.0"), "{err}");
+    assert!(err.contains("Nothing was installed or restarted"), "{err}");
+    assert_eq!(said, Vec::<String>::new());
+    assert_eq!(rig.restarts(), Vec::<String>::new());
+    assert!(!rig.home.join("builds/installed.seen").exists());
+}

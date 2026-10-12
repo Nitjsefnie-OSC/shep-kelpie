@@ -387,9 +387,9 @@ async fn a_second_upgrade_is_refused_while_another_holds_the_lock() {
 async fn upgrade_without_a_form_prints_usage_and_exits_2() {
     let scene = Scene::new();
     for args in [
-        &["upgrade"][..],
-        &["upgrade", "--ref"],
+        &["upgrade", "--ref"][..],
         &["upgrade", "--both", "x"],
+        &["upgrade", "main"],
     ] {
         let output = scene.kelpie(args).await;
         assert_eq!(output.status.code(), Some(2), "{args:?}");
