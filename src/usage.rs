@@ -29,6 +29,7 @@ mod report;
 
 pub use draft::{Draft, Spent, ended};
 pub use import::{Imported, import};
+pub use panel::vote_costs;
 pub use report::report;
 
 /// The ledger's file name in a project's folder

@@ -161,6 +161,7 @@ mod tests {
                 "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
                 "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
             )
+            .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# issue_writer =", "issue_writer =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =");

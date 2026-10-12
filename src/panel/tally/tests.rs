@@ -115,7 +115,8 @@ fn a_design_flag_sends_it_to_the_maintainer_with_the_recommendation() {
 }
 
 #[test]
-fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design() {
+fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design_and_a_flag_asks_the_full_one()
+ {
     let docs = Stage::Tier(Tier::Docs);
     let pm = [ballot(Voter::Pm, Some('A'), false)];
     assert_eq!(
@@ -125,7 +126,7 @@ fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design() {
     let flagged = [ballot(Voter::Pm, Some('A'), true)];
     assert_eq!(
         settle(docs, Tier::Docs, &flagged),
-        Step::Up(Stage::Tier(Tier::Fix))
+        Step::Up(Stage::Tier(Tier::Full))
     );
     let fix = Stage::Tier(Tier::Fix);
     let agree = [
@@ -153,7 +154,7 @@ fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design() {
 }
 
 #[test]
-fn the_project_manager_alone_is_followed_by_the_panel_the_type_sets() {
+fn the_project_manager_alone_is_followed_by_the_panel_the_type_sets_or_the_full_one_on_a_flag() {
     let alone = Stage::Alone;
     let pm = [ballot(Voter::Pm, Some('A'), false)];
     assert_eq!(
@@ -168,7 +169,7 @@ fn the_project_manager_alone_is_followed_by_the_panel_the_type_sets() {
     let flagged = [ballot(Voter::Pm, Some('A'), true)];
     assert_eq!(
         settle(alone, Tier::Docs, &flagged),
-        Step::Up(Stage::Tier(Tier::Docs))
+        Step::Up(Stage::Tier(Tier::Full))
     );
 }
 
