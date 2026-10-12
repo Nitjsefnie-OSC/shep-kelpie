@@ -101,7 +101,8 @@ impl Processes {
     /// Like `output_within`, with `input` written to the child's stdin
     ///
     /// A secret goes this way rather than in the arguments, which any
-    /// process on the machine can list.
+    /// process on the machine can list. The limit covers the write too, so a
+    /// child that never reads ends the call as [`RunError::TimedOut`].
     pub(super) fn output_within_fed(
         &self,
         command: &mut Command,
@@ -145,9 +146,14 @@ impl Processes {
             .spawn()
             .map_err(RunError::Io)?;
         let pid = child.id();
-        // A few hundred bytes, which a pipe takes whole before the child reads.
+        // Written off this thread: a child that never reads leaves the write
+        // blocked, and the wait below is what ends it at its deadline. The
+        // write then fails with the child gone, and the thread exits.
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(input);
+            let input = input.to_vec();
+            thread::spawn(move || {
+                let _ = stdin.write_all(&input);
+            });
         }
         let stdout = drain(child.stdout.take());
         let stderr = drain(child.stderr.take());
@@ -518,6 +524,29 @@ mod tests {
         );
         assert!(matches!(result, Err(RunError::TimedOut)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(processes.lock().children.is_empty());
+    }
+
+    // Real time: more input than a pipe holds, so the write blocks until the
+    // child reads, which this one never does. The test bounds its own wait.
+    #[test]
+    fn a_child_that_never_reads_its_stdin_is_ended_at_the_limit() {
+        let processes = Processes::default();
+        let running = processes.clone();
+        let (done, finished) = mpsc::channel();
+        thread::spawn(move || {
+            let input = vec![b'x'; 4 * 1024 * 1024];
+            let result = running.output_within_fed(
+                Command::new("sh").args(["-c", "sleep 30"]),
+                Duration::from_millis(200),
+                &input,
+            );
+            let _ = done.send(result);
+        });
+        let result = finished
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the call hung on writing to a child that never reads");
+        assert!(matches!(result, Err(RunError::TimedOut)), "{result:?}");
         assert!(processes.lock().children.is_empty());
     }
 

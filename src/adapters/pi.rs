@@ -21,7 +21,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::claude::sandbox::fence_policy;
+use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::paddock;
@@ -33,7 +33,6 @@ use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
     Sandbox, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-use crate::profile::CREDENTIALS;
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
@@ -82,6 +81,8 @@ pub struct PiCli {
     program: OsString,
     lambs: Option<Arc<dyn LambLabels>>,
     sandbox: Arc<dyn Sandbox>,
+    // What a call with no fence may not read: the shepherd's home
+    unfenced_no_read: Vec<String>,
     gateways: Gateways,
 }
 
@@ -94,6 +95,7 @@ impl ClaudeCli {
             program: "pi".into(),
             lambs: self.lambs.clone(),
             sandbox: Arc::clone(&self.sandbox),
+            unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
         }
     }
@@ -264,7 +266,13 @@ impl PiCli {
             .arg(&self.program)
             .args(argv(call, &files))
             .current_dir(&call.cwd);
-        let policy = policy(call, &files, &upstream, &forwarder.socket);
+        let policy = policy(
+            call,
+            &files,
+            &upstream,
+            &forwarder.socket,
+            &self.unfenced_no_read,
+        );
         let wrapped = self
             .sandbox
             .wrap(&policy, &files.sandbox_settings, &command)
@@ -516,14 +524,14 @@ fn guard_extension(fence: &Fence) -> String {
 /// The whole call's policy: its fence, or none, and what pi itself needs
 ///
 /// The model's host is not in it. The one host pi may dial is the forwarder's.
-fn policy(call: &AgentCall, files: &Files, upstream: &Upstream, forwarder: &Path) -> Policy {
-    let mut policy = match &call.reach.fence {
-        Some(fence) => fence_policy(fence),
-        None => Policy {
-            no_read: CREDENTIALS.map(str::to_owned).into(),
-            ..Policy::default()
-        },
-    };
+fn policy(
+    call: &AgentCall,
+    files: &Files,
+    upstream: &Upstream,
+    forwarder: &Path,
+    unfenced: &[String],
+) -> Policy {
+    let mut policy = call_policy(call, unfenced);
     policy.no_keychain = call.reach.block_keychain;
     // pi logs in nowhere, so no harness's login is its own, the maintainer's pi included.
     let logins = fence::HARNESSES.iter().flat_map(|own| own.credentials);
