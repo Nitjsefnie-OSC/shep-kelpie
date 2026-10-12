@@ -625,10 +625,11 @@ pub fn adopt(
 /// What a rebase onto `origin/main` came to
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rebase {
-    /// Rebased and pushed: the branch's new head
+    /// Rebased or merged, and pushed: the branch's new head
     Pushed(String),
-    /// Aborted, the branch left as it was: it conflicts with `main`, which
-    /// the worker can resolve
+    /// The branch conflicts with `main`, and the merge of it is left in
+    /// progress in the worktree for the worker to resolve: `main`'s other
+    /// files are written and staged
     Conflicts {
         /// The `origin/main` commit it conflicts with
         main: String,
@@ -645,8 +646,13 @@ pub enum Rebase {
 /// conflict), or one whose commits are not kelpie's to `rewrite`, is merged
 /// with `origin/main` and pushed without force. Any other is rebased, and the
 /// push is forced with a lease on `head`, so it fails rather than drop a
-/// commit pushed since. A conflict aborts and names its files, and a failed
-/// push puts the branch back at `head`. Run [`base_of`] first, which fetches.
+/// commit pushed since. A rebase that conflicts is aborted and merged
+/// instead, since a merge may not conflict where replaying commits did. A
+/// merge that conflicts is left in progress, for the worker to finish: it
+/// would otherwise fail on any file of `main`'s the worker's sandbox refuses
+/// to write. A failed push puts the branch back at `head`. A worktree
+/// already in the middle of a merge is refused. Run [`base_of`] first, which
+/// fetches.
 ///
 /// # Errors
 ///
@@ -670,13 +676,18 @@ pub fn rebase(
             "its worktree is not at the pull request's head {short}"
         )));
     }
+    if in_worktree(&["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).is_ok() {
+        return Ok(Rebase::Refused(
+            "its worktree is in the middle of a merge".into(),
+        ));
+    }
     if !in_worktree(&["status", "--porcelain", "--untracked-files=no"])?.is_empty() {
         return Ok(Rebase::Refused(
             "its worktree has changes that are not committed".into(),
         ));
     }
-    // The rebased commits take the head's committer, the worker's one
-    // identity, so the rebase needs no identity of its own.
+    // The rebased commits and the merge commit take the head's committer, the
+    // worker's one identity, so neither needs an identity of its own.
     let name = format!(
         "user.name={}",
         in_worktree(&["log", "-1", "--format=%cn", head])?
@@ -685,50 +696,59 @@ pub fn rebase(
         "user.email={}",
         in_worktree(&["log", "-1", "--format=%ce", head])?
     );
+    let caught_up = |verb: &[&str]| {
+        let mut args = vec!["-c", &name, "-c", &email];
+        args.extend_from_slice(verb);
+        in_worktree(&args)
+    };
+    let conflicted =
+        || in_worktree(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
     let base = format!("origin/{BASE}");
     // A rebase replays the branch's own commits and drops its merge commits,
     // and with them the worker's hand resolution of an earlier conflict. A
     // branch holding one is caught up by merging instead, and pushed plain.
     let ahead = format!("{base}..HEAD");
-    let merging =
-        !rewrite || !in_worktree(&["rev-list", "--merges", "--max-count=1", &ahead])?.is_empty();
-    let (verb, abort): (&[&str], &[&str]) = if merging {
-        (
-            &["merge", "--quiet", "--no-edit", &base],
-            &["merge", "--abort"],
-        )
-    } else {
-        (&["rebase", "--quiet", &base], &["rebase", "--abort"])
-    };
-    let mut caught_up = vec!["-c", &name, "-c", &email];
-    caught_up.extend_from_slice(verb);
-    if let Err(e) = in_worktree(&caught_up) {
-        let conflicts =
-            in_worktree(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
-        let aborted = in_worktree(abort);
+    let rebasing =
+        rewrite && in_worktree(&["rev-list", "--merges", "--max-count=1", &ahead])?.is_empty();
+    let mut rebased = false;
+    if rebasing && let Err(e) = caught_up(&["rebase", "--quiet", &base]) {
+        let conflicts = conflicted();
+        let aborted = in_worktree(&["rebase", "--abort"]);
         if conflicts.is_empty() {
             return Err(e);
         }
         aborted?;
-        return Ok(Rebase::Conflicts {
-            main: git(repo, ["rev-parse", &base])?,
-            files: conflicts.lines().map(str::to_owned).collect(),
-        });
+    } else {
+        rebased = rebasing;
     }
-    let rebased = in_worktree(&["rev-parse", "HEAD"])?;
+    if !rebased {
+        if let Err(e) = caught_up(&["merge", "--quiet", "--no-commit", "--no-ff", &base]) {
+            let conflicts = conflicted();
+            if conflicts.is_empty() {
+                let _ = in_worktree(&["merge", "--abort"]);
+                return Err(e);
+            }
+            return Ok(Rebase::Conflicts {
+                main: git(repo, ["rev-parse", &base])?,
+                files: conflicts.lines().map(str::to_owned).collect(),
+            });
+        }
+        caught_up(&["commit", "--quiet", "--no-edit"])?;
+    }
+    let caught = in_worktree(&["rev-parse", "HEAD"])?;
     let lease = format!("--force-with-lease={full_ref}:{head}");
     let target = format!("HEAD:{full_ref}");
-    let pushed = if merging {
-        in_worktree(&["push", "--quiet", "origin", &target])
-    } else {
+    let pushed = if rebased {
         in_worktree(&["push", "--quiet", &lease, "origin", &target])
+    } else {
+        in_worktree(&["push", "--quiet", "origin", &target])
     };
     if let Err(e) = pushed {
         // Best effort: a branch left off the head is refused on the next look.
         let _ = in_worktree(&["reset", "--quiet", "--hard", head]);
         return Err(e);
     }
-    Ok(Rebase::Pushed(rebased))
+    Ok(Rebase::Pushed(caught))
 }
 
 /// The range of a work item's own change for `git diff`: from the merge base

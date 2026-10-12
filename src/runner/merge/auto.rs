@@ -364,8 +364,12 @@ fn a_rebase_that_fails_still_parks_on_a_ruling() {
         step(&runner).unwrap(),
         Some(StepReport::Conflicted { .. })
     ));
-    rig.claude.script([Scripted::Say("Could not resolve it.")]);
+    rig.claude.script([
+        Scripted::Say("Could not resolve it."),
+        Scripted::Say("Still could not resolve it."),
+    ]);
     step(&runner).unwrap();
+    step(&runner).unwrap(); // sent back once to commit the merge
     let id = raised(step(&runner).unwrap());
     still_stuck(&rig, &runner, id, "rebase");
 }
