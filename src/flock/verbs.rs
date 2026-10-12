@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use super::control::Format;
 use super::{Checkout, Launch, add, attach, control, pm, rule, usage, watch};
-use crate::adapters::{ClaudeCli, Gh, LoginToken};
+use crate::adapters::{ClaudeCli, Gh, LoginToken, SystemGit};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
 use crate::ports::SandboxError;
@@ -327,7 +327,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let claude = ClaudeCli::default()
         .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
         .with_login(LoginToken::take());
-    issues::headless(&project, &writer, &request, &Gh, &claude)
+    issues::headless(&project, &writer, &request, &Gh, &claude, &SystemGit)
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so
