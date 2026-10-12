@@ -194,3 +194,30 @@ fn five_wrong_codes_turn_coded_answers_off_and_leave_uncoded_ones() {
         Some(StepReport::ReplyAnswered { id: 1 })
     );
 }
+
+// A coded yes is dropped while coded answers are off, so a merge ruling
+// alerted then must not offer one, and a bare yes is told how to proceed.
+#[test]
+fn a_merge_alerted_after_the_lock_does_not_offer_a_coded_yes() {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        trusted(rig);
+        let answers = crate::totp::answers::Answers::in_folder(rig.paths().totp);
+        for n in 0..5 {
+            answers.fail(&format!("wrong{n}")).unwrap();
+        }
+        assert!(answers.locked());
+    });
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    let alert = &rig.alerts.posts()[0].1;
+    assert_eq!(
+        alert.reply.as_ref().map(|r| r.takes),
+        Some(Takes::MergeCodedOff)
+    );
+
+    rig.alerts.reply("1 yes", rig.clock.now());
+    let StepReport::ReplyRefused { reason, .. } = step(&runner).unwrap().unwrap() else {
+        panic!("a bare yes on a merge ruling is refused");
+    };
+    assert!(reason.contains("shep kelpie totp --unlock"), "{reason}");
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
+}

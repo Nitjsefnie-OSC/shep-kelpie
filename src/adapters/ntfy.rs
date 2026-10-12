@@ -20,6 +20,7 @@ pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
     let ruling = reply.id;
     if trusted {
         return match reply.takes {
+            Takes::MergeCodedOff => coded_off(ruling),
             Takes::Answer => format!("\n\nReply here with `{ruling} <text>`."),
             Takes::Merge => format!(
                 "\n\nReply here with `{ruling} yes <code>`, `{ruling} no <note>` or \
@@ -32,6 +33,7 @@ pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
         };
     }
     let replies = match reply.takes {
+        Takes::MergeCodedOff => return coded_off(ruling),
         Takes::Answer => format!("`{ruling} <text> <code>`"),
         Takes::Merge => format!(
             "`{ruling} yes <code>`, `{ruling} no <note> <code>` or `{ruling} rework <note> <code>`"
@@ -39,6 +41,15 @@ pub(super) fn reply_line(reply: &ReplyWith, trusted: bool) -> String {
         Takes::YesOrNo => format!("`{ruling} yes <code>` or `{ruling} no <note> <code>`"),
     };
     format!("\n\nReply here with {replies}, where <code> is kelpie's authenticator code.")
+}
+
+// A merge ruling alerted while coded answers are off: only the replies that
+// need no code, since the yes would be dropped until the terminal unlocks.
+fn coded_off(ruling: u64) -> String {
+    format!(
+        "\n\nReply here with `{ruling} no <note>` or `{ruling} rework <note>`. A yes on a \
+         merge ruling needs `shep kelpie totp --unlock` on the terminal first."
+    )
 }
 
 /// The URL that reads the topic's cached messages since `since` and closes
@@ -224,6 +235,22 @@ mod tests {
             ..yes_or_no
         };
         assert!(reply_line(&question, false).contains("`3 <text> <code>`"));
+    }
+
+    // With coded answers off, a merge yes cannot be sent from the topic at all.
+    #[test]
+    fn a_merge_alerted_while_coded_answers_are_off_does_not_offer_the_yes() {
+        let reply = ReplyWith {
+            id: 3,
+            takes: Takes::MergeCodedOff,
+        };
+        let line = reply_line(&reply, true);
+        assert_eq!(
+            line,
+            "\n\nReply here with `3 no <note>` or `3 rework <note>`. A yes on a merge ruling \
+             needs `shep kelpie totp --unlock` on the terminal first."
+        );
+        assert!(!line.contains("<code>"), "{line}");
     }
 
     // On a trusted topic only the merge yes takes a code.

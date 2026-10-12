@@ -187,11 +187,18 @@ impl Runner {
         Some(webhook)
     }
 
+    // Whether the wrong-code lock holds: only a trusted topic is read then.
+    fn coded_answers_off(&self) -> bool {
+        self.totp.as_ref().is_some_and(|auth| auth.answers.locked())
+    }
+
     /// What ruling `id`'s alert says a reply takes, where replies are read
     pub(super) fn reply_with(&self, id: u64, kind: &RulingKind) -> Option<ReplyWith> {
         self.replies_on()?;
         let takes = match Wants::of(kind) {
             Wants::Answer => Takes::Answer,
+            // A coded yes is dropped while answers are off, so the alert does not offer it.
+            Wants::Merge if self.coded_answers_off() => Takes::MergeCodedOff,
             Wants::Merge => Takes::Merge,
             Wants::YesOrNo => Takes::YesOrNo,
         };
@@ -473,8 +480,16 @@ impl Runner {
         };
         // The topic alone never merges: a trusted one still takes a code for that.
         if claim.is_none() && wants == Wants::Merge && answer == Answer::Yes {
-            let reason =
-                format!("a yes on a merge ruling takes the authenticator code: `{id} yes <code>`");
+            // While coded answers are off, the code the line would ask for is dropped too.
+            let reason = if auth.answers.locked() {
+                format!(
+                    "a yes on a merge ruling takes the authenticator code, and coded answers \
+                     are off: turn them back on with `shep kelpie totp --unlock` on the \
+                     terminal, then send `{id} yes <code>`"
+                )
+            } else {
+                format!("a yes on a merge ruling takes the authenticator code: `{id} yes <code>`")
+            };
             return self.reply_refused(id, reason);
         }
         match self.rule_by(id, answer, Settler::Alert) {
