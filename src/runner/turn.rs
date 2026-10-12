@@ -60,8 +60,11 @@ pub(super) struct WorkerAgent {
 pub(super) const CONTINUE: &str = "Kelpie restarted while your last turn was running. \
                                    Carry on with the work item from where you left off.";
 
-/// What every fix turn's prompt ends on, so the pull request's body stays
-/// true to the head the turn pushes
+/// What every fix turn's prompt asks, so the pull request's body stays true
+/// to the head the turn pushes
+///
+/// It sits where the prompt asks for the push. A prompt may add further
+/// instructions after it, such as a review bot's thread lines.
 ///
 /// It says nothing of how: the worker's instructions do ([`profile`]), for
 /// a worker that edits the pull request itself and for one that rewrites
