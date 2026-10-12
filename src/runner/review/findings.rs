@@ -141,8 +141,9 @@ pub(super) fn fix_prompt(
     format!(
         "Round {round} of the review on your pull request #{number} found \
          {count} finding(s), in {}. Fix each one, then commit and push with \
-         `git push origin HEAD`.{lines}",
-        path.display()
+         `git push origin HEAD`. {}{lines}",
+        path.display(),
+        turn::KEEP_BODY_TRUE
     )
 }
 
@@ -156,8 +157,9 @@ pub(in crate::runner) fn again_prompt(
     format!(
         "Your last turn on pull request #{number} pushed nothing, so round {round}'s \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`.{lines}",
-        path.display()
+         `git push origin HEAD`. {}{lines}",
+        path.display(),
+        turn::KEEP_BODY_TRUE
     )
 }
 
@@ -266,8 +268,22 @@ mod tests {
             prompt,
             "Round 3 of the review on your pull request #71 found 2 \
              finding(s), in /k/targets/shep/7/review-findings.md. Fix each one, then \
-             commit and push with `git push origin HEAD`."
+             commit and push with `git push origin HEAD`. Update the pull request's \
+             body so it matches the head you push: what changed, the files touched, the \
+             test evidence, and the decisions you made."
         );
+    }
+
+    #[test]
+    fn a_review_fix_prompt_asks_for_the_body_to_be_kept_true() {
+        let path = Path::new("/k/targets/shep/7/review-findings.md");
+        let ask = "Update the pull request's body so it matches the head you push";
+        for threads in [false, true] {
+            let fix = fix_prompt(71, 3, 2, path, threads);
+            let again = again_prompt(71, 3, path, threads);
+            assert!(fix.contains(ask), "{fix}");
+            assert!(again.contains(ask), "{again}");
+        }
     }
 
     #[test]
@@ -453,7 +469,9 @@ mod tests {
             format!(
                 "Your last turn on pull request #71 pushed nothing, so round 1's \
                  findings in {} still hold. Fix each one, then commit and push with \
-                 `git push origin HEAD`.",
+                 `git push origin HEAD`. Update the pull request's body so it matches the \
+                 head you push: what changed, the files touched, the test evidence, and \
+                 the decisions you made.",
                 rig.build_7().join("review-findings.md").display()
             )
         );

@@ -705,7 +705,9 @@ fn a_fix_turn_that_pushes_nothing_parks_and_a_yes_sends_the_threads_again() {
     let again = format!(
         "Your last turn on pull request #71 pushed nothing, so round 3's \
          findings in {} still hold. Fix each one, then commit and push with \
-         `git push origin HEAD`. Each finding is a review bot's thread, and its line in the file starts \
+         `git push origin HEAD`. Update the pull request's body so it matches the head you \
+         push: what changed, the files touched, the test evidence, and the decisions you \
+         made. Each finding is a review bot's thread, and its line in the file starts \
          with its number, `thread <n>|`. Kelpie replies on each thread for you and \
          resolves the ones you fixed, so end your final reply with one line per \
          finding, using the number its line starts with: `thread <n>: fixed` or \

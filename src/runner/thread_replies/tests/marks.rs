@@ -60,7 +60,11 @@ fn a_thumbs_down_from_the_maintainer_sends_the_worker_back_with_a_note_that_says
     let calls = rig.claude.calls();
     assert_eq!(
         calls.last().unwrap().prompt,
-        format!("The maintainer answered no on pull request #71, with this note:\n\n{NO_NOTE}\n")
+        format!(
+            "The maintainer answered no on pull request #71, with this note:\n\n{NO_NOTE}\n\n\
+             Update the pull request's body so it matches the head you push: what changed, \
+             the files touched, the test evidence, and the decisions you made.\n"
+        )
     );
 }
 

@@ -153,6 +153,22 @@ mod tests {
     }
 
     #[test]
+    fn a_conflict_turn_does_not_ask_for_the_body() {
+        let (rig, runner, _) = Rig::with_pull_request("koji");
+        rig.land_on_origin("work.txt");
+        step(&runner).unwrap();
+        rig.claude.script([Scripted::MergeMain]);
+        step(&runner).unwrap();
+        let conflict = rig.claude.calls().pop().unwrap();
+        assert!(
+            conflict.prompt.contains("conflicts with main"),
+            "{}",
+            conflict.prompt
+        );
+        assert!(!conflict.prompt.contains("body"), "{}", conflict.prompt);
+    }
+
+    #[test]
     fn a_conflict_the_worker_resolves_goes_on_to_the_merge_ruling_with_no_ruling_between() {
         let (rig, runner, _) = Rig::with_pull_request("rotom");
         rig.land_on_origin("work.txt");

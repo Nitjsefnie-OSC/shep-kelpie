@@ -117,3 +117,25 @@ fn refusals_inside_the_hour_do_not_restart_the_wait_to_summon() {
     let skipped = &rig.ask(&runner, "status", None)["work_item"]["bots_skipped"];
     assert_eq!(skipped[0]["since"], json!(started));
 }
+
+// The repo's `.coderabbit.yaml` does not let the label start a review, so
+// CodeRabbit answers with a status and will never review: waiting the two
+// hours would only hold the pass.
+#[test]
+fn a_declined_summon_passes_coderabbit_over_on_the_next_read_with_the_status_in_the_reason() {
+    let (rig, runner, head) = summoned("meganium");
+    let status = "Review skipped: automatic reviews are disabled";
+    rig.forge.coderabbit.skip(71, &head, now(&rig) + 12, status);
+    rig.clock.advance(30);
+    assert_eq!(
+        step(&runner).unwrap(),
+        skipped("CodeRabbit declined: Review skipped: automatic reviews are disabled")
+    );
+    assert_eq!(labels(&rig), [on(), off()]);
+    assert!(!rig.leases.held(&cr()));
+    let skipped = &rig.ask(&runner, "status", None)["work_item"]["bots_skipped"];
+    assert_eq!(
+        *skipped,
+        json!([{ "why": "declined", "reviewer": "coderabbit", "status": status }])
+    );
+}

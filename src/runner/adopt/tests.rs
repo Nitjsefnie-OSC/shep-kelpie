@@ -331,7 +331,7 @@ fn a_review_asking_for_changes_is_the_first_turn_and_the_loop_reviews_only_the_f
     assert!(
         first
             .prompt
-            .ends_with("Make the changes the review asks for, then commit and push with `git push origin HEAD`.\n"),
+            .ends_with("Make the changes the review asks for, then commit and push with `git push origin HEAD`. Update the pull request's body so it matches the head you push: what changed, the files touched, the test evidence, and the decisions you made.\n"),
         "{}",
         first.prompt
     );

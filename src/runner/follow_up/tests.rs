@@ -20,7 +20,7 @@ fn finding(file: &str, what: &str) -> Finding {
     }
 }
 
-fn racy() -> Finding {
+pub(in crate::runner) fn racy() -> Finding {
     finding("src/lib.rs", "looks racy")
 }
 
@@ -651,7 +651,10 @@ fn a_restart_after_the_merge_still_files_what_the_worker_deferred() {
 }
 
 // Under `ask`: the worker parked on merge ruling 1, then a yes, then the merge
-fn ask_after_the_merge(rig: Rig, found: &[Finding]) -> (Rig, Mutex<Runner>, u64, String) {
+pub(in crate::runner) fn ask_after_the_merge(
+    rig: Rig,
+    found: &[Finding],
+) -> (Rig, Mutex<Runner>, u64, String) {
     let (rig, runner, head) = reviewed_in(rig, found, false);
     defer(&rig, &lines(found));
     rig.forge.set_checks(&head, Checks::Passed);
