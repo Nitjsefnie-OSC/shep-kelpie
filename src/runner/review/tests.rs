@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Cost, Role, Session, Severity};
+use crate::ports::{Cost, Role, Session, SessionId, Severity, Usage};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -520,6 +520,155 @@ fn a_claude_round_stopped_with_the_runner_runs_again_on_restart() {
     let rounds = rig.claude.all_calls();
     let rounds = rounds.iter().filter(|c| c.role == Role::Reviewer).count();
     assert_eq!(rounds, 2, "round 2 ran again");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "ci"
+    );
+}
+
+const DOLLAR: u64 = 1_000_000_000;
+
+// Issue 7 in review of pull request 71 under `budget.per_item_usd = 5`, the
+// worker having pushed
+fn in_review_under_a_five_dollar_cap(project: &str) -> (Rig, std::sync::Mutex<Runner>) {
+    let rig = Rig::new(project);
+    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    (rig, runner)
+}
+
+// A priced worker call that cost `usd` dollars, as a turn kelpie ran would leave
+fn spend(runner: &std::sync::Mutex<Runner>, usd: u64) {
+    let session = SessionId("spent".into());
+    let cost = Some(Cost(usd * DOLLAR));
+    let call = |item: &mut WorkItem| {
+        item.record_call(Role::Worker, Timestamp(1), session, Usage::default(), cost);
+    };
+    runner.lock().unwrap().update(call).unwrap();
+}
+
+fn reviewer_calls(rig: &Rig) -> usize {
+    let calls = rig.claude.all_calls();
+    calls.iter().filter(|c| c.role == Role::Reviewer).count()
+}
+
+#[test]
+fn a_local_round_does_not_start_past_the_cap() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+
+    let Some(StepReport::Failed {
+        issue: 7,
+        pull_request: Some(71),
+        id: 1,
+        ..
+    }) = step(&runner).unwrap()
+    else {
+        panic!("the round was not parked");
+    };
+    assert!(
+        rig.reviewer.seen().is_empty(),
+        "the local round did not run"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ruling");
+    let kind = &status["rulings"][0]["kind"];
+    assert_eq!(kind["reason"], "over-budget");
+    let phase = &kind["phase"];
+    assert_eq!(
+        (&phase["state"], &phase["round"], &phase["stage"]),
+        (&json!("review"), &json!(1), &json!({ "stage": "round" })),
+        "the ruling names the review stage the round was in"
+    );
+}
+
+#[test]
+fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    spend(&runner, 6);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Failed { issue: 7, .. })
+    ));
+    assert_eq!(reviewer_calls(&rig), 0, "round 2 did not start");
+
+    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    let phase = &rig.ask(&runner, "status", None)["work_item"]["phase"];
+    assert_eq!(phase["state"], "review", "{phase}");
+    assert_eq!(phase["round"], 2, "the same round is due again: {phase}");
+
+    step(&runner).unwrap();
+    assert_eq!(reviewer_calls(&rig), 1, "round 2 ran at the doubled cap");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "ci"
+    );
+}
+
+#[test]
+fn the_question_for_a_round_past_the_cap_names_the_round_and_not_a_worker_turn() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+        panic!("the round was not parked");
+    };
+    assert_eq!(
+        question,
+        "The work on pull request #71 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
+         the reviewers $0.00, so the review round has not started. \
+         `shep kelpie rule 1 yes` raises the cap to $10.00 and the round starts, and \
+         `shep kelpie rule 1 no <note>` sends the worker your note, raises the cap the same \
+         and has the pull request reviewed again."
+    );
+    drop(rig);
+}
+
+#[test]
+fn a_no_on_a_round_past_the_cap_sends_the_worker_the_note_and_reviews_again() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 6);
+    step(&runner).unwrap(); // parked before round 1
+    rig.claude.script([Scripted::Push("more.txt", "more\n")]);
+    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+
+    step(&runner).unwrap(); // the worker's fix turn
+    let sent = rig.claude.calls();
+    let note = sent.last().unwrap();
+    assert!(note.prompt.contains("rename the flag"), "{}", note.prompt);
+    assert!(
+        rig.reviewer.seen().is_empty(),
+        "no round ran before the fix"
+    );
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
+        "review",
+        "the pull request goes through the review again"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_round_under_the_cap_starts_as_before() {
+    let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
+    spend(&runner, 5);
+    rig.claude.script([Scripted::Text("CLEAN")]);
+
+    step(&runner).unwrap(); // round 1, qwen
+    step(&runner).unwrap(); // round 2, claude
+    assert_eq!(
+        rig.reviewer.seen().len(),
+        1,
+        "exactly the cap is not over it"
+    );
+    assert_eq!(reviewer_calls(&rig), 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
         "ci"
