@@ -430,6 +430,40 @@ mod tests {
     }
 
     #[test]
+    fn a_ready_issue_an_earlier_worker_labelled_in_progress_is_skipped_and_listed() {
+        let (rig, runner) = running("kanto");
+        rig.forge.list_ready(3, false);
+        rig.forge.label(3, "in-progress");
+
+        assert_eq!(step(&runner).unwrap(), None);
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"], json!(null));
+        assert_eq!(
+            status["skipped"],
+            json!([{ "reason": "in-progress", "issue": 3 }])
+        );
+    }
+
+    #[test]
+    fn a_reopened_runner_keeps_its_own_in_progress_item_and_opens_no_second() {
+        let (rig, runner) = running("johto");
+        rig.forge.list_ready(3, false);
+        step(&runner).unwrap();
+        assert_eq!(rig.ask(&runner, "status", None)["working"], json!([3]));
+
+        drop(runner);
+        let runner = rig.open().unwrap();
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(1))]);
+        step(&runner).unwrap();
+
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["working"], json!([3]));
+        assert_eq!(status["skipped"], json!([]));
+        assert_eq!(rig.claude.calls().len(), 1);
+    }
+
+    #[test]
     fn a_board_with_only_taken_issues_dispatches_nothing() {
         let (rig, runner) = running("rotom");
         rig.forge.list_ready(3, true);

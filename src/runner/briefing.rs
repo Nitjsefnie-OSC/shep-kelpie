@@ -412,6 +412,10 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
             false,
         ),
         Skip::Assigned { .. } => ("someone is assigned to it".into(), false),
+        Skip::InProgress { .. } => (
+            "an earlier worker holds it, take `in-progress` off to release it".into(),
+            false,
+        ),
         Skip::Split { open, .. } => (
             format!("its {open} open sub-issues are worked instead"),
             false,
