@@ -39,7 +39,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Every step runs a skill: mattpocock/skills vendored + pinned in `skills/`, kelpie prompts as fallback; `[skills]` overrides a step. #147, `src/skills.rs`
 - Skills byte-identical; kelpie headless rules win (decide and record, no sub-agents, kelpie reply format, no own `/code-review`). Skill that can't load runs kelpie prompt, logged (unknown slash command passes as text). #170, #147
 - Plugins enabled in `.claude/settings.json` on `origin/main` reach every agent (skills only for now), never from a worker branch. Sources: plain git transports, no `-` or `::` addresses, no links or `..` (default branch settings aren't maintainer's alone). #569, #570
-- `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any (applied in `Runner::prepared`), `skip` drops `name@marketplace` ids, `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. #571
+- `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any (applied in `Runner::prepared`), `skip` drops `name@marketplace` ids, `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. The CLI's headless issue writer isn't the runner, so it loads them itself into a per-run folder. #571
 
 ## Agents
 

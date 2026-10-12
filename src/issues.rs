@@ -293,6 +293,7 @@ pub fn headless(
     request: &str,
     forge: &dyn Forge,
     agents: &dyn ports::Agents,
+    git: &dyn ports::Git,
 ) -> Result<Vec<String>, String> {
     make_labels(forge, project, Mode::Headless)?;
     let session =
@@ -302,7 +303,11 @@ pub fn headless(
     let repo = &project.settings.git.checkout;
     worktree::view(repo, &checkout)
         .map_err(|e| format!("cannot check out main for the issue writer: {e}"))?;
-    let call = call(project, writer, request, &session, &checkout)?;
+    // Not through the runner, so its plugins are loaded here, into a folder of
+    // the run's own that the runner's `skills/repo` never shares.
+    let skills = folder.join(format!("{}.skills", session.0));
+    let plugins = repo_plugins(project, &skills, git);
+    let call = call(project, writer, request, &session, &checkout, &plugins)?;
     let started = SystemClock.now();
     let ran = agents
         .prepare(&call)
@@ -326,6 +331,7 @@ pub fn headless(
     // Best effort: what is left behind is only disk, and the issues are filed.
     let _ = worktree::remove_view(repo, &checkout);
     let _ = std::fs::remove_dir_all(call.settings.with_extension("tmp"));
+    let _ = std::fs::remove_dir_all(&skills);
     for file in [Some(&call.settings), call.instructions.as_ref()]
         .into_iter()
         .flatten()
@@ -366,6 +372,23 @@ fn record(
     }
 }
 
+// The plugins the repo turns on and the project adds, written under `skills`,
+// when `repo_setup.roles` gives the issue writer them. One that cannot load is
+// told and let go, as the runner logs it.
+fn repo_plugins(project: &Project<'_>, skills: &Path, git: &dyn ports::Git) -> Vec<PathBuf> {
+    let setup = &project.settings.repo_setup;
+    if !setup.reaches(ports::Role::IssueWriter) {
+        return Vec::new();
+    }
+    let paths = project.paths;
+    let checkout = &project.settings.git.checkout;
+    let loaded = skills::RepoPlugins::load(checkout, &paths.kelpie_home, skills, git, setup);
+    for notice in loaded.notices() {
+        eprintln!("{notice}");
+    }
+    loaded.dirs().map(Path::to_owned).collect()
+}
+
 // The headless session's call: fresh, in `checkout`, prompted with the request.
 fn call(
     project: &Project<'_>,
@@ -373,6 +396,7 @@ fn call(
     request: &str,
     session: &SessionId,
     checkout: &Path,
+    plugins: &[PathBuf],
 ) -> Result<AgentCall, String> {
     let folder = project.paths.issues();
     let prompt_file = folder.join(format!("{}.md", session.0));
@@ -385,7 +409,7 @@ fn call(
     let mut reach = reach(
         project,
         checkout,
-        &[],
+        plugins,
         Mode::Headless,
         scratch.join("ledger.json"),
     )?;
@@ -401,7 +425,7 @@ fn call(
         settings,
         instructions: Some(prompt_file),
         prompt: format!("The maintainer's request:\n\n{}", request.trim()),
-        plugin_dirs: Vec::new(),
+        plugin_dirs: plugins.to_vec(),
         tools: Tools::Issues,
         agent_tools: None,
         reach,
