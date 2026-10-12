@@ -325,6 +325,12 @@ fn split(chars: &[char]) -> Result<Vec<Range<usize>>, Unreadable> {
                     out.push(from..i);
                 }
             }
+            // The `&` of `2>&1`, `<&0` or `&>out` is part of a redirect word, not a
+            // separator: what follows it is still the command's.
+            '&' if matches!(
+                (i.checked_sub(1).map(|p| chars[p]), chars.get(i + 1)),
+                (Some('>' | '<'), _) | (_, Some('>'))
+            ) => {}
             '\n' | ';' | '&' | '|' => match stack.last_mut() {
                 None => {
                     out.push(start..i);

@@ -75,13 +75,15 @@ fn without_redirects(words: &[String], quoting: &[Quoting]) -> (Vec<String>, Vec
 }
 
 // Whether `word` is a redirection to an output file, and if so, whether it is bare, so
-// that the next word is its target: an optional run of digits or a `&`, then `>` or `>>`.
+// that the next word is its target: an optional run of digits or a `&`, then `>` or `>>`,
+// and a `&` for a descriptor, as `2>&1` and `>&out` have.
 fn redirect(word: &str, held: impl Fn(usize) -> bool) -> Option<bool> {
     let digits = word.chars().take_while(char::is_ascii_digit).count();
     let lead = if word.starts_with('&') { 1 } else { digits };
     let rest = word.get(lead..)?.strip_prefix('>')?;
     let marks = 1 + usize::from(rest.starts_with('>'));
-    let operator = lead + marks;
+    let dup = usize::from(word.get(lead + marks..)?.starts_with('&'));
+    let operator = lead + marks + dup;
     (!(0..operator).any(held)).then_some(word.len() == operator)
 }
 
