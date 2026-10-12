@@ -125,8 +125,11 @@ impl Flights {
     pub(super) fn turn_call(&self, issue: u64) -> Option<(AgentCall, bool, u64)> {
         let flight = self.flying.get(&issue)?;
         let call = flight.watched.call.clone()?;
-        (flight.deadline.is_some() && !flight.retro && !flight.compact)
-            .then_some((call, flight.first, flight.left))
+        (flight.deadline.is_some() && !flight.retro && !flight.compact).then_some((
+            call,
+            flight.first,
+            flight.left,
+        ))
     }
 
     /// Whether `issue`'s call in flight is a `/compact` of its worker's session

@@ -31,8 +31,10 @@ fn item(rig: &Rig, runner: &Mutex<Runner>) -> Value {
 #[test]
 fn a_502_then_a_reply_ends_the_turn_with_no_ruling() {
     let (rig, runner) = with_issue_7("acme");
-    rig.claude
-        .script([down(r#"502 "unreachable""#), Scripted::Reply(usage(1), Cost(7))]);
+    rig.claude.script([
+        down(r#"502 "unreachable""#),
+        Scripted::Reply(usage(1), Cost(7)),
+    ]);
     assert_eq!(step(&runner).unwrap(), None, "the wait is not a report");
     assert_eq!(rulings(&rig, &runner), 0);
 

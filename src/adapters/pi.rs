@@ -585,9 +585,14 @@ fn reaches_no_host(detail: &str) -> bool {
             .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_alphanumeric()))
     });
     status
-        || ["econnrefused", "econnreset", "connection refused", "connection reset"]
-            .iter()
-            .any(|sign| lower.contains(sign))
+        || [
+            "econnrefused",
+            "econnreset",
+            "connection refused",
+            "connection reset",
+        ]
+        .iter()
+        .any(|sign| lower.contains(sign))
 }
 
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to

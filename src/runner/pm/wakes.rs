@@ -172,9 +172,9 @@ fn stuck_wake(issue: u64, id: u64, kind: &RulingKind) -> Option<Wake> {
 /// is not about a stuck item
 pub(in crate::runner) fn stuck_on(kind: &RulingKind) -> Option<&'static str> {
     match kind {
-        RulingKind::Stuck(Stuck::TurnFailed { .. }) => {
-            Some("its worker's turn failed or stopped short twice")
-        }
+        RulingKind::Stuck(Stuck::TurnFailed { .. }) => Some(
+            "its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice",
+        ),
         RulingKind::Stuck(Stuck::TurnTimeout { .. }) => {
             Some("its worker's turn ran past its ceiling")
         }
