@@ -433,3 +433,15 @@ fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
     assert!(line.contains("last turn failed"), "{line}");
     assert_eq!(rest.trim_start(), sent);
 }
+
+// A command only runs from the very start of a prompt, so a retried prompt
+// that begins with one keeps it first.
+#[test]
+fn the_failed_turn_line_goes_after_a_command_the_prompt_starts_with() {
+    let again = failed_again("/plugin:review check the diff".to_owned());
+    assert_eq!(
+        again,
+        "/plugin:review Your last turn failed before it finished. \
+         Kelpie sends its prompt again.\n\ncheck the diff"
+    );
+}

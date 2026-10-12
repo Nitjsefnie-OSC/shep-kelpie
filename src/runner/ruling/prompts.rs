@@ -2,15 +2,21 @@
 
 use crate::runner::gate::short;
 use crate::runner::turn::KEEP_BODY_TRUE;
+use crate::skills::split_command;
 
 // Asked only when there is a pull request whose body could be stale.
 fn keep_body_true(number: Option<u64>) -> String {
     number.map_or_else(String::new, |_| format!(" {KEEP_BODY_TRUE}"))
 }
 
-// A turn that failed before the harness started never saw its prompt.
+// A turn that failed before the harness started never saw its prompt. A
+// command only runs from the very start of a prompt, so the line goes after it.
 pub(super) fn failed_again(prompt: String) -> String {
-    format!("Your last turn failed before it finished. Kelpie sends its prompt again.\n\n{prompt}")
+    let line = "Your last turn failed before it finished. Kelpie sends its prompt again.";
+    match split_command(&prompt) {
+        (Some(command), rest) => format!("{command} {line}\n\n{rest}"),
+        (None, rest) => format!("{line}\n\n{rest}"),
+    }
 }
 
 pub(super) fn note_prompt(number: Option<u64>, note: &str) -> String {
