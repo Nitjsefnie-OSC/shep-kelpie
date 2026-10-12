@@ -30,7 +30,7 @@ Invoke the `rust-house-style` skill before writing or reviewing Rust. The rules 
 
 Read `CODING_STANDARDS.md` when reviewing a change.
 
-CI (`.github/workflows/test.yml`) runs `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, rustdoc with `-D warnings`, and `cargo +1.88 check` for the MSRV. Before handing a branch over, run fmt, clippy and the tests for what you changed (`cargo test <module path>`). Leave the whole suite, rustdoc and the MSRV check to CI, which runs them on every push. The full suite takes about six minutes, and the MSRV check builds a second copy of every dependency. `.github/workflows/file-size.yml` also fails any `.rs` file over 1000 lines (IR-48).
+CI (`.github/workflows/test.yml`) runs `cargo fmt --all --check`, `cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`, rustdoc with `-D warnings`, and `cargo +1.88 check` for the MSRV. Before handing a branch over, run fmt, clippy and the tests for what you changed (`cargo test --lib <module path>`, or `--test <name>` for a file in `tests/`). Leave the whole suite, rustdoc and the MSRV check to CI, which runs them on every push. The full suite takes about six minutes, and the MSRV check builds a second copy of every dependency. `.github/workflows/file-size.yml` also fails any `.rs` file over 1000 lines (IR-48).
 
 ## Working an issue
 
