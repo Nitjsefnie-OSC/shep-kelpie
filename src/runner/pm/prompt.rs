@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 
-use super::Wake;
+use super::{Wake, diffs};
 use crate::ports::PM_NOTES;
 
 /// The `answer` key as the answer shows it, which a wake with a question
@@ -24,6 +24,19 @@ macro_rules! questions {
          choice you recommend, which is added to the question as `PM recommends: \
          <choice>`; kelpie checks that the item is parked on a question, and drops the \
          answer if not, when the question goes to the maintainer as it stands."
+    };
+}
+
+/// How a follow-up ruling is passed on, shown after [`questions`]
+macro_rules! follow_ups {
+    () => {
+        "A merged pull request's unfixed findings wait on you for one wake at most. \
+         Read the merged diff beside them, and check each finding against it and the \
+         docs. You cannot file or drop them: give `escalate` with `yes` where they are \
+         worth an issue each, or `no` where the diff shows them mistaken or already \
+         fixed, and the item's issue in `item`. Kelpie adds `PM recommends: <choice>` \
+         and your `why` to the ruling, which goes to the maintainer to answer. Merge \
+         rulings stay with the maintainer."
     };
 }
 
@@ -71,6 +84,8 @@ that is not stuck.
 
 ",
     questions!(),
+    "\n\n",
+    follow_ups!(),
     "\n\n",
     voting!()
 );
@@ -135,6 +150,14 @@ pub(super) fn wake(project: &str, wakes: &[Wake], told: &[String], fresh: bool) 
                     questions!()
                 );
             }
+            if wakes.iter().any(|w| matches!(w, Wake::FollowUp { .. })) {
+                let _ = write!(
+                    out,
+                    "\nThe object takes this key as well:\n\n```\n{}\n```\n\n{}\n",
+                    answer_key!(),
+                    follow_ups!()
+                );
+            }
             if wakes.iter().any(|w| matches!(w, Wake::Vote { .. })) {
                 let _ = write!(
                     out,
@@ -180,6 +203,32 @@ pub(super) fn reason(wake: &Wake) -> String {
                     false => {
                         let _ = write!(out, "\n> {line}");
                     }
+                }
+            }
+            out
+        }
+        Wake::FollowUp {
+            issue,
+            id,
+            pull_request,
+            findings,
+        } => {
+            let mut out = format!(
+                "pull request #{pull_request} of #{issue} merged with {} confirmed \
+                 finding(s) left unfixed, and ruling {id} asks the maintainer whether to \
+                 file them as issues. Its merged diff is `{}`:\n",
+                findings.len(),
+                diffs::diff_file(*issue)
+            );
+            for finding in findings {
+                let at = match finding.line {
+                    0 => finding.file.clone(),
+                    line => format!("{}:{line}", finding.file),
+                };
+                let _ = write!(out, "\n- {at} {}", finding.what.trim());
+                let why = finding.why.trim();
+                if !why.is_empty() {
+                    let _ = write!(out, " (why it matters: {why})");
                 }
             }
             out
@@ -266,6 +315,42 @@ mod tests {
         assert!(text.contains("\"answer\": null or {\"item\""), "{text}");
         assert!(text.contains("`PM recommends: <choice>`"), "{text}");
         assert!(!text.contains("\"pick\""), "{text}");
+    }
+
+    #[test]
+    fn a_wake_for_a_follow_up_names_its_findings_and_diff_and_says_it_can_only_pass_it_on() {
+        let finding = |line, what: &str| crate::ports::Finding {
+            severity: crate::ports::Severity::High,
+            file: "src/lib.rs".into(),
+            line,
+            what: what.into(),
+            why: "two threads write it".into(),
+        };
+        let follow_up = Wake::FollowUp {
+            issue: 7,
+            id: 4,
+            pull_request: 71,
+            findings: vec![finding(9, "looks racy"), finding(0, "leaks")],
+        };
+        let fresh = wake("koji", std::slice::from_ref(&follow_up), &[], true);
+        assert!(
+            fresh.contains(
+                "- pull request #71 of #7 merged with 2 confirmed finding(s) left unfixed, \
+                 and ruling 4 asks the maintainer whether to file them as issues. Its merged \
+                 diff is `diffs/7.diff`:\n  \n  - src/lib.rs:9 looks racy (why it matters: two \
+                 threads write it)\n  - src/lib.rs leaks (why it matters: two threads write it)\n"
+            ),
+            "{fresh}"
+        );
+        assert!(fresh.contains("You cannot file or drop them"), "{fresh}");
+        let resumed = wake("koji", &[follow_up], &[], false);
+        assert!(
+            resumed.contains("\"answer\": null or {\"item\""),
+            "{resumed}"
+        );
+        assert!(resumed.contains("`PM recommends: <choice>`"), "{resumed}");
+        let other = wake("koji", &[Wake::Pick(2)], &[], false);
+        assert!(!other.contains("You cannot file or drop them"), "{other}");
     }
 
     #[test]

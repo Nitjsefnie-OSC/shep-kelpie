@@ -250,7 +250,7 @@ fn an_answer_for_an_item_not_parked_on_a_question_is_dropped_and_the_ruling_stan
     assert_eq!(acted, Vec::<String>::new());
     assert_eq!(
         dropped,
-        ["answer #9: not a work item parked on a question ruling"]
+        ["answer #9: not a work item parked on a question or follow-up ruling"]
     );
     assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
     let [(_, alert)] = rig.alerts.posts().try_into().unwrap();

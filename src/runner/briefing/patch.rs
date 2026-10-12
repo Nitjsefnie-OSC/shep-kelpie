@@ -5,7 +5,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Stdio;
 
-use crate::worktree::in_repo;
+use crate::worktree::{BASE, in_repo};
 
 /// The most of one diff kept, in bytes: about 16k tokens, so one huge
 /// branch cannot flood its context, and it reads the worktree for the rest
@@ -27,13 +27,94 @@ pub(super) fn read(
     files: Option<&[String]>,
     worktree: &Path,
 ) -> Result<Vec<u8>, String> {
-    let range = format!("{main}...{head}");
+    cut(repo, &[format!("{main}...{head}")], files, worktree)
+}
+
+/// What `branch` changed on `origin/main` when its pull request merged,
+/// cut at [`CAP`], or why git could not give it
+///
+/// Once the merge is fetched, the branch's diff from `main` is empty, so
+/// this is the diff from the merge commit's first parent to the merge
+/// commit. A merge that left no such commit, a squash or a rebase, has the
+/// branch's changes still apart from `main`, so it is the diff `read` gives.
+pub(in crate::runner) fn merged(
+    repo: &Path,
+    branch: &str,
+    worktree: &Path,
+) -> Result<Vec<u8>, String> {
+    let main = format!("refs/remotes/origin/{BASE}");
+    let head = format!("refs/heads/{branch}");
+    let resolve = |rev: &str| {
+        let found = git_line(repo, &["rev-parse", "--verify", "--quiet", rev]);
+        found.ok_or_else(|| format!("{rev} is not in the checkout"))
+    };
+    let (main, head) = (resolve(&main)?, resolve(&head)?);
+    let in_main = ["merge-base", "--is-ancestor", &head, &main];
+    if !git_succeeds(repo, &in_main) {
+        return read(repo, &main, &head, None, worktree);
+    }
+    let since = format!("{head}..{main}");
+    let walk = ["rev-list", "--first-parent", "--ancestry-path", "--reverse"];
+    let path = git_line(repo, &[&walk[..], &[&since]].concat());
+    let Some(merge) = path.and_then(|p| p.lines().next().map(str::to_owned)) else {
+        return Err(format!(
+            "{branch} is on main, with no merge commit after it"
+        ));
+    };
+    // A merge commit has a second parent, the branch.
+    let second = format!("{merge}^2");
+    if git_line(repo, &["rev-parse", "--verify", "--quiet", &second]).is_none() {
+        return Err(format!(
+            "{branch} was fast-forwarded into main, so no commit holds its changes apart"
+        ));
+    }
+    cut(repo, &[format!("{merge}^1"), merge], None, worktree)
+}
+
+// The first line git prints for `args`, if it succeeds and prints one
+fn git_line(repo: &Path, args: &[&str]) -> Option<String> {
+    let output = in_repo(repo)
+        .arg("--no-replace-objects")
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+// Whether git exits 0 for `args`
+fn git_succeeds(repo: &Path, args: &[&str]) -> bool {
+    in_repo(repo)
+        .arg("--no-replace-objects")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+// The diff of `revs`, two for a pair of commits and one for a range, cut
+// as `read` says
+fn cut(
+    repo: &Path,
+    revs: &[String],
+    files: Option<&[String]>,
+    worktree: &Path,
+) -> Result<Vec<u8>, String> {
+    let range = revs.join(" ");
     let mut child = in_repo(repo)
         .arg("--no-replace-objects")
         .args(["diff", "--no-color", "--no-ext-diff", "--no-textconv"])
         // One section a file, in the order `--name-only` lists them.
         .arg("--no-renames")
-        .arg(&range)
+        .args(revs)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -124,6 +205,66 @@ fn spelled(name: &str) -> String {
 mod tests {
     use super::*;
     use crate::test::{git, write_in};
+
+    #[test]
+    fn a_fetched_merge_commit_gives_the_branchs_changes_though_it_is_on_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "--quiet", "--initial-branch=main"]);
+        write_in(repo, "a.txt", "base\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "base"]);
+        git(repo, &["checkout", "--quiet", "-b", "feature"]);
+        write_in(repo, "b.txt", "from the branch\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "feature"]);
+        git(repo, &["checkout", "--quiet", "main"]);
+        write_in(repo, "c.txt", "main moved\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "main moved"]);
+        git(
+            repo,
+            &["merge", "--quiet", "--no-ff", "-m", "merge", "feature"],
+        );
+        write_in(repo, "d.txt", "after the merge\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "after"]);
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+
+        let diff = merged(repo, "feature", Path::new("/work/7")).unwrap();
+
+        let diff = String::from_utf8(diff).unwrap();
+        assert!(
+            diff.contains("+++ b/b.txt\n@@ -0,0 +1 @@\n+from the branch\n"),
+            "{diff}"
+        );
+        for other in ["a.txt", "c.txt", "d.txt"] {
+            assert!(!diff.contains(other), "{other} is in:\n{diff}");
+        }
+    }
+
+    #[test]
+    fn a_squashed_branch_still_apart_from_main_gives_its_diff_from_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "--quiet", "--initial-branch=main"]);
+        write_in(repo, "a.txt", "base\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "base"]);
+        git(repo, &["checkout", "--quiet", "-b", "feature"]);
+        write_in(repo, "b.txt", "from the branch\n");
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "--quiet", "-m", "feature"]);
+        git(repo, &["checkout", "--quiet", "main"]);
+        git(repo, &["merge", "--quiet", "--squash", "feature"]);
+        git(repo, &["commit", "--quiet", "-m", "squashed"]);
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+
+        let diff = merged(repo, "feature", Path::new("/work/7")).unwrap();
+
+        let diff = String::from_utf8(diff).unwrap();
+        assert!(diff.contains("+++ b/b.txt\n"), "{diff}");
+    }
 
     #[test]
     fn a_type_change_before_the_cut_is_one_file_and_the_cut_file_is_still_named() {

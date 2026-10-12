@@ -4,6 +4,9 @@
 //! the ruling as the maintainer's would, led by `PM answered:`, and its
 //! escalation puts the ruling to the maintainer with the recommendation
 //! added. Anything else is dropped, and the ruling goes out as it stands.
+//!
+//! An item parked on a follow-up ruling takes an escalation alone: the
+//! maintainer's yes or no is theirs, so its text is dropped.
 
 use std::io::Write as _;
 
@@ -54,12 +57,18 @@ impl Runner {
             }
             Asked::Not => {
                 return Ok(Err(format!(
-                    "answer #{n}: not a work item parked on a question ruling"
+                    "answer #{n}: not a work item parked on a question or follow-up ruling"
                 )));
             }
         };
         let why = plain(&self.shown(settle.why.clone()), WORDS);
         let (done, outcome, recommends) = match &settle.how {
+            How::Text(_) if self.follow_up_ruling(id) => {
+                return Ok(Err(format!(
+                    "answer #{n}: ruling {id} is a follow-up, which the project manager \
+                     passes on with a recommendation and cannot answer"
+                )));
+            }
             How::Text(text) => {
                 let by = Settler::Pm {
                     answer: text.clone(),
@@ -98,31 +107,49 @@ impl Runner {
         Ok(Ok(done))
     }
 
-    // The question ruling the work item for `issue` is parked on, if any. One
-    // the maintainer was alerted of is theirs to answer, however late the
-    // project manager's word comes.
+    // The question or follow-up ruling the work item for `issue` is parked
+    // on, if any. One the maintainer was alerted of is theirs to answer,
+    // however late the project manager's word comes.
     fn asked_on(&self, issue: u64) -> Asked {
         let Some(Phase::Ruling { id }) = self.state.item(issue).map(|i| i.phase.clone()) else {
             return Asked::Not;
         };
+        let held = |kind: &RulingKind| {
+            matches!(
+                kind,
+                RulingKind::Question { .. } | RulingKind::FollowUp { .. }
+            )
+        };
         match self.state.rulings.iter().find(|r| r.id == id) {
-            Some(r) if matches!(r.kind, RulingKind::Question { .. }) && r.alerted => {
-                Asked::Alerted(id)
-            }
-            Some(r) if matches!(r.kind, RulingKind::Question { .. }) => Asked::On(id),
+            Some(r) if held(&r.kind) && r.alerted => Asked::Alerted(id),
+            Some(r) if held(&r.kind) => Asked::On(id),
             _ => Asked::Not,
         }
+    }
+
+    // Whether ruling `id` is a follow-up, which has no worker waiting on text.
+    fn follow_up_ruling(&self, id: u64) -> bool {
+        let ruling = self.state.rulings.iter().find(|r| r.id == id);
+        ruling.is_some_and(|r| matches!(r.kind, RulingKind::FollowUp { .. }))
     }
 
     // Adds the recommendation to ruling `id`, to be posted as it is.
     fn recommend(&mut self, id: u64, choice: Option<&str>, why: &str) -> Result<(), StateError> {
         let mut next = self.state.clone();
         let ruling = (next.rulings.iter_mut().find(|r| r.id == id)).expect("found by the caller");
-        if let RulingKind::Question { asked, .. } = &mut ruling.kind {
-            *asked = recommended(asked, choice, why);
-        }
         let issue = ruling.issue.expect("a question parks a work item");
-        ruling.question = question(id, issue, ruling.pull_request, &ruling.kind);
+        match &mut ruling.kind {
+            RulingKind::Question { asked, .. } => {
+                *asked = recommended(asked, choice, why);
+                ruling.question = question(id, issue, ruling.pull_request, &ruling.kind);
+            }
+            // Its kind holds no words of the project manager's, so only the
+            // question the maintainer reads does.
+            RulingKind::FollowUp { .. } => {
+                ruling.question = recommended(&ruling.question, choice, why);
+            }
+            _ => {}
+        }
         ruling.alerted = false;
         self.save(next)
     }
