@@ -84,6 +84,7 @@ pub struct Webhook {
     #[shep(secret)]
     pub ca_cert: Option<CaCert>,
     /// An ntfy access token, sent as a bearer token on the post and the poll
+    /// of an ntfy webhook and never to a Discord one
     #[serde(default)]
     #[shep(secret)]
     pub token: Option<WebhookToken>,
@@ -262,23 +263,39 @@ const SHAPE: &str = "it takes a `[webhook]` table with `kind` (`discord` or `ntf
                      `[gateways.<name>]` tables with `url` and `key_env`, and nothing else";
 
 impl KelpieSettings {
-    /// Checks that the webhook's `ca_cert` file can be read
+    /// Checks the webhook's `ca_cert` in the section's text: an absolute path
+    /// to a file with a PEM certificate in it
+    ///
+    /// It reads the text and not the parsed settings, so a mistake elsewhere
+    /// in the section cannot hide a certificate that curl would then fail on.
     ///
     /// # Errors
     ///
     /// [`SettingsError::Invalid`] naming `webhook.ca_cert` and never the path.
-    pub fn check_ca_cert(&self) -> Result<(), SettingsError> {
-        let Some(ca) = self.webhook.as_ref().and_then(|w| w.ca_cert.as_ref()) else {
-            return Ok(());
-        };
+    pub fn check_ca_cert(section: &str) -> Result<(), SettingsError> {
         let invalid = |reason: &str| SettingsError::Invalid {
             setting: "webhook.ca_cert",
             reason: reason.into(),
         };
-        let file = std::fs::File::open(ca.path())
+        let Some(set) =
+            section
+                .parse::<toml::Table>()
+                .ok()
+                .and_then(|table| match table.get("webhook") {
+                    Some(toml::Value::Table(webhook)) => webhook.get("ca_cert").cloned(),
+                    _ => None,
+                })
+        else {
+            return Ok(());
+        };
+        let toml::Value::String(path) = set else {
+            return Err(invalid("must be a path"));
+        };
+        let ca = CaCert::try_from(PathBuf::from(path)).map_err(invalid)?;
+        let bytes = std::fs::read(ca.path())
             .map_err(|e| invalid(&format!("cannot be read ({})", e.kind())))?;
-        if !file.metadata().is_ok_and(|m| m.is_file()) {
-            return Err(invalid("must be a certificate file"));
+        if !String::from_utf8_lossy(&bytes).contains("-----BEGIN CERTIFICATE-----") {
+            return Err(invalid("must be a PEM file with a certificate in it"));
         }
         Ok(())
     }
@@ -560,36 +577,54 @@ mod tests {
         assert!(!err.contains("s3cr3t"), "{err}");
 
         // The file is not there, and the error says which key, not where
-        let err = s.check_ca_cert().unwrap_err().to_string();
+        let err = KelpieSettings::check_ca_cert(SELF_HOSTED)
+            .unwrap_err()
+            .to_string();
         assert!(!err.contains("s3cr3t"), "{err}");
     }
 
     #[test]
-    fn a_ca_cert_that_is_missing_or_unreadable_is_refused_naming_the_key() {
+    fn a_ca_cert_that_is_not_a_readable_certificate_is_refused_naming_the_key() {
         let dir = tempfile::tempdir().unwrap();
         let ca = dir.path().join("ca.pem");
         let with = |path: &Path| {
-            let text =
-                SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", &path.display().to_string());
-            KelpieSettings::parse(&text).unwrap()
+            SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", &path.display().to_string())
+        };
+        let refused = |text: &str| {
+            let err = KelpieSettings::check_ca_cert(text).unwrap_err().to_string();
+            assert!(err.contains("`webhook.ca_cert`"), "{err}");
+            assert!(!err.contains(&dir.path().display().to_string()), "{err}");
         };
 
-        let err = with(&ca).check_ca_cert().unwrap_err().to_string();
-        assert!(err.contains("`webhook.ca_cert`"), "{err}");
-
+        refused(&with(&ca));
         // A folder, which curl cannot read as a certificate
-        let err = with(dir.path()).check_ca_cert().unwrap_err().to_string();
-        assert!(err.contains("`webhook.ca_cert`"), "{err}");
+        refused(&with(dir.path()));
+        // Empty, and something else
+        std::fs::write(&ca, "").unwrap();
+        refused(&with(&ca));
+        std::fs::write(&ca, "-----BEGIN PRIVATE KEY-----\n").unwrap();
+        refused(&with(&ca));
+        // A path that is not absolute or not a string
+        refused(&SELF_HOSTED.replace("/etc/kelpie/s3cr3t-ca.pem", "ca.pem"));
+        refused(&SELF_HOSTED.replace("\"/etc/kelpie/s3cr3t-ca.pem\"", "7"));
 
         std::fs::write(&ca, "-----BEGIN CERTIFICATE-----\n").unwrap();
-        with(&ca).check_ca_cert().unwrap();
+        KelpieSettings::check_ca_cert(&with(&ca)).unwrap();
 
         // No certificate named is nothing to check
-        KelpieSettings::parse(&example())
-            .unwrap()
-            .check_ca_cert()
-            .unwrap();
-        KelpieSettings::default().check_ca_cert().unwrap();
+        KelpieSettings::check_ca_cert(&example()).unwrap();
+        KelpieSettings::check_ca_cert("").unwrap();
+    }
+
+    // A mistake elsewhere in the section must not hide the certificate.
+    #[test]
+    fn a_ca_cert_is_checked_though_the_rest_of_the_section_is_malformed() {
+        let text = format!("{SELF_HOSTED}[leases]\ncargo-test = 0\n");
+        assert!(KelpieSettings::from_section(&text).is_err());
+        let err = KelpieSettings::check_ca_cert(&text)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("`webhook.ca_cert`"), "{err}");
     }
 
     #[test]

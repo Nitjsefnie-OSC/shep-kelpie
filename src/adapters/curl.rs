@@ -101,18 +101,23 @@ fn poll_config(webhook: &Webhook, since: &Since) -> String {
 }
 
 // The options that let curl reach a self-hosted server: its private CA, and
-// its access token as a bearer header.
+// its access token as a bearer header. The token is ntfy's, so it goes to no
+// other kind of service, whatever the settings hold.
 fn access(webhook: &Webhook) -> Vec<(&'static str, String)> {
     let ca = webhook
         .ca_cert
         .iter()
         .map(|ca| ("cacert", ca.path().display().to_string()));
-    let token = webhook.token.iter().map(|token| {
-        (
-            "header",
-            format!("Authorization: Bearer {}", token.expose()),
-        )
-    });
+    let token = webhook
+        .token
+        .iter()
+        .filter(|_| webhook.kind == WebhookKind::Ntfy)
+        .map(|token| {
+            (
+                "header",
+                format!("Authorization: Bearer {}", token.expose()),
+            )
+        });
     ca.chain(token).collect()
 }
 
@@ -366,6 +371,14 @@ mod tests {
                 "{text}"
             );
         }
+        // The token is ntfy's: a Discord webhook never gets it
+        let discord = Webhook {
+            kind: WebhookKind::Discord,
+            ..webhook.clone()
+        };
+        let text = config(&discord, &alert("q"));
+        assert!(!text.contains("Authorization"), "{text}");
+        assert!(!text.contains("s3cr3t"), "{text}");
         // Without them a plain webhook sends neither
         let plain = webhook_without(&webhook);
         for text in [

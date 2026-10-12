@@ -187,12 +187,13 @@ fn read_section(text: &str) -> Result<KelpieSettings, String> {
     if text.trim().is_empty() {
         return Ok(KelpieSettings::default());
     }
-    let settings = KelpieSettings::from_section(text).unwrap_or_else(|e| {
+    // The text is checked, not the settings, so a mistake elsewhere in the
+    // section that salvage works around cannot drop the certificate.
+    KelpieSettings::check_ca_cert(text).map_err(|e| e.to_string())?;
+    Ok(KelpieSettings::from_section(text).unwrap_or_else(|e| {
         println!("{e}");
         salvage(text)
-    });
-    settings.check_ca_cert().map_err(|e| e.to_string())?;
-    Ok(settings)
+    }))
 }
 
 // A section that does not parse whole: the `[leases]` table and the rest

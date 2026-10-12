@@ -36,7 +36,8 @@
 # (besides this machine) is refused. `ca_cert` is the absolute path of the
 # private CA's certificate file that curl trusts, and the dog will not start
 # when it cannot be read. `token` is an access token (`ntfy token add`), sent
-# as `Authorization: Bearer <token>` on every post and every read of replies.
+# as `Authorization: Bearer <token>` on every post and every read of replies
+# (on `kind = "ntfy"` only).
 # The token is a credential like the URL. Replies still need the
 # authenticator code.
 [kelpie.webhook]
