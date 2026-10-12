@@ -116,6 +116,7 @@ pub(super) fn checks(
         lines.push(instructions(at("instructions"), &settings));
     }
     lines.extend(super::e2e::line(at("e2e"), &settings, probes.host));
+    lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.
@@ -153,6 +154,33 @@ pub(super) fn checks(
         lines.push(rulings::channel(at("rulings"), kelpie));
     }
     lines
+}
+
+// The plugins the repo turns on, as a runner starting now would load them
+// from the marketplaces it has fetched: nothing where the repo turns on none.
+// A plugin left out never fails the run, since the runner goes on without it.
+fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<Line> {
+    let plugins = crate::skills::inspect(&settings.git.checkout, here.kelpie_home);
+    if plugins.is_empty() {
+        return None;
+    }
+    let loaded = |p: &crate::skills::RepoPlugin| format!("{} ({})", p.plugin, p.skills.join(", "));
+    let skipped: Vec<String> = (plugins.iter())
+        .filter_map(|p| {
+            p.skipped
+                .as_ref()
+                .map(|why| format!("{} is skipped: {why}", p.plugin))
+        })
+        .collect();
+    if skipped.is_empty() {
+        let names: Vec<String> = plugins.iter().map(loaded).collect();
+        return Some(Line::ok(subject, format!("loads {}", names.join("; "))));
+    }
+    Some(Line::unsure(
+        subject,
+        skipped.join("; "),
+        "correct the repo's .claude/settings.json on its default branch, or let a runner fetch the marketplace by starting it",
+    ))
 }
 
 // Push access, the labels, and the review bot where CodeRabbit is listed:

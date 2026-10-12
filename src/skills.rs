@@ -22,7 +22,7 @@ use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 mod repo;
 mod vendored;
 
-pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins};
+pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins, inspect};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
 
 /// The skill `shep kelpie issue --interactive` starts with: it runs

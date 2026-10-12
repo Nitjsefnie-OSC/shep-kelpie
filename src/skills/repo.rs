@@ -20,7 +20,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use super::{copy_folder, is_kelpies_own};
-use crate::ports::Git;
+use crate::ports::{Git, GitError};
 use crate::settings::SkillName;
 
 /// The folder under the skills folder that holds the repo's plugins, so none
@@ -73,7 +73,7 @@ impl RepoPlugins {
     /// Nothing here fails: a plugin that cannot load is skipped.
     pub fn load(checkout: &Path, kelpie_home: &Path, skills: &Path, git: &dyn Git) -> Self {
         let into = skills.join(FOLDER);
-        let plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, git)
+        let plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, git, true)
             .into_iter()
             .map(|resolved| match resolved {
                 Err(skipped) => RepoPlugin::skipped(skipped.id, skipped.reason),
@@ -167,12 +167,14 @@ pub(crate) struct Skipped {
 
 /// Finds the folder of each plugin the checkout's default branch turns on,
 /// fetching the marketplaces that need it, in the order of the repo's list
+/// and `origin`'s default branch first where `refresh` is set
 pub(crate) fn resolve(
     checkout: &Path,
     kelpie_home: &Path,
     git: &dyn Git,
+    refresh: bool,
 ) -> Vec<Result<Found, Skipped>> {
-    let settings = match settings_on_default_branch(checkout) {
+    let settings = match settings_on_default_branch(checkout, refresh) {
         Ok(Some(settings)) => settings,
         Ok(None) => return Vec::new(),
         Err(reason) => {
@@ -224,11 +226,13 @@ pub(crate) fn resolve(
 
 // `.claude/settings.json` as the default branch has it, read from the
 // checkout's `origin` so a worker's branch never reaches it.
-fn settings_on_default_branch(checkout: &Path) -> Result<Option<Value>, String> {
+fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<Value>, String> {
     use crate::worktree::{BASE, git};
     // The checkout may be behind a merge that turned a plugin on; failing
     // to fetch leaves what it has.
-    let _ = git(checkout, ["fetch", "--quiet", "origin", BASE]);
+    if refresh {
+        let _ = git(checkout, ["fetch", "--quiet", "origin", BASE]);
+    }
     let spec = format!("origin/{BASE}:{SETTINGS}");
     if git(checkout, ["cat-file", "-e", &spec]).is_err() {
         return Ok(None);
@@ -323,12 +327,10 @@ fn plugin_in(root: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(root.join(relative))
 }
 
-// Writes the plugin's skills and a trimmed manifest into `dir`, replacing
-// what was there, and returns the skills' names.
-fn install(found: &Found, dir: &Path) -> Result<Vec<String>, String> {
-    let from = found.folder.join("skills");
-    let mut skills: Vec<String> = fs::read_dir(&from)
-        .map_err(|_| format!("{} has no skills folder", found.folder.display()))?
+// The names of the skills in the plugin at `folder`.
+fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
+    let mut skills: Vec<String> = fs::read_dir(folder.join("skills"))
+        .map_err(|_| format!("{} has no skills folder", folder.display()))?
         .filter_map(Result::ok)
         .filter(|entry| entry.path().join("SKILL.md").is_file())
         .filter_map(|entry| entry.file_name().into_string().ok())
@@ -337,6 +339,49 @@ fn install(found: &Found, dir: &Path) -> Result<Vec<String>, String> {
     if skills.is_empty() {
         return Err("it has no skills, and only a plugin's skills load so far".into());
     }
+    Ok(skills)
+}
+
+/// What a runner starting now would load of the checkout's plugins, from the
+/// marketplaces already fetched, writing and fetching nothing of kelpie's
+pub fn inspect(checkout: &Path, kelpie_home: &Path) -> Vec<RepoPlugin> {
+    resolve(checkout, kelpie_home, &Fetched, false)
+        .into_iter()
+        .map(|resolved| match resolved {
+            Err(skipped) => RepoPlugin::skipped(skipped.id, skipped.reason),
+            Ok(found) => match skills_in(&found.folder) {
+                Ok(skills) => RepoPlugin {
+                    plugin: found.id,
+                    skills,
+                    skipped: None,
+                    stale: None,
+                    dir: None,
+                },
+                Err(reason) => RepoPlugin::skipped(found.id, reason),
+            },
+        })
+        .collect()
+}
+
+// A git that fetches nothing: a marketplace is as the last runner left it.
+struct Fetched;
+
+impl Git for Fetched {
+    fn sync(&self, _: &str, _: Option<&str>, into: &Path) -> Result<(), GitError> {
+        if into.join(".claude-plugin/marketplace.json").is_file() {
+            return Ok(());
+        }
+        Err(GitError(
+            "it is not fetched yet, which a runner does as it starts".into(),
+        ))
+    }
+}
+
+// Writes the plugin's skills and a trimmed manifest into `dir`, replacing
+// what was there, and returns the skills' names.
+fn install(found: &Found, dir: &Path) -> Result<Vec<String>, String> {
+    let skills = skills_in(&found.folder)?;
+    let from = found.folder.join("skills");
     let manifest = manifest(&found.folder, &found.name);
     let written = (|| {
         match fs::remove_dir_all(dir) {

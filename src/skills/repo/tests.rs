@@ -390,3 +390,44 @@ fn an_address_git_would_take_for_an_option_or_a_program_is_refused() {
     rig.open().unwrap();
     assert_eq!(rig.git.asked(), []);
 }
+
+#[test]
+fn inspecting_lists_what_a_runner_would_load_and_why_it_would_not() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        let dir = marketplace(rig, "house", &[("style", "style")]);
+        land_settings(
+            rig,
+            &[
+                ("style@house", true),
+                ("absent@house", true),
+                ("far@away", true),
+            ],
+            &[("house", directory(&dir)), ("away", github("acme/away"))],
+        );
+    });
+
+    let plugins = super::inspect(&rig.repo(), &rig.paths().kelpie_home);
+
+    let seen: Vec<_> = plugins
+        .iter()
+        .map(|p| (p.plugin.as_str(), p.skills.clone(), p.skipped.as_deref()))
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            (
+                "absent@house",
+                vec![],
+                Some("the marketplace lists no plugin absent")
+            ),
+            (
+                "far@away",
+                vec![],
+                Some(
+                    "fetching the away marketplace failed: it is not fetched yet, which a runner does as it starts"
+                )
+            ),
+            ("style@house", vec!["style".to_owned()], None),
+        ]
+    );
+}

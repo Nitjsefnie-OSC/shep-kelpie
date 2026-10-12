@@ -379,6 +379,18 @@ A step that runs a skill starts its prompt with the skill's slash command, such 
 
 A skill that can't load runs shep-kelpie's own prompt instead. The runner logs why, and `status` shows it under `skills`.
 
+#### Repo plugins
+
+A plugin the repo turns on in its `.claude/settings.json` reaches every agent shep-kelpie runs there, which a headless Claude Code run does not do by itself: it loads only installed plugins, and workers run with `--setting-sources project`. So `rust-house-style:rust-house-style`, named in a repo's docs, is a skill its workers can call.
+
+- As a runner starts, and when it rereads its settings, it reads `.claude/settings.json` on the checkout's default branch, never a worker's branch, so a pull request cannot turn a plugin on for its own review.
+- Each `enabledPlugins` entry set to `true` is looked up in `extraKnownMarketplaces`. A `github` or `git` source is cloned, or fetched if already there, with the runner's own `git` into `<kelpie home>/marketplaces/<name>`. A `directory` source is read where it is, a relative path from the checkout.
+- The plugin's folder is found in the marketplace's `.claude-plugin/marketplace.json`. Its `skills/` and a trimmed manifest are copied into a plugin of the same name under `<project folder>/skills/repo/<name>`, rewritten at every start, so its skills keep their names.
+- The worker's turns, the reviewers and the project manager get it as one more `--plugin-dir`.
+- Only a plugin's skills load so far. Its hooks, commands, agents and MCP servers do not, and a plugin with no skills is skipped. A plugin whose marketplace entry points outside the marketplace is skipped too.
+
+A plugin that cannot load is skipped, the runner logs why and the run goes on: no `extraKnownMarketplaces` entry, a failed fetch with no copy yet, no such plugin in the marketplace, no skills, or a name shep-kelpie keeps for itself (`mattpocock`, `kelpie-<step>`). A failed fetch keeps the last good copy and `status` marks the plugin stale. `status` lists each plugin under `plugins` with its skills or why it was skipped, and `doctor` reports the same under `repo plugins` from the marketplaces already fetched, without fetching any.
+
 #### Retros
 
 When a work item finishes, merged or closed, shep-kelpie resumes its worker's session once with the `retro` step's prompt, before the worktree is removed. The worker only reports. The turn can read and search its worktree and nothing else: it edits no file, runs no command and pushes nothing, on every harness a worker runs on. On Claude Code that is an allow-list, `--tools Read,Glob,Grep,Skill` with no MCP server loaded, so nothing a project's settings allow adds to it. Its reply is the report, and the runner writes it, since the worker's fence can't reach shep-kelpie's home, to `<kelpie home>/retro-reports/unverified/<project>-<issue>-<time>.md`, headed with the project, issue, pull request, whether it merged, the worker's agent and its session.
