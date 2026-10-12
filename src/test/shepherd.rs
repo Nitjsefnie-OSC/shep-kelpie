@@ -133,11 +133,16 @@ impl FakeShepherd {
         sheep.starting = true;
     }
 
-    /// Has the sheep `name` run `program` from now on, as if it were pointed elsewhere
-    pub(crate) fn moves(&self, name: &str, program: &str) {
-        let mut flock = self.flock.lock().unwrap();
-        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
-        program.clone_into(&mut sheep.config.script);
+    /// A way to have a sheep `name` run `program` from now on, as if it were
+    /// pointed elsewhere, that another thread can hold while an upgrade
+    /// blocks this one waiting on a build
+    pub(crate) fn mover(&self) -> impl Fn(&str, &str) + Send + 'static {
+        let flock = Arc::clone(&self.flock);
+        move |name, program| {
+            let mut flock = flock.lock().unwrap();
+            let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+            program.clone_into(&mut sheep.config.script);
+        }
     }
 
     /// Has `name` answer its `status` triggers with `bodies` in turn, the last one from then on

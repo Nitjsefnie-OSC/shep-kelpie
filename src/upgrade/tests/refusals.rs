@@ -277,16 +277,25 @@ async fn a_dog_that_moved_during_the_build_stops_the_upgrade_before_anything_is_
             answer.trim_start_matches("#!/bin/sh\n")
         ),
     );
-    let moving = async {
-        while !started.exists() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    // Asking the build blocks the upgrade's thread, so another thread moves the dog.
+    let move_to = rig.shepherd.mover();
+    let moving = std::thread::spawn({
+        let gate = gate.clone();
+        move || {
+            for _ in 0..1000 {
+                if started.exists() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for name in ["kelpie", "koji"] {
+                move_to(name, "/opt/kelpie/bin/kelpie");
+            }
+            std::fs::write(gate, "").unwrap();
         }
-        for name in ["kelpie", "koji"] {
-            rig.shepherd.moves(name, "/opt/kelpie/bin/kelpie");
-        }
-        std::fs::write(&gate, "").unwrap();
-    };
-    let ((ran, said), ()) = tokio::join!(rig.install(&slow), moving);
+    });
+    let (ran, said) = rig.install(&slow).await;
+    moving.join().unwrap();
     let err = ran.unwrap_err();
     assert!(
         err.contains("the dog runs /opt/kelpie/bin/kelpie now"),
