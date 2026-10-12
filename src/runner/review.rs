@@ -22,6 +22,7 @@ mod foreign;
 #[cfg(test)]
 mod green;
 mod lineup;
+pub(super) use lineup::{changed_files, matches};
 #[cfg(test)]
 mod local;
 #[cfg(test)]

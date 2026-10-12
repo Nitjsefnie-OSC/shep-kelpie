@@ -12,6 +12,7 @@ use crate::test::{Rig, Scripted};
 
 mod measures;
 mod reopening;
+mod scrutiny;
 
 /// An expert's reply voting `choice` with a reason that names it
 fn says(who: &str, choice: char, design: bool) -> String {
@@ -291,10 +292,9 @@ fn a_split_in_a_smaller_panel_asks_the_next_one_up() {
 }
 
 #[test]
-fn a_design_flag_in_a_smaller_panel_asks_the_next_one_up() {
+fn a_design_flag_in_a_smaller_panel_asks_the_full_one() {
     let (rig, runner) = ruling("j-docs-design", "docs: say more", Merging::Auto, PANEL);
-    // The project manager flags design, so the project manager and the advisor are asked,
-    // and then all four.
+    // The project manager flags design, so all four are asked.
     script(&rig, ["A", "A!", "A", "A"]);
 
     voted(&rig, &runner);

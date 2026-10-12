@@ -1,10 +1,12 @@
 //! How the panel's votes decide a ruling
 //!
 //! The work item's type, from its pull request's conventional title, sets
-//! the [`Tier`] the panel starts at. A smaller panel decides only when
-//! everyone it asked picked the same option and nobody flagged `design`;
-//! otherwise the next one up is asked, and the full panel decides on three
-//! votes of four. Anything less is for the maintainer. [`settle`] is one
+//! the [`Tier`] the panel starts at, unless the ruling is a question or
+//! touches a risky path, which start at the full panel (see
+//! [`super::first_tier`]). A smaller panel decides only when everyone it asked
+//! picked the same option and nobody flagged `design`; otherwise the next one
+//! up is asked, or the full panel on a `design` flag. The full panel decides on
+//! three votes of four. Anything less is for the maintainer. [`settle`] is one
 //! stage of that, over the ballots so far, and knows nothing of the runner.
 
 use serde::{Deserialize, Serialize};
@@ -165,6 +167,13 @@ pub struct Verdict {
     /// What the panel stood behind, if anything
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub advice: Option<Advice>,
+    /// Whether the work item's diff touched a path on `rulings.full_panel_paths`
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub risky: bool,
+    /// Whether all four experts voted blind and nothing was decided, as
+    /// `rulings.decide = "shadow"` has it
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shadow: bool,
 }
 
 /// What one stage came to
@@ -183,9 +192,17 @@ pub enum Step {
     },
 }
 
-/// What `stage` comes to over `ballots`; an expert with no ballot abstains
-pub fn settle(stage: Stage, work: Tier, ballots: &[Ballot]) -> Step {
-    let asked = stage.voters();
+/// What the votes of the experts a panel asks come to
+pub(super) struct Judgement {
+    /// The option they stand behind: all of a smaller panel on one option, or
+    /// [`MAJORITY`] of the full one
+    pub advice: Option<Advice>,
+    /// Whether any of them flagged `design`
+    pub design: bool,
+}
+
+/// What `asked` come to over `ballots`; an expert with no ballot abstains
+pub(super) fn judge(asked: &[Voter], ballots: &[Ballot]) -> Judgement {
     let cast: Vec<Option<&Vote>> = (asked.iter())
         .map(|voter| {
             let ballot = ballots.iter().find(|b| b.voter == *voter);
@@ -194,28 +211,50 @@ pub fn settle(stage: Stage, work: Tier, ballots: &[Ballot]) -> Step {
         .collect();
     let design = cast.iter().flatten().any(|v| v.design);
     let of = u32::try_from(asked.len()).unwrap_or(u32::MAX);
+    let advice = match asked.len() == Voter::ALL.len() {
+        true => recommend(&cast, of),
+        false => unanimous(&cast, of),
+    };
+    Judgement { advice, design }
+}
+
+/// What `stage` comes to over `ballots`; an expert with no ballot abstains
+///
+/// `work` is the panel asked after the project manager alone. A `design` flag in
+/// a smaller panel asks the full one, whatever the work item's type.
+pub fn settle(stage: Stage, work: Tier, ballots: &[Ballot]) -> Step {
+    let Judgement { advice, design } = judge(stage.voters(), ballots);
     if stage == Stage::Tier(Tier::Full) {
-        return match (recommend(&cast, of), design) {
+        return match (advice, design) {
             (Some(advice), false) => Step::Decided(advice),
             (advice, design) => Step::Maintainer { advice, design },
         };
     }
-    let first = cast.first().copied().flatten().map(|v| v.choice);
-    let same = cast.iter().all(|v| v.map(|v| v.choice) == first);
-    match first {
-        Some(choice) if same && !design => Step::Decided(Advice {
-            choice,
-            agree: of,
-            of,
-        }),
-        _ => match stage.up(work) {
-            Some(up) => Step::Up(up),
-            None => Step::Maintainer {
-                advice: None,
-                design,
-            },
+    if let (Some(advice), false) = (advice, design) {
+        return Step::Decided(advice);
+    }
+    let up = match design {
+        true => Some(Stage::Tier(Tier::Full)),
+        false => stage.up(work),
+    };
+    match up {
+        Some(up) => Step::Up(up),
+        None => Step::Maintainer {
+            advice: None,
+            design,
         },
     }
+}
+
+// The option every one of the votes chose, with `of` asked; an abstention is
+// not agreement.
+fn unanimous(cast: &[Option<&Vote>], of: u32) -> Option<Advice> {
+    let choice = cast.first().copied().flatten().map(|v| v.choice)?;
+    (cast.iter().all(|v| v.map(|v| v.choice) == Some(choice))).then_some(Advice {
+        choice,
+        agree: of,
+        of,
+    })
 }
 
 // The option at least [`MAJORITY`] of the votes chose, with `of` asked.

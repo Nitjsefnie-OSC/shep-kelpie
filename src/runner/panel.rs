@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use super::Runner;
 use super::pm::Wake;
 use crate::panel::{
-    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, settle, simulate, work_of,
+    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, simulate, work_of,
 };
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
@@ -85,6 +85,11 @@ pub(super) struct Plan {
     kind: RulingName,
     // The work item's type, and the panel it sets
     work: Work,
+    // Whether its diff touches a path on `rulings.full_panel_paths`
+    risky: bool,
+    // The panel it starts at: all four for a question or a risky diff, else
+    // the one the type sets
+    tier: Tier,
     // Under `shadow` every expert is asked at once and nothing is decided
     shadow: bool,
     // Where the panel starts, and where it is now
@@ -101,6 +106,8 @@ impl Plan {
         Self {
             kind,
             work,
+            risky: false,
+            tier: Tier::Full,
             shadow: true,
             start: stage,
             stage,
@@ -282,12 +289,14 @@ impl Runner {
         );
         let asked = super::voice::brief(ruling).0;
         let work = self.panel_work(id, number);
+        let risky = self.panel_risky(id, issue);
+        let tier = first_tier(work.tier, kind == RulingName::Question, risky);
         let shadow = self.settings.rulings.decide == Decide::Shadow;
         // A kind the project manager decides alone starts with it alone, if it is there.
         let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some();
         let first = match alone {
             true => Stage::Alone,
-            false => Stage::Tier(work.tier),
+            false => Stage::Tier(tier),
         };
         // Under shadow all four are asked and nothing is decided.
         let stage = match shadow {
@@ -297,6 +306,8 @@ impl Runner {
         let plan = Plan {
             kind,
             work,
+            risky,
+            tier,
             shadow,
             start: first,
             stage,
@@ -369,6 +380,32 @@ impl Runner {
         }
     }
 
+    // Whether the diff of ruling `id`'s work item from its merge base touches
+    // a path on `rulings.full_panel_paths`, which calls the full panel. With
+    // no list, or no work item, there is nothing to read. A diff that cannot
+    // be read counts as touching one, since this only ever raises scrutiny.
+    fn panel_risky(&mut self, id: u64, issue: Option<u64>) -> bool {
+        let globs = self.settings.rulings.full_panel_paths.clone();
+        let Some(item) = issue.and_then(|n| self.state.item(n)).filter(|_| !globs.is_empty())
+        else {
+            return false;
+        };
+        let (repo, worktree) = (&self.settings.git.checkout, &item.worktree);
+        let changed = super::review::changed_files(repo, worktree, &item.review_base());
+        match changed {
+            Ok(files) => files
+                .iter()
+                .any(|file| globs.iter().any(|glob| super::review::matches(glob, file))),
+            Err(e) => {
+                self.notes.push(format!(
+                    "ruling {id}: cannot read the diff of its work item, so its panel is all \
+                     four: {e}"
+                ));
+                true
+            }
+        }
+    }
+
     // Whether `issue`'s work item has a worker to ask, or why not.
     fn panel_worker(&self, issue: Option<u64>) -> (bool, String) {
         let Some(item) = issue.and_then(|n| self.state.item(n)) else {
@@ -424,7 +461,7 @@ impl Runner {
             let ballots = ballots_of(open);
             let up = match open.plan.shadow {
                 true => None,
-                false => match settle(open.plan.stage, open.plan.work.tier, &ballots) {
+                false => match settle(open.plan.stage, open.plan.tier, &ballots) {
                     Step::Up(up) => Some(up),
                     _ => None,
                 },
@@ -467,10 +504,9 @@ impl Runner {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let tier = plan.work.tier;
         let step = match plan.shadow {
-            true => simulate(plan.start, tier, &ballots).1,
-            false => settle(plan.stage, tier, &ballots),
+            true => simulate(plan.start, plan.tier, &ballots).1,
+            false => settle(plan.stage, plan.tier, &ballots),
         };
         let advice = match step {
             Step::Decided(advice) => Some(advice),
@@ -484,8 +520,10 @@ impl Runner {
         ruling.panel = Some(ballots);
         ruling.verdict = Some(Verdict {
             work: plan.work.kind.clone(),
-            tier,
+            tier: plan.work.tier,
             advice,
+            risky: plan.risky,
+            shadow: plan.shadow,
         });
         // A merge under `ask` is the maintainer's whatever the panel says.
         let asks_merge = matches!(ruling.kind, RulingKind::Merge { .. })
