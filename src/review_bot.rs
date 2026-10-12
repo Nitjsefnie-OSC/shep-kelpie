@@ -259,6 +259,12 @@ pub enum Reading {
         /// When it marked the head done
         at: Timestamp,
     },
+    /// The bot declined the summon and will not review: its settings do not
+    /// let the summon start a review
+    Declined {
+        /// What it said, as its status reads
+        status: &'static str,
+    },
     /// Nothing yet
     Silent,
 }

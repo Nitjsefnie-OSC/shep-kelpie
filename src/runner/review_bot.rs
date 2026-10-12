@@ -564,6 +564,22 @@ impl Runner {
                     opens,
                 }))
             }
+            // Its settings do not let the summon start a review, and no
+            // wait changes them: the pass goes on without it.
+            Reading::Declined { status } => {
+                self.release(bot)?;
+                if let Err(reason) = self.label(bot, number, false) {
+                    return Ok(self.gate_failed(reason));
+                }
+                let reviewer = self.round_reviewer(bot);
+                self.pass_over(
+                    number,
+                    BotSkipped::Declined {
+                        reviewer,
+                        status: status.to_owned(),
+                    },
+                )
+            }
             Reading::Silent | Reading::Processing | Reading::Completed { .. }
                 if waited >= REVIEW_WAIT =>
             {
