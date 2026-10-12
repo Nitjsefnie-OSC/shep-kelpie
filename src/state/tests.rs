@@ -469,7 +469,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_32() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (saved["version"].clone(), saved.get("finishing")),
-        (31.into(), None)
+        (32.into(), None)
     );
 
     loaded.finishing = true;
@@ -756,14 +756,14 @@ fn a_newer_format_is_reported_as_one() {
     let store = store_in(dir.path());
     fs::write(
         dir.path().join("state.json"),
-        r#"{"version": 32, "shape": "new"}"#,
+        r#"{"version": 33, "shape": "new"}"#,
     )
     .unwrap();
     assert_eq!(
         store.load().unwrap_err(),
         StateError::Version {
             path: store.path.clone(),
-            found: 32
+            found: 33
         }
     );
 }

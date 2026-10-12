@@ -4,24 +4,26 @@
 //! panel's ballots and what the panel concluded, so `status` can say from it
 //! how the panel stands: the run of rulings its recommendation matched, the
 //! same for the project manager's vote alone by kind of ruling, each expert's
-//! agreement and how often it alone was right, and what each smaller panel
-//! would have decided against the answers. The panel's cost is in the usage
-//! ledger, and `shep kelpie usage` reads it there.
+//! agreement and how often it alone was right (also by kind of ruling), what
+//! each smaller panel would have decided against the answers, and what each
+//! candidate policy for who votes would have done over the rulings answered
+//! under `shadow`. The panel's cost is in the usage ledger, `shep kelpie usage`
+//! reads it there, and so does the cost of a policy.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
 use super::history::Record;
-use crate::panel::{Stage, Step, Tier, Voter, settle};
-use crate::settings::Decide;
+use crate::panel::{Case, Policy, Stage, Step, Tier, Voter, settle};
+use crate::settings::{Decide, RulingName};
 
 /// After this many rulings the panel has voted on, the design log is due a
 /// Facts entry on what it cost and how it did
 pub(super) const FACTS_AFTER: usize = 30;
 
 /// How the panel stands, as `status` reports it
-#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, PartialEq, Serialize)]
 pub struct Standing {
     /// Whether the panel decides or only votes
     pub decide: Decide,
@@ -43,17 +45,31 @@ pub struct Standing {
     pub experts: BTreeMap<String, Expert>,
     /// What each panel, asked alone, would have decided against the answers
     pub panels: BTreeMap<String, Panel>,
+    /// What each candidate policy for who votes would have done over the
+    /// rulings answered under `shadow`, by its name
+    pub whatif: BTreeMap<String, Score>,
     /// Whether the design log is due its Facts entry on the panel
     pub facts_due: bool,
 }
 
 /// One expert's votes against the maintainer's answers
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 pub struct Expert {
     /// Votes it gave on rulings the maintainer answered
     pub votes: u32,
     /// Times it abstained
     pub abstained: u32,
+    /// Votes that were the maintainer's answer
+    pub agreed: u32,
+    /// Times it was the only one whose vote was the maintainer's answer
+    pub lone: u32,
+    /// `agreed` and `lone` by kind of ruling, over the same answers
+    pub by_kind: BTreeMap<String, Agreement>,
+}
+
+/// How often an expert agreed with the maintainer on one kind of ruling
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Agreement {
     /// Votes that were the maintainer's answer
     pub agreed: u32,
     /// Times it was the only one whose vote was the maintainer's answer
@@ -69,8 +85,28 @@ pub struct Panel {
     pub matched: u32,
 }
 
-/// How the panel stands over `records`, the rulings answered in order
-pub(super) fn standing(decide: Decide, records: &[Record]) -> Standing {
+/// What a policy for who votes would have done over the rulings answered under `shadow`
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize)]
+pub struct Score {
+    /// Rulings it would have decided without the maintainer
+    pub decided: u32,
+    /// Of those, the ones it decided as the maintainer answered
+    pub matched: u32,
+    /// Rulings it would have sent to the maintainer
+    pub maintainer: u32,
+    /// What it would have cost a ruling, in US dollars: the ledger lines of
+    /// the votes it asks, its escalations included. A call with no reported
+    /// cost adds nothing.
+    pub cost: f64,
+}
+
+/// How the panel stands over `records`, the rulings answered in order, with
+/// what each expert's vote on each ruling cost in `costs`
+pub(super) fn standing(
+    decide: Decide,
+    records: &[Record],
+    costs: &BTreeMap<(u64, Voter), f64>,
+) -> Standing {
     let mut stand = Standing {
         decide,
         ..Standing::default()
@@ -85,12 +121,25 @@ pub(super) fn standing(decide: Decide, records: &[Record]) -> Standing {
             .panels
             .insert(tier.name().to_owned(), Panel::default());
     }
+    for policy in Policy::ALL {
+        (stand.whatif).insert(policy.name().to_owned(), Score::default());
+    }
+    let mut scored: u32 = 0;
     for record in records.iter().filter(|r| !r.ballots.is_empty()) {
         stand.voted += 1;
         stand.decided += usize::from(record.by_panel);
         if record.by_maintainer() {
             stand.answered += 1;
             count(&mut stand, record);
+            if let Some(case) = shadowed(record) {
+                scored += 1;
+                play(&mut stand, record.id, record.chose, &case, costs);
+            }
+        }
+    }
+    if scored > 0 {
+        for score in stand.whatif.values_mut() {
+            score.cost /= f64::from(scored);
         }
     }
     stand.facts_due = stand.voted >= FACTS_AFTER;
@@ -130,13 +179,21 @@ fn count(stand: &mut Standing, record: &Record) {
             .experts
             .entry(ballot.voter.name().to_lowercase())
             .or_default();
+        let by_kind = record
+            .kind
+            .map(|kind| expert.by_kind.entry(kind.as_str().to_owned()));
         match &ballot.vote {
             None => expert.abstained += 1,
             Some(vote) => {
                 expert.votes += 1;
-                if Some(vote.choice) == chose {
-                    expert.agreed += 1;
-                    expert.lone += u32::from(agreeing == [ballot.voter]);
+                let agreed = Some(vote.choice) == chose;
+                let lone = agreed && agreeing == [ballot.voter];
+                expert.agreed += u32::from(agreed);
+                expert.lone += u32::from(lone);
+                if let Some(by_kind) = by_kind {
+                    let by_kind = by_kind.or_default();
+                    by_kind.agreed += u32::from(agreed);
+                    by_kind.lone += u32::from(lone);
                 }
             }
         }
@@ -148,6 +205,42 @@ fn count(stand: &mut Standing, record: &Record) {
             panel.decided += 1;
             panel.matched += u32::from(Some(advice.choice) == chose);
         }
+    }
+}
+
+// The case a ruling answered under `shadow` makes for a policy, if it was.
+fn shadowed(record: &Record) -> Option<Case<'_>> {
+    let verdict = record.verdict.as_ref().filter(|v| v.shadow)?;
+    Some(Case {
+        question: record.kind == Some(RulingName::Question),
+        risky: verdict.risky,
+        tier: verdict.tier,
+        ballots: &record.ballots,
+    })
+}
+
+// Scores every policy on ruling `id`, answered as `chose`.
+fn play(
+    stand: &mut Standing,
+    id: u64,
+    chose: Option<char>,
+    case: &Case<'_>,
+    costs: &BTreeMap<(u64, Voter), f64>,
+) {
+    for policy in Policy::ALL {
+        let outcome = policy.play(case);
+        let score = stand.whatif.entry(policy.name().to_owned()).or_default();
+        match outcome.decided {
+            Some(choice) => {
+                score.decided += 1;
+                score.matched += u32::from(Some(choice) == chose);
+            }
+            None => score.maintainer += 1,
+        }
+        let asked = outcome.asked.iter();
+        score.cost += asked
+            .map(|voter| costs.get(&(id, *voter)).copied().unwrap_or(0.0))
+            .sum::<f64>();
     }
 }
 

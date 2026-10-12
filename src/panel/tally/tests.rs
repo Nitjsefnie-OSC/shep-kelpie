@@ -115,7 +115,8 @@ fn a_design_flag_sends_it_to_the_maintainer_with_the_recommendation() {
 }
 
 #[test]
-fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design_and_a_flag_asks_the_full_one() {
+fn a_smaller_panel_decides_only_when_all_it_asked_agree_with_no_design_and_a_flag_asks_the_full_one()
+ {
     let docs = Stage::Tier(Tier::Docs);
     let pm = [ballot(Voter::Pm, Some('A'), false)];
     assert_eq!(

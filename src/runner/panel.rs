@@ -170,7 +170,14 @@ impl Runner {
     pub(super) fn panel_status(&self) -> Option<Standing> {
         self.panel_enabled().then(|| {
             let records = history::records(&self.paths.rulings);
-            measure::standing(self.settings.rulings.decide, &records)
+            // The ledger is read only when some ruling can be scored with it.
+            let scorable = (records.iter()).any(|r| r.verdict.as_ref().is_some_and(|v| v.shadow));
+            let lines = match scorable {
+                true => crate::usage::read(self.ledger.path()).unwrap_or_default(),
+                false => Vec::new(),
+            };
+            let costs = crate::usage::vote_costs(&lines);
+            measure::standing(self.settings.rulings.decide, &records, &costs)
         })
     }
 
@@ -386,7 +393,9 @@ impl Runner {
     // be read counts as touching one, since this only ever raises scrutiny.
     fn panel_risky(&mut self, id: u64, issue: Option<u64>) -> bool {
         let globs = self.settings.rulings.full_panel_paths.clone();
-        let Some(item) = issue.and_then(|n| self.state.item(n)).filter(|_| !globs.is_empty())
+        let Some(item) = issue
+            .and_then(|n| self.state.item(n))
+            .filter(|_| !globs.is_empty())
         else {
             return false;
         };

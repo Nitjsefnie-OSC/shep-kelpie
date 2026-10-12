@@ -764,7 +764,19 @@ Not every ruling needs four votes. The work item's type, from its pull request's
 | `fix`, `refactor`, `perf`, `test`, `ci`, `chore`, `style` | the project manager and the advisor |
 | `feat`, a type marked breaking with `!`, or no type | the project manager, the advisor and the researcher, with the worker: all four |
 
-A smaller panel decides only when everyone it asked picks the same option and nobody flags `design`. Otherwise kelpie asks the next panel up, and the full panel decides on three votes of four. A vote the experts of the smaller panel already gave is not asked again. A merge under `git.merging = "ask"` goes to you whatever the panel says. A pull request whose title cannot be read is all four's.
+A smaller panel decides only when everyone it asked picks the same option and nobody flags `design`. Otherwise kelpie asks the next panel up, or the full panel at once when a vote flags `design`, and the full panel decides on three votes of four. A vote the experts of the smaller panel already gave is not asked again. A merge under `git.merging = "ask"` goes to you whatever the panel says. A pull request whose title cannot be read is all four's.
+
+The type is what the worker wrote in the title, so two rules only ever raise the panel, whatever the type says:
+
+- A `question` ruling is all four's.
+- A ruling on a work item whose diff from its merge base touches a path on `rulings.full_panel_paths` is all four's. The list is globs and is empty when absent, which changes nothing. A diff kelpie cannot read counts as touching one.
+
+```toml
+[app.dogs.kelpie.rulings]
+full_panel_paths = ["src/guard/**", "src/github/**", ".github/workflows/**", "src/settings/**", "src/state.rs"]
+```
+
+The list above is a starting point for this repo: the guard, the forge calls, the workflows, the settings and the state file.
 
 `rulings.pm_alone` lists kinds of ruling the project manager decides with its own vote on any type of work, for the kinds whose answer turns on facts it reads from the board. It is empty when absent:
 
@@ -774,7 +786,7 @@ decide = "panel"
 pm_alone = ["turn-timeout", "still-red"]
 ```
 
-The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `merge-refused`, `closed`, `local-model-spilled`, `fix-not-pushed`, `unpushed`, `turn-timeout`, `turn-failed` and `unlabelled`. `merge` is refused: the runner does not start, naming `rulings.pm_alone`, and a change that adds it while the runner runs is refused too, keeping the settings it has. A `design` flag from the project manager, or an abstention, calls the panel the item's type sets. Under `shadow` every expert still votes, and `status` reports, for each kind of ruling, the run of rulings where the project manager's vote was your answer (`pm_alone`), the way to see which kinds to list. A vote that flagged `design` or abstained leaves a kind's run as it is.
+The kinds are `question`, `agent-files`, `foreign-change`, `follow-up`, `rebase`, `still-red`, `merge-refused`, `closed`, `local-model-spilled`, `fix-not-pushed`, `unpushed`, `turn-timeout`, `turn-failed` and `unlabelled`. `merge` is refused: the runner does not start, naming `rulings.pm_alone`, and a change that adds it while the runner runs is refused too, keeping the settings it has. A `design` flag from the project manager calls the full panel, and an abstention the panel the item's type sets, or all four for a question or a risky path. Under `shadow` every expert still votes, and `status` reports, for each kind of ruling, the run of rulings where the project manager's vote was your answer (`pm_alone`), the way to see which kinds to list. A vote that flagged `design` or abstained leaves a kind's run as it is.
 
 An expert's agent can be off the panel: an advisor or researcher the project does not name is never asked, and counts as an abstention, so a project without a researcher decides a `feat` on three of three.
 
@@ -784,8 +796,17 @@ The panel costs up to four agent calls on every ruling, one of them Opus at high
 
 - Every vote is a line in the usage ledger (`usage.jsonl`) with `votes`: the ruling's id and kind, the expert, the panel the item's type set (`pm`, `pm+advisor` or `all`), the type, and its choice, left out for an abstention. The line holds the call's tokens, cost and wall time as any call's does. The project manager's wake is counted the same way: its line has a vote for each ruling it voted on, and shares its cost between them.
 - `shep kelpie usage` splits the panel's votes by expert, by kind of ruling and by type: calls, cost, median wall time, abstentions, and the cost per ruling. A wake that also served another reason counts in full.
-- `status` reports, as `panel`, each expert's votes, abstentions, `agreed` (votes that were your answer) and `lone` (times it alone was right, such as the one vote for a `no` you then gave), and what each smaller panel, asked alone, would have decided against your answers (`panels`: how many, and how many as you answered). It comes from `rulings.jsonl`, which holds the rulings answered from this build on. An expert that is never the only one right adds cost and no decisions.
-- After a project's first 30 panel rulings (`facts_due` in `status`) the design log gets a Facts entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, and what each smaller panel would have decided against your answers. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, or list more kinds under `rulings.pm_alone`.
+- `status` reports, as `panel`, each expert's votes, abstentions, `agreed` (votes that were your answer) and `lone` (times it alone was right, such as the one vote for a `no` you then gave), and what each smaller panel, asked alone, would have decided against your answers (`panels`: how many, and how many as you answered). It comes from `rulings.jsonl`, which holds the rulings answered from this build on. An expert that is never the only one right adds cost and no decisions. Each expert's `agreed` and `lone` are also split by kind of ruling (`by_kind`). Both count only your answers, not the project manager's or the panel's.
+- `status` also reports, as `whatif`, how seven candidate policies for who votes would have done over the rulings answered under `shadow`, where every expert votes blind so any policy can be played over the same ballots with no extra call. The candidates are fixed in code and are not a setting:
+  - `type`: the table above, none of the rules after it
+  - `type+risk`: the table with the rules after it, which is what `panel` does
+  - `kind+risk`: all four for a question, a `design` flag or a risky path, the project manager and the advisor for every other ruling
+  - `kind+risk-researcher`: the same with the researcher in the advisor's place
+  - `pm+advisor` and `pm+researcher`: that pair on every ruling, with nobody above it
+  - `all`: all four on every ruling
+
+  For each: `decided` (rulings it would have decided without you), `matched` (of those, the ones it decided as you answered), `maintainer` (rulings it would have sent to you) and `cost`, per ruling, summed from the ledger lines of the votes it would have asked, an escalation's included. A call with no reported cost adds nothing. Only rulings answered under a build with `whatif` count, since an older line does not say whether it was a shadow run or a risky path.
+- After a project's first 30 panel rulings (`facts_due` in `status`) the design log gets a Facts entry: cost per ruling and per expert, each expert's agreement and lone-correct count, abstentions, what each smaller panel would have decided against your answers, and the `whatif` table. Use it to keep, drop or downgrade an expert, move a type to a smaller or larger panel, pick the policy `panel` should use, or list more kinds under `rulings.pm_alone`.
 
 ## Upgrading
 
@@ -906,7 +927,7 @@ A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in t
 - `git.issues`: what becomes of deferred findings, `ask`, `file` or `skip` (see [The review](#the-review)). `ask` when left out
 - `ci.block`: whether the repo runs CI that a merge waits for, and `ci.fix_attempts`: how many fix turns red runs get, `-1` for no cap (see [CI and the merge](#ci-and-the-merge))
 - `concurrency.active_items` and `concurrency.pending_rulings`: how many work items hold a slot, and how many parked on rulings stop the board opening new ones, which is not a cap on rulings (see [The board](#the-board))
-- `rulings.decide` and `rulings.pm_alone`: see [Deciding](#deciding) and [Who votes](#who-votes)
+- `rulings.decide`, `rulings.pm_alone` and `rulings.full_panel_paths`: see [Deciding](#deciding) and [Who votes](#who-votes)
 - `agents.implementers`, `agents.reviewers`, `agents.pm` and `agents.fallback_after`: see [Agents](#agents). `agents.advisor`, `agents.researcher`, `researcher.transcripts` and `researcher.allowed_domains`: see [The panel](#the-panel). `agents.issue_writer`: see [Writing issues](#writing-issues)
 - `pacing.enabled` and `pacing.kickoff_hours`: whether usage holds work, and the hours a day the per-hour figure in `status` divides the day's allowance by
 - `worker.allowed_domains`, `worker.build_env` (variables that point tool caches into the build folder), `worker.instructions_file`, `worker.guard_hooks` (Claude Code hooks of the project's own, after kelpie's guard), `worker.turn_timeout` and `worker.compact_window` (the tokens of context at which Claude Code compacts a worker's session in the middle of a turn, 200000 by default, where it would otherwise wait for the model's whole window; `0` leaves it out. After a compaction the worker is handed the turn's prompt again. Reviewers and the project manager are not bounded)

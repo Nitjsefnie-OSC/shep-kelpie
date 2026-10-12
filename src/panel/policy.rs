@@ -6,7 +6,7 @@
 //! and are not a setting. Once the data picks one, a later change makes it
 //! what `panel` means and removes the rest.
 
-use super::tally::{judge, Judgement};
+use super::tally::{Judgement, judge};
 use super::{Ballot, Tier, Voter};
 
 /// The panel a ruling starts at under `panel`: all four for a question or a

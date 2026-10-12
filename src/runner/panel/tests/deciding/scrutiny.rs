@@ -66,7 +66,10 @@ fn a_docs_item_whose_diff_touches_a_full_panel_path_asks_all_four() {
 #[test]
 fn a_diff_that_touches_no_full_panel_path_leaves_the_types_panel() {
     for (project, rulings) in [
-        ("p-none", format!("{PANEL}\nfull_panel_paths = [\"src/**\"]")),
+        (
+            "p-none",
+            format!("{PANEL}\nfull_panel_paths = [\"src/**\"]"),
+        ),
         ("p-empty", format!("{PANEL}\nfull_panel_paths = []")),
         ("p-absent", PANEL.to_owned()),
     ] {
@@ -82,4 +85,3 @@ fn a_diff_that_touches_no_full_panel_path_leaves_the_types_panel() {
         assert!(said.contains("(1 of 1)"), "{project}: {said}");
     }
 }
-

@@ -847,6 +847,18 @@ fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone
 }
 
 #[test]
+fn full_panel_paths_default_to_none_and_take_globs() {
+    assert!(parse(EXAMPLE).unwrap().rulings.full_panel_paths.is_empty());
+    let on = "\n[app.dogs.kelpie.rulings]\n\
+              full_panel_paths = [\"src/guard/**\", \".github/workflows/**\"]\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(
+        rulings.full_panel_paths,
+        ["src/guard/**", ".github/workflows/**"]
+    );
+}
+
+#[test]
 fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
     let kind = parse_err(&format!(
         "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"coffee\"]\n"
