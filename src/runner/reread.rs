@@ -254,9 +254,7 @@ mod tests {
     fn a_changed_budget_takes_effect_at_once() {
         let rig = Rig::new("shep");
         let runner = rig.open().unwrap();
-        let next = settings_with(&rig, |s| {
-            format!("{s}\n[app.dogs.kelpie.budget]\nper_item_usd = 4\n")
-        });
+        let next = settings_with(&rig, |s| s.replace("per_item_usd = 10", "per_item_usd = 4"));
         let mut runner = runner.lock().unwrap();
         assert_eq!(runner.settings().budget.per_item_usd.cents(), 1000);
         let line = runner.reread(next, rig.kelpie_settings()).unwrap();

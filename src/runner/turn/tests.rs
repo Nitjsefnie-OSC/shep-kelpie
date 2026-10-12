@@ -828,7 +828,7 @@ const DOLLAR: u64 = 1_000_000_000;
 // Issue 7 in flight under `budget.per_item_usd = 5`
 fn with_a_five_dollar_cap(project: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
-    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.budget]\nper_item_usd = 5\n"));
+    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     (rig, runner)
@@ -872,6 +872,16 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
             "by_role": { "worker": 6 * DOLLAR, "reviewer": 0 },
         })
     );
+}
+
+#[test]
+fn status_shows_what_a_work_item_has_spent_against_its_cap() {
+    let (rig, runner) = with_a_five_dollar_cap("acme");
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(3 * DOLLAR))]);
+    step(&runner).unwrap();
+    let budget = &rig.ask(&runner, "status", None)["work_item"]["budget"];
+    assert_eq!(budget, &json!({ "spent_usd": 3.0, "cap_usd": 5.0 }));
 }
 
 #[test]

@@ -60,6 +60,14 @@ active_items = 1
 # does.
 pending_rulings = 2
 
+[app.dogs.kelpie.budget]
+# What one work item may spend, in dollars, on its worker's and reviewers'
+# priced calls together. Past it, the work item raises a ruling before its
+# worker's next turn: a yes doubles the cap, and a no with a note sends the
+# worker the note and doubles it too. A call whose harness reports no dollars
+# counts nothing.
+per_item_usd = 10
+
 # The agents that build the project's work items, by the names of kelpie's
 # agent files, `$SHEP_HOME/kelpie/agents/<name>.md`, which `shep kelpie add`
 # writes out, a local model (`usage: none`) as well as any. An issue

@@ -882,21 +882,30 @@ fn only_a_merge_kind_makes_the_list_refuse() {
     assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
 }
 
+// The example settings, with its budget table taken out and `table` put in its place
+fn with_budget(table: &str) -> String {
+    let (before, rest) = EXAMPLE.split_once("[app.dogs.kelpie.budget]").unwrap();
+    let (_, after) = rest.split_once("per_item_usd = 10\n").unwrap();
+    format!("{before}{table}{after}")
+}
+
 #[test]
 fn a_per_item_budget_is_ten_dollars_when_the_table_does_not_say() {
     assert_eq!(parse(EXAMPLE).unwrap().budget.per_item_usd.cents(), 1000);
-    let set = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = 2.5\n");
-    assert_eq!(parse(&set).unwrap().budget.per_item_usd.cents(), 250);
-    let whole = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = 25\n");
-    assert_eq!(parse(&whole).unwrap().budget.per_item_usd.cents(), 2500);
-    let empty = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\n");
+    let absent = with_budget("");
+    assert_eq!(parse(&absent).unwrap().budget.per_item_usd.cents(), 1000);
+    let empty = with_budget("[app.dogs.kelpie.budget]\n");
     assert_eq!(parse(&empty).unwrap().budget.per_item_usd.cents(), 1000);
+    let set = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 2.5\n");
+    assert_eq!(parse(&set).unwrap().budget.per_item_usd.cents(), 250);
+    let whole = with_budget("[app.dogs.kelpie.budget]\nper_item_usd = 25\n");
+    assert_eq!(parse(&whole).unwrap().budget.per_item_usd.cents(), 2500);
 }
 
 #[test]
 fn a_negative_or_non_numeric_per_item_budget_is_refused() {
     for bad in ["-1", "0", "0.004", "\"ten\"", "true"] {
-        let text = format!("{EXAMPLE}\n[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n");
+        let text = with_budget(&format!("[app.dogs.kelpie.budget]\nper_item_usd = {bad}\n"));
         let err = parse_err(&text);
         assert!(err.contains("per_item_usd"), "{bad}: {err}");
     }

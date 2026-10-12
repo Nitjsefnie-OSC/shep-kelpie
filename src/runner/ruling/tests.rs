@@ -1,9 +1,11 @@
 //! Rulings through the runner's stand-ins
 
+use std::sync::Mutex;
+
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Checks, Session};
+use crate::ports::{Checks, Cost, Session, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -455,4 +457,64 @@ fn the_failed_turn_line_goes_after_a_command_the_prompt_starts_with() {
         "/plugin:review Your last turn failed before it finished. \
          Kelpie sends its prompt again.\n\ncheck the diff"
     );
+}
+
+const DOLLAR: u64 = 1_000_000_000;
+
+// Issue 7 under a $5 cap, whose first turn cost $6 and so waits on ruling 1
+fn over_its_cap() -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("acme");
+    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(6 * DOLLAR))]);
+    step(&runner).unwrap();
+    let Some(StepReport::Failed { id: 1, .. }) = step(&runner).unwrap() else {
+        panic!("the work item did not wait on a ruling");
+    };
+    assert_eq!(rig.claude.calls().len(), 1);
+    (rig, runner)
+}
+
+fn cap_usd(rig: &Rig, runner: &Mutex<Runner>) -> f64 {
+    rig.ask(runner, "status", None)["work_item"]["budget"]["cap_usd"]
+        .as_f64()
+        .unwrap()
+}
+
+#[test]
+fn a_yes_on_an_over_budget_ruling_lets_the_work_item_run_to_twice_its_cap() {
+    let (rig, runner) = over_its_cap();
+    rig.ask(&runner, "rule", Some("1 yes"));
+    // $9 in all is past $5 and under the doubled $10.
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
+    step(&runner).unwrap();
+    assert_eq!(rig.claude.calls().len(), 2, "the worker carried on");
+    assert_eq!(cap_usd(&rig, &runner), 10.0);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_no_on_an_over_budget_ruling_sends_the_note_and_raises_the_cap_once() {
+    let (rig, runner) = over_its_cap();
+    rig.ask(
+        &runner,
+        "rule",
+        Some("1 no  stop polishing and open the pull request "),
+    );
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
+    step(&runner).unwrap();
+    let calls = rig.claude.calls();
+    let (first, noted) = (&calls[0], calls.last().unwrap());
+    assert_eq!(calls.len(), 2);
+    assert_eq!(noted.session, Session::Resume(first.session.id().clone()));
+    assert_eq!(
+        noted.prompt,
+        "The maintainer answered no on your work item, with this note:\n\n\
+         stop polishing and open the pull request\n"
+    );
+    assert_eq!(cap_usd(&rig, &runner), 10.0, "raised once, not twice");
 }

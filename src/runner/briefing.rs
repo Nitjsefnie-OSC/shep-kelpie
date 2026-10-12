@@ -356,6 +356,8 @@ impl Runner {
             branch: item.branch.clone(),
             session,
             summary: item.summary.clone().map(|s| self.shown(s)),
+            spent: item.priced().total(),
+            cap: item.budget_cap(self.settings.budget.per_item_usd),
             files,
         }
     }

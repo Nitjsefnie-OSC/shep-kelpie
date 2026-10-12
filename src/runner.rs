@@ -135,7 +135,7 @@ pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
 pub use timings::{Totals, settle};
 use trigger::issue_list;
-pub use trigger::{ACTIONS, Status, WorkItemStatus, answer, wakes};
+pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, answer, wakes};
 pub use trigger::{GateError, WhichItem};
 pub use words::{Wants, read_answer};
 
@@ -599,7 +599,7 @@ impl Runner {
         let split = item.split(now, self.timing_phase(item));
         WorkItemStatus {
             waiting: self.model_wait(item.issue),
-            ..WorkItemStatus::new(item, split)
+            ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
 

@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use crate::ports::{CallActivity, Timestamp, Wait};
+use crate::ports::{CallActivity, Cost, Timestamp, Wait};
 use crate::runner::Run;
 use crate::state::BoardEvent;
 
@@ -98,6 +98,10 @@ pub struct Item {
     pub waiting: Option<(Timestamp, Wait)>,
     /// The worker's last turn's closing message
     pub summary: Option<String>,
+    /// What its priced calls have cost
+    pub spent: Cost,
+    /// What they may cost before its worker's next turn waits on a ruling
+    pub cap: Cost,
     /// The files it touches
     pub files: Files,
 }
@@ -248,6 +252,12 @@ fn open_work(out: &mut String, board: &Briefing<'_>) {
             item.issue, item.title, item.phase, item.agent
         );
         let _ = writeln!(out, "  - Session: {}", session(&item.session, board.now));
+        let _ = writeln!(
+            out,
+            "  - Spend: ${:.2} of ${:.2}",
+            item.spent.usd(),
+            item.cap.usd()
+        );
         if let Some((since, why)) = item.waiting {
             let _ = writeln!(
                 out,
