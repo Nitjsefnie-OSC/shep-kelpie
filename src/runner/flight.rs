@@ -120,6 +120,15 @@ impl Flights {
         self.flying.remove(&issue);
     }
 
+    /// The call of `issue`'s worker turn in flight, whether it is its work
+    /// item's first, and the seconds of its ceiling it began with
+    pub(super) fn turn_call(&self, issue: u64) -> Option<(AgentCall, bool, u64)> {
+        let flight = self.flying.get(&issue)?;
+        let call = flight.watched.call.clone()?;
+        (flight.deadline.is_some() && !flight.retro && !flight.compact)
+            .then_some((call, flight.first, flight.left))
+    }
+
     /// Whether `issue`'s call in flight is a `/compact` of its worker's session
     pub(super) fn runs_compact(&self, issue: u64) -> bool {
         self.flying.get(&issue).is_some_and(|f| f.compact)
@@ -620,6 +629,15 @@ impl Runner {
         issue: u64,
         result: Result<AgentReply, AgentError>,
     ) -> Result<Option<StepReport>, StateError> {
+        // A host that cannot be reached holds the turn back, to be tried
+        // again, and keeps its session. Time spent on the call is saved
+        // while its flight still counts it.
+        if self.waits_for_host(issue, &result) {
+            let saved = self.save_time();
+            self.flights.flying.remove(&issue);
+            saved?;
+            return Ok(None);
+        }
         let again = self.flights.flying.get(&issue).is_some_and(|f| f.again);
         if !again && matches!(result, Err(AgentError::NoSession(..))) {
             // The dead call's time is the worker's, so it is saved while its
