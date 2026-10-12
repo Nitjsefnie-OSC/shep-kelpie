@@ -6,7 +6,9 @@ Kelpie is a shep dog that runs Claude Code workers from a planned work item to a
 
 The design is settled and the pillars are measured. The first build (#5) is done, and kelpie now runs its maintainer's projects, this one included, taking one issue from the board at a time per worker. The code is one Rust crate, `shep-kelpie`, at the repo root, with `#![forbid(unsafe_code)]`.
 
-- `docs/design-log.md`: status, every decision, the measured facts and the test plan. Read it before proposing anything a test has not settled.
+- `docs/design/`: every current decision, its reason and where it lives. Read its README before writing code, then the area files its table names for the code you touch.
+- `docs/design-log.md`: the full record behind those decisions, their mechanics and history, and the test plan. Search it for the detail on one decision.
+- `docs/facts/`: the measured facts, one file per topic.
 - `docs/specs/`: one spec per test series, and its results. The experiment code and raw results live in shep-pm/kelpie-lab, and results here cite its commits as "the experiments repo".
 - `docs/adr/`: decisions that are hard to reverse. A change that contradicts one names the ADR and argues for reopening it. Its README lists every option decided against, so check it before proposing one.
 
@@ -22,7 +24,7 @@ Gotchas:
 
 - Keep a shepherd's `SHEP_HOME` short. Its control socket is `$SHEP_HOME/run/shep.sock`, and macOS caps a socket path at 104 bytes. Kelpie uses `~/.kelpie/shep`.
 - `shep trigger <sheep> <action> [params]` takes params positionally.
-- Headless Claude Code has its own traps (stdin, cumulative cost, cache sharing). They are under Facts in the design log.
+- Headless Claude Code has its own traps (stdin, cumulative cost, cache sharing). They are in `docs/facts/headless-claude-code.md`.
 
 ## Code style
 
@@ -36,10 +38,10 @@ CI (`.github/workflows/test.yml`) runs `cargo fmt --all --check`, `cargo clippy 
 
 Kelpie works this repo too, so these hold for a kelpie worker as for anyone:
 
-- Read the issue, its parent spec #5, `GLOSSARY.md`, `docs/adr/` and `docs/design-log.md` first. The design is settled there; ask only for a decision they leave open.
+- Read the issue, its parent spec #5, `GLOSSARY.md`, `docs/adr/` and `docs/design/` (its README, then the area files for what you touch) first. The design is settled there; ask only for a decision they leave open.
 - Tests follow #5's testing decisions: the runner's work-item loop through its stand-ins, the dog's lease book with a fake clock, and adapter parsing against real recorded output. Tests assert only what the outside world sees.
 - One cargo command shape for the session, and one cargo command at a time.
-- New measured facts go in the design log's Facts section in the same pull request.
+- New measured facts go in their topic's file under `docs/facts/`, or a new one listed in its README, in the same pull request. A changed decision updates its file in `docs/design/` too.
 - Done when every acceptance criterion in the issue is met, with the evidence in the pull request's body, which ends `Resolves #<n>`.
 
 ## Writing and git
@@ -63,4 +65,4 @@ The five default roles, label string equal to role name. See `docs/agents/triage
 
 ### Domain docs
 
-Single-context: `GLOSSARY.md` at the root, ADRs in `docs/adr/`, and `docs/design-log.md`. See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` at the root, ADRs in `docs/adr/`, `docs/design/`, `docs/design-log.md` and `docs/facts/`. See `docs/agents/domain.md`.

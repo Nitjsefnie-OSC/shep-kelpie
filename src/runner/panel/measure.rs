@@ -18,8 +18,8 @@ use super::history::Record;
 use crate::panel::{Case, Policy, Stage, Step, Tier, Voter, settle};
 use crate::settings::{Decide, RulingName};
 
-/// After this many rulings the panel has voted on, the design log is due a
-/// Facts entry on what it cost and how it did
+/// After this many rulings the panel has voted on, `docs/facts/the-panel.md`
+/// is due an entry on what it cost and how it did
 pub(super) const FACTS_AFTER: usize = 30;
 
 /// How the panel stands, as `status` reports it
@@ -48,7 +48,7 @@ pub struct Standing {
     /// What each candidate policy for who votes would have done over the
     /// rulings answered under `shadow`, by its name
     pub whatif: BTreeMap<String, Score>,
-    /// Whether the design log is due its Facts entry on the panel
+    /// Whether `docs/facts/the-panel.md` is due its entry on the panel
     pub facts_due: bool,
 }
 
