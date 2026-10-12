@@ -119,9 +119,10 @@ impl Runner {
     }
 
     // Wakes the project manager for each question ruling `now` raises, and
-    // holds the ruling back from the maintainer for its answer, unless it is
-    // held by the maintainer's terminal or down, when the ruling goes out as
-    // it is. Its pace is checked when the wake starts.
+    // each follow-up ruling asking whether to file findings, and holds the
+    // ruling back from the maintainer for its answer, unless it is held by
+    // the maintainer's terminal or down, when the ruling goes out as it is.
+    // Its pace is checked when the wake starts.
     fn pm_asked(&mut self, now: &ProjectState) {
         let at = self.ports.clock.now();
         let passed = (self.pm.down_until).is_some_and(|until| at < until);
@@ -130,17 +131,32 @@ impl Runner {
         }
         for ruling in &now.rulings {
             let new = !self.state.rulings.iter().any(|r| r.id == ruling.id);
-            let (RulingKind::Question { asked, .. }, Some(issue), true) =
-                (&ruling.kind, ruling.issue, new)
-            else {
-                continue;
+            let id = ruling.id;
+            let wake = match (&ruling.kind, ruling.issue, ruling.pull_request, new) {
+                (RulingKind::Question { asked, .. }, Some(issue), _, true) => Wake::Question {
+                    issue,
+                    id,
+                    asked: asked.clone(),
+                },
+                // One the forge refused is no call on the diff.
+                (
+                    RulingKind::FollowUp {
+                        findings,
+                        refused: None,
+                    },
+                    Some(issue),
+                    Some(pull_request),
+                    true,
+                ) => Wake::FollowUp {
+                    issue,
+                    id,
+                    pull_request,
+                    findings: findings.clone(),
+                },
+                _ => continue,
             };
-            self.pm.asking.insert(ruling.id, at);
-            self.pm_due(Wake::Question {
-                issue,
-                id: ruling.id,
-                asked: asked.clone(),
-            });
+            self.pm.asking.insert(id, at);
+            self.pm_due(wake);
         }
     }
 

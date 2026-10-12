@@ -202,7 +202,7 @@ impl TryFrom<String> for WebhookUrl {
     // are checked, since `127.0.0.1@elsewhere` names elsewhere.
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let allowed = match value.split_once("://") {
-            Some(("https", rest)) => !authority(rest).is_empty(),
+            Some(("https", rest)) => has_host(authority(rest)),
             Some(("http", rest)) => private_host(authority(rest)),
             _ => false,
         };
@@ -216,6 +216,12 @@ impl TryFrom<String> for WebhookUrl {
 // The host and port: what comes before the path, query or fragment.
 fn authority(rest: &str) -> &str {
     rest.split(['/', '?', '#']).next().unwrap_or_default()
+}
+
+// Whether `authority` names a host, after any userinfo and before any port: `:8700` does not.
+fn has_host(authority: &str) -> bool {
+    let host_and_port = authority.rsplit('@').next().unwrap_or_default();
+    !host_and_port.is_empty() && !host_and_port.starts_with(':')
 }
 
 // Whether `authority` is this machine or a tailnet host, on a port that is
@@ -768,6 +774,10 @@ mod tests {
             "http://localhost@attacker.example/x",
             "http://127.0.0.1:/x",
             "https:///x",
+            "http://:8700",
+            "http://:8700/x",
+            "https://:8700",
+            "https://:443/x",
             "ftp://x",
             "https://ntfy.sh/a b",
             "https://ntfy.sh/a\nb",

@@ -114,19 +114,14 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
     }
 }
 
-/// The whole call's policy: its fence, or none, and what Claude Code itself needs
+/// What a call is held to before its harness adds its own needs: its fence's
+/// policy, or with no fence the credentials and `unfenced` unread
 ///
-/// A call with no fence may not read `unfenced` either, its own folder apart.
-///
-/// # Errors
-///
-/// [`AgentError::Setup`] when the call's transcript folder cannot be named.
-pub(crate) fn policy(
-    call: &AgentCall,
-    home: &Path,
-    unfenced: &[String],
-) -> Result<Policy, AgentError> {
-    let mut policy = match &call.reach.fence {
+/// Every harness starts here, so a call with no fence is denied `unfenced`
+/// whichever one runs it. Its own folder stays readable, since a worktree
+/// can sit inside the shepherd's home.
+pub(crate) fn call_policy(call: &AgentCall, unfenced: &[String]) -> Policy {
+    match &call.reach.fence {
         Some(fence) => fence_policy(fence),
         None => {
             let no_read = CREDENTIALS.iter().map(|&p| p.to_owned());
@@ -139,7 +134,22 @@ pub(crate) fn policy(
             }
             policy
         }
-    };
+    }
+}
+
+/// The whole call's policy: its fence, or none, and what Claude Code itself needs
+///
+/// A call with no fence may not read `unfenced` either, its own folder apart.
+///
+/// # Errors
+///
+/// [`AgentError::Setup`] when the call's transcript folder cannot be named.
+pub(crate) fn policy(
+    call: &AgentCall,
+    home: &Path,
+    unfenced: &[String],
+) -> Result<Policy, AgentError> {
+    let mut policy = call_policy(call, unfenced);
     policy.no_read.extend(fence::others_credentials(HARNESS));
     policy.no_keychain = call.reach.block_keychain;
     let transcripts = transcripts(home, &call.cwd)?;
@@ -289,8 +299,15 @@ mod tests {
             }
         }
 
+        // The shepherd's home, which the runner denies every call with no fence.
+        fn shep_unread(&self) -> String {
+            format!("{}/**", self.path("shep").display())
+        }
+
         fn cli(&self, sandbox: Arc<dyn crate::ports::Sandbox>) -> ClaudeCli {
-            ClaudeCli::with_program(self.path("claude")).sandboxed(sandbox, self.path("home"))
+            ClaudeCli::with_program(self.path("claude"))
+                .unfenced_unread(&self.path("shep"))
+                .sandboxed(sandbox, self.path("home"))
         }
     }
 
@@ -308,6 +325,27 @@ mod tests {
         for (_, settings) in &wrapped {
             assert_eq!(settings, &w.path("worker/settings.sandbox.json"));
         }
+    }
+
+    // Without the deny in `World::cli`, no test of a call's sandbox would see
+    // the shepherd's home read.
+    #[test]
+    fn the_test_cli_denies_an_unfenced_call_the_shepherds_home() {
+        let w = World::new();
+        let sandbox = OpenSandbox::default();
+        let cli = w.cli(Arc::new(sandbox.clone()));
+        let call = w.call(Role::Reviewer);
+        cli.prepare(&call).unwrap();
+        cli.run(&call, &Ending::default()).unwrap();
+        let wrapped = sandbox.wrapped();
+        let [(open, _)] = wrapped.as_slice() else {
+            panic!("wrapped once, not {wrapped:?}")
+        };
+        assert!(
+            open.no_read.contains(&w.shep_unread()),
+            "{:?}",
+            open.no_read
+        );
     }
 
     #[test]
