@@ -1,6 +1,6 @@
 ### Which name should the flag have?
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | | Other | Reply with your own answer |
 

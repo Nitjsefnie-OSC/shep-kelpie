@@ -2,7 +2,7 @@
 
 Both appear in the docs.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | `--dry-run` | Sends the worker this answer |
 | **B** | `--check` | Sends the worker this answer |

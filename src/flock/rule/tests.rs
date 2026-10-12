@@ -16,6 +16,7 @@ fn yes_or_no(id: u64) -> Ruling {
         panel: None,
         verdict: None,
         unposted: false,
+        effects: Vec::new(),
         raised: None,
     }
 }

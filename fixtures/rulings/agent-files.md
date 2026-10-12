@@ -2,7 +2,7 @@
 
 This pull request changes agents' own files: .claude/settings.json, .mcp.json.
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Yes | Accepts the files at that head and kelpie carries on |
 | **B** | No | Stops the work item, keeping its branch and pull request on the forge |

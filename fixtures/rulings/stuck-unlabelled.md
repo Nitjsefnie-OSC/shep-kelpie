@@ -1,6 +1,6 @@
 ### No implementer was picked
 
-| | Option | What it does |
+| | Option | If you pick it |
 |---|---|---|
 | **A** | Yes | The board takes the issue once it is labelled `agent:<name>` |
 
