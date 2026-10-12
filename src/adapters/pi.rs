@@ -46,6 +46,9 @@ mod escapes;
 #[cfg(test)]
 mod gateway_tests;
 
+#[cfg(test)]
+mod unreachable_tests;
+
 /// This adapter's harness, as its errors and the fence name it
 const PI: Harness = Harness::Pi;
 
