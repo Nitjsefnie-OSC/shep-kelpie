@@ -209,6 +209,9 @@ pub(crate) const RIG_REVIEWERS: &str = "reviewers = [\"qwen\", \"claude\"]\n";
 /// What the rig adds to its settings to run no retro
 pub(crate) const NO_RETRO: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"none\" }\n";
 
+// What [`Rig::retro_on`] puts in its place, a retro being off when left out
+const RETRO_ON: &str = "\n[app.dogs.kelpie.skills]\nretro = { kind = \"kelpie\" }\n";
+
 /// The rig's own session reviewer, as the older Claude round ran: Sonnet 5
 /// at medium, asked for findings in kelpie's format
 pub(crate) const CLAUDE_REVIEWER: &str = "---\nrole: reviewer\nharness: claude-code\n\
@@ -615,6 +618,14 @@ impl Rig {
 
     /// Lets the project run its retro, read when a runner next opens
     pub(crate) fn retro_on(&self) {
+        self.edit_settings(|s| {
+            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
+            s.replace(NO_RETRO, RETRO_ON)
+        });
+    }
+
+    /// Leaves the retro out of the project's settings, read when a runner next opens
+    pub(crate) fn retro_left_out(&self) {
         self.edit_settings(|s| {
             assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
             s.replace(NO_RETRO, "")

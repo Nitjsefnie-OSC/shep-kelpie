@@ -291,7 +291,7 @@ The project's `[app.dogs.kelpie]` table, `settings.rs`, every setting in a table
 - `worker.turn_timeout`: `runner/turn/unfinished.rs`.
 - `worker.compact_window`: `runner/turn.rs` into the call, `adapters/claude.rs` and `adapters/claude/settings.rs` into the settings file.
 - `skills.implement`, `skills.ci_fix`, `skills.tests`, `skills.pr`: `skills.rs` loads them, and `runner/turn.rs`, `runner/gate.rs`, `runner/merge/queue.rs` and `runner/instructions.rs` run or name them.
-- `skills.retro`: `skills.rs` loads it, `status` shows it, and `runner/retro.rs` runs it when a work item finishes, so `none` turns the retro off (shep-pm/shep-kelpie#361).
+- `skills.retro`: `skills.rs` loads it, `status` shows it, and `runner/retro.rs` runs it when a work item finishes (shep-pm/shep-kelpie#361). It is off when left out, and `{ kind = "kelpie" }` turns the vendored one on: in one night 30 retros were about 14% of the spend, mostly rewriting the worker's whole session to the cache, and lookout cannot set a skill until shep-pm/shep#745, so on by default left no way to turn it off. #566 moves the retro to the project manager.
 - `skills.triage`, `skills.spec`, `skills.reset`: `skills.rs` loads and checks them and `status` shows them (`runner/trigger.rs`), but no step drives them yet (#104).
 
 Kelpie's `[kelpie]` section of `dogs.toml`, `webhook.rs`:

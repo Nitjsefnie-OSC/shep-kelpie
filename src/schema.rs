@@ -184,6 +184,7 @@ mod tests {
             "{ kind = \"path\", path = \"skills/mine\" }",
             "{ kind = \"plugin\", plugin = \"plugins/house\", skill = \"mine\" }",
             "{ kind = \"none\" }",
+            "{ kind = \"kelpie\" }",
         ];
         kinds
             .into_iter()
