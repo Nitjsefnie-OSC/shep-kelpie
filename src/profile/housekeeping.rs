@@ -7,9 +7,10 @@
 //! permitted`. The commit or fetch itself went through, but the message reads
 //! as a failure and workers spent turns on `git log` to be sure. So the
 //! worker's git is told not to try. A commit locks the file on its own, which
-//! no setting stops. The fence does not let git make the lock, since a stale
-//! one in the shared `.git` would block every other worker's git, so the
-//! worker's instructions say the message is no failure.
+//! no setting stops, so the fence lets git make `packed-refs.lock` and keeps
+//! the file denied. A commit never writes the file, and git removes the lock.
+//! A lock a killed git leaves in the shared `.git` is removed by
+//! `worktree::prepare` once it is a minute old.
 
 /// What `GIT_CONFIG_PARAMETERS` carries for every worker, whether or not
 /// kelpie's App covers its repo
@@ -99,6 +100,21 @@ mod tests {
             }
         }
 
+        fn commit(&self, env: &[(&str, &str)]) -> Output {
+            fs::write(self.worktree.join("more"), "x").unwrap();
+            git(&self.worktree, &["add", "."], env);
+            git(&self.worktree, &["commit", "-q", "-m", "more"], env)
+        }
+
+        // The git dir takes new files again and `packed-refs` does not take a
+        // write, as with the fence's lock allowed and the file denied.
+        fn allow_the_lock_only(&self) {
+            let clone = self.root.path().join("clone/.git");
+            fs::set_permissions(&clone, fs::Permissions::from_mode(0o755)).unwrap();
+            let packed = clone.join("packed-refs");
+            fs::set_permissions(packed, fs::Permissions::from_mode(0o444)).unwrap();
+        }
+
         fn gc_auto(&self, env: &[(&str, &str)]) -> String {
             stderr_of(&git(&self.worktree, &["gc", "--auto"], env))
         }
@@ -139,18 +155,32 @@ mod tests {
 
     // Measured on git 2.50.1: a commit deletes `CHERRY_PICK_HEAD` and
     // `REVERT_HEAD` when it is done, and deleting a ref locks `packed-refs`
-    // first, though neither is there. No setting stops it, and the fence keeps
-    // the lock denied, so the message stays and the instructions explain it.
+    // first, though neither is there. No git setting stops it.
     #[test]
-    fn reproduction_a_commit_in_a_fenced_git_dir_prints_the_lock_message() {
+    fn reproduction_a_commit_where_git_cannot_make_the_lock_prints_the_lock_message() {
         let fenced = Fenced::new();
-        fs::write(fenced.worktree.join("more"), "x").unwrap();
-        git(&fenced.worktree, &["add", "."], &[]);
 
-        let out = git(&fenced.worktree, &["commit", "-q", "-m", "more"], &SETTINGS);
+        let out = fenced.commit(&SETTINGS);
 
         assert!(out.status.success());
         assert!(stderr_of(&out).contains("packed-refs.lock"), "{out:?}");
+    }
+
+    // What the fence allows: the lock, and not the file, which a commit never
+    // writes.
+    #[test]
+    fn a_commit_where_git_can_make_the_lock_prints_nothing_and_leaves_packed_refs_alone() {
+        let fenced = Fenced::new();
+        let packed = fenced.root.path().join("clone/.git/packed-refs");
+        let before = fs::read_to_string(&packed).unwrap();
+        fenced.allow_the_lock_only();
+
+        let out = fenced.commit(&SETTINGS);
+
+        assert!(out.status.success());
+        assert_eq!(stderr_of(&out), "");
+        assert_eq!(fs::read_to_string(&packed).unwrap(), before);
+        assert!(!packed.with_extension("lock").exists());
     }
 
     #[test]

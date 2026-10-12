@@ -218,6 +218,11 @@ impl WorkerProfile<'_> {
             git("logs/refs/remotes/origin").join(self.branch),
             with_suffix(&tracking_ref, ".lock"),
             tracking_ref,
+            // A commit locks `packed-refs` before it finds nothing to delete from
+            // it. The lock is all it needs then, and the file stays denied
+            // below, so a write that needs the file still fails. One a killed
+            // git leaves is removed by `worktree::prepare`.
+            git("packed-refs.lock"),
         ];
         // The clone's own base branch, which a push of every branch would carry.
         let no_write: Vec<PathBuf> = GIT_DENY
@@ -571,6 +576,7 @@ mod tests {
                 "/k/repos/shep/.git/logs/refs/remotes/origin/kelpie/7",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7.lock",
                 "/k/repos/shep/.git/refs/remotes/origin/kelpie/7",
+                "/k/repos/shep/.git/packed-refs.lock",
             ]
         );
         assert_eq!(
