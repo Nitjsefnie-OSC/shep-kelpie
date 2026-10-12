@@ -143,6 +143,10 @@ mod tests {
                 "[[app.dogs.kelpie.hooks]]\npoint = \"publish\"\ncommand =",
             )
             .replace("# reviewers = [\"qwen\", \"defect-hunter\"]", "reviewers = [\"qwen\"]")
+            .replace(
+                "# test_command = \"cargo test --test {name}\"",
+                "test_command = \"cargo test --test {name}\"",
+            )
             .replace("# pm = \"pm\"", "pm = \"pm\"")
             .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
             .replace(
