@@ -181,3 +181,30 @@ fn an_edit_to_the_parent_reaches_the_child_on_reload() {
     assert_eq!(pair(light), ("m9", Effort::Medium));
     assert_eq!(light.prompt.as_deref(), Some("New body."));
 }
+
+#[test]
+fn a_quoted_parent_name_with_a_comment_after_it_resolves() {
+    let agents = load(&[
+        ("base.md", PARENT),
+        (
+            "light.md",
+            "---\nextends: \"base\" # the parent\neffort: low\n---\n",
+        ),
+    ]);
+    assert_eq!(pair(agents.get(&name("light")).unwrap()).1, Effort::Low);
+}
+
+#[test]
+fn a_quoted_parent_name_keeps_a_hash_inside_it() {
+    let err = refused(&[("light.md", "---\nextends: \"a #b\"\n---\n")]);
+    assert!(err.contains("`extends: a #b`"), "{err}");
+}
+
+#[test]
+fn an_embedded_default_that_extends_is_refused() {
+    let default = "---\nextends: other\n---\n";
+    let parent = |_: &str| Some(crate::agents::extends::ParentText::Default(default));
+    let err =
+        crate::agents::extends::merged("light", "---\nextends: odd\n---\n", &parent).unwrap_err();
+    assert!(err.contains("not supported"), "{err}");
+}

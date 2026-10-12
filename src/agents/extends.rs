@@ -56,7 +56,17 @@ fn resolve<'a>(
                  kelpie's own agents"
             ));
         }
-        Some(ParentText::Default(text)) => text.to_owned(),
+        Some(ParentText::Default(text)) => {
+            let extends = front::split(text)
+                .is_some_and(|(front, _)| entries(front).iter().any(|e| e.key == "extends"));
+            if extends {
+                return Err(format!(
+                    "`extends: {name}` names one of kelpie's own agents that itself extends \
+                     another, which is not supported: write a file `{name}.md` to extend"
+                ));
+            }
+            text.to_owned()
+        }
         Some(ParentText::File(text)) => {
             chain.push(name);
             let resolved = resolve(text, parent, chain);
@@ -99,8 +109,14 @@ impl Entry {
     fn value(&self) -> String {
         let line = self.text.lines().next().unwrap_or("");
         let value = line.split_once(':').map_or("", |(_, v)| v);
-        let value = value.split(" #").next().unwrap_or("").trim();
-        value.trim_matches(['"', '\'']).to_owned()
+        let value = value.trim();
+        // A quoted value runs to its closing quote, so a ` #` inside is not a comment.
+        for quote in ['"', '\''] {
+            if let Some(rest) = value.strip_prefix(quote) {
+                return rest.split(quote).next().unwrap_or("").to_owned();
+            }
+        }
+        value.split(" #").next().unwrap_or("").trim().to_owned()
     }
 }
 
