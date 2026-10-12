@@ -6,7 +6,8 @@
 //! added. Anything else is dropped, and the ruling goes out as it stands.
 //!
 //! An item parked on a follow-up ruling takes an escalation alone: the
-//! maintainer's yes or no is theirs, so its text is dropped.
+//! maintainer's yes or no is theirs, so its text is dropped, and so is an
+//! escalation whose choice is neither `yes` nor `no`.
 
 use std::io::Write as _;
 
@@ -81,6 +82,14 @@ impl Runner {
                 }
                 (format!("answered ruling {id} on #{n}"), "answered", None)
             }
+            How::Escalate(choice)
+                if self.follow_up_ruling(id) && !Self::yes_or_no(choice.as_deref()) =>
+            {
+                return Ok(Err(format!(
+                    "answer #{n}: ruling {id} is a follow-up, whose recommendation is `yes` or \
+                     `no`"
+                )));
+            }
             How::Escalate(choice) => {
                 let choice = (choice.as_deref()).map(|c| plain(&self.shown(c.to_owned()), WORDS));
                 self.recommend(id, choice.as_deref(), &why)?;
@@ -131,6 +140,14 @@ impl Runner {
     fn follow_up_ruling(&self, id: u64) -> bool {
         let ruling = self.state.rulings.iter().find(|r| r.id == id);
         ruling.is_some_and(|r| matches!(r.kind, RulingKind::FollowUp { .. }))
+    }
+
+    // Whether `choice` is the yes or no a follow-up ruling asks for.
+    fn yes_or_no(choice: Option<&str>) -> bool {
+        choice.is_some_and(|c| {
+            let c = c.trim();
+            c.eq_ignore_ascii_case("yes") || c.eq_ignore_ascii_case("no")
+        })
     }
 
     // Adds the recommendation to ruling `id`, to be posted as it is.

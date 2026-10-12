@@ -101,6 +101,31 @@ fn text_for_a_follow_up_is_dropped_and_the_ruling_goes_out_as_it_is() {
 }
 
 #[test]
+fn a_recommendation_that_is_not_yes_or_no_is_dropped_and_the_ruling_goes_out_as_it_is() {
+    for (project, answer) in [
+        (
+            "psyduck",
+            "{\"answer\": {\"item\": 7, \"escalate\": \"file only the first\", \"why\": \"x\"}}",
+        ),
+        (
+            "golduck",
+            "{\"answer\": {\"item\": 7, \"escalate\": \"\",\"why\": \"x\"}}",
+        ),
+    ] {
+        let (rig, runner) = merged_with_a_finding(project, "work\n");
+        rig.claude.script([Scripted::Say(answer)]);
+        let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
+        let (_, acted, dropped) = answered(Some(report));
+        assert_eq!(acted, Vec::<String>::new(), "{answer}");
+        assert_eq!(dropped.len(), 1, "{dropped:?}");
+        assert!(dropped[0].contains("`yes` or `no`"), "{dropped:?}");
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        let text = alerted_of_the_ruling(&rig).unwrap();
+        assert!(!text.contains("PM "), "{text}");
+    }
+}
+
+#[test]
 fn a_wake_that_fails_sends_the_ruling_to_the_maintainer_as_it_is() {
     let (rig, runner) = merged_with_a_finding("squirtle", "work\n");
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
