@@ -257,6 +257,8 @@ pub struct Runner {
     skills: Skills,
     // The plugins the repo turns on, loaded with them
     repo_plugins: RepoPlugins,
+    // The default branch's commit the plugins were read at
+    plugins_head: Option<String>,
     paths: ProjectPaths,
     kelpie: PathBuf,
     store: StateStore,
@@ -449,6 +451,7 @@ impl Runner {
             &paths.skills,
             ports.git.as_ref(),
         );
+        let plugins_head = crate::skills::default_head(checkout);
         check_coderabbit(&remote, &lineup, &ports)?;
         check_local(&lineup, &ports)?;
         let mut state = store.load()?.unwrap_or_default();
@@ -480,6 +483,7 @@ impl Runner {
             extra_instructions,
             skills,
             repo_plugins,
+            plugins_head,
             paths: paths.clone(),
             kelpie: kelpie.to_owned(),
             store,

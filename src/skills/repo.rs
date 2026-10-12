@@ -14,9 +14,10 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use super::is_kelpies_own;
@@ -61,6 +62,9 @@ pub struct RepoPlugin {
     // Where it is read from, until `install` has copied it to `dir`.
     #[serde(skip)]
     found: Option<Found>,
+    // What its files held when it was read, so a change to them alone is a change.
+    #[serde(skip)]
+    digest: u64,
 }
 
 /// The plugins the repo turns on, as the runner loaded them
@@ -157,6 +161,7 @@ impl RepoPlugin {
             stale: None,
             dir: None,
             found: None,
+            digest: 0,
         }
     }
 }
@@ -175,6 +180,7 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path) -> RepoPlugin {
             skipped: None,
             stale: found.stale.clone(),
             dir: Some(into.join(&found.name)),
+            digest: fingerprint(&found.folder),
             found: Some(found),
         },
         Err(reason) => RepoPlugin::skipped(found.id, reason),
@@ -211,20 +217,19 @@ pub(crate) fn resolve(
     git: &dyn Git,
     refresh: bool,
 ) -> Vec<Result<Found, Skipped>> {
-    let settings = match settings_on_default_branch(checkout, refresh) {
-        Ok(Some(settings)) => settings,
+    let (settings, enabled) = match settings_on_default_branch(checkout, refresh) {
+        Ok(Some(read)) => read,
         Ok(None) => return Vec::new(),
         Err(reason) => {
             let id = SETTINGS.to_owned();
             return vec![Err(Skipped { id, reason })];
         }
     };
-    let enabled = settings["enabledPlugins"].as_object();
     let known = settings["extraKnownMarketplaces"].as_object();
     let mut markets: BTreeMap<String, Result<(PathBuf, Option<String>), String>> = BTreeMap::new();
     let mut supplied: BTreeMap<String, String> = BTreeMap::new();
     let mut resolved = Vec::new();
-    for (id, on) in enabled.into_iter().flatten() {
+    for (id, on) in &enabled {
         if on != &Value::Bool(true) {
             continue;
         }
@@ -270,9 +275,46 @@ pub(crate) fn resolve(
     resolved
 }
 
+// What `.claude/settings.json` holds on the default branch, and its
+// `enabledPlugins` in the order the file lists them.
+type Read = (Value, Vec<(String, Value)>);
+
+// The keys of a JSON object in the order they are written, which a
+// `serde_json::Map` does not keep.
+struct InOrder(Vec<(String, Value)>);
+
+impl<'de> Deserialize<'de> for InOrder {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = InOrder;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<InOrder, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry::<String, Value>()? {
+                    entries.push(entry);
+                }
+                Ok(InOrder(entries))
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+#[derive(Deserialize)]
+struct Listed {
+    #[serde(rename = "enabledPlugins")]
+    enabled: Option<InOrder>,
+}
+
 // `.claude/settings.json` as the default branch has it, read from the
 // checkout's `origin` so a worker's branch never reaches it.
-fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<Value>, String> {
+fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<Read>, String> {
     use crate::worktree::{BASE, git};
     // The checkout may be behind a merge that turned a plugin on; failing
     // to fetch leaves what it has.
@@ -285,10 +327,25 @@ fn settings_on_default_branch(checkout: &Path, refresh: bool) -> Result<Option<V
     }
     let text = git(checkout, ["show", &spec]).map_err(|e| e.to_string())?;
     match serde_json::from_str::<Value>(&text) {
-        Ok(settings) if settings.is_object() => Ok(Some(settings)),
+        Ok(settings) if settings.is_object() => {
+            // A file whose `enabledPlugins` is no object turns on nothing.
+            let enabled = serde_json::from_str::<Listed>(&text)
+                .ok()
+                .and_then(|listed| listed.enabled)
+                .map_or_else(Vec::new, |in_order| in_order.0);
+            Ok(Some((settings, enabled)))
+        }
         Ok(_) => Err(format!("{SETTINGS} on {BASE} is not a JSON object")),
         Err(e) => Err(format!("{SETTINGS} on {BASE} is not valid JSON: {e}")),
     }
+}
+
+/// The default branch's commit as the checkout last fetched it, which a
+/// runner compares to know the plugins may have changed
+pub fn default_head(checkout: &Path) -> Option<String> {
+    use crate::worktree::{BASE, git};
+    let spec = format!("origin/{BASE}");
+    git(checkout, ["rev-parse", "--verify", "--quiet", &spec]).ok()
 }
 
 // Where marketplace `name`'s repo is on disk, fetched first where it is a
@@ -322,9 +379,18 @@ fn marketplace(
         None => return Err(format!("the {name} marketplace names no source")),
     };
     if let Some(path) = directory {
-        return inside(checkout, Path::new(path))
-            .map(|folder| (folder, None))
-            .map_err(|()| format!("its directory {path} is not a folder inside the checkout"));
+        if !plain(name) {
+            return Err(format!(
+                "{name} is not a name kelpie keeps a marketplace under"
+            ));
+        }
+        // From the default branch, not the working tree, which kelpie never moves.
+        let into = kelpie_home.join(MARKETPLACES).join(name);
+        return export(checkout, Path::new(path), &into)
+            .map(|()| (into, None))
+            .map_err(|e| {
+                format!("its directory {path} cannot be read from the default branch: {e}")
+            });
     }
     let url = url.unwrap_or_default();
     // A leading `-` would be taken for an option, and `::` names a transport
@@ -347,6 +413,91 @@ fn marketplace(
         )),
         Err(e) => Err(format!("fetching the {name} marketplace failed: {e}")),
     }
+}
+
+// Writes the folder `relative` as `origin`'s default branch holds it into
+// `into`, replacing what was there. Only regular files come across: a link in
+// the tree is left out, so nothing a marketplace holds leads out of it.
+fn export(checkout: &Path, relative: &Path, into: &Path) -> Result<(), String> {
+    use crate::worktree::{BASE, in_repo};
+    let plain = relative
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+    let folder: PathBuf = relative.components().collect();
+    if !plain || folder.as_os_str().is_empty() {
+        return Err("it is not a folder inside the checkout".into());
+    }
+    let run = |args: Vec<std::ffi::OsString>| -> Result<Vec<u8>, String> {
+        let mut git = in_repo(checkout);
+        let output = git.args(args).output().map_err(|e| e.to_string())?;
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    };
+    let tree = run(vec![
+        "ls-tree".into(),
+        "-r".into(),
+        "-z".into(),
+        format!("origin/{BASE}").into(),
+        "--".into(),
+        folder.clone().into_os_string(),
+    ])?;
+    let _ = fs::remove_dir_all(into);
+    let mut written = 0;
+    for entry in tree.split(|b| *b == 0).filter(|e| !e.is_empty()) {
+        let text = String::from_utf8_lossy(entry);
+        let Some((meta, path)) = text.split_once('\t') else {
+            continue;
+        };
+        let fields: Vec<&str> = meta.split(' ').collect();
+        let [mode, "blob", sha] = fields[..] else {
+            continue;
+        };
+        if mode != "100644" && mode != "100755" {
+            continue;
+        }
+        let Ok(rest) = Path::new(path).strip_prefix(&folder) else {
+            continue;
+        };
+        let blob = run(vec!["cat-file".into(), "blob".into(), sha.into()])?;
+        let target = into.join(rest);
+        let parent = target.parent().unwrap_or(into);
+        fs::create_dir_all(parent)
+            .and_then(|()| fs::write(&target, blob))
+            .map_err(|e| e.to_string())?;
+        written += 1;
+    }
+    if written == 0 {
+        return Err("it holds no files there".into());
+    }
+    Ok(())
+}
+
+// What the files of the plugin at `folder` hold, to tell a change to them.
+fn fingerprint(folder: &Path) -> u64 {
+    fn walk(dir: &Path, hasher: &mut DefaultHasher) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            entry.file_name().hash(hasher);
+            if kind.is_dir() {
+                walk(&entry.path(), hasher);
+            } else if kind.is_file() {
+                fs::read(entry.path()).unwrap_or_default().hash(hasher);
+            }
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    walk(&folder.join("skills"), &mut hasher);
+    manifest(folder, "").hash(&mut hasher);
+    hasher.finish()
 }
 
 // The folder of plugin `name` in the marketplace at `root`.
@@ -407,7 +558,8 @@ fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
 }
 
 /// What a runner starting now would load of the checkout's plugins, from the
-/// marketplaces already fetched, writing and fetching nothing of kelpie's
+/// marketplaces already fetched, fetching nothing and writing only the copy of a
+/// `directory` marketplace under kelpie's home
 pub fn inspect(checkout: &Path, kelpie_home: &Path) -> Vec<RepoPlugin> {
     resolve(checkout, kelpie_home, &Fetched, false)
         .into_iter()

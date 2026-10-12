@@ -1,11 +1,12 @@
 use super::*;
 
-// Puts `settings` on the default branch of golbat's checkout as its last fetch left it
+// Puts `settings` and any marketplace beside it on the default branch of golbat's checkout as its
+// last fetch left it
 fn settle(scene: &Scene, settings: &Value) {
     let repo = scene.home.join("golbat");
     std::fs::create_dir_all(repo.join(".claude")).unwrap();
     std::fs::write(repo.join(".claude/settings.json"), settings.to_string()).unwrap();
-    git(&repo, &["add", ".claude/settings.json"]);
+    git(&repo, &["add", "--all"]);
     git(&repo, &["commit", "-q", "-m", "plugins"]);
     git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
 }
