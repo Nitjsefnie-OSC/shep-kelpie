@@ -836,6 +836,13 @@ async fn a_trusted_topic_is_said_to_take_replies_without_a_code() {
     let printed = report.render().join("\n");
     assert!(!printed.contains("s3cr3t"), "{printed}");
 
+    // Discord's webhook is never read for replies, so nothing is trusted there.
+    let discord = "[webhook]\nkind = \"discord\"\nurl = \"https://discord.com/api/webhooks/1/abc\"\n\
+                   token = \"tk_s3cr3t\"\ntrusted = true\n";
+    scene.shepherd.holds_section(discord);
+    let report = scene.report().await;
+    assert!(!subjects(&report).contains(&"replies"));
+
     // Without a token the settings are refused, not trusted.
     let no_token = format!("{WEBHOOK}trusted = true\n");
     scene.shepherd.holds_section(&no_token);

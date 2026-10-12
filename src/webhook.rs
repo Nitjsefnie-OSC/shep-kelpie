@@ -311,7 +311,7 @@ impl KelpieSettings {
     }
 
     /// Checks in the section's text that a webhook with `trusted = true` has
-    /// a `token`
+    /// a valid `token`: a non-empty word of printable characters
     ///
     /// Kelpie cannot see the server's access rules, so `trusted` is the
     /// maintainer's word that the topic is locked to the token. It reads the
@@ -329,7 +329,11 @@ impl KelpieSettings {
                 .and_then(|table| match table.get("webhook") {
                     Some(toml::Value::Table(webhook)) => Some((
                         webhook.get("trusted") == Some(&toml::Value::Boolean(true)),
-                        webhook.contains_key("token"),
+                        matches!(
+                            webhook.get("token"),
+                            Some(toml::Value::String(token))
+                                if WebhookToken::try_from(token.clone()).is_ok()
+                        ),
                     )),
                     _ => None,
                 });
@@ -702,6 +706,16 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("`webhook.trusted`"), "{err}");
+
+        // A token that is empty, not a string or not one word is no token.
+        for bad in ["\"\"", "7", "\"a b\""] {
+            let text = format!("{}token = {bad}\ntrusted = true\n", example());
+            let err = KelpieSettings::check_trusted(&text)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("`webhook.trusted`"), "{bad}: {err}");
+            assert!(KelpieSettings::from_section(&text).is_err(), "{bad}");
+        }
 
         KelpieSettings::check_trusted(&trusted).unwrap();
         KelpieSettings::check_trusted(&example()).unwrap();
