@@ -4,8 +4,8 @@
 //! or when room opens. A command already running under a dog that went
 //! away is seated at once, and for a [`REJOIN_GRACE`] after the door opens
 //! only such commands are: the others wait, so the runs a restart left
-//! going are counted before anyone new. Any line from a holder, or its
-//! connection closing, gives its place back.
+//! going are counted before anyone new. A holder's connection closing gives
+//! its place back; a line on it does not.
 
 use std::collections::HashMap;
 use std::io;
@@ -33,7 +33,8 @@ const LONGEST_ASK: u64 = 64 * 1024;
 const ACCEPT_REST: Duration = Duration::from_millis(500);
 
 /// How long after the door opens only running commands are seated. A run
-/// whose dog went away knocks every second, so three seconds covers it.
+/// whose dog went away knocks every second, so three seconds covers it, with
+/// room for a knock that lands late.
 pub const REJOIN_GRACE: Duration = Duration::from_secs(3);
 
 // Waiters to wake when the lease grants them, by ticket.
@@ -177,8 +178,9 @@ async fn visit(stream: UnixStream, place: Place, fresh_from: tokio::time::Instan
     }
     println!("{CARGO_TEST}: granted to pid {pid} running {what}");
     say(&mut write, &Answer::Granted).await;
-    // Any line, or the connection's end, gives it back.
-    let _ = lines.next_line().await;
+    // Only the connection's end gives it back: a descendant of the command
+    // holds the connection too, and a line from it is not the command ending.
+    while let Ok(Some(_)) = lines.next_line().await {}
     println!("{CARGO_TEST}: pid {pid} gave it back");
 }
 
