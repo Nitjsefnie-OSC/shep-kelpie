@@ -5,7 +5,8 @@
 //! branches that conflict, a stuck work item, a worker's question, or the
 //! maintainer's `tell`. A question's ruling is held back from the
 //! maintainer for at most one wake, for the project manager to answer or
-//! pass on with a recommendation.
+//! pass on with a recommendation, and so is a follow-up ruling, which it
+//! can only pass on.
 //! The reasons gathered since the last wake go in one call, a lamb like any
 //! other, one at a time, which the loop never waits on. Its session is the
 //! project's one, resumed each wake and compacted past [`COMPACT_PAST`].
@@ -17,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Runner;
 use super::report::StepReport;
 use crate::pacer::Scope;
-use crate::ports::{AgentError, AgentReply, Session, SessionId, Timestamp};
+use crate::ports::{AgentError, AgentReply, Finding, Session, SessionId, Timestamp};
 use crate::settings::PmAgent;
 use crate::state::StateError;
 use crate::usage::CallKind;
@@ -92,6 +93,18 @@ pub(super) enum Wake {
         /// The worker's question, verbatim
         asked: String,
     },
+    /// A pull request merged with confirmed findings left unfixed, which
+    /// ruling `id` holds for the maintainer to file or drop
+    FollowUp {
+        /// The work item's issue, whose folder holds the merged diff
+        issue: u64,
+        /// The ruling
+        id: u64,
+        /// The merged pull request
+        pull_request: u64,
+        /// The findings
+        findings: Vec<Finding>,
+    },
     /// A ruling is before the panel, and the project manager votes on it
     Vote {
         /// The ruling
@@ -109,6 +122,7 @@ impl Wake {
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
+            (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
             (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
             _ => false,
         }
@@ -336,7 +350,7 @@ impl Runner {
                 Wake::Told => self.pm_due(Wake::Told),
                 Wake::Conflict(..) | Wake::Stuck(..) => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
-                Wake::Question { id, .. } => {
+                Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
                     self.pm.asking.remove(&id);
                 }
                 // The panel votes without it.
@@ -552,9 +566,9 @@ impl Runner {
                 .collect();
             self.panel_pm_answered(&asked, votes);
         }
-        // A question it did not settle goes to the maintainer as it stands.
+        // A ruling it did not settle goes to the maintainer as it stands.
         for wake in &flying.wakes {
-            if let Wake::Question { id, .. } = wake {
+            if let Wake::Question { id, .. } | Wake::FollowUp { id, .. } = wake {
                 self.pm.asking.remove(id);
             }
         }

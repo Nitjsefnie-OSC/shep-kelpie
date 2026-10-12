@@ -38,6 +38,16 @@ fn defer(rig: &Rig, text: &str) {
 // A pull request whose qwen round found `found`, the worker fixed with one
 // push, and a clean Claude round then read. CI has not reported.
 fn reviewed_in(rig: Rig, found: &[Finding], auto: bool) -> (Rig, Mutex<Runner>, String) {
+    reviewed_pushing(rig, found, auto, "work\n")
+}
+
+// ... where the worker's first push writes `work` to `work.txt`
+fn reviewed_pushing(
+    rig: Rig,
+    found: &[Finding],
+    auto: bool,
+    work: &'static str,
+) -> (Rig, Mutex<Runner>, String) {
     if auto {
         rig.merge_auto();
         rig.issues("file");
@@ -48,7 +58,7 @@ fn reviewed_in(rig: Rig, found: &[Finding], auto: bool) -> (Rig, Mutex<Runner>, 
     rig.reviewer
         .script([ScriptedRound::Findings(found.to_vec())]);
     rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
+        Scripted::Push("work.txt", work),
         Scripted::Push("fixed.txt", "fixed\n"),
         Scripted::Text("CLEAN"),
     ]);
@@ -82,7 +92,7 @@ fn auto_ready_to_merge(found: &[Finding], deferred: &str) -> (Rig, Mutex<Runner>
 }
 
 // The next step's report, past the notice a merge under `auto` queues
-fn after_merge(runner: &Mutex<Runner>) -> Option<StepReport> {
+pub(in crate::runner) fn after_merge(runner: &Mutex<Runner>) -> Option<StepReport> {
     match step(runner).unwrap() {
         Some(StepReport::Noticed { .. }) => step(runner).unwrap(),
         other => other,
@@ -757,10 +767,18 @@ fn under_ask_a_no_drops_the_findings() {
 // A project under `auto` with `git.issues` as `filing`, CI green on a
 // reviewed pull request whose worker deferred `racy()`, the next step merging it
 fn auto_merging_with_issues(filing: &str) -> (Rig, Mutex<Runner>) {
-    let rig = Rig::new("shep");
+    auto_merging_on(Rig::new("shep"), filing, "work\n")
+}
+
+// ... on `rig`, whose worker writes `work` to `work.txt`
+pub(in crate::runner) fn auto_merging_on(
+    rig: Rig,
+    filing: &str,
+    work: &'static str,
+) -> (Rig, Mutex<Runner>) {
     rig.merge_auto();
     rig.issues(filing);
-    let (rig, runner, head) = reviewed_in(rig, &[racy()], false);
+    let (rig, runner, head) = reviewed_pushing(rig, &[racy()], false, work);
     defer(&rig, &lines(&[racy()]));
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
