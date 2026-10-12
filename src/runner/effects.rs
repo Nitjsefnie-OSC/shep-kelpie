@@ -10,7 +10,7 @@
 use super::Runner;
 use super::ruling::needs_pass;
 use super::voice::phrases;
-use crate::ports::{Cost, Role};
+use crate::ports::{Checks, Cost, Role};
 use crate::state::{Ruling, RulingKind, StateError};
 use crate::work_item::WorkItem;
 
@@ -43,11 +43,29 @@ impl Runner {
         };
         let held = self.parked_note(ruling.id);
         match &ruling.kind {
-            RulingKind::Merge { .. } => self.merge_effects(item, &ruling.kind, held),
+            RulingKind::Merge { .. } => {
+                let ci = self.ci_sentence(ruling.pull_request);
+                self.merge_effects(item, &ruling.kind, ci, held)
+            }
             RulingKind::Stuck(_) => (phrases(&ruling.kind).into_iter())
                 .map(|does| join([Some(does), held.clone()]))
                 .collect(),
             _ => Vec::new(),
+        }
+    }
+
+    // What CI said of the pull request, read from the forge as the ruling is
+    // raised, or nothing when CI does not hold the merge or the forge cannot say.
+    // The gate raises the ruling on skipped checks too, and nothing ran then.
+    fn ci_sentence(&self, number: Option<u64>) -> Option<String> {
+        if !self.settings.ci.block {
+            return None;
+        }
+        let pr = self.ports.forge.pull_request(&self.remote, number?).ok()?;
+        match pr.checks {
+            Checks::Passed => Some("CI passed.".to_owned()),
+            Checks::Skipped => Some("No CI check ran.".to_owned()),
+            _ => None,
         }
     }
 
@@ -58,9 +76,9 @@ impl Runner {
         &self,
         item: &WorkItem,
         kind: &RulingKind,
+        ci: Option<String>,
         held: Option<String>,
     ) -> Vec<String> {
-        let ci = self.settings.ci.block.then(|| "CI passed.".to_owned());
         let merge = join([
             Some(format!(
                 "Merges it into main and closes #{}: {}.",
@@ -84,14 +102,18 @@ impl Runner {
 }
 
 // Who read the pull request, where anyone did: the rounds that ran and the
-// review bots that read it
+// review bots that read it. A head no round read is said so, whatever
+// earlier heads the rounds read.
 fn reviewed(item: &WorkItem, kind: &RulingKind) -> Option<String> {
-    if let RulingKind::Merge {
-        unreviewed: Some(_),
-        ..
-    } = kind
-    {
-        return Some("No reviewer read it in its last review.".to_owned());
+    match kind {
+        RulingKind::Merge {
+            unreviewed: Some(_),
+            ..
+        } => return Some("No reviewer read it in its last review.".to_owned()),
+        RulingKind::Merge {
+            unread_head: true, ..
+        } => return Some("No review round read this head.".to_owned()),
+        _ => {}
     }
     let rounds = match item.counts.review_rounds {
         0 => None,
@@ -108,22 +130,28 @@ fn reviewed(item: &WorkItem, kind: &RulingKind) -> Option<String> {
     }
 }
 
-// What another review round costs, roughly: the average of the reviewer calls
-// the work item has had priced, one to a round. A call whose harness reported
-// no dollars is left out of the sum and the count alike. None before one was
-// priced.
+// What another review round costs, roughly: the average priced reviewer call
+// times the calls a round makes. A call whose harness reported no dollars is
+// left out of the average. A round makes more than one call when the reviewer
+// takes a second look, which `review_rounds` counts with its first. So the
+// calls to a round are the reviewer calls over the rounds a reviewer's session
+// ran, one at least: a local round and a review bot's read are rounds too, but
+// make no call. None before a call was priced.
 fn round_cost(item: &WorkItem) -> Option<String> {
-    let priced = item
-        .calls
-        .iter()
-        .filter(|call| call.role == Role::Reviewer && !call.unpriced);
-    let (calls, spent) = priced.fold((0_u64, 0_u64), |(calls, spent), call| {
-        (calls + 1, spent.saturating_add(call.cost.0))
-    });
+    let reviewer = || item.calls.iter().filter(|c| c.role == Role::Reviewer);
+    let priced = || reviewer().filter(|call| !call.unpriced);
+    let calls = priced().count();
+    let spent = priced().fold(0_u64, |spent, call| spent.saturating_add(call.cost.0));
     if calls == 0 || spent == 0 {
         return None;
     }
-    let each = Cost(spent / calls).usd();
+    let bot_reads: u32 = item.bot_reads.values().sum();
+    let sessions = (item.counts.review_rounds)
+        .saturating_sub(item.qwen.rounds)
+        .saturating_sub(bot_reads)
+        .max(1);
+    let per_round = (reviewer().count() as f64 / f64::from(sessions)).max(1.0);
+    let each = Cost(spent).usd() / calls as f64 * per_round;
     // Two decimals would print a real, small cost as $0.00.
     Some(if each < 0.005 {
         "Another review round costs under $0.01.".to_owned()
