@@ -118,7 +118,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         .ok_or("HOME is not set")?;
     let kelpie_home = crate::home::kelpie_home_of(&shep_home);
     let mut paths = ProjectPaths::under(&kelpie_home, &shep_home, &project);
-    let (door, why) = crate::lease::door::worker_socket(&shep_home);
+    let (door, why) = crate::lease::door::checked_socket(&shep_home);
     if let Some(why) = why {
         println!("{why}");
     }
