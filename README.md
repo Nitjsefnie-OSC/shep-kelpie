@@ -823,7 +823,7 @@ shep kelpie add        # labels, settings, agent files, and the runner, stopped
 shep kelpie start      # starts the runner, which runs the project
 shep kelpie pause      # stops it once its calls end
 shep kelpie finish     # stops it once its open work items end, picking nothing new
-shep kelpie status     # every project
+shep kelpie status     # every project, or --json for the runner's whole object
 shep kelpie doctor     # what each project still needs on this machine
 shep kelpie rule 14 yes
 shep kelpie issue "<request>"   # issues for you to read, or --interactive
@@ -835,6 +835,24 @@ shep kelpie github setup   # once per repo owner, with --org <org> for an organi
 shep kelpie totp       # once, to answer rulings from ntfy
 shep kelpie lease status
 ```
+
+`status` prints a short block per project: its run state, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.
+
+```text
+$ shep kelpie status
+koji (finishing)
+  run: finishing
+  work items:
+    #7 Add a thing: phase ruling, turn ended, PR #71
+    #9 Fix the other: phase implement, turn running, no PR
+  rulings waiting: 1
+    ruling 1: merge, #7, PR #71
+  pacer: on
+    claude: session 3%, week 15%, 15% of the week spent today of 14.3% allowed
+    claude holding (allowance): today's allowance is spent
+```
+
+`status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
 Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works.
 

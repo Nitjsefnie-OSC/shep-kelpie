@@ -527,30 +527,62 @@ pub async fn rule(
     }
 }
 
-/// Every project's status, one line each: its name and its runner's answer
+// What marks a runner's answer: draining, and its run state when it has one.
+fn marks(body: &str) -> Vec<String> {
+    (draining(body).then(|| "draining".to_owned()))
+        .into_iter()
+        .chain(run(body))
+        .collect()
+}
+
+/// `sheep`'s runner's answer `body` to `status` as the line the JSON form
+/// prints: its name, its marks and the object as it came
+pub fn json_status(sheep: &str, body: &str) -> String {
+    match marks(body).as_slice() {
+        [] => format!("{sheep}: {body}"),
+        marks => format!("{sheep} ({}): {body}", marks.join(", ")),
+    }
+}
+
+/// `sheep`'s runner's answer `body` to `status` as its short block of lines
+pub fn plain_status(sheep: &str, body: &str) -> Vec<String> {
+    match serde_json::from_str(body) {
+        Ok(object) => plain::block(sheep, &marks(body), &object),
+        Err(_) => vec![json_status(sheep, body)],
+    }
+}
+
+/// How `status` prints a runner's answer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// A short block of lines per project
+    Plain,
+    /// One line per project: its name and the runner's JSON object as it came
+    Json,
+}
+
+/// Every project's status: a short block each, or with [`Format::Json`] a
+/// line holding its name and its runner's answer
+///
+/// A project whose runner gave no answer is one line either way.
 ///
 /// # Errors
 ///
 /// A message when the shepherd cannot list the projects.
-pub async fn status(client: &Client) -> Result<Vec<String>, String> {
+pub async fn status(client: &Client, format: Format) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for sheep in tables(client).await?.into_keys() {
-        let line = match trigger(client, &sheep, "status", None).await? {
-            Answered::Runner(body) => {
-                let marks: Vec<String> = (draining(&body).then(|| "draining".to_owned()))
-                    .into_iter()
-                    .chain(run(&body))
-                    .collect();
-                match marks.as_slice() {
-                    [] => format!("{sheep}: {body}"),
-                    marks => format!("{sheep} ({}): {body}", marks.join(", ")),
-                }
+        match trigger(client, &sheep, "status", None).await? {
+            Answered::Runner(body) => match format {
+                Format::Plain => lines.extend(plain_status(&sheep, &body)),
+                Format::Json => lines.push(json_status(&sheep, &body)),
+            },
+            Answered::Starting => lines.push(format!("{sheep}: starting")),
+            Answered::Down => lines.push(format!("{sheep}: not running")),
+            Answered::TimedOut => {
+                lines.push(format!("{sheep}: running, and did not answer in time"));
             }
-            Answered::Starting => format!("{sheep}: starting"),
-            Answered::Down => format!("{sheep}: not running"),
-            Answered::TimedOut => format!("{sheep}: running, and did not answer in time"),
-        };
-        lines.push(line);
+        }
     }
     if lines.is_empty() {
         lines.push("no projects: `shep kelpie add` in a checkout sets one up".into());
@@ -707,6 +739,8 @@ pub(crate) async fn trigger(
         _ => Answered::Down,
     })
 }
+
+mod plain;
 
 #[cfg(test)]
 mod tests;

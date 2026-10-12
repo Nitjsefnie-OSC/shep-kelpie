@@ -5,6 +5,7 @@ use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use super::control::Format;
 use super::{Checkout, Launch, add, attach, control, pm, rule, usage, watch};
 use crate::adapters::{ClaudeCli, Gh, LoginToken};
 use crate::agents::Agents;
@@ -33,7 +34,8 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie add <issue>           puts an issue on the project's board
        shep kelpie start | pause         runs the project, or stops it once its calls end
        shep kelpie finish                ends the open work items, picks nothing new, stops
-       shep kelpie status                every project, or one with -p
+       shep kelpie status [--json]       every project, or one with -p, as a short
+                                         block each, or the runner's JSON object
        shep kelpie rule [<id> <answer>]
        shep kelpie rework <pr> | adopt <pr>
        shep kelpie gate [<issue>] | drop [<issue>]
@@ -86,6 +88,13 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     // A ruling's answer starts after its id and first word.
     let (named, args) = split_project(args, (command == "rule").then_some(2))?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    // Only `status` has a JSON form, so `--json` is a word to every other verb.
+    let json = command == "status" && args.contains(&"--json");
+    let args: Vec<&str> = if json {
+        args.into_iter().filter(|arg| *arg != "--json").collect()
+    } else {
+        args
+    };
     if command == "rule" {
         return answer(shep_home, &kelpie_home, named.as_ref(), &args).await;
     }
@@ -174,8 +183,17 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
                 }
             }
         }
-        ("status", []) if named.is_none() => control::status(&client).await,
-        ("status", []) => send("status", None).await,
+        ("status", []) if named.is_none() => {
+            let format = if json { Format::Json } else { Format::Plain };
+            control::status(&client, format).await
+        }
+        ("status", []) => {
+            let answer = send("status", None).await?;
+            Ok(match (json, answer.as_slice()) {
+                (false, [body]) => control::plain_status(project().await?.as_str(), body),
+                _ => answer,
+            })
+        }
         ("rework" | "adopt", [number]) => send(command, Some(number)).await,
         ("gate" | "drop", []) => send(command, None).await,
         ("gate" | "drop", [issue]) => send(command, Some(issue)).await,
@@ -417,5 +435,54 @@ mod tests {
         assert_eq!(moved("rule -p koji 14 yes"), words("rule -p koji 14 yes"));
         assert_eq!(moved("-p koji runner x"), words("-p koji runner x"));
         assert_eq!(moved("-p"), words("-p"));
+    }
+
+    // `status` against a fake shepherd holding the runner `koji`.
+    async fn status(args: &str) -> Result<Vec<String>, String> {
+        let shepherd = crate::test::FakeShepherd::new().await;
+        let launch = Launch {
+            kelpie: "/opt/kelpie".into(),
+            shep_home: shepherd.home().to_owned(),
+            kelpie_home: None,
+        };
+        let table = crate::test::project_table(include_str!("../../settings.example.toml"));
+        let name = ProjectName::try_from("koji").unwrap();
+        shepherd.holds(launch.runner(&name, table), true);
+        shepherd.holds_dog("kelpie", true);
+        let args: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
+        let ask = run(shepherd.home(), "status", &args);
+        tokio::time::timeout(std::time::Duration::from_secs(40), ask)
+            .await
+            .expect("status neither ended nor failed in time")
+    }
+
+    #[tokio::test]
+    async fn status_prints_json_for_the_flag_wherever_it_stands() {
+        let object = r#"{"action":"status","sheep":"koji"}"#;
+        assert_eq!(status("--json").await.unwrap(), [format!("koji: {object}")]);
+        for line in ["--json -p koji", "-p koji --json", "--project=koji --json"] {
+            assert_eq!(status(line).await.unwrap(), [object], "{line}");
+        }
+    }
+
+    #[tokio::test]
+    async fn status_prints_a_plain_block_without_the_flag() {
+        let block = [
+            "koji",
+            "  run: running",
+            "  work items: none",
+            "  rulings waiting: none",
+            "  pacer: on",
+        ];
+        assert_eq!(status("").await.unwrap(), block);
+        assert_eq!(status("-p koji").await.unwrap(), block);
+    }
+
+    #[tokio::test]
+    async fn status_refuses_a_flag_it_does_not_know() {
+        for line in ["--yaml", "--json --yaml", "-p koji --yaml", "--jsn"] {
+            let err = status(line).await.unwrap_err();
+            assert!(err.starts_with("usage: shep kelpie add"), "{line}: {err}");
+        }
     }
 }
