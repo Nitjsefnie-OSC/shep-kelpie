@@ -575,7 +575,7 @@ async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() 
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.replies("koji", &[None]);
     let client = client(&shepherd).await;
-    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
     let lines = told.expect("a note that arrived is no error to retry");
     let [line] = lines.as_slice() else {
         panic!("{lines:?}")
@@ -592,7 +592,7 @@ async fn a_tell_the_runner_answered_says_it_was_told() {
     let shepherd = FakeShepherd::new().await;
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let client = client(&shepherd).await;
-    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
     assert_eq!(
         told,
         Ok(vec![
@@ -607,7 +607,7 @@ async fn a_runner_that_refuses_a_tell_is_its_error() {
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[r#"{"error":"koji has no project manager"}"#]);
     let client = client(&shepherd).await;
-    let told = in_time(tell(&client, &project("koji"), "hold #4")).await;
+    let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
     assert_eq!(told, Err("koji has no project manager".into()));
 }
 

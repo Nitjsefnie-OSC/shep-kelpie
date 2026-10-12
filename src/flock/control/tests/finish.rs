@@ -12,7 +12,7 @@ async fn finished(shepherd: &FakeShepherd) -> (Result<Vec<String>, String>, Vec<
     let client = client(shepherd).await;
     let mut said = Vec::new();
     let say = &mut |line| said.push(line);
-    let ran = in_time(finish(&client, &project("koji"), FAST, say)).await;
+    let ran = in_time(finish(&client, &project("koji"), Format::Plain, FAST, say)).await;
     (ran, said)
 }
 
