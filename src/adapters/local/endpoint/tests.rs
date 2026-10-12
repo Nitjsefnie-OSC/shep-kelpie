@@ -128,6 +128,7 @@ fn local(url: &str, context: u32) -> LocalRound {
         model: NonBlank::try_from("coder".to_owned()).unwrap(),
         context: ContextSize::try_from(i64::from(context)).unwrap(),
         lease: None,
+        prompt: None,
     })
 }
 
@@ -166,12 +167,114 @@ fn a_round_sends_the_diff_with_the_prompt_and_reads_the_findings() {
     assert_eq!(request["model"], "coder");
     assert_eq!(request["temperature"], 0);
     assert_eq!(request["max_tokens"], 2048);
-    assert_eq!(request["messages"][0]["content"], PROMPT);
+    assert_eq!(request["messages"][0]["content"], RECORDED);
     let diff = request["messages"][1]["content"].as_str().unwrap();
     assert!(diff.starts_with("### src/lib.rs\n@@ "), "{diff}");
     assert!(diff.contains("     2 +fn b() { panic!() }\n"), "{diff}");
     assert!(out.join("round-3.txt.done").is_file());
     assert!(out.join("round-3/reply-0.json").is_file());
+}
+
+// The system prompt every endpoint reviewer was sent before a body could
+// replace part of it, kept as it was recorded.
+const RECORDED: &str = include_str!("recorded-prompt.md");
+
+const CRITERIA_LEAD: &str = "\nThe issue this pull request resolves asks for the following. \
+                             Use it to judge what the change is meant to do.\n\n";
+
+// The recorded prompt from the paragraph starting `from`, to the one starting `to`.
+fn recorded_between(from: &str, to: Option<&str>) -> &'static str {
+    let start = RECORDED.find(from).unwrap();
+    let end = to.map_or(RECORDED.len(), |to| RECORDED.find(to).unwrap());
+    &RECORDED[start..end]
+}
+
+const DIFF_FORMAT_STARTS: &str = "The diff is below, one section per file.";
+const WHAT_TO_REPORT_STARTS: &str = "Report what would break";
+const ANSWER_FORMAT_STARTS: &str = "Write one line per finding";
+
+// What the single chunk of a one-file change is sent as the system prompt,
+// when the reviewer has `body` and the issue asks `criteria`.
+fn system_sent(body: Option<&str>, criteria: &str, replies: &[&'static str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start(replies.iter().map(|r| Answer::Says(r)));
+    let LocalRound::Endpoint(mut endpoint) = local(server.url(), 8192) else {
+        unreachable!()
+    };
+    endpoint.prompt = body.map(str::to_owned);
+    LocalReviewer::default()
+        .round(
+            &LocalRound::Endpoint(endpoint),
+            linked(&worktree),
+            "origin/main",
+            &dir.path().join("out"),
+            1,
+            criteria,
+        )
+        .unwrap();
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1);
+    requests[0]["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn an_endpoint_reviewer_with_no_body_sends_the_text_it_sent_before() {
+    assert_eq!(system_sent(None, "", &["CLEAN"]), RECORDED);
+    assert_eq!(
+        system_sent(None, "  Add b.\n", &["CLEAN"]),
+        format!("{RECORDED}{CRITERIA_LEAD}Add b.\n")
+    );
+}
+
+#[test]
+fn an_endpoint_chunk_s_request_carries_the_body_then_the_diff_and_answer_format_then_the_criteria()
+{
+    let body = "Report only a panic a caller can reach.";
+    let sent = system_sent(Some(body), "Add b.", &["CLEAN"]);
+    let diff_format = recorded_between(DIFF_FORMAT_STARTS, Some(WHAT_TO_REPORT_STARTS));
+    let answer_format = recorded_between(ANSWER_FORMAT_STARTS, None);
+    assert_eq!(
+        sent,
+        format!("{body}\n\n{diff_format}{answer_format}{CRITERIA_LEAD}Add b.\n")
+    );
+    assert!(!sent.contains("You review one part"), "{sent}");
+    assert!(!sent.contains(WHAT_TO_REPORT_STARTS), "{sent}");
+}
+
+#[test]
+fn a_body_that_asks_for_another_answer_format_is_still_read_in_kelpie_s_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([
+        Answer::Says("MEDIUM|src/lib.rs:2|b is new|it matters"),
+        Answer::Says(r#"{"findings":[{"line":2,"what":"b is new"}]}"#),
+    ]);
+    let LocalRound::Endpoint(mut endpoint) = local(server.url(), 8192) else {
+        unreachable!()
+    };
+    endpoint.prompt = Some("Answer in JSON, as {\"findings\": []}.".into());
+    let round = LocalRound::Endpoint(endpoint);
+    let reviewer = LocalReviewer::default();
+    let out = dir.path().join("out");
+
+    let findings = reviewer
+        .round(&round, linked(&worktree), "origin/main", &out, 1, "")
+        .unwrap();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].line, 2);
+
+    let url = server.url();
+    assert_eq!(
+        reviewer.round(&round, linked(&worktree), "origin/main", &out, 2, ""),
+        Err(ReviewerError::Failed(format!(
+            "{url}'s reply is neither findings nor CLEAN: \
+             {{\"findings\":[{{\"line\":2,\"what\":\"b is new\"}}]}}"
+        )))
+    );
 }
 
 #[test]
@@ -223,7 +326,7 @@ fn a_diff_bigger_than_the_context_goes_in_several_requests() {
     let requests = server.requests();
     assert!(requests.len() > 1, "{} requests", requests.len());
     let reply = 4096 / REPLY_SHARE;
-    let prompt = PROMPT.len().div_ceil(BYTES_PER_TOKEN) + FRAMING_TOKENS;
+    let prompt = RECORDED.len().div_ceil(BYTES_PER_TOKEN) + FRAMING_TOKENS;
     let budget = (4096 - reply - prompt) * BYTES_PER_TOKEN;
     for request in &requests {
         let diff = request["messages"][1]["content"].as_str().unwrap();
