@@ -408,7 +408,7 @@ impl Runner {
             qwen: item.qwen,
             timings,
         };
-        let issue = item.issue;
+        let (issue, pull_request) = (item.issue, item.pull_request);
         let mut next = self.state.clone();
         next.work_items.retain(|open| open.issue != item.issue);
         // Rulings about this work item go with it, a question asked before
@@ -428,6 +428,11 @@ impl Runner {
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
         self.tell_done(&ended);
+        // After the save, so a step that fails here is not run again with the
+        // work item gone, and a comment is never posted twice.
+        if let (true, Some(number)) = (merged, pull_request) {
+            self.close_merged_issue(issue, number);
+        }
         self.mark_held(issue, false);
         self.late_reads.remove(&issue);
         self.parked_reads.remove(&issue);
@@ -858,6 +863,9 @@ mod tests {
     #[test]
     fn a_finished_issue_leaves_the_state_file_once_its_issue_is_closed() {
         let (rig, runner, _) = Rig::parked("webapp");
+        // A close the forge refuses leaves the issue open.
+        rig.forge.set_closes(71, &[]);
+        rig.forge.set_closes_down(true);
         rig.forge.list_ready(7, false);
         rig.ask(&runner, "rule", Some("1 yes"));
         assert!(finished(ready_then_merge(&rig, &runner)));
@@ -881,5 +889,78 @@ mod tests {
         rig.forge.remove_issue(7);
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(finished_on_disk(&rig), json!([7]));
+    }
+
+    #[test]
+    fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.list_ready(8, false);
+        rig.forge.block(8, 7);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert_eq!(rig.forge.closings(), [7]);
+        let comments = rig.forge.comments();
+        assert_eq!(comments.len(), 1, "{comments:?}");
+        assert_eq!(comments[0].0, 7);
+        assert!(comments[0].1.contains("#71"), "{comments:?}");
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Dispatched { issue: 8, .. })
+        ));
+    }
+
+    #[test]
+    fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.list_ready(7, false);
+        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.forge.set_state(71, PullRequestState::Merged);
+
+        assert!(finished(step(&runner).unwrap()));
+        assert_eq!(rig.forge.closings(), [7]);
+        assert_eq!(rig.forge.comments().len(), 1);
+    }
+
+    #[test]
+    fn an_issue_the_forge_already_closed_gets_no_comment_and_no_second_close() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
+    }
+
+    #[test]
+    fn a_close_the_forge_refuses_is_noted_and_the_work_item_still_finishes() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+        rig.forge.set_closes_down(true);
+        rig.ask(&runner, "rule", Some("1 yes"));
+
+        assert!(finished(ready_then_merge(&rig, &runner)));
+        assert!(rig.forge.closings().is_empty());
+        assert_eq!(rig.forge.comments().len(), 1);
+        let notes = runner.lock().unwrap().take_notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("cannot close issue #7"), "{notes:?}");
+        assert!(notes[0].contains("closing is refused"), "{notes:?}");
+        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
+    }
+
+    #[test]
+    fn an_item_that_ended_without_a_merge_leaves_its_issue_untouched() {
+        let (rig, runner, _) = Rig::parked("koji");
+        rig.forge.set_closes(71, &[]);
+        rig.forge.list_ready(7, false);
+
+        rig.ask(&runner, "drop", Some("7"));
+        assert!(rig.forge.closings().is_empty());
+        assert!(rig.forge.comments().is_empty());
     }
 }
