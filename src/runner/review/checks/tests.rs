@@ -11,6 +11,7 @@ use crate::test::{Rig, Scripted};
 use crate::work_item::{Reading, TestCheck};
 
 const TEST_FILE: &str = "tests/flag.rs";
+const TEST_TEXT: &str = "#[test]\nfn flag_is_read() { assert!(false); }\n";
 const FINDING: &str =
     "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs";
 
@@ -36,11 +37,8 @@ fn asking_tests() -> (Rig, Mutex<Runner>) {
 // The claude reviewer attaches `file` to its finding, and the findings are
 // sent: the run before the fix is made in this step.
 fn sent(rig: &Rig, runner: &Mutex<Runner>, file: &'static str, reply: &'static str) {
-    rig.claude.script([Scripted::Attach(
-        file,
-        "#[test]\nfn flag_is_read() { assert!(false); }\n",
-        reply,
-    )]);
+    rig.claude
+        .script([Scripted::Attach(file, TEST_TEXT, reply)]);
     step(runner).unwrap(); // round 2, claude
     step(runner).unwrap(); // the findings sent
 }
@@ -352,4 +350,103 @@ fn files_a_run_leaves_in_a_folder_the_test_made_are_reported() {
         [the_flag_check(failed("no"), None)],
         "the outcome is recorded all the same"
     );
+}
+
+// The fix prompt sends the worker to read the reviewer's test, and the natural
+// fix commits a copy of it at its path.
+#[test]
+fn a_test_the_worker_committed_unchanged_is_still_run_after_the_fix_and_left() {
+    let (rig, runner) = asking_tests();
+    rig.tests.watch(TEST_FILE);
+    rig.tests.script([failed("no"), Passed]);
+    sent(&rig, &runner, TEST_FILE, FINDING);
+
+    rig.claude.script([Scripted::Push(TEST_FILE, TEST_TEXT)]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap().expect("the fix ended with a report");
+
+    let verified = the_flag_check(failed("no"), Some(Passed));
+    assert_eq!(verified.reading(), Reading::Verified);
+    assert_eq!(checks_of(&runner), [verified]);
+    let ran = rig.tests.ran();
+    assert_eq!(ran.len(), 2);
+    assert_eq!(ran[1].held, [PathBuf::from(TEST_FILE)]);
+    let worktree = rig.worktree_7();
+    assert_eq!(
+        std::fs::read_to_string(worktree.join(TEST_FILE)).unwrap(),
+        TEST_TEXT,
+        "the worker's committed file is the worker's, and stays"
+    );
+    assert!(!rig.paths().worker.join("test-placed-7").exists());
+}
+
+#[test]
+fn a_file_of_that_name_with_other_text_is_not_run_over_or_removed() {
+    let (rig, runner) = asking_tests();
+    rig.tests.script([failed("no"), Passed]);
+    sent(&rig, &runner, TEST_FILE, FINDING);
+
+    let other = "#[test]\nfn flag_is_read() {}\n";
+    rig.claude.script([Scripted::Push(TEST_FILE, other)]);
+    step(&runner).unwrap(); // the worker's fix turn
+    step(&runner).unwrap().expect("the fix ended with a report");
+
+    let checks = checks_of(&runner);
+    let Some(NotRun { reason }) = &checks[0].after else {
+        panic!("{checks:?}");
+    };
+    assert!(reason.contains("another file"), "{reason}");
+    assert_eq!(rig.tests.ran().len(), 1, "only the run before the fix");
+    let worktree = rig.worktree_7();
+    assert_eq!(
+        std::fs::read_to_string(worktree.join(TEST_FILE)).unwrap(),
+        other
+    );
+}
+
+// A kelpie stopped mid-run leaves the file, and the record of it.
+#[test]
+fn a_test_left_in_the_worktree_by_a_stopped_run_is_taken_out_and_reported() {
+    let (rig, runner) = asking_tests();
+    rig.claude
+        .script([Scripted::Attach(TEST_FILE, TEST_TEXT, FINDING)]);
+    step(&runner).unwrap(); // round 2, claude
+    let worktree = rig.worktree_7();
+    std::fs::create_dir(worktree.join("tests")).unwrap();
+    std::fs::write(worktree.join(TEST_FILE), TEST_TEXT).unwrap();
+    let record = rig.paths().worker.join("test-placed-7");
+    std::fs::write(&record, "tests/flag.rs\ntests\n").unwrap();
+    rig.tests.watch(TEST_FILE);
+    rig.tests.script([failed("no")]);
+
+    step(&runner).unwrap(); // the findings sent
+
+    assert!(!worktree.join("tests").exists(), "the file and its folder");
+    assert!(!record.exists());
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("was stopped during a test run"), "{notes}");
+    assert!(!notes.contains("dirty"), "{notes}");
+    assert_eq!(checks_of(&runner), [the_flag_check(failed("no"), None)]);
+    assert_eq!(
+        rig.tests.ran().len(),
+        1,
+        "and the run was made all the same"
+    );
+}
+
+#[test]
+fn a_run_records_the_test_it_puts_in_the_worktree_until_it_is_taken_out() {
+    let (rig, runner) = asking_tests();
+    let record = rig.paths().worker.join("test-placed-7");
+    rig.tests.watch(record.to_str().unwrap());
+    rig.tests.script([failed("no")]);
+
+    sent(&rig, &runner, TEST_FILE, FINDING);
+
+    assert_eq!(
+        rig.tests.ran()[0].held,
+        vec![record.clone()],
+        "the record stood as the test ran"
+    );
+    assert!(!record.exists(), "gone once the test is out");
 }
