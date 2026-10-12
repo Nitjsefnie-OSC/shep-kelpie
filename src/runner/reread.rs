@@ -1,16 +1,17 @@
 //! A settings change reaching a running runner
 //!
 //! Every setting takes effect live, at the next step or call that reads
-//! it, except `git.checkout` and `git.remote`: a work item's worktree and
-//! pull request belong to them, so those wait for the runner's next start. The agent
-//! files are read again with them, and a change to those alone is a change
-//! too. A change is checked as a start checks it, and one that fails keeps
-//! the settings the runner has.
+//! it, except `git.checkout`, `git.remote` and `hooks`: a work item's
+//! worktree and pull request belong to the first two, and the forge and
+//! voice ports hold the hooks built at start, so those wait for the
+//! runner's next start. The agent files are read again with them, and a
+//! change to those alone is a change too. A change is checked as a start
+//! checks it, and one that fails keeps the settings the runner has.
 
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{ListedReviewer, Settings, SettingsError};
+use crate::settings::{Git, ListedReviewer, Settings, SettingsError};
 use crate::skills::Skills;
 use crate::webhook::{KelpieSettings, Webhook};
 
@@ -39,6 +40,11 @@ impl Runner {
         if settings.git.remote != self.settings.git.remote {
             waiting.push("git.remote");
             settings.git.remote.clone_from(&self.settings.git.remote);
+        }
+        // The forge and voice ports hold the hooks built at start.
+        if settings.hooks != self.settings.hooks {
+            waiting.push("hooks");
+            settings.hooks.clone_from(&self.settings.hooks);
         }
         if let Some(reason) = settings.rulings.refusal() {
             return Err(SettingsError::Invalid {
@@ -124,18 +130,59 @@ impl Runner {
 type Reach<'a> = (&'a Settings, &'a Option<Webhook>);
 
 // The settings that differ, by key or by table. `webhook` also changes
-// when kelpie's own settings do.
+// when kelpie's own settings do. Both `Settings` are taken apart without
+// `..`, so a field added to one is a compile error until this decides what
+// `reread` does with it: list it here, or leave it out with a reason.
 fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
+    let Settings {
+        git: old_git,
+        ci: old_ci,
+        concurrency: old_concurrency,
+        agents: _, // `reread` compares the agents it resolves, with the files
+        pacing: old_pacing,
+        worker: old_worker,
+        researcher: old_researcher,
+        rulings: old_rulings,
+        hooks: _, // waits for the next start, so `reread` keeps the old
+        skills: old_skills,
+    } = old;
+    let Settings {
+        git: new_git,
+        ci: new_ci,
+        concurrency: new_concurrency,
+        agents: _,
+        pacing: new_pacing,
+        worker: new_worker,
+        researcher: new_researcher,
+        rulings: new_rulings,
+        hooks: _,
+        skills: new_skills,
+    } = new;
+    let Git {
+        checkout: _, // waits for the next start
+        remote: _,   // waits for the next start
+        merging: old_merging,
+        issues: old_issues,
+        maintainer: old_maintainer,
+    } = old_git;
+    let Git {
+        checkout: _,
+        remote: _,
+        merging: new_merging,
+        issues: new_issues,
+        maintainer: new_maintainer,
+    } = new_git;
     [
-        ("git.merging", old.git.merging != new.git.merging),
-        ("git.issues", old.git.issues != new.git.issues),
-        ("ci", old.ci != new.ci),
-        ("concurrency", old.concurrency != new.concurrency),
-        ("pacing", old.pacing != new.pacing),
-        ("worker", old.worker != new.worker),
-        ("skills", old.skills != new.skills),
-        ("researcher", old.researcher != new.researcher),
-        ("rulings", old.rulings != new.rulings),
+        ("git.merging", old_merging != new_merging),
+        ("git.issues", old_issues != new_issues),
+        ("git.maintainer", old_maintainer != new_maintainer),
+        ("ci", old_ci != new_ci),
+        ("concurrency", old_concurrency != new_concurrency),
+        ("pacing", old_pacing != new_pacing),
+        ("worker", old_worker != new_worker),
+        ("skills", old_skills != new_skills),
+        ("researcher", old_researcher != new_researcher),
+        ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),
     ]
     .into_iter()
@@ -148,7 +195,7 @@ mod tests {
     use std::path::Path;
 
     use crate::ports::Visibility;
-    use crate::settings::{Filing, Merging};
+    use crate::settings::{Filing, HookPoint, Merging};
     use crate::test::Rig;
     use crate::webhook::{KelpieSettings, WebhookKind};
 
@@ -269,6 +316,42 @@ mod tests {
         );
         assert_eq!(runner.remote().as_str(), "shep-pm/shep");
         assert_eq!(runner.settings().git.checkout, rig.repo());
+    }
+
+    #[test]
+    fn a_changed_maintainer_alone_takes_effect_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.maintainer("octocat");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed: git.maintainer now in effect")
+        );
+        let login = runner.settings().git.maintainer.clone().unwrap();
+        assert_eq!(login.as_str(), "octocat");
+    }
+
+    #[test]
+    fn a_changed_hook_alone_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.hook("check.sh", &["publish"], "exit 0");
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; hooks from the runner's next start")
+        );
+        assert!(runner.settings().hooks.is_empty(), "the old hooks stay");
+        assert!(!runner.hooks.has(HookPoint::Publish));
+        drop(runner);
+
+        let restarted = rig.open().unwrap();
+        let restarted = restarted.lock().unwrap();
+        assert_eq!(restarted.settings().hooks.len(), 1);
+        assert!(restarted.hooks.has(HookPoint::Publish));
     }
 
     #[test]
