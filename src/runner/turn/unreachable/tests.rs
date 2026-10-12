@@ -11,6 +11,7 @@ use crate::ports::{AgentError, Cost};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{Hold, Rig, Scripted};
+use crate::usage::{FILE, read};
 
 // Seconds since the first failure past which the wait parks the work item
 const LIMIT: u64 = 30 * 60;
@@ -195,6 +196,79 @@ fn a_retry_in_flight_sets_no_look_at_the_pause_that_has_passed() {
         hold.release();
         retry.join().unwrap().unwrap();
     });
+}
+
+#[test]
+fn a_retry_writes_the_workers_github_login_again() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    let runner = rig.open().unwrap();
+    assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);
+    rig.claude
+        .script([down("502"), Scripted::Reply(usage(1), Cost(7))]);
+    step(&runner).unwrap();
+    let hosts = rig.build_7().join("gh/hosts.yml");
+    let first = std::fs::read_to_string(&hosts).unwrap();
+    assert!(first.contains("ghs_test"), "{first}");
+
+    // What the login holds by the time the host is back.
+    std::fs::write(&hosts, "a login that ran out\n").unwrap();
+    rig.clock.advance(30);
+    step(&runner).unwrap();
+    assert_eq!(rig.claude.calls().len(), 2);
+    let again = std::fs::read_to_string(&hosts).unwrap();
+    assert!(again.contains("ghs_test"), "{again}");
+}
+
+#[test]
+fn a_retry_that_ran_a_long_while_before_its_502_begins_a_new_wait() {
+    let (rig, runner) = with_issue_7("acme");
+    let hold = Hold::default();
+    rig.claude.script([
+        down("502 first"),
+        Scripted::HoldThenFail(
+            hold.clone(),
+            AgentError::Unreachable(Harness::ClaudeCode, "502 second".into()),
+        ),
+        Scripted::Reply(usage(1), Cost(7)),
+    ]);
+    step(&runner).unwrap();
+    rig.clock.advance(30);
+    std::thread::scope(|scope| {
+        let retry = scope.spawn(|| step(&runner));
+        assert!(hold.entered(Duration::from_secs(10)), "no retry began");
+        // The retry reached its host and worked past the limit.
+        rig.clock.advance(LIMIT + 60);
+        hold.release();
+        assert_eq!(retry.join().unwrap().unwrap(), None, "it parked");
+    });
+    assert_eq!(rulings(&rig, &runner), 0);
+    assert_eq!(
+        item(&rig, &runner)["waiting"],
+        json!({ "since": Rig::EPOCH + 30 + LIMIT + 60, "why": "unreachable" }),
+        "the wait runs from the second failure"
+    );
+    rig.clock.advance(30);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Ended { issue: 7, .. })
+    ));
+}
+
+#[test]
+fn a_call_that_could_not_reach_its_host_leaves_a_failed_line_in_the_ledger() {
+    let (rig, runner) = with_issue_7("acme");
+    rig.claude.script([down("502")]);
+    step(&runner).unwrap();
+    let lines = read(&rig.paths().folder.join(FILE)).unwrap();
+    let [line] = lines.as_slice() else {
+        panic!("one call, one line: {lines:#?}")
+    };
+    let line = serde_json::to_value(line).unwrap();
+    assert_eq!(
+        (line["role"].as_str(), line["ended"].as_str()),
+        (Some("worker"), Some("failed"))
+    );
 }
 
 #[test]

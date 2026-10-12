@@ -16,7 +16,8 @@ use super::super::Runner;
 use super::super::alert::backoff;
 use super::super::flight::Waiting;
 use super::super::report::Begin;
-use crate::ports::{AgentCall, AgentError, Timestamp, Wait};
+use crate::ports::{AgentCall, AgentError, ForgeError, Timestamp, Wait};
+use crate::profile;
 
 /// Seconds the wait lasts from the first failure before the turn parks
 ///
@@ -92,6 +93,13 @@ impl Runner {
             }
             return false;
         };
+        // A retry that ran longer than the longest pause reached its host, so
+        // the outage it ended is over and this failure begins another.
+        let ran = self
+            .flights
+            .started(issue)
+            .map_or(0, |at| now.0.saturating_sub(at.0));
+        let held = held.filter(|_| ran <= RETRY_MAX);
         let since = held.as_ref().map_or(now, |pause| pause.since);
         let failures = held.as_ref().map_or(0, |pause| pause.failures) + 1;
         self.board_changed();
@@ -144,8 +152,27 @@ impl Runner {
     pub(super) fn retry_for_host(&self, issue: u64) -> Option<Begin> {
         let pause = self.unreachable.0.get(&issue)?;
         let now = self.ports.clock.now();
-        if now < pause.until || self.draining {
+        if now < pause.until || self.draining || self.token_wait.holds(now) {
             return Some(Begin::Idle);
+        }
+        // The call is replayed as it was, but its GitHub login was written
+        // when the turn began and may have run out during the wait, so a
+        // fresh one is written now. A token that cannot be had waits as one
+        // does at a turn's start; any other failure goes on with the login
+        // already there, which the refresh renews while the call runs.
+        self.token_wait.begins();
+        match self.ports.voice.worker_token(&self.remote) {
+            Ok(Some(token)) => {
+                if let Some(item) = self.current().filter(|item| item.issue == issue) {
+                    let _ = profile::write_login(&item.build, &token);
+                }
+                self.token_wait.ends();
+            }
+            Err(ForgeError::AppBusy(_)) => {
+                self.token_wait.busy_at(now);
+                return Some(Begin::Idle);
+            }
+            Ok(None) | Err(_) => {}
         }
         Some(Begin::Call {
             call: pause.call.clone(),

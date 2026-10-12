@@ -132,6 +132,11 @@ impl Flights {
         ))
     }
 
+    /// When `issue`'s call in flight started
+    pub(super) fn started(&self, issue: u64) -> Option<Timestamp> {
+        Some(self.flying.get(&issue)?.watched.started)
+    }
+
     /// Whether `issue`'s call in flight is a `/compact` of its worker's session
     pub(super) fn runs_compact(&self, issue: u64) -> bool {
         self.flying.get(&issue).is_some_and(|f| f.compact)
