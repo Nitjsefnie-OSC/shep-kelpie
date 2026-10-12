@@ -838,6 +838,21 @@ mod tests {
     }
 
     #[test]
+    fn a_move_leaves_an_open_issue_between_the_listed_ones_where_it_was() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        three_ready(&rig, &runner);
+        // #284 is open, so the list leaves it out, and the order still holds it.
+        rig.ask(&runner, "add", Some("284"));
+        assert_eq!(listed(&rig, &runner, None), [282, 285]);
+        assert_eq!(listed(&rig, &runner, Some("top 285")), [285, 282]);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["order"],
+            json!([285, 284, 282])
+        );
+    }
+
+    #[test]
     fn board_lists_each_issue_with_its_place_title_priority_and_why_it_waits() {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();

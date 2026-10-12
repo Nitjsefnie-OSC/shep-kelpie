@@ -121,9 +121,7 @@ impl Runner {
         };
         listed.retain(|&n| n != issue);
         listed.insert(place - 1, issue);
-        // An issue the list leaves out, one a work item holds, keeps its place after it.
-        let rest = (self.state.order.iter()).filter(|n| !listed.contains(n));
-        let order: Vec<u64> = listed.iter().chain(rest).copied().collect();
+        let order = refill(&self.state.order, &listed);
         if order == self.state.order {
             return Ok(());
         }
@@ -133,4 +131,23 @@ impl Runner {
         self.board_changed();
         Ok(())
     }
+}
+
+// `order` with `listed`'s issues in `listed`'s sequence, each in the places the
+// listed ones held, so an issue the list leaves out, one a work item holds,
+// keeps its own place between them. A listed issue `order` omits goes last.
+fn refill(order: &[u64], listed: &[u64]) -> Vec<u64> {
+    let mut sequence = listed.iter().copied();
+    let mut refilled: Vec<u64> = order
+        .iter()
+        .map(|n| {
+            if listed.contains(n) {
+                sequence.next().expect("a listed issue for each place")
+            } else {
+                *n
+            }
+        })
+        .collect();
+    refilled.extend(sequence);
+    refilled
 }
