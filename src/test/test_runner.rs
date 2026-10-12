@@ -21,6 +21,7 @@ pub(crate) struct Ran {
 pub(crate) struct FakeTests {
     outcomes: Arc<Mutex<VecDeque<TestOutcome>>>,
     watched: Arc<Mutex<Vec<PathBuf>>>,
+    left: Arc<Mutex<Vec<PathBuf>>>,
     ran: Arc<Mutex<Vec<Ran>>>,
 }
 
@@ -35,6 +36,12 @@ impl FakeTests {
         self.watched.lock().unwrap().push(PathBuf::from(path));
     }
 
+    /// Has every later run write a file at `path` in its folder, as a test
+    /// that leaves something behind does
+    pub(crate) fn leave(&self, path: &str) {
+        self.left.lock().unwrap().push(PathBuf::from(path));
+    }
+
     /// Every run asked for, oldest first
     pub(crate) fn ran(&self) -> Vec<Ran> {
         self.ran.lock().unwrap().clone()
@@ -47,6 +54,11 @@ impl TestRunner for FakeTests {
             .filter(|path| run.cwd.join(path).exists())
             .cloned()
             .collect();
+        for path in self.left.lock().unwrap().iter() {
+            let at = run.cwd.join(path);
+            std::fs::create_dir_all(at.parent().expect("a file has a folder")).unwrap();
+            std::fs::write(at, "left behind\n").unwrap();
+        }
         self.ran.lock().unwrap().push(Ran {
             run: run.clone(),
             held,

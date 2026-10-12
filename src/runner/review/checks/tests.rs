@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::ports::TestOutcome::{self, Failed, NotRun, Passed, TimedOut};
+use crate::ports::{Finding, Severity};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 use crate::work_item::{Reading, TestCheck};
@@ -293,4 +294,62 @@ fn a_finding_without_a_test_is_never_run() {
     assert!(checks_of(&runner).is_empty());
     let status = rig.ask(&runner, "status", None);
     assert!(status["work_item"].get("test_checks").is_none());
+}
+
+fn finding_testing(path: &str) -> Finding {
+    Finding {
+        severity: Severity::Medium,
+        file: "src/lib.rs".into(),
+        line: 3,
+        what: "the flag is read first".into(),
+        why: "a caller sees nothing".into(),
+        test: Some(path.to_owned()),
+    }
+}
+
+// The path comes from the state file, which is read as it stands.
+#[test]
+fn a_path_that_leaves_the_worktree_is_recorded_not_run() {
+    let (rig, runner) = asking_tests();
+    let guard = runner.lock().unwrap();
+    let head = guard.worktree_head().unwrap();
+    let found = [
+        finding_testing("../escape.rs"),
+        finding_testing("/etc/escape.rs"),
+    ];
+
+    let checks = guard.tests_before(2, &head, &found);
+
+    assert_eq!(checks.len(), 2);
+    for check in &checks {
+        let NotRun { reason } = &check.before else {
+            panic!("{check:?}");
+        };
+        assert!(reason.contains("inside the worktree"), "{reason}");
+    }
+    assert!(rig.tests.ran().is_empty(), "no command was built from them");
+}
+
+#[test]
+fn files_a_run_leaves_in_a_folder_the_test_made_are_reported() {
+    let (rig, runner) = asking_tests();
+    rig.tests.leave("tests/left.txt");
+    rig.tests.script([failed("no"), Passed]);
+
+    sent(&rig, &runner, TEST_FILE, FINDING);
+
+    let worktree = rig.worktree_7();
+    assert!(!worktree.join(TEST_FILE).exists(), "the test itself is out");
+    assert!(
+        worktree.join("tests/left.txt").exists(),
+        "the run's own file stays"
+    );
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("left the worktree dirty"), "{notes}");
+    assert!(notes.contains("tests"), "{notes}");
+    assert_eq!(
+        checks_of(&runner),
+        [the_flag_check(failed("no"), None)],
+        "the outcome is recorded all the same"
+    );
 }

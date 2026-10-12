@@ -11,7 +11,7 @@
 //! they block nothing: whatever the outcomes, the pass goes on as it did.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::super::Runner;
 use super::super::turn::start_of;
@@ -134,10 +134,15 @@ impl Runner {
             door: self.paths.door.clone(),
             ceiling: CEILING,
         });
-        if let Err(e) = placed.take_out() {
+        // The outcome stands, but a worktree the run left dirty is the
+        // maintainer's to know: the next run of this path refuses to start
+        // over a file that is still there.
+        let left = placed.take_out();
+        if !left.is_empty() {
             self.notes.push(format!(
-                "issue #{}: the test {test} could not be taken out of the worktree: {e}",
-                item.issue
+                "issue #{}: the test {test} left the worktree dirty, remove by hand: {}",
+                item.issue,
+                left.join("; ")
             ));
         }
         Ok(outcome)
@@ -148,6 +153,16 @@ impl Runner {
 // The command goes to a shell, so a path it could read as anything but a
 // path is refused.
 fn fill(template: &str, test: &str) -> Result<String, String> {
+    // The path is joined to the worktree, so it must stay below it, whatever
+    // the state file holds.
+    let inside = Path::new(test)
+        .components()
+        .all(|step| matches!(step, Component::Normal(_)));
+    if test.is_empty() || !inside {
+        return Err(format!(
+            "the path {test} is not a relative path inside the worktree, so it is not run"
+        ));
+    }
     let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/');
     if !test.chars().all(plain) || test.starts_with('-') {
         return Err(format!(
@@ -158,7 +173,12 @@ fn fill(template: &str, test: &str) -> Result<String, String> {
         .file_stem()
         .and_then(|stem| stem.to_str())
         .ok_or_else(|| format!("the path {test} has no file name"))?;
-    Ok(template.replace("{test}", test).replace("{name}", name))
+    let command = template.replace("{test}", test).replace("{name}", name);
+    // An empty command is a shell that exits 0 having run nothing.
+    match command.trim().is_empty() {
+        true => Err("`ci.test_command` is empty, so there is nothing to run".to_owned()),
+        false => Ok(command),
+    }
 }
 
 // The newest check of `finding` in `round`, if any.
@@ -204,23 +224,33 @@ impl Placed {
         match worker_folder::write(root, rel, text) {
             Ok(()) => Ok(placed),
             Err(e) => {
-                let _ = placed.take_out();
-                Err(format!("cannot put the test in the worktree: {e}"))
+                let left = placed.take_out();
+                let left = match left.is_empty() {
+                    true => String::new(),
+                    false => format!(" and cannot clear it: {}", left.join("; ")),
+                };
+                Err(format!("cannot put the test in the worktree: {e}{left}"))
             }
         }
     }
 
-    // Removes the file, then the folders made for it that nothing else is in.
-    fn take_out(self) -> io::Result<()> {
-        let gone = match std::fs::remove_file(self.root.join(&self.rel)) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
+    // Removes the file, then the folders made for it, and names each that
+    // stays: a folder the run put something in is still the worktree's mess.
+    fn take_out(self) -> Vec<String> {
+        let mut left = Vec::new();
+        let mut gone = |path: &Path, result: io::Result<()>| match result {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                let shown = path.strip_prefix(&self.root).unwrap_or(path);
+                left.push(format!("{}: {e}", shown.display()));
+            }
+            _ => {}
         };
+        let file = self.root.join(&self.rel);
+        gone(&file, std::fs::remove_file(&file));
         for dir in self.made.iter().rev() {
-            // One the run put something in stays; it is the run's.
-            let _ = std::fs::remove_dir(dir);
+            gone(dir, std::fs::remove_dir(dir));
         }
-        gone
+        left
     }
 }
 
