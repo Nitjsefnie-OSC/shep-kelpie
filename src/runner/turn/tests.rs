@@ -11,7 +11,7 @@ use crate::runner::step;
 use crate::settings::Effort;
 use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, git, write_in};
 
-fn usage(n: u64) -> Usage {
+pub(super) fn usage(n: u64) -> Usage {
     Usage {
         input: n,
         cache_write: 10 * n,
@@ -22,7 +22,7 @@ fn usage(n: u64) -> Usage {
 }
 
 // A running project with issue 7 in flight
-fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
+pub(super) fn with_issue_7(project: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
     let runner = rig.open().unwrap();
     assert_eq!(rig.ask(&runner, "add", Some("7"))["work_item"]["issue"], 7);

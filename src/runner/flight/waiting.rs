@@ -45,6 +45,9 @@ pub(super) enum Fallback {
 impl Runner {
     /// `issue`'s worker turn in flight, if it waits for its model
     pub(in crate::runner) fn model_wait(&self, issue: u64) -> Option<Waiting> {
+        if !self.flights.flying.contains_key(&issue) {
+            return self.unreachable.waiting(issue);
+        }
         let waiting = self.quiet_since(issue)?;
         if waiting.why != Wait::Silent {
             return Some(waiting);

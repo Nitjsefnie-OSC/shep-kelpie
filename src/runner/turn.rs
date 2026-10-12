@@ -39,6 +39,7 @@ pub(super) use unfinished::{failed, named_files};
 
 mod handover;
 mod unfinished;
+pub(super) mod unreachable;
 
 /// What a work item's worker runs on this turn
 pub(super) struct WorkerAgent {
@@ -105,6 +106,8 @@ impl Runner {
             return self.begin_item(true);
         }
         self.recheck_dropped()?;
+        let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
+        self.unreachable.keep_only(&open);
         self.seat_waiting()?;
         let mut waiting = None;
         let now = self.ports.clock.now();
@@ -185,6 +188,11 @@ impl Runner {
             Phase::Ruling { id } => return self.late_while_parked(*id),
             Phase::Merge { .. } => return self.merge(),
             Phase::Done { merged, .. } => return self.finish(*merged),
+        }
+        // A turn whose model host could not be reached is tried again as it
+        // was, once its pause has passed.
+        if !start_over && let Some(retry) = self.retry_for_host(item.issue) {
+            return Ok(retry);
         }
         // Only a turn that has not begun waits on the pacer: one already
         // running carries on, since a turn is never interrupted, and start_over
