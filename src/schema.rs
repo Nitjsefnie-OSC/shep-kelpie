@@ -24,7 +24,7 @@ pub fn probe() {
 mod tests {
     use std::collections::BTreeSet;
 
-    use serde_json::Value;
+    use serde_json::{Value, json};
     use shep_client::dogs::{SECRET_KEY, SHEEP_SCHEMA_KEY, config_schema_with_sheep};
 
     use super::*;
@@ -173,6 +173,13 @@ mod tests {
                 "# [app.dogs.kelpie.e2e]\n# host =",
                 "[app.dogs.kelpie.e2e]\nhost =",
             )
+            .replace(
+                "# [app.dogs.kelpie.repo_setup]\n# plugins =",
+                "[app.dogs.kelpie.repo_setup]\nplugins =",
+            )
+            .replace("# roles =", "roles =")
+            .replace("# skip =", "skip =")
+            .replace("# extra =", "extra =")
             .replace("# command = \"scripts/", "command = \"scripts/")
             .replace("# results =", "results =");
         assert!(
@@ -216,6 +223,35 @@ mod tests {
             "worker.build_env",
         ] {
             assert!(sheep.contains(key), "{key}: {sheep:?}");
+        }
+    }
+
+    // Lookout edits a string, a list of strings and a table of strings, so
+    // the repo setup uses nothing else.
+    #[test]
+    fn each_repo_setup_key_is_a_string_a_list_of_strings_or_a_table_of_strings() {
+        let root = schema();
+        let project = resolve(&root, &root[SHEEP_SCHEMA_KEY]);
+        let setup = resolve(&root, &project["properties"]["repo_setup"]);
+        let key = |name: &str| resolve(&root, &setup["properties"][name]);
+        assert_eq!(key("plugins")["type"], "boolean");
+        for list in ["roles", "skip"] {
+            let items = resolve(&root, &key(list)["items"]);
+            assert_eq!(key(list)["type"], "array", "{list}");
+            assert_eq!(items["type"], "string", "{list}");
+        }
+        let extra = key("extra");
+        assert_eq!(extra["type"], "object");
+        let sources = extra["patternProperties"].as_object().unwrap();
+        let source = resolve(&root, sources.values().next().unwrap());
+        let fields = source["properties"].as_object().unwrap();
+        assert_eq!(fields.len(), 5);
+        for (name, field) in fields {
+            let kind = &field["type"];
+            assert!(
+                kind == "string" || kind == &json!(["string", "null"]),
+                "{name}: {kind}"
+            );
         }
     }
 

@@ -527,10 +527,13 @@ impl Runner {
     /// Done before the call is marked running, so a failure keeps the turn
     /// it would have run for a retry.
     pub(super) fn prepared(&self, mut call: AgentCall) -> Result<AgentCall, String> {
-        // The plugins the repo turns on reach every call the runner makes in it.
-        for plugin in self.repo_plugins.dirs() {
-            if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
-                call.plugin_dirs.push(plugin.to_owned());
+        // The plugins the repo turns on reach every call the runner makes in it,
+        // unless the project's `repo_setup` keeps them from this call's role.
+        if self.settings.repo_setup.reaches(call.role) {
+            for plugin in self.repo_plugins.dirs() {
+                if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
+                    call.plugin_dirs.push(plugin.to_owned());
+                }
             }
         }
         self.ports

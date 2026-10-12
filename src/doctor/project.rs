@@ -160,7 +160,11 @@ pub(super) fn checks(
 // from the marketplaces it has fetched: nothing where the repo turns on none.
 // A plugin left out never fails the run, since the runner goes on without it.
 fn repo_plugins(subject: String, settings: &Settings, here: Here<'_>) -> Option<Line> {
-    let plugins = crate::skills::inspect(&settings.git.checkout, here.kelpie_home);
+    let plugins = crate::skills::inspect(
+        &settings.git.checkout,
+        here.kelpie_home,
+        &settings.repo_setup,
+    );
     if plugins.is_empty() {
         return None;
     }

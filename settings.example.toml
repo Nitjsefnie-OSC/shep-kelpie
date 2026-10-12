@@ -260,3 +260,20 @@ compact_window = 200000
 # implement = { kind = "path", path = "~/skills/implement" }
 # ci_fix = { kind = "plugin", plugin = "~/plugins/house", skill = "debug" }
 # retro = { kind = "kelpie" }
+
+# Which plugins reach which calls. Kelpie loads each plugin the repo turns on
+# in `.claude/settings.json` on its default branch into every call; this table
+# narrows that and adds to it. Every key is optional. `plugins = false` loads
+# none of the repo's plugins. `roles` lists the calls that get plugins, from
+# `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`, all
+# of them when absent. `skip` lists plugins, as `name@marketplace`, left out
+# though the repo turns them on. `extra` lists plugins the repo does not turn
+# on, each as `name@marketplace` with its marketplace's source in the shape of
+# an `extraKnownMarketplaces` entry's `source`: `github` with `repo`, `git`
+# with `url`, or `directory` with `path`, a folder inside the checkout, and
+# an optional `ref`. `roles` narrows `extra` too, and `plugins = false` does not.
+# [app.dogs.kelpie.repo_setup]
+# plugins = true
+# roles = ["worker", "reviewer", "issue-writer", "pm", "advisor", "researcher"]
+# skip = ["noisy@house"]
+# extra = { "style@lab" = { source = "github", repo = "acme/lab" } }

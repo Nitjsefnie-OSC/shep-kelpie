@@ -450,6 +450,7 @@ impl Runner {
             &paths.kelpie_home,
             &paths.skills,
             ports.git.as_ref(),
+            &settings.repo_setup,
         );
         let plugins_head = crate::skills::default_head(checkout);
         check_coderabbit(&remote, &lineup, &ports)?;

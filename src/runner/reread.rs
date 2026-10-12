@@ -93,6 +93,7 @@ impl Runner {
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
+            &settings.repo_setup,
         );
         let plugins_head = default_head(&self.settings.git.checkout);
         if repo_plugins != self.repo_plugins {
@@ -176,6 +177,7 @@ impl Runner {
             &self.paths.kelpie_home,
             &self.paths.skills,
             self.ports.git.as_ref(),
+            &self.settings.repo_setup,
         );
         // The plan fetched the branch, so this is the commit it read.
         self.plugins_head = default_head(checkout);
@@ -225,6 +227,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: old_rulings,
         hooks: _, // waits for the next start, so `reread` keeps the old
         skills: old_skills,
+        repo_setup: old_repo_setup,
         e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
     let Settings {
@@ -239,6 +242,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: new_rulings,
         hooks: _,
         skills: new_skills,
+        repo_setup: new_repo_setup,
         e2e: _,
     } = new;
     let Git {
@@ -265,6 +269,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("pacing", old_pacing != new_pacing),
         ("worker", old_worker != new_worker),
         ("skills", old_skills != new_skills),
+        ("repo_setup", old_repo_setup != new_repo_setup),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),

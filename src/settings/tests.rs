@@ -1,5 +1,6 @@
 use super::*;
 
+mod repo_setup;
 mod test_command;
 
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
