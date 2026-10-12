@@ -261,10 +261,12 @@ fn a_version_30_file_loads_with_an_empty_order_and_saves_as_31() {
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
     old["version"] = 30.into();
     old.as_object_mut().unwrap().remove("order");
+    old.as_object_mut().unwrap().remove("ranked");
     fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");
     assert_eq!(loaded.order, Vec::<u64>::new());
+    assert!(loaded.ranked.is_empty());
     loaded.order = vec![7, 3, 9];
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join("state.json")).unwrap();

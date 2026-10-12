@@ -4,8 +4,9 @@
 //! The board keeps them in an order and dispatches the first that is free. A
 //! newly ready issue joins it after the last issue of its priority: `priority: P0`,
 //! then `P1`, `P2`, `P3`, then an issue with no priority label, and within a
-//! priority the oldest first, by issue number. An issue that closes or loses
-//! the label leaves it. An issue that already
+//! priority the oldest first, by issue number. An issue whose priority label
+//! changes moves the same way. An issue that closes or loses the label leaves
+//! it. An issue that already
 //! has an open pull request or an assignee is someone's work in progress, and
 //! is skipped. So is one whose `agent:` label names no implementer the
 //! project lists, since kelpie would not know which agent to run it on. An
@@ -15,6 +16,7 @@
 //! too, so it cannot stall the issues behind it. An issue with sub-issues is
 //! never worked itself: its sub-issues are.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::Serialize;
@@ -346,39 +348,51 @@ pub fn rule_order(ready: &mut [ReadyIssue], order: &[u64]) {
     ready.sort_by_key(|i| order_key(order, i));
 }
 
-/// The order after a read of the board that listed `ready`
+/// The priority rank each listed issue had when the board last read it, by
+/// issue number, so a changed label is seen
+pub type Ranked = BTreeMap<u64, usize>;
+
+/// The order and the ranks on record after a read of the board that listed
+/// `ready`, given those before it
 ///
 /// An issue the forge no longer lists, because it closed or lost
-/// `ready-for-agent`, leaves it. A newly ready issue goes after the last
-/// issue of its priority that the order holds, wherever the maintainer put
-/// it, or before every issue of a lower priority when it holds none. Several
-/// new ones go in oldest first. With no order kept, the result is the board
+/// `ready-for-agent`, leaves the order. A newly ready issue goes after the
+/// last issue of its priority that the order holds, wherever the maintainer
+/// put it, or before every issue of a lower priority when it holds none. An
+/// issue whose priority label changed since `ranked` has it moves the same
+/// way, as if it were new. Several moves go in oldest first. An issue with no
+/// rank on record keeps its place. With no order kept, the result is the board
 /// rule's order.
-pub fn keep_order(order: &[u64], ready: &[ReadyIssue]) -> Vec<u64> {
+pub fn keep_order(order: &[u64], ranked: &Ranked, ready: &[ReadyIssue]) -> (Vec<u64>, Ranked) {
     let rank = |n: u64| {
         let issue = ready.iter().find(|i| i.number == n);
-        issue.map_or(PRIORITIES.len(), |i| priority_rank(&i.labels))
+        issue.map(|i| priority_rank(&i.labels))
     };
     let mut kept: Vec<u64> = Vec::with_capacity(ready.len());
     for &n in order {
-        if ready.iter().any(|i| i.number == n) && !kept.contains(&n) {
+        let same = rank(n).is_some_and(|r| ranked.get(&n).is_none_or(|&was| was == r));
+        if same && !kept.contains(&n) {
             kept.push(n);
         }
     }
-    let mut fresh: Vec<&ReadyIssue> = ready.iter().filter(|i| !kept.contains(&i.number)).collect();
-    fresh.sort_by_key(|i| i.number);
-    for issue in fresh {
+    let mut moving: Vec<&ReadyIssue> = ready.iter().filter(|i| !kept.contains(&i.number)).collect();
+    moving.sort_by_key(|i| i.number);
+    for issue in moving {
         if kept.contains(&issue.number) {
             continue;
         }
         let mine = priority_rank(&issue.labels);
         let at = kept
             .iter()
-            .rposition(|&n| rank(n) <= mine)
+            .rposition(|&n| rank(n).is_some_and(|r| r <= mine))
             .map_or(0, |p| p + 1);
         kept.insert(at, issue.number);
     }
-    kept
+    let ranks = kept
+        .iter()
+        .filter_map(|&n| rank(n).map(|r| (n, r)))
+        .collect();
+    (kept, ranks)
 }
 
 // Where the board puts an issue: where `order` lists it, an issue it omits
@@ -593,7 +607,7 @@ mod tests {
             prioritised(7, "priority: P1"),
             prioritised(8, "priority: P0"),
         ];
-        assert_eq!(keep_order(&[], &issues), [5, 8, 3, 7, 6, 2, 1, 4]);
+        assert_eq!(kept(&[], &issues), [5, 8, 3, 7, 6, 2, 1, 4]);
     }
 
     #[test]
@@ -604,7 +618,7 @@ mod tests {
             prioritised(3, "priority: P1"),
             prioritised(7, "priority: P0"),
         ];
-        assert_eq!(keep_order(&[1, 2, 3], &issues), [1, 2, 7, 3]);
+        assert_eq!(kept(&[1, 2, 3], &issues), [1, 2, 7, 3]);
     }
 
     #[test]
@@ -617,7 +631,7 @@ mod tests {
             prioritised(9, "priority: P0"),
         ];
         // #1 sits below #2, so it is the last P0, and #3 and #9 follow it.
-        assert_eq!(keep_order(&[2, 1, 4], &issues), [2, 1, 3, 9, 4]);
+        assert_eq!(kept(&[2, 1, 4], &issues), [2, 1, 3, 9, 4]);
     }
 
     #[test]
@@ -625,7 +639,49 @@ mod tests {
         // The forge lists only open issues labelled `ready-for-agent`, so #2
         // is missing from `issues` once it closes or loses the label.
         let issues = [ready(1), ready(3)];
-        assert_eq!(keep_order(&[1, 2, 3], &issues), [1, 3]);
+        assert_eq!(kept(&[1, 2, 3], &issues), [1, 3]);
+    }
+
+    // The order after a read, when no issue has a priority on record yet.
+    fn kept(order: &[u64], issues: &[ReadyIssue]) -> Vec<u64> {
+        keep_order(order, &Ranked::new(), issues).0
+    }
+
+    // The order and the priorities on record after a first read of `issues`.
+    fn first_read(issues: &[ReadyIssue]) -> (Vec<u64>, Ranked) {
+        keep_order(&[], &Ranked::new(), issues)
+    }
+
+    #[test]
+    fn a_relabelled_issue_moves_to_after_the_last_issue_of_its_new_priority() {
+        let mut issues = vec![
+            prioritised(1, "priority: P0"),
+            prioritised(2, "priority: P0"),
+            prioritised(3, "priority: P1"),
+            prioritised(4, "priority: P1"),
+        ];
+        let (order, ranked) = first_read(&issues);
+        assert_eq!(order, [1, 2, 3, 4]);
+
+        // #4 is bumped to P0 and #1 dropped to P2.
+        issues[3].labels = labels(&[READY, "priority: P0"]);
+        issues[0].labels = labels(&[READY, "priority: P2"]);
+        let (order, ranked) = keep_order(&order, &ranked, &issues);
+        assert_eq!(order, [2, 4, 3, 1]);
+
+        // Read again with nothing changed, the order stands.
+        assert_eq!(keep_order(&order, &ranked, &issues).0, [2, 4, 3, 1]);
+    }
+
+    #[test]
+    fn an_issue_whose_priority_is_not_on_record_keeps_its_place() {
+        let issues = [
+            prioritised(1, "priority: P3"),
+            prioritised(2, "priority: P0"),
+        ];
+        let (order, ranked) = keep_order(&[1, 2], &Ranked::new(), &issues);
+        assert_eq!(order, [1, 2]);
+        assert_eq!(ranked.len(), 2);
     }
 
     #[test]

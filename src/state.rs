@@ -27,7 +27,7 @@ use crate::ports::{Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Review, Seconds, Tally, Turn, WorkItem};
 
-/// The state file's format version. 31 added `order`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -90,6 +90,10 @@ pub struct ProjectState {
     /// first. Each read of the board updates it. Empty until one has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<u64>,
+    /// The priority rank each issue in `order` had when the board last read it,
+    /// so a changed priority label moves the issue. Empty until a read has.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ranked: crate::board::Ranked,
     /// The last [`HISTORY_CAP`] work items kelpie finished, oldest first
     #[serde(default)]
     pub history: Vec<Finished>,
@@ -195,6 +199,7 @@ impl ProjectState {
             finished: Vec::new(),
             dropped: Vec::new(),
             order: Vec::new(),
+            ranked: BTreeMap::new(),
             history: Vec::new(),
             reworked: Vec::new(),
             adopted: Vec::new(),
