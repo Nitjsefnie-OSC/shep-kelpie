@@ -23,6 +23,9 @@ mod report;
 pub use kind::{Api, Kind};
 pub use report::report;
 
+#[cfg(test)]
+mod tests;
+
 /// The ledger's file name in kelpie's home
 pub const FILE: &str = "forge.jsonl";
 
@@ -99,6 +102,14 @@ impl Ledger {
             ),
             Err(_) => {}
         }
+    }
+}
+
+// The name the ledger gives a value
+fn wire_name(value: &impl Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
     }
 }
 

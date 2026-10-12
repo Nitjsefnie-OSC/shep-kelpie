@@ -91,6 +91,11 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// The name the ledger gives it, such as `pull_request`
+    pub fn name(self) -> String {
+        super::wire_name(&self)
+    }
+
     /// Which of GitHub's APIs the call spends from; a call that asks both
     /// counts as GraphQL, the one with the smaller allowance
     pub fn api(self) -> Api {
@@ -136,6 +141,13 @@ impl Kind {
             | Self::AppCreateLabel
             | Self::AppSetIssueLabel => Api::Rest,
         }
+    }
+}
+
+impl Api {
+    /// The name the ledger gives it: `rest` or `graphql`
+    pub fn name(self) -> String {
+        super::wire_name(&self)
     }
 }
 
