@@ -545,10 +545,16 @@ pub(super) fn first_prompt(item: &WorkItem, then: Option<&str>) -> String {
         item.title,
         adopted_path(&item.build).display()
     );
-    prompt.push_str(then.unwrap_or(
-        "Make the changes the review asks for, then commit and push with \
-         `git push origin HEAD`.",
-    ));
+    match then {
+        Some(then) => prompt.push_str(then),
+        None => {
+            prompt.push_str(
+                "Make the changes the review asks for, then commit and push with \
+                 `git push origin HEAD`. ",
+            );
+            prompt.push_str(turn::KEEP_BODY_TRUE);
+        }
+    }
     prompt.push('\n');
     prompt
 }

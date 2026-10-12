@@ -137,7 +137,9 @@ fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_
     assert_eq!(
         noted.prompt,
         "The maintainer answered no on pull request #71, with this note:\n\n\
-         rename the flag to --dry-run\n"
+         rename the flag to --dry-run\n\nUpdate the pull request's body so it matches the \
+         head you push: what changed, the files touched, the test evidence, and the \
+         decisions you made.\n"
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
@@ -200,7 +202,8 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
         noted.prompt,
         "The maintainer asked for a rework of pull request #71, with this note:\n\n\
          rename the flag to --dry-run\n\nOnce you push it, the whole review reads your \
-         change again.\n"
+         change again. Update the pull request's body so it matches the head you push: \
+         what changed, the files touched, the test evidence, and the decisions you made.\n"
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
@@ -228,6 +231,20 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     );
     assert_eq!(rulings.as_array().unwrap().len(), 1);
     assert_eq!(rig.forge.merges(), []);
+}
+
+#[test]
+fn a_merge_rulings_no_note_and_a_rework_ask_for_the_body_to_be_kept_true() {
+    let ask = "Update the pull request's body so it matches the head you push";
+    for answer in ["1 no  fix the name ", "1 rework  fix the name "] {
+        let (rig, runner, _) = Rig::parked("rotom");
+        rig.ask(&runner, "rule", Some(answer));
+        rig.claude
+            .script([Scripted::Push("rename.txt", "renamed\n")]);
+        step(&runner).unwrap(); // the noted turn
+        let noted = rig.claude.calls().pop().unwrap();
+        assert!(noted.prompt.contains(ask), "{answer}: {}", noted.prompt);
+    }
 }
 
 #[test]
@@ -290,7 +307,9 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
             "Someone other than you pushed commit {} to pull request #71, and the \
              maintainer declined it, with this note:\n\nrevert it\n\nYour worktree is \
              now at that commit. Revert or change it with a new commit on top, and \
-             push with `git push origin HEAD`. Do not force-push.\n",
+             push with `git push origin HEAD`. Do not force-push. Update the pull \
+             request's body so it matches the head you push: what changed, the files \
+             touched, the test evidence, and the decisions you made.\n",
             &by_hand[..7]
         )
     );

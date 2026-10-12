@@ -15,6 +15,7 @@ use super::Runner;
 use super::claude_files::Unchecked;
 use super::report::{Begin, StepReport};
 use super::rework::HUMAN;
+use super::turn::KEEP_BODY_TRUE;
 use crate::board::READY;
 use crate::ports::{Checks, PullRequestState, Timestamp};
 use crate::settings::Merging;
@@ -326,7 +327,8 @@ pub(super) fn short(head: &str) -> &str {
 fn red_prompt(number: u64, head: &str, checks: &[String], help: &str) -> String {
     format!(
         "CI failed on your pull request #{number} at {}: {}. {help} \
-         Fix it on this branch, commit, and push with `git push origin HEAD`.",
+         Fix it on this branch, commit, and push with `git push origin HEAD`. \
+         {KEEP_BODY_TRUE}",
         short(head),
         checks.join(", ")
     )
@@ -426,6 +428,23 @@ pub(super) mod tests {
         assert!(fix.prompt.contains(&named), "{}", fix.prompt);
 
         assert_fix_landed(&rig, &runner, &head);
+    }
+
+    #[test]
+    fn a_ci_fix_prompt_asks_for_the_body_to_be_kept_true() {
+        let (rig, runner, head) = Rig::with_pull_request("koji");
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        rig.verdict(&runner);
+        rig.claude.script([Scripted::Push("fix.txt", "fixed\n")]);
+        step(&runner).unwrap();
+        let fix = rig.claude.calls().pop().unwrap();
+        assert!(
+            fix.prompt
+                .contains("Update the pull request's body so it matches the head you push"),
+            "{}",
+            fix.prompt
+        );
     }
 
     #[test]
@@ -725,7 +744,9 @@ pub(super) mod tests {
         assert_eq!(
             noted.prompt,
             "The maintainer answered no on pull request #71, with this note:\n\n\
-             remove that label yourself\n"
+             remove that label yourself\n\nUpdate the pull request's body so it matches \
+             the head you push: what changed, the files touched, the test evidence, and \
+             the decisions you made.\n"
         );
         let fixed = rig.forge.head_of("kelpie/7");
         assert_ne!(fixed, Some(head));
