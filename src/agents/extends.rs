@@ -7,6 +7,43 @@
 
 use super::front;
 
+/// A file's text with its parent merged in
+///
+/// The file's own frontmatter lines stay where they are, and the keys it
+/// inherits follow them, so a refusal's line in the merged text is the
+/// file's own line for a key the file sets.
+#[derive(Debug)]
+pub(super) struct Merged {
+    /// The text to parse
+    pub(super) text: String,
+    // The last line of the file's own frontmatter, and the parent it
+    // inherits through. None for a file with no `extends`.
+    inherits: Option<(usize, String)>,
+}
+
+impl Merged {
+    /// `message`, a refusal of `text`, with a line past the file's own
+    /// frontmatter replaced by the parent the key came through
+    pub(super) fn place(&self, message: String) -> String {
+        let Some((own_last, parent)) = &self.inherits else {
+            return message;
+        };
+        let Some((head, at)) = message.rsplit_once(" at line ") else {
+            return message;
+        };
+        let line = at
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|n| n.parse::<usize>().ok());
+        match line {
+            Some(line) if line > *own_last => {
+                format!("{head} inherited through `{parent}`")
+            }
+            _ => message,
+        }
+    }
+}
+
 /// `text` with its parent merged in, if it has an `extends` key
 ///
 /// `parent` gives the text of the agent a name stands for, or None if kelpie
@@ -17,9 +54,10 @@ pub(super) fn merged<'a>(
     own: &str,
     text: &str,
     parent: &dyn Fn(&str) -> Option<ParentText<'a>>,
-) -> Result<String, String> {
+) -> Result<Merged, String> {
     let mut chain = vec![own.to_owned()];
-    resolve(text, parent, &mut chain)
+    let (text, inherits) = resolve(text, parent, &mut chain)?;
+    Ok(Merged { text, inherits })
 }
 
 /// The text of a parent: a file, which may extend another, or a default
@@ -29,17 +67,21 @@ pub(super) enum ParentText<'a> {
     Default(&'a str),
 }
 
+// The merged text, and for a file with `extends` the last line of its own
+// frontmatter and the parent it inherits through.
+type Resolved = (String, Option<(usize, String)>);
+
 fn resolve<'a>(
     text: &str,
     parent: &dyn Fn(&str) -> Option<ParentText<'a>>,
     chain: &mut Vec<String>,
-) -> Result<String, String> {
+) -> Result<Resolved, String> {
     let Some((front, body)) = front::split(text) else {
-        return Ok(text.to_owned());
+        return Ok((text.to_owned(), None));
     };
     let child = entries(front);
     let Some(extended) = child.iter().find(|e| e.key == "extends") else {
-        return Ok(text.to_owned());
+        return Ok((text.to_owned(), None));
     };
     let name = extended.value();
     if chain.contains(&name) {
@@ -68,10 +110,10 @@ fn resolve<'a>(
             text.to_owned()
         }
         Some(ParentText::File(text)) => {
-            chain.push(name);
+            chain.push(name.clone());
             let resolved = resolve(text, parent, chain);
             chain.pop();
-            resolved?
+            resolved?.0
         }
     };
     let (parent_front, parent_body) = front::split(&parent_text).ok_or_else(|| {
@@ -80,21 +122,39 @@ fn resolve<'a>(
             extended.value()
         )
     })?;
-    let mut keys = String::new();
+    let mut keys = own_lines(front);
+    // The file's frontmatter plus the opening `---`, as the lines it spans.
+    let own_last = 1 + keys.lines().count();
     for entry in entries(parent_front) {
         if !child.iter().any(|c| c.key == entry.key) {
             keys.push_str(&entry.text);
         }
-    }
-    for entry in child.iter().filter(|e| e.key != "extends") {
-        keys.push_str(&entry.text);
     }
     let body = if body.trim().is_empty() {
         parent_body
     } else {
         body
     };
-    Ok(format!("---\n{keys}---\n{body}"))
+    Ok((format!("---\n{keys}---\n{body}"), Some((own_last, name))))
+}
+
+// The file's frontmatter as written, with the `extends` key's lines left
+// blank so every other line keeps its number.
+fn own_lines(front: &str) -> String {
+    let mut in_extends = false;
+    let mut kept = String::new();
+    for line in front.split_inclusive('\n') {
+        if !line.starts_with([' ', '\t', '#', '-', '\r', '\n']) {
+            in_extends = line
+                .split_once(':')
+                .is_some_and(|(k, _)| k.trim() == "extends");
+        }
+        kept.push_str(if in_extends { "\n" } else { line });
+    }
+    if !kept.is_empty() && !kept.ends_with('\n') {
+        kept.push('\n');
+    }
+    kept
 }
 
 // One top-level key of the frontmatter, with the lines under it: its

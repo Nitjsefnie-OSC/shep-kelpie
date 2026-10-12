@@ -304,7 +304,8 @@ impl Agents {
                 message,
             };
             let merged = extends::merged(name.as_str(), text, &parent).map_err(file_error)?;
-            let agent = front::parse_named(name.as_str(), &merged).map_err(file_error)?;
+            let agent = front::parse_named(name.as_str(), &merged.text)
+                .map_err(|message| file_error(merged.place(message)))?;
             agents.agents.insert(name.clone(), agent);
         }
         Ok(agents)

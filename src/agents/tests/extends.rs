@@ -183,6 +183,35 @@ fn an_edit_to_the_parent_reaches_the_child_on_reload() {
 }
 
 #[test]
+fn a_refusal_of_a_key_the_file_sets_names_the_files_own_line() {
+    let err = refused(&[
+        ("base.md", PARENT),
+        (
+            "light.md",
+            "---\nextends: base\neffort: bogus\n---\nA body.\n",
+        ),
+    ]);
+    assert!(err.contains("light.md"), "{err}");
+    assert!(err.contains("`effort`"), "{err}");
+    assert!(err.ends_with("at line 3, column 9"), "{err}");
+}
+
+#[test]
+fn a_refusal_of_a_key_it_inherits_names_the_parent_and_no_line() {
+    let err = refused(&[
+        ("a-light.md", "---\nextends: z-base\nmodel: m\n---\n"),
+        (
+            "z-base.md",
+            "---\nrole: implementer\nharness: claude-code\nmodel: m\neffort: bogus\n---\n",
+        ),
+    ]);
+    assert!(err.contains("a-light.md"), "{err}");
+    assert!(err.contains("`effort`"), "{err}");
+    assert!(err.ends_with("inherited through `z-base`"), "{err}");
+    assert!(!err.contains("line"), "{err}");
+}
+
+#[test]
 fn a_quoted_parent_name_with_a_comment_after_it_resolves() {
     let agents = load(&[
         ("base.md", PARENT),
