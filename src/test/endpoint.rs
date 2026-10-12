@@ -7,7 +7,9 @@
 //! every chat request's body, and the request line and `Authorization` of
 //! every request it got. Given a key, it answers paddock's own routes too:
 //! `/paddock/status` to that key alone, a lease's take with the next scripted
-//! [`Take`] or a grant, and a renewal or release with `204`, as paddock does.
+//! [`Take`] or a grant, and a renewal or release with `204`, as paddock does,
+//! unless told to refuse or hang on renewals. Each connection is served on a
+//! thread of its own, so one left hanging holds up no other.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -24,6 +26,18 @@ pub(crate) enum Take {
     Status(u16, &'static str),
     /// No answer, until the client hangs up, as a take paddock keeps queued
     Hang,
+}
+
+/// How the stand-in answers a lease's renewal
+#[derive(Debug, Clone, Copy, Default)]
+enum Renewals {
+    /// `204`, as paddock does
+    #[default]
+    Granted,
+    /// This HTTP status, as paddock answers a lease it no longer holds
+    Refused(u16),
+    /// No answer, until the client hangs up
+    Hung,
 }
 
 /// One scripted answer to a chat request
@@ -45,6 +59,8 @@ struct Shared {
     ps: Option<String>,
     metrics: Option<String>,
     models: Vec<String>,
+    models_body: Option<String>,
+    renewals: Renewals,
     key: Option<String>,
     takes: VecDeque<Take>,
 }
@@ -69,7 +85,8 @@ impl StandInEndpoint {
         // The thread outlives the test only while the test binary runs.
         thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                serve(stream, &serving);
+                let serving = Arc::clone(&serving);
+                thread::spawn(move || serve(stream, &serving));
             }
         });
         Self { url, shared }
@@ -88,6 +105,24 @@ impl StandInEndpoint {
         shared.key = Some(format!("Bearer {key}"));
         shared.models = models.iter().map(|&m| m.to_owned()).collect();
         drop(shared);
+        self
+    }
+
+    /// Has `/models` answer `200` with this body, whatever it is
+    pub(crate) fn with_models_body(self, body: &str) -> Self {
+        self.shared.lock().unwrap().models_body = Some(body.to_owned());
+        self
+    }
+
+    /// Refuses each lease renewal with this HTTP status
+    pub(crate) fn refusing_renewals(self, status: u16) -> Self {
+        self.shared.lock().unwrap().renewals = Renewals::Refused(status);
+        self
+    }
+
+    /// Leaves each lease renewal unanswered, until the client hangs up
+    pub(crate) fn hanging_renewals(self) -> Self {
+        self.shared.lock().unwrap().renewals = Renewals::Hung;
         self
     }
 
@@ -193,13 +228,18 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             None => (404, "404 page not found".to_owned()),
         }
     } else if request_line.contains("/models ") {
-        let models = shared.lock().unwrap().models.clone();
+        let (models, scripted) = {
+            let held = shared.lock().unwrap();
+            (held.models.clone(), held.models_body.clone())
+        };
         let data: Vec<_> = models.iter().map(|id| json!({ "id": id })).collect();
-        (200, json!({ "object": "list", "data": data }).to_string())
+        let list = json!({ "object": "list", "data": data }).to_string();
+        (200, scripted.unwrap_or(list))
     } else if request_line.contains(" /paddock/") {
         let mut held = shared.lock().unwrap();
         let keyed = held.key.is_some() && held.key == auth;
         let take = request_line.starts_with("POST ");
+        let renewals = held.renewals;
         let scripted = (keyed && take).then(|| {
             held.requests
                 .push(serde_json::from_slice(&body).unwrap_or(Value::Null));
@@ -215,6 +255,16 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             (true, true, Some(Take::Status(status, body))) => (status, body.to_owned()),
             (true, true, None) => (200, json!({ "id": "L1", "ttl": "120s" }).to_string()),
             (true, false, _) if request_line.starts_with("GET ") => (200, "{}".to_owned()),
+            (true, false, _) if request_line.starts_with("PUT ") => match renewals {
+                Renewals::Granted => (204, String::new()),
+                Renewals::Refused(status) => {
+                    (status, json!({ "error": "unknown_lease" }).to_string())
+                }
+                Renewals::Hung => {
+                    let _ = reader.read_to_end(&mut Vec::new());
+                    return;
+                }
+            },
             (true, false, _) => (204, String::new()),
         }
     } else {
