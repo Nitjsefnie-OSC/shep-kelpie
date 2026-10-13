@@ -11,7 +11,7 @@ use super::gpu::GpuStatus;
 use super::pace::PacerStatus;
 use super::{Answer, Runner};
 use crate::board::Skip;
-use crate::lease::gpu::LockHolder;
+use crate::ports::LeaseHolder;
 use crate::ports::{ModelSeat, SessionId, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
@@ -117,7 +117,7 @@ pub struct Status<'a> {
     /// Who holds each lease a local agent's calls take, by its name, or
     /// null while it is free
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub local_leases: BTreeMap<String, Option<LockHolder>>,
+    pub local_leases: BTreeMap<String, Option<LeaseHolder>>,
     /// The board briefing the project manager's agent reads
     pub board: &'a Path,
     /// The project manager, when the project names one

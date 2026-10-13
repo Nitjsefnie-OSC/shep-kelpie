@@ -18,10 +18,10 @@ use serde::Serialize;
 
 use super::Runner;
 use super::report::{Begin, StepReport};
-use crate::lease::gpu::LockHolder;
+use crate::agents::Runs;
 use crate::pacer::{Assessment, Hold, RECHECK_SECS, Reading, Scope, assess, named};
-use crate::ports::Timestamp;
-use crate::settings::{Account, Limit};
+use crate::ports::{LeaseHolder, Timestamp};
+use crate::settings::{Account, AgentHarness, GatewayName, Limit, ModelHost};
 use crate::state::StateError;
 
 /// What `status` shows of the pacer
@@ -166,14 +166,46 @@ impl Runner {
     }
 
     /// Who holds each lease the project's local agents take, for `status`
-    pub(super) fn local_leases(&self) -> BTreeMap<String, Option<LockHolder>> {
-        self.spent_limits()
-            .filter_map(Limit::lease)
-            .map(|lease| {
-                let holder = self.ports.local_leases.holder(lease);
-                (lease.as_str().to_owned(), holder)
-            })
-            .collect()
+    ///
+    /// A lock a lease names is shown by its name. A model behind a gateway is
+    /// shown by its own name, with the holder of the gateway's lease on it.
+    pub(super) fn local_leases(&self) -> BTreeMap<String, Option<LeaseHolder>> {
+        let locks = self.spent_limits().filter_map(Limit::lease).map(|lease| {
+            let holder = self.ports.local_leases.holder(lease);
+            (lease.as_str().to_owned(), holder.map(LeaseHolder::Lock))
+        });
+        let leases = self.gateway_models().into_iter().map(|(gateway, model)| {
+            let holder = self.gateways.upstream(&ModelHost::Gateway(gateway)).ok();
+            let holder = holder.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
+            (model, holder.map(LeaseHolder::Paddock))
+        });
+        locks.chain(leases).collect()
+    }
+
+    // Each model the project's local agents call behind a gateway, once.
+    fn gateway_models(&self) -> BTreeSet<(GatewayName, String)> {
+        let behind = |harness: &AgentHarness, model: &str| match harness {
+            AgentHarness::Pi(server) => match &server.host {
+                ModelHost::Gateway(name) => Some((name.clone(), model.to_owned())),
+                ModelHost::Url(_) => None,
+            },
+            _ => None,
+        };
+        let implementers = self.agents.implementers.iter().map(|i| &i.model);
+        let sessions = self.lineup.iter().filter_map(|r| r.runs.session());
+        let endpoints = self.lineup.iter().filter_map(|r| match &r.runs {
+            Runs::Endpoint(endpoint) => match &endpoint.host {
+                ModelHost::Gateway(name) => {
+                    Some((name.clone(), endpoint.model.as_str().to_owned()))
+                }
+                ModelHost::Url(_) => None,
+            },
+            _ => None,
+        });
+        let sessions = implementers
+            .chain(sessions.map(|(model, _)| model))
+            .filter_map(|m| behind(&m.harness, m.model.as_str()));
+        sessions.chain(endpoints).collect()
     }
 
     /// What the pacer shows in `status`: each account the project spends,

@@ -8,7 +8,7 @@ use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{Answer, Hold, Rig, Scripted, StandInEndpoint};
 
 const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
                      effort: medium\nusage: codex\n---\n";
@@ -289,6 +289,43 @@ fn a_local_turn_waits_while_a_review_round_holds_the_gpu() {
         turn.join().unwrap();
     });
     assert_eq!(rig.claude.calls().len(), 1);
+}
+
+// The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
+const BEHIND_PADDOCK: &str = "---\nrole: reviewer\nharness: endpoint\ngateway: paddock\n\
+                              model: coder\ncontext: 8192\n---\n";
+
+#[test]
+fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)])
+        .like_paddock(env!("CARGO_PKG_NAME"), &["coder"])
+        .with_paddock_status(
+            r#"{"leases":[
+                {"id":"L3","client":"batch","model":"other","since":"2026-10-13T08:00:00Z","note":"not ours","revoked":null},
+                {"id":"L4","client":"maintainer","model":"coder","since":"2026-10-13T09:30:00Z","note":"shep kelpie lease run: cargo build","revoked":null}
+            ],"waiters":[]}"#,
+        );
+    let rig = Rig::new("rotom");
+    rig.reviewers(&["mine"]);
+    rig.write_agent("mine", BEHIND_PADDOCK);
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway = format!(
+        "[gateways.paddock]\nurl = \"{}\"\nkey_env = \"CARGO_PKG_NAME\"\n",
+        server.host()
+    );
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["local_leases"],
+        json!({ "coder": {
+            "lease": "L4",
+            "client": "maintainer",
+            "what": "shep kelpie lease run: cargo build",
+            "since": "2026-10-13T09:30:00Z",
+        } })
+    );
 }
 
 // The runner for `named`'s rig, reopened once `change` has been made.

@@ -48,7 +48,7 @@ pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use issue::{Issue, OpenIssue, SubIssue, SubIssueState};
 pub use keychain::KeychainBlocked;
-pub use leased::{Leased, LocalLeases};
+pub use leased::{LeaseHolder, Leased, LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
