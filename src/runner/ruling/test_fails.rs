@@ -38,12 +38,14 @@ pub(super) fn yes(fix: Fix, prompt: String) -> (String, Phase) {
 }
 
 // A no: the worker takes the note under a fix stage that has nothing to check,
-// so the turn ends in the pass going on to its next reviewer.
-pub(super) fn no(number: Option<u64>, fix: Fix, note: &str) -> (String, Phase) {
+// so the turn ends in the pass going on to its next reviewer. The stage holds
+// the head the tests failed at, so a commit the note's turn pushes is a fix
+// turn's push, which kelpie vouches for.
+pub(super) fn no(number: Option<u64>, fix: Fix, head: &str, note: &str) -> (String, Phase) {
     let Fix::Review(review) = fix;
     let review = Review {
         stage: ReviewStage::Fixing {
-            head: None,
+            head: Some(head.to_owned()),
             sent: Vec::new(),
             deferred_before: Vec::new(),
         },

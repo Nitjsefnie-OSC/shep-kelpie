@@ -295,6 +295,8 @@ impl Runner {
         let mut failing = Vec::new();
         let pushed = match head {
             Some(before) => match self.origin_head() {
+                // A note's turn after a test ended sent no findings: pushing nothing is no fault.
+                Ok(now) if now == before && sent.findings.is_empty() => None,
                 Ok(now) if now == before => {
                     // The worker sent back to a failing test is not asked about
                     // nits or deferrals: it was to change code.
@@ -340,7 +342,8 @@ impl Runner {
                     // So is a nit fix's head, which a bot's nits are not sent on.
                     if self.worktree_head().as_ref() == Some(&now) {
                         let head = now.clone();
-                        let nits = sent.findings.iter().all(Finding::is_nit);
+                        let nits =
+                            !sent.findings.is_empty() && sent.findings.iter().all(Finding::is_nit);
                         self.update(|item| {
                             item.send_unread(head.clone());
                             if nits {

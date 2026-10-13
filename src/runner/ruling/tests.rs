@@ -691,6 +691,25 @@ fn a_no_on_it_lets_the_pass_go_on() {
     );
 }
 
+// A commit the note's turn pushes is a fix turn's push: kelpie vouches for it,
+// and the merge gate does not name it unread.
+#[test]
+fn a_commit_pushed_on_a_no_is_vouched_for() {
+    let (rig, runner) = a_test_still_failing_after_two_fixes();
+
+    rig.ask(&runner, "rule", Some("71 no rename it instead"));
+    rig.claude.script([Scripted::Push("note.txt", "noted\n")]);
+    step(&runner).unwrap(); // the worker's turn on the note
+    step(&runner).unwrap(); // the turn ended, and the pass goes on
+
+    let runner = runner.lock().unwrap();
+    let item = &runner.state.work_items[0];
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    assert!(item.vouches_for(&head));
+    assert!(matches!(item.phase, Phase::Ci { .. }), "{:?}", item.phase);
+    assert!(item.nit_fix_heads.is_empty(), "{:?}", item.nit_fix_heads);
+}
+
 // The pull request is public, and a test's output may hold anything: its
 // comment says that a test fails, and the terminal question carries the tails.
 #[test]

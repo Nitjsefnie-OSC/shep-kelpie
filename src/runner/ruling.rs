@@ -785,8 +785,8 @@ fn decide(
             closed: false,
         },
         // The test is ended: the note is the worker's turn, and the pass goes on.
-        (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, .. })) => {
-            let (prompt, phase) = test_fails::no(ruling.pull_request, fix, &note);
+        (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {
+            let (prompt, phase) = test_fails::no(ruling.pull_request, fix, &head, &note);
             return Ok(Move::Turn {
                 prompt,
                 phase,
