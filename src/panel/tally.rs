@@ -8,6 +8,8 @@
 //! up is asked, or the full panel on a `design` flag. The full panel decides on
 //! three votes of four. Anything less is for the maintainer. [`settle`] is one
 //! stage of that, over the ballots so far, and knows nothing of the runner.
+//! Under `rulings.decide = "always"` the full panel is asked at once and
+//! [`settle_always`] decides on the most votes.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +17,9 @@ use super::{Ballot, Vote, Voter};
 
 /// How many of the four experts must pick one option to decide it
 pub const MAJORITY: usize = 3;
+
+/// The key of a `merge` ruling's option that merges
+const MERGE_KEY: char = 'A';
 
 /// A panel, by who it asks: what a type of work sets, and what is asked next
 // wire format: changing this is a breaking change to the state file
@@ -272,6 +277,53 @@ fn recommend(cast: &[Option<&Vote>], of: u32) -> Option<Advice> {
         agree: u32::try_from(n).unwrap_or(u32::MAX),
         of,
     })
+}
+
+/// What the full panel comes to over `ballots` under `rulings.decide = "always"`:
+/// the option with the most votes, or the maintainer when no expert voted
+///
+/// A `design` flag does not send it to the maintainer. A tie goes to the
+/// project manager's option when it is one of the tied, else to the tied option
+/// listed first (the lowest key). On a `merge` ruling, whose first option merges,
+/// a tie never merges. An expert with no vote counts as none.
+pub fn settle_always(ballots: &[Ballot], merge: bool) -> Step {
+    let mut counts: Vec<(char, usize)> = Vec::new();
+    for vote in ballots.iter().filter_map(|b| b.vote.as_ref()) {
+        match counts.iter_mut().find(|(c, _)| *c == vote.choice) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((vote.choice, 1)),
+        }
+    }
+    let most = counts.iter().map(|(_, n)| *n).max();
+    let mut tied: Vec<char> = (counts.iter())
+        .filter(|(_, n)| Some(*n) == most)
+        .map(|(c, _)| *c)
+        .collect();
+    if merge && tied.len() > 1 {
+        tied.retain(|c| *c != MERGE_KEY);
+    }
+    let pm = (ballots.iter())
+        .find(|b| b.voter == Voter::Pm)
+        .and_then(|b| b.vote.as_ref())
+        .map(|v| v.choice);
+    let choice = pm
+        .filter(|c| tied.contains(c))
+        .or_else(|| tied.iter().min().copied());
+    let agree = counts
+        .iter()
+        .find(|(c, _)| Some(*c) == choice)
+        .map(|(_, n)| *n);
+    match (choice, agree) {
+        (Some(choice), Some(agree)) => Step::Decided(Advice {
+            choice,
+            agree: u32::try_from(agree).unwrap_or(u32::MAX),
+            of: u32::try_from(Voter::ALL.len()).unwrap_or(u32::MAX),
+        }),
+        _ => Step::Maintainer {
+            advice: None,
+            design: false,
+        },
+    }
 }
 
 /// What the panel comes to over `ballots` from `start` on, stage by stage as

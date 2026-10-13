@@ -74,6 +74,9 @@ impl Runner {
             }
             .into());
         }
+        if settings.rulings != self.settings.rulings {
+            self.notes.extend(settings.rulings.unused_under_always());
+        }
         let gpu_metrics_url = kelpie.gpu_metrics_url.clone();
         let mut book = Agents::load(&self.paths.agents)?;
         let mut agents = settings.role_agents(&book)?;
@@ -390,6 +393,42 @@ mod tests {
             runner.settings().rulings.decide,
             crate::settings::Decide::Panel
         );
+    }
+
+    #[test]
+    fn a_reread_under_always_names_the_rulings_settings_it_ignores() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!(
+                "{s}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n\
+                 pm_alone = [\"still-red\"]\nfull_panel_paths = [\"src/**\"]\n"
+            )
+        });
+        let mut runner = runner.lock().unwrap();
+        runner.take_notes();
+        runner.reread(next, rig.kelpie_settings()).unwrap();
+        let notes = runner.take_notes().join("\n");
+        assert!(
+            notes.contains("rulings.decide is \"always\"")
+                && notes.contains("rulings.pm_alone")
+                && notes.contains("rulings.full_panel_paths"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn a_reread_under_always_with_neither_setting_says_nothing_of_them() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let next = settings_with(&rig, |s| {
+            format!("{s}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n")
+        });
+        let mut runner = runner.lock().unwrap();
+        runner.take_notes();
+        runner.reread(next, rig.kelpie_settings()).unwrap();
+        let notes = runner.take_notes().join("\n");
+        assert!(!notes.contains("no effect"), "{notes}");
     }
 
     // A settings file with an entry the sandbox would refuse never becomes

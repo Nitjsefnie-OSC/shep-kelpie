@@ -47,6 +47,7 @@ mod code_graph;
 #[cfg(test)]
 mod coderabbit;
 mod compact;
+mod contributions;
 mod dispatch;
 mod drain;
 mod e2e;
@@ -668,6 +669,7 @@ impl Runner {
             parked: self.parked_issues(),
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
+            contributions: &self.state.contributions,
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             rulings: (self.state.rulings.iter())

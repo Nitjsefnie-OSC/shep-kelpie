@@ -50,7 +50,7 @@ const OPEN_QUERY: &str = "query($owner: String!, $name: String!, $after: String)
     pullRequests(states: OPEN, first: 100, after: $after, \
     orderBy: {field: CREATED_AT, direction: DESC}) { \
     pageInfo { hasNextPage endCursor } nodes { \
-    number headRefName headRefOid isDraft isCrossRepository author { login } \
+    number headRefName headRefOid isDraft isCrossRepository author { __typename login } \
     closingIssuesReferences(first: 50) { nodes { number repository { name owner { login } } } } \
     labels(first: 100) { nodes { name } } \
     reviews(first: 1) { totalCount } reviewThreads(first: 1) { totalCount } \
@@ -203,15 +203,18 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
         head_ref_oid: String,
         is_draft: bool,
         is_cross_repository: bool,
-        author: Option<Login>,
+        author: Option<Author>,
         closing_issues_references: Nodes<Closes>,
         labels: Nodes<Label>,
         reviews: Count,
         review_threads: Count,
         commits: Nodes<Tip>,
     }
+    // A bot account's `__typename` is `Bot`; a person's is `User`.
     #[derive(Deserialize)]
-    struct Login {
+    struct Author {
+        #[serde(rename = "__typename")]
+        kind: String,
         login: String,
     }
     #[derive(Deserialize)]
@@ -260,6 +263,7 @@ fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeErr
                 commit: pr.head_ref_oid,
                 checks: checks(&rollup),
                 from_fork: pr.is_cross_repository,
+                author_is_bot: pr.author.as_ref().is_some_and(|a| a.kind == "Bot"),
                 author: pr.author.map(|a| a.login).unwrap_or_default(),
                 marks: ReviewMarks {
                     reviews: pr.reviews.total_count,
@@ -440,6 +444,7 @@ mod tests {
                     checks: Checks::Failed(vec!["lint".into()]),
                     from_fork: false,
                     author: "the-maintainer".into(),
+                    author_is_bot: false,
                     marks: ReviewMarks::default(),
                 },
                 OpenPullRequest {
@@ -452,6 +457,7 @@ mod tests {
                     checks: Checks::None,
                     from_fork: true,
                     author: String::new(),
+                    author_is_bot: false,
                     marks: ReviewMarks {
                         reviews: 3,
                         threads: 2
@@ -459,6 +465,37 @@ mod tests {
                 },
             ]
         );
+    }
+
+    // The shape `OPEN_QUERY` asks for, written from GitHub's schema, of pull
+    // requests from other people: a person, a bot, a fork and a draft.
+    const CONTRIBUTIONS: &str = include_str!("../../../fixtures/gh-pr-list-contributions.json");
+
+    #[test]
+    fn the_listing_reads_who_opened_each_pull_request_and_whether_a_bot_did() {
+        let page = parse_pull_requests(CONTRIBUTIONS.as_bytes(), &kelpie()).unwrap();
+        let read: Vec<_> = (page.pull_requests.iter())
+            .map(|pr| {
+                let head = pr.commit.get(..7).unwrap_or_default();
+                let (author, bot, fork) = (pr.author.as_str(), pr.author_is_bot, pr.from_fork);
+                (pr.number, author, bot, fork, pr.draft, head)
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [
+                (104, "octocat", false, false, true, "4d1c0a9"),
+                (103, "dependabot", true, false, false, "3b9e2f7"),
+                (102, "newcomer", false, true, false, "2a8f1e6"),
+                (101, "Octocat", false, false, false, "1f7e0d5"),
+            ]
+        );
+        assert_eq!(page.pull_requests[2].head, "kelpie/5");
+    }
+
+    #[test]
+    fn the_listing_asks_for_the_authors_type() {
+        assert!(OPEN_QUERY.contains("author { __typename login }"));
     }
 
     #[test]

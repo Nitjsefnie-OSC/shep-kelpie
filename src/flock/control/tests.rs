@@ -516,6 +516,21 @@ fn a_plain_status_says_so_of_a_ruling_with_no_issue() {
 }
 
 #[test]
+fn a_plain_status_lists_each_contribution_with_its_author_and_head() {
+    let body = r#"{"project":"koji","work_items":[],"contributions":[
+        {"pull_request":12,"author":"newcomer","head":"2a8f1e6d0b4c","seen":1790000000},
+        {"pull_request":14,"author":"","head":"1f7e0d5c9a3b","seen":1790000100}],"rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..6],
+        [
+            "  contributions: 2",
+            "    PR #12 by newcomer, head 2a8f1e6",
+            "    PR #14 by a deleted account, head 1f7e0d5",
+        ]
+    );
+}
+
+#[test]
 fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
     let list = r#"{"project":"koji","board":[
         {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},
