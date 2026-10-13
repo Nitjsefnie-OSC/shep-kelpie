@@ -15,15 +15,17 @@
 //! the panel, and the worker abstains when its work item has no worker.
 //!
 //! The votes and the verdict they reach are kept on the ruling. Under
-//! `rulings.decide = "panel"` the verdict decides it; under `"shadow"` it
-//! only informs the maintainer's comment and the measurements (#466).
+//! `rulings.decide = "panel"` the verdict decides it; under `"always"` the
+//! most votes of all four decide it unless no expert voted; under `"shadow"`
+//! it only informs the maintainer's comment and the measurements (#466).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::Runner;
 use super::pm::Wake;
 use crate::panel::{
-    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, simulate, work_of,
+    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, settle_always,
+    simulate, work_of,
 };
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
@@ -92,6 +94,8 @@ pub(super) struct Plan {
     tier: Tier,
     // Under `shadow` every expert is asked at once and nothing is decided
     shadow: bool,
+    // Under `always` every expert is asked at once and the most votes decide
+    always: bool,
     // Where the panel starts, and where it is now
     start: Stage,
     stage: Stage,
@@ -109,6 +113,7 @@ impl Plan {
             risky: false,
             tier: Tier::Full,
             shadow: true,
+            always: false,
             start: stage,
             stage,
         }
@@ -298,7 +303,9 @@ impl Runner {
         );
         let asked = super::voice::brief(ruling).0;
         let work = self.panel_work(id, number);
-        let risky = self.panel_risky(id, issue);
+        let always = self.settings.rulings.decide == Decide::Always;
+        // `full_panel_paths` has no effect under `always`: it asks all four anyway.
+        let risky = !always && self.panel_risky(id, issue);
         let tier = first_tier(work.tier, kind == RulingName::Question, risky);
         let shadow = self.settings.rulings.decide == Decide::Shadow;
         // A kind the project manager decides alone starts with it alone, if it is
@@ -306,12 +313,13 @@ impl Runner {
         // risky path is never one voice's, whatever `pm_alone` lists.
         let raised = kind == RulingName::Question || risky;
         let alone = self.settings.rulings.pm_decides(kind) && self.agents.pm.is_some() && !raised;
+        let alone = alone && !always;
         let first = match alone {
             true => Stage::Alone,
             false => Stage::Tier(tier),
         };
-        // Under shadow all four are asked and nothing is decided.
-        let stage = match shadow {
+        // Under shadow and always all four are asked at once.
+        let stage = match shadow || always {
             true => Stage::Tier(Tier::Full),
             false => first,
         };
@@ -321,6 +329,7 @@ impl Runner {
             risky,
             tier,
             shadow,
+            always,
             start: first,
             stage,
         };
@@ -476,7 +485,7 @@ impl Runner {
                 return;
             };
             let ballots = ballots_of(open);
-            let up = match open.plan.shadow {
+            let up = match open.plan.shadow || open.plan.always {
                 true => None,
                 false => match settle(open.plan.stage, open.plan.tier, &ballots) {
                     Step::Up(up) => Some(up),
@@ -521,9 +530,12 @@ impl Runner {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let step = match plan.shadow {
-            true => simulate(plan.start, plan.tier, &ballots).1,
-            false => settle(plan.stage, plan.tier, &ballots),
+        let merge = (self.state.rulings.iter())
+            .any(|r| r.id == id && matches!(r.kind, RulingKind::Merge { .. }));
+        let step = match (plan.shadow, plan.always) {
+            (true, _) => simulate(plan.start, plan.tier, &ballots).1,
+            (_, true) => settle_always(&ballots, merge),
+            _ => settle(plan.stage, plan.tier, &ballots),
         };
         let advice = match step {
             Step::Decided(advice) => Some(advice),

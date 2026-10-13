@@ -192,3 +192,92 @@ fn simulating_asks_each_stage_up_until_one_decides() {
         )
     );
 }
+
+#[test]
+fn always_decides_a_two_two_split_by_the_pm_s_choice() {
+    let split = votes(Some('A'), Some('B'), Some('A'), Some('B'));
+    assert_eq!(
+        settle_always(&split, false),
+        Step::Decided(advice('B', 2, 4))
+    );
+    let other = votes(Some('B'), Some('A'), Some('B'), Some('A'));
+    assert_eq!(
+        settle_always(&other, false),
+        Step::Decided(advice('A', 2, 4))
+    );
+    let most = votes(Some('A'), Some('B'), Some('A'), Some('C'));
+    assert_eq!(
+        settle_always(&most, false),
+        Step::Decided(advice('A', 2, 4)),
+        "the most votes win before the project manager is heard"
+    );
+}
+
+#[test]
+fn always_decides_a_tie_the_pm_is_not_in_by_the_first_option_listed() {
+    let tied = votes(Some('C'), Some('A'), Some('B'), Some('C'));
+    assert_eq!(
+        settle_always(&tied, false),
+        Step::Decided(advice('C', 2, 4))
+    );
+    let silent = votes(Some('C'), None, Some('B'), Some('B'));
+    assert_eq!(
+        settle_always(&silent, false),
+        Step::Decided(advice('B', 2, 4))
+    );
+    let apart = votes(Some('C'), None, Some('B'), None);
+    assert_eq!(
+        settle_always(&apart, false),
+        Step::Decided(advice('B', 1, 4)),
+        "one vote each goes to the option listed first"
+    );
+}
+
+#[test]
+fn always_never_merges_on_a_tie() {
+    let pm_for_merge = votes(Some('B'), Some('A'), Some('A'), Some('B'));
+    assert_eq!(
+        settle_always(&pm_for_merge, true),
+        Step::Decided(advice('B', 2, 4))
+    );
+    let silent = votes(Some('B'), None, Some('A'), None);
+    assert_eq!(
+        settle_always(&silent, true),
+        Step::Decided(advice('B', 1, 4))
+    );
+    let won = votes(Some('A'), Some('A'), Some('B'), None);
+    assert_eq!(
+        settle_always(&won, true),
+        Step::Decided(advice('A', 2, 4)),
+        "a majority for merging is not a tie"
+    );
+}
+
+#[test]
+fn always_decides_past_a_design_flag() {
+    let mut four = votes(Some('A'), Some('A'), Some('A'), Some('A'));
+    four[3] = ballot(Voter::Advisor, Some('A'), true);
+    assert_eq!(
+        settle_always(&four, false),
+        Step::Decided(advice('A', 4, 4))
+    );
+}
+
+#[test]
+fn always_asks_the_maintainer_when_no_expert_voted() {
+    let none = votes(None, None, None, None);
+    assert_eq!(
+        settle_always(&none, false),
+        Step::Maintainer {
+            advice: None,
+            design: false
+        }
+    );
+    assert_eq!(
+        settle_always(&[], true),
+        Step::Maintainer {
+            advice: None,
+            design: false
+        }
+    );
+}

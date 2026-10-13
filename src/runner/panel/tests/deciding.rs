@@ -392,3 +392,32 @@ fn a_merge_kind_on_pm_alone_stops_the_runner_naming_the_setting() {
     assert!(err.contains("rulings.pm_alone"), "{err}");
     assert!(err.contains("merge"), "{err}");
 }
+
+const ALWAYS: &str = "decide = \"always\"";
+
+#[test]
+fn under_always_a_two_two_split_is_decided_by_the_pm_s_choice_and_posted() {
+    let (rig, runner) = ruling("o-always", "feat: add it", Merging::Auto, ALWAYS);
+    // Merge is A: the project manager's B breaks the tie, so nothing merges.
+    script(&rig, ["A", "B", "A", "B"]);
+
+    voted(&rig, &runner);
+
+    let said = decided_comment(&rig).expect("the panel decided the split");
+    assert!(said.contains("(2 of 4)"), "{said}");
+    assert_eq!(asking_comment(&rig), None, "the maintainer was never asked");
+}
+
+#[test]
+fn under_always_a_docs_item_asks_all_four_and_a_design_flag_does_not_stop_it() {
+    let (rig, runner) = ruling("p-always", "docs: say more", Merging::Auto, ALWAYS);
+    script(&rig, ["A", "A!", "A", "A"]);
+
+    voted(&rig, &runner);
+
+    for role in [Role::Advisor, Role::Researcher, Role::Worker] {
+        assert_eq!(asked(&rig, role), 1, "{role:?}");
+    }
+    assert!(!pending(&rig), "the panel decided past the flag");
+    assert!(decided_comment(&rig).is_some());
+}
