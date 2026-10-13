@@ -120,6 +120,16 @@ pub enum AgentHarness {
 }
 
 impl AgentHarness {
+    /// Whether a call on it loads the `.claude` folder of the folder it runs in
+    pub fn reads_claude_files(&self) -> bool {
+        match self {
+            Self::ClaudeCode => true,
+            Self::Pi(_) | Self::Codex => false,
+            #[cfg(test)]
+            Self::StandIn => true,
+        }
+    }
+
     /// The harness, as settings name it
     pub fn harness(&self) -> Harness {
         match self {
