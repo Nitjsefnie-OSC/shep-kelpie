@@ -24,6 +24,8 @@ pub struct OpenPullRequest {
     pub from_fork: bool,
     /// Its author's login, empty for a deleted account
     pub author: String,
+    /// Whether its author is a bot account
+    pub author_is_bot: bool,
     /// How many reviews and threads it had when listed
     pub marks: ReviewMarks,
 }

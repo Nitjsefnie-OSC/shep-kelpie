@@ -17,6 +17,13 @@ pub enum Decide {
     /// none flagged `design`, or a smaller panel agrees, as the work item's
     /// type sets. Anything else goes to the maintainer.
     Panel,
+    /// The panel decides every ruling it votes on, and the maintainer is asked
+    /// only when no expert voted. All four experts are asked at once, whatever
+    /// the work item's type; the option with the most votes wins, a `design`
+    /// flag does not stop it, and a tie goes to the project manager's choice,
+    /// else the option listed first, though a tie never merges. `pm_alone` and
+    /// `full_panel_paths` have no effect.
+    Always,
 }
 
 /// How rulings are decided
@@ -132,6 +139,22 @@ impl Rulings {
     /// Whether the project manager alone decides a ruling of `kind`
     pub fn pm_decides(&self, kind: RulingName) -> bool {
         self.pm_alone.contains(&kind)
+    }
+
+    /// Notes naming each of `pm_alone` and `full_panel_paths` that is set under
+    /// `decide = "always"`, which ignores it
+    pub fn unused_under_always(&self) -> Vec<String> {
+        let set = [
+            ("rulings.pm_alone", !self.pm_alone.is_empty()),
+            (
+                "rulings.full_panel_paths",
+                !self.full_panel_paths.is_empty(),
+            ),
+        ];
+        (set.into_iter())
+            .filter(|(_, set)| *set && self.decide == Decide::Always)
+            .map(|(name, _)| format!("rulings.decide is \"always\", so {name} has no effect"))
+            .collect()
     }
 
     /// Why `pm_alone` is refused, if it is: a merge ruling is never decided

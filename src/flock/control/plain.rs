@@ -15,6 +15,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     let run = status["run"].as_str().unwrap_or("running");
     lines.push(format!("  run: {run}"));
     items(status, &mut lines);
+    contributions(status, &mut lines);
     rulings(status, &mut lines);
     pacer(status, &mut lines);
     lines
@@ -120,6 +121,30 @@ fn items(status: &Value, lines: &mut Vec<String>) {
             item["phase"]["state"].as_str().unwrap_or("?"),
             item["turn"]["state"].as_str().unwrap_or("?"),
             pull_request(&item["pull_request"]),
+        ));
+    }
+}
+
+// One line for each pull request from someone else the board follows, and
+// none when it follows none
+fn contributions(status: &Value, lines: &mut Vec<String>) {
+    let followed = status["contributions"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if followed.is_empty() {
+        return;
+    }
+    lines.push(format!("  contributions: {}", followed.len()));
+    for contribution in followed {
+        let author = match contribution["author"].as_str() {
+            Some("") | None => "a deleted account",
+            Some(login) => login,
+        };
+        let head = contribution["head"].as_str().unwrap_or_default();
+        lines.push(format!(
+            "    PR #{} by {author}, head {}",
+            contribution["pull_request"],
+            head.get(..7).unwrap_or(head),
         ));
     }
 }

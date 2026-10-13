@@ -243,6 +243,13 @@ compact_window = 200000
 # Empty when absent. `full_panel_paths` lists globs (`*` stays in a folder,
 # `**` spans folders) of paths too risky for a smaller panel: a work item whose
 # diff from its merge base touches one gets all four. Empty when absent.
+# `always` is off unless set. It has the panel decide every ruling it votes on,
+# and asks you only when no expert voted: all four are asked at once whatever the
+# type, the option with the most votes wins, and a `design` flag is recorded but
+# does not send it to you. A tie goes to the project manager's choice when it is
+# one of the tied, else to the tied option listed first; a tie never merges. A
+# merge under `git.merging = "ask"` still comes to you. `pm_alone` and
+# `full_panel_paths` have no effect under `always`.
 # [app.dogs.kelpie.rulings]
 # decide = "panel"
 # pm_alone = ["turn-timeout", "still-red"]
