@@ -8,7 +8,7 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 - Harness files carry the issue (`settings-<issue>.json`); runner git waits 2s for a ref lock, 5s for `packed-refs` (items share the repo). `src/runner/turn.rs`
 - On stop: SIGTERM each call's process group, save, exit inside shep's 1.6s `kill_timeout`; restart resumes each item from its session. A `handover` trigger instead keeps the calls running (agents.md). ADR 0005
 - Worker owns one item, builds inline, no plan, no crew; instructions and headless rules forbid sub-agents. ADR 0006
-- Compaction: session whose last turn passed 150k context compacts before next turn (`WORKER_COMPACT_PAST`); Claude Code compacts mid-turn at `worker.compact_window` (200000). #426, #476
+- Compaction: session whose last turn passed 150k context compacts before next turn (`WORKER_COMPACT_PAST`); Claude Code compacts mid-turn at `worker.compact_window` (200000). A pi session is compacted past 150k the same way: its reply's context is the last request's prompt, and a `COMPACT` call sends the `/kelpie-compact` command of an extension kelpie writes, since `-p` runs no built-in command. pi's own threshold compaction still runs, and its usage is counted. A model on a window under 150k never reaches the runner's threshold, so only pi's own runs there. #760
 - Agents never see budget numbers (budget talk makes models stop after each task). `src/runner/turn/budget.rs`
 - Implementers default `sonnet-high`, `opus-high` for work hard to undo. #313
 - `worker.turn_timeout` (60 min) counts from turn start, so restart buys no hour; past it parks `turn-timeout`; lease wait refunded. #16, `src/runner/turn/unfinished.rs`
