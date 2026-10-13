@@ -285,24 +285,6 @@ impl FakeCodeRabbit {
         id
     }
 
-    /// `author` adds `body` to a review thread of pull request `number`, and the comment's id
-    pub(crate) fn person_adds(
-        &self,
-        thread: &str,
-        author: &str,
-        standing: Standing,
-        body: &str,
-    ) -> u64 {
-        let remark = self.remark(author, standing, body);
-        let id = remark.id;
-        let mut talk = self.talk.lock().unwrap();
-        let found = talk.values_mut().flat_map(|t| &mut t.threads);
-        for found in found.filter(|t| t.id == thread) {
-            found.remarks.push(remark.clone());
-        }
-        id
-    }
-
     fn remark(&self, author: &str, standing: Standing, body: &str) -> Remark {
         Remark {
             id: 7000 + self.remark_ids.fetch_add(1, Ordering::SeqCst) as u64,

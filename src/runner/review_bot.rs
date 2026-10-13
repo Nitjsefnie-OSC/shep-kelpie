@@ -35,6 +35,8 @@ mod on_ready;
 mod settle;
 
 #[cfg(test)]
+pub(in crate::runner) use late::LATE_READ;
+#[cfg(test)]
 pub(crate) use settle::SETTLE_LEAST;
 
 use super::Runner;
