@@ -22,16 +22,16 @@ fn phase(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
 fn a_question_in_a_nos_fix_turn_still_sends_the_fix_to_ci() {
     let (rig, runner, _) = Rig::parked("rotom");
     let reviewer_reads = rig.reviewer.seen().len();
-    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+    rig.ask(&runner, "rule", Some("71 no rename the flag"));
     rig.claude.script([Scripted::Say(
         "Which name?\n\n<kelpie-question>\n--dry-run or --check?\n</kelpie-question>\n",
     )]);
     let report = step(&runner).unwrap(); // the noted turn asks
     assert!(
-        matches!(report, Some(StepReport::Asked { id: 2, .. })),
+        matches!(report, Some(StepReport::Asked { id: 71, .. })),
         "{report:?}"
     );
-    rig.ask(&runner, "rule", Some("2 answer --dry-run"));
+    rig.ask(&runner, "rule", Some("71 answer --dry-run"));
     rig.claude
         .script([Scripted::Push("rename.txt", "renamed\n")]);
     step(&runner).unwrap(); // the answered turn pushes
@@ -45,13 +45,13 @@ fn a_question_in_a_nos_fix_turn_still_sends_the_fix_to_ci() {
 #[test]
 fn a_push_by_someone_else_during_a_nos_fix_is_not_called_the_fix_and_its_no_starts_a_pass() {
     let (rig, runner, _) = Rig::parked("rotom");
-    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+    rig.ask(&runner, "rule", Some("71 no rename the flag"));
     let by_hand = rig.push_by_hand("kelpie/7", "by-hand.txt");
     rig.claude.script([Scripted::Text("Nothing to push.")]);
     step(&runner).unwrap(); // the noted turn pushes nothing itself
     rig.forge.set_checks(&by_hand, Checks::Passed);
     let Some(StepReport::Ruling {
-        id: 2, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no second merge ruling");
@@ -67,7 +67,7 @@ fn a_push_by_someone_else_during_a_nos_fix_is_not_called_the_fix_and_its_no_star
         json!({ "kind": "merge", "head": by_hand, "unread_head": true })
     );
 
-    rig.ask(&runner, "rule", Some("2 no check that commit"));
+    rig.ask(&runner, "rule", Some("71 no check that commit"));
     rig.claude.script([Scripted::Text("Looked at it.")]);
     step(&runner).unwrap(); // the noted turn ends, and a pass begins
     assert_eq!(phase(&rig, &runner)["state"], "review");
@@ -83,7 +83,7 @@ fn a_push_by_someone_else_during_a_nos_fix_is_not_called_the_fix_and_its_no_star
 #[test]
 fn a_failed_hand_back_keeps_the_note_fix_for_the_retry() {
     let (rig, runner, _) = Rig::parked("rotom");
-    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+    rig.ask(&runner, "rule", Some("71 no rename the flag"));
     rig.claude
         .script([Scripted::Push("rename.txt", "renamed\n")]);
     step(&runner).unwrap(); // the noted turn pushes, and goes to CI
@@ -98,7 +98,7 @@ fn a_failed_hand_back_keeps_the_note_fix_for_the_retry() {
     rig.forge.set_labels_down(false);
     rig.next_look();
     let Some(StepReport::Ruling {
-        id: 2, question, ..
+        id: 71, question, ..
     }) = step(&runner).unwrap()
     else {
         panic!("no second merge ruling");
@@ -111,7 +111,7 @@ fn a_failed_hand_back_keeps_the_note_fix_for_the_retry() {
 #[test]
 fn under_auto_a_nos_fix_comes_back_as_a_ruling() {
     let (rig, runner, _) = Rig::parked("rotom");
-    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+    rig.ask(&runner, "rule", Some("71 no rename the flag"));
     rig.merge_auto();
     let reread = runner
         .lock()
@@ -127,7 +127,7 @@ fn under_auto_a_nos_fix_comes_back_as_a_ruling() {
     for _ in 0..4 {
         match rig.verdict(&runner) {
             Some(StepReport::Ruling { id, question, .. }) => {
-                assert_eq!(id, 2);
+                assert_eq!(id, 71);
                 assert!(question.contains(NOTE_FIX), "{question}");
                 assert_eq!(rig.forge.merges(), []);
                 return;

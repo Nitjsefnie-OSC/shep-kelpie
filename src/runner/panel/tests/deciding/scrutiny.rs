@@ -28,7 +28,7 @@ fn asking(project: &str, title: &str, rulings: &str) -> (Rig, Mutex<Runner>) {
     rig.claude.script([Scripted::Say(QUESTION)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 1, .. })
+        Some(StepReport::Asked { id: 71, .. })
     ));
     (rig, runner)
 }
@@ -97,7 +97,7 @@ fn the_commits_an_adopted_pull_request_arrived_with_count_toward_a_risky_path() 
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     // The merge ruling was raised under `ask`, and is judged under `auto`.
     runner.lock().unwrap().settings.git.merging = Merging::Auto;

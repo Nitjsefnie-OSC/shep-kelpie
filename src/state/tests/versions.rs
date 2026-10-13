@@ -443,15 +443,15 @@ fn a_state_file_without_reran_still_loads() {
     assert_eq!(store.load().unwrap(), Some(reran));
 }
 
-// A version 37 file has no `talked` on its work items, so no comment is
+// A version 38 file has no `talked` on its work items, so no comment is
 // handled and no round counted. A work item with a pull request loads with
 // its comments marked as seen, since its worker has read them.
 #[test]
-fn a_version_37_file_loads_with_no_comment_handled_and_saves_at_the_current_version() {
+fn a_version_38_file_loads_with_no_comment_handled_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
-    old["version"] = 37.into();
+    old["version"] = 38.into();
     let item = serde_json::to_value(a_work_item()).unwrap();
     assert!(item.get("talked").is_none(), "{item}");
     old["work_items"] = serde_json::json!([item]);

@@ -80,7 +80,7 @@ fn a_pending_merge_ruling_no_bot_read_for_is_withdrawn_for_the_bots_pass() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"], json!([]));
     assert_eq!(status["work_item"]["phase"]["state"], "ci");
-    let said = "Merge ruling 1 on pull request #71 is withdrawn: no review bot shep lists \
+    let said = "Merge ruling 71 on pull request #71 is withdrawn: no review bot shep lists \
                 had read it, so they read it first, and the merge ruling is raised again \
                 after they have. Nothing to answer.";
     assert!(
@@ -94,7 +94,7 @@ fn a_pending_merge_ruling_no_bot_read_for_is_withdrawn_for_the_bots_pass() {
     );
     let posts = rig.alerts.posts();
     let (_, alert) = posts.last().expect("posted to the webhook");
-    assert_eq!(alert.title, "kelpie: shep merge ruling 1 withdrawn");
+    assert_eq!(alert.title, "kelpie: shep merge ruling 71 withdrawn");
     assert_eq!(alert.text, said);
     assert_eq!(alert.reply, None, "nothing to answer");
     assert!(matches!(
@@ -178,7 +178,7 @@ fn a_pending_round_cap_ruling_sends_its_threads_on_a_yes_and_the_fix_leaves_them
         question.contains("sends the worker those threads"),
         "{question}"
     );
-    rig.ask(&runner, "rule", Some("5 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     rig.claude.script([Scripted::Push("flag.txt", "named\n")]);
     step(&runner).unwrap(); // the fix turn
     assert_eq!(rig.claude.calls().pop().unwrap().prompt, "Fix the threads.");

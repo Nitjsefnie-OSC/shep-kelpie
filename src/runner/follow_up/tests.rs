@@ -662,7 +662,7 @@ fn a_restart_after_the_merge_still_files_what_the_worker_deferred() {
     assert!(finished(after_merge(&runner)));
 }
 
-// Under `ask`: the worker parked on merge ruling 1, then a yes, then the merge
+// Under `ask`: the worker parked on merge ruling 71, then a yes, then the merge
 pub(in crate::runner) fn ask_after_the_merge(
     rig: Rig,
     found: &[Finding],
@@ -672,9 +672,9 @@ pub(in crate::runner) fn ask_after_the_merge(
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady { .. })
@@ -864,9 +864,9 @@ fn issues_file_files_at_once_under_ask_merging_too() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady { .. })

@@ -86,7 +86,7 @@ fn a_cap_reached_raises_the_ruling_after_that_many_fix_turns() {
     assert!(question.starts_with(&parked), "{question}");
 
     // A no sends the worker the maintainer's note, past the cap.
-    rig.ask(&runner, "rule", Some("1 no try the other lint config"));
+    rig.ask(&runner, "rule", Some("71 no try the other lint config"));
     rig.claude.script([Scripted::Push("fix-3.txt", "fixed\n")]);
     step(&runner).unwrap();
     let prompt = rig.claude.calls().last().unwrap().prompt.clone();

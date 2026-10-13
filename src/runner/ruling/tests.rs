@@ -86,7 +86,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
 #[test]
 fn nothing_merges_without_a_yes() {
     let (rig, runner, _) = Rig::parked("shep");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     for _ in 0..5 {
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None);
@@ -94,20 +94,20 @@ fn nothing_merges_without_a_yes() {
     let refused = [
         ("2 yes", "ruling 2 is already answered, or was never raised"),
         (
-            "1 no",
-            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 no\"",
+            "71 no",
+            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"71 no\"",
         ),
         (
-            "1 yes please",
-            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 yes please\"",
+            "71 yes please",
+            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"71 yes please\"",
         ),
         (
             "one yes",
             "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"one yes\"",
         ),
         (
-            "1 maybe",
-            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 maybe\"",
+            "71 maybe",
+            "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"71 maybe\"",
         ),
     ];
     for (params, error) in refused {
@@ -130,7 +130,11 @@ fn nothing_merges_without_a_yes() {
 fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_ruling() {
     let (rig, runner, _) = Rig::parked("rotom");
     let reads = (rig.reviewer.seen().len(), rig.claude.all_calls().len());
-    rig.ask(&runner, "rule", Some("1 no  rename the flag to --dry-run "));
+    rig.ask(
+        &runner,
+        "rule",
+        Some("71 no  rename the flag to --dry-run "),
+    );
     rig.claude
         .script([Scripted::Push("rename.txt", "renamed\n")]);
     step(&runner).unwrap(); // the noted turn: pushes, and goes to CI
@@ -158,7 +162,7 @@ fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_
     );
     rig.forge.set_checks(&pushed, Checks::Passed);
     let Some(StepReport::Ruling {
-        id: 2, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no second merge ruling");
@@ -175,7 +179,10 @@ fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_
         json!({ "kind": "merge", "head": pushed, "note_fix": true })
     );
     let item = runner.lock().unwrap().state.work_items[0].clone();
-    assert!(item.noted_from.is_some(), "kept until ruling 2 is answered");
+    assert!(
+        item.noted_from.is_some(),
+        "kept until ruling 71 is answered"
+    );
     assert_eq!(
         (rig.reviewer.seen().len(), rig.claude.all_calls().len()),
         (reads.0, reads.1 + 1),
@@ -192,7 +199,7 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     rig.ask(
         &runner,
         "rule",
-        Some("1 rework  rename the flag to --dry-run "),
+        Some("71 rework  rename the flag to --dry-run "),
     );
     rig.claude.script([
         Scripted::Push("rename.txt", "renamed\n"),
@@ -225,7 +232,7 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     );
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 2, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let rulings = &rig.ask(&runner, "status", None)["rulings"];
     assert_eq!(
@@ -239,7 +246,7 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
 #[test]
 fn a_merge_rulings_no_note_and_a_rework_ask_for_the_body_to_be_kept_true() {
     let ask = "Update the pull request's body so it matches the head you push";
-    for answer in ["1 no  fix the name ", "1 rework  fix the name "] {
+    for answer in ["71 no  fix the name ", "71 rework  fix the name "] {
         let (rig, runner, _) = Rig::parked("rotom");
         rig.ask(&runner, "rule", Some(answer));
         rig.claude
@@ -251,9 +258,9 @@ fn a_merge_rulings_no_note_and_a_rework_ask_for_the_body_to_be_kept_true() {
 }
 
 #[test]
-fn ruling_ids_are_never_given_twice() {
+fn a_ruling_answered_is_refused_when_its_number_is_named_again() {
     let (rig, runner, _) = Rig::parked("rotom");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
     assert!(matches!(
@@ -275,11 +282,11 @@ fn ruling_ids_are_never_given_twice() {
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 2, .. })
+        Some(StepReport::Ruling { id: 72, .. })
     ));
     assert_eq!(
-        rig.ask(&runner, "rule", Some("1 yes")),
-        json!({ "error": "ruling 1 is already answered, or was never raised" })
+        rig.ask(&runner, "rule", Some("71 yes")),
+        json!({ "error": "ruling 71 is already answered, or was never raised" })
     );
 }
 
@@ -289,14 +296,14 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     let by_hand = rig.push_by_hand("kelpie/7", "by-hand.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(
-        rig.ask(&runner, "rule", Some("1 rework revert it")),
-        json!({ "error": "ruling 1 is not a merge ruling, so it takes a yes, or a no with a note" }),
+        rig.ask(&runner, "rule", Some("71 rework revert it")),
+        json!({ "error": "ruling 71 is not a merge ruling, so it takes a yes, or a no with a note" }),
         "only a merge ruling takes a rework"
     );
-    rig.ask(&runner, "rule", Some("1 no revert it"));
+    rig.ask(&runner, "rule", Some("71 no revert it"));
     // A plain push from the worktree: the stand-in panics if it is refused.
     rig.claude.script([
         Scripted::Push("revert.txt", "reverted\n"),
@@ -324,7 +331,7 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     let Some(StepReport::Ruling {
-        id: 2, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no second ruling");
@@ -338,13 +345,13 @@ fn a_yes_on_a_head_the_branch_moved_past_asks_about_the_new_head_instead() {
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let second = rig.push_by_hand("kelpie/7", "second.txt");
-    let status = rig.ask(&runner, "rule", Some("1 yes"));
+    let status = rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(
         status["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 2 })
+        json!({ "state": "ruling", "id": 71 })
     );
     assert_eq!(status["rulings"][0]["kind"]["known"]["head"], json!(second));
     let question = status["rulings"][0]["question"].as_str().unwrap();
@@ -367,10 +374,10 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     let by_hand = rig.push_by_hand("kelpie/7", "by-hand.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     std::fs::write(rig.worktree_7().join("work.txt"), "unsaved\n").unwrap();
-    let reply = rig.ask(&runner, "rule", Some("1 yes"));
+    let reply = rig.ask(&runner, "rule", Some("71 yes"));
     let error = reply["error"].as_str().unwrap();
     assert!(
         error.starts_with(&format!("cannot bring the worktree to {}: ", &by_hand[..7])),
@@ -378,7 +385,7 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 1 })
+        json!({ "state": "ruling", "id": 71 })
     );
     assert_eq!(
         crate::test::git(&rig.worktree_7(), &["rev-parse", "HEAD"]),
@@ -388,7 +395,7 @@ fn a_yes_on_a_head_is_refused_while_the_worktree_holds_work_not_pushed() {
     // A commit kelpie never saw pushed is the worker's too.
     let worktree = rig.worktree_7();
     crate::test::git(&worktree, &["commit", "--quiet", "-am", "not pushed"]);
-    let reply = rig.ask(&runner, "rule", Some("1 yes"));
+    let reply = rig.ask(&runner, "rule", Some("71 yes"));
     assert!(
         reply["error"].as_str().unwrap().contains("holds work"),
         "{reply}"
@@ -463,7 +470,7 @@ fn the_failed_turn_line_goes_after_a_command_the_prompt_starts_with() {
 
 const DOLLAR: u64 = 1_000_000_000;
 
-// Issue 7 under a $5 cap, whose first turn cost `dollars` and so waits on ruling 1
+// Issue 7 under a $5 cap, whose first turn cost `dollars` and so waits on ruling 7
 fn over_its_cap_by(dollars: u64) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("acme");
     rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
@@ -472,7 +479,7 @@ fn over_its_cap_by(dollars: u64) -> (Rig, Mutex<Runner>) {
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(dollars * DOLLAR))]);
     step(&runner).unwrap();
-    let Some(StepReport::Failed { id: 1, .. }) = step(&runner).unwrap() else {
+    let Some(StepReport::Failed { id: 7, .. }) = step(&runner).unwrap() else {
         panic!("the work item did not wait on a ruling");
     };
     assert_eq!(rig.claude.calls().len(), 1);
@@ -492,7 +499,7 @@ fn cap_usd(rig: &Rig, runner: &Mutex<Runner>) -> f64 {
 #[test]
 fn a_yes_on_an_over_budget_ruling_lets_the_work_item_run_to_twice_its_cap() {
     let (rig, runner) = over_its_cap();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     // $9 in all is past $5 and under the doubled $10.
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
@@ -508,7 +515,7 @@ fn a_no_on_an_over_budget_ruling_sends_the_note_and_raises_the_cap_once() {
     rig.ask(
         &runner,
         "rule",
-        Some("1 no  stop polishing and open the pull request "),
+        Some("7 no  stop polishing and open the pull request "),
     );
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(9 * DOLLAR))]);
@@ -537,7 +544,7 @@ fn a_no_on_an_over_budget_ruling_sends_the_note_and_raises_the_cap_once() {
 fn a_yes_lifts_the_cap_past_what_one_long_turn_cost_so_the_worker_is_not_asked_again() {
     // $11 is past the doubled $10, so the cap goes to $20 and the next turn starts.
     let (rig, runner) = over_its_cap_by(11);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(12 * DOLLAR))]);
     step(&runner).unwrap();
@@ -554,7 +561,7 @@ fn a_no_on_a_first_turn_that_has_no_session_to_resume_starts_it_and_says_the_not
         .unwrap()
         .update(|item| item.turn = Turn::Due)
         .unwrap();
-    rig.ask(&runner, "rule", Some("1 no  polish less"));
+    rig.ask(&runner, "rule", Some("7 no  polish less"));
     rig.claude
         .script([Scripted::Reply(Usage::default(), Cost(7 * DOLLAR))]);
     step(&runner).unwrap();
@@ -569,7 +576,7 @@ fn a_no_on_a_first_turn_that_has_no_session_to_resume_starts_it_and_says_the_not
     let notes = runner.lock().unwrap().take_notes();
     assert_eq!(
         notes,
-        ["ruling 1: the worker's session has not begun, so your note was not sent"]
+        ["ruling 7: the worker's session has not begun, so your note was not sent"]
     );
 }
 

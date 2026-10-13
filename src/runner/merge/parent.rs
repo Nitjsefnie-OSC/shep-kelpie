@@ -9,7 +9,7 @@ use crate::test::Rig;
 
 // Rules a yes on the parked pull request for issue 7, then merges it
 fn merged(rig: &Rig, runner: &Mutex<Runner>) {
-    rig.ask(runner, "rule", Some("1 yes"));
+    rig.ask(runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(runner).unwrap(),
         Some(StepReport::MarkedReady { .. })
@@ -118,7 +118,7 @@ fn a_sibling_the_pull_request_names_counts_as_closed_though_it_still_reads_open(
     rig.forge.link_sub_issue(5, 6);
     rig.forge.link_sub_issue(5, 7);
     rig.forge.set_closes(71, &[6, 7]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     // The forge has merged it and not yet closed #6 and #7, which #71 names.
     rig.forge.set_state(71, PullRequestState::Merged);
 

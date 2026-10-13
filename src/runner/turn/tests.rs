@@ -354,7 +354,7 @@ fn a_failed_turn_raises_a_ruling_carrying_why_and_alerts_like_the_rest() {
     else {
         panic!("the failed turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (7, None, 1));
+    assert_eq!((issue, pull_request, id), (7, None, 7));
     assert!(
         question.starts_with("The worker's turn on issue #7 failed: claude failed: overloaded."),
         "{question}"
@@ -364,9 +364,9 @@ fn a_failed_turn_raises_a_ruling_carrying_why_and_alerts_like_the_rest() {
         item["turn"],
         json!({ "state": "failed", "at": Rig::EPOCH, "reason": "claude failed: overloaded" })
     );
-    assert_eq!(item["phase"], json!({ "state": "ruling", "id": 1 }));
+    assert_eq!(item["phase"], json!({ "state": "ruling", "id": 7 }));
 
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
     assert_eq!(alert.text, question);
     assert_eq!(step(&runner).unwrap(), None);
@@ -381,7 +381,7 @@ fn a_yes_on_a_failed_turn_resumes_its_session() {
         "overloaded".into(),
     ))]);
     step(&runner).unwrap();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);
     assert!(matches!(
         step(&runner).unwrap(),
@@ -408,7 +408,7 @@ fn a_retry_whose_session_never_began_starts_it_over_from_the_issue() {
     ))]);
     step(&runner).unwrap();
     let first = rig.claude.calls()[0].session.id().clone();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude.script([
         Scripted::Fail(AgentError::NoSession(
             crate::settings::Harness::ClaudeCode,
@@ -433,7 +433,7 @@ fn a_no_on_a_failed_turn_stops_the_work_item_the_way_a_timed_out_one_does() {
         "overloaded".into(),
     ))]);
     step(&runner).unwrap();
-    rig.ask(&runner, "rule", Some("1 no not worth another go"));
+    rig.ask(&runner, "rule", Some("7 no not worth another go"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
@@ -464,7 +464,7 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     else {
         panic!("the timed-out turn raised no ruling");
     };
-    assert_eq!((issue, pull_request, id), (7, None, 1));
+    assert_eq!((issue, pull_request, id), (7, None, 7));
     assert!(
         question.starts_with(
             "The worker on issue #7 has been running past its turn's ceiling, \
@@ -474,10 +474,10 @@ fn a_turn_past_its_ceiling_is_stopped_and_a_yes_resumes_its_session() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 1 })
+        json!({ "state": "ruling", "id": 7 })
     );
 
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);
     assert!(matches!(
         step(&runner).unwrap(),
@@ -499,7 +499,7 @@ fn a_no_on_a_timed_out_turn_stops_the_work_item_keeping_nothing_of_its_own() {
         crate::settings::Harness::ClaudeCode,
     ))]);
     step(&runner).unwrap();
-    rig.ask(&runner, "rule", Some("1 no not worth waiting for"));
+    rig.ask(&runner, "rule", Some("7 no not worth waiting for"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
@@ -526,7 +526,7 @@ fn a_restart_after_the_ceiling_passed_parks_it_with_no_call_spent() {
     let Some(StepReport::TimedOut { id, .. }) = step(&runner).unwrap() else {
         panic!("a turn found past its ceiling on restart raised no ruling");
     };
-    assert_eq!(id, 1);
+    assert_eq!(id, 7);
     assert_eq!(
         rig.claude.calls().len(),
         1,
@@ -534,7 +534,7 @@ fn a_restart_after_the_ceiling_passed_parks_it_with_no_call_spent() {
     );
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
-        json!({ "state": "ruling", "id": 1 })
+        json!({ "state": "ruling", "id": 7 })
     );
 }
 
@@ -554,7 +554,7 @@ fn a_foreign_folder_where_the_worktree_goes_fails_the_turn_before_any_call() {
 
     // A yes retries the step that failed: the first turn, from the issue.
     fs::remove_dir_all(&folder).unwrap();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);
     step(&runner).unwrap();
     let [call] = rig.claude.calls().try_into().unwrap();
@@ -754,7 +754,7 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
     let Some(StepReport::Failed {
         issue: 7,
         pull_request: None,
-        id: 1,
+        id: 7,
         question,
         ..
     }) = step(&runner).unwrap()
@@ -769,12 +769,12 @@ fn a_second_turn_that_stops_short_parks_the_worker_on_a_ruling() {
         "{question}"
     );
     assert!(question.ends_with("stops the work item."), "{question}");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.claude.calls().len(), 2);
 
     // A yes sends it back again, into the same session.
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);
     step(&runner).unwrap();
     let [first, _, third] = rig.claude.calls().try_into().unwrap();
@@ -792,7 +792,7 @@ fn a_no_on_a_worker_that_stopped_short_stops_the_work_item() {
     for _ in 0..3 {
         step(&runner).unwrap();
     }
-    rig.ask(&runner, "rule", Some("1 no the issue is already fixed"));
+    rig.ask(&runner, "rule", Some("7 no the issue is already fixed"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Finished {
@@ -847,7 +847,7 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
     let Some(StepReport::Failed {
         issue: 7,
         pull_request: None,
-        id: 1,
+        id: 7,
         question,
         ..
     }) = step(&runner).unwrap()

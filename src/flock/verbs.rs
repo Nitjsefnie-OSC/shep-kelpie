@@ -14,7 +14,7 @@ use crate::ports::SandboxError;
 use crate::runner::{ProjectName, ProjectPaths};
 use crate::settings::source;
 use crate::shepherd::{self, Connection, Dial, Socket};
-use crate::state::ids::RulingIds;
+use crate::state::Projects;
 use crate::tools::Tools;
 use crate::upgrade::restart::{Interrupt, Patience};
 
@@ -373,7 +373,7 @@ async fn answer(
     named: Option<&ProjectName>,
     args: &[&str],
 ) -> Result<Vec<String>, String> {
-    let ids = RulingIds::under(kelpie_home);
+    let projects = Projects::under(kelpie_home);
     // Not in a clone, or no shepherd to ask, is a number with no project near.
     let here = match (named, args.first()) {
         (None, Some(first)) if rule::is_number(first) => {
@@ -391,7 +391,7 @@ async fn answer(
         &mut input as &mut dyn BufRead,
         &mut output as &mut dyn Write,
     ));
-    let (project, params) = rule::prepare_in(&ids, named, here.as_ref(), args, ask)?;
+    let (project, params) = rule::prepare_in(&projects, named, here.as_ref(), args, ask)?;
     let client = shepherd::connect(dial, shep_home)
         .await
         .map_err(|e| e.describe(shep_home))?;

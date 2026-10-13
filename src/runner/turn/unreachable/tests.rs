@@ -129,7 +129,7 @@ fn a_host_that_stays_down_past_the_limit_raises_one_turn_failed_ruling_with_the_
     );
 
     rig.clock.advance(3600);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.claude.calls().len(), calls, "no call after it parked");
     assert_eq!(rulings(&rig, &runner), 1);

@@ -30,7 +30,7 @@ fn usd(dollars: f64) -> Cost {
 #[test]
 fn a_merged_work_item_leaves_a_line_for_each_call_and_one_for_itself() {
     let (rig, runner, _) = Rig::parked("koji");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady { .. })

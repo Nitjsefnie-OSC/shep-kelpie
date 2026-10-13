@@ -48,7 +48,7 @@ fn each_vote_is_a_ledger_line_with_the_ruling_kind_expert_panel_cost_and_wall_ti
         assert_eq!(
             line["votes"],
             json!([{
-                "ruling": 1, "ruling_kind": "merge", "voter": voter,
+                "ruling": 71, "ruling_kind": "merge", "voter": voter,
                 "panel": "fix", "work": "fix", "choice": "A",
             }]),
             "{voter}"
@@ -85,7 +85,7 @@ fn an_abstaining_expert_has_a_line_with_no_choice() {
     assert!(advisor["votes"][0].get("choice").is_none(), "{advisor}");
 }
 
-/// `status`'s panel for the project, once ruling 1 is answered with `answer`
+/// `status`'s panel for the project, once ruling 71 is answered with `answer`
 fn standing_after(project: &str, votes: [&str; 4], answer: &str) -> serde_json::Value {
     let (rig, runner) = ruling(project, "feat: add it", Merging::Auto, SHADOW);
     script(&rig, votes);
@@ -96,7 +96,7 @@ fn standing_after(project: &str, votes: [&str; 4], answer: &str) -> serde_json::
 
 #[test]
 fn a_maintainers_answer_that_matches_the_panel_extends_its_streak_and_each_agreeing_expert() {
-    let panel = standing_after("agree", ["A", "A", "A", "A"], "1 yes");
+    let panel = standing_after("agree", ["A", "A", "A", "A"], "71 yes");
 
     assert_eq!(panel["decide"], "shadow");
     assert_eq!(panel["streak"], 1);
@@ -108,7 +108,7 @@ fn a_maintainers_answer_that_matches_the_panel_extends_its_streak_and_each_agree
 #[test]
 fn a_maintainers_answer_that_differs_resets_the_streak_and_the_lone_expert_is_counted() {
     // The researcher alone voted for the no the maintainer gave.
-    let panel = standing_after("differ", ["A", "A", "B", "A"], "1 no not yet");
+    let panel = standing_after("differ", ["A", "A", "B", "A"], "71 no not yet");
 
     assert_eq!(panel["streak"], 0);
     assert_eq!(panel["pm_alone"]["merge"], 0);
@@ -134,7 +134,7 @@ fn status_scores_each_candidate_policy_on_the_votes_and_ledger_of_a_shadow_rulin
         [Scripted::Billed(leak(pm_says('A', false)), cost)],
     );
     voted(&rig, &runner);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     let whatif = rig.ask(&runner, "status", None)["panel"]["whatif"].clone();
 
@@ -155,7 +155,7 @@ fn a_ledger_that_cannot_be_read_leaves_the_costs_of_the_whatif_report_null() {
     let (rig, runner) = ruling("whatif-bad", "feat: add it", Merging::Auto, SHADOW);
     script(&rig, ["A", "A", "A", "A"]);
     voted(&rig, &runner);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     // A folder where the ledger should be: reading it fails, and is not a missing file.
     let path = rig.paths().folder.join(FILE);
     let _ = std::fs::remove_file(&path);

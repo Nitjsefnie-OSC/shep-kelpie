@@ -21,7 +21,7 @@ fn with_ticked(rig: &Rig, key: char) -> String {
 // wake, say ruling 1 on issue 7 was answered
 fn pm_is_told_of_the_answer(runner: &Mutex<Runner>) -> bool {
     let runner = runner.lock().unwrap();
-    (runner.state.events.iter()).any(|event| event.what == "ruling 1 on #7 answered")
+    (runner.state.events.iter()).any(|event| event.what == "ruling 71 on #7 answered")
 }
 
 // Reads the thread, then lets a merge the answer started land.
@@ -160,7 +160,7 @@ fn every_ruling_comment_that_cannot_be_read_is_told_not_only_the_last() {
     {
         let mut runner = runner.lock().unwrap();
         let mut next = runner.state.clone();
-        next.heard.get_mut(&2).unwrap().ruling_comment = second;
+        next.heard.get_mut(&8).unwrap().ruling_comment = second;
         runner.save(next).unwrap();
     }
     rig.forge.threads.cannot_read_marks_of(first);
@@ -172,7 +172,7 @@ fn every_ruling_comment_that_cannot_be_read_is_told_not_only_the_last() {
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(notes.contains(&format!("comment {first}")), "{notes}");
     assert!(notes.contains(&format!("comment {second}")), "{notes}");
-    assert_eq!(pending(&rig, &runner), [71, 71]);
+    assert_eq!(saved_ids(&runner), [71, 8]);
 }
 
 #[test]

@@ -425,7 +425,7 @@ mod tests {
         // kelpie's own close is refused.
         rig.forge.set_closes(71, &[]);
         rig.forge.set_closes_down(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();
         rig.clock.advance(crate::runner::CHECKS_SETTLE);
         step(&runner).unwrap();
@@ -479,7 +479,7 @@ mod tests {
         assert!(call.prompt.contains("\nYour work item is issue #9: "));
 
         // #9 is parked on its question, which frees its slot for #12.
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 9 }));
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::Dispatched {
@@ -564,7 +564,7 @@ mod tests {
             "<kelpie-question>\nWhich flag?\n</kelpie-question>\n",
         )]);
         step(&runner).unwrap();
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 3 }));
 
         drop(runner);
         let runner = rig.open().unwrap();

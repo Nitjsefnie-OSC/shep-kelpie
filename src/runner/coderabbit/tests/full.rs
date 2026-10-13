@@ -236,9 +236,9 @@ fn noted_after_a_catch_up(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Stri
     rig.forge.set_checks(&rebased, Checks::Passed);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(runner, "rule", Some("1 rework name the flag"));
+    rig.ask(runner, "rule", Some("71 rework name the flag"));
     rig.claude
         .script([Scripted::Push("flag.txt", "named\n"), Scripted::Text(CLEAN)]);
     step(runner).unwrap(); // the noted turn: pushes, and a pass begins

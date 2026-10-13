@@ -16,7 +16,7 @@ fn ruling_comment(rig: &Rig) -> u64 {
 fn a_ruling_answered_at_the_terminal_has_its_comment_edited_to_say_so() {
     let (rig, runner, _) = a_merge_ruling_on_71();
 
-    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.ask(&runner, "rule", Some("71 no not yet"));
 
     let [(comment, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(comment, ruling_comment(&rig));
@@ -35,7 +35,7 @@ fn a_ruling_answered_at_the_terminal_has_its_comment_edited_to_say_so() {
 #[test]
 fn a_ruling_answered_in_its_own_thread_is_left_as_it_is() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "1 no not yet");
+    rig.writes_on(71, "octocat", "71 no not yet");
     rig.claude.script([Scripted::Say("Fixed.")]);
 
     rig.next_look();
@@ -46,7 +46,7 @@ fn a_ruling_answered_in_its_own_thread_is_left_as_it_is() {
 
     // A later reply is told where it was answered without saying "this thread",
     // which it may not be.
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
     rig.next_look();
     step(&runner).unwrap();
     assert_eq!(
@@ -76,7 +76,7 @@ fn an_edit_that_failed_is_tried_again_after_a_wait_that_doubles() {
     let comment = ruling_comment(&rig);
     rig.github.fail_next(ApiError::Refused(502));
 
-    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.ask(&runner, "rule", Some("71 no not yet"));
     assert_eq!(rig.github.edits().len(), 1, "the first try");
 
     // No poll in the first 15 seconds sends it again.
@@ -123,12 +123,14 @@ fn a_terminal_answer_to_a_head_the_branch_moved_past_edits_the_old_comment_to_sa
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let comment = ruling_comment(&rig);
     rig.push_by_hand("kelpie/7", "second.txt");
+    // The withdrawn ruling is raised again under the same number, later.
+    rig.clock.advance(60);
 
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     assert_eq!(pending(&rig, &runner), [71]);
     let [(edited, body)] = rig.github.edits().try_into().unwrap();
@@ -149,11 +151,11 @@ fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as
     rig.push_by_hand("kelpie/7", "first.txt");
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     rig.push_by_hand("kelpie/7", "second.txt");
     rig.clock.advance(5);
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
 
     rig.next_look();
     step(&runner).unwrap();

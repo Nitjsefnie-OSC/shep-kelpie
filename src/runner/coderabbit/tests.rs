@@ -126,7 +126,7 @@ fn a_pass_with_no_bot_listed_never_touches_the_forge_for_a_review() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(rig.leases.told(), []);
     assert_eq!(labels(&rig), []);
@@ -235,7 +235,7 @@ fn a_clean_read_ends_the_pass_and_ci_goes_on_to_the_merge_ruling() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
@@ -339,9 +339,9 @@ fn a_later_pass_on_a_ready_pull_request_summons_at_once() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(&runner, "rule", Some("1 rework name the flag"));
+    rig.ask(&runner, "rule", Some("71 rework name the flag"));
     rig.claude
         .script([Scripted::Push("flag.txt", "named\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
@@ -450,7 +450,7 @@ fn a_refusal_that_opens_more_than_an_hour_on_passes_the_bot_over_for_the_pass() 
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
@@ -632,7 +632,7 @@ fn every_open_thread_goes_to_the_worker_and_is_resolved_once_its_fix_moves_the_h
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(
         labels(&rig),

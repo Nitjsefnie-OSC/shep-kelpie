@@ -14,7 +14,7 @@ fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
     rig.forge.list_ready(7, false);
     rig.forge.list_ready(8, false);
     rig.forge.block(8, 7);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     assert!(finished(ready_then_merge(&rig, &runner)));
     assert_eq!(rig.forge.closings(), [7]);
@@ -34,7 +34,7 @@ fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
     let (rig, runner, _) = Rig::parked("koji");
     rig.forge.set_closes(71, &[]);
     rig.forge.list_ready(7, false);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     rig.forge.set_state(71, PullRequestState::Merged);
 
     assert!(finished(step(&runner).unwrap()));
@@ -46,7 +46,7 @@ fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
 fn an_issue_the_pull_request_names_is_left_to_the_forge_though_it_still_reads_open() {
     let (rig, runner, _) = Rig::parked("koji");
     rig.forge.list_ready(7, false);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     // The forge has merged it and not yet closed #7, which #71 names.
     rig.forge.set_state(71, PullRequestState::Merged);
 
@@ -58,7 +58,7 @@ fn an_issue_the_pull_request_names_is_left_to_the_forge_though_it_still_reads_op
 #[test]
 fn an_issue_the_forge_already_closed_gets_no_comment_and_no_second_close() {
     let (rig, runner, _) = Rig::parked("koji");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     assert!(finished(ready_then_merge(&rig, &runner)));
     assert!(rig.forge.closings().is_empty());
@@ -71,7 +71,7 @@ fn a_close_the_forge_refuses_is_tried_once_in_each_step_and_then_given_up() {
     rig.forge.set_closes(71, &[]);
     rig.forge.list_ready(7, false);
     rig.forge.set_closes_down(true);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     let first = ready_then_merge(&rig, &runner);
     assert!(
@@ -109,7 +109,7 @@ fn a_comment_the_forge_refuses_is_noted_and_the_issue_is_closed_without_it() {
     rig.forge.set_closes(71, &[]);
     rig.forge.list_ready(7, false);
     rig.forge.set_comments_down(true);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     assert!(finished(ready_then_merge(&rig, &runner)));
     assert_eq!(rig.forge.closings(), [7]);

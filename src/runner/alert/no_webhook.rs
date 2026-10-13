@@ -15,7 +15,7 @@ fn a_ruling_with_no_webhook_posts_nothing_and_blocks_nothing() {
 
     rig.clock.advance(Rig::DAY);
     assert_eq!(step(&runner).unwrap(), None, "and never retried");
-    let status = rig.ask(&runner, "rule", Some("1 no try again"));
+    let status = rig.ask(&runner, "rule", Some("71 no try again"));
     assert_eq!(status["rulings"], serde_json::json!([]));
 }
 

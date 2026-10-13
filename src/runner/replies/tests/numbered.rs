@@ -1,7 +1,7 @@
 //! A reply that names a ruling by the number of its issue or pull request
 
 use super::*;
-use crate::state::{ProjectState, Ruling, StateStore};
+use crate::state::{ProjectState, StateStore};
 
 // A reply of `text` and the code of `at`, written at `at`
 fn coded(rig: &Rig, text: &str, at: Timestamp) {
@@ -9,7 +9,7 @@ fn coded(rig: &Rig, text: &str, at: Timestamp) {
     rig.alerts.reply(&format!("{text} {code}"), at);
 }
 
-// When the rig's ruling 1 was raised
+// When the rig's ruling 71 was raised
 fn raised(runner: &Mutex<Runner>) -> Timestamp {
     lock(runner).state.rulings[0].raised.expect("a time")
 }
@@ -21,7 +21,7 @@ fn a_number_names_the_ruling_on_its_issue_or_its_pull_request() {
         rig.reply(reply);
         assert_eq!(
             step(&runner).unwrap(),
-            Some(StepReport::ReplyAnswered { id: 1 }),
+            Some(StepReport::ReplyAnswered { id: 71 }),
             "{reply}"
         );
         assert_eq!(
@@ -46,7 +46,7 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 1,
+            id: 71,
             reason: reason.clone(),
             line_failed: None
         })
@@ -55,13 +55,13 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
         lines(&rig),
         [format!("Ruling #71 was not answered: {reason}.")]
     );
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
 
     rig.clock.advance(READ_EVERY);
     coded(&rig, "71 yes", rig.clock.now());
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
+        Some(StepReport::ReplyAnswered { id: 71 })
     );
     assert_eq!(
         phase(&rig, &runner),
@@ -69,18 +69,24 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
     );
 }
 
+// Every project reads the one topic, and a number is the same on each.
+// A file from before the counter went can hold a second ruling on the same
+// pull request, left under its old id beside the one that took the number.
 #[test]
-fn a_reply_by_id_written_before_the_ruling_was_raised_is_taken_as_given() {
+fn a_number_names_the_ruling_that_took_it_not_one_an_older_kelpie_left() {
     let (rig, runner, _) = alerted("koji");
-    let raised = raised(&runner);
-    coded(&rig, "1 yes", Timestamp(raised.0 - 60));
+    {
+        let mut left = lock(&runner).state.rulings[0].clone();
+        left.id = 41;
+        lock(&runner).state.rulings.push(left);
+    }
+    rig.reply("71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
+        Some(StepReport::ReplyAnswered { id: 71 })
     );
 }
 
-// Every project reads the one topic, and a number is the same on each.
 #[test]
 fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     let (rig, runner, _) = alerted("koji");
@@ -88,15 +94,13 @@ fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     let lab = kelpie.join("lab/state.json");
     std::fs::create_dir_all(lab.parent().unwrap()).unwrap();
     std::fs::write(&lab, std::fs::read_to_string(rig.paths().state).unwrap()).unwrap();
-    let ids = RulingIds::under(&kelpie);
-    assert_eq!(ids.claim("lab", 1), 2);
     rig.reply("71 yes");
     let reason = "#71 also has a ruling on lab, so name the project first: \
                   `koji 71 <answer> <code>`";
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
-            id: 1,
+            id: 71,
             reason: reason.into(),
             line_failed: None
         })
@@ -105,27 +109,24 @@ fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     rig.reply("koji#71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
+        Some(StepReport::ReplyAnswered { id: 71 })
     );
 }
 
 // The reply kelpie tells the maintainer to send must work: a project named in
-// it owns the number, whatever another project's ruling is called.
+// it owns the number, whatever another project has a ruling on.
 #[test]
-fn naming_the_project_answers_though_another_has_a_ruling_with_that_id() {
+fn naming_the_project_answers_though_another_has_a_ruling_on_that_number() {
     let (rig, runner, _) = alerted("koji");
     let mut lab = ProjectState::new();
-    lab.rulings = vec![Ruling {
-        id: 71,
-        ..lock(&runner).state.rulings[0].clone()
-    }];
+    lab.rulings = vec![lock(&runner).state.rulings[0].clone()];
     let path = rig.paths().kelpie_home.join("lab/state.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     StateStore::new(path).save(&lab).unwrap();
     rig.reply("koji 71 yes");
     assert_eq!(
         step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
+        Some(StepReport::ReplyAnswered { id: 71 })
     );
 }
 
@@ -137,56 +138,5 @@ fn a_number_another_project_s_ruling_has_answers_nothing_here() {
     rig.clock.advance(READ_EVERY);
     rig.reply("72 yes");
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
-    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
-}
-
-// The question prints the number, so the number is the name, whatever id a
-// ruling on another pull request happens to have.
-#[test]
-fn a_number_names_its_ruling_though_another_project_has_a_ruling_with_that_id() {
-    let (rig, runner, head) = alerted("koji");
-    let mut lab = ProjectState::new();
-    lab.rulings = vec![Ruling {
-        id: 71,
-        issue: Some(90),
-        pull_request: Some(90),
-        ..lock(&runner).state.rulings[0].clone()
-    }];
-    let path = rig.paths().kelpie_home.join("lab/state.json");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    StateStore::new(path).save(&lab).unwrap();
-    rig.reply("71 yes");
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
-    );
-    assert_eq!(
-        phase(&rig, &runner),
-        json!({ "state": "merge", "head": head, "readied": null })
-    );
-}
-
-#[test]
-fn a_number_names_its_ruling_though_another_ruling_here_has_that_id() {
-    let (rig, runner, head) = alerted("koji");
-    {
-        let mut runner = lock(&runner);
-        let other = Ruling {
-            id: 71,
-            issue: Some(90),
-            pull_request: Some(90),
-            ..runner.state.rulings[0].clone()
-        };
-        runner.state.rulings.push(other);
-    }
-    rig.reply("71 yes");
-    assert_eq!(
-        step(&runner).unwrap(),
-        Some(StepReport::ReplyAnswered { id: 1 })
-    );
-    assert_eq!(
-        phase(&rig, &runner),
-        json!({ "state": "merge", "head": head, "readied": null })
-    );
-    assert_eq!(lock(&runner).state.rulings.len(), 1);
+    assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 71 }));
 }

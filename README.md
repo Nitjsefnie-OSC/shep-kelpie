@@ -241,9 +241,8 @@ A ruling reaches the webhook you set in step 6, or waits in `status` and `shep k
 
 ```sh
 shep kelpie rule          # lists the rulings waiting
-shep kelpie rule 14 yes
-shep kelpie rule 14 no rename the flag
-shep kelpie rule 427 yes  # the number of the ruling's pull request or issue
+shep kelpie rule 427 yes  # the number of the ruling's pull request, or its issue before there is one
+shep kelpie rule 427 no rename the flag
 ```
 
 On ntfy you can also reply in the topic, after a one-time `shep kelpie totp`. [Rulings](#rulings) has the six kinds and how to answer each.
@@ -779,7 +778,7 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 - `shep kelpie rule 14 rework split the parser out`, for a merge ruling only
 - `shep kelpie rule 15 use --dry-run`, for a worker's question. A `yes` there is the answer's text
 
-A ruling's id is unique across projects, so `rule` needs no project. You can name a ruling by the number of its pull request or its issue instead: `rule 427 yes` and `rule 407 yes` answer the same ruling when 427 is the pull request and 407 its issue. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` always means a number, and a bare `427` is a ruling's id when one is waiting under it. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
+A ruling is named by the number of its pull request, or of its issue while it has no pull request: `rule 427 yes` answers the ruling on 427. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` and `rule shep-kelpie#427 yes` read the same number. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 
 Where an App covers the repo, a ruling's comment is one short format, whatever its kind: the problem where there is one, a title, a table of what picking each option leads to, a Panel list, and the ways to answer. The Panel lists each expert's vote once the panel has voted (see [The panel](#the-panel)), and holds the project manager's words where it gave any until then, or when the project has no panel. Here is a merge ruling. Kelpie writes the effect of each option from what it knows: the items held behind the pull request, CI, the reviewers that read it, and roughly what another review round costs from the ledger:
 
@@ -972,7 +971,9 @@ If an upgrade stops after the swap (a merge or a call that outlasts the wait, a 
 
 The upgrade reads the flock again just before the restarts, since the wait for a build or a merge can be long, but a sheep can still change after that read. A stop that lands between the re-read and the restart is undone: the restart starts that sheep again. A sheep started during the wait stays on the old build. In both cases run `shep kelpie upgrade --binary <installed path>` again, which restarts every running sheep and touches no file.
 
-This build writes each project's state file as version 31, and every older build refuses a version 31 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
+This build writes each project's state file as version 39, and every older build refuses a version 39 file, whatever it holds, so going back by `--rollback` or any other way leaves the older build unable to read it. An older build also never knew a work item that holds no slot: parked, waiting for one, or going on without one. Finish or drop those before going back. Draining only stops new calls and leaves them in the state file.
+
+Rulings were once named by an id of their own, a counter shared by every project, and are now named by the number of their pull request or issue. The first load of a state file saved before version 38 renames its open rulings by their work item. Old ids then stop working: `shep kelpie rule 3 yes` for a ruling that was 3 is refused unless 3 is also the number of a ruling's pull request or issue. An answer file `shep kelpie rule` left in a project's `answers` folder under an old id while its runner was stopped is read once, by the first pass after the upgrade, and answers the ruling that id became. A file left under an old id after that is refused. Messages that told you an old id, a webhook post or a pull request comment, name the number already, as since #508.
 
 Every sheep it restarts must run the dog's path. If one does not, the upgrade stops before it changes anything and names the sheep and its path. A `--binary` without its executable bits is refused with the `chmod +x` that fixes it, and only one upgrade runs at a time: a second refuses while the first holds `$SHEP_HOME/kelpie/upgrade.lock`. The swap changes the file for every shepherd that adopts the same path, with no check against their shep.
 

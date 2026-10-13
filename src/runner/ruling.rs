@@ -557,20 +557,20 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
 ///
 /// Returns the ruling's id and question.
 pub(super) fn park(
-    names: Names<'_>,
+    names: Names,
     next: &mut ProjectState,
     issue: u64,
     pull_request: Option<u64>,
     kind: RulingKind,
 ) -> (u64, String) {
-    let id = names.ids.claim(names.project, next.last_ruling);
+    // A work item parks on one ruling at a time, so its number names it.
+    let id = pull_request.unwrap_or(issue);
     let item = next
         .item_mut(issue)
         .expect("a ruling is about an open work item");
     item.phase = Phase::Ruling { id };
     item.counts.rulings = item.counts.rulings.saturating_add(1);
     let text = question(issue, pull_request, &kind);
-    next.last_ruling = id;
     next.rulings.push(Ruling {
         id,
         issue: Some(issue),

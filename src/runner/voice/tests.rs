@@ -34,7 +34,7 @@ fn asking_before_a_pull_request(rig: &Rig) -> (Mutex<Runner>, StepReport) {
 }
 
 // Pull request 71 is open and a qwen finding went to the worker, whose fix
-// turn asks a question: ruling 1 is on the pull request.
+// turn asks a question: ruling 71 is on the pull request.
 fn asking_on_a_pull_request(rig: &Rig) -> (Mutex<Runner>, StepReport) {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
@@ -178,7 +178,7 @@ fn raise_the_merge_ruling(rig: &Rig, runner: &Mutex<Runner>, head: &str, checks:
     rig.forge.set_checks(head, checks);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     merge_card(rig)
 }
@@ -193,13 +193,13 @@ fn raise_the_merge_ruling_after_a_change(
     rig.forge.set_checks(head, checks.clone());
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(runner, "rule", Some("1 yes"));
+    rig.ask(runner, "rule", Some("71 yes"));
     rig.forge.set_checks(head, checks);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 2, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     merge_card(rig)
 }
@@ -230,14 +230,14 @@ fn a_merge_card_does_not_say_rounds_read_a_head_that_no_round_read() {
     step(&runner).unwrap();
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let pushed = rig.push_by_hand("kelpie/7", "lint.txt");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     rig.forge.set_checks(&pushed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 2, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
 
     let card = merge_card(&rig);
@@ -328,7 +328,7 @@ fn a_ruling_before_any_pull_request_is_posted_on_the_issue() {
 #[test]
 fn with_no_maintainer_set_a_ruling_mentions_the_login_gh_acts_as_asked_once_a_run() {
     let (rig, runner, _) = Rig::parked_set("shep", |rig| rig.with_app());
-    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.ask(&runner, "rule", Some("71 no not yet"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap(); // the fix turn asks a question: a second ruling
 
@@ -382,7 +382,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
 
     // Asked again at the next ruling, once gh answers, it mentions them.
     rig.forge.set_viewer_up();
-    rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
+    rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
     let comments = rig.github.comments();
@@ -400,7 +400,7 @@ fn an_unmentioned_ruling_answered_at_the_terminal_has_its_comment_edited_to_say_
         .set_viewer_down(ForgeError::Failed("not logged in".into()));
     let (runner, _) = asking_before_a_pull_request(&rig);
 
-    rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
+    rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
 
     let [(comment, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(comment, 100);
@@ -433,8 +433,8 @@ fn an_unmentioned_ruling_is_noted_once_and_only_once_it_went_up() {
 
     // The next two do, and the note is made for the first of them only.
     rig.github.accept_comments();
-    for id in 1..=2 {
-        rig.ask(&runner, "rule", Some(&format!("{id} answer use --dry-run")));
+    for _ in 0..2 {
+        rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
         rig.claude.script([Scripted::Say(ASKS)]);
         step(&runner).unwrap();
     }
@@ -443,7 +443,7 @@ fn an_unmentioned_ruling_is_noted_once_and_only_once_it_went_up() {
         .filter(|n| n.contains("without a mention"))
         .collect();
     assert_eq!(told.len(), 1, "{notes:?}");
-    assert!(told[0].starts_with("ruling 2 is posted on #7"), "{told:?}");
+    assert!(told[0].starts_with("ruling 7 is posted on #7"), "{told:?}");
     assert!(told[0].contains("set `git.maintainer`"), "{told:?}");
 }
 

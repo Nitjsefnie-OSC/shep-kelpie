@@ -240,7 +240,7 @@ fn a_no_on_a_merge_ruling_that_warns_of_open_threads_starts_a_new_pass() {
         ),
         "{question}"
     );
-    rig.ask(&runner, "rule", Some("1 no strip only stamped files"));
+    rig.ask(&runner, "rule", Some("71 no strip only stamped files"));
     rig.claude
         .script([Scripted::Push("stamped.txt", "stamped only\n")]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins

@@ -37,7 +37,7 @@ fn running(rig: Rig) -> (Rig, Mutex<Runner>) {
 }
 
 // Both work items through their first turn and a finished review,
-// taking turns, and parked on merge rulings 1 (#7) and 2 (#8)
+// taking turns, and parked on merge rulings 71 (#7) and 81 (#8)
 fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = two_slots(project);
     rig.ask(&runner, "add", Some("7"));
@@ -58,20 +58,20 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
         rig.verdict(&runner),
         Some(StepReport::Ruling {
             issue: 7,
-            id: 1,
+            id: 71,
             ..
         })
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::Ruling {
             issue: 8,
-            id: 2,
+            id: 81,
             ..
         })
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 2 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 81 }));
     (rig, runner)
 }
 
@@ -245,7 +245,7 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
 #[test]
 fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
     let (rig, runner) = both_parked("koji");
-    let status = rig.ask(&runner, "rule", Some("2 no rename the flag"));
+    let status = rig.ask(&runner, "rule", Some("81 no rename the flag"));
     let rulings = status["rulings"].as_array().unwrap();
     assert_eq!(rulings.len(), 1);
     assert_eq!(
@@ -274,7 +274,7 @@ fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
 fn a_merge_of_one_item_sends_the_other_to_catch_up_with_main() {
     let (rig, runner) = both_parked("rotom");
     let seven = rig.forge.head_of("kelpie/7").unwrap();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     let mut finished = false;
     for _ in 0..4 {
         match step(&runner).unwrap() {
@@ -296,7 +296,7 @@ fn a_merge_of_one_item_sends_the_other_to_catch_up_with_main() {
     // The stand-in forge records a merge without moving `main`, so #71's
     // merge lands on `main` the way GitHub would put it there.
     rig.land_on_origin("seven.txt");
-    rig.ask(&runner, "rule", Some("2 yes"));
+    rig.ask(&runner, "rule", Some("81 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::YesWithdrawn { issue: 8, reason, .. })
@@ -382,11 +382,11 @@ fn the_board_fills_a_free_slot_and_never_takes_an_open_issue_again() {
         .script([Scripted::Say(ASKS), Scripted::Say(ASKS)]);
     assert_eq!(dispatched(step(&runner).unwrap()), (7, vec![]));
     assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     // #7 is still ready on the forge, and in flight here.
     assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
     assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 2 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
 
     // Both workers are parked on their questions, which fills `concurrency.pending_rulings`, so #9 waits.
     assert_eq!(step(&runner).unwrap(), None);
@@ -435,7 +435,7 @@ fn an_adoption_for_an_issue_in_flight_waits_for_it_to_end() {
 
     rig.claude.script([Scripted::Say(ASKS)]);
     assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     assert_eq!(step(&runner).unwrap(), None, "#90 waits for #7");
     let status = rig.ask(&runner, "status", None);
     assert_eq!(

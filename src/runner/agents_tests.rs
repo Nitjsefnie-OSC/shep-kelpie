@@ -143,7 +143,7 @@ fn a_settings_file_that_cannot_be_written_keeps_the_turn_for_its_retry() {
     step(&runner).unwrap(); // the alert
 
     std::fs::remove_dir(&taken).unwrap();
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     rig.claude.script([Scripted::Say("fixed")]);
     step(&runner).unwrap();
     let retry = rig.claude.calls().pop().unwrap();

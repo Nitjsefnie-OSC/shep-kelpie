@@ -113,7 +113,7 @@ fn a_ruling_is_told_to_the_ruling_hook_with_its_kind_question_and_choices() {
     };
     assert_eq!(ruling["point"], "ruling");
     assert_eq!(ruling["role"], "kelpie");
-    assert_eq!(ruling["id"], 1);
+    assert_eq!(ruling["id"], 71);
     assert_eq!(ruling["issue"], 7);
     assert_eq!(ruling["pull_request"], 71);
     assert_eq!(ruling["kind"], "merge");
@@ -151,6 +151,28 @@ fn a_question_ruling_takes_free_text_and_has_no_choices() {
 }
 
 #[test]
+fn a_second_ruling_on_the_same_work_item_is_told_too() {
+    let rig = Rig::new("shep");
+    record(&rig, &["ruling"], "told");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    for _ in 0..2 {
+        rig.claude.script([Scripted::Say(
+            "<kelpie-question>\nWhich flag?\n</kelpie-question>",
+        )]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
+        rig.clock.advance(60);
+    }
+    runner.lock().unwrap().settle_notices();
+
+    let told = payloads(&rig, "told");
+
+    let ids: Vec<&Value> = told.iter().map(|t| &t["id"]).collect();
+    assert_eq!(ids, [7, 7], "{told:?}");
+}
+
+#[test]
 fn a_ruling_a_restart_finds_is_not_told_again() {
     let (rig, runner, _) = parked_recording(&["ruling"]);
     drop(runner);
@@ -177,7 +199,7 @@ fn a_notice_that_exits_one_is_logged_with_its_name_and_the_loop_goes_on() {
     assert!(logged.contains("no webhook for you"), "{logged}");
     // The ruling still stands, and can be answered.
     assert_eq!(phase(&rig, &runner), "ruling");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(phase(&rig, &runner), "merge");
 }
 
@@ -292,7 +314,7 @@ fn the_ci_hook_is_told_the_names_of_the_checks_that_failed() {
 #[test]
 fn the_done_hook_is_told_a_work_item_that_merged_with_its_history_entry() {
     let (rig, runner, head) = parked_recording(&["done"]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
 
     step(&runner).unwrap(); // marks the draft ready
     rig.clock.advance(crate::runner::CHECKS_SETTLE);

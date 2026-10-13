@@ -44,9 +44,9 @@ fn noted(rig: &Rig, runner: &Mutex<Runner>, head: &str) {
     rig.forge.set_checks(head, Checks::Passed);
     assert!(matches!(
         rig.verdict(runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(runner, "rule", Some("1 rework name the flag"));
+    rig.ask(runner, "rule", Some("71 rework name the flag"));
     rig.claude.script([
         Scripted::Push("named.txt", "named\n"),
         Scripted::Text(CLEAN),
@@ -98,9 +98,9 @@ fn two_rounds_read_two_passes_and_not_a_third() {
     rig.forge.set_checks(&second, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 2, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(&runner, "rule", Some("2 rework once more"));
+    rig.ask(&runner, "rule", Some("71 rework once more"));
     rig.claude.script([
         Scripted::Push("again.txt", "again\n"),
         Scripted::Text(CLEAN),
@@ -134,7 +134,7 @@ fn a_re_send_in_the_one_round_is_that_read() {
 
 // Merges on a yes to the merge ruling, and says whether it did.
 fn merged_on_yes(rig: &Rig, runner: &Mutex<Runner>) -> Option<bool> {
-    rig.ask(runner, "rule", Some("1 yes"));
+    rig.ask(runner, "rule", Some("80 yes"));
     rig.clock.advance(CHECKS_SETTLE);
     (0..3).find_map(|_| match step(runner).unwrap() {
         Some(StepReport::Finished { merged, .. }) => Some(merged),
@@ -174,7 +174,7 @@ fn an_adopted_pull_request_whose_earlier_review_spent_the_rounds_still_gets_one_
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 80, .. })
     ));
     let asked: Vec<_> = rig.forge.comments();
     assert_eq!(asked, [(80, FULL_REVIEW.to_owned())], "one full review");

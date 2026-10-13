@@ -361,7 +361,7 @@ pub enum Phase {
     },
     /// Parked on a ruling
     Ruling {
-        /// The ruling's id
+        /// The ruling's id, which is its number
         id: u64,
     },
     /// The maintainer said yes, or every gate passed under `auto`: merging this head

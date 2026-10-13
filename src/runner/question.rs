@@ -161,7 +161,7 @@ mod tests {
         else {
             panic!("the question raised no ruling");
         };
-        assert_eq!((id, pull_request, comment_failed), (1, None, None));
+        assert_eq!((id, pull_request, comment_failed), (7, None, None));
         assert_eq!(
             question,
             format!(
@@ -188,11 +188,11 @@ mod tests {
         );
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 1 })
+            json!({ "state": "ruling", "id": 7 })
         );
         assert_eq!(rig.forge.comments(), [], "no pull request to comment on");
 
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
         assert_eq!(rig.alerts.posts()[0].1.text, question);
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None, "parked until answered");
@@ -200,7 +200,7 @@ mod tests {
         rig.ask(
             &runner,
             "rule",
-            Some("1 answer  Use --dry-run, it matches shep. "),
+            Some("7 answer  Use --dry-run, it matches shep. "),
         );
         rig.claude.script([Scripted::Say("renamed")]);
         assert!(matches!(
@@ -246,10 +246,10 @@ mod tests {
         );
         assert_eq!(
             rig.ask(&runner, "status", None)["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 1 })
+            json!({ "state": "ruling", "id": 71 })
         );
 
-        rig.ask(&runner, "rule", Some("1 answer --dry-run"));
+        rig.ask(&runner, "rule", Some("71 answer --dry-run"));
         rig.claude.script([
             Scripted::Push("rename.txt", "renamed\n"),
             Scripted::Text(CLEAN),
@@ -266,7 +266,7 @@ mod tests {
         rig.forge.set_checks(&head, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 2, .. })
+            Some(StepReport::Ruling { id: 71, .. })
         ));
     }
 
@@ -359,22 +359,22 @@ mod tests {
     fn a_question_takes_an_answer_and_a_gate_ruling_does_not() {
         let (rig, runner) = asking("koji");
         step(&runner).unwrap();
-        for params in ["1 yes", "1 no not now"] {
+        for params in ["7 yes", "7 no not now"] {
             assert_eq!(
                 rig.ask(&runner, "rule", Some(params)),
-                json!({ "error": "ruling 1 is the worker's question, so it takes an answer, not a yes or no" })
+                json!({ "error": "ruling 7 is the worker's question, so it takes an answer, not a yes or no" })
             );
         }
         assert_eq!(
-            rig.ask(&runner, "rule", Some("1 answer")),
-            json!({ "error": "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 answer\"" })
+            rig.ask(&runner, "rule", Some("7 answer")),
+            json!({ "error": "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"7 answer\"" })
         );
         assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
 
         let (rig, runner, _) = Rig::parked("golbat");
         assert_eq!(
-            rig.ask(&runner, "rule", Some("1 answer merge it")),
-            json!({ "error": "ruling 1 is not a question, so it takes a yes, or a no with a note" })
+            rig.ask(&runner, "rule", Some("71 answer merge it")),
+            json!({ "error": "ruling 71 is not a question, so it takes a yes, or a no with a note" })
         );
         assert_eq!(rig.forge.merges(), []);
     }

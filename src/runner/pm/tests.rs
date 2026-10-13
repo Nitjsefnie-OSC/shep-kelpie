@@ -329,7 +329,7 @@ fn a_failed_turn_wakes_it_and_its_retry_runs_the_turn_again() {
     assert_eq!(
         woke_for,
         [
-            "#7 is stuck: its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice, and ruling 1 asks \
+            "#7 is stuck: its worker's turn parked: the call failed once, the model host stayed unreachable for 30 minutes, or the turn stopped short twice, and ruling 7 asks \
           the maintainer"
         ]
     );
@@ -357,7 +357,7 @@ fn a_re_scope_or_ask_goes_to_the_maintainer_on_the_items_ruling() {
     step(&runner).unwrap();
     let report = step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, _) = answered(Some(report));
-    assert_eq!(acted, ["put #7 to the maintainer on ruling 1"]);
+    assert_eq!(acted, ["put #7 to the maintainer on ruling 7"]);
     let ruling = &rig.ask(&runner, "status", None)["rulings"][0];
     let question = ruling["question"].as_str().unwrap();
     assert!(

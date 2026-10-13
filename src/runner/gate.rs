@@ -378,7 +378,7 @@ pub(super) mod tests {
 
         rig.forge.set_checks(&head, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 1);
+        assert_eq!(id, 71);
         assert_eq!(
             question,
             format!(
@@ -412,9 +412,9 @@ pub(super) mod tests {
         );
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 1 })
+            json!({ "state": "ruling", "id": 71 })
         );
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
         assert_eq!(step(&runner).unwrap(), None, "a parked worker waits");
     }
 
@@ -425,7 +425,7 @@ pub(super) mod tests {
         assert_ne!(fixed, red);
         rig.forge.set_checks(&fixed, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(runner));
-        assert_eq!(id, 1);
+        assert_eq!(id, 71);
         assert!(question.contains(&fixed[..7]), "{question}");
     }
 
@@ -529,7 +529,7 @@ pub(super) mod tests {
 
         // The maintainer's fix and yes vouch for the head: no foreign-change ruling.
         let fixed = rig.push_by_hand("kelpie/7", "lint.txt");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.set_checks(&fixed, Checks::Passed);
         let (_, question) = ruling_report(rig.verdict(&runner));
         assert!(question.starts_with("Merge pull request #71"), "{question}");
@@ -715,7 +715,7 @@ pub(super) mod tests {
         let (rig, runner, head) = Rig::with_pull_request("shep");
         rig.forge.label_pull_request(71, "bug");
         let (id, question) = ruling_report(step(&runner).unwrap());
-        assert_eq!(id, 1);
+        assert_eq!(id, 71);
         assert_eq!(
             question,
             "Pull request #71 changed outside kelpie: the `bug` label was added. \
@@ -732,10 +732,10 @@ pub(super) mod tests {
         );
 
         // A yes accepts it, and kelpie carries on watching the same pull request.
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.set_checks(&head, Checks::Passed);
         let (next, merge_question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(next, 2);
+        assert_eq!(next, 71);
         assert!(merge_question.starts_with("Merge pull request #71"));
         // Kelpie's own record now matches, so the accepted label is not asked again.
         assert_eq!(rig.forge.merges(), []);
@@ -759,7 +759,7 @@ pub(super) mod tests {
         let (rig, runner, head) = Rig::with_pull_request("rotom");
         rig.forge.label_pull_request(71, "bug");
         ruling_report(step(&runner).unwrap());
-        rig.ask(&runner, "rule", Some("1 no  remove that label yourself "));
+        rig.ask(&runner, "rule", Some("71 no  remove that label yourself "));
         rig.claude.script([
             Scripted::Push("rename.txt", "renamed\n"),
             Scripted::Text(CLEAN),
@@ -782,7 +782,7 @@ pub(super) mod tests {
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
         // The label is still there, and unaccepted, so the next look parks again.
         let (id, _) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 2);
+        assert_eq!(id, 71);
     }
 
     #[test]
@@ -790,10 +790,10 @@ pub(super) mod tests {
         let (rig, runner, _) = Rig::with_pull_request("chelone");
         rig.forge.label_pull_request(71, "bug");
         ruling_report(step(&runner).unwrap());
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.unlabel_pull_request(71, "bug");
         let (id, question) = ruling_report(step(&runner).unwrap());
-        assert_eq!(id, 2);
+        assert_eq!(id, 71);
         assert!(
             question.starts_with(
                 "Pull request #71 changed outside kelpie: the `bug` label was removed."

@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 use std::os::unix::fs::PermissionsExt;
@@ -15,7 +15,7 @@ fn a_ruling_answered_while_the_runner_was_stopped_is_acted_on_when_it_starts() {
     let (rig, runner, head) = Rig::parked("rotom");
     drop(runner);
     let answers = rig.paths().answers;
-    leave(&answers, "1 yes").unwrap();
+    leave(&answers, "71 yes").unwrap();
 
     let runner = rig.open().unwrap();
     let waiting = rig.ask(&runner, "status", None)["rulings"].clone();
@@ -28,10 +28,81 @@ fn a_ruling_answered_while_the_runner_was_stopped_is_acted_on_when_it_starts() {
     ));
     assert_eq!(rig.forge.merges(), [(71, head)]);
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+    assert!(!answers.join("71").exists(), "the answer was left behind");
+    assert!(notes(&runner).contains(
+        &"answered ruling 71 as `shep kelpie rule` left it while the runner was stopped".to_owned()
+    ));
+}
+
+// Rewrites the parked runner's state file as one saved before rulings were
+// named by number, when its ruling on pull request 71 was ruling 1, and
+// starts a runner on it.
+fn saved_under_counter_id(rig: &Rig, runner: Mutex<Runner>) -> Mutex<Runner> {
+    drop(runner);
+    let path = rig.paths().state;
+    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    saved["version"] = json!(37);
+    saved["last_ruling"] = json!(1);
+    saved["rulings"][0]["id"] = json!(1);
+    saved["work_items"][0]["phase"] = json!({ "state": "ruling", "id": 1 });
+    for key in ["heard", "unmentioned"] {
+        let Some(map) = saved.get_mut(key).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if let Some(entry) = map.remove("71") {
+            map.insert("1".into(), entry);
+        }
+    }
+    std::fs::write(&path, saved.to_string()).unwrap();
+    rig.open().unwrap()
+}
+
+#[test]
+fn an_answer_left_under_an_old_id_is_taken_once_by_the_ruling_it_became() {
+    let (rig, runner, head) = Rig::parked("rotom");
+    let answers = rig.paths().answers;
+    leave(&answers, "1 yes").unwrap();
+    let runner = saved_under_counter_id(&rig, runner);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.merges(), [(71, head)]);
     assert!(!answers.join("1").exists(), "the answer was left behind");
     assert!(notes(&runner).contains(
         &"answered ruling 1 as `shep kelpie rule` left it while the runner was stopped".to_owned()
     ));
+
+    // The old id is read that once: a file left under it later is refused.
+    leave(&answers, "1 yes").unwrap();
+    step(&runner).unwrap();
+    assert!(!answers.join("1").exists());
+    let notes = notes(&runner);
+    assert!(
+        notes.iter().any(|n| n.starts_with(
+            "the answer to ruling 1 left while the runner was stopped was not taken: "
+        )),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn an_answer_left_under_an_old_id_is_refused_when_no_ruling_became_it() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    let runner = saved_under_counter_id(&rig, runner);
+    let answers = rig.paths().answers;
+    leave(&answers, "9 yes").unwrap();
+    step(&runner).unwrap();
+    assert!(!answers.join("9").exists());
+    let notes = notes(&runner);
+    assert!(
+        notes.iter().any(
+            |n| n.contains("ruling 9 is already answered, or was never raised")
+                && n.contains("an id from before that no longer works")
+        ),
+        "{notes:?}"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
 }
 
 #[test]
@@ -39,11 +110,11 @@ fn the_last_answer_left_for_a_ruling_is_the_one_taken() {
     let (rig, runner, _) = Rig::parked("rotom");
     drop(runner);
     let answers = rig.paths().answers;
-    leave(&answers, "1 yes").unwrap();
-    leave(&answers, "1 no rename the flag").unwrap();
+    leave(&answers, "71 yes").unwrap();
+    leave(&answers, "71 no rename the flag").unwrap();
     assert_eq!(
-        std::fs::read_to_string(answers.join("1")).unwrap(),
-        "1 no rename the flag"
+        std::fs::read_to_string(answers.join("71")).unwrap(),
+        "71 no rename the flag"
     );
 }
 
@@ -58,7 +129,8 @@ fn an_answer_to_a_ruling_no_longer_waiting_is_logged_and_let_go() {
     assert!(
         notes(&runner).contains(
             &"the answer to ruling 3 left while the runner was stopped was not taken: ruling 3 \
-              is already answered, or was never raised"
+              is already answered, or was never raised; a ruling is named by the number of its pull \
+              request or issue, so an id from before that no longer works"
                 .to_owned()
         )
     );
@@ -71,8 +143,8 @@ fn an_id_written_with_leading_zeros_is_left_under_its_number_and_taken() {
     let (rig, runner, _) = Rig::parked("rotom");
     drop(runner);
     let answers = rig.paths().answers;
-    leave(&answers, "001 yes").unwrap();
-    assert!(answers.join("1").exists() && !answers.join("001").exists());
+    leave(&answers, "071 yes").unwrap();
+    assert!(answers.join("71").exists() && !answers.join("071").exists());
     // One an older kelpie might have left under its digits as written.
     std::fs::write(answers.join("0002"), "2 yes").unwrap();
 
@@ -84,7 +156,8 @@ fn an_id_written_with_leading_zeros_is_left_under_its_number_and_taken() {
     assert!(
         notes.contains(
             &"the answer to ruling 2 left while the runner was stopped was not taken: \
-                         ruling 2 is already answered, or was never raised"
+                         ruling 2 is already answered, or was never raised; a ruling is named by the number of its pull \
+              request or issue, so an id from before that no longer works"
                 .to_owned()
         ),
         "{notes:?}"
@@ -97,16 +170,16 @@ fn an_answer_that_cannot_be_read_stays_for_the_next_pass() {
     drop(runner);
     let answers = rig.paths().answers;
     // A folder where the file would be, which no read can take.
-    std::fs::create_dir_all(answers.join("1")).unwrap();
+    std::fs::create_dir_all(answers.join("71")).unwrap();
     let runner = rig.open().unwrap();
     let _ = step(&runner);
-    assert!(answers.join("1").exists(), "the answer was removed unread");
+    assert!(answers.join("71").exists(), "the answer was removed unread");
     assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
     let notes = notes(&runner);
     assert!(
         notes
             .iter()
-            .any(|n| n.starts_with("cannot read the answer left for ruling 1, so it stays: ")),
+            .any(|n| n.starts_with("cannot read the answer left for ruling 71, so it stays: ")),
         "{notes:?}"
     );
 }
@@ -116,7 +189,7 @@ fn an_answer_that_cannot_be_saved_stays_and_is_taken_once_it_can_be() {
     let (rig, runner, head) = Rig::parked("rotom");
     drop(runner);
     let answers = rig.paths().answers;
-    leave(&answers, "1 yes").unwrap();
+    leave(&answers, "71 yes").unwrap();
     let runner = rig.open().unwrap();
     let folder = rig.paths().state.parent().unwrap().to_path_buf();
     let mode = |mode| std::fs::set_permissions(&folder, PermissionsExt::from_mode(mode)).unwrap();
@@ -124,14 +197,14 @@ fn an_answer_that_cannot_be_saved_stays_and_is_taken_once_it_can_be() {
     let _ = step(&runner);
     mode(0o755);
     assert!(
-        answers.join("1").exists(),
+        answers.join("71").exists(),
         "the answer was lost with its save"
     );
     let notes = notes(&runner);
     assert!(
         notes
             .iter()
-            .any(|n| n.starts_with("the answer to ruling 1 could not be saved, so it stays")),
+            .any(|n| n.starts_with("the answer to ruling 71 could not be saved, so it stays")),
         "{notes:?}"
     );
 
@@ -139,7 +212,7 @@ fn an_answer_that_cannot_be_saved_stays_and_is_taken_once_it_can_be() {
     rig.clock.advance(CHECKS_SETTLE);
     step(&runner).unwrap();
     assert_eq!(rig.forge.merges(), [(71, head)]);
-    assert!(!answers.join("1").exists());
+    assert!(!answers.join("71").exists());
 }
 
 #[test]

@@ -7,10 +7,12 @@
 //! a runner killed mid-write leaves the previous state whole.
 
 mod events;
-pub mod ids;
+mod numbered;
+mod projects;
 mod removed;
 
 pub use events::{BoardEvent, EVENTS_KEPT};
+pub use projects::Projects;
 pub use removed::OldWorker;
 
 use std::collections::BTreeMap;
@@ -30,7 +32,8 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 38 added a work item's `talked`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
+/// The state file's format version. 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
 /// the still-red stuck reason's `fix_turns`, 15 added a work item's `late_from` and
@@ -44,7 +47,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 38;
+pub(crate) const VERSION: u32 = 39;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -58,8 +61,12 @@ const BUILT_IN_REVIEWERS: u32 = 2;
 /// this kelpie reads into a pass of the listed bots
 const BOT_ROUNDS: u32 = 3;
 
-// The last version before a work item remembered the comments it had read
-const BEFORE_TALKED: u32 = 37;
+/// The last format before a work item remembered the comments it had read
+const BEFORE_TALKED: u32 = 38;
+
+/// The format that named rulings by their work item's number, so a file
+/// saved before it has its rulings renamed as it loads
+const NUMBERED: u32 = 38;
 
 /// How many finished work items the state file keeps a record of
 ///
@@ -82,9 +89,12 @@ pub struct ProjectState {
     work_item: Option<WorkItem>,
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: Vec<Ruling>,
-    /// The id of the last ruling raised, so no id is ever given twice
-    #[serde(default)]
-    pub last_ruling: u64,
+    /// The counter ids this file's rulings were saved under, by the number
+    /// each is named by now. Only a file saved before version 38 has any, and
+    /// they are not saved: the runner that loaded it reads the answers left
+    /// under them once.
+    #[serde(skip)]
+    renamed: numbered::Renamed,
     /// Issues whose work items kelpie finished, which the board never takes again
     #[serde(default)]
     pub finished: Vec<u64>,
@@ -201,7 +211,7 @@ impl ProjectState {
             work_items: Vec::new(),
             work_item: None,
             rulings: Vec::new(),
-            last_ruling: 0,
+            renamed: numbered::Renamed::default(),
             finished: Vec::new(),
             dropped: Vec::new(),
             order: Vec::new(),
@@ -323,7 +333,8 @@ pub struct Waiting {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ruling {
-    /// What the answering trigger names
+    /// What the answering trigger names: the number of its pull request, or
+    /// of its issue before there is one
     pub id: u64,
     /// The issue of the work item it parks. None only in an older file
     /// with no work item open.
@@ -369,6 +380,18 @@ impl Ruling {
     /// named by its id.
     pub fn number(&self) -> u64 {
         self.pull_request.or(self.issue).unwrap_or(self.id)
+    }
+
+    /// Whether an older kelpie left this ruling under its counter id, beside
+    /// another that took its work item's number: the number names that one
+    pub fn is_left_over(&self) -> bool {
+        self.id != self.number()
+    }
+
+    /// Whether `other` is this very ruling, not one raised later under the
+    /// same id: a number names every ruling a work item raises in turn.
+    pub fn is_raised_with(&self, other: &Ruling) -> bool {
+        self.id == other.id && self.raised == other.raised
     }
 }
 
@@ -826,9 +849,15 @@ impl StateStore {
                 item.talked.quiet = true;
             }
         }
+        let state = state.one_item_moved();
+        let state = if found < NUMBERED {
+            state.rulings_numbered()
+        } else {
+            state
+        };
         Ok(Some(ProjectState {
             version: VERSION,
-            ..state.one_item_moved()
+            ..state
         }))
     }
 
