@@ -106,6 +106,37 @@ impl Kind {
         super::wire_name(&self)
     }
 
+    /// Whether the call changes what the forge shows, which a read right
+    /// after it can see
+    pub fn writes(self) -> bool {
+        !matches!(
+            self,
+            Self::Visibility
+                | Self::DefaultBranch
+                | Self::Folder
+                | Self::FileText
+                | Self::RepoLabels
+                | Self::CanPush
+                | Self::ReviewBotSeen
+                | Self::Issue
+                | Self::SubIssues
+                | Self::ReadyIssues
+                | Self::OpenPullRequests
+                | Self::PullRequest
+                | Self::Reviewed
+                | Self::Viewer
+                | Self::CommentsSince
+                | Self::CanWrite
+                | Self::CommentMarks
+                | Self::OpenIssues
+                | Self::FailedRunLogs
+                | Self::ReviewBot
+                | Self::MergeQueue
+                | Self::RateLimitReset
+                | Self::AppWorkerToken
+        )
+    }
+
     /// Which of GitHub's APIs the call spends from; a call that asks both
     /// counts as GraphQL, the one with the smaller allowance
     pub fn api(self) -> Api {

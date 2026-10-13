@@ -2,6 +2,7 @@
 
 use serde::Deserialize;
 
+use super::conditional::{Etags, GhApi};
 use super::{gh, unreadable};
 use crate::ports::{CommentMarks, ForgeError, ThreadComment, Thumb, Timestamp};
 use crate::settings::ForgeSlug;
@@ -10,6 +11,7 @@ use crate::settings::ForgeSlug;
 const PER_PAGE: &str = "per_page=100";
 
 pub(super) fn comments_since(
+    etags: &Etags,
     repo: &ForgeSlug,
     since: Timestamp,
 ) -> Result<Vec<ThreadComment>, ForgeError> {
@@ -21,7 +23,14 @@ pub(super) fn comments_since(
         "repos/{}/issues/comments?{PER_PAGE}&sort=created&direction=asc&since={since}",
         repo.as_str()
     );
-    parse_comments(&gh(&["api", "--paginate", "--slurp", &path])?)
+    let pages = etags.pages(&GhApi, None, &path)?;
+    parse_comments(format!("[{}]", join(&pages)).as_bytes())
+}
+
+// The pages as the elements of one list
+fn join(pages: &[Vec<u8>]) -> String {
+    let texts: Vec<_> = pages.iter().map(|p| String::from_utf8_lossy(p)).collect();
+    texts.join(",")
 }
 
 pub(super) fn can_write(repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
@@ -42,9 +51,13 @@ const MARKS: &str = "query($id: ID!, $after: String) { node(id: $id) { ... on Is
     userContentEdits(first: 100, after: $after) { \
     pageInfo { hasNextPage endCursor } nodes { editor { login } } } } } }";
 
-pub(super) fn comment_marks(repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
+pub(super) fn comment_marks(
+    etags: &Etags,
+    repo: &ForgeSlug,
+    comment: u64,
+) -> Result<CommentMarks, ForgeError> {
     let path = format!("repos/{}/issues/comments/{comment}", repo.as_str());
-    let node = parse_node_id(&gh(&["api", &path])?)?;
+    let node = parse_node_id(&etags.get(&GhApi, None, &path)?)?;
     let query = format!("query={MARKS}");
     let id = format!("id={node}");
     let (mut marks, mut next) = parse_marks(&gh(&["api", "graphql", "-f", &query, "-f", &id])?)?;

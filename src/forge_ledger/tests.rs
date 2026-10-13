@@ -39,6 +39,7 @@ fn a_ledger_holds_a_line_for_each_call_and_reads_back_as_written() {
             by: Identity::Login,
             millis: 80,
             ended: Ended::Ok,
+            not_modified: 0,
         }
     );
     let text = std::fs::read_to_string(home.path().join(FILE)).unwrap();
@@ -230,4 +231,82 @@ fn the_report_splits_calls_between_the_login_and_the_app() {
             .starts_with("  2026-10-03T04:01:10Z koji reviewed (graphql, app);"),
         "{out:#?}"
     );
+}
+
+#[test]
+fn only_a_write_that_went_through_counts_as_one_made() {
+    let home = tempfile::tempdir().unwrap();
+    let ledger = Ledger::in_home(home.path(), "koji");
+    let at = Timestamp(START);
+
+    ledger.record(at, Kind::PullRequest, 80, Ended::Ok);
+    ledger.record(at, Kind::Comment, 0, Ended::Held);
+    ledger.record(at, Kind::Merge, 90, Ended::Failed);
+    assert_eq!(ledger.writes(), 0);
+
+    ledger.record(at, Kind::Comment, 80, Ended::Ok);
+    ledger.record_by(Identity::App, at, Kind::AppSetIssueLabel, 80, Ended::Ok);
+    assert_eq!(ledger.writes(), 2);
+}
+
+#[test]
+fn a_call_that_came_back_304_says_so_and_a_line_without_one_reads_as_none() {
+    let home = tempfile::tempdir().unwrap();
+    let ledger = Ledger::in_home(home.path(), "koji");
+    let at = Timestamp(START);
+    ledger.record_with(Identity::Login, at, Kind::CommentsSince, 40, Ended::Ok, 2);
+    ledger.record(at, Kind::Viewer, 40, Ended::Ok);
+
+    let lines = read(&home.path().join(FILE)).unwrap();
+
+    assert_eq!(lines[0].not_modified, 2);
+    assert_eq!(lines[1].not_modified, 0);
+    let text = std::fs::read_to_string(home.path().join(FILE)).unwrap();
+    assert!(
+        text.lines()
+            .next()
+            .unwrap()
+            .ends_with(r#""not_modified":2}"#)
+    );
+    assert!(!text.lines().nth(1).unwrap().contains("not_modified"));
+}
+
+#[test]
+fn the_report_counts_the_reads_that_came_back_304_by_kind() {
+    let home = tempfile::tempdir().unwrap();
+    let koji = Ledger::in_home(home.path(), "koji");
+    let at = |seconds: u64| Timestamp(START + seconds);
+    koji.record_with(Identity::Login, at(5), Kind::CommentsSince, 5, Ended::Ok, 1);
+    koji.record_with(
+        Identity::Login,
+        at(10),
+        Kind::CommentsSince,
+        5,
+        Ended::Ok,
+        1,
+    );
+    koji.record_with(Identity::App, at(15), Kind::ReviewBot, 5, Ended::Ok, 3);
+    koji.record(at(20), Kind::CommentsSince, 5, Ended::Ok);
+    let lines = read(&home.path().join(FILE)).unwrap();
+
+    let out = report(&lines, None);
+
+    let at_line = out
+        .iter()
+        .position(|l| l.starts_with("answered 304"))
+        .unwrap();
+    assert_eq!(
+        out[at_line],
+        "answered 304 Not Modified (requests, by kind):"
+    );
+    assert_eq!(out[at_line + 1], "  review_bot: 3");
+    assert_eq!(out[at_line + 2], "  comments_since: 2");
+}
+
+#[test]
+fn a_report_with_no_304_has_no_section_for_them() {
+    let home = tempfile::tempdir().unwrap();
+    let lines = recorded(home.path());
+
+    assert!(!report(&lines, None).iter().any(|l| l.contains("304")));
 }

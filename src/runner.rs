@@ -365,6 +365,8 @@ pub struct Runner {
     snapshot: snapshot::Snapshot,
     // Until when every forge call is held, the forge's rate limit used up
     forge_hold: ForgeHold,
+    // Counts the writes kelpie made, so a pass can tell one was made since it began
+    forge_ledger: Arc<ForgeLedger>,
     // The login `gh` acts as, which a ruling mentions when `git.maintainer` is unset,
     // asked once a run, in memory only
     gh_login: std::cell::OnceCell<String>,
@@ -457,12 +459,14 @@ impl Runner {
             say_to(&told),
         )
         .with_ledger(Arc::clone(&forge_ledger))
+        .counting(ports.revalidated.clone())
         .paced_for(project.as_str());
         if let Some(app_reads) = ports.app_reads.take() {
             rate_held = rate_held.with_app_reads(app_reads);
         }
         let held: Arc<dyn Forge> = Arc::new(rate_held);
-        let recorded = RecordedVoice::new(ports.voice, Arc::clone(&clock), forge_ledger);
+        let recorded =
+            RecordedVoice::new(ports.voice, Arc::clone(&clock), Arc::clone(&forge_ledger));
         let paced = PacedVoice::new(
             Arc::new(recorded),
             clock,
@@ -576,6 +580,7 @@ impl Runner {
             looks: looks::Looks::default(),
             snapshot: snapshot::Snapshot::default(),
             forge_hold,
+            forge_ledger,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),

@@ -375,3 +375,50 @@ fn no_board_step_runs_before_the_rate_limit_hold_ends() {
     wake(&runner);
     assert_eq!(rig.forge.board_reads(), reads + 1);
 }
+
+// Kelpie's comment on a pull request, through the ports the runner holds
+fn comments(
+    runner: &std::sync::Mutex<crate::runner::Runner>,
+) -> Result<u64, crate::ports::ForgeError> {
+    let runner = runner.lock().unwrap();
+    runner.ports.forge.comment(&runner.remote, 71, "Merge it?")
+}
+
+// A write of kelpie's own changes what the forge shows, so the read that
+// shows it is not left for the next poll.
+
+#[test]
+fn a_write_of_kelpies_own_makes_the_next_look_due_at_once() {
+    let (rig, runner, _) = Rig::with_pull_request("acme");
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.forge.set_down(false);
+    let before = runner.lock().unwrap().next_look();
+    assert_ne!(before, Some(Duration::from_secs(1)));
+
+    let comment = comments(&runner);
+    assert!(comment.is_ok(), "{comment:?}");
+
+    assert_eq!(
+        runner.lock().unwrap().next_look(),
+        Some(Duration::from_secs(1))
+    );
+    step(&runner).unwrap();
+    assert_eq!(
+        runner.lock().unwrap().next_look(),
+        before,
+        "the pass after the write reads, so the wait is what it was"
+    );
+}
+
+#[test]
+fn a_write_that_failed_changes_nothing_to_look_at() {
+    let (rig, runner, _) = Rig::with_pull_request("acme");
+    assert_eq!(step(&runner).unwrap(), None);
+    let before = runner.lock().unwrap().next_look();
+    rig.forge.set_down(true);
+
+    let comment = comments(&runner);
+    assert!(comment.is_err());
+
+    assert_eq!(runner.lock().unwrap().next_look(), before);
+}
