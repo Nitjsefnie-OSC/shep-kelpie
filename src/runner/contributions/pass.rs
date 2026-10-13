@@ -6,15 +6,21 @@
 //! first to answer, with findings or `CLEAN`, ends it. The next push starts
 //! its pass there, so the reviewers take turns over a contribution's
 //! pushes. A reviewer limited to `paths` the change leaves alone is skipped,
-//! as is a local one that has reviewed nothing twice and, until bots are
-//! summoned here, every bot. One whose call fails three times is passed over.
-//! A pass no reviewer read ends unread, with why.
+//! as is a local one that has reviewed nothing twice. One whose call fails
+//! three times is passed over. A pass no reviewer read ends unread, with why.
 //!
 //! The pass is a call in flight like the security review, sharing its
 //! one place, and its reviewers read a detached worktree of the fetched
 //! `refs/pull/<n>/head` under the project's folder, with read tools only,
 //! once the agents' own files in it are checked against `main`'s. Nothing is
 //! posted. The worktree stays until the pull request leaves the record.
+//!
+//! A review bot answers on its own clock, so its turn is no call: [`bots`]
+//! steps it each poll. A call reads the reviewers up to the next bot, and
+//! hands the walk back in the record, as [`Walking`], when none of them
+//! answered.
+//!
+//! [`bots`]: super::bots
 
 use std::path::PathBuf;
 
@@ -30,7 +36,7 @@ use crate::ports::{
     AgentError, Agents, Cost, Ending, Finding, Reviewer, ReviewerError, Role, Tools, read_review,
 };
 use crate::settings::{AgentName, ListedReviewer};
-use crate::state::{Pass, StateError};
+use crate::state::{Contribution, Pass, StateError, Walking};
 use crate::work_item::LOCAL_FAILURES_DOWN;
 use crate::worktree::{self, BASE, Linked};
 
@@ -47,10 +53,20 @@ pub(in crate::runner) struct Job {
     worktree: PathBuf,
     out: PathBuf,
     settings: PathBuf,
-    // The reviewers that can run, in the order the pass walks them
+    // The reviewers that can run before the next bot, in the order the pass
+    // walks them
     reviewers: Vec<ListedReviewer>,
-    // Why each listed one that cannot run is passed over
+    // Why each one the walk is past that did not read, and each listed one
+    // that cannot run, is passed over
     passed_over: Vec<String>,
+    // The reviewers the walk is past, and those it called, before this call
+    past: Vec<AgentName>,
+    ran_before: Vec<AgentName>,
+    // Every reviewer this call goes past, those that cannot run included
+    span: Vec<AgentName>,
+    // Whether a bot's turn follows them, so that a call none of them
+    // answers hands the walk back instead of ending the pass
+    more: bool,
     // The local reviewers sat out for reviewing nothing twice, whose count
     // restarts with this pass so that they are tried again
     rested: Vec<AgentName>,
@@ -63,6 +79,9 @@ pub(in crate::runner) struct Walked {
     /// fetched or checked out, or the runner stopped it), which leaves the
     /// head to be reviewed at the next poll
     pub(in crate::runner) pass: Option<Pass>,
+    // Where the walk stands when no reviewer of the call answered and a bot
+    // is next, in place of a pass
+    progress: Option<Box<Walking>>,
     // The local reviewers that reviewed something, and those that reviewed
     // nothing
     reviewed: Vec<AgentName>,
@@ -99,6 +118,7 @@ impl Runner {
         }
         let due: Vec<_> = (self.state.contributions.iter())
             .filter(|c| c.is_passed() && c.is_green() && !c.is_reviewed())
+            .filter(|c| self.call_is_next(c))
             .filter(|c| !self.flights.security_tried(c.pull_request))
             .map(|c| c.pull_request)
             .collect();
@@ -113,21 +133,52 @@ impl Runner {
         Ok(None)
     }
 
-    fn pass_job(&self, number: u64) -> Option<Job> {
-        let contribution = (self.state.contributions.iter()).find(|c| c.pull_request == number)?;
+    // The reviewers in the order a pass over `contribution` walks them: from
+    // the one after the last that answered, wrapping round
+    pub(super) fn walk_order(&self, contribution: &Contribution) -> Vec<&ListedReviewer> {
         let lineup = &self.contribution_lineup;
         let start = (contribution.last_answered.as_ref())
             .and_then(|last| lineup.iter().position(|r| &r.name == last))
             .map_or(0, |at| at + 1);
-        let walk = (0..lineup.len()).map(|i| &lineup[(start + i) % lineup.len()]);
+        (0..lineup.len())
+            .map(|i| &lineup[(start + i) % lineup.len()])
+            .collect()
+    }
+
+    // The reviewer the walk is at: the first the pass is not yet past
+    pub(super) fn walk_at(&self, contribution: &Contribution) -> Option<&ListedReviewer> {
+        let past = contribution.walking_head().map_or(&[][..], |w| &w.past);
+        let order = self.walk_order(contribution);
+        order.into_iter().find(|r| !past.contains(&r.name))
+    }
+
+    // Whether the next step of the walk is a call: a reviewer that is not a
+    // bot, or a list that names none. A bot's turn is stepped by `bots`.
+    fn call_is_next(&self, contribution: &Contribution) -> bool {
+        match self.walk_at(contribution) {
+            Some(r) => r.bot().is_none(),
+            None => contribution.walking_head().is_none(),
+        }
+    }
+
+    fn pass_job(&self, number: u64) -> Option<Job> {
+        let contribution = (self.state.contributions.iter()).find(|c| c.pull_request == number)?;
+        let walking = contribution.walking_head();
+        let past = walking.map_or(&[][..], |w| &w.past);
         let mut reviewers = Vec::new();
-        let mut passed_over = Vec::new();
+        let mut passed_over = walking.map_or_else(Vec::new, |w| w.missed.clone());
         let mut rested = Vec::new();
-        for r in walk {
-            let failures = contribution.local_failures.get(&r.name).copied();
+        let mut span = Vec::new();
+        let mut more = false;
+        let upcoming = self.walk_order(contribution);
+        for r in upcoming.into_iter().filter(|r| !past.contains(&r.name)) {
             if r.bot().is_some() {
-                passed_over.push(format!("{} is a bot, out of its window here", r.name));
-            } else if r.is_local() && failures.is_some_and(|n| n >= LOCAL_FAILURES_DOWN) {
+                more = true;
+                break;
+            }
+            span.push(r.name.clone());
+            let failures = contribution.local_failures.get(&r.name).copied();
+            if r.is_local() && failures.is_some_and(|n| n >= LOCAL_FAILURES_DOWN) {
                 passed_over.push(format!("{} reviewed no file twice", r.name));
                 rested.push(r.name.clone());
             } else {
@@ -144,6 +195,10 @@ impl Runner {
             settings: (self.paths.worker).join(format!("pass-settings-{number}.json")),
             reviewers,
             passed_over,
+            past: past.to_vec(),
+            ran_before: walking.map_or_else(Vec::new, |w| w.ran.clone()),
+            span,
+            more,
             rested,
         })
     }
@@ -164,22 +219,29 @@ impl Runner {
             return Ok(());
         };
         held.spend = Cost(held.spend.0.saturating_add(walked.cost.0));
-        let Some(pass) = walked.pass.filter(|_| held.head == head) else {
+        let walked_on = walked.pass.is_some() || walked.progress.is_some();
+        if !(walked_on && held.head == head) {
             return match walked.cost.is_free() {
                 true => Ok(()),
                 false => self.save(next),
             };
-        };
+        }
         for name in walked.reviewed.iter().chain(&walked.rested) {
             held.local_failures.remove(name);
         }
         for name in walked.nothing {
             *held.local_failures.entry(name).or_default() += 1;
         }
-        if pass.answered.is_some() {
-            held.last_answered.clone_from(&pass.answered);
+        match walked.pass {
+            Some(pass) => {
+                if pass.answered.is_some() {
+                    held.last_answered.clone_from(&pass.answered);
+                }
+                held.pass = Some(pass);
+                held.walking = None;
+            }
+            None => held.walking = walked.progress.map(|walking| *walking),
         }
-        held.pass = Some(pass);
         self.save(next)
     }
 
@@ -243,7 +305,8 @@ impl Job {
                     "the head changes agents' own files, which no reviewer runs beside: {}",
                     files.join(", ")
                 );
-                return self.ended(Vec::new(), None, vec![why], Walked::default());
+                let missed = [self.passed_over.clone(), vec![why]].concat();
+                return self.ended(self.ran_before.clone(), None, missed, Walked::default());
             }
             Err(e) => return fail(format!("cannot check its agents' own files: {e}")),
         }
@@ -259,7 +322,7 @@ impl Job {
             rested: self.rested.clone(),
             ..Walked::default()
         };
-        let mut ran = Vec::new();
+        let mut ran = self.ran_before.clone();
         let mut missed = self.passed_over.clone();
         let diff = OnceDiff::new(&self, &base);
         for r in &self.reviewers {
@@ -303,7 +366,25 @@ impl Job {
                 }
             }
         }
-        self.ended(ran, None, missed, walked)
+        match self.more {
+            true => self.handed_back(ran, missed, walked),
+            false => self.ended(ran, None, missed, walked),
+        }
+    }
+
+    // The walk handed back to the bot that follows this call's reviewers,
+    // none of which answered
+    fn handed_back(&self, ran: Vec<AgentName>, missed: Vec<String>, walked: Walked) -> Walked {
+        Walked {
+            progress: Some(Box::new(Walking {
+                head: self.head.clone(),
+                past: [self.past.clone(), self.span.clone()].concat(),
+                ran,
+                missed,
+                bot: None,
+            })),
+            ..walked
+        }
     }
 
     // The pass that ran `ran`, which `answer` ended, or that ended unread for
@@ -331,6 +412,7 @@ impl Job {
                 answered,
                 unread,
                 findings,
+                nits: Vec::new(),
             }),
             ..walked
         }

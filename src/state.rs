@@ -15,7 +15,8 @@ mod removed;
 mod ruling;
 
 pub use contributions::{
-    Ci, CiState, Contribution, Held, KEPT, Pass, Said, Security, SecurityVerdict, Spent,
+    BotTurn, Ci, CiState, Contribution, Held, KEPT, Pass, Said, Security, SecurityVerdict, Spent,
+    Walking,
 };
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use projects::Projects;
@@ -39,7 +40,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 51 added a contribution's `pass`, `last_answered` and `local_failures`, 50 added a contribution's `ci`, 49 added a contribution's `spend` and `budget_raises`, `spent` and the `over-budget` contribution ruling, 48 added a contribution's `heard`, `context` and `reviews_from`, 47 added the `contribution` ruling kind, 46 added a contribution's `security` and `passed`, 45 added a red workflow's `reran` and `noticed` and the main-workflow notice, 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// The state file's format version. 52 added a contribution's `walking` and a pass's `nits`, 51 added a contribution's `pass`, `last_answered` and `local_failures`, 50 added a contribution's `ci`, 49 added a contribution's `spend` and `budget_raises`, `spent` and the `over-budget` contribution ruling, 48 added a contribution's `heard`, `context` and `reviews_from`, 47 added the `contribution` ruling kind, 46 added a contribution's `security` and `passed`, 45 added a red workflow's `reran` and `noticed` and the main-workflow notice, 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
@@ -54,7 +55,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 51;
+pub(crate) const VERSION: u32 = 52;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads

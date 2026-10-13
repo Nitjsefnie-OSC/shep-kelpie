@@ -7,20 +7,20 @@
 
 use super::super::Runner;
 use super::super::report::Begin;
-use crate::ports::Timestamp;
-use crate::review_bot::{Activity, Bot};
+use crate::ports::{Finding, Timestamp};
+use crate::review_bot::{Activity, Bot, Profile, Thread};
 use crate::state::StateError;
 use crate::work_item::ReviewStage;
 
 // CodeRabbit's two threads on shep#703 were missing two seconds after its
 // review. Reads of the threads are this far apart.
-pub(super) const THREAD_SETTLE: u64 = 20;
+pub(in crate::runner) const THREAD_SETTLE: u64 = 20;
 
 // Two reads that agree land the review only once it was seen this long ago.
 pub(crate) const SETTLE_LEAST: u64 = 60;
 
 // Threads still changing this long after the review are taken as they stand.
-pub(super) const SETTLE_MOST: u64 = 120;
+pub(in crate::runner) const SETTLE_MOST: u64 = 120;
 
 impl Runner {
     // A review covers the head: its threads are read again THREAD_SETTLE on.
@@ -49,7 +49,7 @@ impl Runner {
         open: &[String],
     ) -> Result<Begin, StateError> {
         let now = self.ports.clock.now();
-        if now.0.saturating_sub(read.0) < THREAD_SETTLE {
+        if !reread_due(now, read) {
             return Ok(Begin::Idle);
         }
         let number = self.number();
@@ -58,8 +58,7 @@ impl Runner {
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
         let threads = open_ids(&activity);
-        let age = now.0.saturating_sub(since.0);
-        if (threads == open && age >= SETTLE_LEAST) || age >= SETTLE_MOST {
+        if lands(now, since, open, &threads) {
             return self.review_landed(number, bot, &activity);
         }
         self.set_stage(ReviewStage::Settling {
@@ -92,13 +91,13 @@ impl Runner {
         for listed in self.listed_bots() {
             let profile = self.profile(listed.bot);
             let activity = self.activity(listed.bot, number)?;
-            let (low, above): (Vec<_>, Vec<_>) = (activity.open_threads())
-                .filter(|t| !passed.contains(&t.id))
-                .partition(|t| profile.finding(t).is_nit());
+            let open = activity.open_threads();
+            let read = read_threads(profile.as_ref(), open.filter(|t| !passed.contains(&t.id)));
+            let (low, above) = (read.nits, read.above);
             let name = profile.name();
             if !above.is_empty() {
                 holding.push(format!("{} from {name}", above.len()));
-                held_by.extend(above.iter().map(|t| t.id.clone()));
+                held_by.extend(above.iter().map(|(id, _)| id.clone()));
             }
             match low.len() {
                 0 => {}
@@ -126,8 +125,43 @@ pub(in crate::runner) struct OpenThreads {
     pub(in crate::runner) nits: Option<String>,
 }
 
+/// A bot's open threads read as findings: those above a nit, and the nits
+/// apart, each with the forge's id of its thread
+pub(in crate::runner) struct ReadThreads {
+    pub(in crate::runner) above: Vec<(String, Finding)>,
+    pub(in crate::runner) nits: Vec<(String, Finding)>,
+}
+
+/// Reads `threads` with the bot's `profile`, nits apart from the rest
+pub(in crate::runner) fn read_threads<'a>(
+    profile: &dyn Profile,
+    threads: impl Iterator<Item = &'a Thread>,
+) -> ReadThreads {
+    let read = threads.map(|t| (t.id.clone(), profile.finding(t)));
+    let (nits, above) = read.partition(|(_, finding)| finding.is_nit());
+    ReadThreads { above, nits }
+}
+
+/// Whether the threads read at `read` are due to be read again at `now`
+pub(in crate::runner) fn reread_due(now: Timestamp, read: Timestamp) -> bool {
+    now.0.saturating_sub(read.0) >= THREAD_SETTLE
+}
+
+/// Whether the review lands at `now`: the `threads` read agree with the
+/// `open` ones before them and [`SETTLE_LEAST`] has passed since the review
+/// was `since` seen, or [`SETTLE_MOST`] has
+pub(in crate::runner) fn lands(
+    now: Timestamp,
+    since: Timestamp,
+    open: &[String],
+    threads: &[String],
+) -> bool {
+    let age = now.0.saturating_sub(since.0);
+    (threads == open && age >= SETTLE_LEAST) || age >= SETTLE_MOST
+}
+
 // The ids of the bot's open threads, sorted so two reads compare as sets.
-pub(super) fn open_ids(activity: &Activity) -> Vec<String> {
+pub(in crate::runner) fn open_ids(activity: &Activity) -> Vec<String> {
     let mut ids: Vec<String> = activity.open_threads().map(|t| t.id.clone()).collect();
     ids.sort();
     ids

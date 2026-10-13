@@ -43,7 +43,7 @@ fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
 }
 
 // Steps until no security review is in flight
-pub(super) fn settle(runner: &Mutex<Runner>) {
+pub(in crate::runner) fn settle(runner: &Mutex<Runner>) {
     let by = Instant::now() + CALL_PATIENCE;
     while runner.lock().unwrap().flights.securing() {
         assert!(Instant::now() < by, "the call never ended");

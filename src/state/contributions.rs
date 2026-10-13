@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use crate::ports::{Cost, Finding, Timestamp};
 use crate::settings::{AgentName, PerItemUsd};
+use crate::work_item::ReviewStage;
 
 /// A pull request from someone else, as the board last saw it
 // wire format: changing this is a breaking change to the state file
@@ -47,6 +48,13 @@ pub struct Contribution {
     /// current `head` or nothing, and a head with none is not yet reviewed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pass: Option<Pass>,
+    /// The pass under way over the current head, while a review bot's turn
+    /// holds it
+    ///
+    /// Left out once the pass ends or a push clears it, so it names the
+    /// current `head` or nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walking: Option<Walking>,
     /// The reviewer that last answered a pass, whatever head it read
     ///
     /// The next pass starts at the reviewer after it. Left out until one
@@ -115,9 +123,44 @@ pub struct Pass {
     /// Why no reviewer read the head, when none did
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unread: Option<String>,
-    /// What the reviewer found, none for `CLEAN`
+    /// What the reviewer found, none for `CLEAN`. A review bot's are its open
+    /// threads above a nit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<Finding>,
+    /// A review bot's open threads that are nits, kept apart from `findings`
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nits: Vec<Finding>,
+}
+
+/// A pass part way through its reviewers, kept while a review bot's turn
+/// waits on the bot
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Walking {
+    /// The head it reads
+    pub head: String,
+    /// The reviewers the walk is past, whether they ran or were passed over
+    pub past: Vec<AgentName>,
+    /// The reviewers that were called so far, in order, as [`Pass::ran`]
+    pub ran: Vec<AgentName>,
+    /// Why each reviewer past that did not read did not
+    pub missed: Vec<String>,
+    /// The review bot the walk waits on, if it is at one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<BotTurn>,
+}
+
+/// A review bot's turn in a pass
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotTurn {
+    /// The reviewer's agent file, which names the bot
+    pub reviewer: AgentName,
+    /// Where the turn is: waiting to summon, summoned, or reading the
+    /// threads until they settle
+    pub stage: ReviewStage,
 }
 
 /// CI on a contribution's head after kelpie approved its held runs
@@ -177,6 +220,7 @@ impl Contribution {
             passed: None,
             ci: None,
             pass: None,
+            walking: None,
             last_answered: None,
             local_failures: BTreeMap::new(),
             spend: Cost::default(),
@@ -236,6 +280,7 @@ impl Contribution {
             security: None,
             ci: None,
             pass: None,
+            walking: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -289,6 +334,11 @@ impl Contribution {
     /// Whether a pass has ended on the current head
     pub fn is_reviewed(&self) -> bool {
         self.pass.as_ref().is_some_and(|p| p.head == self.head)
+    }
+
+    /// The walk of the current head's pass, if one is under way
+    pub fn walking_head(&self) -> Option<&Walking> {
+        self.walking.as_ref().filter(|w| w.head == self.head)
     }
 
     /// Whether the current head passed the security review, or the maintainer

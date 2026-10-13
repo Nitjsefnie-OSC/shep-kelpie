@@ -23,6 +23,7 @@
 //! `budget.per_item_usd` no call starts until a ruling is answered
 //! ([`budget`]).
 
+mod bots;
 mod budget;
 mod ci;
 mod heard;
@@ -30,6 +31,7 @@ mod pass;
 mod ruling;
 mod security;
 
+pub(super) use bots::waiting_on;
 pub(super) use ruling::{flagged_lines, raise_budget, trust};
 
 use crate::ports::{Agents, Ending, Reviewer};
@@ -171,10 +173,12 @@ impl Runner {
             if self.state.contributions.is_empty() {
                 return Ok(());
             }
+            self.abandon_turns(&[]);
             let mut next = self.state.clone();
             next.follow(Vec::new());
             ruling::withdraw(&mut next);
-            return self.save(next);
+            self.save(next)?;
+            return self.release_idle_bots();
         }
         let now = self.ports.clock.now();
         if !self.looks.contributions_due(now) {
@@ -207,23 +211,25 @@ impl Runner {
         };
         followed.sort_by_key(place);
         if followed != self.state.contributions {
+            self.abandon_turns(&followed);
             let mut next = self.state.clone();
             next.follow(followed);
             ruling::withdraw(&mut next);
             self.save(next)?;
         }
-        self.follow_ci()
+        self.follow_ci()?;
+        self.follow_bots()
     }
 }
 
 #[cfg(test)]
-mod budget_tests;
+pub(in crate::runner) mod budget_tests;
 #[cfg(test)]
 mod ci_tests;
 #[cfg(test)]
 mod heard_tests;
 #[cfg(test)]
-mod pass_tests;
+pub(in crate::runner) mod pass_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

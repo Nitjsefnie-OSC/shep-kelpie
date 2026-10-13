@@ -33,6 +33,7 @@ pub(in crate::runner) use answer::{Answered, is_reply};
 mod lease;
 mod on_ready;
 mod settle;
+pub(in crate::runner) use settle::{lands, open_ids, read_threads, reread_due};
 
 #[cfg(test)]
 pub(in crate::runner) use late::LATE_READ;
@@ -235,12 +236,9 @@ impl Runner {
     // just before each of its summons, which a repo made private since the
     // runner started would spend for nothing. `None` lets the summon go on.
     fn public_for(&mut self, bot: Bot, number: u64) -> Result<Option<Begin>, StateError> {
-        if bot != Bot::Coderabbit {
-            return Ok(None);
-        }
-        match self.ports.forge.visibility(&self.remote) {
-            Ok(Visibility::Public) => Ok(None),
-            Ok(Visibility::Private | Visibility::Internal) => {
+        match self.shut_out(bot) {
+            Ok(false) => Ok(None),
+            Ok(true) => {
                 self.release(bot)?;
                 if let Err(reason) = self.label(bot, number, false) {
                     return Ok(Some(self.gate_failed(reason)));
@@ -249,11 +247,26 @@ impl Runner {
                 self.pass_over(number, BotSkipped::NotPublic { reviewer })
                     .map(Some)
             }
+            Err(reason) => Ok(Some(self.gate_failed(reason))),
+        }
+    }
+
+    /// Whether `bot` cannot read this repo, because it is not public and the
+    /// bot reviews public repos only: CodeRabbit's free plan
+    ///
+    /// # Errors
+    ///
+    /// A message when the forge cannot say whether the repo is public.
+    pub(in crate::runner) fn shut_out(&self, bot: Bot) -> Result<bool, String> {
+        if bot != Bot::Coderabbit {
+            return Ok(false);
+        }
+        match self.ports.forge.visibility(&self.remote) {
+            Ok(Visibility::Public) => Ok(false),
+            Ok(Visibility::Private | Visibility::Internal) => Ok(true),
             Err(e) => {
                 let repo = self.remote.as_str();
-                Ok(Some(self.gate_failed(format!(
-                    "cannot read whether {repo} is public: {e}"
-                ))))
+                Err(format!("cannot read whether {repo} is public: {e}"))
             }
         }
     }
@@ -757,7 +770,17 @@ impl Runner {
     // `bot` as the project's list defines it, or kelpie's own file when the
     // list no longer names it.
     fn bot_reviewer(&self, bot: Bot) -> BotReviewer {
-        let listed = self.lineup.iter().filter_map(ListedReviewer::bot);
+        self.bot_reviewer_in(&self.lineup, bot)
+    }
+
+    /// `bot` as `lineup` defines it, or kelpie's own file when it does not
+    /// name it
+    pub(in crate::runner) fn bot_reviewer_in(
+        &self,
+        lineup: &[ListedReviewer],
+        bot: Bot,
+    ) -> BotReviewer {
+        let listed = lineup.iter().filter_map(ListedReviewer::bot);
         let filed = self.book.get(&AgentName::kelpies(bot.as_str()));
         listed
             .chain(filed.and_then(|agent| agent.runs.bot()))
@@ -793,7 +816,7 @@ impl Runner {
     }
 
     // Reads `bot`'s activity and passes the quota it last stated on.
-    fn activity(&self, bot: Bot, number: u64) -> Result<Activity, String> {
+    pub(in crate::runner) fn activity(&self, bot: Bot, number: u64) -> Result<Activity, String> {
         let bot = self.profile(bot);
         let activity = self
             .ports
@@ -816,12 +839,7 @@ impl Runner {
         let Some(label) = profile.label() else {
             return Ok(());
         };
-        if self.labelled(bot, number)? != on {
-            self.ports
-                .forge
-                .set_label(&self.remote, number, label, on)
-                .map_err(|e| format!("cannot change `{label}` on #{number}: {e}"))?;
-        }
+        self.put_label(bot, number, on)?;
         self.update(|item| {
             item.known.labels.retain(|l| l != label);
             if on {
@@ -829,6 +847,31 @@ impl Runner {
             }
         })
         .map_err(|e| e.to_string())
+    }
+
+    /// Changes `bot`'s label on pull request `number` only when it is not
+    /// already as asked, and does nothing for a bot with no label
+    ///
+    /// # Errors
+    ///
+    /// A message when the forge cannot read or change the label.
+    pub(in crate::runner) fn put_label(
+        &self,
+        bot: Bot,
+        number: u64,
+        on: bool,
+    ) -> Result<(), String> {
+        let profile = self.profile(bot);
+        let Some(label) = profile.label() else {
+            return Ok(());
+        };
+        if self.labelled(bot, number)? != on {
+            self.ports
+                .forge
+                .set_label(&self.remote, number, label, on)
+                .map_err(|e| format!("cannot change `{label}` on #{number}: {e}"))?;
+        }
+        Ok(())
     }
 
     fn labelled(&self, bot: Bot, number: u64) -> Result<bool, String> {
@@ -857,6 +900,8 @@ impl Runner {
 
 #[cfg(test)]
 mod codex_bot;
+#[cfg(test)]
+mod contribution_turns;
 #[cfg(test)]
 mod late_reads;
 #[cfg(test)]
