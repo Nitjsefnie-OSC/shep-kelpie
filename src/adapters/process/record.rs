@@ -96,6 +96,7 @@ impl Recorded {
         let written =
             std::fs::write(&temporary, text).and_then(|()| std::fs::rename(&temporary, &self.path));
         if let Err(e) = written {
+            let _ = std::fs::remove_file(&temporary);
             eprintln!("cannot write {}: {e}", self.path.display());
         }
     }

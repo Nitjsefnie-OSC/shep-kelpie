@@ -175,6 +175,8 @@ impl Processes {
         files: Option<Files<'_>>,
         input: &[u8],
     ) -> Result<Output, RunError> {
+        // Whatever way the call ends, its files go with it.
+        let _scrap = files.as_ref().map(|files| Scrap(files.outputs));
         let (out, err) = match &files {
             Some(Files {
                 outputs: [out, err],
@@ -185,8 +187,6 @@ impl Processes {
             ),
             None => (Stdio::piped(), Stdio::piped()),
         };
-        // Whatever way the call ends, its files go with it.
-        let _scrap = files.as_ref().map(|files| Scrap(files.outputs));
         // Its own process group, led by its own pid, so a program it spawns
         // and leaves behind (a build, a test run) is reachable by signalling
         // the group, not just the one pid this struct tracks.

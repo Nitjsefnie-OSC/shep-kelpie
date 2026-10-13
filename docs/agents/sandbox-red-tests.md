@@ -11,7 +11,7 @@ A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/pro
 
 The doctor, flock, dog (`left_over`), `lease::cli`, sheep, shepherd and upgrade tests run in a worker: they dial `FakeShepherd`, which answers in memory through the `Dial` port, and `lease::cli::e2e` reads the dog's answers off a connected pair of streams. What is listed below binds on purpose or for a reason of its own.
 
-Measured with `cargo test --lib` in a worker: 144 of 3225 tests fail, 3064 pass, 17 are ignored. A module's name covers its child modules.
+Measured with `cargo test --lib` in a worker: 145 of 3231 tests fail, 3069 pass, 17 are ignored. A module's name covers its child modules.
 
 | Reason | Modules |
 |---|---|
