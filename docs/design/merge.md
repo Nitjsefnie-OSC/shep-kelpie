@@ -1,0 +1,17 @@
+# CI and the merge
+
+CI, catching the branch up, the merge, work after it. Review passes, bots and rulings are in review.md.
+
+- Red CI whose failed logs (read as the maintainer's login) name no file the branch changed: kelpie reruns that head's failed jobs once (`gh run rerun --failed`), no fix turn, `reran` on the item, `rerunning` in `status`, `ci-rerun` in the log. Unreadable log, a changed file named, a refused rerun or a rerun head: fix turn as below, saying the failure repeated after a rerun. #648, `src/runner/gate/rerun.rs`
+- After review item waits for CI; red = fix turn; second red on untouched head parks `still-red`; `ci.fix_attempts` caps fix turns (`-1` no cap). `ci.block` off reads no checks. #9, #380, `src/runner/gate.rs`, `src/settings/ci.rs`
+- Branch behind `main` caught up by kelpie: rebase with lease, or merge where commits aren't kelpie's to rewrite. Conflict: kelpie starts `git merge --no-commit origin/main` in the worktree itself (so `main`'s files the sandbox refuses, `.claude/` included, land staged), and the worker turn only resolves the conflicted files, `git commit --no-edit`s and pushes without force. A rebase that conflicts falls back to that merge; a merge with no conflict is committed and pushed. A worktree already mid-merge is not merged again; unresolved parks `rebase`. #61, #609, `src/runner/gate/catch_up.rs`
+- `git.merging` required: `auto` or `ask`. `ask`: yes merges only the head asked about while green and current, `--merge --match-head-commit`, never squash. `src/runner/merge.rs`
+- `auto` replaces only the merge ruling; unreviewed passes, open threads, unread heads, unread fixes still raise it. Merge no longer valid returns to CI; second forge refusal parks `merge-refused`. One webhook notice per auto merge. #83, #118
+- Merge queue holds the PR, kelpie skips gates meanwhile; removal goes back to worker like red CI. #213, `src/runner/merge/queue.rs`
+- Head, label or ready state kelpie didn't set parks `foreign-change`; its yes gets a review pass. #69
+- PR merged by hand ends item; closed unmerged parks `closed`. #377
+- After a merge, the item's parent closes (App comment names the PR) once no sub-issue is open and one was built; all not planned stays open; one level up only; failures logged. #640, `src/runner/close_merged.rs`
+- Rework reopens a kelpie PR on `ready-for-agent` or requested change (author can't request changes on own PR); fresh start, never force-push. #53
+- Adoption: work item from a PR kelpie didn't open; merges `main` in, never rebases (owner may push). #84
+- `ready-for-human` set at merge ruling, removed when work resumes. `src/runner/ruling.rs`
+- Runner's own git/gh are plain children outside any worker fence. `src/spawn.rs`
