@@ -397,6 +397,7 @@ fn a_state_file_without_test_checks_still_loads() {
             output: "boom".into(),
         },
         after: Some(TestOutcome::Passed),
+        sent_back: false,
     }]);
     store.save(&checked).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -470,6 +471,55 @@ fn a_version_38_file_loads_with_no_comment_handled_and_saves_at_the_current_vers
     assert_eq!(saved["version"], VERSION);
 }
 
+// A version 40 file has no `sent_back` on its checks: they load as not sent
+// back, and one that was sent back keeps the mark through a save.
+#[test]
+fn a_state_file_without_the_sent_back_mark_still_loads() {
+    use crate::ports::TestOutcome;
+    use crate::work_item::TestCheck;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let check = |sent_back| TestCheck {
+        file: "src/lib.rs".into(),
+        line: 3,
+        what: "it panics".into(),
+        round: 2,
+        before: TestOutcome::Failed {
+            output: "boom".into(),
+        },
+        after: Some(TestOutcome::Failed {
+            output: "boom".into(),
+        }),
+        sent_back,
+    };
+    let state_with = |check: TestCheck| {
+        let mut item = a_work_item_from_before_comments();
+        item.test_checks = vec![check];
+        let mut state = ProjectState::new();
+        state.work_items.push(item);
+        state
+    };
+
+    let mut old = serde_json::to_value(state_with(check(false))).unwrap();
+    old["version"] = 40.into();
+    assert!(
+        old["work_items"][0]["test_checks"][0]
+            .get("sent_back")
+            .is_none(),
+        "{old}"
+    );
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state_with(check(false))));
+
+    store.save(&state_with(check(true))).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["work_items"][0]["test_checks"][0]["sent_back"], true);
+    assert_eq!(store.load().unwrap(), Some(state_with(check(true))));
+}
+
 #[test]
 fn an_older_state_file_loads_with_no_contributions() {
     let dir = tempfile::tempdir().unwrap();
@@ -502,10 +552,10 @@ fn a_followed_contribution_survives_a_save_and_a_load() {
     assert_eq!(store.load().unwrap(), Some(state));
 }
 
-// A version 40 file has no `skipped`: its rulings loaded as any panel may
+// A version 41 file has no `skipped`: its rulings loaded as any panel may
 // still vote on them, and a skip saved since is kept as the runner left it.
 #[test]
-fn a_version_40_file_loads_with_no_skips_and_a_skip_is_kept() {
+fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
     use crate::panel::Skip;
 
     let dir = tempfile::tempdir().unwrap();
@@ -526,7 +576,7 @@ fn a_version_40_file_loads_with_no_skips_and_a_skip_is_kept() {
         raised: None,
     });
     let mut old = serde_json::to_value(&state).unwrap();
-    old["version"] = 40.into();
+    old["version"] = 41.into();
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");

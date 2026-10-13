@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 41);
+    assert_eq!(VERSION, 42);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -676,6 +676,37 @@ fn a_change_to_agent_files_keeps_its_head_files_and_phase() {
         })
     );
     assert_eq!(serde_json::from_value::<RulingKind>(saved).unwrap(), kind);
+}
+
+#[test]
+fn a_test_still_fails_ruling_round_trips() {
+    let saved = serde_json::json!({
+        "kind": "stuck",
+        "reason": "test-still-fails",
+        "review": {
+            "round": 2,
+            "stage": { "stage": "fixing", "head": "c0ffee" },
+        },
+        "head": "c0ffee",
+        "tests": [{ "test": "tests/flag.rs", "output": "assertion failed: flag" }],
+        "prompt": "again",
+    });
+    let kind: RulingKind = serde_json::from_value(saved.clone()).unwrap();
+    let RulingKind::Stuck(Stuck::TestStillFails {
+        fix: Fix::Review(review),
+        head,
+        tests,
+        prompt,
+    }) = &kind
+    else {
+        panic!("read as {kind:?}");
+    };
+    assert_eq!(
+        (review.round, head.as_str(), prompt.as_str()),
+        (2, "c0ffee", "again")
+    );
+    assert_eq!(tests[0].test, "tests/flag.rs");
+    assert_eq!(serde_json::to_value(&kind).unwrap(), saved);
 }
 
 #[test]

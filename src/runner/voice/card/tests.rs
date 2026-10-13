@@ -394,3 +394,32 @@ fn a_ruling_kelpie_wrote_effects_for_shows_them_in_place_of_the_fixed_phrases() 
         "{comment}"
     );
 }
+
+#[test]
+fn the_card_for_a_failing_test_says_what_a_yes_does() {
+    let kind = RulingKind::Stuck(Stuck::TestStillFails {
+        fix: crate::state::Fix::Review(crate::work_item::Review::first()),
+        head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
+        tests: vec![crate::state::FailingTest {
+            test: "tests/flag.rs".into(),
+            output: "assertion failed: flag".into(),
+        }],
+        prompt: "fix it".into(),
+    });
+
+    let card = rendered(&ruling(1, kind));
+
+    assert!(
+        card.contains("A reviewer's test still fails after two fixes. Send the worker back?"),
+        "{card}"
+    );
+    assert!(
+        card.contains("Sends the worker one more fix turn on the same tests"),
+        "{card}"
+    );
+    assert!(
+        card.contains("Sends the worker your note, ends the check and the review goes on"),
+        "{card}"
+    );
+    assert!(!card.contains("assertion failed"), "{card}");
+}

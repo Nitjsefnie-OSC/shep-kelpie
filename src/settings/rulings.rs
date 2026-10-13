@@ -72,6 +72,8 @@ pub enum RulingName {
     Closed,
     /// A fix turn ended without a push
     FixNotPushed,
+    /// A reviewer's test still fails after two fixes
+    TestStillFails,
     /// Work in the worktree is not pushed
     Unpushed,
     /// A turn ran past its ceiling
@@ -103,6 +105,7 @@ impl RulingName {
                 Stuck::MergeRefused { .. } => Self::MergeRefused,
                 Stuck::Closed => Self::Closed,
                 Stuck::FixNotPushed { .. } => Self::FixNotPushed,
+                Stuck::TestStillFails { .. } => Self::TestStillFails,
                 Stuck::Unpushed { .. } => Self::Unpushed,
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
@@ -125,6 +128,7 @@ impl RulingName {
             Self::MergeRefused => "merge-refused",
             Self::Closed => "closed",
             Self::FixNotPushed => "fix-not-pushed",
+            Self::TestStillFails => "test-still-fails",
             Self::Unpushed => "unpushed",
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
