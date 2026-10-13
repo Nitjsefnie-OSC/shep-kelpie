@@ -307,7 +307,7 @@ pub fn headless(
     // Not through the runner, so its plugins are loaded here, into a folder of
     // the run's own that the runner's `skills/repo` never shares.
     let skills = folder.join(format!("{}.skills", session.0));
-    let plugins = repo_plugins(project, &skills, git, &checkout);
+    let plugins = repo_plugins(project, writer, &skills, git, &checkout);
     let call = call(project, writer, request, &session, &checkout, &plugins)?;
     let started = SystemClock.now();
     let ran = agents
@@ -378,6 +378,7 @@ fn record(
 // told and let go, as the runner logs it.
 fn repo_plugins(
     project: &Project<'_>,
+    writer: &Writer,
     skills: &Path,
     git: &dyn ports::Git,
     view: &Path,
@@ -392,8 +393,10 @@ fn repo_plugins(
     for notice in loaded.notices() {
         eprintln!("{notice}");
     }
-    // Its folder is a view of the default branch, which already loads the repo's own files.
-    let own_loaded = crate::fence::matches_main(checkout, view);
+    // Its folder is a view of the default branch, which Claude Code reads the
+    // repo's own files from. Codex and pi do not, so they get the plugin.
+    let own_loaded =
+        writer.model.harness.reads_claude_files() && crate::fence::matches_main(checkout, view);
     loaded.dirs(own_loaded).map(Path::to_owned).collect()
 }
 

@@ -696,3 +696,36 @@ fn the_repos_plugins_reach_the_issue_writer_when_its_role_is_listed() {
 fn the_repos_plugins_do_not_reach_the_issue_writer_when_its_role_is_left_out() {
     assert!(plugin_dirs_of_the_run("[\"worker\"]").is_empty());
 }
+
+// The plugin dirs of a run whose default branch holds a skill of the repo's own, the
+// issue writer running on `harness`
+fn own_dirs_of_the_run(harness: crate::settings::AgentHarness) -> Vec<PathBuf> {
+    let mut s = Setup::with(|rig| {
+        rig.land(
+            ".claude/skills/house/SKILL.md",
+            "---\nname: house\n---\nRules.\n",
+        );
+    });
+    s.writer.model.harness = harness;
+    s.rig.forge.set_repo_labels(&[HUMAN]);
+    s.filed(41, "Pause a project", BODY, &[HUMAN, "agent:sonnet-high"]);
+    s.headless("{\"filed\": [41]}").unwrap();
+    let calls = s.rig.claude.all_calls();
+    assert_eq!(calls.len(), 1);
+    calls[0].plugin_dirs.clone()
+}
+
+#[test]
+fn a_claude_code_issue_writer_reads_the_repos_own_files_from_its_view_and_gets_no_plugin() {
+    let dirs = own_dirs_of_the_run(crate::settings::AgentHarness::StandIn);
+    assert!(dirs.is_empty(), "{dirs:?}");
+}
+
+#[test]
+fn a_codex_issue_writer_gets_the_repos_own_files_as_a_plugin() {
+    let dirs = own_dirs_of_the_run(crate::settings::AgentHarness::Codex);
+    assert!(
+        dirs.iter().any(|d| d.ends_with("repo/kelpie-repo")),
+        "{dirs:?}"
+    );
+}
