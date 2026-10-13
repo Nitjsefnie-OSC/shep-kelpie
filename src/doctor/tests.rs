@@ -30,6 +30,8 @@ struct FakeHost {
     os: &'static str,
     // What `pi --version` answers, `crate::adapters::PI_MINIMUM` when unset
     pi_version: Option<Result<&'static str, &'static str>>,
+    // What `goose --version` prints, `crate::adapters::GOOSE_MINIMUM` when unset
+    goose_version: Option<Result<&'static str, &'static str>>,
 }
 
 impl Host for FakeHost {
@@ -53,10 +55,15 @@ impl Host for FakeHost {
         self.token
     }
 
-    fn program_version(&self, _program: &str) -> Result<String, String> {
-        match self.pi_version {
-            Some(answer) => answer.map(str::to_owned).map_err(str::to_owned),
-            None => Ok(crate::adapters::PI_MINIMUM.to_owned()),
+    fn program_version(&self, program: &str) -> Result<String, String> {
+        let (said, minimum) = match program {
+            "goose" => (self.goose_version, crate::adapters::GOOSE_MINIMUM),
+            _ => (self.pi_version, crate::adapters::PI_MINIMUM),
+        };
+        match said {
+            // The real reader trims the line it takes, as `goose` needs.
+            Some(answer) => answer.map(|v| v.trim().to_owned()).map_err(str::to_owned),
+            None => Ok(minimum.to_owned()),
         }
     }
 }

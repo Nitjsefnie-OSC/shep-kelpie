@@ -6,7 +6,7 @@ use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
 use super::host::{Host, at_least};
-use crate::adapters::{LOGIN_FIX, LOGIN_VAR, PI_MINIMUM};
+use crate::adapters::{GOOSE_MINIMUM, LOGIN_FIX, LOGIN_VAR, PI_MINIMUM};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::{ConnectRefused, Connection};
 use crate::tools::Tools;
@@ -129,6 +129,46 @@ pub(super) fn pi(subject: String, host: &dyn Host) -> Line {
                 first_line(&said)
             ),
             "run `pi --version`",
+        ),
+    }
+}
+
+/// `goose` on the `PATH` at [`GOOSE_MINIMUM`] or later, for `subject`, a project with an agent on goose
+pub(super) fn goose(subject: String, host: &dyn Host) -> Line {
+    if !host.on_path("goose") {
+        return Line::missing(
+            subject,
+            "cannot run `goose`: it is not on your PATH",
+            "run `brew install block-goose-cli`",
+        );
+    }
+    let said = match host.program_version("goose") {
+        Ok(said) => said,
+        Err(why) => {
+            return Line::unsure(
+                subject,
+                format!("`goose --version` gave no version: {why}"),
+                "run `goose --version`",
+            );
+        }
+    };
+    match at_least(&said, GOOSE_MINIMUM) {
+        Some(true) => Line::ok(
+            subject,
+            format!("goose {said}, kelpie needs {GOOSE_MINIMUM} or later"),
+        ),
+        Some(false) => Line::missing(
+            subject,
+            format!("goose {said} is older than the {GOOSE_MINIMUM} kelpie needs"),
+            "run `brew upgrade block-goose-cli`",
+        ),
+        None => Line::unsure(
+            subject,
+            format!(
+                "`goose --version` printed `{}`, which is not a version number",
+                first_line(&said)
+            ),
+            "run `goose --version`",
         ),
     }
 }

@@ -129,6 +129,9 @@ mod tests {
         let pi = script("pi", "echo 1.0.4\necho a second line");
         assert_eq!(version_within(&pi, limit), Ok("1.0.4".into()));
 
+        let goose = script("goose", "echo ' 1.54.0'");
+        assert_eq!(version_within(&goose, limit), Ok("1.54.0".into()));
+
         let hang = script("hang", "exec sleep 30");
         let started = Instant::now();
         let err = version_within(&hang, Duration::from_millis(200)).unwrap_err();

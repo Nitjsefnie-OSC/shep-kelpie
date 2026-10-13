@@ -48,7 +48,7 @@ pub use door_pace::DoorPace;
 pub use gh::{Etags, Gh, GhApps};
 pub use git::SystemGit;
 pub use github::{CurlGithub, Openssl};
-pub use goose::GooseCli;
+pub use goose::{GOOSE_MINIMUM, GooseCli};
 pub use gpu::GpuCurl;
 pub use host::SystemHost;
 pub use leases::ShepLeases;

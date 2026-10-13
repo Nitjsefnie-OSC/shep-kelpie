@@ -169,3 +169,113 @@ async fn a_pi_reviewer_of_contributions_gets_a_pi_line_only_while_contributions_
         assert!(!subjects(&report).contains(&format!("{project}: pi").as_str()));
     }
 }
+
+// A goose researcher on a server of its own, which no gateway fronts: the one
+// role goose runs until its adapter is built
+const GOOSE: &str = "---\nrole: researcher\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                     url: http://box:11434/v1\ncontext: 65536\n---\nVote.\n";
+
+impl Scene {
+    /// Lists a goose agent for `golbat`, which `koji` does not run
+    fn runs_goose_on_golbat(&self) {
+        crate::test::write_in(&self.kelpie_home.join("agents"), "goose.md", GOOSE);
+        self.runs("golbat", |t| {
+            t.insert("agents".into(), json!({ "researcher": "goose" }));
+        });
+    }
+}
+
+#[tokio::test]
+async fn a_project_with_a_goose_agent_gets_a_goose_line_that_is_ok_at_the_minimum_and_above() {
+    let mut scene = Scene::new().await;
+    scene.runs_goose_on_golbat();
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "golbat: goose"),
+        "goose 1.53.0, kelpie needs 1.53.0 or later"
+    );
+    assert!(report.passed(), "{:#?}", report.render());
+
+    scene.host.goose_version = Some(Ok("1.54.0"));
+    let report = scene.report().await;
+    assert_eq!(
+        ok(&report, "golbat: goose"),
+        "goose 1.54.0, kelpie needs 1.53.0 or later"
+    );
+}
+
+#[tokio::test]
+async fn a_goose_older_than_the_minimum_is_missing_and_says_to_upgrade() {
+    let mut scene = Scene::new().await;
+    scene.runs_goose_on_golbat();
+    scene.host.goose_version = Some(Ok("1.47.9"));
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "golbat: goose");
+    assert_eq!(what, "goose 1.47.9 is older than the 1.53.0 kelpie needs");
+    assert!(fix.contains("brew upgrade block-goose-cli"), "{fix}");
+    assert!(!report.passed());
+}
+
+#[tokio::test]
+async fn a_goose_off_the_path_is_missing_and_says_to_install() {
+    let mut scene = Scene::new().await;
+    scene.runs_goose_on_golbat();
+    scene.host.off_path = vec!["goose"];
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "golbat: goose");
+    assert!(what.contains("not on your PATH"), "{what}");
+    assert!(fix.contains("brew install block-goose-cli"), "{fix}");
+    assert!(!report.passed());
+}
+
+#[tokio::test]
+async fn a_goose_whose_version_cannot_be_read_is_unsure_and_never_fails_the_run() {
+    let mut scene = Scene::new().await;
+    scene.runs_goose_on_golbat();
+    let unreadable = [
+        Err("goose --version did not answer in 10s"),
+        Ok("1.53.0-beta.1"),
+        Ok("goose cli"),
+    ];
+    for answer in unreadable {
+        scene.host.goose_version = Some(answer);
+        let report = scene.report().await;
+        let (what, next) = unsure(&report, "golbat: goose");
+        assert!(what.contains("goose --version"), "{what}");
+        assert_eq!(next, "run `goose --version`");
+        assert!(report.passed(), "{:#?}", report.render());
+    }
+}
+
+#[tokio::test]
+async fn a_project_with_no_goose_agent_gets_no_goose_line() {
+    let mut scene = Scene::new().await;
+    scene.host.off_path = vec!["goose"];
+    scene.runs_goose_on_golbat();
+    let report = scene.report().await;
+    assert!(!subjects(&report).contains(&"koji: goose"));
+    assert!(subjects(&report).contains(&"golbat: goose"));
+    assert!(subjects(&report).iter().any(|s| s.starts_with("koji: ")));
+}
+
+// The shared reader already trims the line `program --version` prints, so
+// nothing was added to it. The fake host trims as it does, and the reader's
+// own test in `src/adapters/host.rs` runs a script that prints ` 1.54.0`.
+#[tokio::test]
+async fn goose_prints_its_version_with_a_leading_space_and_it_is_read() {
+    let mut scene = Scene::new().await;
+    scene.runs_goose_on_golbat();
+    for (printed, passes) in [(" 1.54.0", true), (" 1.52.9", false)] {
+        scene.host.goose_version = Some(Ok(printed));
+        let report = scene.report().await;
+        if passes {
+            assert_eq!(
+                ok(&report, "golbat: goose"),
+                "goose 1.54.0, kelpie needs 1.53.0 or later"
+            );
+        } else {
+            let (what, _) = missing(&report, "golbat: goose");
+            assert_eq!(what, "goose 1.52.9 is older than the 1.53.0 kelpie needs");
+        }
+    }
+}
