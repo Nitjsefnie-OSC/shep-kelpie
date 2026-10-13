@@ -205,6 +205,7 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
         machine::gh(probes.forge),
         machine::sandbox(probes.host, &Tools::under(here.kelpie_home)),
     ];
+    lines.extend(machine::sandbox_limits(probes.host));
     match shepherd::connect(probes.shepherd, shep_home).await {
         Ok(client) => {
             lines.push(machine::shepherd(&client, shep_home));

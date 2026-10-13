@@ -131,6 +131,8 @@ jobs:
       # only some tests, so the run must show each test below as passed. A
       # failing test fails the step on its own. A test given a Linux-only
       # `ignore` for a gap in the fence (see #214) comes off this list.
+      # The socket test runs on Linux alone, so it is listed here and nowhere
+      # a macOS run reads.
       - name: Run the sandbox tests
         run: |
           set -o pipefail
@@ -143,7 +145,9 @@ jobs:
           for name in \
             the_worktree_the_build_folder_and_the_transcripts_are_written_and_nothing_outside \
             claude_codes_own_files_are_refused_in_any_case_and_spelling \
+            a_nested_claude_folder_that_existed_at_call_start_is_refused \
             codexs_own_files_are_refused_in_any_case \
+            a_socket_the_policy_lists_is_still_refused_on_linux \
             a_host_not_allowed_and_a_socket_not_listed_are_refused \
             a_worker_reaches_the_model_only_through_a_forwarder_that_passes_chat; do
             grep -Eq "^test .*::${name} \.\.\. ok$" sandbox.log \
