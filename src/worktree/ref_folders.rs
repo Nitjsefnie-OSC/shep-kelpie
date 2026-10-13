@@ -36,7 +36,7 @@ mod tests {
     use std::process::Command;
 
     use crate::test::git;
-    use crate::worktree::{Start, prepare, remove};
+    use crate::worktree::{Remote, Start, prepare, remove};
 
     // A clone of an origin holding `main`, with `kelpie/` folders to be
     // emptied the way the cleanup of a merged branch empties them.
@@ -77,6 +77,7 @@ mod tests {
                 &self.worktree(),
                 "kelpie/7",
                 Start::Main,
+                &Remote::Origin,
                 &self.root.join("build"),
             )
             .unwrap();
@@ -169,7 +170,7 @@ mod tests {
             &clone.worktree(),
             "kelpie/7",
             &clone.root.join("build"),
-            false,
+            None,
         )
         .unwrap();
 
@@ -192,7 +193,7 @@ mod tests {
             &clone.worktree(),
             "kelpie/7",
             &clone.root.join("build"),
-            true,
+            Some(&Remote::Origin),
         );
 
         assert!(removed.is_err());
