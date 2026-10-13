@@ -5,7 +5,6 @@ use shep_client::shep_core::config::{AppConfig, DogTable};
 use super::*;
 use crate::runner::ProjectPaths;
 use crate::settings::table_of;
-use crate::shepherd;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
 
 const TABLE: &str = r#"
@@ -64,7 +63,7 @@ fn checkout(shepherd: &FakeShepherd, folder: &str, remote: &str) -> PathBuf {
 
 impl Scene {
     async fn new() -> Self {
-        let shepherd = FakeShepherd::new().await;
+        let shepherd = FakeShepherd::new();
         let checkouts = [
             checkout(&shepherd, "koji-checkout", "shep-pm/koji"),
             checkout(&shepherd, "eevee-checkout", "shep-pm/eevee"),
@@ -90,7 +89,7 @@ impl Scene {
     }
 
     async fn set_on(&self, name: &str, key: &str, value: &str) -> Result<Vec<String>, String> {
-        let client = shepherd::connect(self.shepherd.home()).await.unwrap();
+        let client = self.shepherd.connect().await;
         let home = self.shepherd.scratch("home");
         let name = ProjectName::try_from(name).unwrap();
         let paths = ProjectPaths::under(&home.join("kelpie"), self.shepherd.home(), &name);
@@ -105,7 +104,7 @@ impl Scene {
     }
 
     async fn get(&self, name: &str, key: Option<&str>) -> Result<Vec<String>, String> {
-        let client = shepherd::connect(self.shepherd.home()).await.unwrap();
+        let client = self.shepherd.connect().await;
         let name = ProjectName::try_from(name).unwrap();
         let done = get(&client, &name, key);
         tokio::time::timeout(CALL_PATIENCE, done)
@@ -120,8 +119,6 @@ impl Scene {
     }
 }
 
-// Real sockets under a real clock: a paused one would time out the
-// handshake while the fake's socket is merely waiting.
 #[tokio::test]
 async fn set_writes_a_word_and_a_list_and_get_shows_both() {
     let mut scene = Scene::new().await;

@@ -152,11 +152,13 @@ async fn a_sheep_that_runs_another_program_stops_the_upgrade_before_anything_cha
 
 #[tokio::test]
 async fn a_flock_with_no_adopted_kelpie_has_nothing_to_upgrade() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let home = shepherd.scratch("kelpie");
+    let dial = shepherd.dial();
     let scene = Scene {
         kelpie_home: &home,
         shep_home: shepherd.home(),
+        shepherd: &*dial,
         repo: "/nowhere",
         patience: FAST,
         now: false,
@@ -171,9 +173,11 @@ async fn a_flock_with_no_adopted_kelpie_has_nothing_to_upgrade() {
 #[tokio::test]
 async fn no_shepherd_means_no_upgrade() {
     let home = tempfile::tempdir().unwrap();
+    let elsewhere = FakeShepherd::new().dial();
     let scene = Scene {
         kelpie_home: home.path(),
         shep_home: Path::new("/nowhere/shep"),
+        shepherd: &*elsewhere,
         repo: "/nowhere",
         patience: FAST,
         now: false,

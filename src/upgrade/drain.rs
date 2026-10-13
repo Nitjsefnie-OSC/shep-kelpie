@@ -15,11 +15,11 @@
 use std::time::Duration;
 
 use serde_json::Value;
-use shep_client::Client;
 use tokio::time::Instant;
 
 use super::restart::Patience;
 use crate::flock::control::{Answered, trigger};
+use crate::shepherd::Connection;
 
 /// What a runner is drained for, which the lines about it name
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +111,7 @@ fn call(call: &Value) -> String {
 /// waited on for `patience.merge`, as one that never answers `status` is.
 /// The runner is left draining: the caller sends it [`undrain`].
 pub async fn drain(
-    client: &Client,
+    client: &dyn Connection,
     name: &str,
     patience: Patience,
     purpose: Purpose,
@@ -189,7 +189,7 @@ fn predates(name: &str, purpose: Purpose, say: &mut dyn FnMut(String)) -> Result
 ///
 /// A failure to send it is let go: only a shepherd that cannot be reached
 /// leaves the runner draining, and its restart ends that.
-pub async fn undrain(client: &Client, name: &str, purpose: Purpose) -> String {
+pub async fn undrain(client: &dyn Connection, name: &str, purpose: Purpose) -> String {
     let on = match purpose {
         Purpose::Upgrade => " on the old build",
         Purpose::Pause => "",

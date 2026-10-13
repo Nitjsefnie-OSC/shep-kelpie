@@ -72,16 +72,6 @@ pub fn run() -> ExitCode {
     }
 }
 
-/// The shepherd's control socket: `$SHEP_HOME/run/shep.sock`, or under
-/// shep's own default `~/.shep` when `SHEP_HOME` is unset
-///
-/// # Errors
-///
-/// A message when `SHEP_HOME` is relative, or neither it nor `HOME` is set.
-pub fn shepherd_socket() -> Result<PathBuf, String> {
-    Ok(home::shep_home()?.join(home::SHEP_SOCKET))
-}
-
 /// The dog's book file, under kelpie's home
 pub const BOOK: &str = "dog/book.json";
 

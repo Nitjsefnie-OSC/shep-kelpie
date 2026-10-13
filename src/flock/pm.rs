@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use shep_client::Client;
+use crate::shepherd::Connection;
 
 use super::control;
 use crate::runner::{PmAttaching, ProjectName};
@@ -24,7 +24,10 @@ const ASK_AGAIN: Duration = Duration::from_secs(5);
 /// # Errors
 ///
 /// A message naming why its session cannot be held, run or let go.
-pub(super) async fn pm(client: &Client, project: &ProjectName) -> Result<Vec<String>, String> {
+pub(super) async fn pm(
+    client: &dyn Connection,
+    project: &ProjectName,
+) -> Result<Vec<String>, String> {
     let me = std::process::id();
     let ask = async |action: &str, session: Option<u32>| {
         let params = match session {

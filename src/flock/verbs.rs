@@ -13,7 +13,7 @@ use crate::issues::{self, Mode, Project, Writer};
 use crate::ports::SandboxError;
 use crate::runner::{ProjectName, ProjectPaths};
 use crate::settings::source;
-use crate::shepherd;
+use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::state::ids::RulingIds;
 use crate::tools::Tools;
 use crate::upgrade::restart::{Interrupt, Patience};
@@ -82,7 +82,7 @@ folder, or whose GitHub repo is this clone's `origin`.";
 /// Runs `kelpie <command> <args>` for one of [`VERBS`]
 pub fn main(command: &str, args: &[String]) -> ExitCode {
     let ran = crate::shep_home::required(crate::shep_home::FLOCK_FIX)
-        .and_then(|shep_home| shepherd::block_on(run(&shep_home, command, args)));
+        .and_then(|shep_home| shepherd::block_on(run(&Socket, &shep_home, command, args)));
     match ran {
         Ok(lines) => {
             for line in lines {
@@ -97,7 +97,12 @@ pub fn main(command: &str, args: &[String]) -> ExitCode {
     }
 }
 
-async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<String>, String> {
+async fn run(
+    dial: &dyn Dial,
+    shep_home: &Path,
+    command: &str,
+    args: &[String],
+) -> Result<Vec<String>, String> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or("HOME is not set")?;
@@ -116,7 +121,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         args
     };
     if command == "rule" {
-        return answer(shep_home, &home, &kelpie_home, named.as_ref(), &args).await;
+        return answer(dial, shep_home, &home, &kelpie_home, named.as_ref(), &args).await;
     }
     if command == "usage" {
         return usage::usage(&kelpie_home, named, &args);
@@ -128,7 +133,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         let project = match named {
             Some(name) => name,
             None => {
-                let client = shepherd::connect(shep_home)
+                let client = shepherd::connect(dial, shep_home)
                     .await
                     .map_err(|e| e.describe(shep_home))?;
                 control::project_here(&client, &here, &home).await?
@@ -138,7 +143,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         return Ok(Vec::new());
     }
     let here = std::env::current_dir().map_err(|e| format!("cannot read this folder: {e}"))?;
-    let client = shepherd::connect(shep_home)
+    let client = shepherd::connect(dial, shep_home)
         .await
         .map_err(|e| e.describe(shep_home))?;
     // Named, or the one whose repo holds this folder.
@@ -288,7 +293,7 @@ fn is_number(text: &str) -> bool {
 
 // Where `issue` finds the project's settings and files.
 struct Here<'a> {
-    client: &'a shep_client::Client,
+    client: &'a dyn Connection,
     shep_home: &'a Path,
     kelpie_home: &'a Path,
     home: &'a Path,
@@ -354,6 +359,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
 // the shepherd is reached to send it, and before that only to find the
 // project of the clone a number is typed in.
 async fn answer(
+    dial: &dyn Dial,
     shep_home: &Path,
     home: &Path,
     kelpie_home: &Path,
@@ -365,7 +371,7 @@ async fn answer(
     let here = match (named, args.first()) {
         (None, Some(first)) if rule::is_number(first) => {
             let here = std::env::current_dir().ok();
-            match (shepherd::connect(shep_home).await, here) {
+            match (shepherd::connect(dial, shep_home).await, here) {
                 (Ok(client), Some(here)) => control::project_here(&client, &here, home).await.ok(),
                 _ => None,
             }
@@ -379,7 +385,7 @@ async fn answer(
         &mut output as &mut dyn Write,
     ));
     let (project, params) = rule::prepare_in(&ids, named, here.as_ref(), args, ask)?;
-    let client = shepherd::connect(shep_home)
+    let client = shepherd::connect(dial, shep_home)
         .await
         .map_err(|e| e.describe(shep_home))?;
     let answers = ProjectPaths::under(kelpie_home, shep_home, &project).answers;
@@ -520,7 +526,7 @@ mod tests {
     // `command args` against a fake shepherd holding the runner `koji`, which
     // answers every trigger with `says` when that is given.
     async fn verb(command: &str, args: &str, says: Option<&str>) -> Result<Vec<String>, String> {
-        let shepherd = crate::test::FakeShepherd::new().await;
+        let shepherd = crate::test::FakeShepherd::new();
         let launch = Launch {
             kelpie: "/opt/kelpie".into(),
             shep_home: shepherd.home().to_owned(),
@@ -539,7 +545,8 @@ mod tests {
             .chain(args.split_whitespace())
             .map(str::to_owned)
             .collect();
-        let ask = run(shepherd.home(), command, &args);
+        let dial = shepherd.dial();
+        let ask = run(&*dial, shepherd.home(), command, &args);
         tokio::time::timeout(std::time::Duration::from_secs(40), ask)
             .await
             .unwrap_or_else(|_| panic!("{command} neither ended nor failed in time"))
