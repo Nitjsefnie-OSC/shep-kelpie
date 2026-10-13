@@ -102,3 +102,46 @@ fn a_model_host_that_cannot_be_reached_is_unreachable_and_any_other_error_fails(
     .reply;
     assert!(reply.is_ok(), "{reply:?}");
 }
+
+#[test]
+fn a_closed_port_on_a_resumed_session_is_unreachable_and_keeps_its_totals() {
+    let before = Spent {
+        input_tokens: 20,
+        output_tokens: 3,
+        ..Spent::default()
+    };
+    let parsed = read(
+        &output(0, UNREACHABLE, ""),
+        &Session::Resume(id(FRESH_ID)),
+        before,
+    );
+    let err = parsed.reply.unwrap_err();
+    assert!(
+        matches!(err, AgentError::Unreachable(Harness::Goose, _)),
+        "{err:?}"
+    );
+    assert_eq!(parsed.spent, None);
+}
+
+#[test]
+fn a_reply_streamed_in_pieces_is_joined_by_the_id_they_share() {
+    let piece = |id: &str, text: &str| {
+        format!(
+            r#"{{"type":"message","message":{{"id":"{id}","role":"assistant","content":[{{"type":"text","text":"{text}"}}]}}}}"#
+        )
+    };
+    let stdout = [
+        piece("a", "Earlier. "),
+        piece("b", "Hello "),
+        piece("b", "world"),
+    ]
+    .join("\n");
+    let reply = read(
+        &output(0, &stdout, ""),
+        &Session::New(id(FRESH_ID)),
+        Spent::default(),
+    )
+    .reply
+    .unwrap();
+    assert_eq!(reply.text, "Hello world");
+}

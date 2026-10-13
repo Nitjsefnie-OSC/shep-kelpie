@@ -99,6 +99,8 @@ impl Line {
 
 #[derive(Deserialize)]
 struct Message {
+    #[serde(default)]
+    id: Option<String>,
     role: String,
     #[serde(default)]
     content: Vec<Content>,
@@ -123,7 +125,8 @@ impl Message {
 pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let mut last: Option<Message> = None;
+    // The last assistant message: its id, and its text so far.
+    let mut last: Option<(Option<String>, String)> = None;
     let mut complete = None;
     let mut error = None;
     // Whether the latest message to print could not be read, so `last` is stale.
@@ -137,7 +140,14 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
             "message" => match line.message {
                 Some(message) if message.role == "assistant" => {
                     unread = false;
-                    last = Some(message);
+                    // goose streams a reply as several events that share one id,
+                    // each carrying a piece of its text.
+                    match &mut last {
+                        Some((id, text)) if id.is_some() && *id == message.id => {
+                            text.push_str(&message.text());
+                        }
+                        _ => last = Some((message.id.clone(), message.text())),
+                    }
                 }
                 _ => {}
             },
@@ -161,7 +171,7 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
                 None => AgentError::Unreadable(GOOSE, tail(&stdout).to_owned()),
             });
         };
-        let text = last.text();
+        let (_, text) = last;
         if text.starts_with(TURN_LIMIT) {
             return Err(AgentError::Failed(
                 GOOSE,
@@ -170,22 +180,23 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
         }
         // goose reports a provider's failure as its reply, exits 0 and counts no
         // tokens, so a reply that spent some is not taken for one.
-        let spent = complete.unwrap_or(before);
-        if text.starts_with(NETWORK_ERROR) && spent == before {
+        let usage = complete.unwrap_or(before).since(before);
+        if text.starts_with(NETWORK_ERROR) && usage == Usage::default() {
             return Err(failed(&text));
         }
         Ok(AgentReply {
             session_id: asked.clone(),
             text,
-            usage: spent.since(before),
+            usage,
             session_cost: None,
             context: None,
         })
     })();
-    Read {
-        reply,
-        spent: complete,
-    }
+    // Totals only grow, so ones below what the session had are not its own.
+    let spent = complete.filter(|s| {
+        s.input_tokens >= before.input_tokens && s.output_tokens >= before.output_tokens
+    });
+    Read { reply, spent }
 }
 
 // An error the model host did not answer is the host's, and passes. Any other
