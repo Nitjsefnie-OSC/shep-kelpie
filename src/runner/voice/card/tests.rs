@@ -149,6 +149,43 @@ fn ticked_answer(kind: &RulingKind, body: &str) -> Option<Answer> {
 }
 
 #[test]
+fn a_candidate_that_asks_the_maintainer_is_no_answer_to_send_the_worker() {
+    let asked = "Which flag?\n- Use `--check`\n- ask the maintainer.";
+    let kind = asking(asked);
+    let comment = rendered(&ruling(1, kind.clone()));
+    let ticked = comment.replace("- [ ] B", "- [x] B");
+
+    assert!(
+        comment.contains("the maintainer answers in their own words"),
+        "{comment}"
+    );
+    assert_eq!(
+        answer_for(&kind, 'A', ""),
+        Some(Answer::Text("Use `--check`".into()))
+    );
+    assert_eq!(answer_for(&kind, 'B', ""), None);
+    assert_eq!(ticked_answer(&kind, &ticked), None);
+}
+
+#[test]
+fn an_option_ending_on_code_keeps_its_backticks_and_one_wrapped_whole_loses_them() {
+    let kind = asking("Which?\n- Use `--check`\n- `--dry-run`\n- `a` or `b`");
+
+    assert_eq!(
+        answer_for(&kind, 'A', ""),
+        Some(Answer::Text("Use `--check`".into()))
+    );
+    assert_eq!(
+        answer_for(&kind, 'B', ""),
+        Some(Answer::Text("--dry-run".into()))
+    );
+    assert_eq!(
+        answer_for(&kind, 'C', ""),
+        Some(Answer::Text("`a` or `b`".into()))
+    );
+}
+
+#[test]
 fn a_question_that_lists_no_options_is_answered_by_reply_alone() {
     let asked = "Which name should the flag have?";
 

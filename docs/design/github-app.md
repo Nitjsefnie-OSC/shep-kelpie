@@ -46,6 +46,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 ## Ruling panel
 
 - Once `agents.advisor` or `agents.researcher` set, ruling with 2+ options gets blind panel: worker, PM, advisor, researcher. #465
+- Question listing under 2 options: PM's one wake drafts 2-3 `candidates` (one may be `Ask the maintainer`, a vote for it decides nothing), which become its `- ` options, then the panel votes as on any ruling. Question text stays as asked; free text still answers. No PM or no panel = no candidates. #709, `src/runner/pm/question.rs`
 - Comment waits up to 20 min for votes (`panel::HOLD`), each expert 15 min. Vote `{"choice", "why", "design"}`; malformed abstains. #465, `src/runner/flight/panel.rs`
 - Advisor (Opus 5.5 high) reads codebase; researcher (Sonnet 5.5 high) reads past rulings, threads, transcripts, web limited to `researcher.allowed_domains` (page may steer it). #465, `src/transcripts.rs`
 - `rulings.decide`: `shadow` (default), `panel` (3 agreeing votes, no `design` flag decide; splits and merges under `ask` go to maintainer) or `always` (see budget.md). Reopen within 24h with `<id> no <note>`. #466, `src/runner/panel/decided.rs`

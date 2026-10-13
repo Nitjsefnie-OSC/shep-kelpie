@@ -71,6 +71,9 @@ pub(super) struct Settle {
     pub(super) problem: Option<String>,
     /// What the board shows of picking an option, when it passes the question on
     pub(super) board: Option<String>,
+    /// Candidate answers it drafts for a question that lists fewer than two
+    /// options, each on one line, when it passes the question on
+    pub(super) candidates: Vec<String>,
 }
 
 /// The project manager's call on one follow-up ruling
@@ -288,6 +291,14 @@ fn settle(value: &Value) -> Option<Settle> {
     let item = number(value.get("item")?)?;
     let text = value.get("text").filter(|v| !v.is_null());
     let escalate = value.get("escalate").filter(|v| !v.is_null());
+    let candidates: Vec<String> = match value.get("candidates") {
+        Some(Value::Array(items)) => (items.iter())
+            .filter_map(Value::as_str)
+            .map(|c| printable(c.trim()))
+            .filter(|c| !c.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    };
     let how = match (text, escalate) {
         (Some(Value::String(text)), None) => match printable(text.trim()) {
             text if text.is_empty() => return None,
@@ -297,6 +308,8 @@ fn settle(value: &Value) -> Option<Settle> {
         (None, Some(Value::String(choice))) => {
             How::Escalate(Some(choice.trim().to_owned()).filter(|c| !c.is_empty()))
         }
+        // Candidates alone pass the question on, with nothing recommended.
+        (None, None) if !candidates.is_empty() => How::Escalate(None),
         _ => return None,
     };
     let why = value.get("why").and_then(Value::as_str).unwrap_or("");
@@ -310,6 +323,7 @@ fn settle(value: &Value) -> Option<Settle> {
         why: why.trim().to_owned(),
         problem: words("problem"),
         board: words("board"),
+        candidates,
     })
 }
 
@@ -379,6 +393,7 @@ mod tests {
                 why: "r".into(),
                 problem: None,
                 board: None,
+                candidates: Vec::new(),
             })
         );
         let passed = read(
@@ -408,6 +423,25 @@ mod tests {
             let read = read(bad).unwrap();
             assert_eq!((read.answer, read.unread.len()), (None, 1), "{bad}");
         }
+    }
+
+    #[test]
+    fn candidates_pass_a_question_on_with_or_without_a_recommendation() {
+        let settle = |text: &str| read(text).unwrap().answer.unwrap();
+        let drafted = settle(
+            "{\"answer\": {\"item\": 7, \"escalate\": true, \"candidates\": [\" Use it. \", \"\", 4, \
+             \"Ask the maintainer\"]}}",
+        );
+        assert_eq!(drafted.how, How::Escalate(None));
+        assert_eq!(drafted.candidates, ["Use it.", "Ask the maintainer"]);
+        let alone = settle("{\"answer\": {\"item\": 7, \"candidates\": [\"a\", \"b\"]}}");
+        assert_eq!(alone.how, How::Escalate(None));
+        let text = settle(
+            "{\"answer\": {\"item\": 7, \"text\": \"Go.\", \"candidates\": [\"a\", \"b\"]}}",
+        );
+        assert_eq!(text.how, How::Text("Go.".into()));
+        let none = read("{\"answer\": {\"item\": 7, \"candidates\": []}}").unwrap();
+        assert_eq!((none.answer, none.unread.len()), (None, 1));
     }
 
     #[test]

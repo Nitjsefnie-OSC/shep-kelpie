@@ -8,7 +8,7 @@
 use crate::panel::{Advice, Voter};
 use crate::runner::Runner;
 use crate::runner::thread_replies::Settler;
-use crate::runner::voice::{answer_for, named, settled_comment};
+use crate::runner::voice::{answer_for, asks_the_maintainer, named, settled_comment};
 use crate::state::Ruling;
 
 impl Runner {
@@ -19,6 +19,13 @@ impl Runner {
         let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id).cloned() else {
             return;
         };
+        // A candidate that asks the maintainer is no answer for the worker.
+        if (named(&ruling.kind, advice.choice)).is_some_and(|n| asks_the_maintainer(&n)) {
+            self.notes.push(format!(
+                "ruling {id}: the panel's pick is to ask the maintainer, so the maintainer decides"
+            ));
+            return;
+        }
         let note = format!("Decided by the panel: {}", agreeing_why(&ruling, advice));
         let Some(answer) = answer_for(&ruling.kind, advice.choice, &note) else {
             self.notes.push(format!(

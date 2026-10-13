@@ -19,13 +19,16 @@ use crate::board::{READY, TRIAGE};
 use crate::ports::{Finding, PM_NOTES};
 use crate::runner::ruling::question;
 use crate::runner::thread_replies::Settler;
-use crate::runner::voice::{BOARD, PROBLEM, effect_of};
+use crate::runner::voice::{ASK_THE_MAINTAINER, BOARD, PROBLEM, asks_the_maintainer, effect_of};
 use crate::runner::{Answer as Ruled, RuleError, Runner};
 use crate::state::{RulingKind, StateError};
 use crate::work_item::Phase;
 
 /// How many settled questions `status` keeps
 const KEPT: usize = 5;
+
+/// The most options a question the project manager drafted candidates for lists
+const MOST_OPTIONS: usize = 3;
 
 /// What leads the text of an answer the project manager gave
 const ANSWERED: &str = "PM answered:";
@@ -99,11 +102,17 @@ impl Runner {
                 let words = |text: &Option<String>| {
                     (text.as_ref()).map(|t| plain(&self.shown(t.clone()), WORDS))
                 };
+                // With no panel there is nothing to vote on candidates.
+                let drafted = settle.candidates.iter().filter(|_| self.panel_enabled());
+                let candidates = drafted
+                    .map(|c| plain(&self.shown(c.clone()), WORDS))
+                    .collect();
                 let passed = Passed {
                     choice: choice.as_deref(),
                     why: &why,
                     problem: words(&settle.problem),
                     board: words(&settle.board),
+                    candidates,
                 };
                 self.recommend(id, &passed)?;
                 (
@@ -284,9 +293,11 @@ impl Runner {
             // note of its own to rewrite.
             RulingKind::FollowUp { .. } => {
                 let passed = Passed {
+                    choice: passed.choice,
+                    why: passed.why,
                     problem: None,
                     board: None,
-                    ..*passed
+                    candidates: Vec::new(),
                 };
                 ruling.question = recommended(&ruling.question, &passed);
             }
@@ -327,12 +338,18 @@ impl Runner {
 //
 // Its `problem` replaces the worker's `Problem:` line, which leads the question,
 // and its `board` note goes under its recommendation.
+//
+// A question that lists fewer than two options takes its `candidates` as
+// the list, after the one it lists, if it lists one, up to [`MOST_OPTIONS`].
+// A recommendation that is no candidate is then shown as it is and not added
+// to the list.
 fn recommended(asked: &str, passed: &Passed<'_>) -> String {
     let Passed {
         choice,
         why,
         problem,
         board,
+        candidates,
     } = passed;
     let (choice, why) = (*choice, *why);
     let lines: Vec<&str> = asked.lines().collect();
@@ -345,25 +362,31 @@ fn recommended(asked: &str, passed: &Passed<'_>) -> String {
         .filter(|line| problem.is_none() || !line.starts_with(PROBLEM))
         .filter(|line| board.is_none() || !line.starts_with(BOARD))
         .collect();
+    let mut placed = false;
     let list: Vec<String> = {
-        let named = choice.map(plain_choice);
-        let at = list
-            .iter()
-            .position(|line| named.is_some() && Some(plain_choice(line)) == named);
         let mut list: Vec<String> = list.iter().map(|l| (*l).to_owned()).collect();
+        let drafted = draft(&mut list, candidates);
+        let named = choice.map(plain_choice);
+        let at = named.and_then(|n| list.iter().position(|line| plain_choice(line) == n));
         match (choice, at) {
             (Some(_), Some(at)) => {
                 let line = list.remove(at);
                 list.insert(0, line);
+                placed = true;
             }
-            (Some(choice), None) if !list.is_empty() => list.insert(0, format!("- {choice}")),
+            (Some(choice), None) if !list.is_empty() && !drafted => {
+                list.insert(0, format!("- {choice}"));
+                placed = true;
+            }
             _ => {}
         }
         list
     };
     let shown = match (choice, list.first()) {
-        (Some(_), Some(first)) => Some(effect_of(first.trim_start().trim_start_matches("- ")).0),
-        (Some(choice), None) => Some(choice.to_owned()),
+        (Some(_), Some(first)) if placed => {
+            Some(effect_of(first.trim_start().trim_start_matches("- ")).0)
+        }
+        (Some(choice), _) => Some(choice.to_owned()),
         (None, _) => None,
     };
     let mut out: Vec<String> = problem
@@ -378,6 +401,27 @@ fn recommended(asked: &str, passed: &Passed<'_>) -> String {
     }
     out.extend(list);
     out.join("\n")
+}
+
+// Adds `candidates` to `list`, the `- ` lines a question lists, when it lists
+// fewer than two, up to [`MOST_OPTIONS`] and none that repeats a line. Says
+// whether it added any.
+fn draft(list: &mut Vec<String>, candidates: &[String]) -> bool {
+    let before = list.len();
+    if before >= 2 {
+        return false;
+    }
+    for candidate in candidates {
+        let text = match asks_the_maintainer(candidate) {
+            true => ASK_THE_MAINTAINER,
+            false => candidate,
+        };
+        let seen = list.iter().any(|l| plain_choice(l) == plain_choice(text));
+        if list.len() < MOST_OPTIONS && !seen {
+            list.push(format!("- {text}"));
+        }
+    }
+    list.len() > before
 }
 
 // A choice as it is compared: without its `- `, the effect written after it,
@@ -399,4 +443,6 @@ struct Passed<'a> {
     problem: Option<String>,
     /// What the board shows of picking an option
     board: Option<String>,
+    /// The answers it drafts for a question that lists fewer than two options
+    candidates: Vec<String>,
 }

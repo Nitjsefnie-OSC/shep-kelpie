@@ -10,7 +10,7 @@ use crate::ports::PM_NOTES;
 /// shows again to a session that has seen the answer without it
 macro_rules! answer_key {
     () => {
-        "\"answer\": null or {\"item\": <the work item whose worker asked, or whose follow-up you pass on>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"problem\": \"<optional>\", \"board\": \"<optional>\", \"why\": \"<one sentence>\"}"
+        "\"answer\": null or {\"item\": <the work item whose worker asked, or whose follow-up you pass on>, \"text\": \"<the worker's next turn>\" or \"escalate\": \"<the choice you recommend>\", \"candidates\"?: [\"<an answer>\", ...], \"problem\": \"<optional>\", \"board\": \"<optional>\", \"why\": \"<one sentence>\"}"
     };
 }
 
@@ -29,7 +29,15 @@ macro_rules! questions {
          `problem` to replace the worker's with one or two plain sentences a maintainer \
          who has not followed the item can act on, and `board` with what the board \
          shows of picking an option: the items held behind this one, and whether a slot \
-         is freed or kept. Both are optional, and each goes on one line."
+         is freed or kept. Both are optional, and each goes on one line.\n\n\
+         Where the project has a panel, it votes on a question's options, and a \
+         question that lists fewer than two has none to vote on. Unless you answer \
+         it with `text`, give `candidates` beside `escalate` (or alone): two or three short answers the worker could \
+         act on as they stand, one line each, the likeliest first. Where the \
+         question is a product call, make one of them `Ask the maintainer`. Kelpie \
+         lists them under the question as its options, and the experts vote on them \
+         and you vote on them, in a wake of its own. A question that already lists \
+         two options or more keeps them, and `candidates` is dropped."
     };
 }
 
