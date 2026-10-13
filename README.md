@@ -130,13 +130,15 @@ The settings `add` writes, with their defaults, are in [What `add` writes](docs/
 
 ### 5. Register kelpie's GitHub App
 
-shep-kelpie posts its rulings, notices and review rounds on GitHub as an App of its own that you register for yourself, so they reach you through GitHub's notifications. [The GitHub App](docs/guide/github-app.md#the-github-app) says what it posts and what a worker's token can do. For the account that owns the repo:
+shep-kelpie posts its rulings, notices and review rounds on GitHub as an App of its own that you register for yourself, so they reach you through GitHub's notifications: GitHub never notifies you of what your own login posts. Each ruling is a comment on the work item's pull request, or on its issue while it has none, that mentions you and says how to answer. A notice that a pull request merged is a comment on it, and each round of a reviewer of kelpie's own is posted on the pull request as it ends, with its findings or that it found none. The issues and labels shep-kelpie makes come from the App too. Reply to the comment to answer it (see [Rulings](docs/guide/rulings.md#rulings)), or use `shep kelpie rule`. Without an App, shep-kelpie posts as it always did, from your own login. For the account that owns the repo:
 
 ```sh
 shep kelpie github setup
 ```
 
 For a repo an organization owns, `shep kelpie github setup --org <org>`. It opens GitHub's page for a new App, filled in: the name `kelpie-<owner>`, no webhook, and only these permissions: contents, workflows, issues and pull requests to write, metadata to read. Click to create it, and GitHub sends you back to shep-kelpie, which keeps the App and opens the page that installs it. Install it on the repos shep-kelpie works. If the browser does not open, the command prints the address to open by hand.
+
+What the App posts, what a worker's token can do and which permissions it needs are in [The GitHub App](docs/guide/github-app.md#the-github-app).
 
 ### 6. Check the machine
 
