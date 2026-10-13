@@ -111,7 +111,7 @@ fn adopt_starts_at_ci_and_the_first_turn_names_the_file_ahead_of_the_red_run() {
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 80, .. })
     ));
     assert_eq!(rig.reviewer.seen(), [], "no qwen round, before or after");
 }

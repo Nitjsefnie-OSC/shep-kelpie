@@ -26,8 +26,7 @@ use crate::settings::{
     Account, AgentName, ForgeSlug, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError,
 };
 use crate::skills::{RepoPlugins, Skills};
-use crate::state::ids::RulingIds;
-use crate::state::{ProjectState, StateError, StateStore};
+use crate::state::{ProjectState, Ruling, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{
     Known, Phase, QwenTally, ReviewCallState, Seat, Timings, Turn, WorkItem, new_session_id,
@@ -639,10 +638,8 @@ impl Runner {
         self.skills.notices().chain(self.repo_plugins.notices())
     }
 
-    fn names(&self) -> Names<'_> {
+    fn names(&self) -> Names {
         Names {
-            project: self.project.as_str(),
-            ids: RulingIds::under(&self.paths.kelpie_home),
             now: self.ports.clock.now(),
         }
     }
@@ -859,11 +856,18 @@ impl Runner {
         slots::seat(&self.state, &mut next, self.active_items());
         self.charge(&mut next);
         self.note_changes(&mut next);
-        // A ruling that is answered takes the place read to in its thread with it.
-        next.heard
-            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
-        next.unmentioned
-            .retain(|id, _| next.rulings.iter().any(|r| r.id == *id));
+        // A ruling that is answered takes the place read to in its thread with
+        // it, and so does one raised again under its number.
+        let kept = |id: &u64| {
+            let raised_again = |r: &Ruling| {
+                (self.state.rulings.iter())
+                    .find(|old| old.id == r.id)
+                    .is_some_and(|old| !old.is_raised_with(r))
+            };
+            next.rulings.iter().any(|r| r.id == *id && !raised_again(r))
+        };
+        next.heard.retain(|id, _| kept(id));
+        next.unmentioned.retain(|id, _| kept(id));
         // The comments kelpie posted since the last save go in with it.
         let fresh = self.posted.take();
         next.note_posted(&fresh);
@@ -944,12 +948,9 @@ pub(crate) fn check_instructions(settings: &Settings) -> Result<(), SettingsErro
     instructions::read_extra(settings).map(drop)
 }
 
-// What a ruling's question names: its project, where its id comes from, and
-// when it is raised.
+// What a ruling's question names: when it is raised.
 #[derive(Debug, Clone)]
-struct Names<'a> {
-    project: &'a str,
-    ids: RulingIds,
+struct Names {
     now: Timestamp,
 }
 

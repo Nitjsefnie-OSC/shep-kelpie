@@ -274,9 +274,9 @@ fn the_threads_a_new_pass_after_a_no_finds_are_answered_like_any_rounds() {
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    rig.ask(&runner, "rule", Some("1 no strip only stamped files"));
+    rig.ask(&runner, "rule", Some("71 no strip only stamped files"));
     rig.claude
         .script([Scripted::Push("stamped.txt", "stamped only\n")]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins

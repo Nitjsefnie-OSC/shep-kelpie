@@ -832,7 +832,7 @@ impl Rig {
     }
 
     /// [`Rig::with_pull_request`], with CI green and the worker parked on
-    /// merge ruling 1 about the returned head
+    /// merge ruling 71 (the pull request's number) about the returned head
     pub(crate) fn parked(project: &str) -> (Self, Mutex<Runner>, String) {
         Self::parked_set(project, |_| {})
     }
@@ -846,7 +846,7 @@ impl Rig {
         rig.forge.set_checks(&head, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 1, .. })
+            Some(StepReport::Ruling { id: 71, .. })
         ));
         (rig, runner, head)
     }

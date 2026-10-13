@@ -112,7 +112,7 @@ fn a_reworked_pull_request_goes_through_every_gate_to_the_merge_ruling() {
     let head = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&head, Checks::Passed);
     let Some(StepReport::Ruling {
-        id: 1, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("the rework never reached its merge ruling");
@@ -405,7 +405,7 @@ fn a_rework_of_a_pull_request_coderabbit_reviewed_spends_no_second_read() {
 
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["kind"]["kind"], json!("merge"));

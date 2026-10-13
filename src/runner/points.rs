@@ -16,6 +16,7 @@ use super::Runner;
 use super::claim::Notes;
 use super::words::Wants;
 use crate::hooks::{Hooks, Role};
+use crate::ports::Timestamp;
 use crate::settings::HookPoint;
 use crate::state::{Finished, ProjectState, Ruling};
 use crate::work_item::{Phase, WorkItem};
@@ -26,8 +27,9 @@ use crate::work_item::{Phase, WorkItem};
 /// the rulings it finds are taken as told already.
 #[derive(Debug, Default)]
 pub(super) struct Told {
-    // The rulings told to the `ruling` hooks
-    rulings: BTreeSet<u64>,
+    // The rulings told to the `ruling` hooks, by id and when each was raised:
+    // a work item's number names every ruling it raises in turn
+    rulings: BTreeSet<(u64, Option<Timestamp>)>,
     // The head each work item's CI last settled on, told to the `ci` hooks
     ci: BTreeMap<u64, String>,
     // The thread the notice hooks run on
@@ -38,7 +40,7 @@ impl Told {
     /// What a runner that opens on `state` has told: every ruling it holds
     pub(super) fn of(state: &ProjectState) -> Self {
         Self {
-            rulings: state.rulings.iter().map(|r| r.id).collect(),
+            rulings: state.rulings.iter().map(|r| (r.id, r.raised)).collect(),
             ci: BTreeMap::new(),
             notices: Notices::default(),
         }
@@ -172,7 +174,7 @@ impl Runner {
         }
         let told = &mut self.told_points.rulings;
         let raised: Vec<Ruling> = (self.state.rulings.iter())
-            .filter(|r| told.insert(r.id))
+            .filter(|r| told.insert((r.id, r.raised)))
             .cloned()
             .collect();
         for ruling in raised {

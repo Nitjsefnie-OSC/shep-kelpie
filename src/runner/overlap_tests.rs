@@ -10,7 +10,7 @@ use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, git};
 
 // One slot, and #7 through its turn, which adds `src/seven.rs`, and its
-// review, parked on merge ruling 1 and alerted
+// review, parked on merge ruling 71 and alerted
 fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
     let (rig, runner) = running(project);
     rig.ask(&runner, "add", Some("7"));
@@ -32,11 +32,11 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
         rig.verdict(&runner),
         Some(StepReport::Ruling {
             issue: 7,
-            id: 1,
+            id: 71,
             ..
         })
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     (rig, runner)
 }
 

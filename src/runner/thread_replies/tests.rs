@@ -53,6 +53,12 @@ fn replies_on_71(rig: &Rig) -> Vec<String> {
         .collect()
 }
 
+// The ids of the rulings that wait, as saved: `status` shows a ruling's number.
+fn saved_ids(runner: &Mutex<Runner>) -> Vec<u64> {
+    let runner = runner.lock().unwrap();
+    runner.state.rulings.iter().map(|r| r.id).collect()
+}
+
 fn none() -> Vec<u64> {
     Vec::new()
 }
@@ -60,7 +66,7 @@ fn none() -> Vec<u64> {
 #[test]
 fn a_yes_naming_the_ruling_from_the_login_it_mentions_merges_the_pull_request() {
     let (rig, runner, head) = a_merge_ruling_on_71();
-    let comment = rig.writes_on(71, "octocat", "1 yes");
+    let comment = rig.writes_on(71, "octocat", "71 yes");
 
     rig.next_look();
     step(&runner).unwrap(); // takes the reply, and marks the pull request ready
@@ -85,32 +91,6 @@ fn the_number_of_the_pull_request_or_its_issue_names_the_ruling_too() {
         assert_eq!(rig.forge.merges(), [(71, head)], "{named}");
         assert_eq!(rig.github.reactions(), [comment], "{named}");
     }
-}
-
-// A settled ruling with the id 71 is still watched, as a pull request's
-// number may come up as the id of a ruling that ended not long ago.
-#[test]
-fn a_settled_ruling_with_the_number_as_its_id_does_not_shadow_the_pending_one() {
-    let (rig, runner, head) = a_merge_ruling_on_71();
-    // A first look has the ruling's thread watched.
-    rig.next_look();
-    step(&runner).unwrap();
-    {
-        let mut runner = runner.lock().unwrap();
-        let mut old = runner.threads.watching[&1].clone();
-        old.ruling = 71;
-        old.settled = Some(Timestamp(rig.clock.now().0 + 3600));
-        runner.threads.watching.insert(71, old);
-    }
-    let comment = rig.writes_on(71, "octocat", "71 yes");
-
-    rig.next_look();
-    step(&runner).unwrap();
-    rig.clock.advance(CHECKS_SETTLE);
-    step(&runner).unwrap();
-
-    assert_eq!(rig.forge.merges(), [(71, head)]);
-    assert_eq!(rig.github.reactions(), [comment]);
 }
 
 #[test]
@@ -162,7 +142,7 @@ fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
 fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_may_write() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     rig.forge.threads.grant_write("stranger");
-    rig.writes_on(71, "stranger", "1 yes");
+    rig.writes_on(71, "stranger", "71 yes");
 
     rig.next_look();
     step(&runner).unwrap();
@@ -179,7 +159,7 @@ fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_
 #[test]
 fn a_reply_from_a_login_without_write_access_changes_nothing() {
     let (rig, runner, _) = a_merge_ruling_on_71_for(false);
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
 
     rig.next_look();
     step(&runner).unwrap();
@@ -203,7 +183,7 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
     let now = rig.clock.now();
     rig.forge
         .threads
-        .bot_writes(71, "coderabbitai[bot]", "1 yes", now);
+        .bot_writes(71, "coderabbitai[bot]", "71 yes", now);
 
     rig.next_look();
     step(&runner).unwrap();
@@ -267,7 +247,7 @@ fn a_reply_the_forge_lists_late_is_still_answered_after_a_newer_comment_elsewher
     step(&runner).unwrap(); // reads only the comment on #9
 
     // The forge lists the reply now, though it was written before that one.
-    let comment = rig.forge.threads.write(71, "octocat", "1 yes", written);
+    let comment = rig.forge.threads.write(71, "octocat", "71 yes", written);
     rig.next_look();
     step(&runner).unwrap(); // takes the reply, and marks the pull request ready
     rig.clock.advance(CHECKS_SETTLE);
@@ -296,7 +276,7 @@ fn a_reply_acted_on_one_thread_never_drops_a_reply_the_forge_lists_late_on_anoth
     );
 
     // The forge lists the earlier reply on #71 only now.
-    let comment = rig.forge.threads.write(71, "octocat", "1 yes", written);
+    let comment = rig.forge.threads.write(71, "octocat", "71 yes", written);
     rig.next_look();
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
@@ -309,7 +289,7 @@ fn a_reply_acted_on_one_thread_never_drops_a_reply_the_forge_lists_late_on_anoth
 #[test]
 fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_stays_open() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "1 maybe");
+    rig.writes_on(71, "octocat", "71 maybe");
 
     rig.next_look();
     step(&runner).unwrap();
@@ -331,7 +311,7 @@ fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_
 #[test]
 fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    let comment = rig.writes_on(71, "octocat", "1 no please add a test");
+    let comment = rig.writes_on(71, "octocat", "71 no please add a test");
     rig.claude.script([Scripted::Say(ASKS)]);
 
     rig.next_look();
@@ -440,7 +420,7 @@ fn a_ruling_that_mentions_no_one_is_answered_at_the_terminal_only() {
         ),
         "{how}"
     );
-    rig.ask(&runner, "rule", Some("1 answer use --check"));
+    rig.ask(&runner, "rule", Some("7 answer use --check"));
     assert_eq!(pending(&rig, &runner), none());
 }
 
@@ -474,15 +454,15 @@ fn a_comment_kelpie_posted_as_the_maintainers_login_is_never_an_answer() {
 #[test]
 fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "1 yes");
-    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.writes_on(71, "octocat", "71 yes");
+    rig.ask(&runner, "rule", Some("71 no not yet"));
     rig.claude.script([Scripted::Say(ASKS)]);
 
     rig.next_look();
     step(&runner).unwrap();
 
     assert!(rig.github.reactions().is_empty());
-    // The worker's question, ruling 2, went up on the thread too.
+    // The worker's question, ruling 71 again, went up on the thread too.
     let told = "@octocat Ruling #71 is already answered at the terminal with `shep kelpie rule`: \
                 no, not yet.";
     assert!(replies_on_71(&rig).contains(&told.to_owned()));
@@ -492,14 +472,14 @@ fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
 #[test]
 fn a_ruling_answered_at_the_terminal_between_the_read_and_applying_it_is_not_answered_twice() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
     rig.next_look();
 
     // The read as `read_threads` makes it, the forge asked with the lock let
     // go, and the terminal answering the ruling before the read is applied.
     let (now, job) = runner.lock().unwrap().thread_job().expect("a read is due");
     let read = job.run(now);
-    rig.ask(&runner, "rule", Some("1 no not yet"));
+    rig.ask(&runner, "rule", Some("71 no not yet"));
     runner.lock().unwrap().apply_threads(read).unwrap();
 
     assert!(rig.github.reactions().is_empty(), "the reply took nothing");
@@ -538,16 +518,16 @@ fn a_summons_recorded_before_a_restart_is_still_skipped_after_it() {
 #[test]
 fn a_ruling_answered_in_its_thread_is_already_answered_at_the_terminal() {
     let (rig, runner, _) = a_merge_ruling_on_71();
-    rig.writes_on(71, "octocat", "1 no not yet");
+    rig.writes_on(71, "octocat", "71 no not yet");
     rig.claude.script([Scripted::Say("Fixed.")]);
     rig.next_look();
     step(&runner).unwrap();
 
-    let told = rig.ask(&runner, "rule", Some("1 yes"));
+    let told = rig.ask(&runner, "rule", Some("71 yes"));
 
     assert_eq!(
         told["error"].as_str().unwrap(),
-        "ruling 1 is already answered, or was never raised"
+        "ruling 71 is already answered, or was never raised"
     );
 }
 
@@ -556,10 +536,9 @@ fn a_ruling_answered_in_its_thread_is_already_answered_at_the_terminal() {
 fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
     let mut runner = runner.lock().unwrap();
     let mut next = runner.state.clone();
-    next.last_ruling = 2;
     next.rulings.push(Ruling {
-        id: 2,
-        issue: Some(7),
+        id: 8,
+        issue: Some(8),
         question: "Is it closed?".into(),
         pull_request: Some(thread),
         kind: RulingKind::from(Stuck::Closed),
@@ -571,7 +550,7 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
         raised: None,
     });
     next.heard.insert(
-        2,
+        8,
         Heard {
             mentions: "octocat".into(),
             time: rig.clock.now(),
@@ -592,65 +571,20 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     rig.next_look();
     step(&runner).unwrap();
 
-    let told = "@octocat Rulings 1, 2 wait on this thread, so start your reply with the id of \
-                the one you answer, such as `1 yes`.";
+    let told = "@octocat Rulings 8, 71 wait on this thread, so start your reply with the id of \
+                the one you answer, such as `8 yes`.";
     assert_eq!(replies_on_71(&rig), [told]);
-    assert_eq!(pending(&rig, &runner), [71, 71]);
+    assert_eq!(saved_ids(&runner), [71, 8]);
     assert!(rig.github.reactions().is_empty());
 
     rig.clock.advance(1);
-    let named = rig.writes_on(71, "octocat", "2 yes");
+    let named = rig.writes_on(71, "octocat", "8 yes");
     rig.claude.script([Scripted::Say("Done.")]);
     rig.next_look();
     step(&runner).unwrap();
 
     assert_eq!(rig.github.reactions(), [named]);
-    assert_eq!(pending(&rig, &runner), [71], "ruling 2 was answered");
-}
-
-// The card names the ruling by its number, so a reply opening with 71 answers
-// the ruling on #71 though a ruling on another thread has the counter id 71.
-#[test]
-fn a_number_names_the_ruling_on_its_thread_though_another_ruling_has_that_id() {
-    let (rig, runner, head) = a_merge_ruling_on_71();
-    {
-        let mut runner = runner.lock().unwrap();
-        let mut next = runner.state.clone();
-        next.last_ruling = 71;
-        next.rulings.push(Ruling {
-            id: 71,
-            issue: Some(90),
-            question: "Is it closed?".into(),
-            pull_request: Some(90),
-            kind: RulingKind::from(Stuck::Closed),
-            alerted: true,
-            panel: None,
-            verdict: None,
-            unposted: false,
-            effects: Vec::new(),
-            raised: None,
-        });
-        next.heard.insert(
-            71,
-            Heard {
-                mentions: "octocat".into(),
-                time: rig.clock.now(),
-                comment: 0,
-                ruling_comment: 0,
-            },
-        );
-        runner.save(next).unwrap();
-    }
-    rig.clock.advance(1);
-    let comment = rig.writes_on(71, "octocat", "71 yes");
-
-    rig.next_look();
-    step(&runner).unwrap();
-    rig.clock.advance(CHECKS_SETTLE);
-    step(&runner).unwrap();
-
-    assert_eq!(rig.forge.merges(), [(71, head)]);
-    assert_eq!(rig.github.reactions(), [comment]);
+    assert_eq!(saved_ids(&runner), [71], "ruling 8 was answered");
 }
 
 #[test]
@@ -663,7 +597,7 @@ fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only
         next.heard.clear();
         runner.save(next).unwrap();
     }
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
 
     rig.next_look();
     step(&runner).unwrap();

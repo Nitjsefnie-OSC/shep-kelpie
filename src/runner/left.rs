@@ -58,7 +58,11 @@ pub(super) struct Seen {
 /// next pass. A write's temporary file a minute old is removed, and any
 /// other entry is logged once.
 pub(super) fn answer_left(runner: &Mutex<Runner>) {
-    let answers = lock(runner).paths.answers.clone();
+    // The old ids are read by this pass only, whether or not it finds a file.
+    let (answers, mut renamed) = {
+        let mut runner = lock(runner);
+        (runner.paths.answers.clone(), runner.state.take_renamed())
+    };
     let Ok(entries) = fs::read_dir(&answers) else {
         return;
     };
@@ -73,8 +77,14 @@ pub(super) fn answer_left(runner: &Mutex<Runner>) {
     left.sort_unstable();
     for (id, name) in left {
         let file = answers.join(name);
+        // A file named by a ruling waiting is answered by number. Otherwise it
+        // may be named by the counter id the ruling was saved under.
+        let ruling = {
+            let waiting = lock(runner).state.rulings.iter().any(|r| r.id == id);
+            if waiting { None } else { renamed.remove(&id) }
+        };
         let (note, done) = match fs::read_to_string(&file) {
-            Ok(params) => taken(runner, id, &params),
+            Ok(params) => taken(runner, id, ruling.unwrap_or(id), &params),
             Err(e) => (
                 format!("cannot read the answer left for ruling {id}, so it stays: {e}"),
                 false,
@@ -116,16 +126,17 @@ fn not_an_answer(runner: &Mutex<Runner>, answers: &Path, name: &str) {
     }
 }
 
-// What came of the answer `params` left for ruling `id`, and whether its
-// file is done with: kept only when the answer could not be saved.
-fn taken(runner: &Mutex<Runner>, id: u64, params: &str) -> (String, bool) {
+// What came of the answer `params` left in the file named for `id`, for the
+// ruling now numbered `ruling`, and whether the file is done with: kept only
+// when the answer could not be saved.
+fn taken(runner: &Mutex<Runner>, id: u64, ruling: u64, params: &str) -> (String, bool) {
     let refused = |why: String| {
         format!("the answer to ruling {id} left while the runner was stopped was not taken: {why}")
     };
-    let Some((named, answer)) = read_rule(params.trim()).filter(|(named, _)| *named == id) else {
+    let Some((_, answer)) = read_rule(params.trim()).filter(|(named, _)| *named == id) else {
         return (refused(format!("{params:?} is not an answer to it")), true);
     };
-    match lock(runner).rule(named, answer) {
+    match lock(runner).rule(ruling, answer) {
         Ok(()) => (
             format!(
                 "answered ruling {id} as `shep kelpie rule` left it while the runner was stopped"
@@ -137,6 +148,13 @@ fn taken(runner: &Mutex<Runner>, id: u64, params: &str) -> (String, bool) {
                 "the answer to ruling {id} could not be saved, so it stays for the next pass: {e}"
             ),
             false,
+        ),
+        Err(e @ RuleError::NoSuchRuling(_)) => (
+            refused(format!(
+                "{e}; a ruling is named by the number of its pull request or issue, \
+                 so an id from before that no longer works"
+            )),
+            true,
         ),
         Err(e) => (refused(e.to_string()), true),
     }

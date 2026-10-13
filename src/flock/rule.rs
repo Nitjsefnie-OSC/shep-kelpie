@@ -1,8 +1,7 @@
 //! `shep kelpie rule`: a ruling answered in plain words
 //!
-//! A ruling's id names its project, so `rule <id> <answer>` needs none. So
-//! does a number: `rule 427`, `rule #427` and `rule koji#427` name the ruling
-//! on that issue or pull request. The answer is read by the ruling's kind
+//! A ruling is named by the number of its issue or pull request: `rule 427`,
+//! `rule #427` and `rule koji#427`. The answer is read by the ruling's kind
 //! (see [`read_answer`]) from the project's state file, then sent to its
 //! runner as `rule`'s own grammar. With no arguments in a terminal, `rule`
 //! lists the rulings waiting and asks which to answer and how.
@@ -10,8 +9,8 @@
 use std::io::{BufRead, Write};
 
 use crate::runner::{ProjectName, Wants, read_answer};
+use crate::state::Projects;
 use crate::state::Ruling;
-use crate::state::ids::RulingIds;
 
 /// What `shep kelpie rule` takes, as its help says
 pub const HELP: &str = "\
@@ -21,13 +20,11 @@ usage: shep kelpie rule <ruling> yes
        shep kelpie rule <ruling> <text>          for a ruling that asks for text
        shep kelpie rule                          lists the rulings waiting, and asks
 
-A <ruling> is its id (14), or the number of its issue or pull request: 427,
-#427 or koji#427. A number that two projects have a ruling on needs the
-project. A number wins over an id that is also a number, and an id is
-taken when no ruling is on that number.
+A <ruling> is the number of its issue or pull request: 427, #427 or
+koji#427. A number that two projects have a ruling on needs the project.
 
 Quotes are optional. In zsh a note with ?, *, ! or an apostrophe still
-needs them: shep kelpie rule 14 no \"it's the wrong flag\". `-p` goes
+needs them: shep kelpie rule 427 no \"it's the wrong flag\". `-p` goes
 before the answer: after its first word, and after a `--`, it is the
 answer's own.";
 
@@ -45,12 +42,12 @@ pub type Answering = (ProjectName, String);
 /// nothing was chosen. Without `ask` and with no arguments, the rulings
 /// waiting.
 pub fn prepare(
-    ids: &RulingIds,
+    projects: &Projects,
     named: Option<&ProjectName>,
     args: &[&str],
     ask: Option<(&mut dyn BufRead, &mut dyn Write)>,
 ) -> Result<Answering, String> {
-    prepare_in(ids, named, None, args, ask)
+    prepare_in(projects, named, None, args, ask)
 }
 
 /// [`prepare`] from a clone of `here`, whose rulings a number is looked for
@@ -60,7 +57,7 @@ pub fn prepare(
 ///
 /// As [`prepare`].
 pub fn prepare_in(
-    ids: &RulingIds,
+    projects: &Projects,
     named: Option<&ProjectName>,
     here: Option<&ProjectName>,
     args: &[&str],
@@ -69,7 +66,7 @@ pub fn prepare_in(
     let mut open = Vec::new();
     let mut unread = Vec::new();
     let mut why = String::new();
-    for (project, state) in ids.states() {
+    for (project, state) in projects.states() {
         if named.is_some_and(|n| n.as_str() != project) {
             continue;
         }
@@ -86,7 +83,7 @@ pub fn prepare_in(
         unread: &unread,
         here,
     };
-    prepare_from(ids, waiting, named, args, ask).map_err(|e| e + &why)
+    prepare_from(waiting, named, args, ask).map_err(|e| e + &why)
 }
 
 // The rulings `rule` can see, the projects whose rulings it cannot, and the
@@ -99,7 +96,6 @@ struct Waiting<'a> {
 }
 
 fn prepare_from(
-    ids: &RulingIds,
     waiting: Waiting<'_>,
     named: Option<&ProjectName>,
     args: &[&str],
@@ -113,14 +109,14 @@ fn prepare_from(
         return match ask {
             Some((input, output)) => pick(open, input, output),
             None => Err(format!(
-                "{}\n\n`shep kelpie rule <id> <answer>` answers one",
+                "{}\n\n`shep kelpie rule <number> <answer>` answers one",
                 listing(open)
             )),
         };
     };
-    let reference = Reference::of(id)
-        .ok_or_else(|| format!("{id:?} is not a ruling's id or number\n\n{HELP}"))?;
-    let (project, ruling) = locate(ids, waiting, named, &reference)?;
+    let reference =
+        Reference::of(id).ok_or_else(|| format!("{id:?} is not a ruling's number\n\n{HELP}"))?;
+    let (project, ruling) = locate(waiting, named, &reference)?;
     if words.is_empty() {
         return Err(format!("ruling {} takes {}", ruling.id, forms(&ruling)));
     }
@@ -133,13 +129,11 @@ pub fn is_number(text: &str) -> bool {
     Reference::of(text).is_some_and(|r| r.project.is_none())
 }
 
-// How an argument names a ruling: by its id, or by the number of its issue
-// or pull request, which `#` or a project before it says.
+// How an argument names a ruling: by the number of its issue or pull
+// request, with a `#` or a project before it or not.
 struct Reference {
     project: Option<ProjectName>,
     number: u64,
-    // Digits only, so it may be a ruling's id.
-    bare: bool,
 }
 
 impl Reference {
@@ -150,7 +144,6 @@ impl Reference {
             return Some(Self {
                 project: None,
                 number,
-                bare: true,
             });
         };
         let project = match project {
@@ -160,7 +153,6 @@ impl Reference {
         Some(Self {
             project,
             number: number(digits)?,
-            bare: false,
         })
     }
 
@@ -171,20 +163,13 @@ impl Reference {
     }
 }
 
-// The ruling `reference` names among those waiting. A bare number is the
-// number of an issue or pull request when a ruling waits on it, since that
-// is what a question prints, and a ruling's id otherwise.
+// The ruling `reference` names among those waiting.
 fn locate(
-    ids: &RulingIds,
     waiting: Waiting<'_>,
     named: Option<&ProjectName>,
     reference: &Reference,
 ) -> Result<(ProjectName, Ruling), String> {
-    let Reference {
-        project,
-        number,
-        bare,
-    } = reference;
+    let Reference { project, number } = reference;
     let on = match (project, named) {
         (Some(p), Some(n)) if p != n => {
             return Err(format!(
@@ -199,6 +184,13 @@ fn locate(
     let mut found: Vec<&(String, Ruling)> = (waiting.open.iter())
         .filter(|(p, r)| about(r) && on.is_none_or(|on| on == p))
         .collect();
+    // A number names the ruling that took it when the file was renamed, not
+    // one an older kelpie left beside it under its counter id.
+    let named: Vec<&str> = (found.iter())
+        .filter(|(_, r)| !r.is_left_over())
+        .map(|(p, _)| p.as_str())
+        .collect();
+    found.retain(|(p, r)| !r.is_left_over() || !named.contains(&p.as_str()));
     // A clone's own project answers before the others do.
     let here = waiting.here.map(ProjectName::as_str);
     let narrowed = on.is_none() && found.iter().any(|(p, _)| Some(p.as_str()) == here);
@@ -223,12 +215,12 @@ fn locate(
             let project = ProjectName::try_from(project.as_str()).map_err(|e| e.to_string())?;
             Ok((project, ruling.clone()))
         }
-        ([], _) if *bare => find(ids, waiting, named, *number),
         ([], Some(unread)) => Err(format!(
             "no ruling on #{number} is waiting, and {unread} rulings cannot be read, {name_one}"
         )),
         ([], None) => Err(format!(
-            "no ruling on {} is waiting: `shep kelpie rule` lists those that are",
+            "no ruling on {} is waiting: a ruling is named by the number of its issue or \
+             pull request, and `shep kelpie rule` lists those that are waiting",
             reference.label()
         )),
         (more, _) => {
@@ -236,13 +228,10 @@ fn locate(
             projects.sort_unstable();
             projects.dedup();
             if let [project] = projects.as_slice() {
-                let each: Vec<String> = more.iter().map(|(_, r)| r.id.to_string()).collect();
                 return Err(format!(
-                    "{} has rulings {} on {project}, so answer one by its id: \
-                     `shep kelpie rule {} <answer>`",
+                    "{} has {} rulings on {project}, which no answer can tell apart",
                     reference.label(),
-                    each.join(" and "),
-                    each[0]
+                    more.len()
                 ));
             }
             Err(format!(
@@ -251,53 +240,6 @@ fn locate(
                 projects.join(" and ")
             ))
         }
-    }
-}
-
-// Ruling `id` among those waiting, on `named` or the project it was given
-// to. An id with no claim may be on a project whose rulings cannot be
-// read, so then only `named` finds it.
-fn find(
-    ids: &RulingIds,
-    waiting: Waiting<'_>,
-    named: Option<&ProjectName>,
-    id: u64,
-) -> Result<(ProjectName, Ruling), String> {
-    let Waiting { open, unread, .. } = waiting;
-    // `open` holds only `named`'s rulings when it is given.
-    let owner = named
-        .map(|n| n.as_str().to_owned())
-        .or_else(|| ids.owner(id));
-    if owner.is_none() && !unread.is_empty() {
-        return Err(format!(
-            "ruling {id} does not say which project it is on, and {} rulings cannot be read, \
-             so name the project: `shep kelpie rule -p <project> {id} <answer>`",
-            unread
-                .iter()
-                .map(|p| format!("{p}'s"))
-                .collect::<Vec<_>>()
-                .join(" and ")
-        ));
-    }
-    let on: Vec<&(String, Ruling)> = open
-        .iter()
-        .filter(|(project, r)| r.id == id && owner.as_ref().is_none_or(|o| o == project))
-        .collect();
-    match on.as_slice() {
-        [(project, ruling)] => {
-            let project = ProjectName::try_from(project.as_str()).map_err(|e| e.to_string())?;
-            Ok((project, ruling.clone()))
-        }
-        [] => Err(format!(
-            "no ruling {id} is waiting: `shep kelpie rule` lists those that are"
-        )),
-        more => Err(format!(
-            "ruling {id} is waiting on {}, so name one: `shep kelpie rule -p <project> {id} <answer>`",
-            more.iter()
-                .map(|(project, _)| project.as_str())
-                .collect::<Vec<_>>()
-                .join(" and ")
-        )),
     }
 }
 
@@ -375,7 +317,7 @@ fn pick(
             (Some(id), _) => id,
             (None, Some(only)) if line.is_empty() => only,
             _ => {
-                say(output, "Type the id of one listed.\n");
+                say(output, "Type the number of one listed.\n");
                 continue;
             }
         };

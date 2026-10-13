@@ -26,7 +26,7 @@ pub(super) fn asking(project: &str, question: &'static str) -> (Rig, Mutex<Runne
     rig.claude.script([Scripted::Say(question)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 1, .. })
+        Some(StepReport::Asked { id: 7, .. })
     ));
     (rig, runner)
 }
@@ -46,11 +46,11 @@ fn a_question_wakes_it_and_its_text_is_the_workers_next_turn() {
     assert_eq!(
         woke_for,
         [
-            "#7's worker asks, on ruling 1:\n\n> Should it be `--dry-run` or `--check`?\n>\n> \
+            "#7's worker asks, on ruling 7:\n\n> Should it be `--dry-run` or `--check`?\n>\n> \
              Both appear in the docs."
         ]
     );
-    assert_eq!(acted, ["answered ruling 1 on #7"]);
+    assert_eq!(acted, ["answered ruling 7 on #7"]);
     assert_eq!(dropped, Vec::<String>::new());
 
     let status = rig.ask(&runner, "status", None);
@@ -86,7 +86,7 @@ fn a_question_posted_while_draining_is_edited_to_say_the_project_manager_answere
     rig.claude.script([Scripted::Say(ASKS)]);
     assert!(matches!(
         step(&runner).unwrap(),
-        Some(StepReport::Asked { id: 1, .. })
+        Some(StepReport::Asked { id: 7, .. })
     ));
     // A runner that drains for an upgrade does not hold the question back
     // for the project manager, so it is posted at once.
@@ -146,14 +146,14 @@ fn each_answer_and_its_why_is_in_the_notes_the_board_and_status() {
         .script([Scripted::Say(Box::leak(answer.into_boxed_str()))]);
     step_until(&runner, |r| matches!(r, StepReport::PmAnswered { .. }));
 
-    let line = "ruling 1 on #7: the project manager answered it: the issue says so";
+    let line = "ruling 7 on #7: the project manager answered it: the issue says so";
     let notes = std::fs::read_to_string(rig.paths().pm.join("pm-notes.md")).unwrap();
     assert_eq!(notes, format!("- {line}\n"));
     let pm = &rig.ask(&runner, "status", None)["pm"];
     assert_eq!(
         pm["settled"],
         json!([{
-            "ruling": 1,
+            "ruling": 7,
             "issue": 7,
             "how": "answered",
             "why": "the issue says so",
@@ -175,12 +175,16 @@ fn passed_on(rig: &Rig, runner: &Mutex<Runner>, answer: &'static str) -> String 
     rig.claude.script([Scripted::Say(answer)]);
     let report = step_until(runner, |r| matches!(r, StepReport::PmAnswered { .. }));
     let (_, acted, dropped) = answered(Some(report));
+    // A question asked before a pull request is named by its issue.
+    let id = rig.ask(runner, "status", None)["rulings"][0]["id"]
+        .as_u64()
+        .unwrap();
     assert_eq!(
         acted,
-        ["put ruling 1 on #7 to the maintainer"],
+        [format!("put ruling {id} on #7 to the maintainer")],
         "{dropped:?}"
     );
-    assert_eq!(step(runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(runner).unwrap(), Some(StepReport::Alerted { id }));
     let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
     alert.text
 }
@@ -277,7 +281,7 @@ fn an_answer_for_an_item_not_parked_on_a_question_is_dropped_and_the_ruling_stan
         dropped,
         ["answer #9: not a work item parked on a question or follow-up ruling"]
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
     assert_eq!(
         alert.text,
@@ -293,7 +297,7 @@ fn a_wake_that_fails_sends_the_question_to_the_maintainer_as_it_is() {
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
     rig.claude.script([Scripted::Fail(down)]);
     step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
     assert_eq!(rig.alerts.posts().len(), 1);
 }
 
@@ -303,7 +307,7 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped() {
     let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
     rig.claude.script([Scripted::Fail(down)]);
     step_until(&runner, |r| matches!(r, StepReport::PmFailed { .. }));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
 
     rig.clock.advance(11 * 60);
     rig.ask(&runner, "tell", Some("Use --check"));
@@ -315,7 +319,7 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped() {
     assert_eq!(acted, Vec::<String>::new());
     assert_eq!(
         dropped,
-        ["answer #7: ruling 1 already went to the maintainer"]
+        ["answer #7: ruling 7 already went to the maintainer"]
     );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["id"], 7, "the ruling still waits");
@@ -404,6 +408,6 @@ fn a_question_waits_at_most_one_wake_for_its_answer() {
     assert!(rig.alerts.posts().is_empty(), "the maintainer waits for it");
 
     rig.clock.advance(10 * 60);
-    step_until(&runner, |r| matches!(r, StepReport::Alerted { id: 1 }));
+    step_until(&runner, |r| matches!(r, StepReport::Alerted { id: 7 }));
     hold.release();
 }

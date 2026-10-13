@@ -19,7 +19,7 @@ mod plugins;
 
 const WORKER: &str = "Both threads were fixed in the last push, with tests. \
     {\"choice\": \"A\", \"why\": \"WORKER-MARK fixed with tests\", \"design\": false}";
-const PM: &str = "{\"pick\": null, \"votes\": [{\"ruling\": 1, \"choice\": \"A\", \
+const PM: &str = "{\"pick\": null, \"votes\": [{\"ruling\": 71, \"choice\": \"A\", \
     \"why\": \"PM-MARK CI is green\", \"design\": false}]}";
 const ADVISOR: &str = "I read the diff.\n\n{\"choice\": \"B\", \
     \"why\": \"ADVISOR-MARK the hook skips a write\", \"design\": true}";
@@ -136,7 +136,7 @@ fn four_votes_fill_the_rulings_panel_in_the_comment_and_in_the_state() {
         let calls = seen(&rig, role);
         let votes = calls
             .iter()
-            .filter(|s| s.call.prompt.contains("vote on ruling 1"));
+            .filter(|s| s.call.prompt.contains("vote on ruling 71"));
         assert_eq!(votes.count(), 1, "{role:?} was asked once");
     }
 }
@@ -172,16 +172,16 @@ fn an_expert_that_gives_no_vote_abstains_and_the_log_says_why() {
     );
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(
-        notes.contains("ruling 1: the advisor abstains, since its reply held no JSON object"),
+        notes.contains("ruling 71: the advisor abstains, since its reply held no JSON object"),
         "{notes}"
     );
     assert!(
         notes.contains(
-            "ruling 1: the researcher abstains, since `choice` is `Z`, and there are 3 options"
+            "ruling 71: the researcher abstains, since `choice` is `Z`, and there are 3 options"
         ),
         "{notes}"
     );
-    assert!(notes.contains("ruling 1: the pm abstains"), "{notes}");
+    assert!(notes.contains("ruling 71: the pm abstains"), "{notes}");
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn no_expert_is_shown_another_experts_vote() {
         };
         for call in seen(&rig, role)
             .iter()
-            .filter(|s| s.call.prompt.contains("ruling 1"))
+            .filter(|s| s.call.prompt.contains("ruling 71"))
         {
             for other in MARKS.iter().filter(|m| **m != own) {
                 assert!(
@@ -277,7 +277,7 @@ fn the_worker_abstains_when_its_work_item_has_no_worker_turn() {
     );
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(
-        notes.contains("ruling 1: the worker abstains, since #7 has had no worker turn"),
+        notes.contains("ruling 7: the worker abstains, since #7 has had no worker turn"),
         "{notes}"
     );
 }
@@ -296,7 +296,7 @@ fn the_worker_vote_resumes_its_own_session_and_reads_without_writing() {
     let worker = seen(&rig, Role::Worker);
     let vote = worker
         .iter()
-        .find(|s| s.call.prompt.contains("vote on ruling 1"))
+        .find(|s| s.call.prompt.contains("vote on ruling 71"))
         .expect("the worker was asked to vote");
     let first = &worker[0].call;
     assert_eq!(vote.call.session.id(), first.session.id());
@@ -323,7 +323,7 @@ fn a_restarted_runner_does_not_ask_the_panel_again_of_a_ruling_that_has_voted() 
         assert_eq!(seen(&rig, role).len(), 1, "{role:?} was asked again");
     }
     let votes = (seen(&rig, Role::Worker).into_iter())
-        .filter(|s| s.call.prompt.contains("vote on ruling 1"))
+        .filter(|s| s.call.prompt.contains("vote on ruling 71"))
         .count();
     assert_eq!(votes, 1, "the worker was asked again");
 }

@@ -300,11 +300,11 @@ fn ready_for_human_goes_on_at_the_merge_ruling_and_comes_off_with_a_no() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(rig.forge.pull_request_labels(71), [HUMAN]);
 
-    let status = rig.ask(&runner, "rule", Some("1 no move the dates up"));
+    let status = rig.ask(&runner, "rule", Some("71 no move the dates up"));
     assert_eq!(status["work_item"]["turn"]["state"], "next");
     assert_eq!(rig.forge.pull_request_labels(71), Vec::<String>::new());
 }

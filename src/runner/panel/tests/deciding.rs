@@ -19,10 +19,10 @@ fn says(who: &str, choice: char, design: bool) -> String {
     format!("{{\"choice\": \"{choice}\", \"why\": \"{who}-WHY\", \"design\": {design}}}")
 }
 
-/// The project manager's reply voting `choice` on ruling 1
+/// The project manager's reply voting `choice` on ruling 71
 fn pm_says(choice: char, design: bool) -> String {
     format!(
-        "{{\"pick\": null, \"votes\": [{{\"ruling\": 1, \"choice\": \"{choice}\", \
+        "{{\"pick\": null, \"votes\": [{{\"ruling\": 71, \"choice\": \"{choice}\", \
          \"why\": \"PM-WHY\", \"design\": {design}}}]}}"
     )
 }
@@ -87,7 +87,7 @@ fn until(rig: &Rig, runner: &Mutex<Runner>, done: impl Fn(&serde_json::Value) ->
     panic!("the state never came to be: {}", state_of(rig));
 }
 
-/// Steps until the panel has voted on ruling 1, whether it decided or not
+/// Steps until the panel has voted on ruling 71, whether it decided or not
 fn voted(rig: &Rig, runner: &Mutex<Runner>) {
     let (rig_ref, deadline) = (rig, Instant::now() + CALL_PATIENCE);
     while Instant::now() < deadline {
@@ -124,17 +124,17 @@ fn asking_comment(rig: &Rig) -> Option<String> {
         .find(|body| body.starts_with("### Merge this pull request"))
 }
 
-/// Whether ruling 1 still waits
+/// Whether ruling 71 still waits
 fn pending(rig: &Rig) -> bool {
     state_of(rig)["rulings"]
         .as_array()
         .is_some_and(|r| !r.is_empty())
 }
 
-/// How many times `role` was asked to vote on ruling 1
+/// How many times `role` was asked to vote on ruling 71
 fn asked(rig: &Rig, role: Role) -> usize {
     (seen(rig, role).iter())
-        .filter(|s| s.call.prompt.contains("vote on ruling 1"))
+        .filter(|s| s.call.prompt.contains("vote on ruling 71"))
         .count()
 }
 
@@ -338,7 +338,7 @@ fn alone(project: &str, title: &str) -> (Rig, Mutex<Runner>) {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     // Under `ask` it was raised; it is judged under `auto`.
     runner.lock().unwrap().settings.git.merging = Merging::Auto;

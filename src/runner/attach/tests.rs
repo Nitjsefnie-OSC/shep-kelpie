@@ -118,7 +118,7 @@ fn an_attached_item_runs_nothing_and_its_push_is_the_worker_s_once_it_detaches()
     assert_eq!(status["work_item"].get("attached"), None);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(
         rig.ask(&runner, "status", None)["rulings"][0]["kind"],
@@ -196,7 +196,7 @@ fn an_item_with_no_session_or_parked_on_a_ruling_says_what_to_do_and_stays_as_it
     let why = refused["error"].as_str().unwrap();
     assert!(
         why.starts_with(
-            "the work item for #7 is parked on ruling 1: answer it with `shep kelpie rule 1"
+            "the work item for #7 is parked on ruling 71: answer it with `shep kelpie rule 71"
         ),
         "{why}"
     );
@@ -346,7 +346,7 @@ fn the_session_s_process_holds_the_item_after_the_attach_command_dies() {
     drop(claude);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     assert_eq!(attached(&rig, &runner), Value::Null);
 }

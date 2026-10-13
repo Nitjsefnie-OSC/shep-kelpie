@@ -2,8 +2,8 @@
 
 use super::super::trigger::number;
 use super::super::{ProjectName, Runner};
+use crate::state::Projects;
 use crate::state::Ruling;
-use crate::state::ids::RulingIds;
 
 /// A reply's text without its code, read as the ruling it names and the
 /// answer's words
@@ -25,18 +25,17 @@ pub(super) fn read_reply(text: &str) -> Option<Reply<'_>> {
 
 // `14`, `#14` or `koji#14`, with no words yet.
 fn numbered(token: &str) -> Option<Reply<'_>> {
-    let (project, digits, by_number) = match token.rsplit_once('#') {
-        None => (None, token, false),
-        Some(("", digits)) => (None, digits, true),
+    let (project, digits) = match token.rsplit_once('#') {
+        None => (None, token),
+        Some(("", digits)) => (None, digits),
         Some((project, digits)) => {
             ProjectName::try_from(project).ok()?;
-            (Some(project), digits, true)
+            (Some(project), digits)
         }
     };
     Some(Reply {
         project,
         number: number(digits)?,
-        by_number,
         words: "",
     })
 }
@@ -46,10 +45,8 @@ fn numbered(token: &str) -> Option<Reply<'_>> {
 pub(super) struct Reply<'a> {
     /// The project it names, if it does
     pub project: Option<&'a str>,
-    /// A ruling's id, or the number of its issue or pull request
+    /// The number of the issue or pull request a ruling is about
     pub number: u64,
-    /// Whether a `#` says `number` is an issue's or a pull request's
-    pub by_number: bool,
     /// The answer's words
     pub words: &'a str,
 }
@@ -88,41 +85,38 @@ pub(super) enum Whose {
 pub(super) struct Named {
     pub whose: Whose,
     pub id: u64,
-    /// Whether it was found by the number of its issue or pull request
-    pub by_number: bool,
 }
 
 impl Runner {
     // The ruling `reply` names. A number is the number of the issue or pull
     // request a ruling here is about, since that is what a question prints.
-    // When none is, it is a ruling's id.
     pub(super) fn which(&self, reply: &Reply<'_>) -> Named {
         let Reply {
             project: named,
             number,
-            by_number,
             ..
         } = *reply;
         let project = self.project.as_str();
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
-        let here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
-        let ids = RulingIds::under(&self.paths.kelpie_home);
-        let counter = !by_number && here.is_empty();
-        if counter {
-            return Named {
-                whose: self.whose(named, number),
-                id: number,
-                by_number: false,
-            };
+        let mut here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
+        // The number names the ruling that took it, not one an older kelpie
+        // left beside it under its counter id.
+        if here.iter().any(|r| !r.is_left_over()) {
+            here.retain(|r| !r.is_left_over());
         }
-        let named_by = |whose, id| Named {
-            whose,
-            id,
-            by_number: true,
-        };
+        let named_by = |whose, id| Named { whose, id };
         let id = here.first().map_or(number, |r| r.id);
-        if named.is_some_and(|named| named != project) || here.is_empty() {
+        if named.is_some_and(|named| named != project) {
             return named_by(Whose::Theirs, id);
+        }
+        // A project named for none waiting is told it is settled.
+        if here.is_empty() {
+            let whose = if named.is_some() {
+                Whose::Ours
+            } else {
+                Whose::Theirs
+            };
+            return named_by(whose, id);
         }
         if let [first, second, ..] = here.as_slice() {
             let why = format!(
@@ -134,7 +128,7 @@ impl Runner {
         if named.is_some() {
             return named_by(Whose::Ours, id);
         }
-        for (other, state) in ids.states() {
+        for (other, state) in Projects::under(&self.paths.kelpie_home).states() {
             if other == project {
                 continue;
             }
@@ -151,48 +145,5 @@ impl Runner {
             }
         }
         named_by(Whose::Ours, id)
-    }
-
-    // Whose ruling `id` is, for a reply naming `named` or no project. An id
-    // from before claims is this project's when named and within its ids.
-    // Unnamed, it is when open here, unsure when another project may hold it.
-    pub(super) fn whose(&self, named: Option<&str>, id: u64) -> Whose {
-        let project = self.project.as_str();
-        if named.is_some_and(|named| named != project) {
-            return Whose::Theirs;
-        }
-        let ids = RulingIds::under(&self.paths.kelpie_home);
-        if let Some(owner) = ids.owner(id) {
-            return if owner == project {
-                Whose::Ours
-            } else {
-                Whose::Theirs
-            };
-        }
-        let open_here = self.state.rulings.iter().any(|r| r.id == id);
-        match named {
-            Some(_) if id <= self.state.last_ruling => Whose::Ours,
-            Some(_) => Whose::Theirs,
-            None if !open_here => Whose::Theirs,
-            None => {
-                for (other, state) in ids.states() {
-                    if other == project {
-                        continue;
-                    }
-                    match state {
-                        Ok(state) if state.rulings.iter().any(|r| r.id == id) => {
-                            return Whose::Unsure(format!(
-                                "ruling {id} is also waiting on {other}"
-                            ));
-                        }
-                        Ok(_) => {}
-                        Err(_) => {
-                            return Whose::Unsure(format!("{other}'s rulings cannot be read"));
-                        }
-                    }
-                }
-                Whose::Ours
-            }
-        }
     }
 }

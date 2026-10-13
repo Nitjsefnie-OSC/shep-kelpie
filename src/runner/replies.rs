@@ -440,11 +440,7 @@ impl Runner {
             let report = StepReport::ReplyUnreadable { line_failed: None };
             return (report, self.line(None, text));
         };
-        let Named {
-            whose,
-            id,
-            by_number,
-        } = self.which(&read);
+        let Named { whose, id } = self.which(&read);
         let (number, words) = (read.number, read.words);
         if whose == Whose::Theirs {
             return ignored;
@@ -489,7 +485,7 @@ impl Runner {
         };
         // A number can name a new ruling on the same issue or pull request,
         // so a reply from before this one was raised may answer another question.
-        if by_number && pending.raised.is_some_and(|raised| reply.time < raised) {
+        if pending.raised.is_some_and(|raised| reply.time < raised) {
             let asks = pending.question.lines().next().unwrap_or_default();
             let reason = format!(
                 "the ruling changed since that reply was written, and it asks now: {asks}. \

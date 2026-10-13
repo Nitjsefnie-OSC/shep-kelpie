@@ -99,7 +99,7 @@ fn the_ci_gate_reads_the_pass_listing_not_the_pull_request() {
     rig.forge.set_checks(&head, Checks::Passed);
     let report = rig.verdict(&runner);
     assert!(
-        matches!(report, Some(StepReport::Ruling { id: 1, .. })),
+        matches!(report, Some(StepReport::Ruling { id: 71, .. })),
         "{report:?}"
     );
     let (_, viewed, _) = reads(&rig);

@@ -133,7 +133,7 @@ fn a_round_of_nits_gets_one_fix_turn_and_the_pass_goes_on_to_the_next_reviewer()
     rig.forge.set_checks(&fixed, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let rulings = &rig.ask(&runner, "status", None)["rulings"];
     assert_eq!(

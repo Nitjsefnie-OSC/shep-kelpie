@@ -251,7 +251,7 @@ impl Runner {
 // finds a turn already past its ceiling with no call spent. The caller sets
 // `item.turn` beforehand: this only raises the ruling. `comment_failed` is
 // filled in afterwards, once the ruling has actually been posted.
-pub(super) fn timed_out(names: Names<'_>, next: &mut ProjectState, issue: u64) -> StepReport {
+pub(super) fn timed_out(names: Names, next: &mut ProjectState, issue: u64) -> StepReport {
     let item = next
         .item_mut(issue)
         .expect("a turn ceiling is about an open work item");
@@ -278,7 +278,7 @@ pub(super) fn timed_out(names: Names<'_>, next: &mut ProjectState, issue: u64) -
 // keeping the turn as it stood so a yes can put it back. `comment_failed` is
 // filled in afterwards, once the ruling has actually been posted.
 pub(in crate::runner) fn failed(
-    names: Names<'_>,
+    names: Names,
     next: &mut ProjectState,
     issue: u64,
     at: Timestamp,

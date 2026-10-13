@@ -7,7 +7,7 @@ use crate::ports::CLEAN;
 use crate::runner::{CHECKS_SETTLE, step};
 use crate::test::Rig;
 
-// Issue 7 parked on merge ruling 1 in a project with two slots, so the
+// Issue 7 parked on merge ruling 71 in a project with two slots, so the
 // board could open ready issue 9 beside it
 fn parked_with_9_ready(project: &str) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::parked_set(project, |rig| {
@@ -36,7 +36,7 @@ fn finish_lets_an_open_item_reach_its_merge_with_no_new_dispatch_then_stops() {
     );
     assert_eq!(saved(&rig)["finishing"], true);
 
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     // Parked on its ruling, #7 is still open, so the runner stays up for the answer.
     for _ in 0..3 {
         rig.clock.advance(3600);
@@ -44,7 +44,7 @@ fn finish_lets_an_open_item_reach_its_merge_with_no_new_dispatch_then_stops() {
     }
     assert!(!take_stop(&runner));
 
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady { issue: 7, .. })
@@ -117,7 +117,7 @@ fn add_is_refused_while_the_runner_finishes() {
 fn start_while_finishing_lets_the_board_pick_again() {
     let (rig, runner, _) = parked_with_9_ready("golbat");
     rig.ask(&runner, "finish", None);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     assert_eq!(step(&runner).unwrap(), None);
 
     let status = rig.ask(&runner, "start", None);
@@ -159,7 +159,7 @@ fn a_runner_restarted_while_finishing_comes_back_finishing() {
         (&status["run"], &status["parked"]),
         (&json!("finishing"), &json!([7]))
     );
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     for _ in 0..2 {
         assert_eq!(step(&runner).unwrap(), None, "the board opened #9");
     }
@@ -220,7 +220,7 @@ fn a_pause_while_finishing_leaves_a_runner_that_comes_back_picking() {
         "it goes on finishing until the stop"
     );
     assert_eq!(saved(&rig).get("finishing"), None);
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     assert_eq!(step(&runner).unwrap(), None);
 
     // A refused stop sends `finish` again, which saves it again.

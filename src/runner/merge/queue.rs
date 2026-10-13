@@ -129,7 +129,7 @@ mod tests {
     fn queued(project: &str) -> (Rig, Mutex<Runner>, String) {
         let (rig, runner, head) = Rig::parked(project);
         rig.forge.set_merge_queue(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::MarkedReady { .. })
@@ -188,7 +188,7 @@ mod tests {
     fn a_queued_pull_request_found_after_a_lost_mark_is_not_merged_again() {
         let (rig, runner, _) = Rig::parked("hamster");
         rig.forge.set_merge_queue(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();
         rig.clock.advance(CHECKS_SETTLE);
         // The merge call queued it, and the runner never saved the mark.
@@ -253,11 +253,11 @@ mod tests {
         rig.claude
             .script([Scripted::Reply(Usage::default(), Cost(1))]);
         step(&runner).unwrap();
-        let Some(StepReport::Ruling { id: 2, .. }) = rig.verdict(&runner) else {
+        let Some(StepReport::Ruling { id: 71, .. }) = rig.verdict(&runner) else {
             panic!("the merge ruling was not raised again");
         };
 
-        rig.ask(&runner, "rule", Some("2 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();
         rig.clock.advance(CHECKS_SETTLE);
         step(&runner).unwrap();
@@ -286,7 +286,7 @@ mod tests {
     fn armed(project: &str) -> (Rig, Mutex<Runner>, String) {
         let (rig, runner, head) = Rig::parked(project);
         rig.forge.set_merge_queue(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();
         rig.forge.arm_auto_merge(71);
         rig.clock.advance(CHECKS_SETTLE);

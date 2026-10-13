@@ -359,7 +359,7 @@ mod tests {
         rig.write_agent("mine", MINE);
         look.again(&runner);
         assert_eq!(look.failed, None);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("7 yes"));
         rig.claude.script([Scripted::Say("done")]);
         step(&runner).unwrap();
         let [call] = rig.claude.calls().try_into().unwrap();

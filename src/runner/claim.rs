@@ -153,7 +153,7 @@ mod tests {
     fn a_merged_work_items_issue_loses_the_label() {
         let (rig, runner, _) = Rig::parked("acme");
         assert!(held(&rig, 7));
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap();
         rig.clock.advance(CHECKS_SETTLE);
         step(&runner).unwrap();
