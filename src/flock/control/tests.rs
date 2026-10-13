@@ -531,6 +531,28 @@ fn a_plain_status_lists_each_contribution_with_its_author_and_head() {
 }
 
 #[test]
+fn a_plain_status_says_how_long_a_contribution_has_waited_on_its_contributor() {
+    let body = r#"{"project":"koji","work_items":[],"contributions":[
+        {"pull_request":12,"author":"newcomer","head":"2a8f1e6d0b4c","seen":1,
+         "waiting_since":1790000000,
+         "clock":{"waiting_for":90000,"days_to_nudge":2,"days_to_quiet":6}},
+        {"pull_request":14,"author":"other","head":"1f7e0d5c9a3b","seen":2,
+         "waiting_since":1789000000,
+         "clock":{"waiting_for":700000,"days_to_nudge":0,"days_to_quiet":0,"due":"quiet"}}],
+        "rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..8],
+        [
+            "  contributions: 2",
+            "    PR #12 by newcomer, head 2a8f1e6",
+            "      waiting on the contributor for 1d, nudge in 2d, quiet in 6d",
+            "    PR #14 by other, head 1f7e0d5",
+            "      waiting on the contributor for 8d, nudge due, quiet",
+        ]
+    );
+}
+
+#[test]
 fn a_plain_board_numbers_each_issue_with_its_title_priority_and_why_it_waits() {
     let list = r#"{"project":"koji","board":[
         {"position":1,"issue":284,"title":"Add the list","priority":"P0","blocked":false,"held":false},

@@ -1,0 +1,134 @@
+//! The quiet clock of a contribution
+//!
+//! Kelpie waits on the contributor once the current head's results are in
+//! and ask something of them: findings were recorded, a bot's threads are
+//! open, or CI went red. The clock runs from then, in
+//! [`Contribution::waiting_since`]. The contributor's comment, review reply
+//! or push starts it over; a reaction does not, since none is read, and the
+//! maintainer's comment is no one's word to hear. A head with green CI, no
+//! findings and no open bot thread leaves kelpie waiting on the maintainer,
+//! which clears the clock, and so does a new head.
+//!
+//! [`Clock::due`] says when `contributions.nudge_days` and `quiet_days` have
+//! passed. Nothing acts on it yet, and nothing is posted: red CI before a
+//! release gets no comment.
+
+use serde::Serialize;
+
+use super::super::Runner;
+use crate::ports::Timestamp;
+use crate::settings::Contributions;
+use crate::state::{Contribution, StateError};
+
+const DAY: u64 = 86_400;
+
+/// How long a contribution has waited on its contributor
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clock {
+    since: Timestamp,
+    nudge_days: u64,
+    quiet_days: u64,
+}
+
+/// What a contribution's wait has come to
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Due {
+    /// `nudge_days` have passed
+    Nudge,
+    /// `quiet_days` have passed
+    Quiet,
+}
+
+impl Clock {
+    /// The clock of `contribution` under `settings`, or `None` while kelpie
+    /// waits on no one
+    pub fn of(contribution: &Contribution, settings: &Contributions) -> Option<Self> {
+        let nudge_days: u64 = settings.nudge_days.get().into();
+        Some(Self {
+            since: contribution.waiting_since?,
+            nudge_days,
+            // The settings keep the nudge below the quiet; a pair that is not
+            // still never reports quiet before the nudge.
+            quiet_days: u64::from(settings.quiet_days.get()).max(nudge_days),
+        })
+    }
+
+    /// What is due at `now`: nothing, the nudge, or, past it, the quiet
+    pub fn due(&self, now: Timestamp) -> Option<Due> {
+        let days = self.days(now);
+        if days >= self.quiet_days {
+            Some(Due::Quiet)
+        } else if days >= self.nudge_days {
+            Some(Due::Nudge)
+        } else {
+            None
+        }
+    }
+
+    // Whole days waited
+    fn days(&self, now: Timestamp) -> u64 {
+        now.0.saturating_sub(self.since.0) / DAY
+    }
+
+    fn status(&self, now: Timestamp) -> ClockStatus {
+        ClockStatus {
+            waiting_for: now.0.saturating_sub(self.since.0),
+            days_to_nudge: self.nudge_days.saturating_sub(self.days(now)),
+            days_to_quiet: self.quiet_days.saturating_sub(self.days(now)),
+            due: self.due(now),
+        }
+    }
+}
+
+/// A contribution's clock, as `status` shows it
+#[derive(Debug, Serialize)]
+pub struct ClockStatus {
+    /// Seconds kelpie has waited on the contributor
+    pub waiting_for: u64,
+    /// Whole days until the nudge, 0 once it is due
+    pub days_to_nudge: u64,
+    /// Whole days until the contribution counts as quiet, 0 once it does
+    pub days_to_quiet: u64,
+    /// What is due now, left out while nothing is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due: Option<Due>,
+}
+
+/// A followed contribution, as `status` shows it: the record, and its clock
+/// while one runs
+#[derive(Debug, Serialize)]
+pub struct Followed<'a> {
+    #[serde(flatten)]
+    contribution: &'a Contribution,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clock: Option<ClockStatus>,
+}
+
+impl Runner {
+    // Starts the clock of each contribution whose head's results wait on the
+    // contributor, and clears the ones that do not. A running clock keeps
+    // its start.
+    pub(super) fn follow_clock(&mut self) -> Result<(), StateError> {
+        let now = self.ports.clock.now();
+        let mut next = self.state.clone();
+        for contribution in &mut next.contributions {
+            contribution.follow_clock(now);
+        }
+        match next == self.state {
+            true => Ok(()),
+            false => self.save(next),
+        }
+    }
+
+    /// The contributions followed, each with its clock, for `status`
+    pub(in crate::runner) fn followed_status(&self, now: Timestamp) -> Vec<Followed<'_>> {
+        let settings = &self.settings.contributions;
+        (self.state.contributions.iter())
+            .map(|contribution| Followed {
+                contribution,
+                clock: Clock::of(contribution, settings).map(|c| c.status(now)),
+            })
+            .collect()
+    }
+}

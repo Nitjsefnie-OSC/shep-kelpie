@@ -901,7 +901,7 @@ impl Runner {
 #[cfg(test)]
 mod codex_bot;
 #[cfg(test)]
-mod contribution_turns;
+pub(in crate::runner) mod contribution_turns;
 #[cfg(test)]
 mod late_reads;
 #[cfg(test)]

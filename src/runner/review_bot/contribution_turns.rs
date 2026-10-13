@@ -19,7 +19,8 @@ use crate::runner::contributions::security_tests::{commit_on, contribute, contri
 use crate::runner::{Runner, step};
 use crate::test::{Rig, Scripted, Told};
 
-const FINDING: &str = "P2: `bleats` loses a stamped prefix. Strip only files shep stamped.";
+pub(in crate::runner) const FINDING: &str =
+    "P2: `bleats` loses a stamped prefix. Strip only files shep stamped.";
 const NIT: &str = "P3: The name could be shorter.";
 
 fn cubic() -> LeaseKind {
@@ -38,7 +39,7 @@ fn poll(rig: &Rig, runner: &Mutex<Runner>) {
 }
 
 // Polls until cubic has been summoned on pull request 30
-fn until_summoned(rig: &Rig, runner: &Mutex<Runner>) {
+pub(in crate::runner) fn until_summoned(rig: &Rig, runner: &Mutex<Runner>) {
     for _ in 0..10 {
         if summons_by_comment(rig) > 0 {
             return;
@@ -50,7 +51,7 @@ fn until_summoned(rig: &Rig, runner: &Mutex<Runner>) {
 
 // Pull request 30, whose head has passed the security review and CI, with
 // `list` as its reviewers, and its first reviewer's turn begun
-fn contributed(list: &[&str]) -> (Rig, Mutex<Runner>, String) {
+pub(in crate::runner) fn contributed(list: &[&str]) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner) = listing(list);
     rig.claude
         .script(std::iter::repeat_n(Scripted::Text(CLEAN), 2));
