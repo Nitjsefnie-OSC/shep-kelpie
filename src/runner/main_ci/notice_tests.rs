@@ -294,3 +294,27 @@ fn a_notice_with_no_webhook_is_logged_and_not_kept() {
     assert!(rig.alerts.posts().is_empty());
     assert_eq!(step(&runner).unwrap(), None, "and is not kept");
 }
+
+#[test]
+fn a_red_run_older_than_the_one_rerun_is_not_the_rerun_failing() {
+    // A workflow that was red before the rerun was ever made of its latest
+    // run, as one from an older state file or after a limited first try is.
+    let (rig, runner) = red_test();
+    drop(runner);
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(rig.paths().state).unwrap()).unwrap();
+    state["red"][0]["first_run"] = 80.into();
+    state["red"][0]["since"] = (Rig::EPOCH - 3600).into();
+    std::fs::write(rig.paths().state, state.to_string()).unwrap();
+    let runner = rig.open().unwrap();
+
+    // Run 91's jobs are rerunning, so the run before it shows in its place.
+    let reports = read_again(
+        &rig,
+        &runner,
+        vec![run("test", 90, "failure", Rig::EPOCH - 600)],
+    );
+
+    assert_eq!(reports, []);
+    assert!(rig.alerts.posts().is_empty());
+}

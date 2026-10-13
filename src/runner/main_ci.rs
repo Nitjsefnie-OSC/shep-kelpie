@@ -214,15 +214,18 @@ struct Cleared {
 // `red` after `runs`, the latest completed run of each workflow and event: a
 // red run keeps or adds its workflow, a successful one drops it, and any
 // other leaves it as it was. A red workflow's run from before the first one
-// kelpie read is not its latest: while its failed jobs are rerunning the run
-// is not completed, and an older run shows in its place.
+// kelpie read, or before the one it reran, is not its latest: while the
+// rerun's jobs go the run is not completed, and an older run shows in its
+// place. The forge numbers runs as they are made.
 fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
     let mut next = red.to_vec();
     let mut failing = Vec::new();
     let mut cleared = Vec::new();
     for run in on_main(runs) {
         let at = next.iter().position(|r| r.workflow == run.workflow);
-        if at.is_some_and(|at| run.created < next[at].since) {
+        let older =
+            |r: &RedWorkflow| run.created < r.since || r.reran.is_some_and(|rerun| run.id < rerun);
+        if at.is_some_and(|at| older(&next[at])) {
             continue;
         }
         if !is_red(&run.conclusion) {
