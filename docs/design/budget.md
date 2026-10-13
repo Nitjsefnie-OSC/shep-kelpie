@@ -52,7 +52,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `src/settings/ci.rs`
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `src/settings/budget.rs`
 - `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `src/settings/agents.rs`
-- `rulings`: `decide` (`shadow`), `pm_alone`, `full_panel_paths`. `src/settings/rulings.rs`
+- `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused), `pm_alone`, `full_panel_paths`. `src/settings/rulings.rs`
 - `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000). `src/runner/turn.rs`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `src/skills.rs`
 - `hooks`, `e2e`. ADR 0009, `src/settings/hooks.rs`, `src/settings/e2e.rs`
