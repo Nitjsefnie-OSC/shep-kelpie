@@ -21,6 +21,7 @@ mod host;
 mod leases;
 mod local;
 mod ntfy;
+pub(crate) mod openai_gateway;
 pub(crate) mod paddock;
 mod pi;
 mod process;

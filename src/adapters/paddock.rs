@@ -67,8 +67,17 @@ impl Timing {
 ///
 /// Why the gateway did not answer with its list.
 pub(crate) fn models(gateway: &Upstream) -> Result<Vec<String>, String> {
+    list(gateway, false)
+}
+
+/// The model names `GET /v1/models` lists, with the gateway's key when `keyed`
+///
+/// # Errors
+///
+/// Why the gateway did not answer with its list.
+pub(crate) fn list(gateway: &Upstream, keyed: bool) -> Result<Vec<String>, String> {
     let asked = ("GET", "/v1/models");
-    let (status, body) = send(gateway, asked, None, false, Timing::RUNNER.answer)?;
+    let (status, body) = send(gateway, asked, None, keyed, Timing::RUNNER.answer)?;
     if status != 200 {
         return Err(format!("`GET /v1/models` answered HTTP {status}"));
     }
@@ -396,7 +405,7 @@ fn open(gateway: &Upstream, within: Duration) -> Result<TcpStream, String> {
 }
 
 // One request on a connection of its own, and its status and body, each step within `within`.
-fn send(
+pub(crate) fn send(
     gateway: &Upstream,
     asked: (&str, &str),
     body: Option<&Value>,

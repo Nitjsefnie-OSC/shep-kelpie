@@ -28,6 +28,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
             head: "abcdef123".into(),
             checks: vec!["test".into(), "lint".into()],
             fix_turns: None,
+            review: None,
         }),
         RulingKind::from(Stuck::Closed),
         RulingKind::from(Stuck::FixNotPushed {
