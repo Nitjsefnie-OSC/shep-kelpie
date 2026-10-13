@@ -138,6 +138,29 @@ fn a_handover_waits_out_a_call_whose_stdin_is_being_fed() {
 }
 
 #[test]
+fn a_withdrawn_handover_is_not_made_when_the_hold_ends() {
+    let rig = Rig::new("shep");
+    let hold = Hold::default();
+    let feeding = Arc::new(AtomicBool::new(true));
+    let (handing, tried) = refusing("stand-in", &feeding);
+    let (runner, worker, wake) = in_a_turn(&rig, &hold, Arc::clone(&handing));
+    handing.ask(&wake);
+    assert!(handing.pending());
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.withdraw()).unwrap();
+    assert_eq!(answer["handover"], "withdrawn");
+    assert!(!handing.pending());
+    feeding.store(false, Ordering::SeqCst);
+    handing.attempt(&runner);
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0);
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.withdraw()).unwrap();
+    assert_eq!(answer["handover"], "none waiting");
+    hold.release();
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
 fn a_handover_waits_out_a_notice_hook_that_is_running() {
     use crate::hooks::Role;
     use crate::settings::HookPoint;

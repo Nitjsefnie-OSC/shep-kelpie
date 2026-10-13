@@ -57,7 +57,7 @@ async fn a_runner_is_drained_and_restarted_once_no_call_runs() {
         .unwrap();
     assert_eq!(
         triggers(&writes[..koji], "koji"),
-        ["status", "drain", "drain", "drain", "status"],
+        ["status", "handover", "drain", "drain", "drain", "status"],
         "drained until no call ran, then the merge wait: {writes:?}"
     );
     assert!(
@@ -124,7 +124,7 @@ async fn a_runner_that_answers_drain_on_its_second_ask_is_drained() {
         .unwrap();
     assert_eq!(
         triggers(&writes[..koji], "koji"),
-        ["status", "drain", "status", "drain", "status"]
+        ["status", "handover", "drain", "status", "drain", "status"]
     );
     assert!(
         !said.iter().any(|l| l.contains("from before `drain`")),
@@ -193,6 +193,10 @@ async fn now_restarts_without_draining() {
     assert_eq!(restarted(&writes), ["kelpie", "koji"]);
     assert!(
         !triggers(&writes, "koji").contains(&"drain".to_owned()),
+        "{writes:?}"
+    );
+    assert!(
+        !triggers(&writes, "koji").contains(&"handover".to_owned()),
         "{writes:?}"
     );
 }

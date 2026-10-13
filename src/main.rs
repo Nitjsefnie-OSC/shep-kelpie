@@ -21,8 +21,8 @@
 //! `shep kelpie upgrade --ref <git ref> | --release <version> | --binary <path>`,
 //! `shep kelpie upgrade --rollback`: installs a new kelpie over the one the
 //! adopted dog runs and restarts the dog and each runner onto it, between
-//! merges, or puts the previous build back. Each runner is drained first, so
-//! no call is cut short, unless `--now` is given. Run as
+//! merges, or puts the previous build back. Each runner is handed over in place,
+//! or drained first, so no call is cut short, unless `--now` is given. Run as
 //! `shep kelpie upgrade ...`.
 //!
 //! `kelpie version [--json]`: the build's version and the shep version it is
