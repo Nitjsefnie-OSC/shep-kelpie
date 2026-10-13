@@ -69,6 +69,8 @@ impl Flow<'_> {
                 "workflows": "write",
                 "issues": "write",
                 "pull_requests": "write",
+                "checks": "read",
+                "statuses": "read",
                 "metadata": "read",
             },
         })
