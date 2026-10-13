@@ -24,6 +24,7 @@ use serde_json::json;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
+use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
@@ -567,9 +568,13 @@ fn policy(
             .into_iter()
             .chain(files.locks()),
     );
+    // Node aborts at start when it cannot stat its own stdout and stderr,
+    // the files kelpie opens for them.
+    let outputs = CallFiles::of(call);
     policy.read.extend(
         [files.home.clone(), files.guard(), files.scratch.clone()]
             .into_iter()
+            .chain([outputs.stdout, outputs.stderr])
             .chain(call.instructions.iter().cloned())
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),
