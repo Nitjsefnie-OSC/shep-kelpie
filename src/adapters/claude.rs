@@ -360,7 +360,7 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
         (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
     };
-    if mcp::loads(call) {
+    if crate::adapters::mcp::loads(call) {
         argv.extend(["--mcp-config".into(), mcp::mcp_file(&call.settings).into()]);
     }
     if let Some(tools) = tools {

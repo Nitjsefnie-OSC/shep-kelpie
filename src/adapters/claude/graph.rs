@@ -1,35 +1,14 @@
-//! The code graph server in a call's MCP config
-
-use std::path::Path;
-
-use serde_json::{Value, json};
-
-use crate::ports::CodeGraph;
-
-/// The name Claude Code knows the server by, which its tools are named after
-pub(crate) const SERVER: &str = "codebase-memory-mcp";
-
-/// The code graph server as Claude Code's `mcpServers` entry: it starts over `graph`'s index, held to the call's folder
-pub(crate) fn entry(graph: &CodeGraph, cwd: &Path) -> Value {
-    json!({
-        "type": "stdio",
-        "command": graph.binary,
-        "args": [],
-        "env": {
-            "CBM_CACHE_DIR": graph.index,
-            "CBM_ALLOWED_ROOT": cwd,
-        },
-    })
-}
+//! The code graph in a Claude Code call's argv, settings and sandbox
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use super::*;
+    use serde_json::{Value, json};
+
     use crate::adapters::claude::mcp::mcp_file;
     use crate::adapters::claude::{ClaudeCli, argv, sandbox};
-    use crate::ports::{AgentCall, Agents, Reach, Role, Session, SessionId, Tools};
+    use crate::ports::{AgentCall, Agents, CodeGraph, Reach, Role, Session, SessionId, Tools};
     use crate::settings::{AgentHarness, Effort};
 
     fn graph() -> CodeGraph {
@@ -145,13 +124,5 @@ mod tests {
         let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
         assert!(!policy.read.contains(&graph.binary));
         assert!(!policy.write.contains(&graph.index));
-    }
-
-    #[test]
-    fn the_entry_starts_the_server_on_the_calls_index_and_folder() {
-        let server = entry(&graph(), Path::new("/work/7"));
-        assert_eq!(server["command"], "/kelpie/tools/bin/codebase-memory-mcp");
-        assert_eq!(server["env"]["CBM_CACHE_DIR"], "/kelpie/code-graphs/7");
-        assert_eq!(server["env"]["CBM_ALLOWED_ROOT"], "/work/7");
     }
 }
