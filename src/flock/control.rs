@@ -223,8 +223,10 @@ fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
 /// # Errors
 ///
 /// A message when the adopted kelpie is not running as the dog with its
-/// channel, the project has no kelpie runner, or it does not answer in
-/// time. Only kelpie's own runners are ever started.
+/// channel, the project has no kelpie runner, or it does not answer `status`
+/// in time. A runner that takes `start` and answers it late is no error: the
+/// line says `start` has most likely been taken. Only kelpie's own runners
+/// are ever started.
 pub async fn start(client: &Client, project: &ProjectName) -> Result<Vec<String>, String> {
     let rows = flock(client).await?;
     let runner = kelpie_runner(client, &rows, project).await?;
@@ -243,6 +245,7 @@ pub async fn start(client: &Client, project: &ProjectName) -> Result<Vec<String>
             Answered::Runner(_) => {
                 return match trigger(client, runner, "start", None).await? {
                     Answered::Runner(body) => refusal(&body).map_or(Ok(vec![body]), Err),
+                    Answered::TimedOut => Ok(vec![late(runner, "start", &check_status(runner))]),
                     other => Err(unanswered(runner, other)),
                 };
             }
@@ -284,8 +287,10 @@ fn run(body: &str) -> Option<String> {
 ///
 /// A message when the project has no kelpie runner, it does not come up
 /// from starting within `patience`, the runner refused `finish`, with its
-/// reason, or it did not answer. With [`Format::Json`] it returns the runner's
-/// answer as it came, once the runner has taken `finish`.
+/// reason, or it did not answer `status`. A runner busy past the deadline
+/// when sent `finish` is no error: the line says `finish` has most likely
+/// been taken. With [`Format::Json`] it returns the runner's answer as it
+/// came, once the runner has taken `finish`.
 pub async fn finish(
     client: &Client,
     project: &ProjectName,
@@ -305,6 +310,10 @@ pub async fn finish(
     come_up(client, name, patience, say).await?;
     let body = match trigger(client, name, "finish", None).await? {
         Answered::Runner(body) => body,
+        Answered::TimedOut => {
+            let said = late(name, "finish", &check_status(name));
+            return Ok(vec![said_as(format, name, said)]);
+        }
         other => return Err(unanswered(name, other)),
     };
     if let Some(why) = refusal(&body) {
@@ -501,8 +510,9 @@ fn attached(status: &str) -> Vec<u64> {
 /// # Errors
 ///
 /// A message when the project has no kelpie runner, the runner refused the
-/// answer, with its reason, it is starting or did not answer, or a stopped
-/// runner's answer cannot be left.
+/// answer, with its reason, it is starting, or a stopped runner's answer
+/// cannot be left. A runner busy past the deadline is no error: the answer
+/// has most likely been taken, and the second line says how to check.
 pub async fn rule(
     client: &Client,
     project: &ProjectName,
@@ -529,6 +539,10 @@ pub async fn rule(
                 ),
             ])
         }
+        Answered::TimedOut => Ok(vec![
+            ruled,
+            late(name, "rule", &format!("shep kelpie rule -p {name}")),
+        ]),
         other => Err(unanswered(name, other)),
     }
 }
@@ -603,12 +617,13 @@ pub async fn status(client: &Client, format: Format) -> Result<Vec<String>, Stri
     Ok(lines)
 }
 
-/// Sends `project`'s runner `action` with `params`, as `shep trigger` would
+/// Sends `project`'s runner `action` with `params`, as `shep trigger` would,
+/// for an action that changes nothing: a retry after an error is safe
 ///
 /// # Errors
 ///
-/// A message when the project has no kelpie runner, it is not running, or
-/// it refused the trigger, with its reason.
+/// A message when the project has no kelpie runner, it is not running, it
+/// did not answer in time, or it refused the trigger, with its reason.
 pub async fn send(
     client: &Client,
     project: &ProjectName,
@@ -622,6 +637,46 @@ pub async fn send(
             Some(why) => Err(why),
             None => Ok(vec![body]),
         },
+        other => Err(unanswered(runner, other)),
+    }
+}
+
+/// Sends `project`'s runner `action` with `params`, an action that changes
+/// its state, and prints its answer as plain lines, or with [`Format::Json`]
+/// as the runner's object
+///
+/// A runner busy mid-step can take the action and not answer in time. It is
+/// no error then, since a retry would repeat what was done: the line says the
+/// runner was busy, the action has most likely been taken, and the command
+/// that shows it.
+///
+/// # Errors
+///
+/// A message when the project has no kelpie runner, it is not running or is
+/// starting, or it refused the action, with its reason.
+pub async fn change(
+    client: &Client,
+    project: &ProjectName,
+    action: &str,
+    params: Option<&str>,
+    format: Format,
+) -> Result<Vec<String>, String> {
+    kelpie_runner(client, &flock(client).await?, project).await?;
+    let runner = project.as_str();
+    match trigger(client, runner, action, params).await? {
+        Answered::Runner(body) => match (refusal(&body), format) {
+            (Some(why), _) => Err(why),
+            (None, Format::Json) => Ok(vec![body]),
+            (None, Format::Plain) => Ok(plain_reply(runner, action, params, &body)),
+        },
+        Answered::TimedOut => {
+            let check = match (action, params) {
+                ("board", Some(_)) => format!("shep kelpie board -p {runner}"),
+                _ => check_status(runner),
+            };
+            let said = late(runner, action, &check);
+            Ok(vec![said_as(format, runner, said)])
+        }
         other => Err(unanswered(runner, other)),
     }
 }
@@ -674,6 +729,20 @@ fn said_as(format: Format, sheep: &str, said: String) -> String {
         Format::Plain => said,
         Format::Json => serde_json::json!({ "sheep": sheep, "message": said }).to_string(),
     }
+}
+
+// The command that shows a runner's state.
+fn check_status(runner: &str) -> String {
+    format!("shep kelpie status -p {runner}")
+}
+
+// What a verb that changes `runner` says when it took `action` and gave no
+// answer in time.
+fn late(runner: &str, action: &str, check: &str) -> String {
+    format!(
+        "{runner}'s runner was busy and did not answer in time, so `{action}` has most likely \
+         been taken: `{check}` shows it"
+    )
 }
 
 // Why `runner` gave no answer of its own.
