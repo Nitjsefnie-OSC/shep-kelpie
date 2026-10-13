@@ -81,7 +81,7 @@ fn prompt(project: &str, issues: &[u64], build: &Build, gaps: &[String], digest:
          can tell (stale base, wording, lifecycle, security).\n\
          2. Problems in a single work item.\n\
          3. If nothing is worth the maintainer's time, say so in a sentence and write nothing else.\n\
-         4. A `{}` section, last, with one bullet for each new problem, \
+         4. A `## {}` section, last, with one bullet for each new problem, \
          `- <theme>: <one line>`, where the theme is a few words that name the gap. A \
          later retro is told these themes as the known gaps until the maintainer clears \
          the report.\n\n\
@@ -93,7 +93,7 @@ fn prompt(project: &str, issues: &[u64], build: &Build, gaps: &[String], digest:
         named.join(", "),
         build.kelpie,
         build.shep,
-        gaps::HEADING.trim_start_matches("## "),
+        gaps::HEADING,
     )
 }
 
@@ -225,7 +225,7 @@ impl Runner {
         let journal = journal::read(&self.paths.journal);
         let rulings = panel::records(&self.paths.rulings);
         let ledger = usage::read(self.ledger.path()).unwrap_or_default();
-        let gaps = gaps::open(&self.paths.retro_reports);
+        let gaps = gaps::open(&self.paths.retro_reports, self.project.as_str());
         let digest = digest::build(&digest::Records {
             project: self.project.as_str(),
             batch,

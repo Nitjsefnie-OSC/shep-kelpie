@@ -9,8 +9,8 @@
 use std::fs;
 use std::path::Path;
 
-/// The heading the report's findings sit under
-pub(super) const HEADING: &str = "## New findings";
+/// The title of the section the report's findings sit under, as `## New findings`
+pub(super) const HEADING: &str = "New findings";
 
 /// The most themes the prompt lists
 const LISTED: usize = 40;
@@ -21,7 +21,7 @@ const THEME_LEN: usize = 80;
 /// The themes of `report`'s findings
 pub(super) fn themes(report: &str) -> Vec<String> {
     let mut lines = report.lines().map(str::trim);
-    if !lines.any(|l| l.eq_ignore_ascii_case(HEADING)) {
+    if !lines.any(is_heading) {
         return Vec::new();
     }
     (lines.take_while(|l| !l.starts_with('#')))
@@ -35,13 +35,30 @@ pub(super) fn themes(report: &str) -> Vec<String> {
         .collect()
 }
 
-/// The open known gaps: the themes in the reports kept in `folder`, oldest
-/// report first, each once. A folder or report that cannot be read adds none.
-pub(super) fn open(folder: &Path) -> Vec<String> {
+// Whether `line` is the findings heading at any level, numbered or bold
+fn is_heading(line: &str) -> bool {
+    let words = line.trim_start_matches(|c: char| {
+        c == '#' || c == '*' || c == '.' || c.is_ascii_digit() || c.is_whitespace()
+    });
+    let words = words.trim_end_matches(|c: char| c == '*' || c == ':' || c.is_whitespace());
+    words.eq_ignore_ascii_case(HEADING)
+}
+
+/// The open known gaps: the themes in `project`'s reports kept in `folder`,
+/// oldest report first, each once, and the newest [`LISTED`] of them. A
+/// folder or report that cannot be read adds none.
+pub(super) fn open(folder: &Path, project: &str) -> Vec<String> {
     let Ok(entries) = fs::read_dir(folder) else {
         return Vec::new();
     };
-    let mut files: Vec<_> = entries.filter_map(|e| Some(e.ok()?.path())).collect();
+    // The folder is every project's, and a report's name begins with its project's.
+    let prefix = format!("{project}-batch-");
+    let mut files: Vec<_> = (entries.filter_map(|e| Some(e.ok()?.path())))
+        .filter(|f| {
+            let name = f.file_name().and_then(|n| n.to_str());
+            name.is_some_and(|n| n.starts_with(&prefix))
+        })
+        .collect();
     files.sort();
     let mut gaps: Vec<String> = Vec::new();
     for file in files {
@@ -52,7 +69,7 @@ pub(super) fn open(folder: &Path) -> Vec<String> {
             }
         }
     }
-    gaps.truncate(LISTED);
+    gaps.drain(..gaps.len().saturating_sub(LISTED));
     gaps
 }
 
@@ -87,14 +104,49 @@ mod tests {
         )
         .unwrap();
 
+        fs::write(
+            dir.path().join("alpha-batch-1.md"),
+            "## New findings\n\n- stale lockfile of alpha: x\n",
+        )
+        .unwrap();
+
         assert_eq!(
-            open(dir.path()),
+            open(dir.path(), "koji"),
             [
                 "Sandbox cannot bind a socket",
                 "state VERSION conflicts",
                 "slow CI"
             ]
         );
-        assert_eq!(open(&dir.path().join("none")), Vec::<String>::new());
+        assert_eq!(open(&dir.path().join("none"), "koji"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_findings_heading_is_found_at_any_level_numbered_or_bold() {
+        for heading in [
+            "## New findings",
+            "### New findings",
+            "## 4. New findings",
+            "**New findings**",
+            "## New Findings:",
+        ] {
+            let report = format!("{heading}\n\n- a gap: x\n");
+            assert_eq!(themes(&report), ["a gap"], "{heading}");
+        }
+    }
+
+    #[test]
+    fn past_the_limit_the_newest_themes_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in 0..LISTED + 5 {
+            let file = dir.path().join(format!("koji-batch-{n:03}.md"));
+            fs::write(file, format!("## New findings\n\n- gap {n}: x\n")).unwrap();
+        }
+
+        let gaps = open(dir.path(), "koji");
+
+        assert_eq!(gaps.len(), LISTED);
+        assert_eq!(gaps.first().unwrap(), "gap 5");
+        assert_eq!(gaps.last().unwrap(), &format!("gap {}", LISTED + 4));
     }
 }
