@@ -441,6 +441,21 @@ impl Runner {
             }
             .into());
         }
+        if !settings.contributions.is_off() {
+            if !ports.voice.covers(&remote) {
+                return Err(SettingsError::Invalid {
+                    setting: "contributions.pick",
+                    reason: format!(
+                        "the GitHub App does not cover {}, so the representative would \
+                         otherwise post as the maintainer: set up the App for the repo, or \
+                         set `pick = \"off\"`",
+                        remote.as_str()
+                    ),
+                }
+                .into());
+            }
+            settings.contribution_lineup(&book, home)?;
+        }
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
         let clock = Arc::clone(&ports.clock);
