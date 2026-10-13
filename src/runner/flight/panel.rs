@@ -22,7 +22,7 @@ use crate::panel::Voter;
 use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Ending, Timestamp};
 use crate::settings::Limit;
 use crate::state::StateError;
-use crate::usage::{CallKind, Draft, Spent, ended};
+use crate::usage::{CallKind, CallLine, Draft, Spent, ended};
 
 /// The experts of one ruling, in flight
 #[derive(Debug)]
@@ -35,12 +35,13 @@ pub(in crate::runner) struct Panelling {
     drafts: Vec<(Voter, Draft)>,
     // How the ruling's panel is asked, which each vote's ledger line says
     plan: Option<Plan>,
-    // What the worker's call left its session costing, once it has ended
-    worker_cost: Arc<Mutex<Option<Cost>>>,
+    // How the worker's call ended, once it has, for its ledger line and the
+    // cost of its session before the flight as a whole is heard
+    worker_result: Arc<Mutex<Option<Result<AgentReply, AgentError>>>>,
     // Whether the ruling was answered, so the work item's session is free of
-    // the worker's vote once that call has ended
+    // the worker's vote once that call is kept
     released: bool,
-    // Whether the cost of the worker's session is already kept on its item
+    // Whether the worker's ledger line and session cost are already kept
     settled: bool,
 }
 
@@ -71,7 +72,7 @@ impl Panelling {
     // Whether the worker's vote is running in `issue`'s session, which no
     // turn of the work item may resume until it ends.
     pub(in crate::runner) fn votes_as(&self, issue: u64) -> bool {
-        let free = self.released && self.worker_done();
+        let free = self.released && self.settled;
         self.worker_of == Some(issue) && !free
     }
 
@@ -111,26 +112,91 @@ impl Runner {
         }
     }
 
+    /// Whether the worker's vote on ruling `id` is still to return: its call
+    /// runs, or has not been started
+    pub(in crate::runner) fn panel_worker_open(&self, id: u64) -> bool {
+        match self.flights.panel.as_ref().filter(|p| p.id == id) {
+            None => true,
+            Some(flight) => (flight.calls.iter())
+                .any(|call| call.voter == Voter::Worker && !call.done.load(Ordering::SeqCst)),
+        }
+    }
+
     /// Frees the work item of ruling `id` from the worker's vote, now that the
     /// ruling is answered: the call is ended if it runs, and the item's
-    /// session is its own again once the call has returned. The other experts
-    /// go on voting. Whether a flight for `id` was there to free.
-    pub(in crate::runner) fn panel_release_worker(&mut self, id: u64) -> Result<bool, StateError> {
+    /// session is its own again once the call has returned and is kept. The
+    /// other experts go on voting. Whether a flight for `id` was there to free.
+    pub(in crate::runner) fn panel_release_worker(&mut self, id: u64) -> bool {
         let Some(flight) = self.flights.panel.as_mut().filter(|p| p.id == id) else {
-            return Ok(false);
+            return false;
         };
         flight.released = true;
         (flight.calls.iter())
             .filter(|call| call.voter == Voter::Worker)
             .for_each(|call| call.ending.end());
-        let cost = flight.worker_cost.lock().ok().and_then(|slot| *slot);
-        let issue = flight.worker_of.filter(|_| flight.worker_done());
-        let (Some(issue), Some(cost)) = (issue, cost) else {
-            return Ok(true);
+        self.panel_settle_worker();
+        true
+    }
+
+    /// Keeps the ledger line and session cost of the worker's vote once its
+    /// call has returned in a flight whose ruling is answered, before the
+    /// work item's next turn can count them as its own
+    pub(in crate::runner) fn panel_settle_worker(&mut self) {
+        let ready = (self.flights.panel.as_ref()).is_some_and(|p| p.released && !p.settled);
+        if !ready {
+            return;
+        }
+        let Some(mut flight) = self.flights.panel.take() else {
+            return;
         };
+        self.settle_worker_of(&mut flight);
+        self.flights.panel = Some(flight);
+    }
+
+    fn settle_worker_of(&mut self, flight: &mut Panelling) {
+        let Some(issue) = flight.worker_of.filter(|_| flight.worker_done()) else {
+            return;
+        };
+        let Some(result) = flight.worker_result.lock().ok().and_then(|r| r.clone()) else {
+            return;
+        };
+        let cost = result.as_ref().ok().and_then(|reply| reply.session_cost);
+        if let Some(cost) = cost
+            && let Err(e) = self.keep_session_cost(issue, cost)
+        {
+            self.notes.push(format!(
+                "cannot keep the cost of ruling {}'s worker vote: {e}",
+                flight.id
+            ));
+            return;
+        }
+        let now = self.ports.clock.now();
+        if let Some(line) = self.vote_line(flight, Voter::Worker, &result, now) {
+            self.append_call(line, false);
+        }
         flight.settled = true;
-        self.keep_session_cost(issue, cost)?;
-        Ok(true)
+    }
+
+    // The ledger line of `voter`'s vote in `flight`, ended as `result` says.
+    fn vote_line(
+        &mut self,
+        flight: &Panelling,
+        voter: Voter,
+        result: &Result<AgentReply, AgentError>,
+        now: Timestamp,
+    ) -> Option<CallLine> {
+        let (_, draft) = flight.drafts.iter().find(|(v, _)| *v == voter)?;
+        let ended = ended(result)?;
+        let spent = result.as_ref().ok().map(Spent::from);
+        let before = (draft.session())
+            .and_then(|session| self.ledger.session_cost(session))
+            .unwrap_or(Cost(0));
+        let mut line = draft.line(now, ended, spent, before, self.pacer_lines());
+        if let Some(plan) = &flight.plan {
+            let choice = vote_of(result, flight.options).ok().map(|v| v.choice);
+            line.votes = vec![plan.mark(flight.id, voter, choice)];
+        }
+        Some(line)
     }
 
     // The worker's vote ran in its work item's session, whose cost counts
@@ -292,21 +358,21 @@ impl Runner {
             None,
         );
         let names: Vec<Voter> = running.iter().map(|(voter, ..)| *voter).collect();
-        let worker_cost = Arc::new(Mutex::new(None));
-        let kept_cost = Arc::clone(&worker_cost);
+        let worker_result = Arc::new(Mutex::new(None));
+        let kept_result = Arc::clone(&worker_result);
         let call_wake = wake.clone();
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
                 thread::scope(|scope| {
                     let started: Vec<_> = (running.iter())
                         .map(|(voter, call, ending, done)| {
-                            let (agents, kept, wake) = (&agents, &kept_cost, &call_wake);
+                            let (agents, kept, wake) = (&agents, &kept_result, &call_wake);
                             let ran = move || {
                                 let result = agents.run(call, ending);
                                 if *voter == Voter::Worker
                                     && let Ok(mut slot) = kept.lock()
                                 {
-                                    *slot = result.as_ref().ok().and_then(|r| r.session_cost);
+                                    *slot = Some(result.clone());
                                 }
                                 done.store(true, Ordering::SeqCst);
                                 if let Some(wake) = wake {
@@ -361,7 +427,7 @@ impl Runner {
             calls,
             drafts,
             plan,
-            worker_cost,
+            worker_result,
             released: false,
             settled: false,
         });
@@ -379,22 +445,12 @@ impl Runner {
         };
         let now = self.ports.clock.now();
         for (voter, result) in &ends {
-            let Some((_, draft)) = flight.drafts.iter().find(|(v, _)| v == voter) else {
+            if *voter == Voter::Worker && flight.settled {
                 continue;
-            };
-            let Some(ended) = ended(result) else {
-                continue;
-            };
-            let spent = result.as_ref().ok().map(Spent::from);
-            let before = (draft.session())
-                .and_then(|session| self.ledger.session_cost(session))
-                .unwrap_or(Cost(0));
-            let mut line = draft.line(now, ended, spent, before, self.pacer_lines());
-            if let Some(plan) = &flight.plan {
-                let choice = vote_of(result, flight.options).ok().map(|v| v.choice);
-                line.votes = vec![plan.mark(id, *voter, choice)];
             }
-            self.append_call(line, false);
+            if let Some(line) = self.vote_line(&flight, *voter, result, now) {
+                self.append_call(line, false);
+            }
         }
         // The worker's vote ran in its work item's session, whose cost counts
         // up across calls. The vote's own cost is the project's, but the next

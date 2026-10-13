@@ -8,7 +8,7 @@ use std::time::Instant;
 use serde_json::Value;
 
 use super::{PANEL, SHADOW, leak, pm_says, ruling, says, state_of};
-use crate::ports::Role;
+use crate::ports::{AgentError, Cost, Role};
 use crate::runner::{Runner, step};
 use crate::settings::Merging;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -17,8 +17,21 @@ use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 /// the others vote A. Returns once its call is under way, with the rig,
 /// runner and its hold.
 fn held(project: &str, rulings: &str, held: Role) -> (Rig, Mutex<Runner>, Hold) {
+    let cost = Cost::from_usd(0.25).unwrap();
+    let reply = leak(says("WORKER", 'A', false));
+    voting(project, rulings, held, Scripted::Billed(reply, cost))
+}
+
+/// [`held`], with the worker's call scripted as `worker` unless it is held
+fn voting(
+    project: &str,
+    rulings: &str,
+    held: Role,
+    worker: Scripted,
+) -> (Rig, Mutex<Runner>, Hold) {
     let (rig, runner) = ruling(project, "feat: add it", Merging::Auto, rulings);
     let hold = Hold::default();
+    let mut worker = Some(worker);
     for (role, who) in [
         (Role::Worker, "WORKER"),
         (Role::Researcher, "RESEARCHER"),
@@ -26,9 +39,10 @@ fn held(project: &str, rulings: &str, held: Role) -> (Rig, Mutex<Runner>, Hold) 
     ] {
         let choice = if role == Role::Advisor { 'B' } else { 'A' };
         let reply = leak(says(who, choice, false));
-        let script = match role == held {
-            true => Scripted::HoldThenSay(hold.clone(), reply),
-            false => Scripted::Say(reply),
+        let script = match (role == held, role) {
+            (true, _) => Scripted::HoldThenSay(hold.clone(), reply),
+            (_, Role::Worker) => worker.take().unwrap(),
+            _ => Scripted::Say(reply),
         };
         rig.claude.script_for(role, [script]);
     }
@@ -173,4 +187,53 @@ fn a_worker_ended_by_the_answer_abstains_as_overtaken_not_as_a_failed_call() {
     assert_eq!(experts["worker"]["overtaken"], 1, "{experts}");
     assert_eq!(experts["worker"]["abstained"], 0, "{experts}");
     assert_eq!(experts["advisor"]["votes"], 1, "{experts}");
+}
+
+/// Every line of the project's usage ledger, as JSON
+fn ledger(rig: &Rig) -> Vec<Value> {
+    let lines = crate::usage::read(&rig.paths().folder.join(crate::usage::FILE)).unwrap();
+    (lines.iter())
+        .map(|line| serde_json::to_value(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_worker_vote_is_in_the_ledger_before_the_answered_item_is_freed() {
+    let (rig, runner, hold) = advisor_held("late-ledger", SHADOW);
+    rig.ask(&runner, "rule", Some("71 yes"));
+    for _ in 0..3 {
+        step(&runner).unwrap();
+    }
+
+    let before = ledger(&rig);
+    let vote = before
+        .iter()
+        .find(|l| l["votes"][0]["voter"] == "worker")
+        .unwrap_or_else(|| panic!("no line for the worker's vote: {before:#?}"));
+    assert_eq!(vote["cost_usd"], 0.25, "{vote}");
+    hold.release();
+    until_line(&rig, &runner, |l| !l["ballots"].is_null());
+    let after = ledger(&rig);
+    let lines = after.iter().filter(|l| l["votes"][0]["voter"] == "worker");
+    assert_eq!(lines.count(), 1, "the worker's vote is lined once");
+}
+
+#[test]
+fn a_worker_whose_call_failed_before_the_answer_is_not_overtaken() {
+    let failed = Scripted::Fail(AgentError::Setup("no session".into()));
+    let (rig, runner, hold) = voting("late-failed", SHADOW, Role::Advisor, failed);
+    for _ in 0..3 {
+        step(&runner).unwrap();
+    }
+    rig.ask(&runner, "rule", Some("71 yes"));
+
+    hold.release();
+    let line = until_line(&rig, &runner, |l| !l["ballots"].is_null());
+
+    assert!(line["overtaken"].is_null(), "{line}");
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains("the worker abstains, since its call failed"),
+        "{notes}"
+    );
 }

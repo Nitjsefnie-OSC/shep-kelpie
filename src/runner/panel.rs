@@ -714,21 +714,20 @@ impl Runner {
     /// `ruling`, now saved, when the project decides by `shadow`
     pub(super) fn panel_outlives(&mut self, ruling: Ruling) {
         let id = ruling.id;
+        // A worker whose call already failed has its own reason to abstain.
+        let worker_open = self.panel_worker_open(id);
         let Some(open) = self.panel.open.get_mut(&id).filter(|o| o.plan.shadow) else {
             return;
         };
         open.answered = Some(ruling);
         // The answer moves its work item on at once, and the worker's vote
         // shares that item's session, so the worker does not wait it out.
-        if open.waiting.contains(&Voter::Worker) {
+        let overtaken = open.waiting.contains(&Voter::Worker) && worker_open;
+        if overtaken {
             open.overtaken.insert(Voter::Worker);
         }
-        match self.panel_release_worker(id) {
-            Ok(true) => {}
-            Ok(false) => self.panel_abstains(id, Voter::Worker, OVERTAKEN.into()),
-            Err(e) => self.notes.push(format!(
-                "cannot keep the cost of the worker's vote on ruling {id}: {e}"
-            )),
+        if !self.panel_release_worker(id) && overtaken {
+            self.panel_abstains(id, Voter::Worker, OVERTAKEN.into());
         }
     }
 
