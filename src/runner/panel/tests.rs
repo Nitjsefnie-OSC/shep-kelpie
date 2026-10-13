@@ -13,6 +13,7 @@ use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 mod deciding;
 mod fences;
 mod folders;
+mod mcp;
 mod own;
 mod plugins;
 

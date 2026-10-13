@@ -1,56 +1,35 @@
 //! The code graph server in a call's MCP config
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::ports::{AgentCall, CodeGraph};
+use crate::ports::CodeGraph;
 
 /// The name Claude Code knows the server by, which its tools are named after
-const SERVER: &str = "codebase-memory-mcp";
+pub(crate) const SERVER: &str = "codebase-memory-mcp";
 
-/// Where the call's MCP config goes, beside its settings file
-pub(crate) fn mcp_file(settings: &Path) -> PathBuf {
-    settings.with_extension("mcp.json")
-}
-
-/// The MCP config that starts the server over `graph`'s index, held to the call's folder
-pub(crate) fn config(graph: &CodeGraph, cwd: &Path) -> Value {
+/// The code graph server as Claude Code's `mcpServers` entry: it starts over `graph`'s index, held to the call's folder
+pub(crate) fn entry(graph: &CodeGraph, cwd: &Path) -> Value {
     json!({
-        "mcpServers": {
-            SERVER: {
-                "type": "stdio",
-                "command": graph.binary,
-                "args": [],
-                "env": {
-                    "CBM_CACHE_DIR": graph.index,
-                    "CBM_ALLOWED_ROOT": cwd,
-                },
-            },
+        "type": "stdio",
+        "command": graph.binary,
+        "args": [],
+        "env": {
+            "CBM_CACHE_DIR": graph.index,
+            "CBM_ALLOWED_ROOT": cwd,
         },
     })
 }
 
-/// Adds the server's tools to the settings' allow-list, when the call has one
-///
-/// Headless, a tool nothing allows is refused, and `--tools` names built-in
-/// tools only.
-pub(crate) fn allow(settings: &mut Value, call: &AgentCall) {
-    if call.reach.code_graph.is_none() {
-        return;
-    }
-    let rule = Value::from(format!("mcp__{SERVER}"));
-    match settings["permissions"]["allow"].as_array_mut() {
-        Some(allow) => allow.push(rule),
-        None => settings["permissions"]["allow"] = json!([rule]),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::adapters::claude::mcp::mcp_file;
     use crate::adapters::claude::{ClaudeCli, argv, sandbox};
-    use crate::ports::{Agents, Reach, Role, Session, SessionId, Tools};
+    use crate::ports::{AgentCall, Agents, Reach, Role, Session, SessionId, Tools};
     use crate::settings::{AgentHarness, Effort};
 
     fn graph() -> CodeGraph {
@@ -172,9 +151,8 @@ mod tests {
     }
 
     #[test]
-    fn the_config_starts_the_server_on_the_calls_index_and_folder() {
-        let config = config(&graph(), Path::new("/work/7"));
-        let server = &config["mcpServers"]["codebase-memory-mcp"];
+    fn the_entry_starts_the_server_on_the_calls_index_and_folder() {
+        let server = entry(&graph(), Path::new("/work/7"));
         assert_eq!(server["command"], "/kelpie/tools/bin/codebase-memory-mcp");
         assert_eq!(server["env"]["CBM_CACHE_DIR"], "/kelpie/code-graphs/7");
         assert_eq!(server["env"]["CBM_ALLOWED_ROOT"], "/work/7");

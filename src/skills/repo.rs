@@ -14,6 +14,9 @@
 //!
 //! The repo's own `.claude` files load as one more plugin (`own`).
 //!
+//! A plugin's MCP servers, and the repo's own in the `.mcp.json` of its
+//! default branch, are not copied but handed to each call's MCP config (see [`mcp`]).
+//!
 //! A plugin that cannot load is skipped with its reason, and the run goes on.
 
 use std::collections::BTreeMap;
@@ -75,6 +78,9 @@ pub struct RepoPlugin {
     // What its files held when it was read, so a change to them alone is a change.
     #[serde(skip)]
     digest: u64,
+    // The MCP servers it brings, by the name their tools are allowed under.
+    #[serde(skip)]
+    mcp: Servers,
 }
 
 /// The plugins the repo turns on, as the runner loaded them
@@ -157,6 +163,18 @@ impl RepoPlugins {
             .filter_map(|p| p.dir.as_deref())
     }
 
+    /// The MCP servers of the plugins that loaded and of the repo's own `.mcp.json`, by the
+    /// name their tools are allowed under
+    ///
+    /// The repo's own are not the worktree's `.mcp.json`, which a `--strict-mcp-config` call
+    /// never reads, so a call gets them whether or not its worktree matches `main`.
+    pub fn mcp_servers(&self) -> Servers {
+        (self.plugins.iter())
+            .filter(|p| p.skipped.is_none())
+            .flat_map(|p| p.mcp.clone())
+            .collect()
+    }
+
     /// Each plugin the repo turns on, with its skills or why it was skipped
     pub fn status(&self) -> &[RepoPlugin] {
         &self.plugins
@@ -191,7 +209,13 @@ impl RepoPlugin {
             found: None,
             own: None,
             digest: 0,
+            mcp: Servers::new(),
         }
+    }
+
+    /// The MCP servers it brings, by the name their tools are allowed under
+    pub fn mcp_servers(&self) -> &Servers {
+        &self.mcp
     }
 }
 
@@ -215,6 +239,17 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) ->
             _ => is_folder(&found.folder.join(part.as_str())),
         })
         .collect();
+    let dir = into.join(&found.name);
+    // The plugin's files go whole beside its parts, for a server that runs one of them.
+    let servers = if setup.loads(Part::Mcp) {
+        mcp::plugin_servers(&found.folder)
+    } else {
+        Servers::new()
+    };
+    let mcp = mcp::of_plugin(&found.name, servers, &dir.join(mcp::ROOT));
+    if !mcp.is_empty() {
+        found.parts.push(Part::Mcp);
+    }
     if found.parts.is_empty() {
         let asked: Vec<&str> = setup.parts.iter().map(|part| part.as_str()).collect();
         let reason = format!(
@@ -228,10 +263,11 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) ->
         skills,
         skipped: None,
         stale: found.stale.clone(),
-        dir: Some(into.join(&found.name)),
+        dir: Some(dir),
         digest: fingerprint(&found),
         found: Some(found),
         own: None,
+        mcp,
     }
 }
 
@@ -579,6 +615,10 @@ fn fingerprint(found: &Found) -> u64 {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
+            // A fetch rewrites files here, and `copy_plain` leaves it out.
+            if entry.file_name() == ".git" {
+                continue;
+            }
             entry.file_name().hash(hasher);
             if kind.is_dir() {
                 walk(&entry.path(), hasher);
@@ -590,7 +630,10 @@ fn fingerprint(found: &Found) -> u64 {
     let mut hasher = DefaultHasher::new();
     for part in &found.parts {
         part.as_str().hash(&mut hasher);
-        walk(&found.folder.join(part.as_str()), &mut hasher);
+        match part {
+            Part::Mcp => walk(&found.folder, &mut hasher),
+            _ => walk(&found.folder.join(part.as_str()), &mut hasher),
+        }
     }
     manifest(&found.folder, "").hash(&mut hasher);
     hasher.finish()
@@ -686,8 +729,13 @@ fn install(found: &Found, dir: &Path) -> Result<(), String> {
         fs::create_dir_all(dir.join(".claude-plugin"))?;
         fs::write(dir.join(".claude-plugin/plugin.json"), manifest)?;
         for part in &found.parts {
-            let folder = part.as_str();
-            copy_plain(&found.folder.join(folder), &dir.join(folder))?;
+            match part {
+                Part::Mcp => copy_plain(&found.folder, &dir.join(mcp::ROOT))?,
+                _ => {
+                    let folder = part.as_str();
+                    copy_plain(&found.folder.join(folder), &dir.join(folder))?;
+                }
+            }
         }
         Ok(())
     })();
@@ -700,6 +748,10 @@ fn copy_plain(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;
+        // A marketplace's own history is no part of a plugin.
+        if entry.file_name() == ".git" {
+            continue;
+        }
         let target = to.join(entry.file_name());
         let kind = entry.file_type()?;
         if kind.is_dir() {
@@ -745,7 +797,10 @@ fn plain(name: &str) -> bool {
     SkillName::try_from(name.to_owned()).is_ok()
 }
 
+mod mcp;
 mod own;
+
+pub use mcp::{Servers, host_of};
 
 #[cfg(test)]
 mod tests;

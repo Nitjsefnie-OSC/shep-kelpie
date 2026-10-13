@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use super::{RepoPlugin, settings_on_default_branch};
+use super::{RepoPlugin, Servers, mcp, settings_on_default_branch};
 use crate::settings::{Part, RepoSetup};
 
 /// The plugin's name, which the repo's plugins never take: `kelpie-` names are refused
@@ -24,6 +24,9 @@ pub(super) const NAME: &str = "kelpie-repo";
 
 /// How `status` and `doctor` name it: where it comes from
 const ID: &str = ".claude";
+
+/// The repo's MCP servers, at its root
+const MCP_JSON: &str = ".mcp.json";
 
 /// The folders of `.claude` that are one part each
 const FOLDERS: [Part; 3] = [Part::Skills, Part::Agents, Part::Commands];
@@ -35,6 +38,8 @@ pub(super) struct Own {
     files: BTreeMap<PathBuf, Vec<u8>>,
     /// The `hooks` of `.claude/settings.json`, where they load
     hooks: Option<Value>,
+    /// The servers of `.mcp.json`, where they load
+    mcp: Servers,
 }
 
 /// The repo's own files as `setup` loads them, or none where it loads none or the repo has none
@@ -50,7 +55,7 @@ pub(super) fn plan(checkout: &Path, into: &Path, setup: &RepoSetup) -> Option<Re
         Ok(own) => own,
         Err(reason) => return Some(RepoPlugin::skipped(ID.to_owned(), reason)),
     };
-    if own.files.is_empty() && own.hooks.is_none() {
+    if own.files.is_empty() && own.hooks.is_none() && own.mcp.is_empty() {
         return None;
     }
     let skills = skills_in(&own.files);
@@ -62,6 +67,7 @@ pub(super) fn plan(checkout: &Path, into: &Path, setup: &RepoSetup) -> Option<Re
         dir: Some(into.join(NAME)),
         found: None,
         digest: 0,
+        mcp: own.mcp.clone(),
         own: Some(own),
     })
 }
@@ -84,7 +90,23 @@ fn read(checkout: &Path, setup: &RepoSetup) -> Result<Own, String> {
                 .map(|hooks| Value::Object(hooks.clone()));
         }
     }
+    if setup.loads(Part::Mcp) {
+        own.mcp = mcp_json(checkout);
+    }
     Ok(own)
+}
+
+// The servers of `.mcp.json` on `origin`'s default branch, none where the file is absent or
+// unreadable. The worktree's copy is a worker's to change, so it is never read.
+fn mcp_json(checkout: &Path) -> Servers {
+    use crate::worktree::{BASE, git};
+    let spec = format!("origin/{BASE}:{MCP_JSON}");
+    if git(checkout, ["cat-file", "-e", &spec]).is_err() {
+        return Servers::new();
+    }
+    git(checkout, ["show", &spec])
+        .map(|text| mcp::own_servers(&text))
+        .unwrap_or_default()
 }
 
 // The regular files under `folder` on `origin`'s default branch, by path from `folder`. A link in
