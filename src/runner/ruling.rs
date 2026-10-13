@@ -959,7 +959,7 @@ fn decide(
             });
         }
         // The fix ends under the same round, which checks the head again.
-        (Answer::Yes, RulingKind::Stuck(Stuck::FixNotPushed { fix, prompt })) => {
+        (Answer::Yes, RulingKind::Stuck(Stuck::FixNotPushed { fix, prompt, .. })) => {
             let Fix::Review(review) = fix;
             return Ok(Move::Turn {
                 prompt,
