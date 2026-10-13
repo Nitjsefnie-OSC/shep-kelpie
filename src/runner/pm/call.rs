@@ -93,21 +93,19 @@ impl Runner {
         let text = agent.prompt.as_deref().unwrap_or_default();
         crate::runner::turn::write(&self.paths.worker, &instructions, text)?;
         Ok(AgentCall {
-            role: Role::Pm,
-            harness: agent.model.harness.clone(),
-            issue: 0,
-            model: agent.model.model.as_str().to_owned(),
-            effort: agent.model.effort,
-            session,
-            cwd: folder,
             settings: self.paths.worker.join("pm-settings.json"),
             instructions: Some(instructions),
-            prompt,
-            plugin_dirs: Vec::new(),
-            tools: Tools::Pm,
-            agent_tools: None,
             reach: self.pm_reach(),
-            compact_window: None,
+            ..AgentCall::new(
+                Role::Pm,
+                Tools::Pm,
+                agent.model.harness.clone(),
+                agent.model.model.as_str().to_owned(),
+                agent.model.effort,
+                session,
+                folder,
+                prompt,
+            )
         })
     }
 

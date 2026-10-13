@@ -28,9 +28,7 @@ use crate::settings::{
 use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
-use crate::work_item::{
-    Known, Phase, QwenTally, ReviewCallState, Seat, Talked, Timings, Turn, WorkItem, new_session_id,
-};
+use crate::work_item::{ReviewCallState, Seat, Timings, WorkItem, new_session_id};
 
 mod adopt;
 #[cfg(test)]
@@ -780,68 +778,16 @@ impl Runner {
     // recorded yet
     fn fresh(&self, issue: u64, title: String, agent: AgentName, session: SessionId) -> WorkItem {
         WorkItem {
-            issue,
-            title,
-            branch: format!("kelpie/{issue}"),
-            rework: false,
-            adopted: false,
-            arrived: None,
-            worktree: self.paths.worktree(issue),
-            build: self.paths.build(issue),
-            agent,
-            pinned: false,
-            session,
-            turn: Turn::Due,
-            pull_request: None,
-            phase: Phase::Implement,
-            red_head: None,
-            reran: None,
-            conflict: None,
-            resume: None,
-            review_call: ReviewCallState::default(),
-            bot_reads: Default::default(),
-            bots_skipped: Vec::new(),
-            known: Known::default(),
-            reviewed_heads: Vec::new(),
-            sent_unread: Vec::new(),
-            nit_fix_heads: Vec::new(),
-            noted_from: None,
-            late_from: None,
-            talked: Talked::default(),
-            claude_files_accepted: None,
-            qwen: QwenTally::default(),
-            budget_raises: 0,
-            merge_refused: false,
-            sent_back: false,
-            asked_to_commit: false,
-            handed_over: None,
-            handover_refused: false,
-            pull_request_refused: None,
-            context: None,
-            merge_tried: None,
-            merge_queued: None,
-            summon_owed: false,
-            summons_owed: Default::default(),
-            bots_after_ci: false,
-            seat: Seat::Held,
-            threads_sent: Vec::new(),
-            thread_answers: Vec::new(),
-            resolve_failures: 0,
-            threads_accepted: Vec::new(),
-            reviewers_skipped: Vec::new(),
-            unreviewed: None,
-            local_failures: Default::default(),
-            local_unreviewed: Vec::new(),
-            local_unreviewed_by: None,
-            rebased: false,
-            held: Vec::new(),
-            test_checks: Vec::new(),
-            follow_ups: None,
-            summary: None,
             timings: Some(Timings::starting(self.ports.clock.now())),
-            attached: None,
-            counts: Default::default(),
-            calls: Vec::new(),
+            ..WorkItem::new(
+                issue,
+                title,
+                format!("kelpie/{issue}"),
+                self.paths.worktree(issue),
+                self.paths.build(issue),
+                agent,
+                session,
+            )
         }
     }
 

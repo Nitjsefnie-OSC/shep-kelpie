@@ -630,18 +630,10 @@ pub(super) fn park(
     item.counts.rulings = item.counts.rulings.saturating_add(1);
     let text = question(issue, pull_request, &kind);
     next.rulings.push(Ruling {
-        id,
         issue: Some(issue),
-        question: text.clone(),
         pull_request,
-        kind,
-        alerted: false,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
         raised: Some(names.now),
+        ..Ruling::new(id, text.clone(), kind)
     });
     (id, text)
 }

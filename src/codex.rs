@@ -201,14 +201,13 @@ fn finding(thread: &Thread) -> Finding {
         Some("P3") => Severity::Low,
         _ => Severity::Medium,
     };
-    Finding {
+    Finding::new(
         severity,
-        file: thread.path.clone(),
-        line: thread.line.unwrap_or(0),
-        what: one_line(&what),
-        why: level.map_or_else(String::new, |l| format!("Codex rates it {l}.")),
-        test: None,
-    }
+        thread.path.clone(),
+        thread.line.unwrap_or(0),
+        one_line(&what),
+        level.map_or_else(String::new, |l| format!("Codex rates it {l}.")),
+    )
 }
 
 // The level its badge names: `![P1 Badge](...)`.

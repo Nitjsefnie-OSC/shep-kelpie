@@ -233,7 +233,7 @@ mod tests {
     use super::*;
     use crate::adapters::{ClaudeCli, LoginToken, SandboxRuntime};
     use crate::ports::Ending;
-    use crate::ports::{Agents, Reach, Role, Session, SessionId, Tools};
+    use crate::ports::{Agents, Role, Session, SessionId, Tools};
     use crate::profile::WorkerProfile;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
@@ -269,21 +269,18 @@ mod tests {
 
         fn call(&self, role: Role) -> AgentCall {
             AgentCall {
-                harness: crate::settings::AgentHarness::ClaudeCode,
-                role,
                 issue: 7,
-                model: "claude-sonnet-5".into(),
-                effort: Effort::Medium,
-                session: Session::New(SessionId("s".into())),
-                cwd: self.path("wt"),
                 settings: self.path("worker/settings.json"),
-                instructions: None,
-                prompt: "go".into(),
-                plugin_dirs: Vec::new(),
-                tools: Tools::Answer,
-                agent_tools: None,
-                reach: Reach::default(),
-                compact_window: None,
+                ..AgentCall::new(
+                    role,
+                    Tools::Answer,
+                    crate::settings::AgentHarness::ClaudeCode,
+                    "claude-sonnet-5",
+                    Effort::Medium,
+                    Session::New(SessionId("s".into())),
+                    self.path("wt"),
+                    "go",
+                )
             }
         }
 

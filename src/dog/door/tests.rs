@@ -43,14 +43,7 @@ fn door(capacity: u32) -> (tempfile::TempDir, PathBuf, Arc<Mutex<Kept>>) {
 }
 
 fn ask(what: &str) -> Ask {
-    Ask {
-        take: CARGO_TEST.into(),
-        pid: std::process::id(),
-        what: what.into(),
-        running: false,
-        worktree: None,
-        forge: None,
-    }
+    Ask::new(CARGO_TEST, std::process::id(), what)
 }
 
 async fn answer(visit: &mut Visit) -> Option<Answer> {

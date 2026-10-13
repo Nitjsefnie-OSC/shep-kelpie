@@ -4,7 +4,7 @@
 //! own throwaway settings, never the worker's own. It keeps its read tools,
 //! to check its own work against the worktree, and runs no command.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 
 use crate::adapters::CLAUDE_REVIEW_TOOLS;
@@ -49,21 +49,18 @@ pub(in crate::runner) fn build_call(
 ) -> Result<AgentCall, String> {
     let session = new_session_id().map_err(|e| format!("cannot draw a session id: {e}"))?;
     Ok(AgentCall {
-        role,
-        harness: model.harness.clone(),
         issue,
-        model: model.model.as_str().to_owned(),
-        effort: model.effort,
-        session: Session::New(session),
-        cwd: worktree.to_owned(),
-        settings: PathBuf::new(),
-        instructions: None,
-        prompt,
-        plugin_dirs: Vec::new(),
-        tools: Tools::Answer,
         agent_tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
-        reach: Reach::default(),
-        compact_window: None,
+        ..AgentCall::new(
+            role,
+            Tools::Answer,
+            model.harness.clone(),
+            model.model.as_str().to_owned(),
+            model.effort,
+            Session::New(session),
+            worktree.to_owned(),
+            prompt,
+        )
     })
 }
 
@@ -101,6 +98,7 @@ pub(super) fn severity_tag(severity: Severity) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
 
     use super::*;
     use crate::ports::CLEAN;

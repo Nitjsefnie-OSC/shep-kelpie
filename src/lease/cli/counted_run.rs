@@ -60,14 +60,7 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], patience:
         Ok(signals) => signals,
         Err(e) => return failed(&e, NO_LEASE),
     };
-    let ask = Ask {
-        take: CARGO_TEST.into(),
-        pid: std::process::id(),
-        what: command.join(" "),
-        running: false,
-        worktree: None,
-        forge: None,
-    };
+    let ask = Ask::new(CARGO_TEST, std::process::id(), command.join(" "));
     let visit = match wait_for_turn(socket, &ask, &mut signals, patience).await {
         Ok(Ok(visit)) => visit,
         Ok(Err(caught)) => return caught.number(),

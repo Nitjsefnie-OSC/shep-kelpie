@@ -152,14 +152,13 @@ fn a_round_sends_the_diff_with_the_prompt_and_reads_the_findings() {
         .unwrap();
     assert_eq!(
         findings,
-        vec![Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 2,
-            what: "b panics".into(),
-            why: "callers crash".into(),
-            test: None,
-        }]
+        vec![Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            2,
+            "b panics",
+            "callers crash"
+        )]
     );
     let requests = server.requests();
     assert_eq!(requests.len(), 1);

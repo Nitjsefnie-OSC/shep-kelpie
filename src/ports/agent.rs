@@ -254,6 +254,42 @@ pub struct AgentCall {
 }
 
 impl AgentCall {
+    /// A call for `role` that uses `tools`, to run `model` on `harness` at
+    /// `effort` in `session`, from `cwd`, with `prompt`
+    ///
+    /// Every other field starts at what a call that needs nothing more has:
+    /// no issue, settings path, instructions, plugin folders, agent tools or
+    /// compaction window, and a reach that is nothing.
+    #[expect(clippy::too_many_arguments, reason = "each is a field with no default")]
+    pub fn new(
+        role: Role,
+        tools: Tools,
+        harness: AgentHarness,
+        model: impl Into<String>,
+        effort: Effort,
+        session: Session,
+        cwd: PathBuf,
+        prompt: impl Into<String>,
+    ) -> Self {
+        Self {
+            role,
+            harness,
+            issue: 0,
+            model: model.into(),
+            effort,
+            session,
+            cwd,
+            settings: PathBuf::new(),
+            instructions: None,
+            prompt: prompt.into(),
+            plugin_dirs: Vec::new(),
+            tools,
+            agent_tools: None,
+            reach: Reach::default(),
+            compact_window: None,
+        }
+    }
+
     /// What its lamb is labelled: its issue and role, such as `#7 worker`,
     /// or `pm` for the project manager, which is no work item's
     pub fn label(&self) -> String {
