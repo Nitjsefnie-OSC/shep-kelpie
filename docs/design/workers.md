@@ -47,6 +47,6 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 
 ## Not built
 
-- Claude Code through a gateway: needs per-harness forwarding + pacing decision. Gateways go through a port (`src/ports/gateway.rs`) with paddock and `openai` adapters; an `openai` gateway (LiteLLM, OpenRouter, llama.cpp) holds no lease, so it may evict a model a turn runs on. #352
+- Claude Code through a gateway: needs per-harness forwarding + pacing decision. Gateways go through a port (`src/ports/gateway.rs`) with paddock and `openai` adapters; `openai` holds no lease and may evict a turn's model. #352
 - Usage calculator handing workers decisions, never cost figures (budget talk makes models stop). `docs/design-log.md` Decided, not built
 - Shots and preview parked, recoverable from git history. ADR 0006, #54, #131
