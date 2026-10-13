@@ -219,6 +219,7 @@ impl Runner {
                     head,
                     checks,
                     fix_turns,
+                    review,
                 }
                 .into(),
             );
@@ -242,6 +243,7 @@ impl Runner {
                     head,
                     checks,
                     fix_turns,
+                    review,
                 }
                 .into(),
             );

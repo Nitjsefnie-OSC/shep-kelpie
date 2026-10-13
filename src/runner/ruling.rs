@@ -601,6 +601,7 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
             head,
             checks,
             fix_turns: None,
+            ..
         } => format!(
             "CI failed again at {} and no fix was pushed: {}.",
             short(head),
@@ -610,6 +611,7 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
             head,
             checks,
             fix_turns: Some(turns),
+            ..
         } => format!(
             "CI failed at {}: {}. {}.",
             short(head),
@@ -778,6 +780,15 @@ fn decide(
             readied: None,
             auto: false,
         },
+        // A red run that interrupted a review round goes back to that round,
+        // which no reviewer has finished reading.
+        (
+            Answer::Yes,
+            RulingKind::Stuck(Stuck::StillRed {
+                review: Some(review),
+                ..
+            }),
+        ) => Phase::Review(review),
         (
             Answer::Yes,
             RulingKind::Stuck(

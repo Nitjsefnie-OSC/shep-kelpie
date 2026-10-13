@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 
 use crate::lease::LeaseKind;
-use crate::ports::{CLEAN, Checks, Finding, Severity};
+use crate::ports::{CLEAN, Checks, Cost, Finding, Severity, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -388,4 +388,83 @@ fn the_findings_sent_to_the_worker_are_journaled_with_their_round_for_the_retro(
             "findings": [{"severity": "high", "file": "src/lib.rs", "line": 3, "what": "unused variable"}],
         })]
     );
+}
+
+// A red run on the pushed head, a fix turn that pushes nothing, and the
+// still-red ruling that follows, under `auto`. Returns the head.
+fn parked_still_red(rig: &Rig, runner: &Mutex<Runner>, head: &str) {
+    red(rig, head);
+    assert!(matches!(
+        rig.verdict(runner),
+        Some(StepReport::CiFailed { .. })
+    ));
+    rig.claude
+        .script([Scripted::Reply(Usage::default(), Cost(1))]);
+    step(runner).unwrap(); // the fix turn pushes nothing
+    let report = rig.verdict(runner);
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+    let status = rig.ask(runner, "status", None);
+    assert_eq!(status["rulings"][0]["kind"]["reason"], "still-red");
+}
+
+#[test]
+fn a_still_red_yes_raised_mid_review_goes_back_to_that_review() {
+    let (rig, runner, head) = pushed();
+    drop(runner);
+    rig.merge_auto();
+    let runner = rig.open().unwrap();
+    parked_still_red(&rig, &runner, &head);
+
+    rig.ask(&runner, "rule", Some("1 yes"));
+    assert_eq!(state(&rig, &runner), "review", "the review it left");
+
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    let mut reports = Vec::new();
+    for _ in 0..6 {
+        let report = rig.verdict(&runner);
+        assert!(
+            !matches!(report, Some(StepReport::Finished { .. })) || reads(&rig) == 2,
+            "the merge waited for both reviewers: {report:?}"
+        );
+        reports.push(report);
+    }
+    assert_eq!(reads(&rig), 2, "{reports:?}");
+    assert!(
+        reports
+            .iter()
+            .any(|r| matches!(r, Some(StepReport::Finished { merged: true, .. }))),
+        "{reports:?}"
+    );
+}
+
+#[test]
+fn a_still_red_yes_after_review_goes_to_ci() {
+    let (rig, runner, head) = pushed();
+    drop(runner);
+    rig.merge_auto();
+    let runner = rig.open().unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    rig.verdict(&runner); // round 1, qwen: clean
+    step(&runner).unwrap(); // round 2, claude: clean
+    assert_eq!(state(&rig, &runner), "ci");
+    let rounds = reads(&rig);
+
+    parked_still_red(&rig, &runner, &head);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    assert_eq!(state(&rig, &runner), "ci");
+
+    rig.forge.set_checks(&head, Checks::Passed);
+    let reports: Vec<_> = (0..4).map(|_| rig.verdict(&runner)).collect();
+    assert!(
+        reports
+            .iter()
+            .any(|r| matches!(r, Some(StepReport::Finished { merged: true, .. }))),
+        "{reports:?}"
+    );
+    assert_eq!(reads(&rig), rounds, "no new round");
 }
