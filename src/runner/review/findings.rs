@@ -71,10 +71,10 @@ pub(in crate::runner) fn disputed(build: &Path) -> Result<Vec<Disputed>, String>
                 finding,
                 reason: None,
             });
-        } else if let Some(reason) = line.strip_prefix("  ") {
-            if let Some(last) = read.last_mut().filter(|d| d.reason.is_none()) {
-                last.reason = Some(reason.trim().to_owned()).filter(|r| !r.is_empty());
-            }
+        } else if let Some(reason) = line.strip_prefix("  ")
+            && let Some(last) = read.last_mut().filter(|d| d.reason.is_none())
+        {
+            last.reason = Some(reason.trim().to_owned()).filter(|r| !r.is_empty());
         }
     }
     Ok(read)

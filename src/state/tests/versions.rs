@@ -842,3 +842,22 @@ fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_loa
     assert_eq!(saved["rulings"][0]["kind"]["reason"], "security");
     assert_eq!(store.load().unwrap(), Some(state));
 }
+
+#[test]
+fn a_version_53_file_loads_with_no_disputes_and_saves_at_the_current_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.work_items.push(a_work_item());
+    let mut old = serde_json::to_value(&state).unwrap();
+    old["version"] = 53.into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.work_items[0].disputes, []);
+    assert_eq!(loaded.work_items[0].disputes_comment, None);
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+}
