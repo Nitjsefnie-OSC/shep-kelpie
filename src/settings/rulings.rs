@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::state::{RulingKind, Stuck};
+use crate::state::{Held, RulingKind, Stuck};
 
 /// Whether the panel decides a ruling or only votes on it
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -35,7 +35,7 @@ pub struct Rulings {
     pub decide: Decide,
     /// Kinds of ruling the project manager decides with its own vote on any
     /// type of work, when it flags no `design` and does not abstain. Empty
-    /// when absent, and `merge` is refused.
+    /// when absent, and `merge` and `security` are refused.
     #[serde(default)]
     pub pm_alone: Vec<RulingName>,
     /// Globs of paths that call the full panel for a ruling on a work item
@@ -84,6 +84,9 @@ pub enum RulingName {
     Unlabelled,
     /// A work item is over its budget
     OverBudget,
+    /// The security review flagged a contribution's head. The panel never
+    /// votes on it, so `pm_alone` refuses it.
+    Security,
     /// The local model sat on the CPU. No ruling is raised for it now, and
     /// the name stays so ledger and history lines written before it went
     /// still read; `pm_alone` refuses it.
@@ -99,6 +102,9 @@ impl RulingName {
             RulingKind::AgentFiles { .. } => Self::AgentFiles,
             RulingKind::ForeignChange { .. } => Self::ForeignChange,
             RulingKind::FollowUp { .. } => Self::FollowUp,
+            RulingKind::Contribution(held) => match held {
+                Held::Security { .. } => Self::Security,
+            },
             RulingKind::Stuck(stuck) => match stuck {
                 Stuck::Rebase { .. } => Self::Rebase,
                 Stuck::StillRed { .. } => Self::StillRed,
@@ -134,6 +140,7 @@ impl RulingName {
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
             Self::OverBudget => "over-budget",
+            Self::Security => "security",
             Self::LocalModelSpilled => "local-model-spilled",
         }
     }
@@ -162,13 +169,20 @@ impl Rulings {
     }
 
     /// Why `pm_alone` is refused, if it is: a merge ruling is never decided
-    /// by the project manager alone, and a kind of ruling that is gone is
-    /// not one to list
+    /// by the project manager alone, nor is a contribution's, and a kind of
+    /// ruling that is gone is not one to list
     pub fn refusal(&self) -> Option<String> {
         if self.pm_alone.contains(&RulingName::Merge) {
             return Some(
                 "a merge ruling is never decided by the project manager alone: take `merge` \
                  out of the list"
+                    .to_owned(),
+            );
+        }
+        if self.pm_alone.contains(&RulingName::Security) {
+            return Some(
+                "a ruling on a contribution never goes to the panel, since text from a \
+                 stranger must not reach a vote: take `security` out of the list"
                     .to_owned(),
             );
         }

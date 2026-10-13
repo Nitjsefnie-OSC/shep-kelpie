@@ -12,11 +12,13 @@
 //! the record of one that was closed, merged, made a draft again, or, under
 //! `"label"`, lost the label. A new head updates the record, and each head no
 //! security review has read is read ([`security`]) before anything of the
-//! contributor's can run. Nothing is posted and nothing runs for a
-//! contribution here.
+//! contributor's can run ([`ruling`] raises one for a flagged head). Nothing
+//! is posted and nothing runs for a contribution here.
 
+mod ruling;
 mod security;
 
+pub(super) use ruling::{flagged_lines, trust};
 pub(super) use security::Job;
 
 use super::Runner;
@@ -75,6 +77,7 @@ impl Runner {
             }
             let mut next = self.state.clone();
             next.contributions.clear();
+            ruling::withdraw(&mut next);
             return self.save(next);
         }
         let now = self.ports.clock.now();
@@ -110,12 +113,15 @@ impl Runner {
         if followed != self.state.contributions {
             let mut next = self.state.clone();
             next.contributions = followed;
+            ruling::withdraw(&mut next);
             self.save(next)?;
         }
         self.read_securities()
     }
 }
 
+#[cfg(test)]
+mod ruling_tests;
 #[cfg(test)]
 mod security_tests;
 #[cfg(test)]

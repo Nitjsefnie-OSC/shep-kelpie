@@ -34,6 +34,7 @@ impl Wants {
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }
             | RulingKind::ForeignChange { .. }
+            | RulingKind::Contribution(..)
             | RulingKind::FollowUp { .. } => Self::YesOrNo,
         }
     }
@@ -66,6 +67,11 @@ pub fn read_answer(wants: Wants, words: &str) -> Result<Answer, String> {
             let merge = wants == Wants::Merge;
             match (first.to_ascii_lowercase().as_str(), rest) {
                 ("yes", "") => Ok(Answer::Yes),
+                // Only a contribution's ruling takes the head, and `rule` says so
+                // for any other.
+                ("yes", head) if !merge && super::trigger::is_head(head) => {
+                    Ok(Answer::Trust(head.to_owned()))
+                }
                 ("no", "") => Err("a no takes a note for the worker: `no <note>`".into()),
                 ("no", note) => Ok(Answer::No(note.to_owned())),
                 ("rework", "") if merge => {
@@ -89,6 +95,7 @@ impl Answer {
             Self::No(note) => format!("{id} no {note}"),
             Self::Rework(note) => format!("{id} rework {note}"),
             Self::Text(text) => format!("{id} answer {text}"),
+            Self::Trust(head) => format!("{id} yes {head}"),
             Self::Do(action) => format!("{id} {}", action.word()),
         }
     }
@@ -119,6 +126,11 @@ mod tests {
         };
         assert_eq!(Wants::of(&merge), Wants::Merge);
         assert_eq!(Wants::of(&Stuck::Closed.into()), Wants::YesOrNo);
+        let flagged = RulingKind::Contribution(crate::state::Held::Security {
+            head: "abc".into(),
+            lines: Vec::new(),
+        });
+        assert_eq!(Wants::of(&flagged), Wants::YesOrNo);
     }
 
     #[test]
@@ -142,6 +154,18 @@ mod tests {
             read_answer(Wants::YesOrNo, "rework split it"),
             Err("it takes `yes`, or `no <note>`".into())
         );
+    }
+
+    #[test]
+    fn a_yes_naming_a_head_is_a_trust_and_no_merge_ruling_takes_one() {
+        assert_eq!(
+            read_answer(Wants::YesOrNo, "yes 6b0606e"),
+            Ok(Answer::Trust("6b0606e".into()))
+        );
+        assert!(read_answer(Wants::YesOrNo, "yes 6b0606e now").is_err());
+        assert!(read_answer(Wants::YesOrNo, "yes please").is_err());
+        assert!(read_answer(Wants::Merge, "yes 6b0606e").is_err());
+        assert_eq!(Answer::Trust("6b0606e".into()).params(30), "30 yes 6b0606e");
     }
 
     #[test]

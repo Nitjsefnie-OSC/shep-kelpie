@@ -485,3 +485,34 @@ fn the_card_for_a_failing_test_says_what_a_yes_does() {
     );
     assert!(!card.contains("assertion failed"), "{card}");
 }
+
+#[test]
+fn a_contribution_ruling_names_each_line_and_offers_a_yes_that_trusts_and_a_no_that_does_not() {
+    let kind = RulingKind::Contribution(crate::state::Held::Security {
+        head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
+        lines: vec![Finding {
+            severity: Severity::High,
+            file: "build.rs".into(),
+            line: 3,
+            what: "downloads and runs a script".into(),
+            why: "it runs at build time".into(),
+            test: None,
+        }],
+    });
+    let card = rendered(&ruling(71, kind.clone()));
+
+    assert!(
+        card.contains("Trust this contribution at 6b0606e"),
+        "{card}"
+    );
+    assert!(
+        card.contains("- build.rs:3 downloads and runs a script: it runs at build time"),
+        "{card}"
+    );
+    assert_eq!(phrases(&kind).len(), 2);
+    assert!(phrases(&kind)[0].starts_with("Trusts the head"));
+    assert!(
+        !super::super::said(&kind).contains("build.rs"),
+        "nothing found is posted"
+    );
+}

@@ -508,12 +508,18 @@ pub(super) fn read_rule(params: &str) -> Option<(u64, Answer)> {
         None if rest == "yes" => Answer::Yes,
         None if rest == "rerun" => Answer::Do(Action::Rerun),
         None if rest == "restore" => Answer::Do(Action::Restore),
+        Some(("yes", head)) if is_head(head.trim()) => Answer::Trust(head.trim().to_owned()),
         Some(("no", note)) if !note.trim().is_empty() => Answer::No(note.trim().to_owned()),
         Some(("rework", note)) if !note.trim().is_empty() => Answer::Rework(note.trim().to_owned()),
         Some(("answer", text)) if !text.trim().is_empty() => Answer::Text(text.trim().to_owned()),
         _ => return None,
     };
     Some((id, answer))
+}
+
+// A commit hash, or the start of one: hex digits and nothing else.
+pub(super) fn is_head(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 // A pid that names one process: not 0, and not past `i32::MAX`, which
