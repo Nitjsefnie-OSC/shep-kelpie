@@ -1,0 +1,6 @@
+
+    __( O)>  ● resuming · openai qwen3.8:27b
+   \____)    20261013_1 · /tmp/kelpie-goose
+     L L     goose is ready
+{"type":"message","message":{"id":"msg_a41c7e90-2b5d-4f63-9c18-0e6d3b7a5f24","role":"assistant","created":1791931460,"content":[{"type":"text","text":"I replied with the word ok."}],"metadata":{"userVisible":true,"agentVisible":true}}}
+{"type":"complete","total_tokens":84,"input_tokens":69,"output_tokens":15,"cache_read_input_tokens":0,"cache_write_input_tokens":0}
