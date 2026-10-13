@@ -215,6 +215,10 @@ pub(super) fn approve_workflow_runs(repo: &ForgeSlug, head: &str) -> Result<(), 
     first_error.map_or(Ok(()), Err)
 }
 
+// What GitHub calls a run that waits for approval. Its `status` query matches
+// a run's status or its conclusion, so a held run may carry it as either.
+const HELD: &str = "action_required";
+
 // The runs of `head` that wait for approval, from the listing of a repo's
 // runs. The forge was asked for that head and that status, and a run that is
 // neither is dropped here too: approving runs the contributor's code.
@@ -228,12 +232,15 @@ fn held_runs(listed: &[u8], head: &str) -> Result<Vec<u64>, ForgeError> {
         id: u64,
         head_sha: String,
         status: String,
+        conclusion: Option<String>,
     }
     let listing: Listing = serde_json::from_slice(listed).map_err(|_| unreadable(listed))?;
     Ok(listing
         .workflow_runs
         .into_iter()
-        .filter(|r| r.head_sha == head && r.status == "action_required")
+        .filter(|r| {
+            r.head_sha == head && (r.status == HELD || r.conclusion.as_deref() == Some(HELD))
+        })
         .map(|r| r.id)
         .collect())
 }
@@ -620,6 +627,17 @@ mod tests {
         ]}"#;
 
         assert_eq!(held_runs(listed, "abc").unwrap(), [2]);
+    }
+
+    #[test]
+    fn a_run_held_as_completed_with_the_conclusion_action_required_is_listed() {
+        let listed = br#"{"total_count":3,"workflow_runs":[
+            {"id":1,"head_sha":"abc","status":"completed","conclusion":"action_required"},
+            {"id":2,"head_sha":"abc","status":"completed","conclusion":"success"},
+            {"id":3,"head_sha":"abc","status":"action_required","conclusion":null}
+        ]}"#;
+
+        assert_eq!(held_runs(listed, "abc").unwrap(), [1, 3]);
     }
 
     #[test]

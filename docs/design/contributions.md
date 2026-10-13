@@ -38,7 +38,7 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 
 ## CI on a trusted head
 
-- GitHub holds a fork's first CI runs until a maintainer approves them, and approving runs the contributor's code. `Forge::approve_workflow_runs(repo, head)` lists the runs with `status=action_required` and that `head_sha`, drops any that is not both, and approves each. Kind `approve_workflow_runs`, REST. `src/adapters/gh/runs.rs`
+- GitHub holds a fork's first CI runs until a maintainer approves them, and approving runs the contributor's code. `Forge::approve_workflow_runs(repo, head)` lists the runs with `status=action_required` and that `head_sha`, drops any whose `head_sha` differs or whose `status` and `conclusion` are neither `action_required` (the query matches either field), and approves each. Kind `approve_workflow_runs`, REST. `src/adapters/gh/runs.rs`
 - Kelpie approves as the maintainer's `gh` login, from the runner outside any sandbox, as it merges. If the App's token can approve (#636), moving to it is a follow-up.
 - `follow_ci` (`src/runner/contributions/ci.rs`) runs at the end of `follow_contributions`, once a poll. A head is approved only when it equals `passed`: a flagged, unread or stale head never is, and a yes to a flagged head's ruling makes it `passed`, so the next poll approves it. A new push clears `ci`, so the new head waits for its own pass.
 - `contributions[].ci` is `{ head, since, state }`, left out until the approval succeeds. `since` is the approval, and `state` is `waiting`, `green` or `{ red: [failed checks' names] }`.
