@@ -226,3 +226,30 @@ fn a_new_push_resets_ci_to_waiting_and_is_not_approved_until_it_passes() {
     assert_eq!(rig.forge.approvals(), [first, second]);
     assert_eq!(followed(&rig, &runner, 30)["ci"]["state"], "waiting");
 }
+
+#[test]
+fn a_run_held_after_the_listing_is_approved_while_the_settled_rollup_shows_nothing() {
+    let (rig, runner) = blocking();
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    let head = contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    assert_eq!(step(&runner).unwrap(), None);
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.approvals(), vec![head.clone()]);
+
+    // Inside the settling time the rollup is not read, so nothing is asked.
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.approvals(), vec![head.clone()]);
+
+    // Past it, no check reported: a run may have been held since the listing.
+    rig.clock.advance(CHECKS_SETTLE);
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.approvals(), [head.clone(), head.clone()]);
+    assert_eq!(followed(&rig, &runner, 30)["ci"]["state"], "waiting");
+
+    // Once the rollup is read, the runs are no longer listed.
+    rig.forge.set_checks(&head, Checks::Passed);
+    poll(&rig, &runner);
+    poll(&rig, &runner);
+    assert_eq!(rig.forge.approvals(), [head.clone(), head]);
+    assert_eq!(followed(&rig, &runner, 30)["ci"]["state"], "green");
+}

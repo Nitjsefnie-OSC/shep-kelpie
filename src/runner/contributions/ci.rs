@@ -3,12 +3,14 @@
 //! GitHub holds a fork's first CI runs until a maintainer approves them, and
 //! approving runs the contributor's code. Once a poll, a contribution whose
 //! current head passed the security review (or that a yes to its ruling
-//! trusted) gets its held runs approved, once, as the maintainer's `gh`
+//! trusted) gets its held runs approved as the maintainer's `gh`
 //! login, and CI on the head is followed from then: waiting until the rollup
 //! has had [`CHECKS_SETTLE`](crate::runner::CHECKS_SETTLE) to register, then
 //! green or red with the failed checks' names. A head that is flagged,
 //! unread or stale is never approved. A refused approval is tried again at
-//! the next poll, and never fails the poll.
+//! the next poll, and never fails the poll. The held runs are listed again at
+//! each poll while the settled rollup still shows no result, since GitHub may
+//! hold a run after the first listing.
 
 use super::super::Runner;
 use super::super::gate::settled;
@@ -24,12 +26,8 @@ impl Runner {
         for held in next.contributions.iter_mut().filter(|c| c.is_passed()) {
             let number = held.pull_request;
             match held.ci.as_mut().filter(|ci| ci.head == held.head) {
-                None => match self
-                    .ports
-                    .forge
-                    .approve_workflow_runs(&self.remote, &held.head)
-                {
-                    Ok(()) => {
+                None => {
+                    if self.approve(number, &held.head) {
                         let state = match self.settings.ci.block {
                             true => CiState::Waiting,
                             false => CiState::Green,
@@ -40,14 +38,17 @@ impl Runner {
                             state,
                         });
                     }
-                    Err(e) => eprintln!(
-                        "contribution #{number}: cannot approve the runs on {}: {e}",
-                        held.head
-                    ),
-                },
+                }
                 Some(ci) if ci.state == CiState::Waiting => {
-                    if let Some(state) = self.ci_state(number, &ci.head, ci.since, now) {
-                        ci.state = state;
+                    match self.ci_state(number, &ci.head, ci.since, now) {
+                        Some(state) => ci.state = state,
+                        // A run GitHub held after the listing, or one whose
+                        // approval did not take, leaves the rollup empty or
+                        // pending past its settling time.
+                        None if settled(ci.since, now) => {
+                            self.approve(number, &ci.head);
+                        }
+                        None => {}
                     }
                 }
                 Some(_) => {}
@@ -56,6 +57,18 @@ impl Runner {
         match next == self.state {
             true => Ok(()),
             false => self.save(next),
+        }
+    }
+
+    // Whether the held runs of `head` were approved, or listed as none; a
+    // refusal is logged for the next poll to try again.
+    fn approve(&self, number: u64, head: &str) -> bool {
+        match self.ports.forge.approve_workflow_runs(&self.remote, head) {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("contribution #{number}: cannot approve the runs on {head}: {e}");
+                false
+            }
         }
     }
 
