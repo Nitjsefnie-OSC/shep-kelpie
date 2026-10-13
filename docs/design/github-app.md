@@ -49,7 +49,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - A drain asks no expert: a ruling raised in one waits for the restart or `undrain` and takes its panel then. Still waiting after the hold, it goes to the maintainer with `skipped: draining` (also `posted`), kept in `rulings.jsonl` and counted in `status`. #711
 - Comment waits up to 20 min for votes (`panel::HOLD`), each expert 15 min. Vote `{"choice", "why", "design"}`; malformed abstains. #465, `src/runner/flight/panel.rs`
 - Advisor (Opus 5.5 high) reads codebase; researcher (Sonnet 5.5 high) reads past rulings, threads, transcripts, web limited to `researcher.allowed_domains` (page may steer it). #465, `src/transcripts.rs`
-- `rulings.decide`: `shadow` (default) or `panel` (3 agreeing votes, no `design` flag decide; splits and merges under `ask` go to maintainer). Reopen within 24h with `<id> no <note>`. #466, `src/runner/panel/decided.rs`
+- `rulings.decide`: `shadow` (default), `panel` (3 agreeing votes, no `design` flag decide; splits and merges under `ask` go to maintainer) or `always` (see budget.md). Reopen within 24h with `<id> no <note>`. #466, `src/runner/panel/decided.rs`
 - PR title type sets who votes, smallest panel first. Questions and diffs touching `rulings.full_panel_paths` get full panel (agent under scrutiny chose the type). #466, #536, `src/panel/tally.rs`, `src/panel/policy.rs`
 - Policies scored from shadow votes as `whatif`: fixed list in code, not a setting (a setting can't say what a choice costs). #536
 - `rulings.pm_alone`: PM decides listed kinds alone, never `merge` (one voice must not merge). #466, `src/settings/rulings.rs`

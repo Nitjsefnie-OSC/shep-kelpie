@@ -14,7 +14,9 @@ mod policy;
 mod tally;
 
 pub use policy::{Case, Outcome, Policy, first_tier};
-pub use tally::{Advice, MAJORITY, Stage, Step, Tier, Verdict, Work, settle, simulate, work_of};
+pub use tally::{
+    Advice, MAJORITY, Stage, Step, Tier, Verdict, Work, settle, settle_always, simulate, work_of,
+};
 
 /// The most a vote's `why` keeps, in characters: four lines of a GitHub comment
 pub const WHY_LONGEST: usize = 350;
