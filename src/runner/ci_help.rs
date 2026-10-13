@@ -95,6 +95,20 @@ mod tests {
         assert!(!prompt.contains("gh run view"), "{prompt}");
     }
 
+    #[test]
+    fn a_fix_prompt_carries_each_failed_runs_log_once() {
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::with_app);
+        rig.forge.set_ci_log(
+            "--- run 9\nerror[E0308]: mismatched types\n --> work.txt:1:1\n\
+             --- run 8\nerror[E0599]: no method\n --> work.txt:2:1",
+        );
+
+        let prompt = red_prompt(&rig, &runner, &head);
+
+        assert_eq!(prompt.matches("error[E0308]").count(), 1, "{prompt}");
+        assert_eq!(prompt.matches("error[E0599]").count(), 1, "{prompt}");
+    }
+
     const E2E: &str = "`/opt/kelpie/bin/kelpie lease e2e` runs the project's end-to-end tests";
 
     #[test]
