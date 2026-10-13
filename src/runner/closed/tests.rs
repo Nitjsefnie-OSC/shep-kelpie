@@ -409,7 +409,12 @@ fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_merge_ruling() {
     assert!(reports.iter().any(finished_merged), "{reports:?}");
     assert!(dispatched_9(&reports), "{reports:?}");
     let status = rig.ask(&runner, "status", None);
-    assert!(seven_is_gone(&status), "{status}");
+    assert!(
+        seven_is_gone(&status),
+        "{} {}",
+        status["work_item"]["issue"],
+        status["rulings"]
+    );
     let history = &status["history"][0];
     assert_eq!(
         (&history["issue"], &history["merged"], &history["closed"]),
@@ -434,7 +439,12 @@ fn a_pull_request_merged_by_hand_ends_its_item_parked_on_a_workers_question() {
     assert!(reports.iter().any(finished_merged), "{reports:?}");
     assert!(dispatched_9(&reports), "{reports:?}");
     let status = rig.ask(&runner, "status", None);
-    assert!(seven_is_gone(&status), "{status}");
+    assert!(
+        seven_is_gone(&status),
+        "{} {}",
+        status["work_item"]["issue"],
+        status["rulings"]
+    );
     assert_eq!(status["history"][0]["merged"], true);
 }
 

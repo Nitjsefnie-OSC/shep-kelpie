@@ -254,7 +254,7 @@ mod tests {
         // Held back, not parked: no ruling asks the maintainer, and a pause
         // later the turn starts on a token.
         let status = rig.ask(&runner, "status", None);
-        assert_ne!(status["work_item"]["phase"]["state"], "ruling", "{status}");
+        assert_ne!(status["work_item"]["phase"]["state"], "ruling");
         step(&runner).unwrap();
         assert!(rig.claude.seen().is_empty(), "asked again before the pause");
         rig.clock.advance(31);
