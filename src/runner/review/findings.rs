@@ -411,6 +411,29 @@ mod tests {
         assert!(!err.contains("a thing"), "{err}");
     }
 
+    // The first turn's instructions name this file's path, before any round
+    // has written a findings file with a header that does.
+    #[test]
+    fn a_line_written_where_the_first_turn_instructions_name_is_read_at_merge() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.claude.script([Scripted::Say("Working on it.")]);
+        step(&runner).unwrap();
+        let [seen] = rig.claude.seen().try_into().unwrap();
+        let told = std::fs::read_to_string(seen.call.instructions.unwrap()).unwrap();
+        let named = told
+            .split('`')
+            .find(|word| word.ends_with("deferred-findings.md"))
+            .expect(&told);
+        let line = "MEDIUM|src/lib.rs:3|the flag is misnamed|it reads as its opposite\n";
+        std::fs::write(named, line).unwrap();
+
+        let read = deferred(&rig.build_7()).unwrap();
+
+        assert_eq!(read, parse_findings(line));
+    }
+
     // Round 1 on pull request 71 found one MEDIUM finding, and its fix turn is next.
     fn findings_sent() -> (Rig, Mutex<Runner>) {
         let rig = Rig::new("shep");

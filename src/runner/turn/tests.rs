@@ -65,7 +65,8 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
     assert!(
         instructions.starts_with(&profile::instructions(
             std::path::Path::new(Rig::KELPIE),
-            None
+            None,
+            &rig.build_7().join("deferred-findings.md"),
         )),
         "{instructions}"
     );
