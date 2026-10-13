@@ -913,6 +913,8 @@ mod tests {
 
     // Real time: real calls that note SIGTERM and keep running, ended by the
     // test as shep's stop would end them. The test bounds its own waits.
+    // Each loop ends once the test process is gone, so a failed or killed
+    // run leaves no call behind.
     #[test]
     fn a_stop_signals_each_call_s_group_without_waiting_and_refuses_the_next() {
         let dir = tempfile::tempdir().unwrap();
@@ -925,7 +927,7 @@ mod tests {
                 dir.path().join(format!("{name}.term")),
             );
             let script = format!(
-                "trap 'touch {}' TERM; touch {}; while :; do sleep 0.1; done",
+                "trap 'touch {}' TERM; touch {}; while kill -0 $PPID 2>/dev/null; do sleep 0.1; done",
                 shell_quote(&termed),
                 shell_quote(&ready),
             );

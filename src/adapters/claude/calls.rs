@@ -158,9 +158,12 @@ fn a_running_call_has_a_record_and_an_ended_call_has_none() {
     assert!(!w.record().exists());
 }
 
+// The stand-ins below loop only while the test process lives, so a failed
+// or killed run leaves none behind.
 #[test]
 fn a_call_stopped_by_the_runner_leaves_no_record() {
-    let w = World::new().script("touch {}started\nwhile :; do sleep 0.02; done");
+    let w = World::new()
+        .script("touch {}started\nwhile kill -0 $PPID 2>/dev/null; do sleep 0.02; done");
     let cli = w.cli();
     let (call, ending) = (w.call(), Ending::default());
     let (done, ended) = mpsc::channel();
@@ -183,7 +186,9 @@ fn a_call_stopped_by_the_runner_leaves_no_record() {
 // grace before SIGKILL, long enough to read its record.
 #[test]
 fn a_call_asked_to_end_says_so_in_its_record_and_leaves_none_once_ended() {
-    let w = World::new().script("trap '' TERM\ntouch {}started\nwhile :; do sleep 0.02; done");
+    let w = World::new().script(
+        "trap '' TERM\ntouch {}started\nwhile kill -0 $PPID 2>/dev/null; do sleep 0.02; done",
+    );
     let ending = Ending::default();
     let ended = w.start(&ending);
     wait_for("start", || w.path("started").exists());
