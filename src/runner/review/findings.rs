@@ -15,6 +15,9 @@ const FINDINGS_FILE: &str = "review-findings.md";
 /// Where the worker copies the findings it leaves unfixed
 const DEFERRED_FILE: &str = "deferred-findings.md";
 
+/// Where the worker copies the findings it shows are wrong, each with its reason
+const DISPUTED_FILE: &str = "disputed-findings.md";
+
 // The worker can read its build folder, and a commit never carries it. The
 // project's folder holds its settings, so the worker is denied it.
 /// The findings file's path, in the work item's build folder
@@ -26,6 +29,55 @@ pub(in crate::runner) fn findings_path(build: &Path) -> PathBuf {
 /// folder as the findings file
 pub(in crate::runner) fn deferred_path(build: &Path) -> PathBuf {
     build.join(DEFERRED_FILE)
+}
+
+/// Where the worker copies a finding it shows is wrong, in the same folder
+/// as the findings file
+pub(in crate::runner) fn disputed_path(build: &Path) -> PathBuf {
+    build.join(DISPUTED_FILE)
+}
+
+/// A finding the worker copied into the disputed findings file, with the
+/// reason on the line after it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::runner) struct Disputed {
+    /// The finding, as the worker copied it
+    pub finding: Finding,
+    /// The reason, when the next line is indented by two spaces and says
+    /// something
+    pub reason: Option<String>,
+}
+
+/// The findings the worker copied into the disputed findings file in `build`,
+/// each with its reason: none when there is no file
+///
+/// # Errors
+///
+/// A message naming the file when it is there but cannot be read.
+pub(in crate::runner) fn disputed(build: &Path) -> Result<Vec<Disputed>, String> {
+    let text = match worker_folder::read(build, Path::new(DISPUTED_FILE)) {
+        Ok(text) => text.unwrap_or_default(),
+        Err(e) => {
+            return Err(format!(
+                "cannot read {}: {e}",
+                disputed_path(build).display()
+            ));
+        }
+    };
+    let mut read: Vec<Disputed> = Vec::new();
+    for line in text.lines() {
+        if let Some(finding) = parse_findings(line).pop() {
+            read.push(Disputed {
+                finding,
+                reason: None,
+            });
+        } else if let Some(reason) = line.strip_prefix("  ")
+            && let Some(last) = read.last_mut().filter(|d| d.reason.is_none())
+        {
+            last.reason = Some(reason.trim().to_owned()).filter(|r| !r.is_empty());
+        }
+    }
+    Ok(read)
 }
 
 /// The findings the worker copied into the deferred findings file in
@@ -90,14 +142,19 @@ pub(in crate::runner) fn write_findings_file(
     findings: &[Finding],
     numbered: bool,
 ) -> Result<(), String> {
-    let deferred = deferred_path(folder);
+    let (deferred, disputed) = (deferred_path(folder), disputed_path(folder));
     let mut text = format!(
         "Round {round}'s findings, at the reviewer's severity. Fix each one, then \
          commit and push. A finding that is out of scope for this pull request may be \
          left: copy its line, as it stands here, onto a line of its own in {}. Kelpie \
          files what is there as an issue once the pull request merges, except a LOW \
-         one, which is dropped.",
-        deferred.display()
+         one, which is dropped. A finding you show is wrong is not fixed or deferred: \
+         copy its line, as it stands here, into {}, and on the next line, indented by \
+         two spaces, give your reason, naming its evidence: a file and line, a command \
+         you ran and what it printed, or the version that settles it. The next reviewer \
+         is shown your reason, and a finding it raises again is sent to you once more.",
+        deferred.display(),
+        disputed.display()
     );
     if numbered {
         text.push_str(
@@ -127,7 +184,9 @@ pub(in crate::runner) fn write_findings_file(
             f.why
         ));
     }
-    turn::write(folder, path, &text)
+    turn::write(folder, path, &text)?;
+    // Lines an earlier round's worker left there answer nothing in this one.
+    turn::write(folder, &disputed, "")
 }
 
 // What the worker is asked to end its reply with when the findings are a

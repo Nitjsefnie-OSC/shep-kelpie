@@ -37,7 +37,16 @@ macro_rules! questions {
          question is a product call, make one of them `Ask the maintainer`. Kelpie \
          lists them under the question as its options, and the experts vote on them \
          and you vote on them, in a wake of its own. A question that already lists \
-         two options or more keeps them, and `candidates` is dropped."
+         two options or more keeps them, and `candidates` is dropped.\n\n\
+         An answer goes back to the worker as its next turn, so a `candidates` entry \
+         or an `escalate` choice that only the maintainer can carry out (run a \
+         command, change a setting, grant a permission) starts with `You`, names \
+         what they do, and says what the worker does after, such as `You run the \
+         command => the worker pastes the sizes into the pull request`. Worded as a \
+         bare verb it reads as an order to the worker. Never offer a choice the worker \
+         cannot carry out with its own access and tools as something the worker will \
+         do. A worker's GitHub access is set by design, so giving it more is not a \
+         choice to offer."
     };
 }
 
@@ -313,6 +322,17 @@ mod tests {
         ));
         assert!(text.contains("`board.md`") && text.contains("`pm-notes.md`"));
         assert!(text.contains("\"unstick\": null or {\"item\""), "{text}");
+    }
+
+    #[test]
+    fn the_pm_prompt_says_a_candidate_the_maintainer_carries_out_starts_with_you() {
+        let text = wake("koji", &[Wake::Told], &[], true);
+        assert!(text.contains("starts with `You`"), "{text}");
+        assert!(text.contains("`escalate`"), "{text}");
+        assert!(
+            text.contains("Never offer a choice the worker cannot carry out"),
+            "{text}"
+        );
     }
 
     #[test]

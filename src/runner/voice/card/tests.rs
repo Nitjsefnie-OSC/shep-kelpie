@@ -33,6 +33,7 @@ fn merge() -> RulingKind {
         note_fix: false,
         late_fix: false,
         nits: None,
+        disputes: None,
     }
 }
 
@@ -70,6 +71,7 @@ fn a_merge_ruling_that_warns_says_what_it_warns_of_and_offers_no_separate_rework
         note_fix: false,
         late_fix: false,
         nits: None,
+        disputes: None,
     };
 
     assert_eq!(
@@ -97,6 +99,7 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
         note_fix: false,
         late_fix: false,
         nits: None,
+        disputes: None,
     };
     let no_rework = ruling_comment(None, &ruling(1, kind));
     let stuck = RulingKind::Stuck(Stuck::Unlabelled {

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::{PI, PiCli, parse_result};
+use super::{PI, PiCli, read_as};
 use crate::adapters::claude::ClaudeCli;
 use crate::adapters::forwarder::Forwarder;
 use crate::adapters::process::RunError;
@@ -135,7 +135,8 @@ impl PiCli {
             RunError::Stopped => AgentError::Stopped,
             RunError::TimedOut => AgentError::TimedOut(PI),
         })?;
-        parse_result(&output, &kept.session)
+        let compacting = adopted.flying.as_ref().is_some_and(|f| f.compact);
+        read_as(compacting, &output, &kept.session)
     }
 
     // A call that cannot be served is ended and waited out, so no `pi`
