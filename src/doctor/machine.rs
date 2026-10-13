@@ -5,8 +5,8 @@ use std::path::Path;
 use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
-use super::host::Host;
-use crate::adapters::{LOGIN_FIX, LOGIN_VAR};
+use super::host::{Host, at_least};
+use crate::adapters::{LOGIN_FIX, LOGIN_VAR, PI_MINIMUM};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
 use crate::shepherd::{ConnectRefused, Connection};
 use crate::tools::Tools;
@@ -90,6 +90,46 @@ pub(super) fn codex(subject: String, meter: &dyn Meter, clock: &dyn Clock) -> Li
             reason,
             "run `codex` and its `/status` to see what it says",
         )
+    }
+}
+
+/// `pi` on the `PATH` at [`PI_MINIMUM`] or later, for `subject`, a project with an agent on pi
+pub(super) fn pi(subject: String, host: &dyn Host) -> Line {
+    if !host.on_path("pi") {
+        return Line::missing(
+            subject,
+            "cannot run `pi`: it is not on your PATH",
+            "run `brew install pi-coding-agent`",
+        );
+    }
+    let said = match host.program_version("pi") {
+        Ok(said) => said,
+        Err(why) => {
+            return Line::unsure(
+                subject,
+                format!("`pi --version` gave no version: {why}"),
+                "run `pi --version`",
+            );
+        }
+    };
+    match at_least(&said, PI_MINIMUM) {
+        Some(true) => Line::ok(
+            subject,
+            format!("pi {said}, kelpie needs {PI_MINIMUM} or later"),
+        ),
+        Some(false) => Line::missing(
+            subject,
+            format!("pi {said} is older than the {PI_MINIMUM} kelpie needs"),
+            "run `brew upgrade pi-coding-agent`",
+        ),
+        None => Line::unsure(
+            subject,
+            format!(
+                "`pi --version` printed `{}`, which is not a version number",
+                first_line(&said)
+            ),
+            "run `pi --version`",
+        ),
     }
 }
 
