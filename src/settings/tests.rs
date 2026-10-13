@@ -1,5 +1,6 @@
 use super::*;
 
+mod contributions;
 mod gateway_kind;
 mod repo_setup;
 mod test_command;

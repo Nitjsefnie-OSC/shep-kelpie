@@ -29,7 +29,7 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
     Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage, Wait, written_at,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
@@ -155,23 +155,25 @@ impl Agents for PiCli {
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
-        // The forwarder and the lease stay until the call has ended.
-        let (mut command, _forwarder) = self.sandboxed_command(call)?;
+        // A session that is not there never waits for a lease.
+        refuse_missing_session(call)?;
         let label = call.label();
         let spawned = |pid| {
             if let Some(lambs) = &self.lambs {
                 lambs.label(pid, &label);
             }
         };
-        let run = || {
-            self.processes
+        let output = self.leased(call, ending, |lease| {
+            // The forwarder stays until the call has ended.
+            let (mut command, _forwarder) = self.sandboxed_command(call, lease)?;
+            (self.processes)
                 .output_telling(&mut command, Some(ending), &spawned)
-        };
-        let output = self.leased(call, ending, run)?.map_err(|e| match e {
-            RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
-            RunError::Stopped => AgentError::Stopped,
-            RunError::TimedOut => AgentError::TimedOut(PI),
-        })?;
+                .map_err(|e| match e {
+                    RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
+                    RunError::Stopped => AgentError::Stopped,
+                    RunError::TimedOut => AgentError::TimedOut(PI),
+                })
+        })??;
         parse_result(&output, call.session.id())
     }
 
@@ -200,16 +202,17 @@ impl PiCli {
     // A call on a gateway's model holds a lease on it, so the gateway
     // evicts nothing it runs on midway and queues the call behind any other
     // lease. Its ceiling counts from the grant. A lease the gateway took back
-    // ended the call, whatever the run says of it.
+    // ended the call, whatever the run says of it. The run is told the
+    // lease's id, so its chat calls name the turn they belong to.
     fn leased<T>(
         &self,
         call: &AgentCall,
         ending: &Ending,
-        run: impl FnOnce() -> T,
+        run: impl FnOnce(Option<&str>) -> T,
     ) -> Result<T, AgentError> {
         let server = server(call)?;
         let ModelHost::Gateway(name) = &server.host else {
-            return Ok(run());
+            return Ok(run(None));
         };
         let upstream = self.upstream(server)?;
         let port = self.gateways.port_named(name).map_err(AgentError::Setup)?;
@@ -226,7 +229,7 @@ impl PiCli {
             tell: &tell,
             ending,
         };
-        port.around(&upstream, &taking, run)
+        port.around_leased(&upstream, &taking, run)
             .map_err(|unheld| match unheld {
                 Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
                 Unheld::GaveUp => AgentError::TimedOut(PI),
@@ -238,14 +241,19 @@ impl PiCli {
             })
     }
 
-    fn sandboxed_command(&self, call: &AgentCall) -> Result<(Command, Forwarder), AgentError> {
+    // The forwarder names `lease`, the gateway lease the call holds, on a worker's
+    // chat calls. A reviewer's session holds one too but names none.
+    fn sandboxed_command(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let upstream = self.upstream(server(call)?)?;
+        let upstream = match lease.filter(|_| call.role == Role::Worker) {
+            Some(id) => upstream.with_lease(id),
+            None => upstream,
+        };
         let files = Files::of(call);
-        if let Session::Resume(id) = &call.session
-            && session_file(&files.sessions(), id).is_none()
-        {
-            return Err(AgentError::NoSession(PI, id.clone()));
-        }
         match std::fs::remove_dir_all(&files.scratch) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 return Err(AgentError::Setup(format!(
@@ -284,6 +292,16 @@ impl PiCli {
             .wrap(&policy, &files.sandbox_settings, &command)
             .map_err(|e| AgentError::Setup(e.to_string()))?;
         Ok((wrapped, forwarder))
+    }
+}
+
+// A resumed session pi never wrote is a call that cannot run.
+fn refuse_missing_session(call: &AgentCall) -> Result<(), AgentError> {
+    match &call.session {
+        Session::Resume(id) if session_file(&Files::of(call).sessions(), id).is_none() => {
+            Err(AgentError::NoSession(PI, id.clone()))
+        }
+        _ => Ok(()),
     }
 }
 

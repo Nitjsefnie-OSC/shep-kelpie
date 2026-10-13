@@ -166,7 +166,7 @@ impl ModelGateway for Paddock {
         &self,
         gateway: &Upstream,
         taking: &Taking<'_>,
-        call: &mut dyn FnMut(),
+        call: &mut dyn FnMut(&str),
     ) -> Option<Result<(), Unheld>> {
         (taking.tell)(Stand::Asking);
         let taken = Lease::take(
@@ -184,7 +184,7 @@ impl ModelGateway for Paddock {
             Err(why) => return Some(Err(Unheld::Refused(why))),
         };
         (taking.tell)(Stand::Granted);
-        call();
+        call(lease.id());
         // Finishing it first settles that no later renewal can end the call.
         Some(match lease.finish() {
             Some(why) => Err(Unheld::Lost(why)),
@@ -260,7 +260,19 @@ impl Lease {
                 "`POST /paddock/leases` answered HTTP {status}, {error}{why}"
             ));
         };
+        // The id goes in a header and a path, so it is held to what paddock writes.
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            return Err(format!(
+                "`POST /paddock/leases` granted the id {id:?}, which cannot go in a \
+                 header, so the take is refused"
+            ));
+        }
         Ok(Some(Self::renewed(gateway, id, ending, timing)))
+    }
+
+    /// The id paddock granted, exactly as it wrote it
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 
     /// Stops the lease's renewals, and says why it was lost, if it was
@@ -566,6 +578,35 @@ mod tests {
         }
         drop(lease);
         assert_eq!(calls(&server).last().unwrap(), "DELETE /paddock/leases/L1");
+    }
+
+    #[test]
+    fn a_lease_gives_the_id_paddock_granted() {
+        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
+        let lease = held(&server, &Ending::default(), QUICK);
+        assert_eq!(lease.id(), "L1");
+    }
+
+    #[test]
+    fn a_granted_id_that_cannot_go_in_a_header_fails_the_take() {
+        for body in [r#"{"id":"L1\r\nx-evil: 1"}"#, r#"{"id":"L 1"}"#] {
+            let server = StandInEndpoint::start([])
+                .like_paddock("pk", &[])
+                .with_takes([Take::Status(200, body)]);
+            let err = Lease::take(
+                &gateway(&server),
+                "qwen",
+                "n",
+                &|| false,
+                &|_| {},
+                &Ending::default(),
+                QUICK,
+            )
+            .unwrap_err();
+            assert!(err.contains("`POST /paddock/leases`"), "{err}");
+            assert!(err.contains("refused"), "{err}");
+            assert_eq!(calls(&server), ["POST /paddock/leases"], "{body}");
+        }
     }
 
     fn held(server: &StandInEndpoint, ending: &Ending, timing: Timing) -> Lease {
