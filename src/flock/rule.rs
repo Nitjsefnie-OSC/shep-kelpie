@@ -184,6 +184,13 @@ fn locate(
     let mut found: Vec<&(String, Ruling)> = (waiting.open.iter())
         .filter(|(p, r)| about(r) && on.is_none_or(|on| on == p))
         .collect();
+    // A number names the ruling that took it when the file was renamed, not
+    // one an older kelpie left beside it under its counter id.
+    let named: Vec<&str> = (found.iter())
+        .filter(|(_, r)| !r.is_left_over())
+        .map(|(p, _)| p.as_str())
+        .collect();
+    found.retain(|(p, r)| !r.is_left_over() || !named.contains(&p.as_str()));
     // A clone's own project answers before the others do.
     let here = waiting.here.map(ProjectName::as_str);
     let narrowed = on.is_none() && found.iter().any(|(p, _)| Some(p.as_str()) == here);

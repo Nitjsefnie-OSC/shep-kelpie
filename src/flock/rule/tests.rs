@@ -220,6 +220,26 @@ fn a_ruling_s_issue_and_its_pull_request_name_the_same_ruling() {
     assert_eq!(sent, Ok((project("koji"), "427 no wrong".into())));
 }
 
+// A file from before the counter went can hold two rulings on one pull
+// request: the one parked on took the number, and the other kept its id.
+#[test]
+fn a_number_names_the_ruling_that_took_it_not_one_an_older_kelpie_left() {
+    let home = tempfile::tempdir().unwrap();
+    let on = |id| Ruling {
+        issue: Some(407),
+        pull_request: Some(427),
+        ..yes_or_no(id)
+    };
+    waiting(home.path(), "koji", vec![on(41), on(427)]);
+    let projects = Projects::under(home.path());
+    let sent = prepare(&projects, None, &["427", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "427 yes".into())));
+    // Alone, the one left is still answered by its pull request.
+    waiting(home.path(), "koji", vec![on(41)]);
+    let sent = prepare(&projects, None, &["427", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "41 yes".into())));
+}
+
 #[test]
 fn a_number_answers_by_the_ruling_s_kind_and_says_which_ruling_it_found() {
     let (_home, projects) = on_a_pull_request();

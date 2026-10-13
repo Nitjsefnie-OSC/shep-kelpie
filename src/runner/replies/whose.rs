@@ -98,7 +98,12 @@ impl Runner {
         } = *reply;
         let project = self.project.as_str();
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
-        let here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
+        let mut here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
+        // The number names the ruling that took it, not one an older kelpie
+        // left beside it under its counter id.
+        if here.iter().any(|r| !r.is_left_over()) {
+            here.retain(|r| !r.is_left_over());
+        }
         let named_by = |whose, id| Named { whose, id };
         let id = here.first().map_or(number, |r| r.id);
         if named.is_some_and(|named| named != project) {

@@ -151,6 +151,28 @@ fn a_question_ruling_takes_free_text_and_has_no_choices() {
 }
 
 #[test]
+fn a_second_ruling_on_the_same_work_item_is_told_too() {
+    let rig = Rig::new("shep");
+    record(&rig, &["ruling"], "told");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    for _ in 0..2 {
+        rig.claude.script([Scripted::Say(
+            "<kelpie-question>\nWhich flag?\n</kelpie-question>",
+        )]);
+        step(&runner).unwrap();
+        rig.ask(&runner, "rule", Some("7 answer use --dry-run"));
+        rig.clock.advance(60);
+    }
+    runner.lock().unwrap().settle_notices();
+
+    let told = payloads(&rig, "told");
+
+    let ids: Vec<&Value> = told.iter().map(|t| &t["id"]).collect();
+    assert_eq!(ids, [7, 7], "{told:?}");
+}
+
+#[test]
 fn a_ruling_a_restart_finds_is_not_told_again() {
     let (rig, runner, _) = parked_recording(&["ruling"]);
     drop(runner);

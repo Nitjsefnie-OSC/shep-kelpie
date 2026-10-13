@@ -70,6 +70,23 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
 }
 
 // Every project reads the one topic, and a number is the same on each.
+// A file from before the counter went can hold a second ruling on the same
+// pull request, left under its old id beside the one that took the number.
+#[test]
+fn a_number_names_the_ruling_that_took_it_not_one_an_older_kelpie_left() {
+    let (rig, runner, _) = alerted("koji");
+    {
+        let mut left = lock(&runner).state.rulings[0].clone();
+        left.id = 41;
+        lock(&runner).state.rulings.push(left);
+    }
+    rig.reply("71 yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyAnswered { id: 71 })
+    );
+}
+
 #[test]
 fn a_number_two_projects_have_a_ruling_on_needs_the_project() {
     let (rig, runner, _) = alerted("koji");

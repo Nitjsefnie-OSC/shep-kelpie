@@ -379,6 +379,12 @@ impl Ruling {
         self.pull_request.or(self.issue).unwrap_or(self.id)
     }
 
+    /// Whether an older kelpie left this ruling under its counter id, beside
+    /// another that took its work item's number: the number names that one
+    pub fn is_left_over(&self) -> bool {
+        self.id != self.number()
+    }
+
     /// Whether `other` is this very ruling, not one raised later under the
     /// same id: a number names every ruling a work item raises in turn.
     pub fn is_raised_with(&self, other: &Ruling) -> bool {
