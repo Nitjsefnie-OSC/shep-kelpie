@@ -12,6 +12,7 @@ use std::fmt;
 use super::Runner;
 use super::gate::{settled, short};
 use super::report::{Begin, StepReport};
+use super::retro::journal::Entry;
 use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
 use crate::settings::Merging;
@@ -349,13 +350,9 @@ impl Runner {
         self.withdraw(issue, number, true, reason)
     }
 
-    // Ends a work item that finished, after its worker has been asked for a
-    // retro once: that turn needs the worktree this removes.
+    // Ends a work item that finished.
     pub(super) fn finish(&mut self, merged: bool) -> Result<Begin, StateError> {
-        match self.retro()? {
-            Some(begin) => Ok(begin),
-            None => self.cleanup(merged, false),
-        }
+        self.cleanup(merged, false)
     }
 
     // Removes the worktree, branch and build folder, then the work
@@ -373,6 +370,8 @@ impl Runner {
         {
             return Ok(self.gate_failed(reason));
         }
+        // Read before the build folder goes, which holds the file it is in.
+        let friction = self.friction_of(item);
         let removed = worktree::remove(
             &self.settings.git.checkout,
             &item.worktree,
@@ -433,6 +432,9 @@ impl Runner {
         }
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
+        if let Some(text) = friction {
+            self.journal_at(now, Entry::Friction { issue, text });
+        }
         self.tell_done(&ended);
         self.mark_held(issue, false);
         self.late_reads.remove(&issue);

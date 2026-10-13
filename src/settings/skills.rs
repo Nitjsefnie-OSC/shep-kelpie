@@ -38,7 +38,7 @@ pub struct StepSkills {
     /// A session reset's handoff, `handoff` by default
     #[serde(default)]
     pub reset: Option<SkillChoice>,
-    /// A finished work item's retro, off by default
+    /// The project manager's batch retro, off by default
     #[serde(default)]
     pub retro: Option<SkillChoice>,
 }

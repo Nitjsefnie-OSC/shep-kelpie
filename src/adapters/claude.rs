@@ -297,8 +297,7 @@ fn argv(call: &AgentCall) -> Vec<OsString> {
     let mut argv: Vec<OsString> = vec!["-p".into(), call.prompt.as_str().into()];
     argv.extend(profile(call));
     argv.extend(["--output-format".into(), "json".into()]);
-    // A retro is a worker's session that may change nothing, so it is asked
-    // like any call whose edits nothing allows.
+    // Only a worker's working call is let edit; a retro changes nothing.
     if call.role == Role::Worker && call.tools == crate::ports::Tools::Work {
         argv.extend(["--permission-mode".into(), "bypassPermissions".into()]);
     }
@@ -793,7 +792,7 @@ mod tests {
         review.tools = Tools::Review;
         review.agent_tools = Some("Read,Glob,Grep,Skill".into());
         assert_eq!(tools_of(&review).as_deref(), Some("Read,Glob,Grep,Skill"));
-        // A retro resumes the worker's session, and stays read-only.
+        // A retro stays read-only.
         worker.tools = Tools::Retro;
         assert_eq!(tools_of(&worker).as_deref(), Some("Read,Glob,Grep,Skill"));
     }

@@ -3,9 +3,9 @@
 //! Such a file still loads. The run state goes, so a project saved paused
 //! runs once its runner starts. The relay's, the planning call's, the
 //! whole-issue check's, the review loop's, the deep round's later steps' and
-//! the shots' fields are dropped before reading. The check's, the judge's
-//! and the deep round's calls count as a reviewer's session's. Their time,
-//! a round's, a GPU wait's and a review bot's all count as review's, and
+//! the shots' fields, and a work item's `retro` mark, are dropped before
+//! reading. The check's, the judge's and the deep round's calls count as a
+//! reviewer's session's. Their time, a round's, a GPU wait's and a review bot's all count as review's, and
 //! the shots' and a paused project's as other, so totals still add up. A
 //! review saved mid-loop goes on from the reviewer after the one it last
 //! recorded. The deep round
@@ -125,6 +125,7 @@ pub(super) fn drop_removed_fields(value: &mut Value) {
         item.remove("local_rounds");
         item.remove("shots");
         item.remove("shots_comment");
+        item.remove("retro");
         end_shots_run(item);
         fold_review_calls(item);
         for value in item.values_mut() {

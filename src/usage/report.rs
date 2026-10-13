@@ -211,9 +211,11 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     }
 }
 
-// A role's calls in `calls`, totalled on one line
+// A role's calls in `calls`, totalled on one line; the retros have a line of their own
 fn totals(name: &str, calls: &[&CallLine], role: Role) -> String {
-    let mine: Vec<&&CallLine> = calls.iter().filter(|call| call.role == role).collect();
+    let mine: Vec<&&CallLine> = (calls.iter())
+        .filter(|call| call.role == role && call.kind != CallKind::Retro)
+        .collect();
     let compactions = (mine.iter())
         .filter(|call| call.kind == CallKind::Compact)
         .count();
@@ -232,8 +234,7 @@ fn totals(name: &str, calls: &[&CallLine], role: Role) -> String {
     )
 }
 
-// The retros of finished work items, totalled apart from the builds they
-// followed, if any ran
+// The project manager's batch retros, totalled apart from its wakes, if any ran
 fn retros(calls: &[&CallLine]) -> Option<String> {
     of_kind("retro", CallKind::Retro, calls)
 }

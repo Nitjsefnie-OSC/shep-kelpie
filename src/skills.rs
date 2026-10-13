@@ -65,7 +65,7 @@ pub enum Step {
     Pr,
     /// A session reset's handoff
     Reset,
-    /// A finished work item's retro
+    /// The project manager's batch retro
     Retro,
 }
 
@@ -161,7 +161,7 @@ impl Skills {
                         .map(|()| Some(Loaded::new(&vendored, PLUGIN, step.default_skill())))
                 };
                 let loaded = match chosen.choice(step) {
-                    // A retro is a call of its own at every work item's end, so it runs only when named.
+                    // A retro is a call of its own after every batch, so it runs only when named.
                     None if step == Step::Retro => Ok(None),
                     None | Some(SkillChoice::Kelpie {}) => kelpies(),
                     Some(SkillChoice::None {}) => Ok(None),
