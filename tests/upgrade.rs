@@ -50,7 +50,7 @@ impl Scene {
             root,
             koji_says: Arc::new(Mutex::new(vec![IDLE])),
         };
-        script::write_script(&scene.installed(), &answering("0.1.0", "0.12.0"));
+        script::write_script(&scene.installed(), &answering("0.1.0", "0.13.0"));
         scene
     }
 
@@ -238,17 +238,17 @@ async fn a_build_answers_version_json_with_its_kelpie_and_its_shep() {
 #[tokio::test]
 async fn an_upgrade_installs_and_restarts_and_a_rollback_puts_the_build_back() {
     let scene = Scene::new();
-    let mut seen = scene.shepherd("0.12.0", &scene.installed()).await;
+    let mut seen = scene.shepherd("0.13.0", &scene.installed()).await;
     let (middle, new) = (
-        scene.build("middle", "0.2.0", "0.12.0"),
-        scene.build("new", "0.3.0", "0.12.0"),
+        scene.build("middle", "0.2.0", "0.13.0"),
+        scene.build("new", "0.3.0", "0.13.0"),
     );
 
     let output = scene.upgrade_to(&middle).await;
     assert!(output.status.success(), "{}", stderr(&output));
     let output = scene.upgrade_to(&new).await;
     assert!(output.status.success(), "{}", stderr(&output));
-    assert_eq!(scene.installed_says().await, "0.3.0 for shep 0.12.0");
+    assert_eq!(scene.installed_says().await, "0.3.0 for shep 0.13.0");
     assert_eq!(
         restarts(&sent(&mut seen)),
         ["kelpie", "koji", "kelpie", "koji"]
@@ -256,7 +256,7 @@ async fn an_upgrade_installs_and_restarts_and_a_rollback_puts_the_build_back() {
 
     let output = scene.kelpie(&["upgrade", "--rollback"]).await;
     assert!(output.status.success(), "{}", stderr(&output));
-    assert_eq!(scene.installed_says().await, "0.2.0 for shep 0.12.0");
+    assert_eq!(scene.installed_says().await, "0.2.0 for shep 0.13.0");
     assert_eq!(restarts(&sent(&mut seen)), ["kelpie", "koji"]);
     assert!(
         scene.kelpie_home().join("builds").is_dir(),
@@ -267,9 +267,9 @@ async fn an_upgrade_installs_and_restarts_and_a_rollback_puts_the_build_back() {
 #[tokio::test]
 async fn an_upgrade_waits_out_a_merge_and_asks_before_it_restarts() {
     let scene = Scene::new();
-    let mut seen = scene.shepherd("0.12.0", &scene.installed()).await;
+    let mut seen = scene.shepherd("0.13.0", &scene.installed()).await;
     *scene.koji_says.lock().unwrap() = vec![MERGING, MERGING, IDLE];
-    let new = scene.build("new", "0.3.0", "0.12.0");
+    let new = scene.build("new", "0.3.0", "0.13.0");
     let output = scene.upgrade_to(&new).await;
     assert!(output.status.success(), "{}", stderr(&output));
     let said = String::from_utf8_lossy(&output.stdout);
@@ -298,13 +298,13 @@ async fn an_upgrade_waits_out_a_merge_and_asks_before_it_restarts() {
 #[tokio::test]
 async fn a_minor_mismatch_fails_with_the_steps_before_anything_restarts() {
     let scene = Scene::new();
-    let mut seen = scene.shepherd("0.12.0", &scene.installed()).await;
-    let new = scene.build("new", "0.4.0", "0.13.0");
+    let mut seen = scene.shepherd("0.13.0", &scene.installed()).await;
+    let new = scene.build("new", "0.4.0", "0.14.0");
     let output = scene.upgrade_to(&new).await;
     assert!(!output.status.success());
     let stderr = stderr(&output);
+    assert!(stderr.contains("shep 0.14.0"), "{stderr}");
     assert!(stderr.contains("shep 0.13.0"), "{stderr}");
-    assert!(stderr.contains("shep 0.12.0"), "{stderr}");
     assert!(stderr.contains("To go on:"), "{stderr}");
     assert!(stderr.contains("reload its shepherd"), "{stderr}");
     assert!(
@@ -317,14 +317,14 @@ async fn a_minor_mismatch_fails_with_the_steps_before_anything_restarts() {
     );
     assert!(stderr.contains("the new build's own upgrade"), "{stderr}");
     assert_eq!(restarts(&sent(&mut seen)), Vec::<&str>::new());
-    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.12.0");
+    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.13.0");
 }
 
 #[tokio::test]
 async fn a_binary_without_its_executable_bits_is_refused_naming_chmod() {
     let scene = Scene::new();
-    let mut seen = scene.shepherd("0.12.0", &scene.installed()).await;
-    let flat = scene.build("flat", "0.3.0", "0.12.0");
+    let mut seen = scene.shepherd("0.13.0", &scene.installed()).await;
+    let flat = scene.build("flat", "0.3.0", "0.13.0");
     std::fs::set_permissions(&flat, std::fs::Permissions::from_mode(0o644)).unwrap();
     let output = scene.upgrade_to(&flat).await;
     assert!(!output.status.success());
@@ -340,9 +340,9 @@ async fn a_binary_without_its_executable_bits_is_refused_naming_chmod() {
 async fn a_sheep_on_another_program_is_named_before_anything_changes() {
     let scene = Scene::new();
     let mut seen = scene
-        .shepherd("0.12.0", Path::new("/opt/kelpie/bin/kelpie"))
+        .shepherd("0.13.0", Path::new("/opt/kelpie/bin/kelpie"))
         .await;
-    let new = scene.build("new", "0.3.0", "0.12.0");
+    let new = scene.build("new", "0.3.0", "0.13.0");
     let output = scene.upgrade_to(&new).await;
     assert!(!output.status.success());
     let stderr = stderr(&output);
@@ -351,13 +351,13 @@ async fn a_sheep_on_another_program_is_named_before_anything_changes() {
         "{stderr}"
     );
     assert_eq!(restarts(&sent(&mut seen)), Vec::<&str>::new());
-    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.12.0");
+    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.13.0");
 }
 
 #[tokio::test]
 async fn a_second_upgrade_is_refused_while_another_holds_the_lock() {
     let scene = Scene::new();
-    let mut seen = scene.shepherd("0.12.0", &scene.installed()).await;
+    let mut seen = scene.shepherd("0.13.0", &scene.installed()).await;
     // A live process stands in for the upgrade that holds the lock.
     let mut holder = std::process::Command::new("sleep")
         .arg("30")
@@ -369,7 +369,7 @@ async fn a_second_upgrade_is_refused_while_another_holds_the_lock() {
         holder.id().to_string(),
     )
     .unwrap();
-    let new = scene.build("new", "0.3.0", "0.12.0");
+    let new = scene.build("new", "0.3.0", "0.13.0");
     let output = scene.upgrade_to(&new).await;
     holder.kill().unwrap();
     holder.wait().unwrap();
@@ -380,7 +380,7 @@ async fn a_second_upgrade_is_refused_while_another_holds_the_lock() {
         stderr(&output)
     );
     assert_eq!(restarts(&sent(&mut seen)), Vec::<&str>::new());
-    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.12.0");
+    assert_eq!(scene.installed_says().await, "0.1.0 for shep 0.13.0");
 }
 
 #[tokio::test]

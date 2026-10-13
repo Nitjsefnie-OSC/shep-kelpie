@@ -44,7 +44,7 @@ From nothing to a worker on your repo. The examples use a project called `scratc
 You need these on your machine:
 
 - macOS or Linux
-- [shep](https://github.com/shep-pm/shep) 0.12, from 0.12.4, and Rust 1.88 or later, to build shep-kelpie
+- [shep](https://github.com/shep-pm/shep) 0.13, from 0.13.0, and Rust 1.88 or later, to build shep-kelpie
 - Claude Code, signed in
 - `node` and `npm`: `tools install` runs them, and so does every agent's sandbox
 - on Linux, `bwrap` and `socat`, which the sandbox needs. There the sandbox fences a nested `.claude` or `.codex` folder only if it exists when a call starts (a new one is caught after the call), and a worker cannot reach the dog's lease door, so its `cargo-test` runs unleased. `shep kelpie doctor` says so
@@ -184,7 +184,7 @@ shep kelpie doctor
 ok       claude: installed and logged in
 ok       gh: logged in as <you>
 ok       sandbox: the sandbox runtime can run
-ok       shepherd: shep 0.12.4 at /path/to/.shep
+ok       shepherd: shep 0.13.0 at /path/to/.shep
 ok       dog: kelpie's dog is running and has named itself
 ok       scratch: checkout: /path/to/checkout is a git checkout with an origin
 ok       scratch: implementers: an issue with no `agent:` label runs on sonnet-high
@@ -1003,7 +1003,7 @@ One thing shep-kelpie still does itself, until shep can:
 
 - **Reaching you.** Rulings go to kelpie's own webhook, ntfy or Discord, and ntfy replies are checked with kelpie's own TOTP, until shep can carry a question itself (shep-pm/shep#689)
 
-shep-kelpie refuses a shepherd on another shep minor or major than the pinned one, or on an earlier patch, naming both versions. It needs 0.12.4 or later, the first shep whose stop ends every lamb. shep-kelpie's commands talk to the shepherd's socket with the shep client it is built with, never a `shep` on `PATH`. Keep a shepherd's `SHEP_HOME` short: see [shep-kelpie's home](#shep-kelpies-home).
+shep-kelpie refuses a shepherd on another shep minor or major than the pinned one, or on an earlier patch, naming both versions. It needs 0.13.0 or later. shep-kelpie's commands talk to the shepherd's socket with the shep client it is built with, never a `shep` on `PATH`. Keep a shepherd's `SHEP_HOME` short: see [shep-kelpie's home](#shep-kelpies-home).
 
 ## Reference
 
