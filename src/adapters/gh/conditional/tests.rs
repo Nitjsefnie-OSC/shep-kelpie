@@ -13,6 +13,8 @@ struct FakeGithub {
     asked: Mutex<Vec<(Key, Option<String>)>>,
     // Whether a request with a tag fails, as `gh` might on a 304
     refuses_tags: AtomicBool,
+    // A failure every request gets while it is set
+    fails_with: Mutex<Option<String>>,
 }
 
 impl FakeGithub {
@@ -40,6 +42,9 @@ impl Fetch for FakeGithub {
             (config.map(Path::to_owned), path.to_owned()),
             etag.map(str::to_owned),
         ));
+        if let Some(said) = self.fails_with.lock().unwrap().clone() {
+            return Err(ForgeError::Failed(said));
+        }
         if etag.is_some() && self.refuses_tags.load(Ordering::Relaxed) {
             return Err(ForgeError::Failed("gh: HTTP 304".to_owned()));
         }
@@ -198,6 +203,43 @@ fn a_read_that_fails_with_a_tag_is_made_again_without_one_and_no_tag_is_sent_aft
     assert_eq!(asked[2].1, None);
     assert_eq!(asked[3].1, None, "no tag after one failed");
     assert_eq!(revalidated.take(), 0);
+}
+
+#[test]
+fn a_blip_that_fails_a_tagged_read_is_that_read_s_failure_and_leaves_tags_on() {
+    let (etags, revalidated) = etags();
+    let github = FakeGithub::default();
+    github.answers("p", "[1]");
+    etags.get(&github, None, "p").unwrap();
+    github
+        .fails_with
+        .lock()
+        .unwrap()
+        .replace("HTTP 503".to_owned());
+
+    let error = etags.get(&github, None, "p").unwrap_err();
+    github.fails_with.lock().unwrap().take();
+    etags.get(&github, None, "p").unwrap();
+
+    assert!(matches!(error, ForgeError::Failed(_)), "{error:?}");
+    let asked = github.asked();
+    assert_eq!(asked.len(), 3, "no read made again: {asked:?}");
+    assert!(asked[2].1.is_some(), "the tag is still sent");
+    assert_eq!(revalidated.take(), 1);
+}
+
+#[test]
+fn a_list_past_the_pages_read_is_unreadable_not_cut_short() {
+    let (etags, _) = etags();
+    let github = FakeGithub::default();
+    let full = format!("[{}]", vec!["{}"; PER_PAGE].join(","));
+    for page in 1..=MAX_PAGES {
+        github.answers(&format!("list?per_page=100&page={page}"), &full);
+    }
+
+    let error = etags.pages(&github, None, "list?per_page=100").unwrap_err();
+
+    assert!(matches!(error, ForgeError::Unreadable(_)), "{error:?}");
 }
 
 #[test]

@@ -65,7 +65,7 @@ struct Kept {
 pub struct Etags {
     kept: Arc<Mutex<BTreeMap<Key, Kept>>>,
     revalidated: Revalidated,
-    // Set once a conditional request failed that the same one without a
+    // Set once a request failed naming a 304 that the same one without a
     // tag did not, so `gh` is not passing a 304 on and no tag is sent again
     unsent: Arc<AtomicBool>,
 }
@@ -107,7 +107,7 @@ impl Etags {
             .filter(|_| !self.unsent.load(Ordering::Relaxed));
         let sent = kept.as_ref().map(|k| k.etag.as_str());
         let fetched = match fetch.get(config, path, sent) {
-            Err(ForgeError::Failed(_)) if sent.is_some() => {
+            Err(ForgeError::Failed(said)) if sent.is_some() && names_304(&said) => {
                 let plain = fetch.get(config, path, None)?;
                 self.unsent.store(true, Ordering::Relaxed);
                 plain
@@ -161,10 +161,12 @@ impl Etags {
             let full = items.len() >= PER_PAGE;
             pages.push(body);
             if !full {
-                break;
+                return Ok(pages);
             }
         }
-        Ok(pages)
+        Err(ForgeError::Unreadable(format!(
+            "{path} has more than {MAX_PAGES} pages of {PER_PAGE}"
+        )))
     }
 }
 
@@ -211,6 +213,11 @@ fn answer(output: &Output) -> Result<Fetched, ForgeError> {
         }),
         _ => Err(unreadable(&output.stdout)),
     }
+}
+
+// Whether a failure says a 304, which `gh` may print as an error
+fn names_304(said: &str) -> bool {
+    said.contains("304") || said.to_ascii_lowercase().contains("not modified")
 }
 
 // The debug lines `GH_DEBUG=api` prints for the response
