@@ -237,6 +237,7 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
             );
         }
         RulingKind::Contribution(Held::Security { head, lines }) => {
+            let yes = trigger(&format!("yes {}", short(head)));
             return format!(
                 "The security review flagged {about} at {}, so nothing of it runs yet:\n{}\n\
                  {yes} trusts this head and lets it go on, and {no} leaves it unpassed, so \

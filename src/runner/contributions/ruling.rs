@@ -13,8 +13,9 @@
 //! request is no longer followed, is withdrawn at once, with no post. A new
 //! head is read afresh.
 
-use super::super::Answer;
+use super::super::gate::short;
 use super::super::ruling::question;
+use super::super::{Answer, RuleError};
 use crate::ports::{Finding, Timestamp};
 use crate::state::{Held, ProjectState, Ruling, RulingKind};
 
@@ -86,18 +87,55 @@ pub(super) fn withdraw(next: &mut ProjectState) {
     });
 }
 
+/// The fewest characters of a head's hash a yes may name
+const LEAST: usize = 7;
+
 /// Records the head a yes to `ruling` trusts, in `next`, so that it counts as
-/// passed. It trusts only the head the ruling is about, never one that came
-/// after; any other answer trusts nothing.
-pub(in crate::runner) fn trust(next: &mut ProjectState, answer: &Answer, ruling: &Ruling) {
-    let (Answer::Yes, RulingKind::Contribution(Held::Security { head, .. })) =
-        (answer, &ruling.kind)
-    else {
-        return;
+/// passed
+///
+/// A yes names the head the maintainer read, because every ruling on a pull
+/// request has its number and a yes meant for one head must not trust the
+/// next. It trusts only the head the ruling is about; any other answer trusts
+/// nothing.
+///
+/// # Errors
+///
+/// [`RuleError::Head`] when a yes to a contribution's ruling names no head or
+/// another, or names a head of a ruling that is not one.
+pub(in crate::runner) fn trust(
+    next: &mut ProjectState,
+    answer: &Answer,
+    ruling: &Ruling,
+) -> Result<(), RuleError> {
+    let id = ruling.id;
+    let held = match (&ruling.kind, answer) {
+        (RulingKind::Contribution(Held::Security { head, .. }), Answer::Yes) => {
+            let why = format!("trusts a head, so a yes names it: `yes {}`", short(head));
+            return Err(RuleError::Head(id, why));
+        }
+        (RulingKind::Contribution(Held::Security { head, .. }), Answer::Trust(named)) => {
+            let named = named.to_ascii_lowercase();
+            if named.len() < LEAST || !head.starts_with(&named) {
+                let why = format!(
+                    "is about the head {} now, which a yes must name, as {LEAST} characters or \
+                     more of its hash: `yes {}`",
+                    short(head),
+                    short(head)
+                );
+                return Err(RuleError::Head(id, why));
+            }
+            head
+        }
+        (_, Answer::Trust(_)) => {
+            let why = "trusts no head, so a yes is only `yes`".to_owned();
+            return Err(RuleError::Head(id, why));
+        }
+        _ => return Ok(()),
     };
-    let held = (next.contributions.iter_mut())
-        .find(|c| c.pull_request == ruling.number() && c.head == *head);
-    if let Some(held) = held {
-        held.passed = Some(head.clone());
+    let followed = (next.contributions.iter_mut())
+        .find(|c| c.pull_request == ruling.number() && c.head == *held);
+    if let Some(followed) = followed {
+        followed.passed = Some(held.clone());
     }
+    Ok(())
 }

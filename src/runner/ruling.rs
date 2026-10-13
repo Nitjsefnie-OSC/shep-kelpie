@@ -54,6 +54,11 @@ pub enum Answer {
     Rework(String),
     /// The answer to the worker's question
     Text(String),
+    /// On a contribution's ruling only: a yes that names the head it trusts,
+    /// as many characters of its hash as the maintainer read. A yes meant for
+    /// one head must not trust the next, and every ruling on a pull request
+    /// has the same number.
+    Trust(String),
     /// A ruling's option that names an action: kelpie carries it out, then
     /// the work item goes on as a yes would send it
     Do(Action),
@@ -99,6 +104,9 @@ pub enum RuleError {
     NotOffered(u64, Action),
     /// The action an option names could not be carried out
     Act(u64, String),
+    /// A yes does not fit this ruling's head: it names none or another, or the
+    /// ruling is not one that takes a head
+    Head(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -139,7 +147,7 @@ impl fmt::Display for RuleError {
             Self::NotOffered(id, action) => {
                 write!(f, "ruling {id} does not offer to {}", action.verb())
             }
-            Self::Act(id, why) => write!(f, "ruling {id}: {why}"),
+            Self::Act(id, why) | Self::Head(id, why) => write!(f, "ruling {id}: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -328,7 +336,7 @@ impl Runner {
             }
         }
         let worktree = parked.map(|item| item.worktree.clone());
-        contributions::trust(&mut next, &answer, &ruling);
+        contributions::trust(&mut next, &answer, &ruling)?;
         let moved = decide(id, answer, ruling, now, head_moved)?;
         let did = (act.as_ref())
             .map(|act| self.carry_out(id, act, worktree.as_deref()))
@@ -871,7 +879,11 @@ fn decide(
             closed: false,
         },
         // No work item is parked on it, so an answer only clears it.
-        (Answer::Yes | Answer::No(_), RulingKind::Contribution(_)) => Phase::Implement,
+        (Answer::Trust(_) | Answer::No(_), RulingKind::Contribution(_)) => Phase::Implement,
+        // `trust` has refused these before `decide` is asked.
+        (Answer::Trust(_), _) | (Answer::Yes, RulingKind::Contribution(_)) => {
+            return Err(RuleError::Head(id, "takes no such yes".to_owned()));
+        }
         (Answer::Do(action), _) => return Err(RuleError::NotOffered(id, action)),
         // The test is ended: the note is the worker's turn, and the pass goes on.
         (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {

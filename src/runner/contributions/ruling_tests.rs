@@ -61,7 +61,7 @@ fn a_flagged_head_raises_one_ruling_naming_each_file_line_and_why() {
         "it runs at build time",
         ".github/workflows/ci.yml a new workflow",
         "it runs on every push",
-        "shep kelpie rule 30 yes",
+        &format!("shep kelpie rule 30 yes {}", &head[..7]),
     ] {
         assert!(question.contains(named), "{named}: {question}");
     }
@@ -117,7 +117,7 @@ fn a_yes_trusts_the_head_and_it_counts_as_passed() {
     let (rig, runner, head) = flagged();
     assert_eq!(contribution(&rig, &runner).get("passed"), None);
 
-    let answered = rule(&rig, &runner, "30 yes");
+    let answered = rule(&rig, &runner, &format!("30 yes {}", &head[..7]));
 
     assert_eq!(answered.get("error"), None, "{answered}");
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
@@ -164,7 +164,7 @@ fn a_push_withdraws_the_old_heads_ruling_and_a_late_yes_to_it_is_refused_as_stal
 
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new(), "withdrawn");
     assert_eq!(
-        rule(&rig, &runner, "30 yes"),
+        rule(&rig, &runner, &format!("30 yes {}", &old[..7])),
         json!({ "error": "ruling 30 is already answered, or was never raised" })
     );
     let held = contribution(&rig, &runner);
@@ -192,7 +192,7 @@ fn a_yes_to_an_old_head_does_not_trust_the_new_one() {
     let third = commit_on(&rig, 30, "topic/30", |h| write(h, "three.txt", "three\n"));
     poll(&rig, &runner);
 
-    let late = rule(&rig, &runner, "30 yes");
+    let late = rule(&rig, &runner, &format!("30 yes {}", &second[..7]));
 
     assert!(late["error"].is_string(), "{late}");
     let held = contribution(&rig, &runner);
@@ -201,6 +201,52 @@ fn a_yes_to_an_old_head_does_not_trust_the_new_one() {
         held["passed"], first,
         "neither the old flagged head nor the new one"
     );
+}
+
+#[test]
+fn a_yes_naming_the_old_flagged_head_does_not_trust_the_new_flagged_one() {
+    let (rig, runner, old) = flagged();
+    rig.claude.script([Scripted::Text(FOUND)]);
+    let new = commit_on(&rig, 30, "topic/30", |h| {
+        write(h, "two.rs", "fn two() {}\n")
+    });
+    poll(&rig, &runner);
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    let waiting = rulings(&rig, &runner);
+    assert_eq!(waiting.len(), 1, "the old head's ruling is withdrawn");
+    assert_eq!(waiting[0]["kind"]["head"], new);
+
+    let late = rule(&rig, &runner, &format!("30 yes {}", &old[..7]));
+
+    assert!(
+        late["error"].as_str().unwrap().contains(&new[..7]),
+        "{late}"
+    );
+    assert_eq!(rulings(&rig, &runner).len(), 1, "the new head still waits");
+    assert_eq!(contribution(&rig, &runner).get("passed"), None);
+    let right = rule(&rig, &runner, &format!("30 yes {}", &new[..7]));
+    assert_eq!(right.get("error"), None, "{right}");
+    assert_eq!(contribution(&rig, &runner)["passed"], new);
+}
+
+#[test]
+fn a_yes_that_names_no_head_trusts_nothing() {
+    let (rig, runner, head) = flagged();
+
+    for words in ["30 yes", "30 yes abc", "30 yes 6b0606e0000"] {
+        let refused = rule(&rig, &runner, words);
+        assert!(refused["error"].is_string(), "{words}: {refused}");
+    }
+
+    assert_eq!(rulings(&rig, &runner).len(), 1);
+    assert_eq!(contribution(&rig, &runner).get("passed"), None);
+    let upper = rule(
+        &rig,
+        &runner,
+        &format!("30 yes {}", head[..7].to_uppercase()),
+    );
+    assert_eq!(upper.get("error"), None, "{upper}");
+    assert_eq!(contribution(&rig, &runner)["passed"], head);
 }
 
 #[test]

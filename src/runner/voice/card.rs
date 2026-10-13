@@ -130,6 +130,7 @@ pub(in crate::runner) fn chosen(kind: &RulingKind, answer: &Answer) -> Option<ch
         | (Answer::Rework(_), Answer::Rework(_)) => true,
         (Answer::Do(a), Answer::Do(b)) => a == b,
         (Answer::Text(a), Answer::Text(b)) => a.trim() == b.trim(),
+        (Answer::Trust(a), Answer::Trust(b)) => a == b,
         _ => false,
     };
     let at = Card::of(kind)
@@ -331,10 +332,18 @@ impl Card {
                 board: None,
                 title: format!("Trust this contribution at {}?", short(head)),
                 facts: Some(flagged_lines(lines)),
-                choices: yes_no(
-                    "Trusts the head and lets it go on",
-                    Some("Leaves the head unpassed, so nothing runs on it and nothing is posted"),
-                ),
+                choices: vec![
+                    choice(
+                        "Yes",
+                        "Trusts the head and lets it go on",
+                        Answer::Trust(short(head).to_owned()),
+                    ),
+                    choice(
+                        "No",
+                        "Leaves the head unpassed, so nothing runs on it and nothing is posted",
+                        Answer::No(NO_NOTE.to_owned()),
+                    ),
+                ],
             },
             RulingKind::FollowUp { findings, refused } => {
                 let count = match findings.len() {
