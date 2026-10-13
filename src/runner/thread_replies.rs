@@ -81,11 +81,6 @@ pub(super) struct Reading {
     read: Option<Timestamp>,
     /// The comments before this are not asked for again
     floor: Option<Timestamp>,
-    /// Where each followed pull request's review threads are read from, by
-    /// pull request, once a read of them failed or succeeded: those are read
-    /// apart from the repo's comments, so a failed one is read again from
-    /// where it began
-    review_floor: BTreeMap<u64, Timestamp>,
     watching: BTreeMap<u64, Watch>,
     /// The comments read and left alone, a bot's or a login's without write
     /// access, by id and when written, until a read no longer reaches them
@@ -164,9 +159,8 @@ pub(super) struct ThreadRead {
     stopped: Option<(u64, String)>,
     /// What was done to each pending ruling's own comment
     marks: BTreeMap<u64, Result<CommentMarks, String>>,
-    /// The comments in each followed pull request's review threads, with the
-    /// time they were read since
-    replies: BTreeMap<u64, (Timestamp, Result<Vec<ThreadComment>, String>)>,
+    /// The comments in each followed pull request's review threads
+    replies: BTreeMap<u64, Result<Vec<ThreadComment>, String>>,
 }
 
 /// Reads the rulings' threads for answers, if a read is due, asking the
@@ -226,7 +220,7 @@ impl ThreadJob {
             .map(|&(number, since)| {
                 let replies = (self.forge.thread_replies_since(&self.repo, number, since))
                     .map_err(|e| format!("cannot read the review threads of #{number}: {e}"));
-                (number, (since, replies))
+                (number, replies)
             })
             .collect();
         Ok(ThreadRead {
@@ -267,17 +261,8 @@ impl Runner {
             .min();
         let since = heard.into_iter().chain(self.threads.floor).max();
         let since = since.unwrap_or(now);
-        self.threads
-            .review_floor
-            .retain(|number, _| followed.iter().any(|c| c.pull_request == *number));
         let reviews = (followed.iter())
-            .map(|c| c.pull_request)
-            .map(|n| {
-                (
-                    n,
-                    self.threads.review_floor.get(&n).copied().unwrap_or(since),
-                )
-            })
+            .map(|c| (c.pull_request, c.reviews_since()))
             .collect();
         let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
         own.extend(self.posted.borrow().iter().copied());
@@ -306,7 +291,7 @@ impl Runner {
             }
         };
         self.threads.failed = None;
-        self.hear_replies(&read)?;
+        let heard = self.hear_replies(&read)?;
         for comment in &read.comments {
             if (read.stopped.as_ref()).is_some_and(|(id, _)| *id == comment.id) {
                 let why = read.stopped.as_ref().map(|(_, why)| why.clone());
@@ -340,39 +325,45 @@ impl Runner {
             }
         }
         let floor = Timestamp(read.now.0.saturating_sub(SLACK));
-        self.threads.floor = Some(floor);
-        self.threads.judged.retain(|_, created| *created >= floor);
+        // Held behind while a contribution's comments were not all heard, so
+        // the next read reaches them again.
+        if heard {
+            self.threads.floor = Some(floor);
+        }
+        if let Some(floor) = self.threads.floor {
+            self.threads.judged.retain(|_, created| *created >= floor);
+        }
         self.apply_marks(read.marks);
         Ok(())
     }
 
     // Records what the contributors and the maintainer said, in the comments
-    // and the review threads read. A review read that failed is told once and
-    // read again from where it began; one that worked is read again from the
-    // slack behind this read.
-    fn hear_replies(&mut self, read: &ThreadRead) -> Result<(), StateError> {
+    // and the review threads read, and returns whether all of it was: when it
+    // was not, the place the comments are read to stays behind. A review read
+    // that failed is told once and read again from where it began, a place
+    // the contribution keeps; one that worked is read again from the slack
+    // behind this read.
+    fn hear_replies(&mut self, read: &ThreadRead) -> Result<bool, StateError> {
         let mut replies = Vec::new();
+        let mut done = Vec::new();
         let mut failed = Vec::new();
-        let behind = Timestamp(read.now.0.saturating_sub(SLACK));
-        for (number, (since, result)) in &read.replies {
+        for (number, result) in &read.replies {
             match result {
                 Ok(found) => {
                     replies.extend(found.iter().cloned());
-                    self.threads.review_floor.insert(*number, behind);
+                    done.push(*number);
                 }
-                Err(why) => {
-                    failed.push(why.clone());
-                    self.threads.review_floor.entry(*number).or_insert(*since);
-                }
+                Err(why) => failed.push(why.clone()),
             }
         }
-        self.hear_contributions(&read.comments, &replies)?;
+        let behind = Timestamp(read.now.0.saturating_sub(SLACK));
+        let heard = self.hear_contributions(&read.comments, &replies, &done, behind)?;
         let failed = (!failed.is_empty()).then(|| failed.join("; "));
         if self.threads.replies_failed != failed {
             self.notes.extend(failed.clone());
             self.threads.replies_failed = failed;
         }
-        Ok(())
+        Ok(heard)
     }
 
     // Answers each ruling its comment's reaction or ticked box answers, when

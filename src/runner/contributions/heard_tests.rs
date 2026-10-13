@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::tests::{opened, picking, poll};
-use crate::ports::Clock;
+use crate::ports::{Clock, ForgeError};
 use crate::runner::{Runner, step};
 use crate::test::{Rig, VIEWER};
 
@@ -327,4 +327,90 @@ fn what_was_heard_survives_a_restart_and_is_not_heard_again() {
     let heard = listed(&rig, &runner, "heard");
     assert_eq!(heard.len(), 1, "{heard:?}");
     assert_eq!(heard[0]["id"], id);
+}
+
+#[test]
+fn a_review_read_that_failed_is_read_again_from_where_it_began_after_a_restart() {
+    let (rig, runner, _) = followed_30();
+    let first = rig.clock.now();
+    let reply = rig
+        .forge
+        .threads
+        .writes_in_review(30, "newcomer", "Late", first);
+    rig.forge.set_thread_replies_down(true);
+    poll(&rig, &runner);
+    // Something heard later moves the repo's comments' place on
+    rig.clock.advance(60 * 60);
+    rig.writes_on(30, "newcomer", "Much later");
+    poll(&rig, &runner);
+    drop(runner);
+
+    rig.forge.set_thread_replies_down(false);
+    let runner = rig.open().unwrap();
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let heard = listed(&rig, &runner, "heard");
+    let ids: Vec<_> = heard.iter().filter_map(|s| s["id"].as_u64()).collect();
+    assert!(ids.contains(&reply), "{heard:?}");
+}
+
+#[test]
+fn nothing_is_recorded_while_the_logins_cannot_be_had_and_all_of_it_is_heard_after() {
+    let (rig, runner, _) = followed_30();
+    let said = rig.writes_on(30, "boss", "Please add a test");
+    rig.clock.advance(5);
+    let theirs = rig.writes_on(30, "newcomer", "Done");
+    {
+        let mut runner = runner.lock().unwrap();
+        runner.viewer = None;
+    }
+    rig.forge
+        .set_viewer_down(ForgeError::Failed("no network".into()));
+    poll(&rig, &runner);
+    assert_eq!(listed(&rig, &runner, "heard"), Vec::<Value>::new());
+    assert_eq!(listed(&rig, &runner, "context"), Vec::<Value>::new());
+    rig.forge
+        .threads
+        .write(30, "newcomer", "x", rig.clock.now());
+    rig.forge.set_viewer_up();
+
+    poll(&rig, &runner);
+
+    let ids = |key: &str| -> Vec<u64> {
+        let kept = listed(&rig, &runner, key);
+        kept.iter().map(|s| s["id"].as_u64().unwrap()).collect()
+    };
+    assert_eq!(ids("context"), [said]);
+    assert_eq!(ids("heard")[0], theirs);
+}
+
+#[test]
+fn the_maintainers_login_in_a_review_thread_is_kelpies_own_reply_and_is_left_alone() {
+    // `gh` acts as the maintainer here, so a reply through it is not told
+    // from one the maintainer typed
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.maintainer(VIEWER);
+    rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.contributions]\npick = \"all\"\n"));
+    let runner = rig.open().unwrap();
+    opened(&rig, 30, "newcomer");
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(10);
+    let at = rig.clock.now();
+    rig.forge
+        .threads
+        .writes_in_review(30, VIEWER, "Posted through gh", at);
+    let typed = rig.writes_on(30, VIEWER, "A comment");
+
+    poll(&rig, &runner);
+
+    let context = listed(&rig, &runner, "context");
+    assert_eq!(context.len(), 1, "{context:?}");
+    assert_eq!(
+        context[0],
+        json!({"kind": "comment", "id": typed, "at": at.0})
+    );
 }

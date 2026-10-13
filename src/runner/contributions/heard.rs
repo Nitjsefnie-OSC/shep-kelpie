@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::ports::ThreadComment;
+use crate::ports::{ThreadComment, Timestamp};
 use crate::runner::Runner;
 use crate::state::{Said, StateError};
 
@@ -31,20 +31,33 @@ impl Runner {
     // Records what `comments`, the repo's comments since the last read, and
     // `replies`, the review threads' comments of the pull requests followed,
     // say about the contributions: who wrote them, and when. A comment on
-    // record is not recorded again.
+    // record is not recorded again. `read` are the pull requests whose review
+    // threads were read, which are read again from `behind`.
+    //
+    // Returns whether everything was sorted. When a login needed to tell the
+    // maintainer's words from kelpie's and anyone else's cannot be had,
+    // nothing is recorded or marked read, so the caller holds the place it
+    // reads to and the next read reaches all of it again.
     pub(in crate::runner) fn hear_contributions(
         &mut self,
         comments: &[ThreadComment],
         replies: &[ThreadComment],
-    ) -> Result<(), StateError> {
+        read: &[u64],
+        behind: Timestamp,
+    ) -> Result<bool, StateError> {
         if self.state.contributions.is_empty() {
-            return Ok(());
+            return Ok(true);
         }
         // The logins are kept once asked, and a contribution is only followed
-        // once they were, so this is not expected to fail. If it does, the
-        // comments are heard at the next read, which reaches back over them.
-        let Ok(maintainer) = self.maintainer() else {
-            return Ok(());
+        // once they were, so this is not expected to fail.
+        let (maintainer, viewer) = (self.maintainer().ok(), self.viewer().ok());
+        if maintainer.is_none() || viewer.is_none() {
+            return Ok(false);
+        }
+        let is = |login: &Option<String>, author: &str| {
+            login
+                .as_deref()
+                .is_some_and(|l| l.eq_ignore_ascii_case(author))
         };
         let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
         own.extend(self.posted.borrow().iter().copied());
@@ -64,21 +77,31 @@ impl Runner {
                 Where::Conversation => Said::Comment { id, at },
                 Where::Review => Said::Reply { id, at },
             };
-            // A bot is no one's word, and kelpie's own comment through `gh`
-            // carries the maintainer's login.
-            let kelpies = matches!(place, Where::Conversation) && own.contains(&id);
+            // A bot is no one's word. Kelpie's own comment through `gh`
+            // carries the login `gh` acts as, which may be the maintainer's:
+            // a comment's id says it was kelpie's, but a review reply's does
+            // not, so that login's replies in a review thread are left alone.
+            let kelpies = match place {
+                Where::Conversation => own.contains(&id),
+                Where::Review => is(&viewer, &comment.author),
+            };
             if comment.bot || kelpies || contribution.knows(&said) {
                 continue;
             }
             if comment.author.eq_ignore_ascii_case(&contribution.author) {
                 contribution.hear(said);
-            } else if comment.author.eq_ignore_ascii_case(&maintainer) {
+            } else if is(&maintainer, &comment.author) {
                 contribution.overhear(said);
             }
         }
-        if next.contributions != self.state.contributions {
+        for contribution in &mut next.contributions {
+            if read.contains(&contribution.pull_request) {
+                contribution.reviews_from = Some(behind);
+            }
+        }
+        if next != self.state {
             self.save(next)?;
         }
-        Ok(())
+        Ok(true)
     }
 }

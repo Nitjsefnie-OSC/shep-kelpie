@@ -43,6 +43,14 @@ pub struct Contribution {
     /// hear. Left out until there is something.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context: Vec<Said>,
+    /// Where the next read of the pull request's review threads starts
+    ///
+    /// The forge's comments are read from one place for the whole repo, but a
+    /// review thread's only with its pull request, and a read of it can fail
+    /// alone. Left out until one succeeds, when it is [`Self::seen`] at the
+    /// first head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviews_from: Option<Timestamp>,
 }
 
 /// How many of what was said a contribution keeps, in each list
@@ -60,7 +68,13 @@ impl Contribution {
             passed: None,
             heard: Vec::new(),
             context: Vec::new(),
+            reviews_from: None,
         }
+    }
+
+    /// Where the next read of the review threads starts
+    pub fn reviews_since(&self) -> Timestamp {
+        self.reviews_from.unwrap_or(self.seen)
     }
 
     /// This contribution after a push to `head`, seen at `seen`: the head is
@@ -71,6 +85,8 @@ impl Contribution {
             head: head.clone(),
             seen,
             security: None,
+            // `seen` moves on, and the threads are read from where they were
+            reviews_from: Some(self.reviews_since()),
             ..self.clone()
         };
         next.hear(Said::Push { head, at: seen });
