@@ -81,8 +81,9 @@ impl Runner {
     /// its sub-issues closed and at least one of them built, never holding the
     /// work item
     ///
-    /// `issue` counts as completed while the forge still reads it open, since
-    /// it closes a moment after the merge. Only the parent is closed: a grandparent waits
+    /// `issue` and each issue the pull request names count as completed while
+    /// the forge still reads them open, since it closes them a moment after the
+    /// merge. Only the parent is closed: a grandparent waits
     /// for its own next merge. A read or a close that fails is told in the log.
     pub(super) fn close_done_parent_of(&mut self, issue: u64, pull_request: u64) {
         let parent = match (self.ports.forge).issue(&self.remote, issue) {
@@ -114,7 +115,11 @@ impl Runner {
                 return;
             }
         };
-        let state = |s: &SubIssue| match (s.number == issue, s.state) {
+        // A read that fails leaves only `issue` to count, so the parent may stay
+        // open until a later merge under it.
+        let named = (self.ports.forge).reviewed(&self.remote, pull_request);
+        let named = named.map(|pr| pr.closes).unwrap_or_default();
+        let state = |s: &SubIssue| match (s.number == issue || named.contains(&s.number), s.state) {
             (true, SubIssueState::Open) => SubIssueState::Completed,
             _ => s.state,
         };

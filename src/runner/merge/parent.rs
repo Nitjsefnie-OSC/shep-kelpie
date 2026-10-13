@@ -2,6 +2,7 @@
 
 use std::sync::Mutex;
 
+use crate::ports::PullRequestState;
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::Rig;
@@ -108,4 +109,22 @@ fn a_parent_the_forge_already_closed_gets_no_second_close() {
     merged(&rig, &runner);
     assert!(rig.forge.closings().is_empty());
     assert!(rig.forge.comments().is_empty());
+}
+
+#[test]
+fn a_sibling_the_pull_request_names_counts_as_closed_though_it_still_reads_open() {
+    let (rig, runner, _) = Rig::parked("koji");
+    rig.forge.list_ready(5, false);
+    rig.forge.link_sub_issue(5, 6);
+    rig.forge.link_sub_issue(5, 7);
+    rig.forge.set_closes(71, &[6, 7]);
+    rig.ask(&runner, "rule", Some("1 yes"));
+    // The forge has merged it and not yet closed #6 and #7, which #71 names.
+    rig.forge.set_state(71, PullRequestState::Merged);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Finished { merged: true, .. })
+    ));
+    assert_eq!(rig.forge.closings(), [5]);
 }
