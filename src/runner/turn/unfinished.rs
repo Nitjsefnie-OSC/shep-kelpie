@@ -94,8 +94,11 @@ const PUSHED_NOTHING_TWICE: &str = "it ended twice with no new push and no quest
 
 /// Whether `item` is a rework or an adoption in its implement phase, whose
 /// turn pushed nothing if it ends there
+///
+/// A comment round's turn may push nothing, since the worker may decline.
 pub(super) fn awaits_a_push(item: &WorkItem) -> bool {
     (item.rework || item.adopted)
+        && item.talked.head.is_none()
         && item.pull_request.is_some()
         && matches!(item.phase, Phase::Implement)
 }

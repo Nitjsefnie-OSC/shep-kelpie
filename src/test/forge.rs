@@ -11,8 +11,8 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
-    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment,
-    Timestamp, Visibility,
+    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
+    ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -287,20 +287,6 @@ impl FakeForge {
             author_is_bot: false,
         };
         self.pull_requests.lock().unwrap().insert(number, pr);
-    }
-
-    /// Makes pull request `number` one `login` opened, not kelpie's account
-    pub(crate) fn set_author(&self, number: u64, login: &str) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number).expect("an opened pull request").author = login.to_owned();
-    }
-
-    /// Makes pull request `number` one a bot account opened
-    pub(crate) fn set_author_bot(&self, number: u64) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number)
-            .expect("an opened pull request")
-            .author_is_bot = true;
     }
 
     /// How many times the account kelpie acts as was asked
@@ -689,6 +675,15 @@ impl Forge for FakeForge {
         }
     }
 
+    fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        let mut talk = self.coderabbit.talk_of(number);
+        talk.comments.extend(self.threads.remarks(number));
+        talk.comments.sort_by_key(|r| r.id);
+        Ok(talk)
+    }
+
     fn comments_since(
         &self,
         _repo: &ForgeSlug,
@@ -991,6 +986,7 @@ impl Forge for FakeForge {
 }
 
 mod app;
+mod authors;
 mod down;
 mod handed;
 mod issues;

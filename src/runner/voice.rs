@@ -296,7 +296,7 @@ pub(super) fn merge_notes(kind: &RulingKind) -> Vec<&'static str> {
         ),
         (
             *note_fix,
-            "This head is the worker's fix for your note, and no reviewer read it.",
+            "This head is the worker's fix for a note or comment, and no reviewer read it.",
         ),
         (
             *late_fix,

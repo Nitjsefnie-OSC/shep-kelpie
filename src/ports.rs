@@ -33,9 +33,11 @@ mod paced_voice;
 mod rate_limit;
 mod recorded_voice;
 mod revalidated;
+mod reviewed;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod talk;
 mod test_runner;
 mod thread;
 mod voice;
@@ -57,9 +59,11 @@ pub use paced_voice::PacedVoice;
 pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
+pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
@@ -197,6 +201,15 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked, has no such pull
     /// request, or its answer cannot be read.
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError>;
+
+    /// What people wrote on pull request `number`: its comments and its
+    /// review threads, resolved ones included
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked, has no such pull
+    /// request, or its answer cannot be read.
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError>;
 
     /// The login of the account kelpie acts as, which opens its pull requests
     ///
@@ -462,59 +475,6 @@ pub struct PullRequest {
     pub checks: Checks,
     /// Its labels' names
     pub labels: Vec<String>,
-}
-
-/// A pull request as a rework or an adoption reads it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reviewed {
-    /// Open, merged or closed
-    pub state: PullRequestState,
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
-    /// The issues on the same repo that it closes when it merges
-    pub closes: Vec<u64>,
-    /// The branch it merges into
-    pub base: String,
-    /// The branch it merges from
-    pub branch: String,
-    /// Whether that branch is on a fork rather than the repo itself
-    pub from_fork: bool,
-    /// Its author's login, empty for a deleted account
-    pub author: String,
-    /// Whether it is still a draft
-    pub draft: bool,
-    /// Its labels' names
-    pub labels: Vec<String>,
-    /// The maintainer's latest review: the latest one a person left, since
-    /// kelpie's own reviewers post none and bots are left out
-    pub review: Option<MaintainerReview>,
-}
-
-/// One review the maintainer left, as written
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MaintainerReview {
-    /// The forge's id for it
-    pub id: String,
-    /// Whether it requests changes, which only a reviewer other than the
-    /// pull request's author can do
-    pub changes_requested: bool,
-    /// Its body, empty when it has none
-    pub body: String,
-    /// Its comments whose threads are still unresolved, in the forge's order
-    pub comments: Vec<ReviewComment>,
-}
-
-/// One comment on a line of a pull request's diff
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewComment {
-    /// The file it is on
-    pub file: String,
-    /// The line, when the forge still places it
-    pub line: Option<u32>,
-    /// What it says
-    pub body: String,
 }
 
 /// Whether a pull request is open, merged or closed without merging

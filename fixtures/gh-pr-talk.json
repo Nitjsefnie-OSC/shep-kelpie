@@ -1,0 +1,78 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "comments": {
+          "nodes": [
+            {
+              "databaseId": 9001,
+              "body": "Please rename the flag.",
+              "authorAssociation": "OWNER",
+              "author": { "login": "octo-maintainer", "__typename": "User" }
+            },
+            {
+              "databaseId": 9002,
+              "body": "Coverage is 91%.",
+              "authorAssociation": "NONE",
+              "author": { "login": "codecov", "__typename": "Bot" }
+            },
+            {
+              "databaseId": 9003,
+              "body": "Looks good to me!",
+              "authorAssociation": "NONE",
+              "author": { "login": "passer-by", "__typename": "User" }
+            },
+            {
+              "databaseId": 9004,
+              "body": null,
+              "authorAssociation": "NONE",
+              "author": null
+            }
+          ]
+        },
+        "reviewThreads": {
+          "nodes": [
+            {
+              "id": "PRRT_open",
+              "isResolved": false,
+              "path": "src/lib.rs",
+              "line": 12,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 7001,
+                    "body": "This index can be out of range.",
+                    "authorAssociation": "COLLABORATOR",
+                    "author": { "login": "octo-reviewer", "__typename": "User" }
+                  },
+                  {
+                    "databaseId": 7002,
+                    "body": "Fixed.",
+                    "authorAssociation": "OWNER",
+                    "author": { "login": "octo-maintainer", "__typename": "User" }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PRRT_done",
+              "isResolved": true,
+              "path": "src/main.rs",
+              "line": null,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 7003,
+                    "body": "Typo.",
+                    "authorAssociation": "MEMBER",
+                    "author": { "login": "octo-member", "__typename": "User" }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -8,7 +8,7 @@ use super::saved_with;
 use crate::ports::Finding;
 use crate::settings::AgentName;
 use crate::state::{Fix, RulingKind, STATE_FILE, StateError, Stuck};
-use crate::test::a_work_item;
+use crate::test::{a_work_item, a_work_item_from_before_comments};
 use crate::work_item::{CallKind, Phase, Review, ReviewStage, TimingPhase};
 
 fn named(name: &str) -> Option<AgentName> {
@@ -228,7 +228,10 @@ fn a_work_items_count_of_local_rounds_is_dropped() {
     let store = saved_with(dir.path(), |value| {
         value["work_items"][0]["local_rounds"] = json!(2);
     });
-    assert_eq!(store.load().unwrap().unwrap().work_items, [a_work_item()]);
+    assert_eq!(
+        store.load().unwrap().unwrap().work_items,
+        [a_work_item_from_before_comments()]
+    );
 }
 
 #[test]

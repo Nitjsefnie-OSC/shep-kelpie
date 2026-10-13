@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::saved_with;
 use crate::ports::Timestamp;
 use crate::state::{Notice, RulingKind, STATE_FILE};
-use crate::test::a_work_item;
+use crate::test::a_work_item_from_before_comments;
 use crate::work_item::{CallKind, ReviewCallState, TimingPhase};
 
 // The last run, as kelpie kept it, and the pull request's shots comment.
@@ -69,7 +69,7 @@ fn a_work_items_shots_and_their_comment_are_dropped() {
         .load()
         .unwrap()
         .unwrap();
-    assert_eq!(state.work_items, [a_work_item()]);
+    assert_eq!(state.work_items, [a_work_item_from_before_comments()]);
 }
 
 #[test]

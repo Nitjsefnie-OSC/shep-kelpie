@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use super::{
     CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment,
-    PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility, Voice,
+    PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility,
+    Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -195,6 +196,10 @@ impl Forge for Guarded {
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
         self.forge.reviewed(repo, number)
+    }
+
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.forge.talk(repo, number)
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {

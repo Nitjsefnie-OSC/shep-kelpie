@@ -12,6 +12,7 @@ use super::gate::short;
 use super::report::{Begin, StepReport};
 use super::review::pushed::push_prompt;
 use super::rework::HUMAN;
+use super::talk::with_thread_lines;
 use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
@@ -398,7 +399,14 @@ impl Runner {
                 item.phase = Phase::Review(Review::first());
             }
             if let Some((turn, phase, force)) = worker {
-                item.turn = turn;
+                // The requests a question interrupted are still owed their replies.
+                let owed = item.talked.head.is_some() && !item.threads_sent.is_empty();
+                item.turn = match turn {
+                    Turn::Next { prompt } if owed => Turn::Next {
+                        prompt: with_thread_lines(prompt),
+                    },
+                    turn => turn,
+                };
                 item.phase = phase;
                 // A turn the ruling interrupted may still owe the review.
                 item.resume = force.or(item.resume.take());

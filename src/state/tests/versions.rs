@@ -4,7 +4,7 @@ use std::fs;
 
 use super::super::*;
 use super::store_in;
-use crate::test::a_work_item;
+use crate::test::{a_work_item, a_work_item_from_before_comments};
 
 #[test]
 fn a_version_6_file_loads_with_nothing_attached_and_saves_at_the_current_version() {
@@ -67,7 +67,7 @@ fn a_version_12_file_loads_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
-    state.work_items.push(a_work_item());
+    state.work_items.push(a_work_item_from_before_comments());
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 12.into();
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
@@ -327,7 +327,7 @@ fn a_state_file_without_a_test_still_loads() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let state_with = |test: Option<&str>| {
-        let mut item = a_work_item();
+        let mut item = a_work_item_from_before_comments();
         item.phase = Phase::Review(Review {
             stage: ReviewStage::Found {
                 findings: vec![Finding {
@@ -373,7 +373,7 @@ fn a_state_file_without_test_checks_still_loads() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let state_with = |checks: Vec<TestCheck>| {
-        let mut item = a_work_item();
+        let mut item = a_work_item_from_before_comments();
         item.test_checks = checks;
         let mut state = ProjectState::new();
         state.work_items.push(item);
@@ -421,7 +421,7 @@ fn a_state_file_without_reran_still_loads() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let state_with = |reran: Option<&str>| {
-        let mut item = a_work_item();
+        let mut item = a_work_item_from_before_comments();
         item.reran = reran.map(str::to_owned);
         let mut state = ProjectState::new();
         state.work_items.push(item);
@@ -443,12 +443,37 @@ fn a_state_file_without_reran_still_loads() {
     assert_eq!(store.load().unwrap(), Some(reran));
 }
 
+// A version 38 file has no `talked` on its work items, so no comment is
+// handled and no round counted. A work item with a pull request loads with
+// its comments marked as seen, since its worker has read them.
+#[test]
+fn a_version_38_file_loads_with_no_comment_handled_and_saves_at_the_current_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 38.into();
+    let item = serde_json::to_value(a_work_item()).unwrap();
+    assert!(item.get("talked").is_none(), "{item}");
+    old["work_items"] = serde_json::json!([item]);
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    let talked = &loaded.work_items[0].talked;
+    assert!(talked.comments.is_empty() && talked.rounds == 0);
+    // Its pull request has comments its worker has seen.
+    assert_eq!(talked.quiet, loaded.work_items[0].pull_request.is_some());
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+}
+
 #[test]
 fn an_older_state_file_loads_with_no_contributions() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
-    old["version"] = 38.into();
+    old["version"] = 39.into();
     assert_eq!(old.get("contributions"), None);
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 

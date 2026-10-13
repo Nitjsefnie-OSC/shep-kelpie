@@ -29,7 +29,7 @@ use crate::skills::{RepoPlugins, Skills};
 use crate::state::{ProjectState, Ruling, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{
-    Known, Phase, QwenTally, ReviewCallState, Seat, Timings, Turn, WorkItem, new_session_id,
+    Known, Phase, QwenTally, ReviewCallState, Seat, Talked, Timings, Turn, WorkItem, new_session_id,
 };
 
 mod adopt;
@@ -113,6 +113,7 @@ mod slots_tests;
 mod snapshot;
 mod started;
 mod step_log;
+mod talk;
 mod thread_replies;
 mod timings;
 mod token_wait;
@@ -801,6 +802,7 @@ impl Runner {
             nit_fix_heads: Vec::new(),
             noted_from: None,
             late_from: None,
+            talked: Talked::default(),
             claude_files_accepted: None,
             qwen: QwenTally::default(),
             budget_raises: 0,
