@@ -404,6 +404,10 @@ pub struct Adopted {
     /// ends, for a harness whose calls have any
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<Kept>,
+    /// The session id kelpie gave the call, for a harness that keeps a record
+    /// of its own by it and cannot tell it from the output
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionId>,
 }
 
 fn claude_code() -> Harness {

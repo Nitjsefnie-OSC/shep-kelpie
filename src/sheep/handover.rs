@@ -69,7 +69,7 @@ impl Carry {
 }
 
 impl State for Carry {
-    const FORMAT: u32 = 2;
+    const FORMAT: u32 = 3;
 }
 
 /// Replaces this image with the installed build carrying `carry`, and

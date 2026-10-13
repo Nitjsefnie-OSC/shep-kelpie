@@ -31,10 +31,15 @@ use super::process::{Processes, RunError};
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy, Sandbox,
-    Session, SessionId, Tools, Transcript, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy,
+    Sandbox, Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::settings::{AgentHarness, Harness, HookPoint};
+
+mod adopt;
+
+#[cfg(test)]
+mod adopt_tests;
 
 #[cfg(test)]
 mod tests;
@@ -188,35 +193,15 @@ impl Agents for CodexCli {
             RunError::Stopped => AgentError::Stopped,
             RunError::TimedOut => AgentError::TimedOut(CODEX),
         })?;
-        // The model has run by now, so what fails from here is the call's,
-        // not its setup's.
-        let ran = |e: AgentError| match e {
-            AgentError::Setup(why) => AgentError::Failed(CODEX, why),
-            e => e,
-        };
-        let known = thread(&files, call.session.id()).map_err(ran)?;
-        let turn = parse_result(&output, known.as_ref())?;
-        let before = known.map(|k| k.spent).unwrap_or_default();
-        let record = Thread {
-            id: turn.thread,
-            spent: turn.spent,
-        };
-        let path = files.thread(call.session.id());
-        let text = serde_json::to_string(&record).expect("a thread is JSON");
-        std::fs::write(&path, text).map_err(|e| {
-            ran(AgentError::Setup(format!(
-                "cannot write {}: {}",
-                path.display(),
-                e.kind()
-            )))
-        })?;
-        Ok(AgentReply {
-            session_id: call.session.id().clone(),
-            text: turn.text,
-            usage: turn.spent.since(before),
-            session_cost: None,
-            context: None,
-        })
+        finish(&files, call.session.id(), &output)
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        self.adoption_of(call)
+    }
+
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.adopt_call(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
@@ -231,6 +216,40 @@ impl Agents for CodexCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         written_at(&Files::of(call).stdout)
     }
+}
+
+// Reads what the ended call left and writes its thread record, so its tokens
+// are counted from where the session stood before it.
+fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, AgentError> {
+    // The model has run by now, so what fails from here is the call's,
+    // not its setup's.
+    let ran = |e: AgentError| match e {
+        AgentError::Setup(why) => AgentError::Failed(CODEX, why),
+        e => e,
+    };
+    let known = thread(files, id).map_err(ran)?;
+    let turn = parse_result(output, known.as_ref())?;
+    let before = known.map(|k| k.spent).unwrap_or_default();
+    let record = Thread {
+        id: turn.thread,
+        spent: turn.spent,
+    };
+    let path = files.thread(id);
+    let text = serde_json::to_string(&record).expect("a thread is JSON");
+    std::fs::write(&path, text).map_err(|e| {
+        ran(AgentError::Setup(format!(
+            "cannot write {}: {}",
+            path.display(),
+            e.kind()
+        )))
+    })?;
+    Ok(AgentReply {
+        session_id: id.clone(),
+        text: turn.text,
+        usage: turn.spent.since(before),
+        session_cost: None,
+        context: None,
+    })
 }
 
 impl CodexCli {
@@ -340,13 +359,16 @@ struct Files {
 
 impl Files {
     fn of(call: &AgentCall) -> Self {
-        let output = CallFiles::of(call);
+        Self::at(&call.settings)
+    }
+
+    fn at(settings: &Path) -> Self {
         Self {
-            home: call.settings.with_extension("codex"),
-            threads: call.settings.with_extension("threads"),
-            scratch: call.settings.with_extension("tmp"),
-            sandbox_settings: call.settings.with_extension("sandbox.json"),
-            stdout: output.stdout,
+            home: settings.with_extension("codex"),
+            threads: settings.with_extension("threads"),
+            scratch: settings.with_extension("tmp"),
+            sandbox_settings: settings.with_extension("sandbox.json"),
+            stdout: CallFiles::at(settings).stdout,
         }
     }
 
