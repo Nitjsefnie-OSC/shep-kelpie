@@ -434,7 +434,14 @@ impl Processes {
                     finishing.counted = true;
                     return Ok(status);
                 }
-                until.passed()
+                let passed = until.passed();
+                // Counted under the lock the seal takes, so no handover lands
+                // between the decision to end the call and its end.
+                if passed {
+                    running.finishing += 1;
+                    finishing.counted = true;
+                }
+                passed
             };
             if passed {
                 if until.ending.is_some_and(Ending::asked)
@@ -542,14 +549,19 @@ struct Feeder {
 }
 
 impl Feeder {
-    fn start(mut stdin: ChildStdin, input: Vec<u8>) -> Self {
+    fn start(stdin: ChildStdin, input: Vec<u8>) -> Self {
+        Self::start_counted(stdin, input, &FEEDING)
+    }
+
+    // Counts the write in `count`, which a test owns to read alone
+    fn start_counted(mut stdin: ChildStdin, input: Vec<u8>, count: &'static AtomicUsize) -> Self {
         // If it cannot be set the write blocks, as a plain one does.
         let _ = fcntl_setfl(&stdin, OFlags::NONBLOCK);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&cancel);
-        FEEDING.fetch_add(1, Ordering::SeqCst);
+        let feeding = Feeding::begin(count);
         let writer = thread::spawn(move || {
-            let _feeding = Feeding;
+            let _feeding = feeding;
             let mut left = input.as_slice();
             while !left.is_empty() && !stop.load(Ordering::Relaxed) {
                 match stdin.write(left) {
@@ -570,12 +582,19 @@ impl Feeder {
     }
 }
 
-// Counts one write as over when its thread ends, however it ends
-struct Feeding;
+// Counts one write while it lives, so a thread that never starts counts none
+struct Feeding(&'static AtomicUsize);
+
+impl Feeding {
+    fn begin(count: &'static AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(count)
+    }
+}
 
 impl Drop for Feeding {
     fn drop(&mut self) {
-        FEEDING.fetch_sub(1, Ordering::SeqCst);
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -775,38 +794,6 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         assert!(ended.is_ok(), "the writer thread was left blocked");
-    }
-
-    // Real time. Other tests feed too, so only that it is true is asserted.
-    #[test]
-    fn a_stdin_being_written_is_fed_until_the_writer_ends() {
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let feeder = Feeder::start(child.stdin.take().unwrap(), vec![b'x'; 4 * 1024 * 1024]);
-        thread::sleep(Duration::from_millis(100));
-        let while_stuck = feeding();
-        let _ = child.kill();
-        let _ = child.wait();
-        drop(feeder);
-        assert!(while_stuck, "a write the child never reads is not a feed");
-    }
-
-    #[test]
-    fn a_seal_is_refused_while_one_stands_or_a_call_is_being_read() {
-        let processes = Processes::default();
-        let sealed = processes.seal().expect("nothing is sealed yet");
-        assert!(processes.seal().is_none(), "sealed twice");
-        drop(sealed);
-
-        let mut counting = Finishing::new(&processes);
-        processes.lock().finishing += 1;
-        counting.counted = true;
-        assert!(processes.seal().is_none(), "sealed with a call being read");
-        drop(counting);
-        assert!(processes.seal().is_some());
     }
 
     // Real time: models a worker whose build or test process outlives it.

@@ -13,14 +13,15 @@ impl ClaudeCli {
     }
 
     /// What finishes `call` on another image, if it runs now as a worker's
-    /// call that left a record
-    pub(super) fn adoption_of(call: &AgentCall) -> Option<Adopted> {
+    /// call that left a record, or why nothing does
+    pub(super) fn adoption_of(call: &AgentCall) -> Result<Adopted, String> {
         if call.role != Role::Worker {
-            return None;
+            return Err("only a worker's call is carried".into());
         }
         let record = CallFiles::of(call).record;
-        let read = Record::read(&record).ok()?;
-        Some(Adopted {
+        let read = Record::read(&record)
+            .map_err(|e| format!("the call's record {} cannot be read: {e}", record.display()))?;
+        Ok(Adopted {
             pid: read.pid,
             record,
             flying: read.flying,

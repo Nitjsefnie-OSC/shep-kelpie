@@ -313,10 +313,11 @@ impl Agents for FakeClaude {
     }
 
     // A held call can be carried to a new image, as a real call's process can.
-    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
         let holding = self.holding.lock().unwrap();
-        let (_, flying) = holding.iter().find(|(issue, _)| *issue == call.issue)?;
-        Some(Adopted {
+        let (_, flying) = (holding.iter().find(|(issue, _)| *issue == call.issue))
+            .ok_or("the stand-in holds no such call")?;
+        Ok(Adopted {
             pid: 1,
             record: call.settings.with_extension("call.json"),
             resumes: Some(call.session.id().clone()),

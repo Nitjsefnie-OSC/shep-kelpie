@@ -376,10 +376,15 @@ pub trait Agents: Send + Sync {
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError>;
 
     /// What a runner that did not start `call` needs to finish it, while it
-    /// runs, or `None` for a harness or a call that cannot be finished that way
-    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+    /// runs
+    ///
+    /// # Errors
+    ///
+    /// Why the call cannot be finished that way: its harness cannot be, or its
+    /// record is missing or unreadable.
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
         let _ = call;
-        None
+        Err("this harness cannot hand a call to another image of the runner".into())
     }
 
     /// Finishes a call a runner's earlier image started, as [`Agents::run`]

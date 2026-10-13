@@ -56,7 +56,7 @@ impl Agents for KeychainBlocked {
         self.agents.run(&self.blocking(call), ending)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
         self.agents.adoption(call)
     }
 

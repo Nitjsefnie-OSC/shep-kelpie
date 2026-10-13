@@ -49,7 +49,7 @@ impl Agents for Routed {
         self.adapter(call).run(call, ending)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
         self.adapter(call).adoption(call)
     }
 

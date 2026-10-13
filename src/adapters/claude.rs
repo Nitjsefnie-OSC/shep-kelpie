@@ -231,7 +231,7 @@ impl Agents for ClaudeCli {
         parse_result(&output, &call.session)
     }
 
-    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
         Self::adoption_of(call)
     }
 

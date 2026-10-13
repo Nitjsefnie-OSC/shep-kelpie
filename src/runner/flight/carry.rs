@@ -17,7 +17,7 @@ use super::super::Runner;
 use super::super::briefing::Watched;
 use super::super::in_flight::Open;
 use super::{End, Flight, News, Tell, unstarted, waiting};
-use crate::ports::{Adopted, Ending, Timestamp};
+use crate::ports::{Adopted, Ending, Flying, Timestamp};
 use crate::settings::Harness;
 
 /// A worker's turn as it crosses a handover
@@ -26,6 +26,7 @@ use crate::settings::Harness;
 pub struct CarriedTurn {
     issue: u64,
     adopted: Adopted,
+    flying: Flying,
     started: Timestamp,
     open: Open,
 }
@@ -70,16 +71,17 @@ impl Runner {
                     ));
                 };
                 let adopted = (self.ports.agents.adoption(call))
-                    .filter(|adopted| adopted.flying.is_some())
-                    .ok_or_else(|| {
-                        format!("the turn of #{issue} has no process running, or has just ended")
-                    })?;
+                    .map_err(|why| format!("the turn of #{issue} cannot be carried: {why}"))?;
+                let flying = adopted.flying.ok_or_else(|| {
+                    format!("the record of #{issue}'s turn notes no ceiling, so it cannot be timed")
+                })?;
                 let open = (flights.ledger.peek(Some(issue))).ok_or_else(|| {
                     format!("the turn of #{issue} has no line in the usage ledger")
                 })?;
                 Ok(CarriedTurn {
                     issue,
                     adopted,
+                    flying,
                     started: flight.watched.started,
                     open,
                 })
@@ -99,17 +101,10 @@ impl Runner {
         let CarriedTurn {
             issue,
             adopted,
+            flying,
             started,
             open,
         } = turn;
-        let now = self.ports.clock.now();
-        let flying = adopted.flying.unwrap_or(crate::ports::Flying {
-            left: 0,
-            began: now,
-            again: false,
-            first: false,
-            compact: false,
-        });
         let ending = Ending::default();
         ending.carry(flying);
         let tell = Tell {

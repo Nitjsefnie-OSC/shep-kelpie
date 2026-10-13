@@ -182,3 +182,6 @@ fn status_of(exit: ChildExit) -> ExitStatus {
         (None, None) => ExitStatus::from_raw(1 << 8),
     }
 }
+
+#[cfg(test)]
+mod tests;
