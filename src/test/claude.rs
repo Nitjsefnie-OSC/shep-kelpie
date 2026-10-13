@@ -174,6 +174,8 @@ pub(crate) struct Seen {
     pub(crate) sandbox: serde_json::Value,
     /// Whether its build folder existed when the call started
     pub(crate) build_existed: bool,
+    /// What the runner had noted of the call, for its record, when it started
+    pub(crate) carried: Option<crate::ports::Flying>,
 }
 
 /// Records every call and answers from a script, failing once it runs out
@@ -331,6 +333,7 @@ impl Agents for FakeClaude {
             settings,
             sandbox,
             build_existed,
+            carried: ending.carried(),
         });
         let next = match next {
             Some(Scripted::Spend(account, usage, cost)) => {
