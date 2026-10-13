@@ -319,6 +319,7 @@ impl core::error::Error for GrantError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::EPOCH;
 
     fn stand_in() -> LeaseKind {
         LeaseKind::try_from("stand-in").unwrap()
@@ -440,16 +441,16 @@ mod tests {
         let coderabbit = LeaseKind::coderabbit();
         let mut asker = Asker::new(Epoch(9));
         assert_eq!(
-            asker.window(&coderabbit, WindowFact::Summoned, 1_790_000_000),
-            ("window.coderabbit.summoned.9".into(), 1_790_000_000.0)
+            asker.window(&coderabbit, WindowFact::Summoned, EPOCH),
+            ("window.coderabbit.summoned.9".into(), EPOCH as f64)
         );
-        let _ = asker.window(&coderabbit, WindowFact::Quota(1), 1_790_000_100);
-        let _ = asker.window(&coderabbit, WindowFact::Quota(10), 1_790_000_200);
+        let _ = asker.window(&coderabbit, WindowFact::Quota(1), EPOCH + 100);
+        let _ = asker.window(&coderabbit, WindowFact::Quota(10), EPOCH + 200);
         assert_eq!(
             asker.metrics(),
             [
-                ("window.coderabbit.summoned.9".into(), 1_790_000_000.0),
-                ("window.coderabbit.quota-10.9".into(), 1_790_000_200.0),
+                ("window.coderabbit.summoned.9".into(), EPOCH as f64),
+                ("window.coderabbit.quota-10.9".into(), (EPOCH + 200) as f64),
             ],
             "one latest quota, carrying its footer's time"
         );

@@ -72,15 +72,12 @@ pub async fn remove(client: &ReconnectingClient, book: &Path) -> Result<Option<S
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use shep_client::shep_core::config::AppConfig;
 
     use super::*;
-    use crate::test::FakeShepherd;
-
-    // Bounds every call against a fake shepherd, so a hang fails by name.
-    const PATIENCE: Duration = Duration::from_secs(10);
+    use crate::home::SHEP_SOCKET;
+    use crate::test::{CALL_PATIENCE, FakeShepherd};
 
     fn sheep(name: &str, args: &[&str]) -> AppConfig {
         let mut app = AppConfig::minimal(name, "/opt/kelpie");
@@ -89,10 +86,10 @@ mod tests {
     }
 
     async fn removed(shepherd: &FakeShepherd) -> Result<Option<String>, String> {
-        let socket = shepherd.home().join("run/shep.sock");
+        let socket = shepherd.home().join(SHEP_SOCKET);
         let client = ReconnectingClient::connect(&socket).await.unwrap();
         let book = Path::new("/k/dog/book.json");
-        tokio::time::timeout(PATIENCE, remove(&client, book))
+        tokio::time::timeout(CALL_PATIENCE, remove(&client, book))
             .await
             .expect("remove neither ended nor failed in time")
     }

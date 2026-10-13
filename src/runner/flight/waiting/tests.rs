@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::tests::{CEILING, CODER, Driven, PATIENCE};
+use super::super::tests::{CEILING, CODER, Driven};
 use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::ports::{AgentError, CallActivity, Session, Timestamp};
 use crate::runner::{Runner, StepReport};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 /// The time of day `at` is, as the board writes it
 fn clock(at: u64) -> String {
@@ -81,7 +81,7 @@ fn a_turn_queued_for_its_lease_is_marked_waiting_until_it_begins() {
 
     lock.release(round.pid).unwrap();
     assert_eq!(driven.heard(), None, "the grant is not a report");
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     driven.pass();
     assert_eq!(item(&rig, &runner, 7).get("waiting"), None);
     assert!(!board(&rig).contains("Waiting for its model"));
@@ -99,7 +99,7 @@ fn a_silent_turn_is_marked_after_ten_minutes_and_cleared_by_its_first_output() {
     rig.claude.set_activity(CallActivity::Nothing);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(10 * 60 - 1);
     driven.pass();
     assert_eq!(item(&rig, &runner, 7).get("waiting"), None);
@@ -210,7 +210,7 @@ fn a_first_turn_with_output_sets_no_fallback_wake() {
     rig.claude.set_activity(CallActivity::Nothing);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     let wake = runner.lock().unwrap().next_ceiling();
     assert_eq!(
         wake,
@@ -425,11 +425,11 @@ fn a_later_turn_restarted_on_a_new_session_never_falls_back() {
     driven.started();
     // The lease is granted at once, and the call waits until the grant is heard.
     assert_eq!((driven.heard(), driven.heard()), (None, None));
-    assert!(hold.entered(PATIENCE), "the later turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the later turn never began");
     hold.release();
     assert_eq!(driven.heard(), None, "the restart is not a report");
     assert_eq!((driven.heard(), driven.heard()), (None, None));
-    assert!(again.entered(PATIENCE), "the restart never began");
+    assert!(again.entered(CALL_PATIENCE), "the restart never began");
     let calls = rig.claude.all_calls();
     assert!(matches!(calls[2].session, Session::New(_)), "{calls:#?}");
     rig.clock.advance(20 * 60);

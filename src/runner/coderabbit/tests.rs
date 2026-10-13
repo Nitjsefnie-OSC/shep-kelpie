@@ -8,7 +8,7 @@ use serde_json::json;
 use super::{ANSWER_WAIT, FAR, HEARD_WAIT, LABEL, REVIEW_WAIT};
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
-use crate::ports::{AgentError, Checks, Timestamp};
+use crate::ports::{AgentError, CLEAN, Checks, Timestamp};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::AgentName;
 use crate::test::{Rig, Scripted, Told, git};
@@ -47,10 +47,8 @@ pub(in crate::runner) fn reviewed_by_qwen_with(
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
@@ -344,10 +342,8 @@ fn a_later_pass_on_a_ready_pull_request_summons_at_once() {
         Some(StepReport::Ruling { id: 1, .. })
     ));
     rig.ask(&runner, "rule", Some("1 rework name the flag"));
-    rig.claude.script([
-        Scripted::Push("flag.txt", "named\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("flag.txt", "named\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
     step(&runner).unwrap(); // round 1, qwen: clean by default
     step(&runner).unwrap(); // round 2, claude: scripted clean above
@@ -932,7 +928,7 @@ fn a_yes_on_a_commit_pushed_by_hand_runs_the_review_and_coderabbit_on_it() {
     assert_eq!(git(&rig.worktree_7(), &["rev-parse", "HEAD"]), by_hand);
 
     let reviewed = rig.reviewer.seen().len();
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(rig.reviewer.seen().len(), reviewed + 1);

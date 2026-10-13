@@ -89,7 +89,7 @@ mod tests {
     use std::fs;
     use std::sync::Mutex;
 
-    use crate::ports::{Checks, Cost, MaintainerReview, Usage};
+    use crate::ports::{CLEAN, Checks, Cost, MaintainerReview, Usage};
     use crate::runner::Runner;
     use crate::runner::gate::short;
     use crate::runner::report::StepReport;
@@ -161,7 +161,7 @@ mod tests {
         ruling(step(&runner).unwrap());
         step(&runner).unwrap(); // the alert
         rig.ask(&runner, "rule", Some("1 yes"));
-        rig.claude.script([Scripted::Text("CLEAN")]);
+        rig.claude.script([Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // review round 1, qwen
         step(&runner).unwrap(); // review round 2, claude
         assert_eq!(rig.reviewer.seen().len(), 1);
@@ -177,7 +177,7 @@ mod tests {
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
         rig.claude.script([
             Scripted::Push(".claude/agents/helper.md", "an agent\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ]);
         step(&runner).unwrap();
         let (id, _) = ruling(step(&runner).unwrap());

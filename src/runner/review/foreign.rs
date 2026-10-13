@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::Role;
+use crate::ports::{CLEAN, Role};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Elsewhere, Rig, Scripted};
 
@@ -18,7 +18,7 @@ fn at_round_2(rig: &Rig, second: &str, file: &'static str) -> Mutex<Runner> {
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude
-        .script([Scripted::Push(file, "work\n"), Scripted::Text("CLEAN")]);
+        .script([Scripted::Push(file, "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, qwen: clean by default
     runner

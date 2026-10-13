@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::saved_with;
 use crate::ports::Timestamp;
-use crate::state::{Notice, RulingKind};
+use crate::state::{Notice, RulingKind, STATE_FILE};
 use crate::test::a_work_item;
 use crate::work_item::{CallKind, ReviewCallState, TimingPhase};
 
@@ -164,7 +164,7 @@ fn a_file_with_all_of_them_loads_and_saves_without_them() {
     });
     let state = store.load().unwrap().unwrap();
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     assert!(
         !saved.contains("shots"),
         "the shots were saved again: {saved}"

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use crate::ports::{Cost, Role, SessionId, Tools, Usage};
+use crate::ports::{CLEAN, Cost, Role, SessionId, Tools, Usage};
 use crate::runner::report::{ReviewResult, Spent};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Effort;
@@ -168,7 +168,7 @@ fn a_second_look_that_keeps_failing_still_posts_the_first_looks_round_through_th
 fn two_looks_that_find_nothing_end_the_review_with_no_fix_turn() {
     let (rig, runner) = at_defect_hunter();
     rig.claude
-        .script([Scripted::Text("CLEAN"), Scripted::Text("CLEAN")]);
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
     let reports = until_it_leaves_review(&rig, &runner);
     assert_eq!(state(&rig, &runner), "ci");
     assert_eq!(roles(&rig), [Role::Worker, Role::Reviewer, Role::Reviewer]);
@@ -182,7 +182,9 @@ fn two_looks_that_find_nothing_end_the_review_with_no_fix_turn() {
         "{reports:#?}"
     );
     let second = &looks(&rig)[1].call.prompt;
-    assert!(second.contains("--- the first reader's findings ---\nCLEAN\n--- end ---"));
+    assert!(second.contains(&format!(
+        "--- the first reader's findings ---\n{CLEAN}\n--- end ---"
+    )));
 }
 
 #[test]
@@ -190,7 +192,7 @@ fn nits_alone_from_both_looks_go_to_one_fix_turn() {
     let (rig, runner) = at_defect_hunter();
     rig.claude.script([
         Scripted::Text("LOW|work.txt:1|a name is misleading|a reader is confused"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
         Scripted::Push("renamed.txt", "renamed\n"),
     ]);
     until_it_leaves_review(&rig, &runner);
@@ -206,7 +208,7 @@ fn a_fix_turn_that_pushes_nothing_parks_like_any_reviewers() {
     let (rig, runner) = at_defect_hunter();
     rig.claude.script([
         Scripted::Text(MEDIUM),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
         Scripted::Say("I could not read the findings."),
     ]);
     let reports = until_it_leaves_review(&rig, &runner);
@@ -229,7 +231,7 @@ fn a_fix_turn_that_pushes_nothing_parks_like_any_reviewers() {
 fn the_second_look_is_its_own_stage_in_status_and_a_reviewers_time() {
     let (rig, runner) = at_defect_hunter();
     rig.claude
-        .script([Scripted::Text("CLEAN"), Scripted::Text("CLEAN")]);
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the first look
     let status = rig.ask(&runner, "status", None);
     assert_eq!(
@@ -247,7 +249,7 @@ fn the_second_look_is_its_own_stage_in_status_and_a_reviewers_time() {
 fn a_session_that_ends_after_the_review_moved_on_still_keeps_its_cost_and_its_end() {
     let (rig, runner) = at_defect_hunter();
     rig.claude
-        .script([Scripted::Text("CLEAN"), Scripted::Text("CLEAN")]);
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
     until_it_leaves_review(&rig, &runner);
     let report = {
         let mut runner = runner.lock().unwrap();

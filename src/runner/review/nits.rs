@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use crate::ports::{Checks, Finding, Severity};
+use crate::ports::{CLEAN, Checks, Finding, Severity};
 use crate::runner::{StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -36,7 +36,7 @@ fn a_nit_fix_that_pushes_nothing_goes_on_to_the_next_reviewer_with_no_ruling() {
     rig.reviewer.script([ScriptedRound::Findings(vec![nit()])]);
     rig.claude.script([
         Scripted::Text("The name reads fine as it is."),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // round 1, qwen: one nit
     step(&runner).unwrap(); // the nit goes to a fix turn
@@ -102,7 +102,7 @@ fn a_round_of_nits_gets_one_fix_turn_and_the_pass_goes_on_to_the_next_reviewer()
 
     rig.claude.script([
         Scripted::Push("tidied.txt", "tidied\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's fix turn
     let fixed = rig.forge.head_of("kelpie/7").unwrap();

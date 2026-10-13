@@ -1,17 +1,13 @@
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::mpsc;
-use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use crate::ports::Checks;
 use crate::runner::{Pass, Runner, StepReport, advance, step};
-use crate::test::{Hold, Rig, Scripted, git, write_in};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git, write_in};
 use crate::work_item::{Attached, Holder};
-
-// A held call's start or end that never comes fails the test waiting on it.
-const PATIENCE: Duration = Duration::from_secs(30);
 
 // A process that lives until dropped, standing in for `shep kelpie attach`
 struct Live(Child);
@@ -148,7 +144,7 @@ fn attach_waits_for_the_call_in_flight_and_no_call_starts_after_it() {
     let (wake, woken) = mpsc::channel();
     runner.lock().unwrap().wake_with(wake);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the first turn began");
+    assert!(hold.entered(CALL_PATIENCE), "the first turn began");
 
     let me = Live::new();
     assert_eq!(
@@ -157,7 +153,7 @@ fn attach_waits_for_the_call_in_flight_and_no_call_starts_after_it() {
     );
     assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
     hold.release();
-    woken.recv_timeout(PATIENCE).expect("the turn ended");
+    woken.recv_timeout(CALL_PATIENCE).expect("the turn ended");
     advance(&runner).unwrap();
     assert_eq!(attach(&rig, &runner, me.pid())["attach"], "ready");
     assert!(matches!(advance(&runner).unwrap(), Pass::Idle));

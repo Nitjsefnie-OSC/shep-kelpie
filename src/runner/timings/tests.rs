@@ -1,21 +1,17 @@
 //! What the runner charges to each phase, read through `status` and `timings`
 
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::runner::{Runner, step};
 use crate::state::{Finished, ProjectState, StateStore};
-use crate::test::{Hold, Rig};
+use crate::test::{CALL_PATIENCE, Hold, Rig};
 use crate::work_item::{Seconds, TimingPhase};
 
 mod charging;
 mod phases;
 mod totals;
-
-// The worker's turn runs on this thread's sibling, on real time.
-const PATIENCE: Duration = Duration::from_secs(10);
 
 fn timings(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     rig.ask(runner, "status", None)["work_item"]["timings"].clone()
@@ -55,7 +51,7 @@ fn held_while(
 ) -> Value {
     std::thread::scope(|scope| {
         let call = scope.spawn(|| step(runner));
-        assert!(hold.entered(PATIENCE), "the call never began");
+        assert!(hold.entered(CALL_PATIENCE), "the call never began");
         during();
         rig.clock.advance(seconds);
         let read = timings(rig, runner);

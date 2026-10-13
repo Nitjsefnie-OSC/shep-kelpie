@@ -13,7 +13,7 @@
 use std::path::Path;
 
 use super::shell::Quoting;
-use super::{Home, WRITE, files, values};
+use super::{Home, SHOWN_CHARS, WRITE, files, values};
 use crate::coderabbit::LABEL;
 use crate::hooks::Role;
 
@@ -202,7 +202,7 @@ pub(super) fn judge(
                  and `{}` holds a character outside letters, digits and `. _ / : @ = , + -`: \
                  write each word out with those. Only a quoted `--body`, `--title` or \
                  `--notes` value may hold others.",
-                word.chars().take(40).collect::<String>()
+                word.chars().take(SHOWN_CHARS).collect::<String>()
             ),
         );
     }
@@ -273,7 +273,7 @@ fn read(words: &[String], heredocs: &[String], cwd: Option<&Path>, home: &Home) 
             return vec![format!(
                 "kelpie runs only gh's own commands, and `{}` is not one: run the command it \
                  stands for.",
-                group.chars().take(40).collect::<String>()
+                group.chars().take(SHOWN_CHARS).collect::<String>()
             )];
         }
         _ => {}

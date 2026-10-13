@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::{Runner, StepReport, step};
@@ -280,7 +280,7 @@ fn the_threads_a_new_pass_after_a_no_finds_are_answered_like_any_rounds() {
     rig.claude
         .script([Scripted::Push("stamped.txt", "stamped only\n")]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 1, qwen: clean by default
     step(&runner).unwrap(); // round 2, claude: scripted clean above
     let stamped = rig.forge.head_of("kelpie/7").unwrap();

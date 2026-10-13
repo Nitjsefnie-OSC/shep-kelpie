@@ -174,9 +174,7 @@ mod tests {
 
     use super::*;
     use crate::ports::Clock;
-    use crate::test::FakeClock;
-
-    const NOW: u64 = 1_790_000_000;
+    use crate::test::{EPOCH, FakeClock};
 
     // The dog's clock, which the desk reads for every ask and leave.
     struct Lease {
@@ -198,7 +196,7 @@ mod tests {
         let capacity = NonZeroU32::new(capacity).unwrap();
         Lease {
             lease: CountedLease::cargo_test(capacity),
-            clock: FakeClock::at(NOW),
+            clock: FakeClock::at(EPOCH),
         }
     }
 
@@ -228,9 +226,9 @@ mod tests {
                 "kind": "cargo-test",
                 "capacity": 3,
                 "holders": [
-                    { "pid": 1001, "what": "cargo test 1", "since": NOW },
-                    { "pid": 1002, "what": "cargo test 2", "since": NOW },
-                    { "pid": 1003, "what": "cargo test 3", "since": NOW },
+                    { "pid": 1001, "what": "cargo test 1", "since": EPOCH },
+                    { "pid": 1002, "what": "cargo test 2", "since": EPOCH },
+                    { "pid": 1003, "what": "cargo test 3", "since": EPOCH },
                 ],
                 "queue": [
                     { "pid": 1004, "what": "cargo test 4" },
@@ -251,7 +249,7 @@ mod tests {
         assert_eq!(lease.leave(2), [Ticket(3)]);
         let line = status(&lease);
         assert_eq!(line["holders"][1]["pid"], 1003);
-        assert_eq!(line["holders"][1]["since"], NOW + 40);
+        assert_eq!(line["holders"][1]["since"], EPOCH + 40);
         assert_eq!(
             line["queue"],
             json!([{ "pid": 1004, "what": "cargo test 4" }])

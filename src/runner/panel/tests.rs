@@ -3,20 +3,17 @@
 
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::ports::{AgentError, Role, Tools};
 use crate::runner::{Runner, step};
 use crate::settings::Harness;
-use crate::test::{Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 
 mod deciding;
 mod fences;
 mod folders;
 mod plugins;
-
-/// How long a test waits on the panel
-const PATIENCE: Duration = Duration::from_secs(60);
 
 const WORKER: &str = "Both threads were fixed in the last push, with tests. \
     {\"choice\": \"A\", \"why\": \"WORKER-MARK fixed with tests\", \"design\": false}";
@@ -67,7 +64,7 @@ fn ruling_comment(rig: &Rig) -> Option<String> {
 
 /// Steps until the ruling's comment is posted, which waits on the panel
 fn settle(rig: &Rig, runner: &Mutex<Runner>) -> String {
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Instant::now() + CALL_PATIENCE;
     while Instant::now() < deadline {
         step(runner).unwrap();
         if let Some(comment) = ruling_comment(rig) {
@@ -256,7 +253,7 @@ fn the_worker_abstains_when_its_work_item_has_no_worker_turn() {
         )],
     );
 
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Instant::now() + CALL_PATIENCE;
     while Instant::now() < deadline && !panel_voted(&rig) {
         step(&runner).unwrap();
     }

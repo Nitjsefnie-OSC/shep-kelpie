@@ -17,6 +17,7 @@ use shep_client::shep_core::status::ProcStatus;
 use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::home::SHEP_SOCKET;
 use crate::shepherd::SHEP_VERSION;
 
 /// One sheep: its config, whether it runs, and whether a dog holds its
@@ -69,11 +70,10 @@ impl FakeShepherd {
         let answers = Arc::clone(&flock);
         let section = Arc::new(Mutex::new(String::new()));
         let held = Arc::clone(&section);
-        let sent =
-            fake_daemon_answering_with_ack(&home.path().join("run/shep.sock"), ack, move |r| {
-                answer(&mut answers.lock().unwrap(), &held.lock().unwrap(), r)
-            })
-            .await;
+        let sent = fake_daemon_answering_with_ack(&home.path().join(SHEP_SOCKET), ack, move |r| {
+            answer(&mut answers.lock().unwrap(), &held.lock().unwrap(), r)
+        })
+        .await;
         Self {
             home,
             flock,

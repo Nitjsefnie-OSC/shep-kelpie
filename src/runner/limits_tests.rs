@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::pacer::{HoldKind, RECHECK_SECS};
-use crate::ports::{Cost, MeterError, Role, Timestamp, Usage};
+use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
 use crate::test::{Hold, Rig, Scripted};
@@ -213,7 +213,7 @@ fn a_review_round_waits_on_its_reviewers_account_while_the_worker_works_on() {
 
     rig.clock.advance(RECHECK_SECS);
     rig.meter.set(Rig::utilization(0, 1));
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     for _ in 0..5 {
         rig.verdict(&runner);
     }
@@ -355,7 +355,7 @@ fn a_review_round_on_a_local_agent_runs_on_that_agent_under_its_lease() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     rig.verdict(&runner);
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     for _ in 0..5 {
         rig.verdict(&runner);
     }

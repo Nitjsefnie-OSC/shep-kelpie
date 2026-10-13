@@ -5,6 +5,7 @@ use std::fs;
 use serde_json::{Value, json};
 
 use super::{saved_with, store_in};
+use crate::state::STATE_FILE;
 use crate::test::a_work_item;
 
 // The work item as saved before agent files, its worker as `worker` held it.
@@ -72,7 +73,7 @@ fn the_file_saves_again_with_the_agent_and_without_the_worker() {
     assert_eq!(state.work_items, [a_work_item()]);
     store.save(&state).unwrap();
     let saved: Value =
-        serde_json::from_str(&fs::read_to_string(dir.path().join("state.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();
     assert_eq!(saved["work_items"][0]["agent"], "opus-high");
     assert_eq!(saved["work_items"][0].get("worker"), None);
 }
@@ -91,7 +92,7 @@ fn a_version_one_files_work_item_runs_on_its_agent_too() {
         "version": 1, "run": "running", "since": 7, "work_item": item,
         "rulings": [], "leases": [],
     });
-    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
     let state = store_in(dir.path()).load().unwrap().unwrap();
     assert_eq!(state.work_items[0].agent.as_str(), "sonnet-high");
 }

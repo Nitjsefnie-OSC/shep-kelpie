@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::*;
+use crate::home::SHEP_SOCKET;
 use crate::ports::{Cost, Usage};
 use crate::profile;
 use crate::runner::step;
@@ -145,7 +146,7 @@ fn the_settings_file_fences_writes_to_this_worktree_and_its_git_paths() {
 fn a_worker_reads_its_worktree_inside_the_shepherds_home_and_not_shep_s_socket() {
     let (rig, runner) = with_issue_7("koji");
     let shep = rig.home.path().join("shep");
-    write_in(&shep, "run/shep.sock", "");
+    write_in(&shep, SHEP_SOCKET, "");
     write_in(&shep, "dogs.toml", "");
     write_in(&shep, "kelpie/rotom/state.json", "{}");
     rig.claude.script([Scripted::Reply(usage(1), Cost(1))]);

@@ -344,9 +344,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::test::FakeClock;
-
-    const EPOCH: u64 = 1_790_000_000;
+    use crate::test::{EPOCH, FakeClock};
 
     fn book() -> (LeaseBook, FakeClock) {
         let clock = FakeClock::at(EPOCH);

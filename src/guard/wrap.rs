@@ -10,6 +10,7 @@
 mod stdin;
 mod vars;
 
+use crate::guard::SHOWN_CHARS;
 use stdin::is_c_flag;
 pub(super) use stdin::{Shell, shell};
 use vars::assignment;
@@ -232,7 +233,10 @@ pub(super) fn hidden(words: &[String]) -> Option<String> {
     (pushes || gh).then(|| {
         format!(
             "kelpie cannot check git or gh run through `{}`: run it directly.",
-            program(&words[0]).chars().take(40).collect::<String>()
+            program(&words[0])
+                .chars()
+                .take(SHOWN_CHARS)
+                .collect::<String>()
         )
     })
 }

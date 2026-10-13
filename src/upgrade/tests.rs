@@ -14,16 +14,13 @@ use shep_client::shep_core::protocol::request::{Request, SelectorSpec};
 use super::*;
 use crate::flock::Launch;
 use crate::runner::ProjectName;
-use crate::test::{FakeShepherd, write_script};
+use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};
 
 mod drain;
 mod files;
 mod refusals;
 mod sheep;
 mod source;
-
-// Real sockets under a real clock, so every run is bounded and a hang fails by name.
-const PATIENCE: Duration = Duration::from_secs(30);
 
 const FAST: Patience = Patience {
     poll: Duration::from_millis(10),
@@ -132,9 +129,12 @@ impl Rig {
         action: Action,
     ) -> (Result<(), String>, Vec<String>) {
         let mut said = Vec::new();
-        let ran = tokio::time::timeout(PATIENCE, run(&scene, &action, &mut |line| said.push(line)))
-            .await
-            .expect("the upgrade neither ended nor failed in time");
+        let ran = tokio::time::timeout(
+            CALL_PATIENCE,
+            run(&scene, &action, &mut |line| said.push(line)),
+        )
+        .await
+        .expect("the upgrade neither ended nor failed in time");
         (ran, said)
     }
 

@@ -4,7 +4,6 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -12,11 +11,8 @@ use crate::ports::{AgentError, Clock, Cost, Usage};
 use crate::runner::flight::advance;
 use crate::runner::{CHECKS_SETTLE, Pass, Runner, StepReport, count_stopped, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted, ScriptedRound};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
 use crate::usage::{FILE, read};
-
-// How long a test waits on a call in flight
-const PATIENCE: Duration = Duration::from_secs(60);
 
 // Every line of the rig's project's ledger, as JSON
 fn ledger(rig: &Rig) -> Vec<Value> {
@@ -267,7 +263,7 @@ fn a_call_still_in_flight_as_the_runner_stops_is_written_as_stopped() {
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(30);
 
     // The stop writes it without the runner's lock, as when a pass holds it.
@@ -326,10 +322,10 @@ fn a_local_round_cut_short_by_the_stop_keeps_its_seconds_on_the_gpu() {
     }]);
     std::thread::scope(|scope| {
         let round = scope.spawn(|| step(&runner));
-        assert!(queued.entered(PATIENCE), "the round never queued");
+        assert!(queued.entered(CALL_PATIENCE), "the round never queued");
         rig.clock.advance(120);
         queued.release();
-        assert!(running.entered(PATIENCE), "the round never ran");
+        assert!(running.entered(CALL_PATIENCE), "the round never ran");
         rig.clock.advance(45);
         assert_eq!(stopping.record(Clock::now(&rig.clock)), []);
         running.release();
@@ -368,7 +364,7 @@ fn a_call_that_never_started_is_not_written_by_the_stop_either() {
     rig.claude.script([Scripted::Fail(no_claude)]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
     woken
-        .recv_timeout(PATIENCE)
+        .recv_timeout(CALL_PATIENCE)
         .expect("the call's end, unheard");
     assert_eq!(stopping.record(Clock::now(&rig.clock)), []);
     assert_eq!(ledger(&rig), Vec::<Value>::new());

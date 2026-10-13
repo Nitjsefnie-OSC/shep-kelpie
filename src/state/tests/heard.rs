@@ -5,11 +5,11 @@ use super::super::*;
 #[test]
 fn where_a_ruling_is_answered_in_its_thread_is_pinned_by_ruling_id_and_left_out_when_empty() {
     let dir = tempfile::tempdir().unwrap();
-    let store = StateStore::new(dir.path().join("state.json"));
+    let store = StateStore::new(dir.path().join(STATE_FILE));
     let mut state = ProjectState::new();
     let saved = |store: &StateStore, state: &ProjectState| {
         store.save(state).unwrap();
-        let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+        let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
         serde_json::from_str::<serde_json::Value>(&text).unwrap()
     };
     let value = saved(&store, &state);
@@ -38,11 +38,11 @@ fn where_a_ruling_is_answered_in_its_thread_is_pinned_by_ruling_id_and_left_out_
 #[test]
 fn the_comment_of_a_ruling_posted_with_no_mention_is_kept_by_ruling_id_and_left_out_when_empty() {
     let dir = tempfile::tempdir().unwrap();
-    let store = StateStore::new(dir.path().join("state.json"));
+    let store = StateStore::new(dir.path().join(STATE_FILE));
     let mut state = ProjectState::new();
     let saved = |store: &StateStore, state: &ProjectState| {
         store.save(state).unwrap();
-        let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+        let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
         serde_json::from_str::<serde_json::Value>(&text).unwrap()
     };
     assert_eq!(saved(&store, &state).get("unmentioned"), None);

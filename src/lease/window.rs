@@ -171,11 +171,10 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const T: u64 = 1_790_000_000;
+    use crate::test::EPOCH;
 
     fn at(offset: u64) -> Timestamp {
-        Timestamp(T + offset)
+        Timestamp(EPOCH + offset)
     }
 
     #[test]

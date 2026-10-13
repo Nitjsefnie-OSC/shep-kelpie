@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::{Runner, StepReport, step};
@@ -70,10 +70,8 @@ fn a_bot_that_reviews_every_push_cannot_loop_on_nits() {
     ));
     let worker_turns = rig.claude.calls().len();
     rig.ask(&runner, "rule", Some("1 rework check it once more"));
-    rig.claude.script([
-        Scripted::Text("Nothing to change."),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Text("Nothing to change."), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the noted turn: pushes nothing, and a pass begins
     step(&runner).unwrap(); // round 1, qwen: clean by default
     step(&runner).unwrap(); // round 2, claude: scripted clean above
@@ -104,7 +102,7 @@ fn a_bots_first_read_of_a_nit_fixs_head_still_sends_its_nits() {
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
         Scripted::Push("renamed.txt", "renamed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, qwen: one nit

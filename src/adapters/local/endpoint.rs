@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use super::LocalReviewer;
 use crate::adapters::process::RunError;
-use crate::ports::{Finding, ReviewerError, read_review};
+use crate::ports::{CLEAN, Finding, ReviewerError, read_review};
 use crate::settings::{Endpoint, Route};
 use crate::worktree::Linked;
 
@@ -157,7 +157,7 @@ impl LocalReviewer {
             let url = route.base.as_str();
             findings.extend(read_review(&answer).map_err(|reply| {
                 ReviewerError::Failed(format!(
-                    "{url}'s reply is neither findings nor CLEAN: {}",
+                    "{url}'s reply is neither findings nor {CLEAN}: {}",
                     quote(&reply)
                 ))
             })?);

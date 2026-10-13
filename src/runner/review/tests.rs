@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Cost, Role, Session, SessionId, Severity, Usage};
+use crate::ports::{CLEAN, Cost, Role, Session, SessionId, Severity, Usage};
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -27,7 +27,7 @@ fn end_review_tolerates_a_work_item_that_is_gone() {
 #[test]
 fn each_reviewer_runs_once_in_order_and_the_last_goes_to_ci() {
     let (rig, runner) = at_round_1("shep");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 1, qwen: clean by default
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"],
@@ -66,7 +66,7 @@ fn a_review_saved_mid_loop_goes_on_from_the_reviewer_after_the_one_it_recorded()
     std::fs::write(&state, saved.to_string()).unwrap();
 
     let runner = rig.open().unwrap();
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // claude, the reviewer after qwen
     assert!(rig.reviewer.seen().is_empty(), "qwen does not run again");
     assert_eq!(
@@ -165,7 +165,7 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
 
     rig.claude.script([
         Scripted::Push("fixed.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's fix turn
     let fixed = rig.forge.head_of("kelpie/7");
@@ -269,7 +269,7 @@ fn a_reviewer_whose_call_fails_three_times_in_a_row_is_passed_over_for_the_pass(
         }),
         "qwen was passed over, so nobody has read it yet"
     );
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 2, claude
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
@@ -283,10 +283,8 @@ fn reviewer_sessions_never_match_the_workers() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, qwen: clean by default
     step(&runner).unwrap(); // round 2, claude: scripted clean above
@@ -440,7 +438,7 @@ fn a_finished_work_items_report_carries_its_totals() {
     let (rig, runner) = at_round_1("shep");
     step(&runner).unwrap(); // round 1, qwen: clean by default
     rig.claude
-        .script([Scripted::Billed("CLEAN", Cost(20_000_000))]);
+        .script([Scripted::Billed(CLEAN, Cost(20_000_000))]);
     step(&runner).unwrap(); // round 2, claude: clean, so CI is next
     rig.forge
         .set_state(71, crate::ports::PullRequestState::Merged);
@@ -519,7 +517,7 @@ fn a_claude_round_stopped_with_the_runner_runs_again_on_restart() {
         }),
         "round 2 is still due, with the same reviewer and the head it reads"
     );
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap();
     let rounds = rig.claude.all_calls();
     let rounds = rounds.iter().filter(|c| c.role == Role::Reviewer).count();
@@ -602,7 +600,7 @@ fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
     ));
     assert_eq!(reviewer_calls(&rig), 0, "round 2 did not start");
 
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     rig.ask(&runner, "rule", Some("1 yes"));
     let phase = &rig.ask(&runner, "status", None)["work_item"]["phase"];
     assert_eq!(phase["state"], "review", "{phase}");
@@ -662,7 +660,7 @@ fn a_no_on_a_round_past_the_cap_sends_the_worker_the_note_and_reviews_again() {
 fn a_round_under_the_cap_starts_as_before() {
     let (rig, runner) = in_review_under_a_five_dollar_cap("shep");
     spend(&runner, 5);
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
 
     step(&runner).unwrap(); // round 1, qwen
     step(&runner).unwrap(); // round 2, claude
@@ -757,7 +755,7 @@ fn a_later_reviewers_first_look_keeps_the_tests_kept_before() {
 
     rig.claude.script([
         Scripted::Push("fixed.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's fix turn
     step(&runner).unwrap(); // the fix pushed

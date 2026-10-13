@@ -6,7 +6,7 @@ use super::saved_with;
 use crate::ports::{Finding, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::AgentName;
-use crate::state::{Fix, ProjectState, Resume, RulingKind, Stuck};
+use crate::state::{Fix, ProjectState, Resume, RulingKind, STATE_FILE, Stuck};
 use crate::work_item::{Phase, Review, ReviewStage};
 
 fn racy() -> Value {
@@ -323,7 +323,7 @@ fn a_file_with_a_bot_round_saves_as_the_current_version_with_none() {
     });
     let state = store.load().unwrap().unwrap();
     store.save(&state).unwrap();
-    let saved = std::fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = std::fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: Value = serde_json::from_str(&saved).unwrap();
     assert_eq!(saved["version"], 35);
     assert_eq!(saved["work_items"][0]["phase"]["state"], "review");

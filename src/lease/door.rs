@@ -98,6 +98,11 @@ fn resolved(path: &Path) -> PathBuf {
     real
 }
 
+/// The longest line either end of the door's socket handles as one: the dog
+/// cuts an ask short here, and an e2e run's output is cut into lines no
+/// longer
+pub const LONGEST_LINE: u64 = 64 * 1024;
+
 /// The lease an ask names to run a project's end-to-end tests on its host
 pub const E2E: &str = "e2e";
 
@@ -240,6 +245,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::home::SHEP_SOCKET;
 
     #[test]
     fn a_worker_never_gets_shep_s_socket_or_a_relative_one() {
@@ -250,7 +256,8 @@ mod tests {
             let fine = PathBuf::from(fine);
             assert_eq!(checked(Some(fine.clone()), shep), (fine, None));
         }
-        for bad in ["/home/me/.shep/run/shep.sock", "door.sock"] {
+        let shep_socket = format!("/home/me/.shep/{SHEP_SOCKET}");
+        for bad in [shep_socket.as_str(), "door.sock"] {
             let (door, why) = checked(Some(PathBuf::from(bad)), shep);
             assert_eq!(door, default, "{bad}");
             assert!(why.unwrap().contains(bad));
@@ -272,10 +279,10 @@ mod tests {
 
         let mut bad = vec![
             PathBuf::from("door.sock"),
-            shep.join("run/shep.sock"),
-            shep.join("kelpie/../run/shep.sock"),
+            shep.join(SHEP_SOCKET),
+            shep.join(format!("kelpie/../{SHEP_SOCKET}")),
             outside.join("link/shep.sock"),
-            outside.join("link/../shep/run/shep.sock"),
+            outside.join(format!("link/../shep/{SHEP_SOCKET}")),
         ];
         // Only a case-insensitive volume finds the folder spelled this way.
         let shouting = shep.join("RUN/shep.sock");

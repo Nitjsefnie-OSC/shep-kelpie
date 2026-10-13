@@ -1,5 +1,4 @@
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde_json::json;
 
@@ -8,10 +7,7 @@ use crate::ports::{Cost, PullRequestState, Usage};
 use crate::runner::follow_up::tests::{ask_after_the_merge, racy};
 use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
-use crate::test::{Hold, Rig, Scripted, git, write_in};
-
-// Real threads on real time, so a held call's wait has this ceiling.
-const PATIENCE: Duration = Duration::from_secs(30);
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git, write_in};
 
 const ASKS: &str = "<kelpie-question>\nThis is already fixed on main. Shall I close it?\n\
                     </kelpie-question>\n";
@@ -66,7 +62,7 @@ fn a_worker_that_closes_its_issue_with_no_commit_finishes_with_no_nudge_or_rulin
     rig.claude.script([Scripted::Hold(hold.clone())]);
     std::thread::scope(|scope| {
         let turn = scope.spawn(|| step(&runner));
-        let began = hold.entered(PATIENCE);
+        let began = hold.entered(CALL_PATIENCE);
         rig.forge.close_issue(7);
         hold.release();
         assert!(began, "the answered turn never began");

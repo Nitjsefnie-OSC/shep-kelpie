@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::*;
 use crate::coderabbit::LABEL;
-use crate::ports::{Checks, PullRequestState, Session};
+use crate::ports::{CLEAN, Checks, PullRequestState, Session};
 use crate::runner::{StepReport, step};
 use crate::test::{Hold, Rig, Scripted, git};
 
@@ -321,10 +321,8 @@ fn a_review_asking_for_changes_is_the_first_turn_and_the_loop_reviews_only_the_f
             .ends_with("# The latest review of pull request #80\n\nKeep the dates.\n")
     );
 
-    rig.claude.script([
-        Scripted::Push("fix.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("fix.txt", "fixed\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     let [first] = rig.claude.calls().try_into().unwrap();
     assert!(matches!(first.session, Session::New(_)));

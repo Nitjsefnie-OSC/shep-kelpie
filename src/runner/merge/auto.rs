@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use crate::ports::{AgentError, Checks, PullRequestState};
+use crate::ports::{AgentError, CLEAN, Checks, PullRequestState};
 use crate::runner::coderabbit::tests::{hold_a_finding, now, reviewed_by_qwen};
 use crate::runner::coderabbit::{ANSWER_WAIT, REVIEW_WAIT};
 use crate::runner::rework::HUMAN;
@@ -574,7 +574,7 @@ fn a_yes_that_vouches_for_a_new_head_sends_it_back_through_every_gate() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["phase"]["state"], "review");
 
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     rig.forge.set_checks(&fixed, Checks::Passed);
     rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
@@ -639,7 +639,7 @@ fn a_head_a_yes_under_ask_left_unknown_is_gated_again_after_a_switch_to_auto() {
     assert_eq!(rig.forge.merges(), []);
 
     let reviewed = rig.reviewer.seen().len();
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     rig.verdict(&runner); // review round 1, qwen: clean by default, once its head is green
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(rig.reviewer.seen().len(), reviewed + 1);
@@ -672,7 +672,7 @@ fn a_yes_on_a_refused_rebase_with_no_worker_turn_still_summons_coderabbit() {
     git(&worktree, &["checkout", "--quiet", "--", "work.txt"]);
     let fix = rig.push_by_hand("kelpie/7", "fix.txt");
     rig.ask(&runner, "rule", Some(&format!("{id} yes")));
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     step(&runner).unwrap(); // review round 2, claude: scripted clean above
     assert_eq!(

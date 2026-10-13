@@ -331,9 +331,7 @@ pub(super) mod tests {
     use super::*;
     use crate::lease::saved::BookFile;
     use crate::lease::wire::Asker;
-    use crate::test::FakeClock;
-
-    const EPOCH: u64 = 1_790_000_000;
+    use crate::test::{EPOCH, FakeClock};
 
     pub(crate) struct World {
         pub(crate) desk: Desk,

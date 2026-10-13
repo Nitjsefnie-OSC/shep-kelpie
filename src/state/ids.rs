@@ -11,7 +11,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
-use super::{ProjectState, Ruling, StateError, StateStore};
+use super::{ProjectState, Ruling, STATE_FILE, StateError, StateStore};
 use crate::totp::private_dir;
 
 /// The ids given under one kelpie home, and the projects' state files in its folders
@@ -95,7 +95,7 @@ impl RulingIds {
         names
             .into_iter()
             .filter_map(|name| {
-                let store = StateStore::new(self.projects.join(&name).join("state.json"));
+                let store = StateStore::new(self.projects.join(&name).join(STATE_FILE));
                 let state = store.load().transpose()?;
                 Some((name, state))
             })
@@ -151,7 +151,7 @@ mod tests {
                 raised: None,
             })
             .collect();
-        let path = home.join(name).join("state.json");
+        let path = home.join(name).join(STATE_FILE);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         StateStore::new(path).save(&state).unwrap();
     }

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use super::{DONE_SETTLE, HEARD_WAIT};
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
-use crate::ports::{Finding, Severity, Timestamp};
+use crate::ports::{CLEAN, Finding, Severity, Timestamp};
 use crate::review_bot::{Activity, Bot, Comment, Login, Profile, Reading, Review, Status, Thread};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
@@ -147,10 +147,8 @@ fn summoned(project: &str) -> (Rig, Mutex<Runner>, String) {
     let runner = rig.open_with(vec![Arc::new(StandIn)]).unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     step(&runner).unwrap(); // review round 2, claude: scripted clean above

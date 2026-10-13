@@ -9,7 +9,7 @@ use crate::work_item::TimingPhase;
 const WRITER_DIR: &str = "KELPIE_TEST_WRITER_DIR";
 
 fn store_in(dir: &Path) -> StateStore {
-    StateStore::new(dir.join("state.json"))
+    StateStore::new(dir.join(STATE_FILE))
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -107,7 +107,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
         "last_ruling": 3,
         "leases": [],
     });
-    fs::write(dir.path().join("state.json"), one.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), one.to_string()).unwrap();
     let state = store.load().unwrap().unwrap();
     assert_eq!(state.work_items, [a_work_item()]);
     assert_eq!(
@@ -117,7 +117,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     );
 
     store.save(&state).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], saved.get("work_item")),
@@ -126,7 +126,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     assert_eq!(store.load().unwrap(), Some(state));
 
     one["work_item"] = serde_json::Value::Null;
-    fs::write(dir.path().join("state.json"), one.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), one.to_string()).unwrap();
     let state = store.load().unwrap().unwrap();
     assert_eq!((state.work_items, state.rulings[0].issue), (vec![], None));
 }
@@ -137,7 +137,7 @@ fn a_file_saved_before_pacing_loads_with_none() {
     let store = store_in(dir.path());
     let old =
         r#"{"version":1,"run":"running","since":7,"work_item":null,"rulings":[],"leases":[]}"#;
-    fs::write(dir.path().join("state.json"), old).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
     let state = store.load().unwrap().unwrap();
     assert_eq!(state.pacing, None);
 }
@@ -266,7 +266,7 @@ fn the_file_format_is_pinned() {
         }),
     };
     store.save(&state).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     let pinned = |id: u64, kind| {
         serde_json::json!({
@@ -444,12 +444,12 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_35() {
         "issue": 3, "title": "Three", "pull_request": null, "merged": false,
         "at": 9, "wall": 0, "seconds": serde_json::to_value(Seconds::default()).unwrap(),
     }]);
-    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let loaded = store.load().unwrap().expect("a saved state");
     assert!(!loaded.history[0].closed);
     store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], 35);
     assert_eq!(saved["history"], old["history"]);
@@ -466,12 +466,12 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_35() {
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
     old["version"] = 18.into();
-    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");
     assert!(!loaded.finishing);
     store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (saved["version"].clone(), saved.get("finishing")),
@@ -480,7 +480,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_35() {
 
     loaded.finishing = true;
     store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["finishing"], true);
     assert_eq!(store.load().unwrap(), Some(loaded));
@@ -521,13 +521,13 @@ fn a_version_9_file_loads_with_nothing_counted_and_saves_as_35() {
             "worker": 0, "review": 0, "ci": 0, "ruling": 0, "merge": 0, "other": 0,
         },
     }]);
-    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let loaded = store.load().unwrap().expect("a saved state");
     assert!(loaded.work_items[0].counts.is_zero());
     assert_eq!(loaded.history[0].spend, None);
     store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], 35);
 }
@@ -556,12 +556,12 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_35() {
     old["since"] = 7.into();
     assert!(old["work_items"][0].get("counts").is_some(), "{old}");
     assert!(old["history"][0].get("spend").is_some(), "{old}");
-    fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let loaded = store.load().unwrap().expect("a saved state");
     assert_eq!(loaded, state);
     store.save(&loaded).unwrap();
-    let text = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], 35);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
@@ -602,7 +602,7 @@ fn a_running_turn_saved_before_it_kept_a_prompt_still_loads() {
         "a turn with no prompt saves as it always did"
     );
     old["work_items"][0]["turn"] = serde_json::json!({ "state": "running", "since": 9 });
-    std::fs::write(dir.path().join("state.json"), old.to_string()).unwrap();
+    std::fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let loaded = store.load().unwrap().expect("a saved state");
     assert_eq!(
@@ -713,7 +713,7 @@ fn a_state_saved_before_ruling_ids_were_counted_starts_counting_at_zero() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     fs::write(
-        dir.path().join("state.json"),
+        dir.path().join(STATE_FILE),
         r#"{"version":1,"run":"running","since":3,"work_item":null,"rulings":[],"leases":[]}"#,
     )
     .unwrap();
@@ -729,7 +729,7 @@ fn a_ruling_saved_before_webhooks_is_posted_once() {
     let old = r#"{"version":1,"run":"running","since":7,"work_item":null,
         "rulings":[{"id":1,"question":"q","pull_request":3,"kind":{"kind":"closed"}}],
         "leases":[]}"#;
-    fs::write(dir.path().join("state.json"), old).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
     assert!(!store.load().unwrap().unwrap().rulings[0].alerted);
 }
 
@@ -750,7 +750,7 @@ fn a_torn_temporary_file_leaves_the_saved_state_readable() {
 fn a_malformed_file_names_its_path() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
-    fs::write(dir.path().join("state.json"), "{\"version\": 1, \"run\": ").unwrap();
+    fs::write(dir.path().join(STATE_FILE), "{\"version\": 1, \"run\": ").unwrap();
     let err = store.load().unwrap_err();
     assert!(matches!(&err, StateError::Malformed { path, .. } if path == &store.path));
     assert!(err.to_string().contains("state.json is malformed"));
@@ -761,7 +761,7 @@ fn a_newer_format_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     fs::write(
-        dir.path().join("state.json"),
+        dir.path().join(STATE_FILE),
         r#"{"version": 36, "shape": "new"}"#,
     )
     .unwrap();

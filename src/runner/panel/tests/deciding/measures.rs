@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::{SHADOW, leak, pm_says, ruling, says, script, voted};
 use crate::ports::{Cost, Role};
 use crate::settings::Merging;
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Rig, Scripted};
 use crate::usage::{FILE, read};
 
 /// Every line of the project's usage ledger, as JSON
@@ -193,7 +193,7 @@ fn a_wake_that_failed_casts_no_votes_for_its_retry_to_repeat() {
     rig.claude
         .script_for(Role::Pm, [Scripted::Say("I cannot say.")]);
 
-    let deadline = std::time::Instant::now() + super::PATIENCE;
+    let deadline = std::time::Instant::now() + CALL_PATIENCE;
     let wake = |lines: &[Value]| {
         lines
             .iter()

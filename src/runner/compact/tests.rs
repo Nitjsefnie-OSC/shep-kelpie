@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{AgentError, Checks, Finding, Session, Severity};
+use crate::ports::{AgentError, CLEAN, Checks, Finding, Session, Severity};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -127,7 +127,7 @@ fn a_ci_fix_turn_after_a_compaction_still_starts_with_its_skill_s_command() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::PushAt("work.txt", "work\n", 200_000),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the build turn opens the pull request
     step(&runner).unwrap(); // review round 1

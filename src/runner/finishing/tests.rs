@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::*;
+use crate::ports::CLEAN;
 use crate::runner::{CHECKS_SETTLE, step};
 use crate::test::Rig;
 
@@ -240,7 +241,7 @@ fn a_notice_still_due_holds_the_finish_until_it_is_posted() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         crate::test::Scripted::Push("work.txt", "work\n"),
-        crate::test::Scripted::Text("CLEAN"),
+        crate::test::Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
         step(&runner).unwrap();
