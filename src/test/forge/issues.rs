@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
-use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
+use crate::ports::{FinishedParent, ForgeError, OpenIssue, SubIssue, SubIssueState};
 
 /// An issue kelpie opened on the fake forge
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +55,23 @@ impl FakeForge {
                     (true, true) => SubIssueState::NotPlanned,
                     (true, false) => SubIssueState::Completed,
                 },
+            })
+            .collect())
+    }
+
+    pub(super) fn read_finished_parents(&self) -> Result<Vec<FinishedParent>, ForgeError> {
+        self.ask()?;
+        let mut parents: Vec<_> = self.sub_issues.lock().unwrap().keys().copied().collect();
+        parents.sort_unstable();
+        let closed = self.closed.lock().unwrap();
+        Ok(parents
+            .into_iter()
+            .filter(|parent| !closed.contains(parent))
+            .map(|number| (number, self.sub_issues_of(number)))
+            .filter(|(_, subs)| subs.iter().all(|s| closed.contains(s)))
+            .map(|(number, subs)| FinishedParent {
+                number,
+                sub_issues: subs.len() as u64,
             })
             .collect())
     }

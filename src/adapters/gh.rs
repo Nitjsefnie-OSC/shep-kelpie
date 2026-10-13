@@ -26,9 +26,9 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
-    PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
-    Timestamp, Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
+    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
+    ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -121,6 +121,10 @@ impl Forge for Gh {
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
         issues::sub_issues(repo, parent)
+    }
+
+    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
+        issues::finished_parents(repo)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

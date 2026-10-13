@@ -54,7 +54,7 @@ pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
-pub use issue::{Issue, OpenIssue, SubIssue, SubIssueState};
+pub use issue::{FinishedParent, Issue, OpenIssue, SubIssue, SubIssueState};
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
@@ -175,6 +175,14 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
+
+    /// The open issues on `repo`, ready or not, that have sub-issues and whose
+    /// sub-issues are all closed, whatever they closed as
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError>;
 
     /// The open issues on `repo` labelled [`READY`]
     ///

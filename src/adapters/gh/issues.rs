@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
+use crate::ports::{FinishedParent, ForgeError, OpenIssue, SubIssue, SubIssueState};
 use crate::settings::ForgeSlug;
 
 // The same ceiling the board's lists use, since `gh` lists newest first and
@@ -25,6 +25,48 @@ pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError
         "number,title,body",
     ];
     parse_open_issues(&gh(&args)?)
+}
+
+// `gh` counts an issue's sub-issues closed whatever they closed as, so this
+// names the candidates and `sub_issues` tells which of them built something.
+pub(super) fn finished_parents(repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
+    let args = [
+        "issue",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--state",
+        "open",
+        "--limit",
+        LIST_LIMIT,
+        "--json",
+        "number,subIssuesSummary",
+    ];
+    parse_finished_parents(&gh(&args)?)
+}
+
+fn parse_finished_parents(stdout: &[u8]) -> Result<Vec<FinishedParent>, ForgeError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Listed {
+        number: u64,
+        sub_issues_summary: Summary,
+    }
+    #[derive(Deserialize)]
+    struct Summary {
+        total: u64,
+        completed: u64,
+    }
+    let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    Ok(listed
+        .into_iter()
+        .filter(|i| i.sub_issues_summary.total > 0)
+        .filter(|i| i.sub_issues_summary.completed >= i.sub_issues_summary.total)
+        .map(|i| FinishedParent {
+            number: i.number,
+            sub_issues: i.sub_issues_summary.total,
+        })
+        .collect())
 }
 
 pub(super) fn create_issue(
@@ -135,6 +177,22 @@ fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_parents_are_the_issues_whose_sub_issues_are_all_closed() {
+        let out = br#"[
+            {"number":1,"subIssuesSummary":{"total":0,"completed":0,"percentCompleted":0}},
+            {"number":2,"subIssuesSummary":{"total":2,"completed":1,"percentCompleted":50}},
+            {"number":3,"subIssuesSummary":{"total":2,"completed":2,"percentCompleted":100}}
+        ]"#;
+        assert_eq!(
+            parse_finished_parents(out).unwrap(),
+            [FinishedParent {
+                number: 3,
+                sub_issues: 2
+            }]
+        );
+    }
 
     #[test]
     fn open_issues_are_read_with_a_body_that_may_be_null() {
