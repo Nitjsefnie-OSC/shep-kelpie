@@ -94,6 +94,9 @@ pub(crate) enum Scripted {
     Queued(Hold, Box<Scripted>),
 }
 
+/// A held call's issue, and what the runner noted of it
+type Holding = (u64, Option<Flying>);
+
 /// What is queued for one role's calls
 type RoleScript = (Role, VecDeque<Scripted>);
 
@@ -191,7 +194,7 @@ pub(crate) struct FakeClaude {
     active: Arc<Mutex<Option<CallActivity>>>,
     // The held calls now in flight, by issue, with what the runner noted of
     // each: the calls a handover could carry
-    holding: Arc<Mutex<Vec<(u64, Option<Flying>)>>>,
+    holding: Arc<Mutex<Vec<Holding>>>,
 }
 
 impl FakeClaude {
