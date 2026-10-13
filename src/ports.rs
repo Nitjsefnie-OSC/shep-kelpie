@@ -630,8 +630,8 @@ pub struct Alert {
 /// The ruling a reply on the webhook's topic answers, and what it takes
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyWith {
-    /// The ruling
-    pub id: u64,
+    /// The number a reply starts with: the ruling's pull request or issue
+    pub number: u64,
     /// What answers it
     pub takes: Takes,
 }

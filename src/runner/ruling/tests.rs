@@ -571,3 +571,26 @@ fn a_no_on_a_first_turn_that_has_no_session_to_resume_starts_it_and_says_the_not
         ["ruling 1: the worker's session has not begun, so your note was not sent"]
     );
 }
+
+// The maintainer answers with the number they read, not a counter: the pull
+// request's once there is one, the issue's before.
+#[test]
+fn the_question_names_the_pull_request_number_or_the_issue_number_before_one_opens() {
+    let kind = RulingKind::from(Stuck::Rebase {
+        why: "conflict in a.txt".into(),
+    });
+    let with_pull_request = question(7, Some(71), &kind);
+    assert!(
+        with_pull_request.contains("`shep kelpie rule 71 yes`"),
+        "{with_pull_request}"
+    );
+    assert!(
+        !with_pull_request.contains("rule 1 "),
+        "{with_pull_request}"
+    );
+    let before_one = question(7, None, &kind);
+    assert!(
+        before_one.contains("`shep kelpie rule 7 no <note>`"),
+        "{before_one}"
+    );
+}

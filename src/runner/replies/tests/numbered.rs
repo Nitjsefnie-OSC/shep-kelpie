@@ -53,7 +53,7 @@ fn a_reply_by_number_written_before_the_ruling_was_raised_is_refused_as_stale() 
     );
     assert_eq!(
         lines(&rig),
-        [format!("Ruling 1 was not answered: {reason}.")]
+        [format!("Ruling #71 was not answered: {reason}.")]
     );
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
 

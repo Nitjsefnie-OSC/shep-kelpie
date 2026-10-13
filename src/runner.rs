@@ -642,7 +642,9 @@ impl Runner {
             adopted: &self.state.adopted,
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
-            rulings: &self.state.rulings,
+            rulings: (self.state.rulings.iter())
+                .map(trigger::RulingStatus)
+                .collect(),
             panel: self.panel_status(),
             leases: &self.state.leases,
             history: &self.state.history[self

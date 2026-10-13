@@ -33,10 +33,10 @@ fn merged_with_a_finding(project: &str, work: &'static str) -> (Rig, Mutex<Runne
     (rig, runner)
 }
 
-/// What the maintainer was alerted of ruling 1, if anything
+/// What the maintainer was alerted of the ruling, if anything
 fn alerted_of_the_ruling(rig: &Rig) -> Option<String> {
     let posts = rig.alerts.posts();
-    let found = posts.iter().find(|(_, a)| a.title.ends_with("ruling 1"));
+    let found = posts.iter().find(|(_, a)| a.title.ends_with("ruling #71"));
     found.map(|(_, alert)| alert.text.clone())
 }
 
@@ -200,7 +200,7 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped_and_the_ruling_still_wa
         ["follow_up #7: ruling 1 already went to the maintainer"]
     );
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], 1, "the ruling still waits");
+    assert_eq!(status["rulings"][0]["id"], 71, "the ruling still waits");
     assert_eq!(rig.forge.created(), []);
 }
 

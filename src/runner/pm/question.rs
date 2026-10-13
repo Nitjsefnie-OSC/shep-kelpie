@@ -277,7 +277,7 @@ impl Runner {
         match &mut ruling.kind {
             RulingKind::Question { asked, .. } => {
                 *asked = recommended(asked, passed);
-                ruling.question = question(id, issue, ruling.pull_request, &ruling.kind);
+                ruling.question = question(issue, ruling.pull_request, &ruling.kind);
             }
             // Its kind holds no words of the project manager's, so only the
             // question the maintainer reads does. It has no problem or board

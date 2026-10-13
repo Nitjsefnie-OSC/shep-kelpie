@@ -625,8 +625,8 @@ fn the_question_for_a_round_past_the_cap_names_the_round_and_not_a_worker_turn()
         question,
         "The work on pull request #71 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
          the reviewers $0.00, so the review round has not started. \
-         `shep kelpie rule 1 yes` raises the cap to $10.00 and the round starts, and \
-         `shep kelpie rule 1 no <note>` sends the worker your note, raises the cap the same \
+         `shep kelpie rule 71 yes` raises the cap to $10.00 and the round starts, and \
+         `shep kelpie rule 71 no <note>` sends the worker your note, raises the cap the same \
          and has the pull request reviewed again."
     );
     drop(rig);

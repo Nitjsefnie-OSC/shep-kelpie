@@ -131,12 +131,12 @@ fn a_reply_by_number_from_before_the_ruling_was_raised_is_told_it_changed() {
 
     let [told] = replies_on_71(&rig).try_into().unwrap();
     assert!(
-        told.starts_with("@octocat Ruling 1 was not answered: the ruling changed since that comment was written, and it asks now:"),
+        told.starts_with("@octocat Ruling #71 was not answered: the ruling changed since that comment was written, and it asks now:"),
         "{told}"
     );
     assert!(rig.forge.merges().is_empty());
     assert!(rig.github.reactions().is_empty());
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -150,11 +150,11 @@ fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert!(rig.github.reactions().is_empty());
-    let told = "@octocat Ruling 1 was not answered: start your reply with its id, as `1 yes`, \
-                `1 no <note>` or `1 rework <note>`. Reply again in this thread, starting \
-                with `1`.";
+    let told = "@octocat Ruling #71 was not answered: start your reply with its number, as `71 yes`, \
+                `71 no <note>` or `71 rework <note>`. Reply again in this thread, starting \
+                with `71`.";
     assert_eq!(replies_on_71(&rig), [told]);
 }
 
@@ -170,7 +170,7 @@ fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert!(rig.github.reactions().is_empty(), "no reaction");
     assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
     assert_eq!(rig.forge.threads.asked(), Vec::<String>::new());
@@ -187,7 +187,7 @@ fn a_reply_from_a_login_without_write_access_changes_nothing() {
     step(&runner).unwrap();
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert!(rig.github.reactions().is_empty(), "no reaction");
     assert_eq!(replies_on_71(&rig), Vec::<String>::new(), "no answer");
     assert_eq!(
@@ -208,7 +208,7 @@ fn a_bots_comment_is_left_alone_without_asking_what_it_may_do() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert_eq!(rig.forge.threads.asked(), Vec::<String>::new());
     assert_eq!(replies_on_71(&rig), Vec::<String>::new());
 }
@@ -225,7 +225,7 @@ fn a_question_on_7_mentioning(login: &str) -> (Rig, Mutex<Runner>) {
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [7]);
     rig.clock.advance(5);
     (rig, runner)
 }
@@ -243,14 +243,14 @@ fn a_comment_from_before_the_ruling_is_not_an_answer() {
     rig.forge.threads.write(7, "octocat", "use --check", before);
     rig.claude.script([Scripted::Say(ASKS)]);
     step(&runner).unwrap();
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [7]);
 
     rig.next_look();
     step(&runner).unwrap();
 
     assert_eq!(
         pending(&rig, &runner),
-        [1],
+        [7],
         "the old comment answered nothing"
     );
     assert!(rig.github.reactions().is_empty());
@@ -291,7 +291,7 @@ fn a_reply_acted_on_one_thread_never_drops_a_reply_the_forge_lists_late_on_anoth
     let told = rig.github.comments();
     assert!(
         told.iter()
-            .any(|(thread, body)| *thread == 72 && body.contains("Ruling 2 was not answered")),
+            .any(|(thread, body)| *thread == 72 && body.contains("Ruling #72 was not answered")),
         "{told:?}"
     );
 
@@ -314,10 +314,10 @@ fn an_unreadable_reply_gets_one_reply_saying_what_kelpie_expects_and_the_ruling_
     rig.next_look();
     step(&runner).unwrap();
 
-    let told = "@octocat Ruling 1 was not answered: it takes `yes`, `no <note>` or `rework \
-                <note>`. Reply again in this thread, starting with `1`.";
+    let told = "@octocat Ruling #71 was not answered: it takes `yes`, `no <note>` or `rework \
+                <note>`. Reply again in this thread, starting with `71`.";
     assert_eq!(replies_on_71(&rig), [told]);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert!(rig.github.reactions().is_empty(), "nothing was taken");
 
     // The same comment is not read again, however long the ruling waits.
@@ -337,7 +337,11 @@ fn a_no_with_a_note_goes_to_the_worker_and_a_question_takes_any_text() {
     rig.next_look();
     step(&runner).unwrap(); // takes the no; the worker's fix turn asks
 
-    assert_eq!(pending(&rig, &runner), [2], "the worker asked in its place");
+    assert_eq!(
+        pending(&rig, &runner),
+        [71],
+        "the worker asked in its place"
+    );
     assert_eq!(rig.github.reactions(), [comment]);
     rig.clock.advance(1);
     let answer = rig.writes_on(71, "octocat", "use --check");
@@ -425,14 +429,14 @@ fn a_ruling_that_mentions_no_one_is_answered_at_the_terminal_only() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [1], "a reply answers nothing");
+    assert_eq!(pending(&rig, &runner), [7], "a reply answers nothing");
     assert_eq!(rig.forge.threads.reads().len(), 0, "and is not even read");
     let comments = rig.github.comments();
     let how = &comments[0].1;
     assert!(
         how.ends_with(
             "This ruling mentions no one, so a reaction, a tick or a reply here answers \
-             nothing. Answer it at the terminal: `shep kelpie rule 1 <your answer>`."
+             nothing. Answer it at the terminal: `shep kelpie rule 7 <your answer>`."
         ),
         "{how}"
     );
@@ -453,7 +457,7 @@ fn a_comment_kelpie_posted_as_the_maintainers_login_is_never_an_answer() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [1], "the summons answered nothing");
+    assert_eq!(pending(&rig, &runner), [7], "the summons answered nothing");
     assert!(rig.github.reactions().is_empty());
 
     // The maintainer's own words, from the same login, are.
@@ -479,7 +483,7 @@ fn a_ruling_answered_at_the_terminal_first_is_told_the_reply_came_too_late() {
 
     assert!(rig.github.reactions().is_empty());
     // The worker's question, ruling 2, went up on the thread too.
-    let told = "@octocat Ruling 1 is already answered at the terminal with `shep kelpie rule`: \
+    let told = "@octocat Ruling #71 is already answered at the terminal with `shep kelpie rule`: \
                 no, not yet.";
     assert!(replies_on_71(&rig).contains(&told.to_owned()));
     assert_eq!(rig.forge.merges(), []);
@@ -501,7 +505,7 @@ fn a_ruling_answered_at_the_terminal_between_the_read_and_applying_it_is_not_ans
     assert!(rig.github.reactions().is_empty(), "the reply took nothing");
     assert_eq!(rig.forge.merges(), []);
     assert_eq!(pending(&rig, &runner), none());
-    let told = "@octocat Ruling 1 is already answered at the terminal with `shep kelpie rule`: \
+    let told = "@octocat Ruling #71 is already answered at the terminal with `shep kelpie rule`: \
                 no, not yet.";
     assert_eq!(replies_on_71(&rig), [told]);
     // The terminal's no is the worker's next turn, once.
@@ -526,7 +530,7 @@ fn a_summons_recorded_before_a_restart_is_still_skipped_after_it() {
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [1], "the summons answered nothing");
+    assert_eq!(pending(&rig, &runner), [7], "the summons answered nothing");
     assert!(rig.github.reactions().is_empty());
     assert_eq!(rig.forge.threads.reads().len(), 1, "it was read");
 }
@@ -591,7 +595,7 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     let told = "@octocat Rulings 1, 2 wait on this thread, so start your reply with the id of \
                 the one you answer, such as `1 yes`.";
     assert_eq!(replies_on_71(&rig), [told]);
-    assert_eq!(pending(&rig, &runner), [1, 2]);
+    assert_eq!(pending(&rig, &runner), [71, 71]);
     assert!(rig.github.reactions().is_empty());
 
     rig.clock.advance(1);
@@ -601,7 +605,7 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     step(&runner).unwrap();
 
     assert_eq!(rig.github.reactions(), [named]);
-    assert_eq!(pending(&rig, &runner), [1], "ruling 2 was answered");
+    assert_eq!(pending(&rig, &runner), [71], "ruling 2 was answered");
 }
 
 #[test]
@@ -619,7 +623,7 @@ fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert_eq!(rig.forge.threads.reads().len(), 0);
     assert!(rig.github.reactions().is_empty());
 }

@@ -133,9 +133,9 @@ mod tests {
             question,
             format!(
                 "Pull request #71 at {} changes agents' own files, which decide what \
-                 an agent runs in the worktree: .claude/settings.json. `shep kelpie rule 1 yes` \
+                 an agent runs in the worktree: .claude/settings.json. `shep kelpie rule 71 yes` \
                  accepts them at that head and kelpie carries on, and \
-                 `shep kelpie rule 1 no <note>` stops the work item, keeping its \
+                 `shep kelpie rule 71 no <note>` stops the work item, keeping its \
                  branch and pull request on the forge.",
                 short(&head)
             )

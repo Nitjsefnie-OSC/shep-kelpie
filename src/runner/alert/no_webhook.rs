@@ -11,7 +11,7 @@ fn a_ruling_with_no_webhook_posts_nothing_and_blocks_nothing() {
     assert_eq!(step(&runner).unwrap(), None);
     assert!(rig.alerts.posts().is_empty());
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], 1, "still pending for `rule`");
+    assert_eq!(status["rulings"][0]["id"], 71, "still pending for `rule`");
 
     rig.clock.advance(Rig::DAY);
     assert_eq!(step(&runner).unwrap(), None, "and never retried");

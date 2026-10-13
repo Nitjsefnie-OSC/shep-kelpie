@@ -35,6 +35,8 @@ fn two_rulings(project: &str) -> (Rig, Mutex<Runner>) {
         serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
     let mut second = saved["rulings"][0].clone();
     second["id"] = json!(2);
+    second["issue"] = json!(8);
+    second["pull_request"] = json!(72);
     saved["rulings"].as_array_mut().unwrap().push(second);
     saved["last_ruling"] = json!(2);
     std::fs::write(&state, saved.to_string()).unwrap();
@@ -52,7 +54,7 @@ fn the_alert_says_how_to_reply_and_carries_no_code() {
     assert_eq!(
         alert.reply,
         Some(ReplyWith {
-            id: 1,
+            number: 71,
             takes: Takes::Merge
         })
     );
@@ -142,10 +144,10 @@ fn a_code_answers_once_across_every_ruling() {
     );
     let rulings = rig.ask(&runner, "status", None)["rulings"].clone();
     assert_eq!(rulings.as_array().unwrap().len(), 1);
-    assert_eq!(rulings[0]["id"], 2, "ruling 2 still waits");
+    assert_eq!(rulings[0]["id"], 72, "ruling 2 still waits");
     assert_eq!(
         lines(&rig)[1..],
-        ["Ruling 2 was not answered: that code was used already. \
+        ["Ruling #72 was not answered: that code was used already. \
           Send the reply again with the next one."]
     );
 
@@ -175,10 +177,10 @@ fn a_reply_to_a_settled_ruling_runs_nothing_and_the_topic_is_told() {
     assert_eq!(rig.forge.merges(), []);
     assert_eq!(
         lines(&rig),
-        ["Ruling 1 on koji is already settled, so that reply ran nothing."]
+        ["Ruling #1 on koji is already settled, so that reply ran nothing."]
     );
     let (_, line) = &rig.alerts.posts()[1];
-    assert_eq!(line.title, "kelpie: koji ruling 1");
+    assert_eq!(line.title, "kelpie: koji ruling #1");
     assert_eq!(line.reply, None);
 }
 
@@ -197,7 +199,7 @@ fn a_reply_rule_refuses_is_told_on_the_topic() {
     );
     assert_eq!(
         lines(&rig),
-        [format!("Ruling 1 was not answered: {reason}.")]
+        [format!("Ruling #71 was not answered: {reason}.")]
     );
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
 
@@ -346,7 +348,7 @@ fn a_rework_by_reply_sends_the_note_and_a_new_pass_of_the_review() {
     let (rig, runner, _) = alerted("koji");
     let alert = &rig.alerts.posts()[0].1;
     assert!(
-        alert.text.contains("`shep kelpie rule 1 rework <note>`"),
+        alert.text.contains("`shep kelpie rule 71 rework <note>`"),
         "{}",
         alert.text
     );
@@ -435,7 +437,7 @@ fn an_unclaimed_id_another_project_may_hold_needs_the_project_named() {
         );
         assert_eq!(
             lines(&rig).last().unwrap(),
-            &format!("Ruling 1 was not answered: {reason}.")
+            &format!("Ruling #71 was not answered: {reason}.")
         );
         assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
         rig.clock.advance(STEP);

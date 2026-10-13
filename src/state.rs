@@ -360,6 +360,15 @@ pub struct Ruling {
     pub raised: Option<Timestamp>,
 }
 
+impl Ruling {
+    /// The number the maintainer reads and answers it by: its pull request's,
+    /// or its issue's before there is one. A ruling saved with neither is
+    /// named by its id.
+    pub fn number(&self) -> u64 {
+        self.pull_request.or(self.issue).unwrap_or(self.id)
+    }
+}
+
 /// Where a ruling is answered in its thread: the one login whose reply
 /// answers it, and the last comment read for an answer, which is the
 /// ruling's own comment until a reply has been

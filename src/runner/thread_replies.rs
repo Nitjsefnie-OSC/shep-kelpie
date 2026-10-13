@@ -90,8 +90,8 @@ pub(super) struct Reading {
     /// it stays on the comment and is read again at every poll
     refused: BTreeMap<u64, String>,
     /// What became of each ruling that left the state while it was watched,
-    /// as a reply in its thread is told
-    told: BTreeMap<u64, String>,
+    /// as a reply in its thread is told, with the number it was read by
+    told: BTreeMap<u64, (u64, String)>,
     /// The rulings the last save took out of the state while their comments
     /// were up, until what became of them is said
     ended: BTreeMap<u64, Ended>,
@@ -429,22 +429,29 @@ impl Runner {
             Aimed::At(id, naming) => self.answer(comment, id, naming, words),
             Aimed::Settled(id) if self.reopens(comment, id, words) => {}
             Aimed::Settled(id) => {
-                let told =
-                    (self.threads.told.get(&id)).map_or("is already answered", String::as_str);
-                let said = format!("@{who} Ruling {id} {told}.");
+                let (number, told) = match self.threads.told.get(&id) {
+                    Some((number, told)) => (*number, told.as_str()),
+                    None => (self.ruling_number(id), "is already answered"),
+                };
+                let said = format!("@{who} Ruling #{number} {told}.");
                 self.say(thread, &said);
             }
             Aimed::Undecided(id) => {
+                let number = self.ruling_number(id);
                 let said = format!(
-                    "@{who} Ruling {id} was not reopened: start your reply with its id, as \
-                     `{id} no <note>`."
+                    "@{who} Ruling #{number} was not reopened: start your reply with its \
+                     number, as `{number} no <note>`."
                 );
                 self.say(thread, &said);
             }
             Aimed::Elsewhere(id, there) => {
-                let said = format!("@{who} Ruling {id} waits on #{there}, so answer it there.");
+                let number = self.ruling_number(id);
+                let said =
+                    format!("@{who} Ruling #{number} waits on #{there}, so answer it there.");
                 self.say(thread, &said);
             }
+            // Rulings on one thread share its number, so only an older kelpie
+            // leaves several here, and only their ids tell them apart.
             Aimed::Unnamed(ids) => {
                 let ids: Vec<_> = ids.iter().map(u64::to_string).collect();
                 let said = format!(
@@ -456,6 +463,14 @@ impl Runner {
                 self.say(thread, &said);
             }
         }
+    }
+
+    // The number ruling `id` is read by, or `id` once it has left the state
+    // and the panel's decided rulings
+    pub(super) fn ruling_number(&self, id: u64) -> u64 {
+        let pending = self.state.rulings.iter().find(|r| r.id == id);
+        let ended = self.threads.ended.get(&id).map(|e| &e.ruling);
+        (pending.or(self.threads.decided.get(&id)).or(ended)).map_or(id, Ruling::number)
     }
 
     // The ruling the panel decided that `words`, a `no` naming none, reply to.
@@ -489,8 +504,8 @@ impl Runner {
             })
         } else {
             Err(format!(
-                "start your reply with its id, as {}",
-                forms(wants, id)
+                "start your reply with its number, as {}",
+                forms(wants, ruling.number())
             ))
         };
         let said = match ruled {
@@ -501,17 +516,20 @@ impl Runner {
                 }
                 return;
             }
-            Err(why) => format!(
-                "@{who} Ruling {id} was not answered: {why}. Reply again in this thread, \
-                 starting with `{id}`."
-            ),
+            Err(why) => {
+                let number = self.ruling_number(id);
+                format!(
+                    "@{who} Ruling #{number} was not answered: {why}. Reply again in this \
+                     thread, starting with `{number}`."
+                )
+            }
         };
         self.say(thread, &said);
     }
 
     /// What became of ruling `id` as a reply in its thread is told, if it ended
     pub(super) fn threads_told(&self, id: u64) -> Option<&String> {
-        self.threads.told.get(&id)
+        self.threads.told.get(&id).map(|(_, told)| told)
     }
 
     /// Watches the comment that posted the panel's decision on ruling
@@ -572,7 +590,8 @@ impl Runner {
                 }
             }
             Err(why) => {
-                let said = format!("@{who} Ruling {id} was not reopened: {why}.");
+                let number = self.ruling_number(id);
+                let said = format!("@{who} Ruling #{number} was not reopened: {why}.");
                 self.say(thread, &said);
             }
         }
@@ -750,7 +769,7 @@ fn plain_login(login: &str) -> String {
     login.to_ascii_lowercase()
 }
 
-// What a reply to a ruling that wants `wants` starts with.
+// What a reply to a ruling that wants `wants` starts with: its number.
 fn forms(wants: Wants, id: u64) -> String {
     match wants {
         Wants::Answer => format!("`{id} <your answer>`"),

@@ -15,11 +15,11 @@ const OPEN_QUESTION: &str = "### Should it be `--dry-run` or `--check`?\n\n\
 
 // ... and how it is answered when someone is mentioned
 const REPLY: &str =
-    "- Reply with your answer, and start it with `1` if other rulings wait on this thread";
+    "- Reply with your answer, and start it with `7` if other rulings wait on this thread";
 
 // ... and when no one is mentioned
 const HOW_UNMENTIONED: &str = "This ruling mentions no one, so a reaction, a tick or a reply \
-     here answers nothing. Answer it at the terminal: `shep kelpie rule 1 <your answer>`.";
+     here answers nothing. Answer it at the terminal: `shep kelpie rule 7 <your answer>`.";
 
 // A running project with issue 7 in flight, whose worker's first turn asks
 // before any pull request is open
@@ -99,7 +99,7 @@ fn a_merge_ruling_is_posted_through_the_app_on_its_pull_request_and_mentions_the
          - [ ] A\n\
          - [ ] B\n\
          - [ ] C\n\
-         - Or reply `1 no <note>` or `1 rework <note>`"
+         - Or reply `71 no <note>` or `71 rework <note>`"
     );
     // The two review rounds that came first are on the thread too.
     let comments = rig.github.comments();
@@ -378,7 +378,7 @@ fn a_ruling_posted_when_gh_names_no_login_goes_up_unmentioned_and_says_so() {
         rig.github.comments(),
         [(7, format!("{OPEN_QUESTION}{HOW_UNMENTIONED}"))]
     );
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
 
     // Asked again at the next ruling, once gh answers, it mentions them.
     rig.forge.set_viewer_up();
@@ -485,16 +485,13 @@ fn a_ruling_whose_post_fails_is_still_raised_and_says_why() {
 
     let (runner, asked) = asking_before_a_pull_request(&rig);
 
-    let StepReport::Asked {
-        id, comment_failed, ..
-    } = asked
-    else {
+    let StepReport::Asked { comment_failed, .. } = asked else {
         panic!("not a question: {asked:?}");
     };
     let why = "the GitHub App could not post: GitHub answered HTTP 403";
     assert_eq!(comment_failed.as_deref(), Some(why));
     assert_eq!(rig.forge.comments(), []);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], id);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
 }
 
 #[test]

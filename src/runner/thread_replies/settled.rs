@@ -182,7 +182,8 @@ impl Runner {
     /// state: its comment is edited, where it was posted and `outcome` calls
     /// for it, and a reply in its thread is told the same
     pub(in crate::runner) fn say_settled(&mut self, id: u64, outcome: Outcome) {
-        self.threads.told.insert(id, outcome.told);
+        let number = (self.threads.ended.get(&id)).map_or(id, |ended| ended.ruling.number());
+        self.threads.told.insert(id, (number, outcome.told));
         let Some(ended) = self.threads.ended.remove(&id) else {
             return;
         };
