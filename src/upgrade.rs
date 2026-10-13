@@ -14,13 +14,15 @@
 //! there, with the steps to take, because the build refuses that shepherd
 //! and would come up into that refusal. One upgrade runs at a time.
 //!
-//! Each runner is drained before its restart, so the restart cuts no call
-//! short. `--now`, before or after the other arguments, restarts without
-//! draining.
+//! Each runner is handed over to the new build in place, keeping its calls
+//! running. One that cannot be is drained before its restart, so the restart
+//! cuts no call short. `--now`, before or after the other arguments, restarts
+//! without either.
 
 pub mod build;
 pub mod drain;
 pub mod fetch;
+pub mod handover;
 pub mod install;
 pub mod lock;
 pub mod restart;
@@ -138,7 +140,7 @@ pub struct Scene<'a> {
     pub repo: &'a str,
     /// How long it waits on the shepherd's sheep
     pub patience: Patience,
-    /// Restart each runner without draining it first
+    /// Restart each runner without handing it over or draining it first
     pub now: bool,
     /// What stops the restarts part way, sending a drained runner `undrain`
     pub interrupt: Interrupt,

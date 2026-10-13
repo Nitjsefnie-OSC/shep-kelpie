@@ -127,6 +127,11 @@ pub struct Status<'a> {
     /// The project manager, when the project names one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pm: Option<super::PmStatus<'a>>,
+    /// The size and modification time of the file this runner started from,
+    /// which `upgrade` reads to tell a runner on the installed build; left
+    /// out when the file cannot be read
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build: Option<&'static str>,
     /// The calls still running, while `drain` holds back new ones
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draining: Option<super::Draining>,
@@ -710,6 +715,7 @@ mod tests {
                 })),
                 "pull_request_template": "none",
                 "board": rig.paths().board,
+                "build": crate::upgrade::seen::stamp_of(&std::env::current_exe().unwrap()).unwrap(),
             })
         );
     }

@@ -429,7 +429,8 @@ and takes no answer.
 
 **Draining**:
 A runner told to start no new call, while the calls it has running go on to
-their end. `shep kelpie upgrade` drains each runner before it restarts it.
+their end. `shep kelpie upgrade` hands each runner over, and drains and
+restarts one that cannot be.
 
 **Finishing**:
 A runner whose board picks nothing new while its open work items run on to

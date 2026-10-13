@@ -24,6 +24,8 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::time::Instant;
 
 use super::drain::{self, Purpose};
+use super::handover::{Handed, hand_over};
+use super::seen::stamp_of;
 use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
@@ -198,9 +200,10 @@ impl Plan {
 
 /// Restarts the dog and each running runner, saying what it does through `say`
 ///
-/// With `drain`, each runner is drained before its merge wait, and sent
-/// `undrain` if it is not restarted after all: on a failure, or when
-/// `interrupt` comes while it is drained.
+/// With `keep_calls`, each runner is handed over to the installed build. One
+/// that refuses, predates the handover or does not show the build in time is
+/// drained before its merge wait, and sent `undrain` if it is not restarted
+/// after all: on a failure, or when `interrupt` comes while it is drained.
 ///
 /// # Errors
 ///
@@ -214,7 +217,7 @@ pub async fn restart_all(
     client: &dyn Connection,
     plan: &Plan,
     patience: Patience,
-    drain: bool,
+    keep_calls: bool,
     interrupt: Interrupt,
     say: &mut dyn FnMut(String),
 ) -> Result<(), String> {
@@ -253,11 +256,20 @@ pub async fn restart_all(
     }
     let stop = interrupted(interrupt);
     tokio::pin!(stop);
+    // What a handed over runner shows in its `status`.
+    let installed = match keep_calls {
+        true => Some(stamp_of(&plan.program)?),
+        false => None,
+    };
     for name in names {
-        if !drain {
+        let Some(installed) = &installed else {
             wait_out_merges(client, &[name], patience, Purpose::Upgrade, say).await?;
             bounce_if_running(client, name, patience, say).await?;
             continue;
+        };
+        match hand_over(client, name, installed, patience, say).await? {
+            Handed::Over => continue,
+            Handed::Stays(why) => say(why),
         }
         let restarted = async {
             drain::drain(client, name, patience, Purpose::Upgrade, say).await?;

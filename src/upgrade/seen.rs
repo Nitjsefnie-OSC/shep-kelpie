@@ -6,9 +6,14 @@
 //! size and modification time to `builds/installed.seen`, and a bare run
 //! restarts only when they differ. The stamp written is the one taken before
 //! the restarts, so a file replaced while they wait reads as changed.
+//!
+//! A runner shows the same stamp of the file it started from in its `status`,
+//! which is how an upgrade tells that a handover reached the new build.
 
 use std::fs;
 use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+use std::sync::OnceLock;
 
 use super::install::Layout;
 
@@ -44,13 +49,32 @@ pub fn record(layout: &Layout, stamp: &str) -> Result<(), String> {
 ///
 /// A message when the file cannot be read.
 pub fn stamp(layout: &Layout) -> Result<String, String> {
-    let installed = layout.installed();
-    let meta =
-        fs::metadata(installed).map_err(|e| format!("cannot read {}: {e}", installed.display()))?;
+    stamp_of(layout.installed())
+}
+
+/// The size and modification time of the file `path` leads to
+///
+/// # Errors
+///
+/// A message when the file cannot be read.
+pub fn stamp_of(path: &Path) -> Result<String, String> {
+    let meta = fs::metadata(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     Ok(format!(
         "{} {}.{:09}",
         meta.len(),
         meta.mtime(),
         meta.mtime_nsec()
     ))
+}
+
+/// The stamp of the file this process was started from, taken the first time
+/// it is asked
+///
+/// A runner asks at its start, so a file replaced since is not mistaken for
+/// the build it runs. `None` when the file cannot be read.
+pub fn running() -> Option<&'static str> {
+    static RUNNING: OnceLock<Option<String>> = OnceLock::new();
+    RUNNING
+        .get_or_init(|| stamp_of(&std::env::current_exe().ok()?).ok())
+        .as_deref()
 }

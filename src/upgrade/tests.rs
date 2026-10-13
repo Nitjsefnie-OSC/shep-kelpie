@@ -20,6 +20,7 @@ use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};
 
 mod drain;
 mod files;
+mod handover;
 mod refusals;
 mod sheep;
 mod source;

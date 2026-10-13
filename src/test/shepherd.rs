@@ -36,6 +36,8 @@ struct Sheep {
     // What its next `status` answers, `None` being a delivery that times out,
     // the last one repeating
     says: VecDeque<Option<String>>,
+    // The same for its `handover` triggers, which a stand-in refuses until told
+    hands: VecDeque<Option<String>>,
 }
 
 /// Whether a dog has named itself to the shepherd
@@ -115,6 +117,7 @@ impl FakeShepherd {
             opening: false,
             heard: Heard::Named,
             says: VecDeque::new(),
+            hands: VecDeque::new(),
         };
         self.flock.lock().unwrap().push(sheep);
     }
@@ -157,7 +160,19 @@ impl FakeShepherd {
         }
     }
 
+    /// Has `name` answer its `handover` triggers in turn, the last one from
+    /// then on, as `replies` does for the others. A stand-in told nothing
+    /// refuses, so a test that is not about handovers sees its runner drained.
+    pub(crate) fn hands(&self, name: &str, answers: &[Option<&str>]) {
+        let mut flock = self.flock.lock().unwrap();
+        let sheep = flock.iter_mut().find(|s| s.config.name == name).unwrap();
+        sheep.hands = answers.iter().map(|b| b.map(str::to_owned)).collect();
+    }
+
     /// Has `name` answer its `status` triggers with `bodies` in turn, the last one from then on
+    ///
+    /// `{build}` in a body is the stamp of the file the sheep's program is
+    /// when it is answered, as a runner shows the one it started from.
     pub(crate) fn says(&self, name: &str, bodies: &[&str]) {
         self.replies(name, &bodies.iter().map(|&b| Some(b)).collect::<Vec<_>>());
     }
@@ -194,6 +209,7 @@ impl FakeShepherd {
             opening: false,
             heard: Heard::Named,
             says: VecDeque::new(),
+            hands: VecDeque::new(),
         };
         self.flock.lock().unwrap().push(sheep);
     }
@@ -304,6 +320,7 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                         opening: false,
                         heard: Heard::Named,
                         says: VecDeque::new(),
+                        hands: VecDeque::new(),
                     });
                 }
             }
@@ -371,9 +388,26 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                 ActionOutcome::Replied {
                     body: format!("unknown action: {action}"),
                 }
+            } else if action == "handover" {
+                match scripted(&mut sheep.hands) {
+                    Some(Some(body)) => ActionOutcome::Replied { body },
+                    Some(None) => ActionOutcome::TimedOut,
+                    None => ActionOutcome::Replied {
+                        body: serde_json::json!({
+                            "error": "handover refused: the stand-in runner does not hand over"
+                        })
+                        .to_string(),
+                    },
+                }
             } else if let Some(answer) = scripted(&mut sheep.says) {
                 match answer {
-                    Some(body) => ActionOutcome::Replied { body },
+                    Some(body) => {
+                        let build = crate::upgrade::seen::stamp_of(Path::new(&sheep.config.script))
+                            .unwrap_or_default();
+                        ActionOutcome::Replied {
+                            body: body.replace("{build}", &build),
+                        }
+                    }
                     None => ActionOutcome::TimedOut,
                 }
             } else {
