@@ -155,6 +155,15 @@ impl Forge for Gh {
         thread::comments_since(&self.etags, repo, since)
     }
 
+    fn thread_replies_since(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        thread::thread_replies_since(repo, number, since)
+    }
+
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         thread::can_write(repo, login)
     }

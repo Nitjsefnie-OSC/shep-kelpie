@@ -42,6 +42,8 @@ pub enum Kind {
     Viewer,
     /// The comments made since a time
     CommentsSince,
+    /// The comments in a pull request's review threads since a time
+    ThreadReplies,
     /// Whether a login may write to the repo
     CanWrite,
     /// The reactions on a comment
@@ -137,6 +139,7 @@ impl Kind {
                 | Self::Talk
                 | Self::Viewer
                 | Self::CommentsSince
+                | Self::ThreadReplies
                 | Self::CanWrite
                 | Self::CommentMarks
                 | Self::OpenIssues
@@ -165,6 +168,7 @@ impl Kind {
             | Self::PullRequest
             | Self::Reviewed
             | Self::Talk
+            | Self::ThreadReplies
             | Self::CommentMarks
             | Self::OpenIssues
             | Self::CreateIssue

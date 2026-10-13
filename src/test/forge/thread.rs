@@ -10,9 +10,17 @@ use crate::test::FakeClock;
 /// The first id a comment on the fake forge gets
 const FIRST: u64 = 5000;
 
+/// The first id a comment in a review thread gets, numbered apart from the
+/// others as the forge numbers them
+const FIRST_REVIEW: u64 = 8000;
+
 #[derive(Debug, Default)]
 struct Threads {
     comments: Vec<ThreadComment>,
+    // The comments in review threads, by the pull request they are on
+    reviews: Vec<ThreadComment>,
+    // The pull request and `since` of each read of review threads
+    review_reads: Vec<(u64, Timestamp)>,
     writers: HashSet<String>,
     // The `since` of each read of the repo's comments
     reads: Vec<Timestamp>,
@@ -75,6 +83,68 @@ impl FakeThreads {
             created,
         });
         id
+    }
+
+    /// `author` writes `body` in a review thread of pull request `number` at
+    /// `created`, and the comment's id
+    pub(crate) fn writes_in_review(
+        &self,
+        number: u64,
+        author: &str,
+        body: &str,
+        created: Timestamp,
+    ) -> u64 {
+        self.add_review(number, author, false, body, created)
+    }
+
+    /// A bot writes `body` in a review thread of pull request `number` at `created`
+    pub(crate) fn bot_writes_in_review(
+        &self,
+        number: u64,
+        author: &str,
+        body: &str,
+        created: Timestamp,
+    ) -> u64 {
+        self.add_review(number, author, true, body, created)
+    }
+
+    fn add_review(
+        &self,
+        thread: u64,
+        author: &str,
+        bot: bool,
+        body: &str,
+        created: Timestamp,
+    ) -> u64 {
+        let mut threads = self.threads.lock().unwrap();
+        let id = FIRST_REVIEW + threads.reviews.len() as u64;
+        threads.reviews.push(ThreadComment {
+            id,
+            thread,
+            author: author.to_owned(),
+            bot,
+            body: body.to_owned(),
+            created,
+        });
+        id
+    }
+
+    /// The pull request and `since` of each read of review threads, in order
+    pub(crate) fn review_reads(&self) -> Vec<(u64, Timestamp)> {
+        self.threads.lock().unwrap().review_reads.clone()
+    }
+
+    /// The comments in review threads of pull request `number` written since
+    /// `since`, oldest first, noting the read
+    pub(super) fn read_reviews(&self, number: u64, since: Timestamp) -> Vec<ThreadComment> {
+        let mut threads = self.threads.lock().unwrap();
+        threads.review_reads.push((number, since));
+        let mut read: Vec<_> = (threads.reviews.iter())
+            .filter(|c| c.thread == number && c.created >= since)
+            .cloned()
+            .collect();
+        read.sort_by_key(|c| (c.created, c.id));
+        read
     }
 
     /// `login` gives comment `comment` a thumbs up, or a thumbs down
