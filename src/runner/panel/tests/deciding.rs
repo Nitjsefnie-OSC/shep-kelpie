@@ -11,6 +11,7 @@ use crate::settings::{Decide, Merging, RulingName};
 use crate::test::{CALL_PATIENCE, Rig, Scripted};
 
 mod candidates;
+mod late;
 mod measures;
 mod reopening;
 mod scrutiny;
