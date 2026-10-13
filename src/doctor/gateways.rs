@@ -9,7 +9,7 @@ use super::Line;
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
 use crate::ports::KeyCheck;
-use crate::settings::Gateways;
+use crate::settings::{Gateway, Gateways};
 
 /// A line for each gateway's reach and key, and for each agent's model on one
 pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
@@ -17,20 +17,34 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
     for (name, gateway) in gateways.iter() {
         let subject = format!("gateway {name}");
         let port = gateways.port(gateway);
-        let reached = Upstream::new(&gateway.base())
-            .map_err(|e| e.to_string())
-            .and_then(|upstream| Ok((port.models(&upstream)?, upstream)));
-        let (listed, upstream) = match reached {
-            Ok(reached) => reached,
+        let found = gateways.key(gateway);
+        let fix = "start the gateway, or put `url` right in kelpie's settings";
+        let upstream = match Upstream::new(&gateway.base()) {
+            Ok(upstream) => upstream,
             Err(why) => {
-                let fix = "start the gateway, or put `url` right in kelpie's settings";
-                lines.push(Line::missing(subject, why, fix));
+                lines.push(Line::missing(subject, why.to_string(), fix));
+                continue;
+            }
+        };
+        // A gateway may list its models to a key alone, so the list is asked
+        // with it when this shell has it. A kind that needs none ignores it.
+        let upstream = match &found {
+            Ok(key) => upstream.with_key(key.clone()),
+            Err(_) => upstream,
+        };
+        let listed = match port.models(&upstream) {
+            Ok(listed) => listed,
+            Err(why) => {
+                lines.push(Line::missing(&subject, why, fix));
+                // A gateway that lists to a key alone shows a refused one here.
+                if found.is_ok() && port.key(&upstream) == KeyCheck::Refused {
+                    lines.push(key_line(&subject, gateway, &KeyCheck::Refused));
+                }
                 continue;
             }
         };
         lines.push(Line::ok(&subject, format!("lists {} models", listed.len())));
-        let key = format!("{subject}: key");
-        lines.push(match gateways.key(gateway) {
+        lines.push(match found {
             Err(why) => {
                 let var = gateway.key_env.as_str();
                 let next = format!(
@@ -38,20 +52,9 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
                      doctor it for one run: ` {var}=<key> shep kelpie doctor`, the leading \
                      space keeping it out of the shell's history"
                 );
-                Line::unsure(key, why, next)
+                Line::unsure(format!("{subject}: key"), why, next)
             }
-            Ok(found) => match port.key(&upstream.with_key(found)) {
-                KeyCheck::Taken => Line::ok(key, "taken"),
-                KeyCheck::Refused => Line::missing(
-                    key,
-                    format!(
-                        "refused: {} holds no key it takes",
-                        gateway.key_env.as_str()
-                    ),
-                    "give kelpie a client key from the gateway's own settings",
-                ),
-                KeyCheck::Unsure(why) => Line::unsure(key, why, "run doctor again"),
-            },
+            Ok(_) => key_line(&subject, gateway, &port.key(&upstream)),
         });
         for (agent, model) in on(agents, name.as_str()) {
             let line = format!("{subject}: {agent}");
@@ -79,6 +82,23 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
     lines
 }
 
+// The line for `gateway`'s answer to its key.
+fn key_line(subject: &str, gateway: &Gateway, check: &KeyCheck) -> Line {
+    let key = format!("{subject}: key");
+    match check {
+        KeyCheck::Taken => Line::ok(key, "taken"),
+        KeyCheck::Refused => Line::missing(
+            key,
+            format!(
+                "refused: {} holds no key it takes",
+                gateway.key_env.as_str()
+            ),
+            "give kelpie a client key from the gateway's own settings",
+        ),
+        KeyCheck::Unsure(why) => Line::unsure(key, why, "run doctor again"),
+    }
+}
+
 // Each agent whose model is behind `gateway`, with the model's name there.
 fn on<'a>(agents: &'a Agents, gateway: &'a str) -> impl Iterator<Item = (String, &'a str)> {
     agents.iter().filter_map(move |(name, agent)| {
@@ -97,13 +117,21 @@ mod tests {
     use crate::test::{Answer, StandInEndpoint, unreachable_url};
 
     fn gateways(url: &str, env: fn(&str) -> Option<String>) -> Gateways {
+        of_kind(GatewayKind::Paddock, url, env)
+    }
+
+    fn of_kind(kind: GatewayKind, url: &str, env: fn(&str) -> Option<String>) -> Gateways {
         let gateway = Gateway {
-            kind: GatewayKind::Paddock,
+            kind,
             url: EndpointUrl::try_from(url.to_owned()).unwrap(),
             key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
         };
         let name = GatewayName::try_from("paddock".to_owned()).unwrap();
         Gateways::reading(BTreeMap::from([(name, gateway)]), env)
+    }
+
+    fn openai(url: &str, env: fn(&str) -> Option<String>) -> Gateways {
+        of_kind(GatewayKind::Openai, url, env)
     }
 
     fn agents(files: &[(&str, &str)]) -> Agents {
@@ -193,5 +221,39 @@ mod tests {
                 .to_string()
                 .contains("`[kelpie.gateways.elsewhere]`")
         );
+    }
+
+    #[test]
+    fn doctor_takes_an_openai_gateways_key_from_its_models_route() {
+        let server = StandInEndpoint::start([]).like_openai("sk-right", &["qwen3.8:27b"]);
+        let book = agents(&[("local.md", ON_PADDOCK)]);
+        let lines = checks(&openai(server.host(), |_| Some("sk-right".into())), &book);
+        assert_eq!(
+            verdicts(&lines),
+            [
+                ("gateway paddock".to_owned(), "ok"),
+                ("gateway paddock: key".to_owned(), "ok"),
+                ("gateway paddock: local".to_owned(), "ok"),
+            ]
+        );
+        let seen = server.seen();
+        assert!(
+            seen.iter().all(|l| l == "GET /v1/models HTTP/1.0"),
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_an_openai_gateway_that_refuses_the_key_as_missing() {
+        let server = StandInEndpoint::start([]).like_openai("sk-right", &[]);
+        let book = agents(&[]);
+        let lines = checks(&openai(server.host(), |_| Some("sk-wrong".into())), &book);
+        let kinds = verdicts(&lines);
+        assert!(
+            kinds.contains(&("gateway paddock: key".to_owned(), "missing")),
+            "{kinds:?}"
+        );
+        let shown: String = lines.iter().map(ToString::to_string).collect();
+        assert!(!shown.contains("sk-wrong"), "{shown}");
     }
 }

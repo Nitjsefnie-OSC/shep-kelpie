@@ -618,7 +618,20 @@ url = "http://gpu-box:8700"
 key_env = "PADDOCK_KEY"
 ```
 
-`kind` says what the gateway is, which decides how kelpie checks its key and takes a lease on a model. `paddock` is the only kind, and the default when `kind` is left out. An unknown kind is refused naming it. `url` is its `http://` address, with its OpenAI routes under `/v1`. `key_env` names the variable in the runner's environment that holds the key the gateway gave kelpie, so set it in the runner sheep's `env`. A runner reads its gateways when it starts. A `pi` agent or an `endpoint` reviewer then names the gateway in place of `url`, with `model` as the gateway knows it:
+`kind` says what the gateway is, which decides how kelpie checks its key and takes a lease on a model. It is `paddock` (the default when `kind` is left out) or `openai`. An unknown kind is refused naming it. `url` is its `http://` address, with its OpenAI routes under `/v1`. `key_env` names the variable in the runner's environment that holds the key the gateway gave kelpie, so set it in the runner sheep's `env`.
+
+Any OpenAI-compatible gateway, such as LiteLLM, OpenRouter or a bare llama.cpp server, takes `kind = "openai"`:
+
+```toml
+[kelpie.gateways.litellm]
+kind = "openai"
+url = "http://gpu-box:4000"
+key_env = "LITELLM_KEY"
+```
+
+An `openai` gateway knows nothing of paddock's routes. Kelpie lists its models from `GET /v1/models`, checks the key with that same route (`200` is taken, `401` or `403` refused, any other status unsure), and asks it for nothing under `/paddock/`. It holds no lease, so a call on it starts at once, and the gateway may evict a model a turn is running on.
+
+A runner reads its gateways when it starts. A `pi` agent or an `endpoint` reviewer then names the gateway in place of `url`, with `model` as the gateway knows it:
 
 ```markdown
 ---
@@ -636,9 +649,9 @@ For a model behind a gateway:
 - Kelpie takes no `gpu` lock and reads no `/api/ps`. The gateway queues each call and decides what stays loaded, so such an agent takes no `lease`: kelpie takes the gateway's lease for each call itself.
 - The key never enters the sandbox. pi's provider file holds a placeholder, and the forwarder sends the gateway's key in its place. An endpoint's round sends it from kelpie's own `curl`, on its stdin. Every process kelpie starts, an agent call or not, has `key_env`'s variable unset, and a reviewer's session can't read the shepherd's home, where the runner's `env` keeps it.
 - A runner won't start while an agent it lists names a gateway its settings lack, or one whose key's variable is unset.
-- Each call holds a lease on its model from its start to its end: a worker's turn, a reviewer's session, and an endpoint reviewer's round. The gateway evicts nothing it runs on midway. The ceiling counts from the grant, and a gateway too busy to grant it is asked again every 30 seconds until then. A call that ends or fails releases it, and a runner that dies stops renewing it, so it runs out two minutes later. A gateway that answers that the model is serving another call (`reason_kind: turn`) is a wait for a turn, shown as `waiting` for a worker and as a queued round for a local reviewer.
+- On a `paddock` gateway, each call holds a lease on its model from its start to its end: a worker's turn, a reviewer's session, and an endpoint reviewer's round. The gateway evicts nothing it runs on midway. The ceiling counts from the grant, and a gateway too busy to grant it is asked again every 30 seconds until then. A call that ends or fails releases it, and a runner that dies stops renewing it, so it runs out two minutes later. A gateway that answers that the model is serving another call (`reason_kind: turn`) is a wait for a turn, shown as `waiting` for a worker and as a queued round for a local reviewer.
 - A pi call's tokens reach the usage ledger unpriced, as any pi call's do. The gateway doesn't say how long a request queued, so that wait is part of the call's seconds.
-- `shep kelpie doctor` checks each gateway: that it answers `GET /v1/models`, that it takes the key (unsure when the shell you run doctor from doesn't have the variable), and that it lists every agent's model.
+- `shep kelpie doctor` checks each gateway: that it answers `GET /v1/models` (with the key, for an `openai` gateway), that it takes the key (unsure when the shell you run doctor from doesn't have the variable), and that it lists every agent's model.
 
 An implementer behind a gateway is a local implementer, like any `usage: none` one. Claude Code can't run on a gateway yet. A gateway serves as many conversations at once as it allows. A project sharing one local model server without a gateway keeps `concurrency.active_items` at 1: two work items on one model that serves one sequence at a time evict each other's cached prompt, and each request reads its whole prompt again.
 
