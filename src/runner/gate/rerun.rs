@@ -37,6 +37,7 @@ impl Runner {
         if logs.trim().is_empty() || changed.is_empty() || names_any(&logs, &changed) {
             return Ok(None);
         }
+        self.journal_outside_diff(issue, &logs);
         if self.ports.forge.rerun_failed(&self.remote, head).is_err() {
             return Ok(None);
         }
