@@ -14,6 +14,11 @@
 //! abstention, and is logged. An expert the project does not name is not on
 //! the panel, and the worker abstains when its work item has no worker.
 //!
+//! A runner that drains asks no expert, so a ruling raised in a drain waits
+//! for the runner that restarts or undrains, and takes its panel then. One
+//! still waiting after [`HOLD`] goes to the maintainer with no vote, and the
+//! reason is kept on it ([`Skip`]) for `rulings.jsonl` and `status`.
+//!
 //! The votes and the verdict they reach are kept on the ruling. Under
 //! `rulings.decide = "panel"` the verdict decides it; under `"shadow"` it
 //! only informs the maintainer's comment and the measurements (#466).
@@ -23,7 +28,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use super::Runner;
 use super::pm::Wake;
 use crate::panel::{
-    Ballot, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, simulate, work_of,
+    Ballot, Skip, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, simulate,
+    work_of,
 };
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
@@ -185,7 +191,7 @@ impl Runner {
 
     /// Whether ruling `id`'s comment waits on its panel
     pub(super) fn panel_holds_ruling(&self, id: u64) -> bool {
-        !self.draining && self.panel_enabled() && self.panel.open.contains_key(&id)
+        self.panel_enabled() && self.panel.open.contains_key(&id)
     }
 
     /// Takes up each ruling that needs its panel, settles each whose time ran
@@ -210,9 +216,6 @@ impl Runner {
         }
         self.panel_forget_answered();
         self.panel_settle_overdue();
-        if self.draining {
-            return;
-        }
         let wanting: Vec<u64> = (self.state.rulings.iter())
             .filter(|r| self.panel_wants(r))
             .map(|r| r.id)
@@ -235,6 +238,7 @@ impl Runner {
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         ruling.panel.is_none()
+            && ruling.skipped.is_none()
             && ruling.unposted
             && !posted
             && !self.panel.open.contains_key(&ruling.id)
@@ -263,15 +267,27 @@ impl Runner {
     }
 
     // Closes each ruling's vote whose time ran out, its missing experts abstaining.
+    // A ruling still queued has had no turn, and in a drain it never will: one
+    // with no vote goes to the maintainer without the panel.
     fn panel_settle_overdue(&mut self) {
         let now = self.ports.clock.now();
+        let draining = self.draining;
         let overdue: Vec<u64> = (self.panel.open.iter())
             .filter(|(id, open)| {
-                !self.panel.queue.contains(id) && now.0 >= open.since.0.saturating_add(HOLD)
+                let waits_its_turn = self.panel.queue.contains(id) && !draining;
+                !waits_its_turn && now.0 >= open.since.0.saturating_add(HOLD)
             })
             .map(|(&id, _)| id)
             .collect();
         for id in overdue {
+            if self.panel.queue.contains(&id) {
+                self.panel.queue.retain(|queued| *queued != id);
+                let voted = self.panel.open[&id].ballots.values().any(Option::is_some);
+                if !voted {
+                    self.panel_skip(id, Skip::Draining);
+                    continue;
+                }
+            }
             // Experts still in flight are ended, and abstain through their
             // calls' end, so no call runs on after its ruling is settled.
             let flying = self.panel_in_flight(id);
@@ -282,6 +298,46 @@ impl Runner {
             for voter in waiting.into_iter().filter(|v| !flying || *v == Voter::Pm) {
                 self.panel_abstains(id, voter, "it did not answer in time".into());
             }
+        }
+    }
+
+    // Lets ruling `id` go to the maintainer with no vote, and keeps why.
+    fn panel_skip(&mut self, id: u64, skip: Skip) {
+        if let Some(open) = self.panel.open.remove(&id) {
+            self.panel.retire(id, open.plan);
+        }
+        self.panel.queue.retain(|queued| *queued != id);
+        self.panel_skipped(id, skip);
+    }
+
+    /// Keeps on ruling `id` that the panel cast no vote on it, since `skip`
+    pub(super) fn panel_skipped(&mut self, id: u64, skip: Skip) {
+        let mut next = self.state.clone();
+        let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
+            return;
+        };
+        ruling.skipped = Some(skip);
+        match self.save(next) {
+            Ok(()) => self.notes.push(format!(
+                "ruling {id}: the panel skips it, since {}",
+                skip.why()
+            )),
+            Err(e) => self.notes.push(format!(
+                "cannot save why the panel skipped ruling {id}: {e}"
+            )),
+        }
+    }
+
+    /// Keeps why the panel cast no vote on ruling `id`, whose comment is posted
+    /// now, when the comment had gone out before the panel took it up
+    pub(super) fn panel_unvoted(&mut self, id: u64) {
+        let Some(ruling) = self.state.rulings.iter().find(|r| r.id == id) else {
+            return;
+        };
+        let voted = ruling.panel.is_some() || ruling.skipped.is_some();
+        let posted = ruling.alerted || self.state.heard.contains_key(&id);
+        if self.panel_enabled() && !voted && posted && super::voice::brief(ruling).1 >= 2 {
+            self.panel_skipped(id, Skip::Posted);
         }
     }
 

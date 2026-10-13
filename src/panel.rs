@@ -49,6 +49,38 @@ impl Voter {
     }
 }
 
+/// Why a ruling that lists two options or more went to the maintainer with no
+/// panel vote
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Skip {
+    /// The runner drained and did not restart or undrain within the hold, so
+    /// no expert could be asked
+    Draining,
+    /// Its comment or alert had gone out before the panel took it up, and one
+    /// posted without the votes is not edited to hold them
+    Posted,
+}
+
+impl Skip {
+    /// What `status` counts it as
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Draining => "draining",
+            Self::Posted => "posted",
+        }
+    }
+
+    /// What the log says of it
+    pub fn why(self) -> &'static str {
+        match self {
+            Self::Draining => "the runner drained and no expert could be asked",
+            Self::Posted => "its comment had gone out before the panel took it up",
+        }
+    }
+}
+
 /// One expert's vote
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

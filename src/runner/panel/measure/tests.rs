@@ -170,6 +170,27 @@ fn each_smaller_panel_is_scored_on_what_it_would_have_decided_alone() {
 }
 
 #[test]
+fn rulings_the_panel_cast_no_vote_on_are_counted_by_the_reason() {
+    let skipped = |id, why| {
+        json!({
+            "id": id, "at": 100 + id, "issue": 7, "pull_request": 71,
+            "asked": "Merge it?", "answer": "yes", "kind": "merge", "skipped": why,
+        })
+    };
+    let lines = [
+        skipped(1, "draining"),
+        skipped(2, "draining"),
+        skipped(3, "posted"),
+    ];
+
+    let counts = standing_of(&lines).skipped;
+
+    assert_eq!(counts["draining"], 2);
+    assert_eq!(counts["posted"], 1);
+    assert_eq!(standing_of(&[]).skipped["draining"], 0);
+}
+
+#[test]
 fn the_facts_entry_is_due_after_thirty_rulings_the_panel_voted_on() {
     let ruling = |id| answered(id, "merge", "maintainer", Some('A'), "A A A A", Some('A'));
     let lines: Vec<Value> = (1..=30).map(ruling).collect();

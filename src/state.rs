@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::pacer::DayStart;
-use crate::panel::{Ballot, Verdict};
+use crate::panel::{Ballot, Skip, Verdict};
 use crate::ports::{Cost, Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, Turn, WorkItem};
@@ -32,7 +32,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// The state file's format version. 40 added a ruling's `skipped`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
@@ -47,7 +47,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 39;
+pub(crate) const VERSION: u32 = 40;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -363,6 +363,10 @@ pub struct Ruling {
     /// a runner that restarts posts it once the hold ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unposted: bool,
+    /// Why the panel cast no vote on it though it lists two options or more,
+    /// once that is known. None while it may still vote, and when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Skip>,
     /// What each option leads to, in the order the card lists them, as kelpie
     /// worded it from what it knew when it raised the ruling. An option with
     /// none, or a ruling with none, shows the phrase its kind always had.
