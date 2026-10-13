@@ -939,9 +939,9 @@ dependencies = [
 
 [[package]]
 name = "shep-channel"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f939cd708b21ca762a828093f0dd8c0450f1aa84bfbb66348d69e21f700a6ed5"
+checksum = "5132add254e1a5c4d4d0703539d4f2ff56fb694db9d094d494154124a4de6ce6"
 dependencies = [
  "serde",
  "serde_json",
@@ -950,9 +950,9 @@ dependencies = [
 
 [[package]]
 name = "shep-client"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39e4fdc82bf756f31130dbf38250dd5901757efededb30171ab64308f9d353b5"
+checksum = "f1a2fd861fe9ea3fe02f46011875f1eaa4d68a737d4b170e48b4b51e2d96649c"
 dependencies = [
  "futures-util",
  "schemars",
@@ -968,9 +968,9 @@ dependencies = [
 
 [[package]]
 name = "shep-core"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aab1934f056a5a749afc154e88aa47d12bb3051e2f3cd9a882f742d1230034ba"
+checksum = "d84d97ac83ac82e6371df0d20491b520a8444bcc3423bc5633fb1bd40de1045c"
 dependencies = [
  "annotate-snippets",
  "anstyle",
@@ -999,6 +999,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "shep-handover"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98ab65f53796b9291042c470ad2d80fa13feb796f29c3fef09119a59dab7dc2a"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "shep-kelpie"
 version = "0.0.0"
 dependencies = [
@@ -1013,6 +1025,7 @@ dependencies = [
  "sha1",
  "shep-channel",
  "shep-client",
+ "shep-handover",
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
@@ -1020,9 +1033,9 @@ dependencies = [
 
 [[package]]
 name = "shep-macros"
-version = "0.12.4"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70261be73a1509438bc063a650a31da2f018116f9366ba0954a05bd63ca90ca3"
+checksum = "13aff98d95d1d009042918e14c0a9bdb44601be71aeba233c3becfe65b9683b1"
 dependencies = [
  "proc-macro2",
  "quote 1.0.47",

@@ -386,7 +386,7 @@ async fn on_event(
     match event {
         BusEvent::Channel {
             id,
-            message: ChildMessage::Metric { name, value },
+            message: ChildMessage::Metric { name, value, .. },
         } => {
             if !names.contains_key(&id) {
                 *names = flock(client).await?.names;

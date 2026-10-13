@@ -59,10 +59,10 @@ impl Rig {
         let installed = bin.join("shep-kelpie");
         if linked {
             let real = bin.join("real-kelpie");
-            write_script(&real, &answering("0.1.0", "0.12.0"));
+            write_script(&real, &answering("0.1.0", "0.13.0"));
             std::os::unix::fs::symlink(&real, &installed).unwrap();
         } else {
-            write_script(&installed, &answering("0.1.0", "0.12.0"));
+            write_script(&installed, &answering("0.1.0", "0.13.0"));
         }
         shepherd.holds_dog_at("kelpie", &installed.display().to_string(), true);
         let rig = Self {
