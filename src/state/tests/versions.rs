@@ -162,6 +162,7 @@ fn a_version_15_file_loads_and_saves_at_the_current_version() {
             head: "bad".into(),
             checks: vec!["lint".into()],
             fix_turns: None,
+            review: None,
         })
     );
     store.save(&loaded).unwrap();

@@ -7,9 +7,37 @@
 use std::fmt;
 use std::sync::Arc;
 
+use serde::Serialize;
+
 use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript, Wait};
+use crate::forwarder::Upstream;
 use crate::lease::gpu::{GpuHold, LockHolder};
 use crate::settings::LeaseName;
+
+/// Who holds a lease on a model, as the gateway's `GET /paddock/status` lists it
+// wire format: `status.local_leases` shows it, so a rename breaks readers of status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PaddockHolder {
+    /// The lease's id, such as `L12`
+    pub lease: String,
+    /// The client that took it
+    pub client: String,
+    /// What it is for, from its note, or empty
+    pub what: String,
+    /// When it was taken, as the gateway says it
+    pub since: String,
+}
+
+/// Who holds a lease a local agent's calls take, by where the lease lives
+// wire format: `status.local_leases` shows it, so a change breaks readers of status
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum LeaseHolder {
+    /// A lock of kelpie's own, such as the GPU lock
+    Lock(LockHolder),
+    /// A gateway's lease on a model
+    Paddock(PaddockHolder),
+}
 
 /// Takes and reads the locks that leases name
 pub trait LocalLeases: Send + Sync {
@@ -31,6 +59,10 @@ pub trait LocalLeases: Send + Sync {
 
     /// Who holds `lease`, or `None` when it is free
     fn holder(&self, lease: &LeaseName) -> Option<LockHolder>;
+
+    /// Who holds a lease on `model` at `gateway`, or `None` when it is free
+    /// or the gateway cannot be asked
+    fn paddock_holder(&self, gateway: &Upstream, model: &str) -> Option<PaddockHolder>;
 }
 
 /// Agents whose calls hold the lease each names for as long as they run
