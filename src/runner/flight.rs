@@ -569,10 +569,13 @@ impl Runner {
         let reviewer = Arc::clone(&self.ports.reviewer);
         let held = ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
+        let notes = self.notes.clone();
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| match launch {
                 // A covered worker's token lasts an hour, a call may not.
-                Launch::Turn { call, .. } => {
+                Launch::Turn { mut call, .. } => {
+                    // Here, with the runner's lock let go, since an index takes a while.
+                    super::code_graph::indexed(&mut call, &notes, &held);
                     let build = covered_build(&call);
                     End::Turn(login_refresh::while_running(
                         voice.as_ref(),
@@ -582,7 +585,10 @@ impl Runner {
                         || agents.run(&call, &held),
                     ))
                 }
-                Launch::Review(action) => {
+                Launch::Review(mut action) => {
+                    if let ReviewCall::Session(call) = &mut action {
+                        super::code_graph::indexed(call, &notes, &held);
+                    }
                     let watch = |stage| tell.stage(stage);
                     let reviewed =
                         run_review_call(agents.as_ref(), reviewer.as_ref(), action, &held, &watch);

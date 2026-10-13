@@ -44,6 +44,7 @@ mod claim;
 mod claude_files;
 mod close_merged;
 mod closed;
+mod code_graph;
 #[cfg(test)]
 mod coderabbit;
 mod compact;

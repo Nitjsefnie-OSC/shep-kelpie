@@ -597,6 +597,7 @@ impl Runner {
                 }
             }
         }
+        self.with_code_graph(&mut call);
         self.ports
             .agents
             .prepare(&call)
