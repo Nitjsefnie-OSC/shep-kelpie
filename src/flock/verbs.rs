@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use super::control::Format;
-use super::{Checkout, Launch, add, attach, control, pm, rule, usage, watch};
+use super::{Checkout, Launch, add, attach, control, pm, rule, set, usage, watch};
 use crate::adapters::{ClaudeCli, Gh, LoginToken, SystemGit};
 use crate::agents::Agents;
 use crate::issues::{self, Mode, Project, Writer};
@@ -21,11 +21,13 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// The verbs [`main`] runs: every trigger a runner takes, `add`, which also
 /// registers a checkout, `issue`, which runs the issue writer itself, and
 /// `attach` and `pm`, which run a worker's or the project manager's session
-/// here, `usage`, which reads the usage ledger here, and `watch`, which
-/// follows the runner's log and the sessions' transcripts here
-pub const VERBS: [&str; 20] = [
+/// here, `usage`, which reads the usage ledger here, `watch`, which
+/// follows the runner's log and the sessions' transcripts here, and `set` and
+/// `get`, which change and read one setting of the project's table here
+pub const VERBS: [&str; 22] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
     "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch", "board",
+    "set", "get",
 ];
 
 /// The verbs that print the runner's JSON instead of plain text with `--json`
@@ -55,6 +57,9 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie tell \"<note>\"         a note for the project manager's next wake
        shep kelpie pm                    steers the project manager's session here
        shep kelpie drain | undrain       holds back every new call, or lets them start
+       shep kelpie get [<key>]           the project's settings, or one by its dotted key
+       shep kelpie set <key> <value>     changes one setting, such as git.merging auto or
+                                         worker.allowed_domains '[\"crates.io\"]'
        shep kelpie watch [<issue> | pm] [--back <n>] [--full]
                                          follows the runner's steps and the sessions'
                                          transcripts live, from the end or n lines back
@@ -248,6 +253,16 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
             control::tell(&client, &project, &args.join(" "), format).await
         }
         ("pm", []) => pm::pm(&client, &project().await?).await,
+        ("get", [] | [_]) => set::get(&client, &project().await?, args.first().copied()).await,
+        ("set", [key, value]) => {
+            let name = project().await?;
+            let paths = ProjectPaths::under(&kelpie_home, shep_home, &name);
+            let place = set::Place {
+                home: &home,
+                paths: &paths,
+            };
+            set::set(&client, &name, place, key, value).await
+        }
         ("issue", [_, ..]) => {
             let here = Here {
                 client: &client,

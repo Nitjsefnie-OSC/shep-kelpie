@@ -7,7 +7,7 @@ use super::store_in;
 use crate::test::a_work_item;
 
 #[test]
-fn a_version_6_file_loads_with_nothing_attached_and_saves_as_36() {
+fn a_version_6_file_loads_with_nothing_attached_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -21,11 +21,11 @@ fn a_version_6_file_loads_with_nothing_attached_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
 }
 
 #[test]
-fn a_version_7_file_loads_with_no_project_manager_and_saves_as_36() {
+fn a_version_7_file_loads_with_no_project_manager_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -40,7 +40,7 @@ fn a_version_7_file_loads_with_no_project_manager_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
 }
 
 #[test]
@@ -58,12 +58,12 @@ fn a_version_9_file_saved_paused_loads_and_saves_with_no_run_state() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
 }
 
 #[test]
-fn a_version_12_file_loads_and_saves_as_36() {
+fn a_version_12_file_loads_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -77,13 +77,13 @@ fn a_version_12_file_loads_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
 }
 
 // A version 14 file has no `late_from` on its work items and no `late_fix`
 // or `nits` on its merge rulings, which load as their defaults.
 #[test]
-fn a_version_14_file_loads_with_no_late_fix_and_saves_as_36() {
+fn a_version_14_file_loads_with_no_late_fix_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -123,13 +123,13 @@ fn a_version_14_file_loads_with_no_late_fix_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
 }
 
 // A version 15 file has no `ci_fix_turns` in a work item's counts and no
 // `fix_turns` on a still-red ruling: none counted, and the pushed-no-fix ruling.
 #[test]
-fn a_version_15_file_loads_and_saves_as_36() {
+fn a_version_15_file_loads_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -167,7 +167,7 @@ fn a_version_15_file_loads_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(saved["work_items"][0]["counts"], item["counts"]);
     assert_eq!(saved["rulings"][0]["kind"], still_red);
 }
@@ -192,7 +192,7 @@ fn a_version_20_file_loads_with_no_thread_answers_and_saves_them_pinned() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(
         saved["work_items"][0]["thread_answers"],
         serde_json::json!([
@@ -245,7 +245,7 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(
         saved["rulings"][0]["verdict"],
         serde_json::json!({
@@ -293,7 +293,7 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
 // A version 30 file has no `order`, so it loads with the board following its
 // rule, and an order a later read keeps saves and loads back.
 #[test]
-fn a_version_30_file_loads_with_an_empty_order_and_saves_as_36() {
+fn a_version_30_file_loads_with_an_empty_order_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -311,7 +311,7 @@ fn a_version_30_file_loads_with_an_empty_order_and_saves_as_36() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], &saved["order"]),
-        (&serde_json::json!(36), &serde_json::json!([7, 3, 9]))
+        (&serde_json::json!(VERSION), &serde_json::json!([7, 3, 9]))
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
@@ -398,7 +398,7 @@ fn a_state_file_without_test_checks_still_loads() {
     store.save(&checked).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(
         saved["work_items"][0]["test_checks"],
         serde_json::json!([{
@@ -437,7 +437,7 @@ fn a_state_file_without_reran_still_loads() {
     store.save(&reran).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(saved["work_items"][0]["reran"], "c0ffee");
     assert_eq!(store.load().unwrap(), Some(reran));
 }

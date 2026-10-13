@@ -12,6 +12,13 @@ fn store_in(dir: &Path) -> StateStore {
     StateStore::new(dir.join(STATE_FILE))
 }
 
+// The one place the number is written out in a test, so a bump is a
+// deliberate edit here and shows in review. Every other test reads `VERSION`.
+#[test]
+fn the_state_file_version_is_pinned() {
+    assert_eq!(VERSION, 36);
+}
+
 // Large, so a kill is likely to land inside a write, and uniform, so a
 // mix of two saves is visible.
 fn big_state(n: u64) -> ProjectState {
@@ -121,7 +128,7 @@ fn a_file_with_one_work_item_loads_as_a_list_of_one() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (&saved["version"], saved.get("work_item")),
-        (&serde_json::json!(36), None)
+        (&serde_json::json!(VERSION), None)
     );
     assert_eq!(store.load().unwrap(), Some(state));
 
@@ -281,7 +288,7 @@ fn the_file_format_is_pinned() {
     assert_eq!(
         value,
         serde_json::json!({
-            "version": 36,
+            "version": VERSION,
             "work_items": [],
             "rulings": [
                 pinned(1, serde_json::json!({
@@ -428,7 +435,7 @@ fn a_finished_work_item_is_pinned() {
 // A version 17 file has no `closed`: every finished item and `done` phase
 // reads as not closed, and saves with none.
 #[test]
-fn a_version_17_file_loads_with_nothing_closed_and_saves_as_36() {
+fn a_version_17_file_loads_with_nothing_closed_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -451,7 +458,7 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!(saved["history"], old["history"]);
     assert_eq!(
         saved["work_items"][0]["phase"],
@@ -461,7 +468,7 @@ fn a_version_17_file_loads_with_nothing_closed_and_saves_as_36() {
 
 // A version 18 file has no `finishing`, so it loads with the board picking.
 #[test]
-fn a_version_18_file_loads_not_finishing_and_saves_as_36() {
+fn a_version_18_file_loads_not_finishing_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -475,7 +482,7 @@ fn a_version_18_file_loads_not_finishing_and_saves_as_36() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         (saved["version"].clone(), saved.get("finishing")),
-        (36.into(), None)
+        (VERSION.into(), None)
     );
 
     loaded.finishing = true;
@@ -505,7 +512,7 @@ fn a_finished_work_item_closed_with_no_change_is_pinned() {
 }
 
 #[test]
-fn a_version_9_file_loads_with_nothing_counted_and_saves_as_36() {
+fn a_version_9_file_loads_with_nothing_counted_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
@@ -529,11 +536,11 @@ fn a_version_9_file_loads_with_nothing_counted_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
 }
 
 #[test]
-fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_36() {
+fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_at_the_current_version() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
@@ -563,7 +570,7 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_as_36() {
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(saved["version"], 36);
+    assert_eq!(saved["version"], VERSION);
     assert_eq!((saved.get("run"), saved.get("since")), (None, None));
     assert_eq!(
         saved["work_items"][0]["counts"],
@@ -760,16 +767,17 @@ fn a_malformed_file_names_its_path() {
 fn a_newer_format_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
+    let newer = VERSION + 1;
     fs::write(
         dir.path().join(STATE_FILE),
-        r#"{"version": 37, "shape": "new"}"#,
+        format!(r#"{{"version": {newer}, "shape": "new"}}"#),
     )
     .unwrap();
     assert_eq!(
         store.load().unwrap_err(),
         StateError::Version {
             path: store.path.clone(),
-            found: 37
+            found: newer
         }
     );
 }
