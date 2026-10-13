@@ -91,7 +91,7 @@ impl Runner {
             }
             if comment.author.eq_ignore_ascii_case(&contribution.author) {
                 if contribution.hear(said) {
-                    contribution.restart_clock(now);
+                    contribution.restart_clock(at, now);
                 }
             } else if is(&maintainer, &comment.author) {
                 contribution.overhear(said);

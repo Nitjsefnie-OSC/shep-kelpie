@@ -223,6 +223,22 @@ fn a_comment_heard_in_the_poll_that_starts_the_clock_starts_it_at_that_poll() {
 }
 
 #[test]
+fn a_reply_written_before_the_wait_began_does_not_reset_it() {
+    let (rig, runner, _) = found_something();
+    let started = now(&rig);
+    let before = Timestamp(started - 60);
+
+    rig.clock.advance(DAY);
+    rig.forge
+        .threads
+        .writes_in_review(30, "newcomer", "Written before the findings", before);
+    poll(&rig, &runner);
+
+    assert_eq!(waiting_since(&rig, &runner), started);
+    assert_eq!(contribution(&rig, &runner)["heard"][0]["at"], before.0);
+}
+
+#[test]
 fn status_shows_the_clock_and_days_to_the_nudge() {
     let (rig, runner, _) = found_something();
     let started = now(&rig);

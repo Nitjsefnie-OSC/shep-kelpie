@@ -345,9 +345,11 @@ impl Contribution {
         };
     }
 
-    /// The contributor's word: a running clock starts over at `now`
-    pub fn restart_clock(&mut self, now: Timestamp) {
-        if self.waiting_since.is_some() {
+    /// The contributor's word, written at `said`: a running clock that began
+    /// no later starts over at `now`. A word from before kelpie began to wait
+    /// is not an answer to what it waits on.
+    pub fn restart_clock(&mut self, said: Timestamp, now: Timestamp) {
+        if self.waiting_since.is_some_and(|since| said >= since) {
             self.waiting_since = Some(now);
         }
     }
