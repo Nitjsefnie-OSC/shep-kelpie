@@ -103,6 +103,13 @@ impl Runner {
     // `start_over` is the item whose session died unborn, which begins the
     // same turn again.
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
+        self.snapshot.begin_pass();
+        let begin = self.step_rotation(start_over);
+        self.snapshot.end_pass();
+        begin
+    }
+
+    fn step_rotation(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         if let Some(issue) = start_over {
             self.focus = Some(issue);
             let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
@@ -593,7 +600,11 @@ impl Runner {
         // The plugins the repo turns on reach every call the runner makes in it,
         // unless the project's `repo_setup` keeps them from this call's role.
         if self.settings.repo_setup.reaches(call.role) {
-            for plugin in self.repo_plugins.dirs() {
+            // A call in a worktree that matches `main` loads the repo's own
+            // `.claude` files from it already, and must not get them twice.
+            let own_loaded = call.harness.reads_claude_files()
+                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd);
+            for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());
                 }

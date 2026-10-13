@@ -134,7 +134,7 @@ impl Runner {
         };
         let tried = item.merge_tried.clone();
         let repo = self.remote.clone();
-        let pr = match self.ports.forge.pull_request(&repo, number) {
+        let pr = match self.pull_request_view(number) {
             Ok(pr) => pr,
             Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
         };

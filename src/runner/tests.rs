@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::ports::Visibility;
 use crate::runner::step;
 use crate::state::VERSION;
 use crate::test::{Rig, git};

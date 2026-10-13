@@ -23,7 +23,9 @@ use crate::state::ProjectState;
 /// How often the board is read, however often the loop wakes
 ///
 /// A read is two `gh` calls, 120 an hour, against GitHub's 5,000 an hour
-/// for the maintainer's login.
+/// for the maintainer's login. The open pull requests it lists are the
+/// pass's snapshot, which the rework check, the CI gate and the merge read
+/// instead of asking for each pull request.
 pub const BOARD_POLL: Duration = Duration::from_secs(60);
 
 /// Seconds a failed step waits before it runs again

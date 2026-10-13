@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::coderabbit::FakeCodeRabbit;
-use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
+use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
     OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment,
@@ -75,6 +75,8 @@ pub(crate) struct FakeForge {
     // How many more issues may open before every later one fails
     creates_left: Arc<Mutex<Option<usize>>>,
     reviews: Arc<Mutex<HashMap<u64, MaintainerReview>>>,
+    // How many reviews each pull request was left, which its listing counts
+    review_counts: Arc<Mutex<HashMap<u64, u64>>>,
     // A state file read as each comment is posted, and what it held then
     watched: Arc<Mutex<Option<PathBuf>>>,
     saved_at_comment: Arc<Mutex<Vec<serde_json::Value>>>,
@@ -88,6 +90,8 @@ pub(crate) struct FakeForge {
     // Every call made, and the board's reads among them
     asked: Arc<AtomicUsize>,
     board_reads: Arc<AtomicUsize>,
+    // The reads of pull requests: the listing, one's view, and one's review
+    pull_request_reads: Arc<reads::PullRequestReads>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
     limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
@@ -167,6 +171,7 @@ impl FakeForge {
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
+            review_counts: Arc::default(),
             watched: Arc::default(),
             saved_at_comment: Arc::default(),
             default_branch: Arc::new(Mutex::new("main".to_owned())),
@@ -177,6 +182,7 @@ impl FakeForge {
             viewer_down: Arc::default(),
             asked: Arc::default(),
             board_reads: Arc::default(),
+            pull_request_reads: Arc::default(),
             down: Arc::default(),
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
@@ -262,6 +268,12 @@ impl FakeForge {
             head: head.to_owned(),
             closes: closes.to_vec(),
             labels: Vec::new(),
+            draft: true,
+            commit: String::new(),
+            checks: Checks::None,
+            from_fork: false,
+            author: VIEWER.to_owned(),
+            marks: ReviewMarks::default(),
         });
         let pr = FakePullRequest {
             base: "main".to_owned(),
@@ -341,6 +353,7 @@ impl FakeForge {
         let prs = self.pull_requests.lock().unwrap();
         assert!(prs.contains_key(&number), "an opened pull request");
         self.reviews.lock().unwrap().insert(number, review);
+        self.count_review(number);
     }
 
     /// Makes posting comments fail, or work again
@@ -608,41 +621,26 @@ impl Forge for FakeForge {
     }
 
     fn open_pull_requests(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
+        self.pull_request_reads
+            .listed
+            .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         self.board()?;
-        let prs = self.pull_requests.lock().unwrap();
-        let open = self.open.lock().unwrap().clone();
-        Ok(open
-            .into_iter()
-            .filter(|pr| prs[&pr.number].state == PullRequestState::Open)
-            .map(|pr| OpenPullRequest {
-                labels: self.coderabbit.labels(pr.number),
-                ..pr
-            })
-            .collect())
+        self.list_open()
     }
 
     fn pull_request(&self, _repo: &ForgeSlug, number: u64) -> Result<PullRequest, ForgeError> {
+        self.pull_request_reads
+            .viewed
+            .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
-        let pr = self.opened(number)?;
-        let lagging = self.lagging.lock().unwrap().get(&number).cloned();
-        let head = match lagging {
-            Some(head) => head,
-            None => self
-                .head_of(&pr.branch)
-                .ok_or_else(|| ForgeError::Failed(format!("no branch {} on origin", pr.branch)))?,
-        };
-        let checks = self.checks.lock().unwrap().get(&head).cloned();
-        Ok(PullRequest {
-            state: pr.state,
-            draft: pr.draft || self.lagging_drafts.lock().unwrap().contains(&number),
-            checks: checks.unwrap_or(Checks::Pending),
-            head,
-            labels: self.coderabbit.labels(number),
-        })
+        self.read(number)
     }
 
     fn reviewed(&self, _repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
+        self.pull_request_reads
+            .reviewed
+            .fetch_add(1, Ordering::SeqCst);
         self.ask()?;
         if self.unreadable.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("#{number} is unreadable")));
@@ -926,12 +924,13 @@ impl Forge for FakeForge {
 
     // Refuses what GitHub refuses: a draft, a pull request that is not open,
     // and a head that moved since the caller looked.
-    fn merge(&self, repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
+    fn merge(&self, _repo: &ForgeSlug, number: u64, head: &str) -> Result<(), ForgeError> {
         self.ask()?;
         if self.merges_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("merges are down".into()));
         }
-        let now = self.pull_request(repo, number)?;
+        // The forge checks the head itself, which is no read of the runner's
+        let now = self.read(number)?;
         let refused = if now.draft {
             Some("it is a draft".to_owned())
         } else if now.state != PullRequestState::Open {
@@ -985,5 +984,6 @@ mod down;
 mod handed;
 mod issues;
 mod queue;
+mod reads;
 mod repo;
 mod thread;
