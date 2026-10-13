@@ -42,7 +42,7 @@ pub use codex::CodexCli;
 pub use codex_usage::CodexMeter;
 pub use curl::Curl;
 pub use door_pace::DoorPace;
-pub use gh::Gh;
+pub use gh::{Gh, GhApps};
 pub use git::SystemGit;
 pub use github::{CurlGithub, Openssl};
 pub use gpu::GpuCurl;

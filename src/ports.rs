@@ -53,7 +53,7 @@ pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
-pub use rate_limit::{ForgeHold, RateHeld, Say, says_used_up};
+pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
@@ -930,6 +930,8 @@ pub struct Ports {
     pub agents: Arc<dyn Agents>,
     /// The forge
     pub forge: Arc<dyn Forge>,
+    /// Which repos the forge's reads go through the App's token for, where it has one
+    pub app_reads: Option<Arc<dyn AppForges>>,
     /// Kelpie's own voice on the forge, its GitHub App's where one covers the repo
     pub voice: Arc<dyn Voice>,
     /// The Claude account's usage, from `/usage`

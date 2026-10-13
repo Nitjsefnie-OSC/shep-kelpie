@@ -5,7 +5,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 ## App and tokens
 
 - Rulings, notices, rounds move to GitHub via an App each user registers (GitHub never notifies of your own comments); ntfy stays optional. One App per owner via manifest flow (shared App would need key shipped or hosted). #395
-- App holds contents, workflows, issues, pull requests write + metadata read; merging stays on user's `gh`, App never merges. Kelpie's own token: issues + PRs only, can't push. #395, #396
+- App holds contents, workflows, issues, pull requests write + checks, statuses, metadata read; merging stays on user's `gh`, App never merges. Kelpie's own token: issues + PRs only, can't push. #395, #396
 - Covered worker call gets a token for one repo, `contents` (and `workflows`) only; refused if GitHub grants more (guard parsing can't be complete; credential is the boundary). #420, #462
 - Token reaches worker as a `gh` config file, not a variable (every process shows those); git credential helpers emptied (keychain never asked). #420, #429
 - Covered worker writes `pull-request.md`; kelpie opens and edits the PR (worker's token can't). Worker files read/written without following links (planted link could leak a secret). #420, #439, `src/worker_folder.rs`
@@ -16,6 +16,14 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - JWTs signed with `openssl`, sent by `curl` config on stdin (not in process list, no RSA crate). #396
 - Tokens cached per repo until 5 min before expiry; one mint flight per repo (slow mint stalls no other repo). #397
 - `doctor` checks each repo's token; no App = `unsure`. #396
+
+## Reading
+
+- Board, PR, review and check reads (`issue`, `ready_issues`, `open_pull_requests`, `pull_request`, `reviewed`, `review_bot`) go through the App's reading token where it covers the repo: the App's own rate budget takes them off the login's. Viewer, access checks, `sub_issues`, `comments_since`, failed run logs and every write stay on the login. `sub_issues` stays because the token reaches one repo and a parent's sub-issues can sit in another, so a list from the App could be short and `close_merged` would close the parent early. #582
+- Same `gh` commands as the login's, run with `GH_CONFIG_DIR` on a folder of kelpie's own (`<kelpie home>/reads/<owner>--<repo>/gh`) holding the token, and `GH_TOKEN` and its kin unset (an environment token would win). Not curl/GraphQL: custom queries can't be checked live from a worker. `src/adapters/gh/app.rs`. #582
+- Reading token is its own grant (`Grant::Reader`: issues, pull requests, checks, statuses read), kept apart from the posting token; an App without checks/statuses 422s and falls back to `ReaderCore`. The token's returned `permissions` say what it holds. `src/github/tokens.rs`. #582
+- `RateHeld` routes (`src/ports/rate_limit/app_reads.rs`): a read the token lacks a permission for, or that answers "Resource not accessible by integration", goes to the login and says the permission, once per repo and read. App reads take no turn in the login's pace; the App's used-up answer sends its reads to the login until it resets and holds nothing else. #582
+- Forge ledger `by` (`login`|`app`) records whose budget a call spent; `usage --forge` splits by identity. `doctor` has a `reads` line. #582
 
 ## Posting
 

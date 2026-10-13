@@ -212,6 +212,8 @@ fn an_org_s_manifest_goes_to_the_org_s_new_app_page() {
                 "workflows": "write",
                 "issues": "write",
                 "pull_requests": "write",
+                "checks": "read",
+                "statuses": "read",
                 "metadata": "read",
             },
         })

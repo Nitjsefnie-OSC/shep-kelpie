@@ -21,7 +21,7 @@ use crate::worktree::BASE;
 mod housekeeping;
 mod login;
 
-pub use login::write as write_login;
+pub use login::{config_dir as login_dir, write as write_login};
 
 /// Kelpie's instructions to every worker, appended to its system prompt
 pub const INSTRUCTIONS: &str = include_str!("worker-instructions.md");
