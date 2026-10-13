@@ -196,7 +196,7 @@ fn an_item_with_no_session_or_parked_on_a_ruling_says_what_to_do_and_stays_as_it
     let why = refused["error"].as_str().unwrap();
     assert!(
         why.starts_with(
-            "the work item for #7 is parked on ruling 1: answer it with `shep kelpie rule 1"
+            "the work item for #7 is parked on ruling 71: answer it with `shep kelpie rule 71"
         ),
         "{why}"
     );

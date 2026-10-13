@@ -7,7 +7,7 @@ use crate::ports::CLEAN;
 use crate::runner::{CHECKS_SETTLE, step};
 use crate::test::Rig;
 
-// Issue 7 parked on merge ruling 1 in a project with two slots, so the
+// Issue 7 parked on merge ruling 71 in a project with two slots, so the
 // board could open ready issue 9 beside it
 fn parked_with_9_ready(project: &str) -> (Rig, Mutex<Runner>, String) {
     let (rig, runner, head) = Rig::parked_set(project, |rig| {

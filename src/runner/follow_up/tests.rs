@@ -662,7 +662,7 @@ fn a_restart_after_the_merge_still_files_what_the_worker_deferred() {
     assert!(finished(after_merge(&runner)));
 }
 
-// Under `ask`: the worker parked on merge ruling 1, then a yes, then the merge
+// Under `ask`: the worker parked on merge ruling 71, then a yes, then the merge
 pub(in crate::runner) fn ask_after_the_merge(
     rig: Rig,
     found: &[Finding],
