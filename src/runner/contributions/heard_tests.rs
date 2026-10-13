@@ -288,6 +288,31 @@ fn the_record_keeps_the_last_fifty_things_said() {
 }
 
 #[test]
+fn a_comment_that_dropped_off_the_record_is_not_heard_again_within_the_slack() {
+    let (rig, runner, _) = followed_30();
+    let ids: Vec<u64> = (0..51)
+        .map(|n| {
+            rig.clock.advance(1);
+            rig.writes_on(30, "newcomer", &format!("comment {n}"))
+        })
+        .collect();
+    poll(&rig, &runner);
+    let second = rig.push_by_hand("topic/30", "more.txt");
+
+    // The slack still reaches back to the first comments
+    poll(&rig, &runner);
+
+    let heard = listed(&rig, &runner, "heard");
+    let kept: Vec<_> = heard.iter().map(|s| s["id"].as_u64()).collect();
+    assert_eq!(heard.len(), 50, "{heard:?}");
+    assert_eq!(
+        kept[..49],
+        ids[2..].iter().map(|i| Some(*i)).collect::<Vec<_>>()
+    );
+    assert_eq!(heard[49]["head"], second.as_str());
+}
+
+#[test]
 fn a_review_read_that_fails_holds_back_the_place_read_to_so_the_reply_is_heard_later() {
     let (rig, runner, _) = followed_30();
     let first = rig.clock.now();

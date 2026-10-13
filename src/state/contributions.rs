@@ -101,14 +101,17 @@ impl Contribution {
         self.heard.iter().any(same) || self.context.iter().any(same)
     }
 
-    /// Records what the contributor said, keeping the last [`KEPT`]
-    pub fn hear(&mut self, said: Said) {
-        keep(&mut self.heard, said);
+    /// Records what the contributor said, keeping the last [`KEPT`], unless it
+    /// was kept once and has dropped off the list since. Returns whether it
+    /// was recorded.
+    pub fn hear(&mut self, said: Said) -> bool {
+        keep(&mut self.heard, said)
     }
 
-    /// Records what the maintainer said, keeping the last [`KEPT`]
-    pub fn overhear(&mut self, said: Said) {
-        keep(&mut self.context, said);
+    /// Records what the maintainer said, keeping the last [`KEPT`], on the
+    /// same terms as [`Self::hear`]
+    pub fn overhear(&mut self, said: Said) -> bool {
+        keep(&mut self.context, said)
     }
 
     /// When the latest thing on record happened: the place a read of the
@@ -130,10 +133,24 @@ impl Contribution {
     }
 }
 
-fn keep(list: &mut Vec<Said>, said: Said) {
+// A full list has let its oldest go, so a comment written before all of what
+// it still holds was kept once and is not recorded again: it would only push
+// out something newer. Pushes are not comments and are always new.
+fn keep(list: &mut Vec<Said>, said: Said) -> bool {
+    let dropped = list.len() >= KEPT
+        && !matches!(said, Said::Push { .. })
+        && list
+            .iter()
+            .map(Said::at)
+            .min()
+            .is_some_and(|oldest| said.at() < oldest);
+    if dropped {
+        return false;
+    }
     list.push(said);
     let over = list.len().saturating_sub(KEPT);
     list.drain(..over);
+    true
 }
 
 /// One thing said or done on a pull request, with no text

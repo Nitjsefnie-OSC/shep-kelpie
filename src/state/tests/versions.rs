@@ -633,6 +633,32 @@ fn a_contribution_keeps_the_last_fifty_of_each_list() {
 }
 
 #[test]
+fn a_full_list_does_not_take_back_what_dropped_off_it() {
+    let mut contribution = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    for id in 0..51 {
+        let at = Timestamp(100 + id);
+        assert!(contribution.hear(Said::Comment { id, at }));
+    }
+
+    let old = Said::Comment {
+        id: 0,
+        at: Timestamp(100),
+    };
+    assert!(!contribution.hear(old.clone()));
+    assert_eq!(contribution.heard.len(), 50);
+    assert_eq!(contribution.heard[0].at(), Timestamp(101));
+    // A push is always new, and a newer comment is still recorded
+    assert!(contribution.hear(Said::Push {
+        head: "abc".into(),
+        at: Timestamp(600)
+    }));
+    assert!(contribution.hear(Said::Comment {
+        id: 99,
+        at: Timestamp(700)
+    }));
+}
+
+#[test]
 fn a_followed_contribution_survives_a_save_and_a_load() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
