@@ -139,3 +139,54 @@ fn a_number_another_project_s_ruling_has_answers_nothing_here() {
     assert_eq!(step(&runner).unwrap(), Some(StepReport::ReplyIgnored));
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
 }
+
+// The question prints the number, so the number is the name, whatever id a
+// ruling on another pull request happens to have.
+#[test]
+fn a_number_names_its_ruling_though_another_project_has_a_ruling_with_that_id() {
+    let (rig, runner, head) = alerted("koji");
+    let mut lab = ProjectState::new();
+    lab.rulings = vec![Ruling {
+        id: 71,
+        issue: Some(90),
+        pull_request: Some(90),
+        ..lock(&runner).state.rulings[0].clone()
+    }];
+    let path = rig.paths().kelpie_home.join("lab/state.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    StateStore::new(path).save(&lab).unwrap();
+    rig.reply("71 yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyAnswered { id: 1 })
+    );
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "merge", "head": head, "readied": null })
+    );
+}
+
+#[test]
+fn a_number_names_its_ruling_though_another_ruling_here_has_that_id() {
+    let (rig, runner, head) = alerted("koji");
+    {
+        let mut runner = lock(&runner);
+        let other = Ruling {
+            id: 71,
+            issue: Some(90),
+            pull_request: Some(90),
+            ..runner.state.rulings[0].clone()
+        };
+        runner.state.rulings.push(other);
+    }
+    rig.reply("71 yes");
+    assert_eq!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReplyAnswered { id: 1 })
+    );
+    assert_eq!(
+        phase(&rig, &runner),
+        json!({ "state": "merge", "head": head, "readied": null })
+    );
+    assert_eq!(lock(&runner).state.rulings.len(), 1);
+}

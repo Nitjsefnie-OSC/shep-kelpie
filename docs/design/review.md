@@ -43,7 +43,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 - Six kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes). ADR 0006, #330, `src/runner/ruling.rs`
 - Ruling = log line + `status` entry + webhook post with one question; `no <note>` is worker's next turn. #89
-- A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The counter id stays in the state file and still resolves. #508
+- A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The counter id stays in the state file and still resolves, but a number that a waiting ruling is about names that ruling before any id does, in `rule`, in the webhook reply and in a thread reply. #508
 - Ids are files linked into `rulings/<id>` (no repeat across projects). `rule <id> <answer>` by id or issue (`rule 427`; one ruling per item), refuses answer older than ruling. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507
 - `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<id>` files applied next pass. `src/runner/trigger.rs`
 - One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `src/webhook.rs`

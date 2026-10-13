@@ -2,8 +2,8 @@
 
 use super::super::trigger::number;
 use super::super::{ProjectName, Runner};
+use crate::state::Ruling;
 use crate::state::ids::RulingIds;
-use crate::state::{ProjectState, Ruling};
 
 /// A reply's text without its code, read as the ruling it names and the
 /// answer's words
@@ -93,10 +93,9 @@ pub(super) struct Named {
 }
 
 impl Runner {
-    // The ruling `reply` names. A number is a ruling's id when a ruling is
-    // open under it, here or (unnamed) on another project, or when none here is about
-    // it. Otherwise it is the number of the issue or pull request that the
-    // ruling here is about.
+    // The ruling `reply` names. A number is the number of the issue or pull
+    // request a ruling here is about, since that is what a question prints.
+    // When none is, it is a ruling's id.
     pub(super) fn which(&self, reply: &Reply<'_>) -> Named {
         let Reply {
             project: named,
@@ -108,12 +107,7 @@ impl Runner {
         let about = |r: &&Ruling| r.issue == Some(number) || r.pull_request == Some(number);
         let here: Vec<&Ruling> = self.state.rulings.iter().filter(about).collect();
         let ids = RulingIds::under(&self.paths.kelpie_home);
-        // A reply that names this project is ignored by the others, so a
-        // ruling of theirs under the number does not make it an id.
-        let counter = !by_number
-            && (here.is_empty()
-                || self.state.rulings.iter().any(|r| r.id == number)
-                || (named.is_none() && open_elsewhere(&ids, project, number)));
+        let counter = !by_number && here.is_empty();
         if counter {
             return Named {
                 whose: self.whose(named, number),
@@ -201,12 +195,4 @@ impl Runner {
             }
         }
     }
-}
-
-// Whether another project has a ruling open with the id `id`.
-fn open_elsewhere(ids: &RulingIds, project: &str, id: u64) -> bool {
-    let open = |state: ProjectState| state.rulings.iter().any(|r| r.id == id);
-    ids.states()
-        .into_iter()
-        .any(|(other, state)| other != project && state.is_ok_and(open))
 }

@@ -608,6 +608,51 @@ fn with_several_rulings_on_one_thread_a_reply_names_the_one_it_answers() {
     assert_eq!(pending(&rig, &runner), [71], "ruling 2 was answered");
 }
 
+// The card names the ruling by its number, so a reply opening with 71 answers
+// the ruling on #71 though a ruling on another thread has the counter id 71.
+#[test]
+fn a_number_names_the_ruling_on_its_thread_though_another_ruling_has_that_id() {
+    let (rig, runner, head) = a_merge_ruling_on_71();
+    {
+        let mut runner = runner.lock().unwrap();
+        let mut next = runner.state.clone();
+        next.last_ruling = 71;
+        next.rulings.push(Ruling {
+            id: 71,
+            issue: Some(90),
+            question: "Is it closed?".into(),
+            pull_request: Some(90),
+            kind: RulingKind::from(Stuck::Closed),
+            alerted: true,
+            panel: None,
+            verdict: None,
+            unposted: false,
+            effects: Vec::new(),
+            raised: None,
+        });
+        next.heard.insert(
+            71,
+            Heard {
+                mentions: "octocat".into(),
+                time: rig.clock.now(),
+                comment: 0,
+                ruling_comment: 0,
+            },
+        );
+        runner.save(next).unwrap();
+    }
+    rig.clock.advance(1);
+    let comment = rig.writes_on(71, "octocat", "71 yes");
+
+    rig.next_look();
+    step(&runner).unwrap();
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.merges(), [(71, head)]);
+    assert_eq!(rig.github.reactions(), [comment]);
+}
+
 #[test]
 fn a_ruling_with_no_place_read_to_in_its_thread_is_answered_at_the_terminal_only() {
     let (rig, runner, _) = a_merge_ruling_on_71();
