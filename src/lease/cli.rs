@@ -2,12 +2,11 @@
 //!
 //! `run` waits for a lease, runs a command and returns the lease when the
 //! command exits, however it exits. `take` and `return` hold one for
-//! longer. The GPU lease is the qwen scripts' lock, taken here directly;
-//! a `take` leaves a holder process behind, since a lock whose pid is
-//! gone gets cleared. `cargo-test` is held for one `run` at the dog's door.
-//! Every other kind is the dog's, reached through shep.
+//! longer. The GPU lease is a paddock lease on a model, held by `shep
+//! paddock run`; a `take` leaves a holder process behind, whose life is the
+//! lease's. `cargo-test` is held for one `run` at the dog's door. Every
+//! other kind is the dog's, reached through shep.
 
-use std::io::{BufRead, BufReader, Write};
 use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::Duration;
 
@@ -18,28 +17,28 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 
 use super::counted::CARGO_TEST;
 use super::door;
-use super::gpu::{self, Claim, GpuLock, Waiting};
+use super::gpu::{self, GpuLock};
 use super::{GPU, LeaseKind};
 use crate::{dog, home, shepherd};
 
 pub(crate) mod counted_run;
 mod e2e;
+mod paddock;
 
 /// The usage lines for `shep-kelpie lease`
 pub const USAGE: &str = "\
+       shep-kelpie lease run gpu --model <model> -- <command> [args...]
        shep-kelpie lease run <kind> -- <command> [args...]
+       shep-kelpie lease take gpu --model <model>
        shep-kelpie lease take <kind>
        shep-kelpie lease return <kind>
        shep-kelpie lease status
        shep-kelpie lease e2e
-       <kind> is gpu, the qwen scripts' lock, cargo-test, which a few
-       commands hold at once and only for a run, or a lease the dog holds
+       <kind> is gpu, a paddock lease on --model, as `shep paddock run --model` takes
+       it, cargo-test, which a few commands hold at once and only for a run, or a
+       lease the dog holds
        e2e runs the project's end-to-end tests on its host, from a worktree, and
        prints their output and exits with their code";
-
-/// What a `take` holder writes as the lock's `what`, and `return` looks for
-const TAKE_WHAT: &str =
-    "shep kelpie lease take, held for the maintainer until `shep kelpie lease return gpu`";
 
 /// How often a waiting maintainer asks the dog again; a local round trip
 /// through shep took about 30 ms in the transport series
@@ -47,11 +46,16 @@ const DOG_POLL: Duration = Duration::from_secs(1);
 
 /// Runs `shep kelpie lease <args>`
 pub fn main(args: &[String]) -> ExitCode {
+    main_with(paddock::SHEP, args)
+}
+
+// `main`, with the program that runs `paddock run` named.
+fn main_with(shep: &str, args: &[String]) -> ExitCode {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build();
     let outcome = match runtime {
-        Ok(runtime) => runtime.block_on(dispatch(args)),
+        Ok(runtime) => runtime.block_on(dispatch(shep, args)),
         Err(e) => Err(format!("cannot start the async runtime: {e}")),
     };
     match outcome {
@@ -63,10 +67,13 @@ pub fn main(args: &[String]) -> ExitCode {
     }
 }
 
-async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
+async fn dispatch(shep: &str, args: &[String]) -> Result<ExitCode, String> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
-        ["run", GPU, "--", command @ ..] if !command.is_empty() => run_gpu(command).await,
+        ["run", GPU, "--model", model, "--", command @ ..] if !command.is_empty() => {
+            run_gpu(shep, model, command, &mut Signals::new()?).await
+        }
+        ["run", GPU, "--", command @ ..] if !command.is_empty() => Err(paddock::NEEDS_MODEL.into()),
         ["run", CARGO_TEST, "--", command @ ..] if !command.is_empty() => {
             let code = match door::socket() {
                 Ok(socket) => counted_run::run(&socket, command).await,
@@ -80,14 +87,15 @@ async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
         ["run", kind, "--", command @ ..] if !command.is_empty() => {
             run_book(&kind_of(kind)?, command).await
         }
-        ["take", GPU] => take_gpu().map(|()| ExitCode::SUCCESS),
+        ["take", GPU, "--model", model] => paddock::take(shep, model).map(|()| ExitCode::SUCCESS),
+        ["take", GPU] => Err(paddock::NEEDS_MODEL.into()),
         ["take", kind] => take_book(&kind_of(kind)?).await,
-        ["return", GPU] => return_gpu().map(|()| ExitCode::SUCCESS),
+        ["return", GPU] => paddock::give_back().map(|()| ExitCode::SUCCESS),
         ["return", kind] => return_book(&kind_of(kind)?).await,
         ["status"] => status().await,
         ["e2e"] => run_e2e().await,
         // take reads a holder's stdout alone, so its errors go there.
-        ["hold", GPU] => Ok(hold_gpu().await.unwrap_or_else(|e| {
+        ["hold", GPU] => Ok(paddock::hold().await.unwrap_or_else(|e| {
             println!("shep kelpie lease: {e}");
             ExitCode::FAILURE
         })),
@@ -115,54 +123,17 @@ fn gpu_lock() -> GpuLock {
     GpuLock::under(&gpu::temp_dir())
 }
 
-fn report(waiting: Waiting<'_>) {
-    eprintln!("{}", said(waiting));
-}
-
-// A holder reports to take, which reads its stdout.
-fn tell_take(waiting: Waiting<'_>) {
-    println!("{}", said(waiting));
-}
-
-fn pid_or_unknown(pid: Option<u32>) -> String {
-    pid.map_or_else(|| "unknown".into(), |p| p.to_string())
-}
-
-fn said(waiting: Waiting<'_>) -> String {
-    match waiting {
-        Waiting::Held { waited, holder } => format!(
-            "shep kelpie lease: waiting {waited}s for the GPU, now held by pid {} running {}",
-            pid_or_unknown(holder.pid),
-            holder.what
-        ),
-        Waiting::Cleared(dead) => {
-            format!(
-                "shep kelpie lease: clearing a stale lock, pid {} is gone",
-                pid_or_unknown(dead)
-            )
-        }
-    }
-}
-
-async fn run_gpu(command: &[&str]) -> Result<ExitCode, String> {
-    let lock = gpu_lock();
-    let mut signals = Signals::new()?;
-    let pid = std::process::id();
-    let claim = Claim {
-        pid,
-        what: format!("shep kelpie lease run: {}", command.join(" ")),
-    };
-    tokio::select! {
-        taken = lock.take(&claim, gpu::scripts_naps, report) => {
-            taken.map_err(|e| format!("cannot take {}: {e}", lock.path().display()))?;
-        }
-        caught = signals.recv() => return Ok(caught.exit_code()),
-    }
-    let ran = run_command(command, &mut signals).await;
-    let released = lock
-        .release(pid)
-        .map_err(|e| format!("cannot remove {}: {e}", lock.path().display()));
-    both(ran, released)
+// Runs the command under `shep paddock run`, which waits for the lease,
+// holds it while the command runs and gives it back as the command ends.
+async fn run_gpu(
+    shep: &str,
+    model: &str,
+    command: &[&str],
+    signals: &mut Signals,
+) -> Result<ExitCode, String> {
+    let note = paddock::run_note(command);
+    let line = paddock::run_line(shep, model, &note, command);
+    run_command(&line, signals).await
 }
 
 async fn run_book(kind: &LeaseKind, command: &[&str]) -> Result<ExitCode, String> {
@@ -237,93 +208,6 @@ async fn withdraw(kind: &LeaseKind, caught: Caught) -> Caught {
         eprintln!("shep kelpie lease: {e}: run `shep kelpie lease return {kind}`");
     }
     caught
-}
-
-fn take_gpu() -> Result<(), String> {
-    let lock = gpu_lock();
-    if let Some(holder) = lock.holder().filter(|h| h.live && h.what == TAKE_WHAT) {
-        let pid = holder.pid.unwrap_or_default();
-        println!("shep kelpie lease: the GPU lock is already held for you by pid {pid}");
-        return Ok(());
-    }
-    // The holder outlives take, so it keeps none of take's own output
-    // open: a caller reading take's output to its end would wait forever.
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find kelpie itself: {e}"))?;
-    let mut holder = crate::spawn::command(exe)
-        .args(["lease", "hold", GPU])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("cannot start a holder: {e}"))?;
-    let pid = holder.id();
-    let stdout = holder.stdout.take().ok_or("the holder has no stdout")?;
-    let mut held = false;
-    for line in BufReader::new(stdout).lines() {
-        let line = line.map_err(|e| format!("cannot read the holder: {e}"))?;
-        if line == HELD {
-            held = true;
-            break;
-        }
-        eprintln!("{line}");
-    }
-    if !held {
-        let status = holder.wait().map_err(|e| e.to_string())?;
-        return Err(format!("the holder gave up ({status})"));
-    }
-    println!(
-        "shep kelpie lease: pid {pid} holds the GPU lock at {} until `shep kelpie lease return gpu`",
-        lock.path().display()
-    );
-    Ok(())
-}
-
-/// The line a holder prints once the lock is its own
-const HELD: &str = "held";
-
-// The holder behind `take gpu`. Everything it says goes to take over its
-// stdout, ending with HELD. It then lives until `return gpu` ends it,
-// ignoring the hangup a closed terminal sends.
-async fn hold_gpu() -> Result<ExitCode, String> {
-    let _hangups = signal(SignalKind::hangup()).map_err(|e| e.to_string())?;
-    let lock = gpu_lock();
-    let claim = Claim {
-        pid: std::process::id(),
-        what: TAKE_WHAT.into(),
-    };
-    lock.take(&claim, gpu::scripts_naps, tell_take)
-        .await
-        .map_err(|e| format!("cannot take {}: {e}", lock.path().display()))?;
-    // A take that is gone cannot hear HELD, and nobody would return the lock.
-    let mut stdout = std::io::stdout();
-    if let Err(e) = writeln!(stdout, "{HELD}").and_then(|()| stdout.flush()) {
-        let _ = lock.release(claim.pid);
-        return Err(format!("take went away, so the lock is let go: {e}"));
-    }
-    std::future::pending().await
-}
-
-fn return_gpu() -> Result<(), String> {
-    let lock = gpu_lock();
-    let Some(holder) = lock.holder() else {
-        return Err("the GPU lock is free: there is nothing to return".into());
-    };
-    let pid = holder
-        .pid
-        .filter(|_| holder.what == TAKE_WHAT)
-        .ok_or_else(|| {
-            format!(
-                "the GPU lock is held by pid {} running {}, not by `shep kelpie lease take gpu`",
-                pid_or_unknown(holder.pid),
-                holder.what
-            )
-        })?;
-    // The lock goes first, so the holder's end cannot leave a stale one.
-    lock.release(pid)
-        .map_err(|e| format!("cannot remove {}: {e}", lock.path().display()))?;
-    signal_process(pid, "TERM");
-    println!("shep kelpie lease: returned the GPU lock");
-    Ok(())
 }
 
 async fn status() -> Result<ExitCode, String> {
@@ -506,8 +390,30 @@ impl Signals {
 #[cfg(test)]
 mod tests {
     use std::os::unix::process::ExitStatusExt;
+    use std::path::Path;
 
     use super::*;
+    use crate::test::write_script;
+
+    // A caught signal reaches every run alive when it lands, so the tests
+    // that listen for signals take turns.
+    static LISTENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    // A `shep` that notes its arguments in `<it>.args`, one a line, and then
+    // does what `paddock run` does: runs the command after `--`.
+    fn stand_in_shep(dir: &Path) -> String {
+        let shep = dir.join("shep");
+        write_script(
+            &shep,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\n\
+             while [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n",
+        );
+        shep.to_str().unwrap().to_owned()
+    }
+
+    fn words(args: &[&str]) -> Vec<String> {
+        args.iter().map(|&a| a.to_owned()).collect()
+    }
 
     fn exited(code: i32) -> ExitStatus {
         ExitStatus::from_raw(code << 8)
@@ -551,6 +457,7 @@ mod tests {
     // yields, so the stream has not seen the signal when the run starts.
     #[tokio::test(flavor = "current_thread")]
     async fn an_interrupt_before_the_command_starts_ends_the_run_without_it() {
+        let _turn = LISTENING.lock().await;
         let temp = tempfile::tempdir().unwrap();
         let marker = temp.path().join("ran");
         let mut signals = Signals::new().unwrap();
@@ -566,5 +473,62 @@ mod tests {
         let ended = run_command(&command, &mut signals).await;
         assert_eq!(ended, Ok(ExitCode::from(130)));
         assert!(!marker.exists(), "the command started anyway");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn run_gpu_runs_the_command_under_a_paddock_run_and_exits_with_its_code() {
+        let _turn = LISTENING.lock().await;
+        let temp = tempfile::tempdir().unwrap();
+        let shep = stand_in_shep(temp.path());
+        let args = words(&["run", "gpu", "--model", "qwen3", "--", "sh", "-c", "exit 3"]);
+        let ended = dispatch(&shep, &args).await;
+        assert_eq!(ended, Ok(ExitCode::from(3)));
+        let seen = std::fs::read_to_string(format!("{shep}.args")).unwrap();
+        assert_eq!(
+            seen.lines().collect::<Vec<_>>(),
+            [
+                "paddock",
+                "run",
+                "--model",
+                "qwen3",
+                "--note",
+                "shep kelpie lease run: sh -c exit 3",
+                "--",
+                "sh",
+                "-c",
+                "exit 3",
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn run_gpu_without_a_model_is_refused_and_runs_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let shep = stand_in_shep(temp.path());
+        let ended = dispatch(&shep, &words(&["run", "gpu", "--", "true"])).await;
+        let refused = ended.unwrap_err();
+        assert!(refused.contains("--model <model>"), "{refused}");
+        assert!(!Path::new(&format!("{shep}.args")).exists(), "paddock ran");
+        let take = dispatch(&shep, &words(&["take", "gpu"])).await;
+        assert_eq!(take, Err(refused));
+    }
+
+    // As for `cargo-test`: a signal that landed before the command started
+    // ends the run, exit code 128 plus its number, and runs nothing.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_interrupt_before_paddock_starts_ends_run_gpu_without_it() {
+        let _turn = LISTENING.lock().await;
+        let temp = tempfile::tempdir().unwrap();
+        let shep = stand_in_shep(temp.path());
+        let mut signals = Signals::new().unwrap();
+        std::process::Command::new("kill")
+            .args(["-INT", &std::process::id().to_string()])
+            .status()
+            .unwrap();
+        // See the test above: the signal reaches the stream only once the run yields.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let ended = run_gpu(&shep, "qwen3", &["true"], &mut signals).await;
+        assert_eq!(ended, Ok(ExitCode::from(130)));
+        assert!(!Path::new(&format!("{shep}.args")).exists(), "paddock ran");
     }
 }
