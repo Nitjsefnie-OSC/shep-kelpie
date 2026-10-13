@@ -22,6 +22,10 @@ Pacing, leases, forge limits, time, usage, settings.
 - GPU lease is qwen scripts' own lock; dog stays out; kelpie never wraps a command that takes it (nothing waits on a lock it holds). Decided 2026-09-26 on #5
 - Triggers that only ask (`status`, `timings`, `drain`) never wake loop; board read at most every 60s (`BOARD_POLL`). #394
 - Failing step backs off 15s to 10 min; rate-limit answer holds every forge call until reset (10 min for secondary limit, longer if hit again). #394
+- One forge hold and pace per login, kept by the dog (`forge` ask on `lease.sock`, `src/dog/forge.rs`): any runner's used-up answer holds all; a runner that cannot reach the dog uses its own (`DoorPace`, `src/adapters/door_pace.rs`). Dog's copy is in memory, so a dog restart clears it. #580
+- Pace: 60 calls a minute and 5 a second per login (`PER_MINUTE`, `AT_ONCE`, `src/ports/pace.rs`), margin under GitHub's documented secondary limits; each project gets cap / active projects and waits for its own oldest grant to leave. Queued calls wait (`Clock::wait`), never fail. #580
+- Hold ends at the answer's `retry-after`, else its `x-ratelimit-reset`, else the 10-min fallback; same for `gh` and App calls (App rate limits are `ForgeError::Limited`; `PacedVoice` holds and paces them, worker-token mint waits the hold, no fixed 30s). #580
+- A step that retries gets one attempt per step (close of merged issue; ruling-comment edit backs off like any failing step). #580
 
 ## Where the time goes
 
