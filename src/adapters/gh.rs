@@ -3,6 +3,7 @@
 mod access;
 mod app;
 mod board;
+mod conditional;
 mod contents;
 mod failed;
 mod issues;
@@ -15,6 +16,7 @@ mod runs;
 mod thread;
 
 pub use app::GhApps;
+pub use conditional::Etags;
 
 use std::path::Path;
 use std::process::Stdio;
@@ -30,8 +32,20 @@ use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
 /// GitHub, through the `gh` command line
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Gh;
+///
+/// The REST reads that repeat keep their answers in `etags`, so a clone
+/// shares them and a `Gh::default()` starts with none.
+#[derive(Debug, Clone, Default)]
+pub struct Gh {
+    etags: Etags,
+}
+
+impl Gh {
+    /// `gh`, keeping the answers of its repeated reads in `etags`
+    pub fn new(etags: Etags) -> Self {
+        Self { etags }
+    }
+}
 
 impl Forge for Gh {
     fn visibility(&self, repo: &ForgeSlug) -> Result<Visibility, ForgeError> {
@@ -132,7 +146,7 @@ impl Forge for Gh {
         repo: &ForgeSlug,
         since: Timestamp,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
-        thread::comments_since(repo, since)
+        thread::comments_since(&self.etags, repo, since)
     }
 
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
@@ -140,7 +154,7 @@ impl Forge for Gh {
     }
 
     fn comment_marks(&self, repo: &ForgeSlug, comment: u64) -> Result<CommentMarks, ForgeError> {
-        thread::comment_marks(repo, comment)
+        thread::comment_marks(&self.etags, repo, comment)
     }
 
     fn comment(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<u64, ForgeError> {
@@ -239,7 +253,7 @@ impl Forge for Gh {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
-        review_bot::activity(None, repo, number, login)
+        review_bot::activity(&self.etags, None, repo, number, login)
     }
 
     fn resolve_thread(&self, _repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
@@ -343,6 +357,19 @@ const LOGIN_VARS: [&str; 3] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"
 /// `gh` with `args`, as the login in the config folder `config` where there is
 /// one, and as the maintainer's own otherwise
 fn gh_as(config: Option<&Path>, args: &[&str]) -> Result<Vec<u8>, ForgeError> {
+    let output = gh_command(config)
+        .args(args)
+        .output()
+        .map_err(|e| ForgeError::Spawn(e.to_string()))?;
+    if !output.status.success() {
+        return Err(failed::failure(&String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(output.stdout)
+}
+
+// `gh` as the login in `config` where there is one, printing the API's
+// debug lines, which hold the headers a limit's answer carries
+fn gh_command(config: Option<&Path>) -> std::process::Command {
     let mut command = crate::spawn::command("gh");
     if let Some(config) = config {
         // A token in the environment would win over the folder's.
@@ -353,16 +380,8 @@ fn gh_as(config: Option<&Path>, args: &[&str]) -> Result<Vec<u8>, ForgeError> {
             .env("GH_CONFIG_DIR", config)
             .env("GH_PROMPT_DISABLED", "1");
     }
-    let output = command
-        .args(args)
-        .env("GH_DEBUG", "api")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| ForgeError::Spawn(e.to_string()))?;
-    if !output.status.success() {
-        return Err(failed::failure(&String::from_utf8_lossy(&output.stderr)));
-    }
-    Ok(output.stdout)
+    command.env("GH_DEBUG", "api").stdin(Stdio::null());
+    command
 }
 
 fn unreadable(stdout: &[u8]) -> ForgeError {

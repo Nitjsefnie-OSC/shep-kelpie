@@ -459,6 +459,7 @@ impl Runner {
             say_to(&told),
         )
         .with_ledger(Arc::clone(&forge_ledger))
+        .counting(ports.revalidated.clone())
         .paced_for(project.as_str());
         if let Some(app_reads) = ports.app_reads.take() {
             rate_held = rate_held.with_app_reads(app_reads);
