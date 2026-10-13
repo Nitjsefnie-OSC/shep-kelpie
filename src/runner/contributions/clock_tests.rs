@@ -192,6 +192,37 @@ fn due_is_nudge_after_nudge_days_and_quiet_after_quiet_days_on_a_fake_clock() {
 }
 
 #[test]
+fn quiet_is_never_due_before_the_nudge_whatever_the_settings() {
+    use std::num::NonZeroU32;
+    let mut contribution = Contribution::new(30, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    contribution.waiting_since = Some(Timestamp(Rig::EPOCH));
+    let settings = Contributions {
+        nudge_days: NonZeroU32::new(5).unwrap(),
+        quiet_days: NonZeroU32::new(2).unwrap(),
+        ..Contributions::default()
+    };
+    let clock = Clock::of(&contribution, &settings).unwrap();
+
+    assert_eq!(clock.due(Timestamp(Rig::EPOCH + 3 * DAY)), None);
+    assert_eq!(clock.due(Timestamp(Rig::EPOCH + 5 * DAY)), Some(Due::Quiet));
+}
+
+#[test]
+fn a_comment_heard_in_the_poll_that_starts_the_clock_starts_it_at_that_poll() {
+    let (rig, runner) = listing(&["mine"]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![found()])]);
+    let head = contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    read_through(&rig, &runner, &head);
+
+    rig.writes_on(30, "newcomer", "Looking at it");
+    poll(&rig, &runner);
+
+    assert_eq!(waiting_since(&rig, &runner), now(&rig));
+}
+
+#[test]
 fn status_shows_the_clock_and_days_to_the_nudge() {
     let (rig, runner, _) = found_something();
     let started = now(&rig);

@@ -44,10 +44,13 @@ impl Clock {
     /// The clock of `contribution` under `settings`, or `None` while kelpie
     /// waits on no one
     pub fn of(contribution: &Contribution, settings: &Contributions) -> Option<Self> {
+        let nudge_days: u64 = settings.nudge_days.get().into();
         Some(Self {
             since: contribution.waiting_since?,
-            nudge_days: settings.nudge_days.get().into(),
-            quiet_days: settings.quiet_days.get().into(),
+            nudge_days,
+            // The settings keep the nudge below the quiet; a pair that is not
+            // still never reports quiet before the nudge.
+            quiet_days: u64::from(settings.quiet_days.get()).max(nudge_days),
         })
     }
 
