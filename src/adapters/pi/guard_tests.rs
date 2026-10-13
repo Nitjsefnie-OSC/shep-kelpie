@@ -67,7 +67,11 @@ console.log(JSON.stringify(out));
 "#;
 
 // What the guard extension decides for each of `events`, with `kelpie` as its checks.
-fn guarded(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_json::Value> {
+pub(super) fn guarded(
+    w: &World,
+    kelpie: &Path,
+    events: serde_json::Value,
+) -> Vec<serde_json::Value> {
     let call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
     let fence = call.reach.fence.as_deref().unwrap();
     std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
@@ -83,7 +87,7 @@ fn guarded(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_jso
 }
 
 // A node that loads TypeScript as pi does, which an older one cannot.
-fn has_node() -> bool {
+pub(super) fn has_node() -> bool {
     std::process::Command::new("node")
         .args([
             "--input-type=module-typescript",
