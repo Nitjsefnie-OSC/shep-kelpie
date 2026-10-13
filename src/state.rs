@@ -580,7 +580,8 @@ pub enum Stuck {
     /// work item and keeps its branch on the forge.
     Closed,
     /// The worker's fix turn for held findings ended with nothing pushed. A
-    /// yes sends it the same findings again.
+    /// yes sends it the same prompt again: the findings, or the tests still
+    /// failing.
     FixNotPushed {
         /// The round whose findings hold, still fixing
         #[serde(flatten)]

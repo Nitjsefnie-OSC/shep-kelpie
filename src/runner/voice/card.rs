@@ -25,10 +25,10 @@ const SENDS_BACK: &str = "Sends the worker back with a note, and the review read
 /// What picking an option of a worker's question does, when the worker wrote no effect
 const SENDS_ANSWER: &str = "Sends the worker this answer";
 
-/// What a no does to a work item that cannot go on
 /// What a no does to a reviewer's test that still fails
 const ENDS_THE_CHECK: &str = "Sends the worker your note, ends the check and the review goes on";
 
+/// What a no does to a work item that cannot go on
 const STOPS: &str = "Stops the work item, keeping its branch and pull request on the forge";
 
 /// What a no does to a work item over its budget
@@ -363,8 +363,8 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             Some(SENDS_BACK),
         ),
         Stuck::FixNotPushed { .. } => (
-            "A fix ended without a push. Send the findings again?",
-            "Sends the worker the findings again",
+            "A fix ended without a push. Send the same fix turn again?",
+            "Sends the worker the same fix turn again: the findings, or the failing tests it was sent back to",
             Some(SENDS_BACK),
         ),
         Stuck::TestStillFails { .. } => (
