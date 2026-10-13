@@ -158,10 +158,17 @@ fn a_round_behind_a_gateway_waits_on_a_turn_and_counts_the_wait_as_a_wait() {
         assert_eq!(status["work_item"]["timings"]["seconds"]["review"], 120);
         grant.release();
         let report = round.join().unwrap().unwrap();
-        assert!(matches!(
-            report,
-            Some(StepReport::ReviewRound { round: 1, .. })
-        ));
+        assert!(
+            matches!(
+                report,
+                Some(StepReport::ReviewFindingsSent {
+                    round: 1,
+                    held: 0,
+                    ..
+                })
+            ),
+            "a clean round moves the review on: {report:?}"
+        );
     });
     let lines = crate::usage::read(&rig.paths().folder.join(crate::usage::FILE)).unwrap();
     let ledger: Vec<_> = lines
