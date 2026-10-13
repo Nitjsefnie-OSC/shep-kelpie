@@ -37,8 +37,8 @@ mod thread;
 mod voice;
 
 pub use agent::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
-    Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence, Guard,
+    PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::ForgeError;
 pub use git::{Git, GitError};

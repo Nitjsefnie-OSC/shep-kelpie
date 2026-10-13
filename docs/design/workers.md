@@ -32,6 +32,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Guard denies what only kelpie does (merge, ready, `review please`, `gh api`, pushes to `main`, credential reads); label or ready change kelpie didn't make parks the worker. `src/guard.rs`
 - Agent files in worktree (`.claude`, `.mcp.json`, `.codex`, `.agents`) fenced and checked before each call; change parks `agent-files` (a review could plant an unsandboxed hook). #98
 - Every call runs whole inside kelpie's OS sandbox (`Sandbox` port, `srt` 0.0.77), hooks and MCP included; Claude Code's own sandbox off (macOS can't nest). #128
+- `[app.dogs.kelpie.code_graph] enabled` (off) gives the worker's `Work` turns and Claude Code reviewers codebase-memory-mcp: `tools install` fetches a release pinned by SHA-256, `Runner::prepared` indexes the worktree into `<project>/code-graphs/<issue>` before each call, the adapter writes a per-call `--mcp-config` (`--strict-mcp-config` stays) and allows `mcp__codebase-memory-mcp`, and the sandbox lets the server write only its index. Missing binary or failed index: a logged skip and a `doctor` line, never a crash. The tool's own `install` is never run. #599, `src/runner/code_graph.rs`, `src/adapters/claude/graph.rs`
 - Guard refuses `claude`, `codex`, `pi` as programs (model endpoint open to process; nested session runs without hooks). `src/guard.rs`
 - Each harness declares run-code + login files; fence holds all, so one harness's call can't plant or read another's. #233
 

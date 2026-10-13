@@ -2,10 +2,15 @@
 //!
 //! `shep kelpie tools install` fills the folder with the sandbox runtime every
 //! agent runs in, at the version [`PACKAGE`] pins, and on macOS a copy of it
-//! with the keychain's services cut from its profile.
+//! with the keychain's services cut from its profile. It also fetches the code
+//! graph server, at the release [`graph::RELEASE`] pins.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+mod graph;
+
+pub use graph::RELEASE as CODE_GRAPH_RELEASE;
 
 /// Kelpie's own copy of the sandbox runtime, under `<kelpie home>/tools`
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +52,12 @@ impl Tools {
         // Only macOS has a keychain, and only its profile names the services.
         if cfg!(target_os = "macos") {
             self.block_keychain()?;
+        }
+        if !self.install_code_graph()? {
+            eprintln!(
+                "the code graph server has no build for this machine, so projects that turn \
+                 it on run without it"
+            );
         }
         Ok(())
     }

@@ -117,6 +117,9 @@ pub(super) fn checks(
         lines.push(instructions(at("instructions"), &settings));
     }
     lines.extend(super::e2e::line(at("e2e"), &settings, probes.host));
+    if settings.code_graph.enabled {
+        lines.push(code_graph(at("code graph"), &paths));
+    }
     lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
@@ -345,6 +348,25 @@ fn checkout(subject: String, settings: &Settings) -> (Line, Option<ForgeSlug>) {
             let line = Line::missing(subject, e.to_string(), fix);
             (line, settings.git.remote.clone())
         }
+    }
+}
+
+// A runner whose server is missing goes on without a graph, but the project turned it on.
+fn code_graph(subject: String, paths: &ProjectPaths) -> Line {
+    let binary = paths.tools.code_graph();
+    match paths.tools.has_code_graph() {
+        true => Line::ok(
+            subject,
+            format!("the code graph server is at {}", binary.display()),
+        ),
+        false => Line::missing(
+            subject,
+            format!(
+                "the code graph server is not at {}, so the project's calls run without a code graph",
+                binary.display()
+            ),
+            "run `shep kelpie tools install`, or turn `code_graph.enabled` off",
+        ),
     }
 }
 

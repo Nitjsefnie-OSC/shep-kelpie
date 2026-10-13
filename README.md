@@ -104,7 +104,7 @@ shep kelpie tools install
 installed kelpie's tools in /path/to/.shep/kelpie/tools
 ```
 
-It puts the sandbox runtime under shep-kelpie's home, `$SHEP_HOME/kelpie`. On macOS it also makes a copy of the runtime with the two keychain services (`com.apple.securityd.xpc` and `com.apple.SecurityServer`) cut from its profile, which the runtime has no setting for. A call on a repo kelpie's GitHub App covers runs under that copy, and refuses to start when the copy is missing, so nothing a worker runs can ask the keychain for a login the `security` command stored, without a prompt. A repo the App does not cover keeps the services: its worker pushes and runs `gh` with the login the keychain holds.
+It puts the sandbox runtime under shep-kelpie's home, `$SHEP_HOME/kelpie`, and the code graph server beside it (see [Code graph](#code-graph)), a release pinned by version and SHA-256 and fetched with `curl`. A machine the release has no build for gets no server, and the install says so. On macOS it also makes a copy of the runtime with the two keychain services (`com.apple.securityd.xpc` and `com.apple.SecurityServer`) cut from its profile, which the runtime has no setting for. A call on a repo kelpie's GitHub App covers runs under that copy, and refuses to start when the copy is missing, so nothing a worker runs can ask the keychain for a login the `security` command stored, without a prompt. A repo the App does not cover keeps the services: its worker pushes and runs `gh` with the login the keychain holds.
 
 A covered call's `claude` cannot read its own login in the keychain, so it logs in with a token. Make it once, and keep it with `shep secret`:
 
@@ -410,6 +410,22 @@ roles = ["worker", "reviewer"]
 skip = ["noisy@house"]
 extra = { "style@lab" = "github:acme/lab#v2" }
 ```
+
+#### Code graph
+
+A project can give its workers and reviewers a graph of the code in the worktree, served by [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp). One call answers where a symbol is, what calls it and what it touches, where a worker would run a series of greps. It is off unless the project turns it on:
+
+```toml
+[app.dogs.kelpie.code_graph]
+enabled = true
+```
+
+- `shep kelpie tools install` fetches the pinned release into `<kelpie home>/tools/bin`. Kelpie writes each call's MCP config itself and never runs the tool's own `install`, which writes to your agent config files.
+- Before each worker turn and each Claude Code reviewer, kelpie indexes the work item's worktree into `<kelpie home>/<project>/code-graphs/<issue>`. Indexing is local CPU and spends no tokens. It stops after five minutes. The folder goes when the work item's worktree does.
+- The call gets the server through `--mcp-config` beside `--strict-mcp-config`, and `mcp__codebase-memory-mcp` in its allow-list. No other MCP server loads. The server runs inside the call's sandbox, may read its binary and index, writes only its index, and reaches no host.
+- Only the worker's working turns and the reviewers have it, and only on Claude Code. A retro, the project manager, the advisor and the researcher do not, and neither does a pi or Codex call.
+- A project that turns it on while the server is not installed gets a MISSING `code graph` line in `doctor`. Its calls run without a graph and the runner logs why, so a missing binary or a failed index never stops a work item.
+- The setting is read as the runner rereads its settings.
 
 #### Retros
 
@@ -1052,6 +1068,7 @@ A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]
 - `hooks` is a list of `{ point, command }`: your own checks, which kelpie runs itself for every harness and role. A point is a gate, which can refuse, or a notice, which only tells. The gates are `publish` (any text before it goes to the forge, kelpie's own included), `commit` (a worker's message and staged diff), `push` (the commits being pushed), `handover` (a worker's finished branch, before review), `command` (every shell command an agent runs, with its `command` line and `cwd`), `write` (every file an agent writes or edits, with its `path`, `tool` and `content` or `patch`), `after_command` (a shell command's `exit` and output tail, once it has run), `turn_start` (a prompt kelpie is about to send a worker, reviewer or the project manager) and `turn_end` (a worker's turn, with its `last_message`). The notices are `reset` (before kelpie compacts a session), `ruling` (a ruling raised, with its `kind`, `question` and `choices`), `ci` (CI settled on a `head`, with its `conclusion` and `failed` checks) and `done` (a work item ended, with its `history` entry). The command gets a JSON payload on stdin. `commit`, `push`, `command`, `write`, `after_command` and a worker's `publish` run inside kelpie's sandbox, in the worker's fence, so they read only what the worker can; the rest run in the runner, outside it. At a gate, exit 0 passes, 2 refuses with stderr as the reason, and anything else, a hook that runs past 30 seconds included, refuses as a hook that failed. At a notice, a non-zero exit or a hang is logged by hook name and kelpie goes on. A refused commit, push, command, write or `gh` post goes back to the agent as the tool's error, a refused `after_command` as feedback on the result, a refused pull request file, branch or `turn_end` back to the worker once, and a refused `turn_start` or post of kelpie's own parks on a ruling naming the hook. Each command must resolve when the runner starts, and a runner reads `hooks` only then, so a change waits for its next start. A point that is not one of these stops the runner at load, naming the points there are. Use `hooks` for a check that must hold on every harness (a git gate is a `command` hook that reads `command` from the payload and exits 2 to refuse), and `worker.guard_hooks` for a Claude Code hook on a tool call kelpie has no point for
 - `e2e.host`, `e2e.command` and `e2e.results`: an ssh host that runs the project's end-to-end tests, and the script and results folder in the repo. A runner reads them when it starts. See [End-to-end tests](#end-to-end-tests)
 - `skills.<step>`: see [Skills](#skills)
+- `code_graph.enabled`: whether the worker's and the reviewers' calls get a code graph of the worktree, off by default. See [Code graph](#code-graph)
 - `repo_setup.plugins`, `repo_setup.roles`, `repo_setup.skip` and `repo_setup.extra`: which of the repo's plugins reach which calls, and the plugins to add. See [Repo plugins](#repo-plugins)
 
 shep-kelpie's own settings, shared by every project, are the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Start from `kelpie-settings.example.toml`, and keep `dogs.toml` private: the webhook's URL is a credential.

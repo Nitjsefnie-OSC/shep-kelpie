@@ -271,6 +271,7 @@ fn reach(
         read: also.to_vec(),
         fence: Some(Box::new(fence)),
         block_keychain: false,
+        code_graph: None,
     })
 }
 
