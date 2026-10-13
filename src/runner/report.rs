@@ -228,6 +228,18 @@ pub enum StepReport {
         /// The checks that failed
         checks: Vec<String>,
     },
+    /// CI failed, its logs named no file the branch changed, and kelpie
+    /// reran the failed jobs instead of sending the worker a fix turn
+    CiRerun {
+        /// The work item's issue
+        issue: u64,
+        /// Its pull request
+        pull_request: u64,
+        /// The head CI ran on
+        head: String,
+        /// The checks that failed
+        checks: Vec<String>,
+    },
     /// The branch was rebased onto `main` and pushed, and CI runs again
     Rebased {
         /// The work item's issue

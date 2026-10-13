@@ -213,6 +213,10 @@ impl Forge for Gh {
         runs::failed_run_logs(repo, head, merge_group)
     }
 
+    fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        runs::rerun_failed(repo, head)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         let number = number.to_string();
         gh(&["pr", "ready", &number, "--repo", repo.as_str()]).map(drop)

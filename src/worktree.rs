@@ -13,8 +13,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
+mod changed;
 mod ref_folders;
 mod stale_lock;
+
+pub use changed::changed_files;
 
 /// The branch every work item is cut from, on `origin`
 pub const BASE: &str = "main";

@@ -22,16 +22,7 @@ pub(super) fn failed_run_logs(
     head: &str,
     merge_group: bool,
 ) -> Result<String, ForgeError> {
-    let listed = gh(&[
-        "run",
-        "list",
-        "--repo",
-        repo.as_str(),
-        "--limit",
-        "50",
-        "--json",
-        "databaseId,conclusion,headSha,event",
-    ])?;
+    let listed = list(repo)?;
     let mut text = String::new();
     for id in failed_runs(&listed, head, merge_group)? {
         let id = id.to_string();
@@ -42,6 +33,33 @@ pub(super) fn failed_run_logs(
         ));
     }
     Ok(text)
+}
+
+/// Reruns the failed jobs of the failed runs of `head`
+pub(super) fn rerun_failed(repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+    let listed = list(repo)?;
+    let ids = failed_runs(&listed, head, false)?;
+    if ids.is_empty() {
+        return Err(ForgeError::Failed(format!("no failed run on {head}")));
+    }
+    for id in ids {
+        let id = id.to_string();
+        gh(&["run", "rerun", &id, "--repo", repo.as_str(), "--failed"])?;
+    }
+    Ok(())
+}
+
+fn list(repo: &ForgeSlug) -> Result<Vec<u8>, ForgeError> {
+    gh(&[
+        "run",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--limit",
+        "50",
+        "--json",
+        "databaseId,conclusion,headSha,event",
+    ])
 }
 
 // The failed runs of `head`, or of the merge queue, newest first

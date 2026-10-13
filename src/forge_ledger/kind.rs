@@ -56,6 +56,8 @@ pub enum Kind {
     EditPullRequest,
     /// The logs of a head's failed CI runs
     FailedRunLogs,
+    /// The failed jobs of a head's CI runs rerun
+    RerunFailed,
     /// A pull request marked ready
     MarkReady,
     /// A label put on a pull request or taken off
@@ -142,6 +144,7 @@ impl Kind {
             | Self::CreatePullRequest
             | Self::EditPullRequest
             | Self::FailedRunLogs
+            | Self::RerunFailed
             | Self::AppWorkerToken
             | Self::AppComment
             | Self::AppEditComment

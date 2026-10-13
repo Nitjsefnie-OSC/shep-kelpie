@@ -59,8 +59,8 @@ pub(crate) struct FakeForge {
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
-    // What the failed CI runs' logs say, or why reading them fails
-    ci_log: Arc<Mutex<Result<String, String>>>,
+    // The failed CI runs: what their logs say, and the reruns asked of them
+    ci: Arc<Mutex<handed::CiRuns>>,
     // The title a pull request is read with, where a test names one
     titles: Arc<Mutex<HashMap<u64, String>>>,
     // The title and body of each pull request kelpie opened or edited, by number
@@ -154,7 +154,7 @@ impl FakeForge {
             issues: Arc::default(),
             created: Arc::default(),
             texts: Arc::default(),
-            ci_log: Arc::new(Mutex::new(Ok(String::new()))),
+            ci: Arc::default(),
             issues_down: Arc::default(),
             creates_left: Arc::default(),
             reviews: Arc::default(),
@@ -399,16 +399,6 @@ impl FakeForge {
     /// Makes changing a pull request's or an issue's labels fail, or work again
     pub(crate) fn set_labels_down(&self, down: bool) {
         self.labels_down.store(down, Ordering::SeqCst);
-    }
-
-    /// Makes pull request `number` read with `title`
-    pub(crate) fn set_title(&self, number: u64, title: &str) {
-        self.titles.lock().unwrap().insert(number, title.to_owned());
-    }
-
-    /// The title and body pull request `number` was opened or edited with
-    pub(crate) fn pull_request_text(&self, number: u64) -> Option<(String, String)> {
-        self.texts.lock().unwrap().get(&number).cloned()
     }
 
     /// Every comment posted, oldest first, with its pull request
@@ -851,7 +841,16 @@ impl Forge for FakeForge {
         _merge_group: bool,
     ) -> Result<String, ForgeError> {
         self.ask()?;
-        (self.ci_log.lock().unwrap().clone()).map_err(ForgeError::Failed)
+        self.ci.lock().unwrap().log().map_err(ForgeError::Failed)
+    }
+
+    fn rerun_failed(&self, _repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.ci
+            .lock()
+            .unwrap()
+            .rerun(head)
+            .map_err(ForgeError::Failed)
     }
 
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
