@@ -13,11 +13,11 @@ use crate::settings::Effort;
 use crate::test::OpenSandbox;
 use crate::tools::Tools as KelpieTools;
 
-const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
+pub(super) const WORKER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
 const REVIEW_ID: &str = "7c41b2e8-0d3a-4f6e-9b15-3e8a2c6d4f90";
 
 /// A worker's turn on gpt-6-luna that added one file through apply_patch
-const FRESH: &str = include_str!("../../../fixtures/codex-exec-fresh.jsonl");
+pub(super) const FRESH: &str = include_str!("../../../fixtures/codex-exec-fresh.jsonl");
 /// The same session resumed: a patch `kelpie confine` refused, a write the
 /// sandbox refused, and a command `kelpie guard` refused
 const RESUMED: &str = include_str!("../../../fixtures/codex-exec-resumed.jsonl");
@@ -26,7 +26,7 @@ const RESUMED: &str = include_str!("../../../fixtures/codex-exec-resumed.jsonl")
 const LIMITED: &str = include_str!("../../../fixtures/codex-exec-usage-limit.jsonl");
 
 /// The Codex session the recordings ran in
-const THREAD: &str = "01a0f7fd-4ed5-7773-80ea-165edc292d8d";
+pub(super) const THREAD: &str = "01a0f7fd-4ed5-7773-80ea-165edc292d8d";
 
 fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
@@ -36,7 +36,7 @@ fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     }
 }
 
-fn id(id: &str) -> SessionId {
+pub(super) fn id(id: &str) -> SessionId {
     SessionId(id.into())
 }
 
@@ -717,14 +717,14 @@ fn an_error_carries_only_the_end_of_a_long_output() {
     assert!(why.len() <= ERROR_TAIL && why.ends_with("the end"), "{why}");
 }
 
-struct World {
+pub(super) struct World {
     _dir: tempfile::TempDir,
     root: PathBuf,
 }
 
 impl World {
     // Short, and canonical, so a recorded path reads the same each time.
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let dir = crate::test::short_tempdir();
         let root = dir.path().canonicalize().unwrap();
         for folder in ["wt", "build", "worker", "outside", "home", "login"] {
@@ -733,11 +733,11 @@ impl World {
         Self { _dir: dir, root }
     }
 
-    fn path(&self, p: &str) -> PathBuf {
+    pub(super) fn path(&self, p: &str) -> PathBuf {
         self.root.join(p)
     }
 
-    fn call(&self, role: Role, session: Session) -> AgentCall {
+    pub(super) fn call(&self, role: Role, session: Session) -> AgentCall {
         AgentCall {
             issue: 7,
             settings: self.path("worker/settings.json"),

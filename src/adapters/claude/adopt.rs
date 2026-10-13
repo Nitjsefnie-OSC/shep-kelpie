@@ -32,6 +32,7 @@ impl ClaudeCli {
             },
             harness: Harness::ClaudeCode,
             kept: None,
+            session: None,
         })
     }
 
