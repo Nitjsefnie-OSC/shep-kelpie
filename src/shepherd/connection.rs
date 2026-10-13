@@ -28,8 +28,8 @@ pub type Opened<'a> =
 
 /// An open connection to a shepherd, which has been through its handshake
 ///
-/// Ask it with [`request`](dyn Connection::request) or
-/// [`request_with_deadline`](dyn Connection::request_with_deadline).
+/// Ask it with `request` or `request_with_deadline`, which `dyn Connection`
+/// carries over [`send`](Connection::send).
 pub trait Connection: Send + Sync + fmt::Debug {
     /// Sends `body` and waits for the shepherd's answer, for `deadline` or
     /// the shep client's default when `None`
@@ -53,7 +53,7 @@ impl dyn Connection + '_ {
     ///
     /// # Errors
     ///
-    /// As [`request`](Self::request).
+    /// As `request`.
     pub async fn request_with_deadline(
         &self,
         body: Request,
