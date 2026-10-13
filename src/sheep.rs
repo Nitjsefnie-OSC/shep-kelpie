@@ -191,6 +191,7 @@ fn serve(project: &str) -> Result<(), Exit> {
             Arc::new(claude.codex(codex_home.clone())),
         )),
         forge: Arc::new(Gh),
+        app_reads: None,
         voice: Arc::new(AppVoice::new(app_tokens, Box::new(CurlGithub))),
         meter: Box::new(claude.meter()),
         codex_meter: Box::new(claude.codex_meter(codex_home)),

@@ -16,9 +16,13 @@ use super::{
     pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::forge_ledger::{Ended, Kind, Ledger};
+use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
+
+mod app_reads;
+pub use app_reads::{AppForges, AppReads, Reading};
+use app_reads::{AppReader, Read};
 
 /// How long a hold lasts when the forge cannot say when its limit resets
 pub(super) const FALLBACK: u64 = 10 * 60;
@@ -101,6 +105,8 @@ pub struct RateHeld {
     ledger: Option<Arc<Ledger>>,
     // The project whose calls these are, when they are spaced by the hold's pace
     project: Option<String>,
+    // Who reads a repo, where the App can
+    app: Option<AppReader>,
 }
 
 impl RateHeld {
@@ -114,6 +120,7 @@ impl RateHeld {
             say,
             ledger: None,
             project: None,
+            app: None,
         }
     }
 
@@ -172,15 +179,12 @@ impl RateHeld {
     // What the answer itself says of when to ask again comes first, then the
     // forge's reset, then the fallback.
     fn held_until(&self, error: &ForgeError, now: Timestamp) -> Timestamp {
-        let said = match error {
-            ForgeError::Limited { cooldown, .. } => cooldown.until(now),
-            _ => None,
-        };
-        said.or_else(|| match self.reset() {
-            Ok(Some(reset)) if reset > now => Some(reset),
-            _ => None,
-        })
-        .unwrap_or(Timestamp(now.0.saturating_add(FALLBACK)))
+        said_until(error, now)
+            .or_else(|| match self.reset() {
+                Ok(Some(reset)) if reset > now => Some(reset),
+                _ => None,
+            })
+            .unwrap_or(fallback_from(now))
     }
 
     // The reset is a call to the forge too, so it takes its turn in the pace
@@ -204,10 +208,26 @@ impl RateHeld {
     }
 
     fn record(&self, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
+        self.record_by(Identity::Login, at, kind, millis, ended);
+    }
+
+    fn record_by(&self, by: Identity, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
         if let Some(ledger) = &self.ledger {
-            ledger.record(at, kind, millis, ended);
+            ledger.record_by(by, at, kind, millis, ended);
         }
     }
+}
+
+// What the answer itself says of when to ask again
+fn said_until(error: &ForgeError, now: Timestamp) -> Option<Timestamp> {
+    match error {
+        ForgeError::Limited { cooldown, .. } => cooldown.until(now),
+        _ => None,
+    }
+}
+
+fn fallback_from(now: Timestamp) -> Timestamp {
+    Timestamp(now.0.saturating_add(FALLBACK))
 }
 
 impl fmt::Debug for RateHeld {
@@ -252,27 +272,57 @@ impl Forge for RateHeld {
     }
 
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        self.call(Kind::Issue, |f| f.issue(repo, number))
+        self.read(
+            repo,
+            Read::Issue,
+            |a| a.issue(repo, number),
+            |f| f.issue(repo, number),
+        )
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        self.call(Kind::SubIssues, |f| f.sub_issues(repo, parent))
+        self.read(
+            repo,
+            Read::SubIssues,
+            |a| a.sub_issues(repo, parent),
+            |f| f.sub_issues(repo, parent),
+        )
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        self.call(Kind::ReadyIssues, |f| f.ready_issues(repo))
+        self.read(
+            repo,
+            Read::ReadyIssues,
+            |a| a.ready_issues(repo),
+            |f| f.ready_issues(repo),
+        )
     }
 
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
-        self.call(Kind::OpenPullRequests, |f| f.open_pull_requests(repo))
+        self.read(
+            repo,
+            Read::OpenPullRequests,
+            |a| a.open_pull_requests(repo),
+            |f| f.open_pull_requests(repo),
+        )
     }
 
     fn pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<PullRequest, ForgeError> {
-        self.call(Kind::PullRequest, |f| f.pull_request(repo, number))
+        self.read(
+            repo,
+            Read::PullRequest,
+            |a| a.pull_request(repo, number),
+            |f| f.pull_request(repo, number),
+        )
     }
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
-        self.call(Kind::Reviewed, |f| f.reviewed(repo, number))
+        self.read(
+            repo,
+            Read::Reviewed,
+            |a| a.reviewed(repo, number),
+            |f| f.reviewed(repo, number),
+        )
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {
@@ -391,7 +441,12 @@ impl Forge for RateHeld {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
-        self.call(Kind::ReviewBot, |f| f.review_bot(repo, number, login))
+        self.read(
+            repo,
+            Read::ReviewBot,
+            |a| a.review_bot(repo, number, login),
+            |f| f.review_bot(repo, number, login),
+        )
     }
 
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
