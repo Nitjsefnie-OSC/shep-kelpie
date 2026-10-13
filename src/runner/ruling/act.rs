@@ -147,14 +147,16 @@ fn agent_file(path: &str) -> bool {
 }
 
 // Puts `files` back as the last commit has them: a changed or staged file to
-// its committed text, and a new file removed.
+// its committed text, and a new file unstaged and then removed, since `clean`
+// leaves a staged one alone.
 fn restore(repo: &Path, worktree: &Path, files: &[String]) -> Result<(), worktree::WorktreeError> {
     let git = worktree::trusted(repo, worktree)?;
     let (kept, new): (Vec<&str>, Vec<&str>) =
         (files.iter().map(String::as_str)).partition(|file| in_head(&git, file));
     let checkout: &[&str] = &["checkout", "HEAD"];
+    let unstage: &[&str] = &["reset", "--quiet"];
     let clean: &[&str] = &["clean", "--force", "-x"];
-    for (command, paths) in [(checkout, kept), (clean, new)] {
+    for (command, paths) in [(checkout, kept), (unstage, new.clone()), (clean, new)] {
         if paths.is_empty() {
             continue;
         }

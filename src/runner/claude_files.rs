@@ -407,6 +407,33 @@ mod tests {
     }
 
     #[test]
+    fn restore_removes_a_new_agent_file_the_worker_staged() {
+        let (rig, runner, head) = Rig::with_pull_request("shep");
+        let wt = rig.worktree_7();
+        let staged = wt.join("AGENTS.md");
+        fs::write(&staged, "added by the worker\n").unwrap();
+        crate::test::git(&wt, &["add", "AGENTS.md"]);
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        rig.verdict(&runner);
+        rig.claude
+            .script([Scripted::Fail(crate::ports::AgentError::Failed(
+                crate::settings::Harness::ClaudeCode,
+                "the sandbox refused the settings file".into(),
+            ))]);
+        let question = failed(step(&runner).unwrap());
+        assert!(question.contains("AGENTS.md"), "{question}");
+        step(&runner).unwrap(); // the alert
+
+        let reply = rig.ask(&runner, "rule", Some("71 restore"));
+
+        assert_eq!(reply.get("error"), None, "{reply}");
+        assert!(!staged.exists(), "the file is still in the worktree");
+        let status = crate::test::git(&wt, &["status", "--porcelain"]);
+        assert!(!status.contains("AGENTS.md"), "still staged: {status}");
+    }
+
+    #[test]
     fn restore_puts_a_committed_agent_file_back_to_its_committed_text() {
         let (rig, runner, head) = Rig::with_pull_request("shep");
         let wt = rig.worktree_7();
