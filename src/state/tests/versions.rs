@@ -683,3 +683,49 @@ fn a_version_43_file_loads_its_red_workflow_and_merge_notice_and_main_notices_ro
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
+
+// A version 46 file has no contribution rulings, and one raised since is kept
+// as the runner left it.
+#[test]
+fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 46.into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.rulings, []);
+
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        id: 12,
+        issue: None,
+        question: "flagged".into(),
+        pull_request: Some(12),
+        kind: RulingKind::Contribution(Held::Security {
+            head: "2a8f1e6".into(),
+            lines: vec![Finding {
+                severity: crate::ports::Severity::High,
+                file: "build.rs".into(),
+                line: 3,
+                what: "runs a script".into(),
+                why: "at build time".into(),
+                test: None,
+            }],
+        }),
+        alerted: false,
+        panel: None,
+        verdict: None,
+        unposted: false,
+        skipped: None,
+        effects: Vec::new(),
+        raised: Some(Timestamp(1)),
+    });
+    store.save(&state).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["rulings"][0]["kind"]["kind"], "contribution");
+    assert_eq!(saved["rulings"][0]["kind"]["reason"], "security");
+    assert_eq!(store.load().unwrap(), Some(state));
+}

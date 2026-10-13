@@ -26,3 +26,14 @@ fn only_a_merge_kind_makes_the_list_refuse() {
     assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
     assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
 }
+
+#[test]
+fn pm_alone_naming_security_is_refused_at_load() {
+    let security = parse(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"security\"]\n"
+    ))
+    .unwrap()
+    .rulings;
+    let reason = security.refusal().expect("security is refused");
+    assert!(reason.contains("`security`"), "{reason}");
+}

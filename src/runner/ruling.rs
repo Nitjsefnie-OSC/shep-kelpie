@@ -8,6 +8,7 @@
 
 use std::fmt;
 
+use super::contributions;
 use super::gate::short;
 use super::report::{Begin, StepReport};
 use super::review::pushed::push_prompt;
@@ -327,6 +328,7 @@ impl Runner {
             }
         }
         let worktree = parked.map(|item| item.worktree.clone());
+        contributions::trust(&mut next, &answer, &ruling);
         let moved = decide(id, answer, ruling, now, head_moved)?;
         let did = (act.as_ref())
             .map(|act| self.carry_out(id, act, worktree.as_deref()))
@@ -540,6 +542,10 @@ impl Runner {
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
     pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
+        // A contribution's ruling stays off the contributor's pull request.
+        if (self.state.rulings.iter()).any(|r| r.id == id && r.kind.is_contribution()) {
+            return None;
+        }
         // A question the project manager may answer, or a ruling the panel has
         // yet to vote on, is not the maintainer's yet, so its comment waits
         // for the hold to end.
@@ -864,6 +870,8 @@ fn decide(
             merged: true,
             closed: false,
         },
+        // No work item is parked on it, so an answer only clears it.
+        (Answer::Yes | Answer::No(_), RulingKind::Contribution(_)) => Phase::Implement,
         (Answer::Do(action), _) => return Err(RuleError::NotOffered(id, action)),
         // The test is ended: the note is the worker's turn, and the pass goes on.
         (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {

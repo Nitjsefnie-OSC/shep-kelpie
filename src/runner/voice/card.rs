@@ -10,13 +10,14 @@
 //! the option it stood behind as the recommendation. A ruling the panel has
 //! not voted on holds the project manager's words where it gave any.
 
+use super::super::contributions::flagged_lines;
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
 use super::super::{Action, Answer};
 use super::merge_notes;
 use crate::panel::Voter;
-use crate::state::{Ruling, RulingKind, Stuck};
+use crate::state::{Held, Ruling, RulingKind, Stuck};
 use crate::work_item::Phase;
 
 /// What the project manager's `no` is in a table, when it has no more to say
@@ -324,6 +325,16 @@ impl Card {
                 title: "Accept a change made outside kelpie?".to_owned(),
                 facts: Some(super::said(kind)),
                 choices: yes_no("Accepts the change and kelpie carries on", Some(SENDS_BACK)),
+            },
+            RulingKind::Contribution(Held::Security { head, lines }) => Self {
+                problem: None,
+                board: None,
+                title: format!("Trust this contribution at {}?", short(head)),
+                facts: Some(flagged_lines(lines)),
+                choices: yes_no(
+                    "Trusts the head and lets it go on",
+                    Some("Leaves the head unpassed, so nothing runs on it and nothing is posted"),
+                ),
             },
             RulingKind::FollowUp { findings, refused } => {
                 let count = match findings.len() {

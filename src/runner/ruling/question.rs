@@ -2,9 +2,10 @@
 
 use super::{fix_turns_had, needs_pass};
 use crate::ports::Cost;
+use crate::runner::contributions::flagged_lines;
 use crate::runner::gate::short;
 use crate::runner::review::pushed::off_text;
-use crate::state::{Fix, RulingKind, Stuck};
+use crate::state::{Fix, Held, RulingKind, Stuck};
 use crate::work_item::{Phase, raised_cap};
 
 pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &RulingKind) -> String {
@@ -233,6 +234,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 "{} changed outside kelpie: {description}. {yes} accepts it and kelpie \
                  carries on, and {no} sends the worker your note.",
                 capitalized(&about)
+            );
+        }
+        RulingKind::Contribution(Held::Security { head, lines }) => {
+            return format!(
+                "The security review flagged {about} at {}, so nothing of it runs yet:\n{}\n\
+                 {yes} trusts this head and lets it go on, and {no} leaves it unpassed, so \
+                 nothing runs on it and nothing is posted.",
+                short(head),
+                flagged_lines(lines)
             );
         }
         RulingKind::FollowUp { findings, refused } => {

@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use super::super::Runner;
 use super::super::review::calls::build_call;
 use super::super::untrusted;
+use super::ruling;
 use crate::ports::{Agents, Ending, Finding, Role, Severity, Tools, read_review};
 use crate::settings::RoleModel;
 use crate::state::{Security, SecurityVerdict, StateError};
@@ -115,10 +116,18 @@ impl Runner {
         if verdict == SecurityVerdict::Passed {
             held.passed = Some(head.to_owned());
         }
+        let flagged = match &verdict {
+            SecurityVerdict::Flagged(lines) => Some(lines.clone()),
+            SecurityVerdict::Passed => None,
+        };
         held.security = Some(Security {
             head: head.to_owned(),
             verdict,
         });
+        if let Some(lines) = flagged {
+            let now = self.ports.clock.now();
+            ruling::raise(&mut next, pull_request, head, lines, now);
+        }
         self.save(next)
     }
 }

@@ -34,6 +34,7 @@ impl Wants {
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }
             | RulingKind::ForeignChange { .. }
+            | RulingKind::Contribution(..)
             | RulingKind::FollowUp { .. } => Self::YesOrNo,
         }
     }
@@ -119,6 +120,11 @@ mod tests {
         };
         assert_eq!(Wants::of(&merge), Wants::Merge);
         assert_eq!(Wants::of(&Stuck::Closed.into()), Wants::YesOrNo);
+        let flagged = RulingKind::Contribution(crate::state::Held::Security {
+            head: "abc".into(),
+            lines: Vec::new(),
+        });
+        assert_eq!(Wants::of(&flagged), Wants::YesOrNo);
     }
 
     #[test]

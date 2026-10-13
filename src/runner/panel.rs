@@ -247,15 +247,16 @@ impl Runner {
         std::mem::take(&mut self.panel.launched)
     }
 
-    // Whether `ruling` needs a panel that has not been taken up: it has no
-    // votes, lists two options or more, the project manager has not been asked
+    // Whether `ruling` needs a panel that has not been taken up: it is not a
+    // contribution's, which never goes to a vote, it has no votes, lists two options or more, the project manager has not been asked
     // it within its last wake (a drain does not undo that), and its comment is
     // still to be posted, since one posted without the votes is not edited to
     // hold them and a restart must not ask the experts again for a vote nobody
     // would see.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
-        ruling.panel.is_none()
+        !ruling.kind.is_contribution()
+            && ruling.panel.is_none()
             && ruling.skipped.is_none()
             && ruling.unposted
             && !posted
