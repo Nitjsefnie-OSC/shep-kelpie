@@ -161,6 +161,11 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         })
     };
     let format = if json { Format::Json } else { Format::Plain };
+    // An action that changes the runner: one it takes late is no failure.
+    let change = async |action: &str, params: Option<&str>| {
+        let name = project().await?;
+        control::change(&client, &name, action, params, format).await
+    };
     // `start`, `pause`, `finish` and `add` take their project in place of `-p` too.
     let positional = |name: Option<&&str>| match (name, &named) {
         (Some(_), Some(_)) => Err(format!("name the project once\n\n{USAGE}")),
@@ -171,7 +176,7 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
     };
     match (command, args.as_slice()) {
         ("add", [issue]) if !issue.is_empty() && issue.bytes().all(|b| b.is_ascii_digit()) => {
-            print("add", Some(issue)).await
+            change("add", Some(issue)).await
         }
         // Registering a checkout has no JSON form.
         ("add", _) if json => Err(USAGE.to_owned()),
@@ -229,19 +234,19 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
                 _ => answer,
             })
         }
-        ("rework" | "adopt", [number]) => send(command, Some(number)).await,
-        ("gate" | "drop", []) => print(command, None).await,
-        ("gate" | "drop", [issue]) => print(command, Some(issue)).await,
+        ("rework" | "adopt", [number]) => change(command, Some(number)).await,
+        ("gate" | "drop", []) => change(command, None).await,
+        ("gate" | "drop", [issue]) => change(command, Some(issue)).await,
         ("board", []) => print("board", None).await,
         ("board", ["top", issue]) if is_number(issue) => {
-            print("board", Some(&format!("top {issue}"))).await
+            change("board", Some(&format!("top {issue}"))).await
         }
         ("board", ["move", issue, position]) if is_number(issue) && is_number(position) => {
-            print("board", Some(&format!("move {issue} {position}"))).await
+            change("board", Some(&format!("move {issue} {position}"))).await
         }
         ("timings", []) => print("timings", None).await,
         ("timings", [count]) => print("timings", Some(count)).await,
-        ("drain" | "undrain", []) => print(command, None).await,
+        ("drain" | "undrain", []) => change(command, None).await,
         ("attach", [issue]) => {
             let number = (issue.parse::<u64>().ok())
                 .filter(|&n| n > 0 && issue.bytes().all(|b| b.is_ascii_digit()));
