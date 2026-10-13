@@ -185,7 +185,8 @@ impl Agents for PiCli {
             let guard = files.guard();
             std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
         }
-        if call.role == Role::Worker {
+        // A compact call of any role loads it, the project manager's included.
+        if call.role == Role::Worker || call.prompt == COMPACT {
             let compact = files.compact();
             std::fs::write(&compact, compact::EXTENSION).map_err(|e| setup(&compact, e))?;
         }
@@ -735,9 +736,18 @@ fn tail(text: &str) -> &str {
 
 // A compact call's output is read for its compaction, any other call's for its turn.
 fn read(call: &AgentCall, output: &Output) -> Result<AgentReply, AgentError> {
-    match call.prompt == COMPACT {
-        true => compact::parse(output, call.session.id()),
-        false => parse_result(output, call.session.id()),
+    read_as(call.prompt == COMPACT, output, call.session.id())
+}
+
+// The same for a call another image carried, which knows only whether it compacts.
+fn read_as(
+    compacting: bool,
+    output: &Output,
+    session: &SessionId,
+) -> Result<AgentReply, AgentError> {
+    match compacting {
+        true => compact::parse(output, session),
+        false => parse_result(output, session),
     }
 }
 

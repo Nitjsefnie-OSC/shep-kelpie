@@ -162,6 +162,33 @@ fn a_compact_call_sends_the_extension_s_command_and_loads_the_extension_and_skip
     assert_eq!(argv.last().unwrap(), "implement #7");
 }
 
+// A carried compact call is read for its compaction, not as a turn.
+#[test]
+fn a_carried_compact_call_is_read_for_its_compaction() {
+    let end = json!({ "result": { "summary": "s" }, "aborted": false, "willRetry": false });
+    let stdout = compaction_end(end);
+    let reply = read_as(true, &output(0, &stdout, ""), &id(WORKER_ID)).unwrap();
+    assert_eq!(reply.text, "");
+    let turn = read_as(false, &output(0, &stdout, ""), &id(WORKER_ID));
+    assert!(
+        matches!(turn, Err(AgentError::Unreadable(Harness::Pi, _))),
+        "{turn:?}"
+    );
+}
+
+// The project manager's compaction is a compact call on a role that is no worker's.
+#[test]
+fn a_compact_call_of_any_role_gets_the_extension_and_another_call_of_that_role_none() {
+    let w = World::new();
+    let pi = stand_in(&w, COMPACTION);
+    let mut call = w.call(URL, Role::Reviewer, Session::Resume(id(WORKER_ID)));
+    pi.prepare(&call).unwrap();
+    assert!(!w.path("settings.compact.ts").exists());
+    call.prompt = COMPACT.to_owned();
+    pi.prepare(&call).unwrap();
+    assert!(w.path("settings.compact.ts").exists());
+}
+
 #[test]
 fn a_worker_call_gets_the_compact_extension_beside_the_guard() {
     let w = World::new();
