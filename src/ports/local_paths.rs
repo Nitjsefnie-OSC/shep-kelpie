@@ -15,9 +15,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
-    PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
-    Visibility, Voice, Workflow,
+    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue, NewLabel,
+    OpenIssue, PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
+    Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -180,6 +180,10 @@ impl Forge for Guarded {
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
         self.forge.sub_issues(repo, parent)
+    }
+
+    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
+        self.forge.finished_parents(repo)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

@@ -291,6 +291,8 @@ pub struct Runner {
     skipped: Vec<Skip>,
     // The forge's refusals in a row to close a done parent, kept in memory only
     close_refused: parent::Refused,
+    // The parents off the ready list that built nothing, kept in memory only
+    unbuilt: parent::Unbuilt,
     // The review's reviewers, in order, from the project's list
     lineup: Vec<ListedReviewer>,
     // The reviewers a contribution's pass walks, in order. None while the
@@ -566,6 +568,7 @@ impl Runner {
             pacing: BTreeMap::new(),
             skipped: Vec::new(),
             close_refused: parent::Refused::new(),
+            unbuilt: parent::Unbuilt::new(),
             lineup,
             contribution_lineup,
             agents,

@@ -21,6 +21,15 @@ pub struct SubIssue {
     pub state: SubIssueState,
 }
 
+/// An open issue whose sub-issues are all closed, as the forge counts them
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinishedParent {
+    /// Its number
+    pub number: u64,
+    /// How many sub-issues it has, all closed
+    pub sub_issues: u64,
+}
+
 /// An issue as the forge holds it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {

@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
-    BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview,
-    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
-    ThreadComment, Timestamp, Visibility, Workflow,
+    BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
+    MaintainerReview, NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed,
+    SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -35,6 +35,7 @@ pub(crate) struct FakeForge {
     not_planned: Arc<Mutex<HashSet<u64>>>,
     // Whether listing a parent's sub-issues fails
     sub_issues_down: Arc<AtomicBool>,
+    listed_finished: Arc<Mutex<Vec<u64>>>,
     // The issues kelpie closed
     closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
@@ -121,6 +122,7 @@ impl FakeForge {
             sub_issues: Arc::default(),
             not_planned: Arc::default(),
             sub_issues_down: Arc::default(),
+            listed_finished: Arc::default(),
             closings: Arc::default(),
             closes_down: Arc::default(),
             closes_refused: Arc::default(),
@@ -537,6 +539,10 @@ impl Forge for FakeForge {
 
     fn sub_issues(&self, _repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
         self.read_sub_issues(parent)
+    }
+
+    fn finished_parents(&self, _repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
+        self.read_finished_parents()
     }
 
     fn ready_issues(&self, _repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

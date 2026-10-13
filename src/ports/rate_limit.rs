@@ -12,9 +12,9 @@ use std::time::Instant;
 
 use super::Revalidated;
 use super::{
-    BranchRun, Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel,
-    OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
-    Timestamp, Visibility, Workflow, pace,
+    BranchRun, Clock, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
+    LocalPace, NewLabel, OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk,
+    ThreadComment, Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -297,6 +297,12 @@ impl Forge for RateHeld {
         // Stays on the login: the App's token reaches one repo, and a parent's
         // sub-issues may sit in another, so a list from the App could be short.
         self.call(Kind::SubIssues, |f| f.sub_issues(repo, parent))
+    }
+
+    fn finished_parents(&self, repo: &ForgeSlug) -> Result<Vec<FinishedParent>, ForgeError> {
+        // Stays on the login, as `sub_issues` does: it names parents for the
+        // runner to close, and the App's token reaches one repo.
+        self.call(Kind::FinishedParents, |f| f.finished_parents(repo))
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

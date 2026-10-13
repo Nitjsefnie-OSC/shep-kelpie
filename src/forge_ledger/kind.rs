@@ -28,6 +28,8 @@ pub enum Kind {
     Issue,
     /// One issue's sub-issues, listed
     SubIssues,
+    /// The open issues whose sub-issues are all closed
+    FinishedParents,
     /// The board's ready issues
     ReadyIssues,
     /// The board's open pull requests
@@ -134,6 +136,7 @@ impl Kind {
                 | Self::ReviewBotSeen
                 | Self::Issue
                 | Self::SubIssues
+                | Self::FinishedParents
                 | Self::ReadyIssues
                 | Self::OpenPullRequests
                 | Self::PullRequest
@@ -165,6 +168,7 @@ impl Kind {
             | Self::RepoLabels
             | Self::CanPush
             | Self::Issue
+            | Self::FinishedParents
             | Self::ReadyIssues
             | Self::OpenPullRequests
             | Self::PullRequest
