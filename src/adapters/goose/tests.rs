@@ -340,6 +340,50 @@ fn what_goose_cannot_give_a_fenced_call_fails_before_the_call() {
 }
 
 #[test]
+fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
+    let w = World::new();
+    let goose = ClaudeCli::default()
+        .goose()
+        .with_gateways(gateways("http://192.0.2.9:11434", GatewayKind::Openai));
+    let mut call = on_gateway(&w, Role::Researcher);
+    let mut fence = w
+        .fenced(URL, Path::new("/k/kelpie"), Session::New(id(OTHER_ID)))
+        .reach
+        .fence
+        .unwrap();
+    fence.env.clear();
+    for (name, value) in [
+        ("GOOSE_MODE", "auto"),
+        ("OPENAI_API_KEY", "real"),
+        ("FROM_THE_FENCE", "1"),
+    ] {
+        fence.env.insert(name.to_owned(), value.to_owned());
+    }
+    call.reach.fence = Some(fence);
+    goose.prepare(&call).unwrap();
+    let upstream = goose.upstream(server(&call).unwrap()).unwrap();
+    let files = Files::of(&call.settings);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
+    assert!(vars.contains(&"FROM_THE_FENCE=1".to_owned()), "{vars:?}");
+    assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
+    assert!(
+        vars.contains(&"OPENAI_API_KEY=kelpie".to_owned()),
+        "{vars:?}"
+    );
+    assert_eq!(
+        vars.iter().filter(|v| v.starts_with("GOOSE_MODE=")).count(),
+        1
+    );
+    assert_eq!(
+        vars.iter()
+            .filter(|v| v.starts_with("OPENAI_API_KEY="))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn a_call_in_a_folder_with_project_plugins_or_goose_settings_is_refused_naming_it() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);

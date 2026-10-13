@@ -191,8 +191,10 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
 // An error the model host did not answer is the host's, and passes. Any other
 // is the call's own.
 fn failed(detail: &str) -> AgentError {
+    // Read whole: the sign may come before the end the error keeps.
+    let unreachable = reaches_no_host(detail);
     let detail = tail(detail).to_owned();
-    match reaches_no_host(&detail) {
+    match unreachable {
         true => AgentError::Unreachable(GOOSE, detail),
         false => AgentError::Failed(GOOSE, detail),
     }
@@ -205,8 +207,13 @@ fn failed(detail: &str) -> AgentError {
 fn reaches_no_host(detail: &str) -> bool {
     let lower = detail.trim_start().to_ascii_lowercase();
     let digits = lower.bytes().take_while(u8::is_ascii_digit).count();
+    // Three digits then a letter, or a dot and a digit, are a word or an address.
+    let rest = &lower[digits..];
+    let address = rest
+        .strip_prefix('.')
+        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()));
     let leads_with_status =
-        digits == 3 && !lower[digits..].starts_with(|c: char| c.is_ascii_alphanumeric());
+        digits == 3 && !address && !rest.starts_with(|c: char| c.is_ascii_alphanumeric());
     if leads_with_status {
         return matches!(&lower[..digits], "502" | "503");
     }

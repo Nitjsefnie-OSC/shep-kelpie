@@ -344,8 +344,11 @@ fn env_args(
         ("GOOSE_TELEMETRY_OFF".into(), "1".into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
     ];
+    // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
-        vars.extend((fence.env.iter()).map(|(name, value)| (name.clone(), value.clone().into())));
+        let own: Vec<String> = vars.iter().map(|(name, _)| name.clone()).collect();
+        let added = (fence.env.iter()).filter(|(name, _)| !own.contains(name));
+        vars.extend(added.map(|(name, value)| (name.clone(), value.clone().into())));
     }
     vars.into_iter()
         .map(|(name, value)| {

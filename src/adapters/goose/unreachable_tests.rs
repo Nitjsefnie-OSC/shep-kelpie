@@ -25,6 +25,7 @@ fn a_model_host_that_cannot_be_reached_is_unreachable_and_any_other_error_fails(
         "Request failed: error sending request: Connection refused (os error 61)",
         "read ECONNRESET",
         "Network error: Could not connect to 192.0.2.9:11434",
+        "192.0.2.9:11434: connection refused",
     ] {
         assert_eq!(
             errored_with(message),
@@ -81,6 +82,14 @@ fn a_model_host_that_cannot_be_reached_is_unreachable_and_any_other_error_fails(
     assert_eq!(
         errored_with(message),
         Err(AgentError::Failed(Harness::Goose, message.into()))
+    );
+
+    // The sign may come before the last 2048 bytes an error keeps.
+    let long = format!("connection refused {}", "x".repeat(4096));
+    let err = errored_with(&long).unwrap_err();
+    assert!(
+        matches!(&err, AgentError::Unreachable(Harness::Goose, why) if why.len() == 2048),
+        "{err:?}"
     );
 
     // A reply that begins "Network error:" but spent tokens is the model's own words.
