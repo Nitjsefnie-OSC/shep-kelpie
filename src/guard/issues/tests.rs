@@ -110,6 +110,7 @@ fn it_files_reads_this_repos_issues_and_labels_and_links_its_own() {
         let labels = format!("--label {status} --label agent:sonnet-high");
         for command in [
             create(&labels, BODY),
+            create(&format!("--label {status} --label 'priority: P3'"), BODY),
             format!(
                 "gh issue create -t 'Add a thing' -l '{status},agent:opus-high' --body \
                  \"$(cat <<'EOF'\n{BODY}EOF\n)\""
@@ -317,21 +318,17 @@ fn a_command_is_only_ever_its_plain_words() {
 }
 
 #[test]
-fn an_issue_carries_its_status_one_listed_agent_and_acceptance_criteria() {
+fn an_issue_carries_its_status_at_most_one_listed_agent_and_acceptance_criteria() {
     for (status, other) in [(HUMAN, READY), (READY, HUMAN)] {
         let s = Session::new(status);
         let label = format!("--label {status}");
         let cases = [
             (
-                create(&label, BODY),
-                "exactly one `agent:<name>` label".to_owned(),
-            ),
-            (
                 create(
                     &format!("{label} -l agent:sonnet-high -l Agent:opus-high"),
                     BODY,
                 ),
-                "exactly one".to_owned(),
+                "at most one `agent:<name>` label".to_owned(),
             ),
             (
                 create(&format!("{label} -l agent:haiku-low"), BODY),
