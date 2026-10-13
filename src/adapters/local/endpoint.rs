@@ -5,7 +5,8 @@
 //! chunk goes to the server's `/chat/completions` with kelpie's prompt,
 //! through `curl`, and each reply is read in the findings format. The agent
 //! file's body, if it has one, replaces what the prompt asks to report.
-//! A gateway's key reaches `curl` on its stdin, never in its arguments.
+//! A gateway's key reaches `curl` on its stdin, never in its arguments, and
+//! a round behind one holds a paddock lease on its model across every chunk.
 //! Requests and replies are kept under the round's folder, beside the
 //! `round-N.txt` and its completion marker a command would write.
 
@@ -17,9 +18,10 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::LocalReviewer;
+use crate::adapters::paddock::{Stand, Taking, Unheld};
 use crate::adapters::process::RunError;
-use crate::ports::{CLEAN, Finding, ReviewerError, read_review};
-use crate::settings::{Endpoint, Route};
+use crate::ports::{CLEAN, Ending, Finding, ReviewerError, RoundStage, read_review};
+use crate::settings::{Endpoint, ModelHost, Route};
 use crate::worktree::Linked;
 
 // The system prompt every chunk is sent with, in four pieces. A reviewer's
@@ -110,16 +112,77 @@ impl LocalReviewer {
     }
 
     /// Reviews the diff from `base` chunk by chunk, and returns every finding
+    ///
+    /// Behind a gateway the round holds a lease on the model from before the
+    /// first chunk to after the last, and tells `watch` while it waits for its turn.
     pub(super) fn endpoint_round(
         &self,
         endpoint: &Endpoint,
         worktree: Linked<'_>,
         base: &str,
-        out: &Path,
-        round: u32,
+        (out, round): (&Path, u32),
         criteria: &str,
+        watch: &(dyn Fn(RoundStage) + Sync),
     ) -> Result<Vec<Finding>, ReviewerError> {
         let route = (self.gateways.route(&endpoint.host)).map_err(ReviewerError::Failed)?;
+        let ending = Ending::default();
+        let chunked = || {
+            self.chunked_round(
+                &route,
+                endpoint,
+                worktree,
+                base,
+                (out, round),
+                criteria,
+                &ending,
+            )
+        };
+        let ModelHost::Gateway(name) = &endpoint.host else {
+            return chunked();
+        };
+        let upstream = (self.gateways.upstream(&endpoint.host)).map_err(ReviewerError::Failed)?;
+        let place = worktree.worktree.file_name().unwrap_or_default();
+        let note = format!("kelpie local round {round} in {}", place.to_string_lossy());
+        // The wait for a turn is the round's queue, as the GPU lock's was.
+        let queued = std::cell::Cell::new(false);
+        let tell = |stand| match stand {
+            Stand::Turn if !queued.replace(true) => watch(RoundStage::Queued),
+            Stand::Granted if queued.get() => watch(RoundStage::Running),
+            _ => {}
+        };
+        let taking = Taking {
+            gateway: &upstream,
+            model: endpoint.model.as_str(),
+            note: &note,
+            give_up: &|| self.processes.stopping(),
+            tell: &tell,
+            ending: &ending,
+            timing: self.paddock,
+        };
+        taking.around(chunked).map_err(|unheld| match unheld {
+            Unheld::GaveUp => ReviewerError::Stopped,
+            Unheld::Refused(why) => ReviewerError::Failed(format!(
+                "cannot take a lease on {} from gateway {name}: {why}",
+                endpoint.model.as_str()
+            )),
+            Unheld::Lost(why) => ReviewerError::Failed(why),
+        })?
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "`endpoint_round`'s own, and the ending"
+    )]
+    fn chunked_round(
+        &self,
+        route: &Route,
+        endpoint: &Endpoint,
+        worktree: Linked<'_>,
+        base: &str,
+        (out, round): (&Path, u32),
+        criteria: &str,
+        ending: &Ending,
+    ) -> Result<Vec<Finding>, ReviewerError> {
         let diff = diff(worktree, base)?;
         let system = system_prompt(endpoint.prompt.as_deref(), criteria);
         let context = endpoint.context.get() as usize;
@@ -146,9 +209,10 @@ impl LocalReviewer {
             std::fs::write(&request, body.to_string())
                 .map_err(|e| failed(&request, "write", &e))?;
             let answer = self.ask(
-                &route,
+                route,
                 &request,
                 &folder.join(format!("reply-{index}.json")),
+                ending,
             )?;
             text.push_str(answer.trim());
             text.push('\n');
@@ -168,7 +232,13 @@ impl LocalReviewer {
     }
 
     // One chunk's request, answered with the model's words and no thinking.
-    fn ask(&self, route: &Route, request: &Path, reply: &Path) -> Result<String, ReviewerError> {
+    fn ask(
+        &self,
+        route: &Route,
+        request: &Path,
+        reply: &Path,
+        ending: &Ending,
+    ) -> Result<String, ReviewerError> {
         let url = format!("{}/chat/completions", route.base.as_str());
         // curl leaves the file alone on a reply with no body, and a retried
         // round reuses the name.
@@ -198,7 +268,12 @@ impl LocalReviewer {
         };
         let output = self
             .processes
-            .output_within_fed(&mut command, REQUEST_TIMEOUT, config.as_bytes())
+            .output_within_fed(
+                &mut command,
+                REQUEST_TIMEOUT,
+                config.as_bytes(),
+                Some(ending),
+            )
             .map_err(|e| match e {
                 RunError::Io(e) => ReviewerError::Spawn(format!("curl: {e}")),
                 RunError::Stopped => ReviewerError::Stopped,

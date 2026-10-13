@@ -9,7 +9,10 @@ use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
 use crate::settings::AgentName;
 use crate::settings::LocalRound;
-use crate::test::{Answer, Rig, Scripted, ScriptedRound, StandInEndpoint, unreachable_url};
+use crate::test::{
+    Answer, CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, StandInEndpoint, Take,
+    unreachable_url,
+};
 
 // A rig whose project lists only `mine`, the reviewer `file` defines.
 fn rig_with(file: &str) -> Rig {
@@ -115,6 +118,78 @@ fn the_endpoint_reviewers_findings_reach_the_worker() {
     step(&runner).unwrap(); // the finding goes to the worker
     let text = std::fs::read_to_string(rig.build_7().join("review-findings.md")).unwrap();
     assert!(text.contains("leftover placeholder text"), "{text}");
+}
+
+// The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
+const BEHIND_PADDOCK: &str = "---\nrole: reviewer\nharness: endpoint\ngateway: paddock\n\
+                              model: coder\ncontext: 8192\n---\n";
+
+const TURN: &str = r#"{"error":"busy","reason":"coder is serving","reason_kind":"turn"}"#;
+
+#[test]
+fn a_round_behind_a_gateway_waits_on_a_turn_and_counts_the_wait_as_a_wait() {
+    let grant = Hold::default();
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)])
+        .like_paddock(env!("CARGO_PKG_NAME"), &["coder"])
+        .with_takes([Take::Status(503, TURN), Take::Held(grant.clone())]);
+    let rig = rig_with(BEHIND_PADDOCK);
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway = format!(
+        "[gateways.paddock]\nurl = \"{}\"\nkey_env = \"CARGO_PKG_NAME\"\n",
+        server.host()
+    );
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    rig.reviewer
+        .pass_through_behind(rig.kelpie_settings().gateways());
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    std::thread::scope(|scope| {
+        let round = scope.spawn(|| step(&runner));
+        assert!(grant.entered(CALL_PATIENCE), "the round never asked again");
+        rig.clock.advance(120);
+        let state = std::fs::read_to_string(rig.paths().state).unwrap();
+        let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+        assert_eq!(state["work_items"][0]["timings"]["queued"], json!(true));
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["work_item"]["timings"]["phase"], "review");
+        assert_eq!(status["work_item"]["timings"]["seconds"]["review"], 120);
+        grant.release();
+        let report = round.join().unwrap().unwrap();
+        assert!(matches!(
+            report,
+            Some(StepReport::ReviewRound { round: 1, .. })
+        ));
+    });
+    let lines = crate::usage::read(&rig.paths().folder.join(crate::usage::FILE)).unwrap();
+    let ledger: Vec<_> = lines
+        .iter()
+        .map(|line| serde_json::to_value(line).unwrap())
+        .collect();
+    let [_, round] = ledger.as_slice() else {
+        panic!("the turn and the round, once: {ledger:#?}")
+    };
+    assert_eq!(
+        (&round["kind"], &round["seconds"], &round["gpu_seconds"]),
+        (&json!("local-round"), &json!(120), &json!(0)),
+        "the wait for the turn is not time on the GPU"
+    );
+    let seen = server.seen();
+    let leases = seen
+        .iter()
+        .filter(|l| l.starts_with("POST /paddock/leases"));
+    assert_eq!(
+        leases.count(),
+        2,
+        "turned away once, then granted: {seen:?}"
+    );
+    assert_eq!(
+        seen.last().map(String::as_str),
+        Some("DELETE /paddock/leases/L1 HTTP/1.0"),
+        "the lease is returned after the round"
+    );
 }
 
 #[test]

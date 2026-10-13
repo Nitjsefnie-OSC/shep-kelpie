@@ -689,7 +689,7 @@ fn a_worktree_whose_commondir_points_elsewhere_is_refused_and_runs_nothing() {
 }
 
 #[test]
-fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_no_lock() {
+fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease_and_no_lock() {
     use crate::settings::{Gateway, GatewayName, Gateways, KeyVar};
     let dir = tempfile::tempdir().unwrap();
     let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
@@ -716,9 +716,68 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_no_lock() {
         server.seen(),
         [
             "GET /v1/models HTTP/1.1",
-            "POST /v1/chat/completions HTTP/1.1"
-        ]
+            "POST /paddock/leases HTTP/1.0",
+            "POST /v1/chat/completions HTTP/1.1",
+            "DELETE /paddock/leases/L1 HTTP/1.0",
+        ],
+        "the lease is taken before the chunk and released after it"
     );
-    assert_eq!(server.authorizations()[1].as_deref(), Some("Bearer pk-r"));
+    assert_eq!(server.authorizations()[2].as_deref(), Some("Bearer pk-r"));
     assert!(!dir.path().join("locks").exists(), "no lock was taken");
+}
+
+#[test]
+fn a_round_waiting_for_its_turn_behind_a_gateway_queues_until_it_is_granted() {
+    use crate::adapters::paddock::Timing;
+    use crate::ports::RoundStage;
+    use crate::settings::{Gateway, GatewayName, Gateways, KeyVar};
+    use crate::test::Take;
+    const TURN: &str =
+        r#"{"error":"busy","reason":"coder is serving kelpie #9","reason_kind":"turn"}"#;
+    const LOADING: &str = r#"{"error":"busy","reason":"coder is loading","reason_kind":"loading"}"#;
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)])
+        .like_paddock("pk-r", &[])
+        .with_takes([
+            Take::Status(503, LOADING),
+            Take::Status(503, TURN),
+            Take::Status(503, TURN),
+        ]);
+    let name = GatewayName::try_from("paddock".to_owned()).unwrap();
+    let gateway = Gateway {
+        url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    let table = std::collections::BTreeMap::from([(name.clone(), gateway)]);
+    let quick = Timing {
+        retry: std::time::Duration::from_millis(10),
+        ..Timing::RUNNER
+    };
+    let reviewer = LocalReviewer::default()
+        .with_gateways(Gateways::reading(table, |_| Some("pk-r".into())))
+        .with_paddock_timing(quick);
+    let LocalRound::Endpoint(mut endpoint) = local("http://unused/v1", 8192) else {
+        unreachable!()
+    };
+    endpoint.host = ModelHost::Gateway(name);
+    let round = LocalRound::Endpoint(endpoint);
+    let stages = std::sync::Mutex::new(Vec::new());
+    let watch = |stage| stages.lock().unwrap().push(stage);
+    let out = dir.path().join("out");
+    let findings = reviewer.round_watched(
+        &round,
+        linked(&checkout),
+        "origin/main",
+        &out,
+        1,
+        "",
+        &watch,
+    );
+    assert_eq!(findings, Ok(Vec::new()));
+    assert_eq!(
+        *stages.lock().unwrap(),
+        [RoundStage::Queued, RoundStage::Running],
+        "a load is no queue, a turn is, and the grant ends it once"
+    );
 }

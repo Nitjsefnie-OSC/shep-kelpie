@@ -525,11 +525,11 @@ fn a_model_behind_a_gateway_takes_no_lease_and_its_endpoint_reads_no_api_ps() {
     for (text, why) in [
         (
             on.replace("effort: low", "effort: low\nlease: gpu"),
-            "no `lease`",
+            "whose lease kelpie takes for each call itself",
         ),
         (
             endpoint.replace("model: coder", "model: coder\nlease: gpu"),
-            "no `lease`",
+            "whose lease kelpie takes for each call itself",
         ),
         (
             on.replace("gateway: paddock", "gateway: paddock\nurl: http://box/v1"),

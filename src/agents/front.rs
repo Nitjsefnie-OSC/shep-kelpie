@@ -492,7 +492,8 @@ fn host(
 }
 
 /// Why a model behind a gateway takes no `lease`
-const NO_LEASE: &str = "names a `gateway`, which queues its calls itself, so it takes no `lease`";
+const NO_LEASE: &str =
+    "names a `gateway`, whose lease kelpie takes for each call itself, so it takes no `lease`";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
     if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {

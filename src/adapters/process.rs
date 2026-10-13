@@ -101,10 +101,11 @@ impl Processes {
         command: &mut Command,
         limit: Duration,
     ) -> Result<Output, RunError> {
-        self.output_within_fed(command, limit, b"")
+        self.output_within_fed(command, limit, b"", None)
     }
 
-    /// Like `output_within`, with `input` written to the child's stdin
+    /// Like `output_within`, with `input` written to the child's stdin, and
+    /// the child killed once `ending` is asked if one is given
     ///
     /// A secret goes this way rather than in the arguments, which any
     /// process on the machine can list. The limit covers the write too, so a
@@ -114,10 +115,11 @@ impl Processes {
         command: &mut Command,
         limit: Duration,
         input: &[u8],
+        ending: Option<&Ending>,
     ) -> Result<Output, RunError> {
         let until = Until {
             deadline: Some(Instant::now() + limit),
-            ending: None,
+            ending,
         };
         self.run(command, until, &|_| {}, None, input)
     }
@@ -588,6 +590,7 @@ mod tests {
                 Command::new("sh").args(["-c", "sleep 30"]),
                 Duration::from_millis(200),
                 &input,
+                None,
             );
             let _ = done.send(result);
         });
@@ -603,7 +606,12 @@ mod tests {
         let processes = Processes::default();
         let input = vec![b'x'; 1024 * 1024];
         let output = processes
-            .output_within_fed(&mut Command::new("cat"), Duration::from_secs(30), &input)
+            .output_within_fed(
+                &mut Command::new("cat"),
+                Duration::from_secs(30),
+                &input,
+                None,
+            )
             .unwrap();
         assert_eq!(output.stdout, input);
     }
