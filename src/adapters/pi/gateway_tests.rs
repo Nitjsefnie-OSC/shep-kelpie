@@ -223,20 +223,18 @@ fn a_workers_chat_call_names_the_lease_its_turn_holds() {
         .like_paddock(KEY, &[]);
     let w = World::new();
     let pi = pi_on(&w, &server, FRESH, 0);
-    let worker = on_gateway(&w, Role::Worker);
-    pi.prepare(&worker).unwrap();
-    // The lease is let go of when `leased` returns, and the forwarder keeps its name.
-    let (_command, forwarder) = pi
-        .leased(&worker, &Ending::default(), |lease| {
-            pi.sandboxed_command(&worker, lease)
-        })
-        .unwrap()
-        .unwrap();
-    assert!(chat_through(&forwarder).contains("hello"));
-
-    let (_command, unleased) = pi.sandboxed_command(&worker, None).unwrap();
-    assert!(chat_through(&unleased).contains("hello"));
-
+    for role in [Role::Worker, Role::Reviewer] {
+        let call = on_gateway(&w, role);
+        pi.prepare(&call).unwrap();
+        // The lease is let go of when `leased` returns, and the forwarder keeps its name.
+        let (_command, forwarder) = pi
+            .leased(&call, &Ending::default(), |lease| {
+                pi.sandboxed_command(&call, lease)
+            })
+            .unwrap()
+            .unwrap();
+        assert!(chat_through(&forwarder).contains("hello"), "{role:?}");
+    }
     let batch = ("x-paddock-priority".to_owned(), "batch".to_owned());
     let lease = ("x-paddock-lease".to_owned(), "L1".to_owned());
     // The lease's own take and release are requests too, with no paddock header.

@@ -29,7 +29,7 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
     Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage, Wait, written_at,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
@@ -241,14 +241,15 @@ impl PiCli {
             })
     }
 
-    // The forwarder names `lease`, the gateway lease the call holds, on each chat call.
+    // The forwarder names `lease`, the gateway lease the call holds, on a worker's
+    // chat calls. A reviewer's session holds one too but names none.
     fn sandboxed_command(
         &self,
         call: &AgentCall,
         lease: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
         let upstream = self.upstream(server(call)?)?;
-        let upstream = match lease {
+        let upstream = match lease.filter(|_| call.role == Role::Worker) {
             Some(id) => upstream.with_lease(id),
             None => upstream,
         };
