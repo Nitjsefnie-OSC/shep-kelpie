@@ -75,8 +75,8 @@ pub(in crate::runner) fn answers(
             .any(|a| a.round < round && a.finding.is_same_as(f));
         match reason {
             Some(reason) if !again => answers.disputed.push((at, reason)),
-            _ if deferred.iter().any(|d| d.is_same_as(f)) => answers.deferred.push(at),
             Some(_) => answers.repeated.push(at),
+            None if deferred.iter().any(|d| d.is_same_as(f)) => answers.deferred.push(at),
             None => answers.unanswered.push(at),
         }
     }
@@ -84,6 +84,12 @@ pub(in crate::runner) fn answers(
 }
 
 impl Answers {
+    /// Whether the worker disputed a finding again that a reviewer had raised
+    /// again after an earlier dispute
+    pub(in crate::runner) fn repeated(&self) -> bool {
+        !self.repeated.is_empty()
+    }
+
     /// What the answers come to when every finding that is not a nit is
     /// deferred or disputed, and one at least is disputed
     pub(in crate::runner) fn settled(self) -> Option<Settled> {
@@ -211,11 +217,10 @@ impl Runner {
         let item = self.current().expect("a dispute is a work item's");
         let unshown: Vec<&Dispute> = item.disputes.iter().filter(|d| !d.shown).collect();
         if unshown.is_empty() {
-            let count = item.disputes.len();
-            return Ok((item.disputes_comment).map(|id| told(count, number, id)));
+            return Ok((item.disputes_comment).map(|id| told(None, number, id)));
         }
         let body = comment(&unshown);
-        let count = item.disputes.len();
+        let count = unshown.len();
         let posted = match self.app_covers() {
             true => (self.ports.voice.post(&self.remote, number, &body)).map(|posted| posted.id),
             false => self.comment_as_gh_id(number, &body),
@@ -226,7 +231,7 @@ impl Runner {
                     mark_shown(item);
                     item.disputes_comment = Some(id);
                 })?;
-                Ok(Some(told(count, number, id)))
+                Ok(Some(told(Some(count), number, id)))
             }
             Err(e) => {
                 self.notes.push(format!(
@@ -249,10 +254,11 @@ fn findings_of(count: usize) -> String {
     }
 }
 
-fn told(count: usize, number: u64, comment: u64) -> String {
+// `count` is how many the comment lists, unknown where it was posted by an earlier step
+fn told(count: Option<usize>, number: u64, comment: u64) -> String {
+    let which = count.map_or_else(|| "findings".to_owned(), findings_of);
     format!(
-        "The worker disputed {} that no reviewer read again: they are in comment {comment} on #{number}.",
-        findings_of(count)
+        "The worker disputed {which} that no reviewer read again: they are in comment {comment} on #{number}."
     )
 }
 
@@ -287,9 +293,11 @@ use std::sync::Mutex;
 use serde_json::json;
 
 #[cfg(test)]
-use crate::ports::{Checks, Severity};
+use crate::ports::{AgentError, Checks, Severity};
 #[cfg(test)]
 use crate::runner::{StepReport, step};
+#[cfg(test)]
+use crate::settings::Harness;
 #[cfg(test)]
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -617,4 +625,113 @@ fn with_no_reviewer_after_it_the_disputes_go_on_the_pull_request_as_one_comment(
         "the ruling names it: {question}"
     );
     assert!(question.contains("comment"), "{question}");
+}
+
+// Pull request 71 with the App covering the repo, round 1 (qwen) about to read it.
+#[cfg(test)]
+fn at_round_1_with_app() -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
+    (rig, runner)
+}
+
+// Green CI on the head, and the merge ruling it raises
+#[cfg(test)]
+fn merge_question(rig: &Rig, runner: &Mutex<Runner>) -> String {
+    rig.ci_on_now(runner);
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    let Some(StepReport::Ruling { question, .. }) = rig.verdict(runner) else {
+        panic!("a merge ruling is raised on green CI");
+    };
+    question
+}
+
+#[test]
+fn a_reviewer_that_fails_after_being_shown_the_disputes_leaves_them_for_the_pull_request() {
+    let (rig, runner) = at_round_1_with_app();
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![found()])]);
+    step(&runner).unwrap(); // round 1's qwen call
+    step(&runner).unwrap(); // the findings go out: the fix turn is next
+    dispute(&rig, &format!("{FOUND_LINE}{REASON}"));
+    rig.claude.script([Scripted::Say("The finding is wrong.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken: claude reads next
+    let down = AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    rig.claude
+        .script((0..3).map(|_| Scripted::Fail(down.clone())));
+    for _ in 0..3 {
+        step(&runner).unwrap(); // claude's round fails, and is passed over on the third
+    }
+
+    let question = merge_question(&rig, &runner);
+
+    let comments = rig.github.comments();
+    assert!(
+        comments.iter().any(|(_, text)| text.contains("disputed")),
+        "the disputes no reviewer read are posted: {comments:?}"
+    );
+    assert!(question.contains("disputed"), "{question}");
+}
+
+#[test]
+fn the_merge_ruling_counts_only_the_disputes_no_reviewer_read() {
+    let (rig, runner) = at_round_1_with_app();
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![found()])]);
+    step(&runner).unwrap(); // round 1's qwen call
+    step(&runner).unwrap(); // the findings go out: the fix turn is next
+    dispute(&rig, &format!("{FOUND_LINE}{REASON}"));
+    rig.claude.script([Scripted::Say("The finding is wrong.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken: claude reads next
+    let other = "HIGH|src/lib.rs:9|another thing|it is wrong\n";
+    rig.claude.script([Scripted::Text(other)]);
+    step(&runner).unwrap(); // round 2, claude, the last reviewer, finds another
+    step(&runner).unwrap(); // the finding goes to the worker
+    dispute(&rig, &format!("{other}{REASON}"));
+    rig.claude.script([Scripted::Say("Wrong too.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken: no reviewer is left
+
+    let question = merge_question(&rig, &runner);
+
+    assert!(
+        question.contains("disputed 1 finding that"),
+        "only the dispute no reviewer read: {question}"
+    );
+}
+
+#[test]
+fn a_finding_disputed_a_second_time_and_deferred_still_parks_on_fix_not_pushed() {
+    let (rig, runner) = findings_sent();
+    dispute(&rig, &format!("{FOUND_LINE}{REASON}"));
+    rig.claude.script([Scripted::Say("The finding is wrong.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken
+    rig.claude.script([Scripted::Text(FOUND_LINE)]);
+    step(&runner).unwrap(); // round 2, claude raises it again
+    step(&runner).unwrap(); // the finding goes to the worker again
+    dispute(
+        &rig,
+        &format!("{FOUND_LINE}{REASON}{FOUND_LINE}  I ran it again and it still holds.\n"),
+    );
+    std::fs::write(rig.build_7().join("deferred-findings.md"), FOUND_LINE).unwrap();
+    rig.claude.script([Scripted::Say("Still wrong.")]);
+    step(&runner).unwrap(); // the second fix turn ends with nothing pushed
+
+    let report = step(&runner).unwrap();
+
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["kind"]["reason"], "fix-not-pushed");
 }

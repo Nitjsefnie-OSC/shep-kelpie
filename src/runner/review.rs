@@ -232,7 +232,6 @@ impl Runner {
                     None => self.round_started(chosen, CallKind::Claude)?,
                     Some(_) => self.mark_review_call_running(CallKind::Claude)?,
                 }
-                self.update(disputes::mark_shown)?;
                 Ok(Begin::Review(ReviewCall::Session(call)))
             }
             Err(reason) => Ok(self.gate_failed(reason)),
@@ -339,11 +338,13 @@ impl Runner {
                         Err(reason) => return Ok(self.gate_failed(reason)),
                     };
                     let said = answers.said(sent.findings);
+                    let repeated = answers.repeated();
                     if let Some(settled) = answers.settled() {
                         let unfixed = self.disputed_by(&review, sent, settled);
                         return self.went_unfixed(number, review, unfixed);
                     }
-                    match findings::all_deferred(build, sent) {
+                    // A finding disputed again is never a deferral that goes on.
+                    match findings::all_deferred(build, sent).map(|all| all && !repeated) {
                         Ok(true) => {
                             return self.went_unfixed(number, review, Unfixed::Deferred(count));
                         }
@@ -680,6 +681,10 @@ impl Runner {
         };
         if result.is_ok() && matches!(review.stage, ReviewStage::Round) {
             item.counts.review_rounds = item.counts.review_rounds.saturating_add(1);
+        }
+        // A reader the disputes were in the prompt of has read them once its round ends.
+        if result.is_ok() && !local_round {
+            disputes::mark_shown(item);
         }
 
         // The script writes a line for a file it could not review, and still
