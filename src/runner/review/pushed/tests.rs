@@ -527,3 +527,63 @@ fn a_worktree_dirtied_while_a_round_reads_it_is_not_vouched_for() {
         std::fs::write(worktree.join("dirty.txt"), "dirty\n").unwrap();
     });
 }
+
+// Under `auto`, a merge ruling for a head no round read (a state file from
+// before heads were recorded), answered after `main` moved on.
+fn unread_head_ruled_before_main_moves(project: &str, answer: &str) -> (Rig, Mutex<Runner>) {
+    let (rig, runner, head) = Rig::with_pull_request_set(project, Rig::merge_auto);
+    drop(runner);
+    let state = rig.paths().state;
+    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    saved["version"] = json!(12);
+    let item = saved["work_items"][0].as_object_mut().unwrap();
+    assert_eq!(item.remove("reviewed_heads"), Some(json!([head])));
+    std::fs::write(&state, saved.to_string()).unwrap();
+
+    let runner = rig.open().unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    let (id, _) = ruling_report(rig.verdict(&runner));
+    assert_eq!(
+        kind(&rig, &runner),
+        json!({ "kind": "merge", "head": head, "unread_head": true })
+    );
+    rig.land_on_origin("landed.txt");
+    rig.ask(&runner, "rule", Some(&format!("{id} {answer}")));
+    (rig, runner)
+}
+
+#[test]
+fn a_yes_to_an_unread_head_carries_through_a_catch_up() {
+    let (rig, runner) = unread_head_ruled_before_main_moves("kuro", "yes");
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::YesWithdrawn { reason, .. }) if reason == "main moved since the question"
+    ));
+    let report = step(&runner).unwrap();
+    assert!(
+        matches!(report, Some(StepReport::Rebased { .. })),
+        "{report:?}"
+    );
+    let caught_up = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&caught_up, Checks::Passed);
+
+    assert!(matches!(
+        rig.verdict(&runner),
+        Some(StepReport::MarkedReady { .. })
+    ));
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.merges(), [(71, caught_up)]);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+// The no restarts the pass, and whatever that reads or sends on vouches by
+// itself, so the head is checked as the answer leaves it, before any step.
+#[test]
+fn a_no_to_an_unread_head_leaves_it_unvouched() {
+    let (rig, runner) = unread_head_ruled_before_main_moves("nidoran", "no leave it");
+    let runner = runner.lock().unwrap();
+    let item = &runner.state.work_items[0];
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    assert!(!item.vouches_for(&head));
+}
