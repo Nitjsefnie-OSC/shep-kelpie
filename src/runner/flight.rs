@@ -908,6 +908,9 @@ pub fn step(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
 
 #[cfg(test)]
 fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
+    // A step waits on each call it starts in turn, so it keeps the loosest
+    // ceiling the tests had before they shared `CALL_PATIENCE`.
+    const PATIENCE: Duration = Duration::from_secs(120);
     let (wake, woken) = mpsc::channel();
     lock(runner).wake_with(wake);
     match advance(runner)? {
@@ -925,7 +928,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
             }
             None if lock(runner).flights.idle() => return Ok(None),
             None => woken
-                .recv_timeout(crate::test::CALL_PATIENCE)
+                .recv_timeout(PATIENCE)
                 .expect("a call in flight never ended"),
         }
     }
