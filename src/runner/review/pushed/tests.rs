@@ -296,7 +296,7 @@ fn a_head_pushed_by_hand_reaches_the_merge_ruling_named_unread() {
     step(&runner).unwrap();
     ruling_report(rig.verdict(&runner)); // still red, nothing pushed
     let fixed = rig.push_by_hand("kelpie/7", "lint.txt");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     rig.forge.set_checks(&fixed, Checks::Passed);
 
     let (_, question) = ruling_report(rig.verdict(&runner));

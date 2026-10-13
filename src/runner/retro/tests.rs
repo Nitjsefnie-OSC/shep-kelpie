@@ -74,7 +74,7 @@ fn parked_after_set(count: u64, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>
 // Merges the parked pull request and steps until the work item is gone,
 // then once more for what the runner starts after it
 fn merge(rig: &Rig, runner: &Mutex<Runner>) -> Vec<StepReport> {
-    rig.ask(runner, "rule", Some("1 yes"));
+    rig.ask(runner, "rule", Some("71 yes"));
     let mut reports = Vec::new();
     for _ in 0..6 {
         rig.clock.advance(CHECKS_SETTLE);
@@ -366,7 +366,7 @@ fn a_retro_cut_short_by_a_stop_is_not_asked_for_again_after_a_restart() {
     let hold = Hold::default();
     rig.claude
         .script_for(Role::Pm, [Scripted::Hold(hold.clone())]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     std::thread::scope(|scope| {
         let looking = scope.spawn(|| {
             let mut reports = Vec::new();
@@ -421,7 +421,7 @@ fn a_retro_in_flight_holds_no_slot_so_the_next_issue_opens() {
     let hold = Hold::default();
     rig.claude
         .script_for(Role::Pm, [Scripted::Hold(hold.clone())]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     std::thread::scope(|scope| {
         let looking = scope.spawn(|| {
             let mut reports = Vec::new();
@@ -456,7 +456,7 @@ fn a_drain_waits_on_a_retro_already_running_for_its_own_ceiling() {
     let hold = Hold::default();
     rig.claude
         .script_for(Role::Pm, [Scripted::Hold(hold.clone())]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     std::thread::scope(|scope| {
         let looking = scope.spawn(|| {
             let mut reports = Vec::new();
@@ -551,7 +551,7 @@ fn a_drain_that_starts_during_a_retro_asks_for_the_work_items_finished_meanwhile
         Role::Pm,
         [Scripted::Hold(hold.clone()), Scripted::Say(REPORT)],
     );
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     std::thread::scope(|scope| {
         let looking = scope.spawn(|| {
             for _ in 0..6 {

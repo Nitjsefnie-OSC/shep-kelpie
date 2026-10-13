@@ -115,7 +115,7 @@ fn a_drained_runner_starts_no_review_call() {
 fn a_drained_runner_still_merges() {
     let (rig, runner, head) = Rig::parked("reactmap");
     rig.ask(&runner, "drain", None);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     for _ in 0..3 {
         if !rig.forge.merges().is_empty() {
             break;

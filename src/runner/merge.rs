@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn a_yes_merges_the_ruled_head_and_removes_the_branch_worktree_and_build_folder() {
         let (rig, runner, head) = Rig::parked("koji");
-        let status = rig.ask(&runner, "rule", Some("1 yes"));
+        let status = rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(status["rulings"], json!([]));
         assert_eq!(
             status["work_item"]["phase"],
@@ -526,7 +526,7 @@ mod tests {
     fn a_build_folder_holding_a_read_only_module_cache_is_removed_with_the_item() {
         use std::os::unix::fs::PermissionsExt;
         let (rig, runner, _) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         let build = rig.home.path().join("shep/kelpie/koji/builds/7");
         let cache = build.join("gomod/cache/download");
         std::fs::create_dir_all(&cache).unwrap();
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn a_branch_the_forge_deleted_first_still_counts_as_cleaned_up() {
         let (rig, runner, head) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         refuse_delete(&rig, true);
 
         assert!(finished(ready_then_merge(&rig, &runner)));
@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn a_branch_that_cannot_be_deleted_for_another_reason_fails_the_cleanup() {
         let (rig, runner, _) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         refuse_delete(&rig, false);
 
         let Some(StepReport::GateFailed { reason, .. }) = ready_then_merge(&rig, &runner) else {
@@ -594,7 +594,7 @@ mod tests {
         git(&worktree, &["push", "--quiet", "origin", "HEAD"]);
         let moved = rig.forge.head_of("kelpie/7").unwrap();
 
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(
             step(&runner).unwrap(),
             Some(StepReport::YesWithdrawn {
@@ -607,7 +607,7 @@ mod tests {
         rig.forge.set_checks(&moved, Checks::Passed);
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 2, .. })
+            Some(StepReport::Ruling { id: 71, .. })
         ));
     }
 
@@ -615,7 +615,7 @@ mod tests {
     fn a_yes_after_ci_stopped_being_green_is_withdrawn() {
         let (rig, runner, head) = Rig::parked("chelone");
         rig.forge.set_checks(&head, Checks::Pending);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::YesWithdrawn { reason, .. }) if reason == "CI on #71 is no longer green"
@@ -627,7 +627,7 @@ mod tests {
     fn a_yes_after_main_moved_is_withdrawn_and_the_branch_rebased() {
         let (rig, runner, _) = Rig::parked("rotom");
         rig.land_on_origin("landed.txt");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::YesWithdrawn { reason, .. }) if reason == "main moved since the question"
@@ -642,12 +642,12 @@ mod tests {
     #[test]
     fn a_pull_request_closed_after_the_yes_is_not_merged_and_parks_the_worker() {
         let (rig, runner, _) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.forge.set_state(71, PullRequestState::Closed);
         let Some(StepReport::Ruling { id, question, .. }) = step(&runner).unwrap() else {
             panic!("no ruling was raised");
         };
-        assert_eq!(id, 2);
+        assert_eq!(id, 71);
         assert!(
             question.starts_with("Pull request #71 was closed"),
             "{question}"
@@ -658,7 +658,7 @@ mod tests {
     #[test]
     fn a_draft_marked_ready_merges_only_on_a_later_pass_once_ci_settles() {
         let (rig, runner, head) = Rig::parked("golbat");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         assert_eq!(rig.forge.merges(), []);
         assert_eq!(step(&runner).unwrap(), None);
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn a_run_that_marking_ready_starts_is_waited_for() {
         let (rig, runner, head) = Rig::parked("xilriws");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         rig.forge.set_checks(&head, Checks::Pending);
         rig.clock.advance(3 * CHECKS_SETTLE);
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn a_red_run_after_marking_ready_withdraws_the_yes() {
         let (rig, runner, head) = Rig::parked("chelone");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         rig.forge
             .set_checks(&head, Checks::Failed(vec!["test".into()]));
@@ -701,7 +701,7 @@ mod tests {
     #[test]
     fn marking_ready_is_kelpies_own_change_so_a_withdrawn_yes_is_not_parked_on_it() {
         let (rig, runner, head) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         rig.forge
             .set_checks(&head, Checks::Failed(vec!["test".into()]));
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn a_runner_restarted_between_ready_and_merge_still_waits_then_merges() {
         let (rig, runner, head) = Rig::parked("acme");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         drop(runner);
         let runner = rig.open().unwrap();
@@ -744,7 +744,7 @@ mod tests {
     #[test]
     fn a_merge_the_forge_refuses_is_tried_again_later() {
         let (rig, runner, head) = Rig::parked("reactmap");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(step(&runner).unwrap(), marked_ready());
         rig.clock.advance(CHECKS_SETTLE);
         rig.forge.set_merges_down(true);
@@ -812,7 +812,7 @@ mod tests {
         );
 
         let (rig, runner, _) = Rig::parked("rotom");
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert_eq!(
             rig.ask(&runner, "drop", None),
             json!({ "error": "the work item for #7 is merging" })
@@ -855,7 +855,7 @@ mod tests {
         let (rig, runner, _) = Rig::parked("webapp");
         rig.forge.list_ready(7, false);
         rig.forge.list_ready(8, true);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert!(finished(ready_then_merge(&rig, &runner)));
 
         let calls = rig.claude.calls().len();
@@ -880,7 +880,7 @@ mod tests {
         rig.forge.set_closes(71, &[]);
         rig.forge.set_closes_down(true);
         rig.forge.list_ready(7, false);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         // The close is refused in each of three steps before the item finishes.
         assert!(matches!(
             ready_then_merge(&rig, &runner),
@@ -905,7 +905,7 @@ mod tests {
     fn a_finished_issue_the_forge_cannot_answer_for_stays() {
         let (rig, runner, _) = Rig::parked("webapp");
         rig.forge.list_ready(7, false);
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         assert!(finished(ready_then_merge(&rig, &runner)));
 
         rig.forge.remove_issue(7);

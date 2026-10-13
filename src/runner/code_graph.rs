@@ -329,7 +329,7 @@ mod tests {
             "the worker's turn indexed"
         );
 
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap(); // marked ready
         rig.clock.advance(CHECKS_SETTLE);
         let finished = step(&runner).unwrap();

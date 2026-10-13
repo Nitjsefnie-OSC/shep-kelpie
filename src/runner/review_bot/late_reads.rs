@@ -106,7 +106,7 @@ fn a_bot_passed_over_that_reviews_during_ci_gets_a_fix_turn_before_the_merge_rul
         );
         assert_eq!(rig.forge.coderabbit.resolved(), ["PRRT_cubic_71_0"]);
         let Some(StepReport::Ruling {
-            id: 1, question, ..
+            id: 71, question, ..
         }) = rig.verdict(&runner)
         else {
             panic!("no merge ruling on the late round's fix, auto: {auto}");
@@ -129,7 +129,7 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     let rig = listing("shep", &["cubic"]);
     let (runner, head) = passed_over(&rig);
     rig.forge.set_checks(&head, Checks::Passed);
-    let Some(StepReport::Ruling { id: 1, .. }) = rig.verdict(&runner) else {
+    let Some(StepReport::Ruling { id: 71, .. }) = rig.verdict(&runner) else {
         panic!("no merge ruling");
     };
     assert!(
@@ -138,7 +138,7 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
             .contains(&HUMAN.to_owned())
     );
     let logins = || rig.forge.coderabbit.logins().len();
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     let read_at_ruling = logins();
 
     rig.forge
@@ -159,7 +159,7 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
             .pull_request_labels(71)
             .contains(&HUMAN.to_owned())
     );
-    let said = "Merge ruling 1 on pull request #71 is withdrawn: cubic reviewed its head \
+    let said = "Merge ruling 71 on pull request #71 is withdrawn: cubic reviewed its head \
                 after the review pass went on without it, so the worker gets that review \
                 first, and the merge ruling is raised again once CI is green after it. \
                 Nothing to answer.";
@@ -167,12 +167,12 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     assert!(notes.iter().any(|n| n == said), "{notes:?}");
     let posts = rig.alerts.posts();
     let (_, alert) = posts.last().expect("posted to the webhook");
-    assert_eq!(alert.title, "kelpie: shep merge ruling 1 withdrawn");
+    assert_eq!(alert.title, "kelpie: shep merge ruling 71 withdrawn");
     assert_eq!(alert.text, said);
 
     let fixed = late_round_fixed(&rig, &runner);
     let Some(StepReport::Ruling {
-        id: 2, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no merge ruling on the late round's fix");
@@ -220,9 +220,9 @@ fn a_late_read_with_nothing_new_costs_no_fix_turn() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     let worker_turns = rig.claude.calls().len();
     let reads = rig.forge.coderabbit.logins().len();
     rig.clock.advance(LATE_READ);
@@ -243,7 +243,7 @@ fn a_late_read_with_nothing_new_costs_no_fix_turn() {
     assert_eq!(step(&runner).unwrap(), bot_reviewed(4, "cubic", 0));
     assert_eq!(status(&rig, &runner)["work_item"]["phase"]["state"], "ci");
     let Some(StepReport::Ruling {
-        id: 1, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no merge ruling");
@@ -264,9 +264,9 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
-    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     rig.forge.list_ready(8, false);
     // #7's branch touches a file, so #8 waits for the board to read its paths.
     assert_eq!(step(&runner).unwrap(), None);
@@ -399,7 +399,7 @@ fn a_second_bot_passed_over_is_read_again_before_a_late_fix_goes_to_ci() {
     let fixed = rig.forge.head_of("kelpie/7").unwrap();
     rig.forge.set_checks(&fixed, Checks::Passed);
     let Some(StepReport::Ruling {
-        id: 1, question, ..
+        id: 71, question, ..
     }) = rig.verdict(&runner)
     else {
         panic!("no merge ruling on the late round's fix");

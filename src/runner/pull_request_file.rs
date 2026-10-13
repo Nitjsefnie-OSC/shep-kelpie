@@ -376,7 +376,7 @@ Resolves #7"
         step(&runner).unwrap(); // the push is refused, and the turn asks
 
         std::fs::remove_file(path(&rig.build_7())).unwrap();
-        rig.ask(&runner, "rule", Some("1 answer go on"));
+        rig.ask(&runner, "rule", Some("7 answer go on"));
         rig.claude
             .script([Scripted::Say("done"), Scripted::Say("done")]);
         step(&runner).unwrap(); // the answered turn ends with no file

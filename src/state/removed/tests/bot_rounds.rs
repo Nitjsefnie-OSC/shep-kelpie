@@ -288,7 +288,6 @@ fn a_pending_silent_bot_ruling_that_parks_no_item_is_dropped() {
         }]);
     });
     assert_eq!(state.rulings, []);
-    assert_eq!(state.last_ruling, 3, "its id is never given again");
 }
 
 #[test]

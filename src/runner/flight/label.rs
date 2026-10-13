@@ -237,10 +237,9 @@ impl Runner {
     fn unlabelled(&mut self, issue: u64, why: String) -> Result<StepReport, StateError> {
         let names = self.names();
         let mut next = self.state.clone();
-        let id = names.ids.claim(names.project, next.last_ruling);
+        let id = issue;
         let kind = RulingKind::Stuck(Stuck::Unlabelled { why });
         let question = super::super::ruling::question(issue, None, &kind);
-        next.last_ruling = id;
         next.rulings.push(Ruling {
             id,
             issue: Some(issue),

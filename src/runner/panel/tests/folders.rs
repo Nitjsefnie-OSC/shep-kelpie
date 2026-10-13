@@ -138,12 +138,12 @@ fn the_advisor_is_given_the_ruling_the_branchs_diff_and_where_to_read() {
 #[test]
 fn an_answered_ruling_is_kept_for_the_researcher_with_its_answer() {
     let (rig, runner) = parked_with("pikachu", false, |_| {});
-    rig.ask(&runner, "rule", Some("1 no add a test first"));
+    rig.ask(&runner, "rule", Some("71 no add a test first"));
     step(&runner).unwrap();
 
     let kept = read(&rig.paths().rulings);
     let record: serde_json::Value = serde_json::from_str(kept.lines().next().unwrap()).unwrap();
-    assert_eq!(record["id"], 1);
+    assert_eq!(record["id"], 71);
     assert_eq!(record["issue"], 7);
     assert_eq!(record["pull_request"], 71);
     assert_eq!(record["answer"], "no: add a test first");

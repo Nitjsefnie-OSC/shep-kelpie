@@ -16,7 +16,7 @@ fn a_no_note_reply_to_a_decided_ruling_sends_the_worker_the_note() {
     );
     rig.clock.advance(5);
 
-    let reply = rig.writes_on(71, "octocat", "1 no add a test for the empty case");
+    let reply = rig.writes_on(71, "octocat", "71 no add a test for the empty case");
     rig.claude.script([crate::test::Scripted::Say(
         "<kelpie-question>\nWhich?\n</kelpie-question>\n",
     )]);
@@ -40,7 +40,7 @@ fn a_reply_that_is_no_no_note_does_not_reopen_it_and_says_so() {
     voted(&rig, &runner);
     rig.clock.advance(5);
 
-    rig.writes_on(71, "octocat", "1 yes");
+    rig.writes_on(71, "octocat", "71 yes");
     rig.next_look();
     step(&runner).unwrap();
 
@@ -61,7 +61,7 @@ fn a_decision_whose_work_item_has_finished_cannot_be_reopened() {
     step(&runner).unwrap();
     rig.clock.advance(5);
 
-    rig.writes_on(71, "octocat", "1 no too late");
+    rig.writes_on(71, "octocat", "71 no too late");
     rig.next_look();
     step(&runner).unwrap();
 

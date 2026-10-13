@@ -79,11 +79,11 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     rig.clock.advance(1_200);
     stops.push(timings(&rig, &runner));
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert!(matches!(
         step(&runner).unwrap(),
         Some(StepReport::MarkedReady { .. })

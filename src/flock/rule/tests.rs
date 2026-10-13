@@ -3,14 +3,16 @@ use std::path::Path;
 use super::*;
 
 const FORMS: &str = "It takes `shep kelpie rule 14 yes` or `shep kelpie rule 14 no <note>`";
+const FORMS_427: &str = "It takes `shep kelpie rule 427 yes` or `shep kelpie rule 427 no <note>`";
 use crate::state::{ProjectState, Resume, RulingKind, STATE_FILE, StateStore, Stuck};
 
+// A ruling on issue `id`, which is its number.
 fn yes_or_no(id: u64) -> Ruling {
     Ruling {
         id,
-        issue: Some(7),
-        question: format!("Merge pull request #71? `shep kelpie rule {id} yes` merges it"),
-        pull_request: Some(71),
+        issue: Some(id),
+        question: format!("Merge pull request #{id}? `shep kelpie rule {id} yes` merges it"),
+        pull_request: None,
         kind: RulingKind::from(Stuck::Closed),
         alerted: true,
         panel: None,
@@ -36,7 +38,6 @@ fn question(id: u64) -> Ruling {
 // Project `name`'s state file under kelpie's home, holding `rulings`.
 fn waiting(home: &Path, name: &str, rulings: Vec<Ruling>) {
     let mut state = ProjectState::new();
-    state.last_ruling = rulings.iter().map(|r| r.id).max().unwrap_or(0);
     state.rulings = rulings;
     let path = home.join(name).join(STATE_FILE);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -48,12 +49,12 @@ fn project(name: &str) -> ProjectName {
 }
 
 // Kelpie's home with ruling 14 waiting on koji and question 15 on rotom.
-fn two_projects() -> (tempfile::TempDir, RulingIds) {
+fn two_projects() -> (tempfile::TempDir, Projects) {
     let home = tempfile::tempdir().unwrap();
     waiting(home.path(), "koji", vec![yes_or_no(14)]);
     waiting(home.path(), "rotom", vec![question(15)]);
-    let ids = RulingIds::under(home.path());
-    (home, ids)
+    let projects = Projects::under(home.path());
+    (home, projects)
 }
 
 #[test]
@@ -73,8 +74,8 @@ fn a_merge_ruling_takes_a_rework_and_another_ruling_refuses_one() {
         ..yes_or_no(16)
     };
     waiting(home.path(), "koji", vec![yes_or_no(14), merge]);
-    let ids = RulingIds::under(home.path());
-    let answer = |args: &[&str]| prepare(&ids, None, args, None);
+    let projects = Projects::under(home.path());
+    let answer = |args: &[&str]| prepare(&projects, None, args, None);
     assert_eq!(
         answer(&["16", "rework", "split", "the", "parser"]),
         Ok((project("koji"), "16 rework split the parser".into()))
@@ -98,8 +99,8 @@ fn a_merge_ruling_takes_a_rework_and_another_ruling_refuses_one() {
 
 #[test]
 fn each_answer_form_reads_right_for_its_ruling_s_kind() {
-    let (_home, ids) = two_projects();
-    let answer = |args: &[&str]| prepare(&ids, None, args, None);
+    let (_home, projects) = two_projects();
+    let answer = |args: &[&str]| prepare(&projects, None, args, None);
     assert_eq!(
         answer(&["14", "yes"]),
         Ok((project("koji"), "14 yes".into()))
@@ -136,107 +137,130 @@ fn each_answer_form_reads_right_for_its_ruling_s_kind() {
 
 #[test]
 fn a_yes_to_a_ruling_that_asks_for_text_is_text() {
-    let (_home, ids) = two_projects();
-    let sent = prepare(&ids, None, &["15", "yes"], None);
+    let (_home, projects) = two_projects();
+    let sent = prepare(&projects, None, &["15", "yes"], None);
     assert_eq!(sent, Ok((project("rotom"), "15 answer yes".into())));
 }
 
 #[test]
-fn an_id_waiting_nowhere_or_named_badly_sends_nothing() {
-    let (_home, ids) = two_projects();
-    let err = prepare(&ids, None, &["16", "yes"], None).unwrap_err();
-    assert_eq!(
-        err,
-        "no ruling 16 is waiting: `shep kelpie rule` lists those that are"
-    );
-    let err = prepare(&ids, None, &["#16", "yes"], None).unwrap_err();
-    assert_eq!(
-        err,
-        "no ruling on #16 is waiting: `shep kelpie rule` lists those that are"
-    );
+fn a_number_waiting_nowhere_or_named_badly_sends_nothing() {
+    let (_home, projects) = two_projects();
+    let nowhere = |named: &str| {
+        format!(
+            "no ruling on {named} is waiting: a ruling is named by the number of its issue or \
+             pull request, and `shep kelpie rule` lists those that are waiting"
+        )
+    };
+    let err = prepare(&projects, None, &["16", "yes"], None).unwrap_err();
+    assert_eq!(err, nowhere("#16"));
+    let err = prepare(&projects, None, &["#16", "yes"], None).unwrap_err();
+    assert_eq!(err, nowhere("#16"));
     for bad in ["1x", "#", "#x", "koji#", "#0", "koji#1x", "a b#7", "a#b#7"] {
-        let err = prepare(&ids, None, &[bad, "yes"], None).unwrap_err();
+        let err = prepare(&projects, None, &[bad, "yes"], None).unwrap_err();
         assert!(
             err.starts_with(&format!("{bad:?} is not a ruling")),
             "{err}"
         );
     }
-    let err = prepare(&ids, Some(&project("rotom")), &["14", "yes"], None).unwrap_err();
-    assert!(err.starts_with("no ruling 14 is waiting"), "{err}");
+    let err = prepare(&projects, Some(&project("rotom")), &["14", "yes"], None).unwrap_err();
+    assert!(err.starts_with("no ruling on #14 is waiting"), "{err}");
 }
 
-// Koji's ruling 14 parks issue 407 and is about pull request 427.
-fn on_a_pull_request() -> (tempfile::TempDir, RulingIds) {
+// Rulings were named by a counter before: koji's ruling on pull request 71
+// was 40. The number is the name now, and nothing answers to the counter.
+#[test]
+fn a_counter_id_that_no_longer_exists_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let ruling = Ruling {
+        issue: Some(7),
+        pull_request: Some(71),
+        ..yes_or_no(71)
+    };
+    waiting(home.path(), "koji", vec![ruling]);
+    let projects = Projects::under(home.path());
+    for old in ["40", "#40", "koji#40"] {
+        let err = prepare(&projects, None, &[old, "yes"], None).unwrap_err();
+        assert!(err.starts_with("no ruling on "), "{err}");
+        assert!(err.contains("40 is waiting"), "{err}");
+    }
+    let err = prepare(&projects, Some(&project("koji")), &["40", "yes"], None).unwrap_err();
+    assert!(err.starts_with("no ruling on #40 is waiting"), "{err}");
+    let sent = prepare(&projects, None, &["71", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "71 yes".into())));
+}
+
+// Koji's ruling parks issue 407 and is about pull request 427.
+fn on_a_pull_request() -> (tempfile::TempDir, Projects) {
     let home = tempfile::tempdir().unwrap();
     let ruling = Ruling {
         issue: Some(407),
         pull_request: Some(427),
-        ..yes_or_no(14)
+        ..yes_or_no(427)
     };
     waiting(home.path(), "koji", vec![ruling]);
     waiting(home.path(), "rotom", vec![question(15)]);
-    let ids = RulingIds::under(home.path());
-    (home, ids)
+    let projects = Projects::under(home.path());
+    (home, projects)
 }
 
 #[test]
 fn a_ruling_s_issue_and_its_pull_request_name_the_same_ruling() {
-    let (_home, ids) = on_a_pull_request();
-    let koji = Ok((project("koji"), "14 yes".into()));
-    for named in ["427", "407", "#427", "#407", "koji#427", "koji#407", "14"] {
-        let sent = prepare(&ids, None, &[named, "yes"], None);
+    let (_home, projects) = on_a_pull_request();
+    let koji = Ok((project("koji"), "427 yes".into()));
+    for named in ["427", "407", "#427", "#407", "koji#427", "koji#407"] {
+        let sent = prepare(&projects, None, &[named, "yes"], None);
         assert_eq!(sent, koji, "{named}");
     }
-    let sent = prepare(&ids, Some(&project("koji")), &["427", "no", "wrong"], None);
-    assert_eq!(sent, Ok((project("koji"), "14 no wrong".into())));
+    let sent = prepare(
+        &projects,
+        Some(&project("koji")),
+        &["427", "no", "wrong"],
+        None,
+    );
+    assert_eq!(sent, Ok((project("koji"), "427 no wrong".into())));
 }
 
 #[test]
 fn a_number_answers_by_the_ruling_s_kind_and_says_which_ruling_it_found() {
-    let (_home, ids) = on_a_pull_request();
-    let err = prepare(&ids, None, &["427", "maybe"], None).unwrap_err();
+    let (_home, projects) = on_a_pull_request();
+    let err = prepare(&projects, None, &["427", "maybe"], None).unwrap_err();
     assert_eq!(
         err,
-        format!("ruling 14 was not answered: it takes `yes`, or `no <note>`. {FORMS}")
+        format!("ruling 427 was not answered: it takes `yes`, or `no <note>`. {FORMS_427}")
     );
-    let err = prepare(&ids, None, &["427"], None).unwrap_err();
+    let err = prepare(&projects, None, &["427"], None).unwrap_err();
     assert_eq!(
         err,
-        "ruling 14 takes `shep kelpie rule 14 yes` or `shep kelpie rule 14 no <note>`"
+        "ruling 427 takes `shep kelpie rule 427 yes` or `shep kelpie rule 427 no <note>`"
     );
 }
 
 // Two projects number their issues from 1, so each can have a ruling on #12.
-fn both_on_12() -> (tempfile::TempDir, RulingIds) {
+fn both_on_12() -> (tempfile::TempDir, Projects) {
     let home = tempfile::tempdir().unwrap();
-    let on_12 = |id| Ruling {
-        issue: Some(12),
-        pull_request: None,
-        ..yes_or_no(id)
-    };
-    waiting(home.path(), "shep-kelpie", vec![on_12(3)]);
-    waiting(home.path(), "rotom", vec![on_12(4)]);
-    let ids = RulingIds::under(home.path());
-    (home, ids)
+    waiting(home.path(), "shep-kelpie", vec![yes_or_no(12)]);
+    waiting(home.path(), "rotom", vec![yes_or_no(12)]);
+    let projects = Projects::under(home.path());
+    (home, projects)
 }
 
 #[test]
 fn a_number_on_two_projects_needs_the_project_and_names_both() {
-    let (_home, ids) = both_on_12();
+    let (_home, projects) = both_on_12();
     for bare in ["12", "#12"] {
-        let err = prepare(&ids, None, &[bare, "yes"], None).unwrap_err();
+        let err = prepare(&projects, None, &[bare, "yes"], None).unwrap_err();
         assert_eq!(
             err,
             "#12 has a ruling on rotom and shep-kelpie, so name one: \
              `shep kelpie rule <project>#12 <answer>`"
         );
     }
-    let sent = prepare(&ids, None, &["shep-kelpie#12", "yes"], None);
-    assert_eq!(sent, Ok((project("shep-kelpie"), "3 yes".into())));
-    let sent = prepare(&ids, Some(&project("rotom")), &["12", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "4 yes".into())));
+    let sent = prepare(&projects, None, &["shep-kelpie#12", "yes"], None);
+    assert_eq!(sent, Ok((project("shep-kelpie"), "12 yes".into())));
+    let sent = prepare(&projects, Some(&project("rotom")), &["12", "yes"], None);
+    assert_eq!(sent, Ok((project("rotom"), "12 yes".into())));
     let err = prepare(
-        &ids,
+        &projects,
         Some(&project("rotom")),
         &["shep-kelpie#12", "yes"],
         None,
@@ -249,100 +273,59 @@ fn a_number_on_two_projects_needs_the_project_and_names_both() {
 
 #[test]
 fn a_number_from_a_clone_is_the_clone_s_project_s_when_it_has_one() {
-    let (_home, ids) = both_on_12();
+    let (_home, projects) = both_on_12();
     let here = project("rotom");
-    let sent = prepare_in(&ids, None, Some(&here), &["12", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "4 yes".into())));
+    let sent = prepare_in(&projects, None, Some(&here), &["12", "yes"], None);
+    assert_eq!(sent, Ok((project("rotom"), "12 yes".into())));
     // A clone with no ruling on it leaves the number to the others.
-    let (_home, ids) = on_a_pull_request();
-    let sent = prepare_in(&ids, None, Some(&project("rotom")), &["427", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
+    let (_home, projects) = on_a_pull_request();
+    let sent = prepare_in(
+        &projects,
+        None,
+        Some(&project("rotom")),
+        &["427", "yes"],
+        None,
+    );
+    assert_eq!(sent, Ok((project("koji"), "427 yes".into())));
 }
 
 #[test]
-fn a_number_waiting_nowhere_says_so_and_a_number_wins_over_a_counter_id() {
-    let (_home, ids) = on_a_pull_request();
-    let err = prepare(&ids, None, &["koji#9", "yes"], None).unwrap_err();
+fn a_number_waiting_on_no_project_says_so() {
+    let (_home, projects) = on_a_pull_request();
+    let err = prepare(&projects, None, &["koji#9", "yes"], None).unwrap_err();
     assert_eq!(
         err,
-        "no ruling on koji#9 is waiting: `shep kelpie rule` lists those that are"
+        "no ruling on koji#9 is waiting: a ruling is named by the number of its issue or \
+         pull request, and `shep kelpie rule` lists those that are waiting"
     );
-    // Rotom's ruling 15 is about issue 14, which is koji's ruling's id. The
-    // question prints the number, so 14 is rotom's issue and koji's id waits.
-    let home = tempfile::tempdir().unwrap();
-    let about_14 = Ruling {
-        issue: Some(14),
-        pull_request: None,
-        ..yes_or_no(15)
-    };
-    waiting(home.path(), "koji", vec![yes_or_no(14)]);
-    waiting(home.path(), "rotom", vec![about_14]);
-    let ids = RulingIds::under(home.path());
-    let sent = prepare(&ids, None, &["14", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "15 yes".into())));
-    let sent = prepare(&ids, None, &["#14", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "15 yes".into())));
-    // With no ruling about 14, the bare 14 is still koji's ruling's id.
-    waiting(home.path(), "rotom", vec![question(15)]);
-    let sent = prepare(&ids, None, &["14", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
-}
-
-// Ids given before they were unique can still be open on two projects.
-#[test]
-fn an_id_open_on_two_projects_needs_the_project() {
-    let home = tempfile::tempdir().unwrap();
-    waiting(home.path(), "koji", vec![yes_or_no(3)]);
-    waiting(home.path(), "rotom", vec![yes_or_no(3)]);
-    let ids = RulingIds::under(home.path());
-    let err = prepare(&ids, None, &["3", "yes"], None).unwrap_err();
-    assert_eq!(
-        err,
-        "ruling 3 is waiting on koji and rotom, so name one: \
-         `shep kelpie rule -p <project> 3 <answer>`"
-    );
-    let sent = prepare(&ids, Some(&project("rotom")), &["3", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "3 yes".into())));
-}
-
-// A claimed id names its project, even when an older one reuses the number.
-#[test]
-fn a_claimed_id_goes_to_the_project_it_was_given_to() {
-    let home = tempfile::tempdir().unwrap();
-    let ids = RulingIds::under(home.path());
-    assert_eq!(ids.claim("rotom", 0), 1);
-    waiting(home.path(), "koji", vec![yes_or_no(1)]);
-    waiting(home.path(), "rotom", vec![yes_or_no(1)]);
-    let sent = prepare(&ids, None, &["1", "yes"], None);
-    assert_eq!(sent, Ok((project("rotom"), "1 yes".into())));
 }
 
 #[test]
 fn with_no_terminal_rule_lists_the_rulings_and_fails() {
-    let (_home, ids) = two_projects();
-    let err = prepare(&ids, None, &[], None).unwrap_err();
+    let (_home, projects) = two_projects();
+    let err = prepare(&projects, None, &[], None).unwrap_err();
     assert_eq!(
         err,
-        "Ruling 14 on koji:\n    Merge pull request #71? `shep kelpie rule 14 yes` merges it\n\n\
+        "Ruling 14 on koji:\n    Merge pull request #14? `shep kelpie rule 14 yes` merges it\n\n\
          Ruling 15 on rotom:\n    The worker on issue #9 asks:\n\n    \
          Should it be `--dry-run` or `--check`?\n\n\
-         `shep kelpie rule <id> <answer>` answers one"
+         `shep kelpie rule <number> <answer>` answers one"
     );
     let empty = tempfile::tempdir().unwrap();
-    let none = prepare(&RulingIds::under(empty.path()), None, &[], None);
+    let none = prepare(&Projects::under(empty.path()), None, &[], None);
     assert_eq!(none, Err("no rulings are waiting".into()));
 }
 
 #[test]
 fn the_picker_answers_the_ruling_it_showed() {
-    let (_home, ids) = two_projects();
+    let (_home, projects) = two_projects();
     let mut input = "15\nuse --dry-run\n".as_bytes();
     let mut output = Vec::new();
     let ask = Some((
         &mut input as &mut dyn BufRead,
         &mut output as &mut dyn Write,
     ));
-    let sent = prepare(&ids, None, &[], ask);
+    let sent = prepare(&projects, None, &[], ask);
     assert_eq!(
         sent,
         Ok((project("rotom"), "15 answer use --dry-run".into()))
@@ -355,19 +338,19 @@ fn the_picker_answers_the_ruling_it_showed() {
 
 #[test]
 fn the_picker_asks_again_until_the_answer_fits() {
-    let (_home, ids) = two_projects();
+    let (_home, projects) = two_projects();
     let mut input = "#14\n16\n14\nmaybe\nno rename it\n".as_bytes();
     let mut output = Vec::new();
     let ask = Some((
         &mut input as &mut dyn BufRead,
         &mut output as &mut dyn Write,
     ));
-    let sent = prepare(&ids, Some(&project("koji")), &[], ask);
+    let sent = prepare(&projects, Some(&project("koji")), &[], ask);
     assert_eq!(sent, Ok((project("koji"), "14 no rename it".into())));
     let shown = String::from_utf8(output).unwrap();
     assert!(!shown.contains("rotom"), "{shown}");
     assert!(
-        shown.contains("Which ruling? [14] Type the id of one listed.\n"),
+        shown.contains("Which ruling? [14] Type the number of one listed.\n"),
         "{shown}"
     );
     assert!(shown.contains("No ruling 16 is listed.\n"), "{shown}");
@@ -381,7 +364,7 @@ fn the_picker_asks_again_until_the_answer_fits() {
 
 #[test]
 fn the_picker_sends_nothing_on_an_empty_answer_or_the_input_s_end() {
-    let (_home, ids) = two_projects();
+    let (_home, projects) = two_projects();
     for typed in ["14\n\n", "14\n", ""] {
         let mut input = typed.as_bytes();
         let mut output = Vec::new();
@@ -389,36 +372,9 @@ fn the_picker_sends_nothing_on_an_empty_answer_or_the_input_s_end() {
             &mut input as &mut dyn BufRead,
             &mut output as &mut dyn Write,
         ));
-        let sent = prepare(&ids, None, &[], ask);
+        let sent = prepare(&projects, None, &[], ask);
         assert_eq!(sent, Err("nothing was sent".into()), "{typed:?}");
     }
-}
-
-// Probed in review: with lab's state unreadable, an unclaimed 3 open on
-// koji could be lab's too, so a yes to it must name the project.
-#[test]
-fn an_unclaimed_id_with_a_state_file_unread_needs_the_project() {
-    let (home, ids) = two_projects();
-    let broken = home.path().join("lab/state.json");
-    std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
-    std::fs::write(&broken, "{").unwrap();
-    let err = prepare(&ids, None, &["14", "yes"], None).unwrap_err();
-    assert!(
-        err.starts_with(
-            "ruling 14 does not say which project it is on, and lab's rulings cannot be read, \
-             so name the project: `shep kelpie rule -p <project> 14 <answer>`\n\
-             lab's rulings cannot be read: "
-        ),
-        "{err}"
-    );
-    let sent = prepare(&ids, Some(&project("koji")), &["14", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
-
-    // A claimed id names its project, whatever cannot be read.
-    assert_eq!(ids.claim("koji", 15), 16);
-    waiting(home.path(), "koji", vec![yes_or_no(14), yes_or_no(16)]);
-    let sent = prepare(&ids, None, &["16", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "16 yes".into())));
 }
 
 // Probed in review: with lab's state unreadable, koji's one ruling on #13
@@ -429,15 +385,15 @@ fn a_number_with_a_state_file_unread_needs_the_project() {
     let on_13 = Ruling {
         issue: Some(13),
         pull_request: None,
-        ..yes_or_no(5)
+        ..yes_or_no(13)
     };
     waiting(home.path(), "koji", vec![on_13]);
     let broken = home.path().join("lab/state.json");
     std::fs::create_dir_all(broken.parent().unwrap()).unwrap();
     std::fs::write(&broken, "{").unwrap();
-    let ids = RulingIds::under(home.path());
+    let projects = Projects::under(home.path());
     for number in ["13", "#13"] {
-        let err = prepare(&ids, None, &[number, "yes"], None).unwrap_err();
+        let err = prepare(&projects, None, &[number, "yes"], None).unwrap_err();
         assert!(
             err.starts_with(
                 "#13 has a ruling on koji, and lab's rulings cannot be read, \
@@ -447,23 +403,29 @@ fn a_number_with_a_state_file_unread_needs_the_project() {
         );
     }
     // A number that names nothing readable may still be lab's.
-    let err = prepare(&ids, None, &["#99", "yes"], None).unwrap_err();
+    let err = prepare(&projects, None, &["#99", "yes"], None).unwrap_err();
     assert!(
         err.starts_with("no ruling on #99 is waiting, and lab's rulings cannot be read"),
         "{err}"
     );
-    let sent = prepare(&ids, None, &["koji#13", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
-    let sent = prepare(&ids, Some(&project("koji")), &["13", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
+    let sent = prepare(&projects, None, &["koji#13", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "13 yes".into())));
+    let sent = prepare(&projects, Some(&project("koji")), &["13", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "13 yes".into())));
     // A clone's own project answers first, whatever cannot be read.
-    let sent = prepare_in(&ids, None, Some(&project("koji")), &["13", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "5 yes".into())));
+    let sent = prepare_in(
+        &projects,
+        None,
+        Some(&project("koji")),
+        &["13", "yes"],
+        None,
+    );
+    assert_eq!(sent, Ok((project("koji"), "13 yes".into())));
 }
 
 #[test]
-fn the_picker_takes_the_answer_on_the_id_s_line() {
-    let (_home, ids) = two_projects();
+fn the_picker_takes_the_answer_on_the_number_s_line() {
+    let (_home, projects) = two_projects();
     for (typed, sent) in [
         ("14 no rename it\n", "14 no rename it"),
         ("14 koji\nyes\n", "14 yes"),
@@ -475,24 +437,7 @@ fn the_picker_takes_the_answer_on_the_id_s_line() {
             &mut input as &mut dyn BufRead,
             &mut output as &mut dyn Write,
         ));
-        let answered = prepare(&ids, None, &[], ask);
+        let answered = prepare(&projects, None, &[], ask);
         assert_eq!(answered, Ok((project("koji"), sent.into())), "{typed:?}");
     }
-}
-
-// A question prints the number, so `rule 71` is the ruling on #71 even when
-// a ruling on another project has the counter id 71.
-#[test]
-fn a_number_names_its_ruling_though_another_project_has_that_counter_id() {
-    let home = tempfile::tempdir().unwrap();
-    let on_90 = Ruling {
-        issue: Some(90),
-        pull_request: Some(90),
-        ..yes_or_no(71)
-    };
-    waiting(home.path(), "koji", vec![yes_or_no(3)]);
-    waiting(home.path(), "rotom", vec![on_90]);
-    let ids = RulingIds::under(home.path());
-    let sent = prepare(&ids, None, &["71", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "3 yes".into())));
 }

@@ -94,9 +94,9 @@ fn a_bot_skipped_while_owed_keeps_its_debt_and_lifts_no_other_bots_rounds() {
     rig.forge.set_checks(&head, crate::ports::Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 80, .. })
     ));
-    rig.ask(&runner, "rule", Some("1 rework once more"));
+    rig.ask(&runner, "rule", Some("80 rework once more"));
     rig.claude.script([
         Scripted::Push("again.txt", "again\n"),
         Scripted::Text(CLEAN),

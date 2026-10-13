@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
         rig.forge.set_checks(&merged, Checks::Passed);
         let (id, question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(id, 1);
+        assert_eq!(id, 71);
         assert!(question.starts_with("Merge pull request #71"), "{question}");
         assert_eq!(rig.claude.calls().len(), 2, "one conflict turn went out");
     }
@@ -504,7 +504,7 @@ mod tests {
         );
         rig.forge.set_checks(&fixed, Checks::Passed);
         let (next, question) = ruling_report(rig.verdict(&runner));
-        assert_eq!(next, id + 1);
+        assert_eq!(next, id);
         assert!(question.starts_with("Merge pull request #71"), "{question}");
     }
 

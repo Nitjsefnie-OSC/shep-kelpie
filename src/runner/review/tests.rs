@@ -566,7 +566,7 @@ fn a_local_round_does_not_start_past_the_cap() {
     let Some(StepReport::Failed {
         issue: 7,
         pull_request: Some(71),
-        id: 1,
+        id: 71,
         ..
     }) = step(&runner).unwrap()
     else {
@@ -601,7 +601,7 @@ fn a_session_round_does_not_start_past_the_cap_and_a_yes_resumes_that_round() {
     assert_eq!(reviewer_calls(&rig), 0, "round 2 did not start");
 
     rig.claude.script([Scripted::Text(CLEAN)]);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     let phase = &rig.ask(&runner, "status", None)["work_item"]["phase"];
     assert_eq!(phase["state"], "review", "{phase}");
     assert_eq!(phase["round"], 2, "the same round is due again: {phase}");
@@ -638,7 +638,7 @@ fn a_no_on_a_round_past_the_cap_sends_the_worker_the_note_and_reviews_again() {
     spend(&runner, 6);
     step(&runner).unwrap(); // parked before round 1
     rig.claude.script([Scripted::Push("more.txt", "more\n")]);
-    rig.ask(&runner, "rule", Some("1 no rename the flag"));
+    rig.ask(&runner, "rule", Some("71 no rename the flag"));
 
     step(&runner).unwrap(); // the worker's fix turn
     let sent = rig.claude.calls();

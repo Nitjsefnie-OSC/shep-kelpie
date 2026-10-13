@@ -96,6 +96,8 @@ pub(super) fn drop_removed_fields(value: &mut Value) {
     // A project runs whenever its runner does, so one saved paused runs.
     state.remove("run");
     state.remove("since");
+    // Rulings are named by number, so no id is ever given twice.
+    state.remove("last_ruling");
     for notice in objects(state.get_mut("notices")) {
         notice.remove("shots_failed");
     }

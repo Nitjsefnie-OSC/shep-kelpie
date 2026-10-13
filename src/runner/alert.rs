@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn each_new_ruling_posts_once_with_its_number_question_and_trigger() {
         let (rig, runner, head) = Rig::parked("shep");
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
         let [(webhook, alert)] = rig.alerts.posts().try_into().unwrap();
         assert_eq!(webhook, rig.webhook());
         assert_eq!(alert.title, "kelpie: shep ruling #71");
@@ -263,7 +263,7 @@ mod tests {
         let (rig, runner, _) = Rig::parked("rotom");
         rig.alerts.set_down(true);
         let failed = |at| StepReport::AlertFailed {
-            id: 1,
+            id: 71,
             reason: "the webhook answered HTTP 503".into(),
             retry_at: Timestamp(Rig::EPOCH + at),
         };
@@ -280,12 +280,12 @@ mod tests {
         assert_eq!(status["rulings"][0]["alerted"], false);
         assert_eq!(
             status["work_item"]["phase"],
-            json!({ "state": "ruling", "id": 1 })
+            json!({ "state": "ruling", "id": 71 })
         );
 
         rig.alerts.set_down(false);
         rig.clock.advance(240);
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
         assert_eq!(rig.alerts.posts().len(), 4, "three failures and one post");
         rig.clock.advance(3600);
         assert_eq!(step(&runner).unwrap(), None);
@@ -328,7 +328,7 @@ mod tests {
         rig.alerts.set_down(false);
         rig.clock.advance(60);
         log(step(&runner).unwrap()); // alerted: the question's ruling, retried
-        rig.ask(&runner, "rule", Some("1 answer --dry-run"));
+        rig.ask(&runner, "rule", Some("71 answer --dry-run"));
         log(step(&runner).unwrap()); // ended: pushes work.txt, enters round 1
         log(step(&runner).unwrap()); // review round 1, qwen: clean by default
         log(step(&runner).unwrap()); // review round 2, claude: scripted clean above
@@ -357,9 +357,9 @@ mod tests {
     fn a_ruling_answered_while_its_post_is_out_is_not_posted_again() {
         let (rig, runner, _) = Rig::parked("reactmap");
         let due = runner.lock().unwrap().alert_due().unwrap();
-        rig.ask(&runner, "rule", Some("1 no not yet"));
+        rig.ask(&runner, "rule", Some("71 no not yet"));
         let report = runner.lock().unwrap().alert_sent(due.of, Ok(())).unwrap();
-        assert_eq!(report, StepReport::Alerted { id: 1 });
+        assert_eq!(report, StepReport::Alerted { id: 71 });
         assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
         assert!(runner.lock().unwrap().alert_due().is_none());
     }
@@ -375,6 +375,6 @@ mod tests {
         drop(runner);
         rig.alerts.set_down(false);
         let runner = rig.open().unwrap();
-        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 71 }));
     }
 }

@@ -256,7 +256,7 @@ fn a_retried_turn_gets_a_whole_ceiling_however_long_the_ruling_waited() {
     ))]);
     step(&runner).unwrap();
     rig.clock.advance(2000);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("7 yes"));
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     let driven = Driven::new(&runner);

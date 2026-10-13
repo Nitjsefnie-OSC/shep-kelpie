@@ -283,7 +283,7 @@ fn a_question_in_the_ci_fix_turn_goes_back_to_the_round_that_waited() {
     let asked = step(&runner).unwrap();
     assert!(matches!(asked, Some(StepReport::Asked { .. })), "{asked:?}");
 
-    rig.ask(&runner, "rule", Some("1 answer use --dry-run"));
+    rig.ask(&runner, "rule", Some("71 answer use --dry-run"));
     rig.claude
         .script([Scripted::Push("answer.txt", "answered\n")]);
     step(&runner).unwrap(); // the answered turn pushes
@@ -418,7 +418,7 @@ fn a_still_red_yes_raised_mid_review_goes_back_to_that_review() {
     let runner = rig.open().unwrap();
     parked_still_red(&rig, &runner, &head);
 
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(state(&rig, &runner), "review", "the review it left");
 
     rig.forge.set_checks(&head, Checks::Passed);
@@ -455,7 +455,7 @@ fn a_still_red_yes_after_review_goes_to_ci() {
     let rounds = reads(&rig);
 
     parked_still_red(&rig, &runner, &head);
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(state(&rig, &runner), "ci");
 
     rig.forge.set_checks(&head, Checks::Passed);
@@ -475,7 +475,7 @@ fn a_still_red_yes_under_ask_adopts_the_fix_pushed_by_hand_before_the_review() {
     parked_still_red(&rig, &runner, &head);
 
     let fixed = rig.push_by_hand("kelpie/7", "lint.txt");
-    rig.ask(&runner, "rule", Some("1 yes"));
+    rig.ask(&runner, "rule", Some("71 yes"));
     assert_eq!(state(&rig, &runner), "review");
 
     rig.forge.set_checks(&fixed, Checks::Passed);

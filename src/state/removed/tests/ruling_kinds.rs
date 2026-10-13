@@ -31,8 +31,8 @@ fn ruling(state: &ProjectState) -> &Ruling {
         panic!("{:?}", state.rulings);
     };
     assert_eq!(ruling.question, "The question as it was asked");
-    assert_eq!((ruling.id, ruling.pull_request), (3, Some(51)));
-    assert_eq!(state.work_items[0].phase, Phase::Ruling { id: 3 });
+    assert_eq!((ruling.id, ruling.pull_request), (51, Some(51)));
+    assert_eq!(state.work_items[0].phase, Phase::Ruling { id: 51 });
     ruling
 }
 

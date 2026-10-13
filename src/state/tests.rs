@@ -16,14 +16,14 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 37);
+    assert_eq!(VERSION, 38);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
 // mix of two saves is visible.
 fn big_state(n: u64) -> ProjectState {
     let mut state = ProjectState::new();
-    state.last_ruling = n;
+    state.finished = vec![n];
     state.rulings = (0..20_000)
         .map(|id| Ruling {
             id,
@@ -43,7 +43,7 @@ fn big_state(n: u64) -> ProjectState {
 }
 
 fn assert_whole(state: &ProjectState) {
-    let n = state.last_ruling;
+    let n = state.finished[0];
     assert_eq!(state, &big_state(n), "state {n} was saved in part");
 }
 
@@ -81,7 +81,6 @@ fn a_saved_state_loads_back_whole() {
         effects: Vec::new(),
         raised: None,
     });
-    state.last_ruling = 1;
     state.leases.push(LeaseHeld {
         resource: Resource::Gpu,
         issue: Some(7),
@@ -244,7 +243,6 @@ fn the_file_format_is_pinned() {
             why: "its call failed".into(),
         }),
     ));
-    state.last_ruling = 10;
     state.notices = vec![Notice {
         issue: 22,
         pull_request: 30,
@@ -344,7 +342,6 @@ fn the_file_format_is_pinned() {
                     "why": "its call failed",
                 })),
             ],
-            "last_ruling": 10,
             "finished": [22, 30],
             "history": [],
             "reworked": ["PRR_1"],
@@ -718,7 +715,7 @@ fn a_qwen_fix_not_pushed_keeps_its_wire_shape() {
 }
 
 #[test]
-fn a_state_saved_before_ruling_ids_were_counted_starts_counting_at_zero() {
+fn a_state_saved_before_ruling_ids_were_counted_loads_with_none_waiting() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     fs::write(
@@ -727,7 +724,7 @@ fn a_state_saved_before_ruling_ids_were_counted_starts_counting_at_zero() {
     )
     .unwrap();
     let state = store.load().unwrap().unwrap();
-    assert_eq!((state.last_ruling, state.finished), (0, vec![]));
+    assert_eq!((state.rulings, state.finished), (vec![], vec![]));
     assert!(state.reworked.is_empty());
 }
 
@@ -864,4 +861,5 @@ fn a_runner_killed_mid_write_leaves_the_previous_state_readable() {
 }
 
 mod heard;
+mod numbered;
 mod versions;

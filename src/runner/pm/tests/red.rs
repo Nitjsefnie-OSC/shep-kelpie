@@ -27,7 +27,7 @@ fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, S
         .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     rig.claude.script([Scripted::Say(NOTHING)]);
     answered(Some(step_until(&runner, |r| {

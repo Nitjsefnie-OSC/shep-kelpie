@@ -108,8 +108,6 @@ pub(super) struct Reading {
 enum Naming {
     /// It names none
     Not,
-    /// By the ruling's id
-    Id,
     /// By the number of its issue or pull request
     Number,
 }
@@ -651,7 +649,8 @@ impl Reading {
     // however it was answered, for a while.
     pub(super) fn settled(&mut self, before: &ProjectState, after: &ProjectState, now: Timestamp) {
         let until = Timestamp(now.0.saturating_add(LATE));
-        let gone = (before.rulings.iter()).filter(|r| !after.rulings.iter().any(|a| a.id == r.id));
+        let gone =
+            (before.rulings.iter()).filter(|r| !after.rulings.iter().any(|a| a.is_raised_with(r)));
         for ruling in gone {
             // A ruling posted with no mention has no place read to, only its
             // comment's id.
@@ -682,9 +681,9 @@ impl Reading {
     // The id of a ruling a reply starts with, and the rest of it. The number
     // is the number of the issue or pull request of the one ruling in
     // `rulings` this author may answer, since that is what the card prints, or
-    // failing that the id of a ruling, waiting or settled lately, so a late
-    // answer is told so. A number that names no ruling this author may
-    // answer, or the whole of a reply, is its text.
+    // failing that the number a ruling was lately named by, waiting or
+    // settled, so a late answer is told so. A number that names no ruling this
+    // author may answer, or the whole of a reply, is its text.
     fn name_of<'a>(
         &self,
         words: &'a str,
@@ -709,13 +708,15 @@ impl Reading {
         // ruling when it is the only one waiting, so a number opening the
         // reply is part of the answer, not its name.
         let named_by_number = |r: &&Ruling| Wants::of(&r.kind) != Wants::Answer;
+        let takes_text = |r: &Ruling| r.id == number && !named_by_number(&r);
         let mut about = (rulings.iter())
             .filter(about)
             .filter(named_by_number)
             .filter(|r| mentioned(&r.id));
         match (about.next(), about.next()) {
             (Some(ruling), None) => (Some((ruling.id, Naming::Number)), rest),
-            _ if mentioned(&number) => (Some((number, Naming::Id)), rest),
+            _ if rulings.iter().any(takes_text) => (None, words),
+            _ if mentioned(&number) => (Some((number, Naming::Number)), rest),
             _ => (None, words),
         }
     }

@@ -780,8 +780,8 @@ mod tests {
             json!({ "error": "cannot read pull request #71: gh failed: no pull request #71" })
         );
         assert_eq!(
-            rig.ask(&runner, "rule", Some("1 yes")),
-            json!({ "error": "ruling 1 is already answered, or was never raised" })
+            rig.ask(&runner, "rule", Some("71 yes")),
+            json!({ "error": "ruling 71 is already answered, or was never raised" })
         );
         assert_eq!(
             rig.ask(&runner, "rule", None),
@@ -864,7 +864,7 @@ mod tests {
         );
         assert!(matches!(
             rig.verdict(&runner),
-            Some(StepReport::Ruling { id: 1, .. })
+            Some(StepReport::Ruling { id: 71, .. })
         ));
         assert_eq!(rig.forge.merges(), []);
     }

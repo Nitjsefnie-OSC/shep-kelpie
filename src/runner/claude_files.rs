@@ -160,7 +160,7 @@ mod tests {
         let (rig, runner) = pushed(".claude/settings.json");
         ruling(step(&runner).unwrap());
         step(&runner).unwrap(); // the alert
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.claude.script([Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // review round 1, qwen
         step(&runner).unwrap(); // review round 2, claude
@@ -279,7 +279,7 @@ mod tests {
         let (_, question) = ruling(step(&runner).unwrap());
         assert!(question.contains("worktree: .mcp.json."), "{question}");
         step(&runner).unwrap(); // the alert
-        rig.ask(&runner, "rule", Some("1 no revert it"));
+        rig.ask(&runner, "rule", Some("71 no revert it"));
         assert!(matches!(
             step(&runner).unwrap(),
             Some(StepReport::Finished {
@@ -334,7 +334,7 @@ mod tests {
         step(&runner).unwrap(); // the alert
 
         fs::remove_file(&planted).unwrap();
-        rig.ask(&runner, "rule", Some("1 yes"));
+        rig.ask(&runner, "rule", Some("71 yes"));
         rig.claude
             .script([Scripted::Reply(Usage::default(), Cost(0))]);
         assert!(matches!(

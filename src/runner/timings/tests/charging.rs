@@ -162,7 +162,7 @@ fn ci_and_a_ruling_each_keep_their_own_seconds() {
     rig.forge.set_checks(&head, Checks::Passed);
     assert!(matches!(
         rig.verdict(&runner),
-        Some(StepReport::Ruling { id: 1, .. })
+        Some(StepReport::Ruling { id: 71, .. })
     ));
     let waiting_on_ci = secs(&timings(&rig, &runner), "ci");
     assert!(waiting_on_ci >= 600);
