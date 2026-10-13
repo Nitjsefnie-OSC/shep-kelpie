@@ -52,4 +52,5 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - PR title type sets who votes, smallest panel first. Questions and diffs touching `rulings.full_panel_paths` get full panel (agent under scrutiny chose the type). #466, #536, `src/panel/tally.rs`, `src/panel/policy.rs`
 - Policies scored from shadow votes as `whatif`: fixed list in code, not a setting (a setting can't say what a choice costs). #536
 - `rulings.pm_alone`: PM decides listed kinds alone, never `merge` (one voice must not merge). #466, `src/settings/rulings.rs`
+- An option can name an action kelpie runs in code when chosen (rerun, restore); the experts vote on its text and stay read-only. See merge.md. #710
 - Votes are ledger entries; `status` reports agreement with maintainer (trust by record). #466, `src/runner/panel/measure.rs`

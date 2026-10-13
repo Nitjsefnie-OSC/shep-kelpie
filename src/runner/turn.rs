@@ -397,7 +397,8 @@ impl Runner {
             }
             Err(reason) => {
                 let names = self.names();
-                Begin::Report(failed(names, &mut next, issue, now, reason))
+                let restore = self.restorable(issue);
+                Begin::Report(failed(names, &mut next, issue, now, reason, restore))
             }
         };
         self.save(next)?;
@@ -828,7 +829,7 @@ impl Runner {
                     // it was spent, so the work item parks, and a yes sends it back.
                     None if hook_parks.is_some() => {
                         let why = hook_parks.map(|refused| refused.parked).unwrap_or_default();
-                        failed(self.names(), &mut next, issue, now, why)
+                        failed(self.names(), &mut next, issue, now, why, Vec::new())
                     }
                     None => StepReport::Ended {
                         issue,
@@ -876,7 +877,10 @@ impl Runner {
                 item.turn = Turn::Ended { at: now };
                 timed_out(self.names(), &mut next, issue)
             }
-            Err(e) => failed(self.names(), &mut next, issue, now, e.to_string()),
+            Err(e) => {
+                let restore = self.restorable(issue);
+                failed(self.names(), &mut next, issue, now, e.to_string(), restore)
+            }
         };
         self.save(next)?;
         let mut report = report;

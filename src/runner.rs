@@ -149,7 +149,7 @@ pub use report::StepReport;
 pub(crate) use reread::check_gateways;
 use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
-pub use ruling::{Answer, RuleError};
+pub use ruling::{Action, Answer, RuleError};
 pub use step_log::FILE as STEPS_FILE;
 pub use timings::{Totals, settle};
 use trigger::issue_list;

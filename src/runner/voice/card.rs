@@ -10,10 +10,10 @@
 //! the option it stood behind as the recommendation. A ruling the panel has
 //! not voted on holds the project manager's words where it gave any.
 
-use super::super::Answer;
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
+use super::super::{Action, Answer};
 use super::merge_notes;
 use crate::panel::Voter;
 use crate::state::{Ruling, RulingKind, Stuck};
@@ -115,6 +115,7 @@ pub(in crate::runner) fn chosen(kind: &RulingKind, answer: &Answer) -> Option<ch
         (Answer::Yes, Answer::Yes)
         | (Answer::No(_), Answer::No(_))
         | (Answer::Rework(_), Answer::Rework(_)) => true,
+        (Answer::Do(a), Answer::Do(b)) => a == b,
         (Answer::Text(a), Answer::Text(b)) => a.trim() == b.trim(),
         _ => false,
     };
@@ -247,12 +248,14 @@ impl Card {
             }
             RulingKind::Stuck(reason) => {
                 let (title, yes, no) = stuck(reason);
+                let mut choices = yes_no(yes, no);
+                choices.extend(acting(reason));
                 Self {
                     problem: None,
                     title: title.to_owned(),
                     facts: (!matches!(reason, Stuck::Unlabelled { .. }))
                         .then(|| stuck_comment(reason)),
-                    choices: yes_no(yes, no),
+                    choices,
                     board: None,
                 }
             }
@@ -397,6 +400,32 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "The board takes the issue once it is labelled `agent:<name>`",
             None,
         ),
+    }
+}
+
+// The option a stuck ruling lists for an action kelpie can carry out, which
+// says what kelpie will do
+fn acting(reason: &Stuck) -> Option<Choice> {
+    match reason {
+        Stuck::StillRed {
+            head, rerun: true, ..
+        } => Some(choice(
+            "Rerun",
+            &format!(
+                "Reruns the failed jobs of {} once more, and kelpie looks at CI again",
+                short(head)
+            ),
+            Answer::Do(Action::Rerun),
+        )),
+        Stuck::TurnFailed { restore, .. } if !restore.is_empty() => Some(choice(
+            "Restore",
+            &format!(
+                "Restores the uncommitted change to {} in the worktree, then resumes the turn",
+                restore.join(", ")
+            ),
+            Answer::Do(Action::Restore),
+        )),
+        _ => None,
     }
 }
 
@@ -634,10 +663,28 @@ fn answering(login: &str, number: u64, kind: &RulingKind, choices: &[Choice]) ->
         }
         Wants::YesOrNo => {
             lines.push("- 👍 answers yes, 👎 answers no".to_owned());
-            lines.push(format!("- Or reply `{number} yes` or `{number} no <note>`"));
+            let mut replies = vec![format!("`{number} yes`"), format!("`{number} no <note>`")];
+            replies.extend(actions(choices).map(|word| format!("`{number} {word}`")));
+            lines.push(format!("- Or reply {}", or_list(&replies)));
         }
     }
     lines.join("\n")
+}
+
+// The words that choose the options of `choices` that name an action
+fn actions(choices: &[Choice]) -> impl Iterator<Item = &'static str> + '_ {
+    choices.iter().filter_map(|c| match c.answer {
+        Answer::Do(action) => Some(action.word()),
+        _ => None,
+    })
+}
+
+// `items` as "a or b", or "a, b or c"
+fn or_list(items: &[String]) -> String {
+    match items {
+        [rest @ .., last] if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        _ => items.join(""),
+    }
 }
 
 // A ruling that mentions no one is answered at the terminal only.
@@ -648,7 +695,11 @@ fn unmentioned(number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
         Wants::Merge if needs_pass(kind) => format!("`{rule} yes` or `{rule} no <note>`"),
         Wants::Merge => format!("`{rule} yes`, `{rule} no <note>` or `{rule} rework <note>`"),
         Wants::YesOrNo if choices.len() == 1 => format!("`{rule} yes`"),
-        Wants::YesOrNo => format!("`{rule} yes` or `{rule} no <note>`"),
+        Wants::YesOrNo => {
+            let mut forms = vec![format!("`{rule} yes`"), format!("`{rule} no <note>`")];
+            forms.extend(actions(choices).map(|word| format!("`{rule} {word}`")));
+            or_list(&forms)
+        }
     };
     format!(
         "This ruling mentions no one, so a reaction, a tick or a reply here answers nothing. \

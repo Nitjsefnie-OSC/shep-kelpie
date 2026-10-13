@@ -21,6 +21,7 @@ use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, St
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree;
 
+mod act;
 mod prompts;
 mod question;
 use prompts::{
@@ -51,6 +52,23 @@ pub enum Answer {
     Rework(String),
     /// The answer to the worker's question
     Text(String),
+    /// A ruling's option that names an action: kelpie carries it out, then
+    /// the work item goes on as a yes would send it
+    Do(Action),
+}
+
+/// What kelpie does, in code, when an option that names it is chosen
+///
+/// A ruling lists such an option only when it can be carried out, and its
+/// text says what kelpie will do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Rerun the failed jobs of the head, for a still-red ruling whose failed
+    /// logs name no file the branch changed
+    Rerun,
+    /// Restore the uncommitted change to an agent file in the worktree, for a
+    /// failed turn
+    Restore,
 }
 
 /// Why an answer was refused
@@ -75,6 +93,10 @@ pub enum RuleError {
     Adopt(String, String),
     /// A ruling the panel decided could not be reopened
     Reopen(u64, String),
+    /// The ruling lists no option for this action
+    NotOffered(u64, Action),
+    /// The action an option names could not be carried out
+    Act(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -112,6 +134,10 @@ impl fmt::Display for RuleError {
                 write!(f, "cannot bring the worktree to {}: {e}", short(head))
             }
             Self::Reopen(id, why) => write!(f, "ruling {id} cannot be reopened: {why}"),
+            Self::NotOffered(id, action) => {
+                write!(f, "ruling {id} does not offer to {}", action.verb())
+            }
+            Self::Act(id, why) => write!(f, "ruling {id}: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -175,6 +201,8 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
+        let act = act::plan(id, &answer, &ruling.kind)?;
+        let asked = act::asked(&ruling, &answer, by);
         // Kept for the researcher once the answer is saved.
         let record = super::panel::Record::of(&ruling, &answer, now, by);
         // Whether the findings a merged pull request left are filed or dropped.
@@ -295,7 +323,14 @@ impl Runner {
                     .map(|()| false);
             }
         }
+        let worktree = parked.map(|item| item.worktree.clone());
         let moved = decide(id, answer, ruling, now, head_moved)?;
+        let did = (act.as_ref())
+            .map(|act| self.carry_out(id, act, worktree.as_deref()))
+            .transpose()?;
+        if let Some(did) = &did {
+            next.record_event(now, format!("{asked}: {did}"));
+        }
         if let Some(item) = next.work_items.iter_mut().find(|item| parked_on(item)) {
             if let (Some(filed), Some(pending)) = (follow_up, item.follow_ups.as_mut()) {
                 if filed {
@@ -308,6 +343,9 @@ impl Runner {
             }
             if accepts.is_some() {
                 item.claude_files_accepted = accepts;
+            }
+            if let Some(act::Act::Rerun { head }) = act {
+                item.reran = Some(head);
             }
             if merge {
                 item.threads_accepted.extend(accepted);
@@ -730,6 +768,25 @@ fn decide(
             });
         }
         (Answer::Rework(_), _) => return Err(RuleError::NotAMerge(id)),
+        // The jobs are rerun, so CI is looked at again, in the round it
+        // interrupted when it did.
+        (
+            Answer::Do(Action::Rerun),
+            RulingKind::Stuck(Stuck::StillRed {
+                review: Some(mut review),
+                ..
+            }),
+        ) => {
+            // The checks read red for a moment after a rerun starts.
+            if let Some(ci) = review.ci.as_deref_mut() {
+                ci.since = now;
+            }
+            Phase::Review(review)
+        }
+        (Answer::Do(Action::Rerun), RulingKind::Stuck(Stuck::StillRed { .. })) => Phase::Ci {
+            head: None,
+            since: now,
+        },
         (Answer::No(_), RulingKind::Stuck(Stuck::Unlabelled { .. })) => {
             return Err(RuleError::YesOnly(id));
         }
@@ -744,7 +801,10 @@ fn decide(
         // A turn that had started is resumed with a prompt of its own, and
         // the yes starts its ceiling afresh: the time it spent failing and
         // waiting is not held against it.
-        (Answer::Yes, RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. })) => {
+        (
+            Answer::Yes | Answer::Do(Action::Restore),
+            RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. }),
+        ) => {
             let turn = match retry {
                 Turn::Running { prompt, .. } => Turn::Next {
                     prompt: prompt.map_or_else(|| FAILED_CONTINUE.to_owned(), failed_again),
@@ -782,6 +842,7 @@ fn decide(
             merged: true,
             closed: false,
         },
+        (Answer::Do(action), _) => return Err(RuleError::NotOffered(id, action)),
         // A no's fix is new code, unreviewed: it goes through a pass of the
         // review again before CI, whatever other ruling this answers.
         (Answer::No(note), _) => {

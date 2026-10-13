@@ -6,7 +6,7 @@
 //! `yes` included. What they read goes to the runner as `rule`'s own `<id>
 //! yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`.
 
-use super::Answer;
+use super::{Action, Answer};
 use crate::state::RulingKind;
 
 /// The note a worker gets from a no or a rework that was given by a reaction
@@ -72,6 +72,8 @@ pub fn read_answer(wants: Wants, words: &str) -> Result<Answer, String> {
                     Err("a rework takes a note for the worker: `rework <note>`".into())
                 }
                 ("rework", note) if merge => Ok(Answer::Rework(note.to_owned())),
+                ("rerun", "") => Ok(Answer::Do(Action::Rerun)),
+                ("restore", "") => Ok(Answer::Do(Action::Restore)),
                 _ if merge => Err("it takes `yes`, `no <note>` or `rework <note>`".into()),
                 _ => Err("it takes `yes`, or `no <note>`".into()),
             }
@@ -87,6 +89,7 @@ impl Answer {
             Self::No(note) => format!("{id} no {note}"),
             Self::Rework(note) => format!("{id} rework {note}"),
             Self::Text(text) => format!("{id} answer {text}"),
+            Self::Do(action) => format!("{id} {}", action.word()),
         }
     }
 }
@@ -182,6 +185,8 @@ mod tests {
             Answer::Rework("split it".into()),
             Answer::Text("yes".into()),
             Answer::Text("line one\nline two".into()),
+            Answer::Do(Action::Rerun),
+            Answer::Do(Action::Restore),
         ] {
             let params = answer.params(14);
             assert_eq!(read_rule(&params), Some((14, answer)), "{params:?}");

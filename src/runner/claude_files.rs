@@ -77,7 +77,8 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let issue = self.current().expect("the gate runs on a work item").issue;
-        let mut report = failed(self.names(), &mut next, issue, now, reason);
+        let restore = self.restorable(issue);
+        let mut report = failed(self.names(), &mut next, issue, now, reason, restore);
         self.save(next)?;
         self.fill_comment_failed(&mut report);
         Ok(Some(Begin::Report(report)))
@@ -342,5 +343,98 @@ mod tests {
             Some(StepReport::Ended { .. })
         ));
         assert_eq!(rig.claude.calls().len(), calls + 1);
+    }
+
+    #[test]
+    fn choosing_restore_reverts_the_agent_file_and_resumes_the_turn() {
+        let (rig, runner, head) = Rig::with_pull_request("shep");
+        let planted = rig.worktree_7().join(".claude/settings.local.json");
+        fs::create_dir_all(planted.parent().unwrap()).unwrap();
+        fs::write(&planted, HOOK).unwrap();
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        assert!(matches!(
+            rig.verdict(&runner),
+            Some(StepReport::CiFailed { .. })
+        ));
+        let calls = rig.claude.calls().len();
+        let question = failed(step(&runner).unwrap());
+        assert!(
+            question.contains(
+                "`shep kelpie rule 71 restore` restores the uncommitted change to \
+                 .claude/settings.local.json"
+            ),
+            "{question}"
+        );
+        step(&runner).unwrap(); // the alert
+
+        let reply = rig.ask(&runner, "rule", Some("71 restore"));
+
+        assert_eq!(reply.get("error"), None, "{reply}");
+        assert!(!planted.exists(), "the file was put back");
+        let events = runner.lock().unwrap().state.events.clone();
+        let shown = "#7: ruling 71 option C (Restore) chosen by the maintainer: restored \
+                     .claude/settings.local.json to the head's version";
+        assert!(events.iter().any(|e| e.what == shown), "{events:?}");
+        rig.claude
+            .script([Scripted::Reply(Usage::default(), Cost(0))]);
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Ended { .. })
+        ));
+        assert_eq!(rig.claude.calls().len(), calls + 1);
+    }
+
+    #[test]
+    fn restore_is_not_offered_when_the_worktree_holds_no_agent_file_change() {
+        let (rig, runner, head) = Rig::with_pull_request("shep");
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        rig.verdict(&runner);
+        rig.claude
+            .script([Scripted::Fail(crate::ports::AgentError::Failed(
+                crate::settings::Harness::ClaudeCode,
+                "the model host is down".into(),
+            ))]);
+        let question = failed(step(&runner).unwrap());
+        assert!(!question.contains("restore"), "{question}");
+        step(&runner).unwrap(); // the alert
+
+        let reply = rig.ask(&runner, "rule", Some("71 restore"));
+
+        let error = reply["error"].as_str().expect("the restore was refused");
+        assert!(error.contains("does not offer"), "{error}");
+    }
+
+    #[test]
+    fn restore_puts_a_committed_agent_file_back_to_its_committed_text() {
+        let (rig, runner, head) = Rig::with_pull_request("shep");
+        let wt = rig.worktree_7();
+        fs::write(wt.join("CLAUDE.md"), "committed\n").unwrap();
+        crate::test::git(&wt, &["add", "CLAUDE.md"]);
+        crate::test::git(&wt, &["commit", "--quiet", "-m", "instructions"]);
+        fs::write(wt.join("CLAUDE.md"), "edited by hand\n").unwrap();
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".into()]));
+        rig.verdict(&runner);
+        rig.claude
+            .script([Scripted::Fail(crate::ports::AgentError::Failed(
+                crate::settings::Harness::ClaudeCode,
+                "the sandbox refused the settings file".into(),
+            ))]);
+        let question = failed(step(&runner).unwrap());
+        assert!(
+            question.contains("restores the uncommitted change to CLAUDE.md"),
+            "{question}"
+        );
+        step(&runner).unwrap(); // the alert
+
+        let reply = rig.ask(&runner, "rule", Some("71 restore"));
+
+        assert_eq!(reply.get("error"), None, "{reply}");
+        assert_eq!(
+            fs::read_to_string(wt.join("CLAUDE.md")).unwrap(),
+            "committed\n"
+        );
     }
 }

@@ -217,6 +217,7 @@ impl Runner {
         let item = self.current().expect("CI runs on a work item");
         if item.red_head.as_deref() == Some(head.as_str()) {
             let fix_turns = None;
+            let rerun = self.rerun_offered(&head);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -224,6 +225,7 @@ impl Runner {
                     checks,
                     fix_turns,
                     review,
+                    rerun,
                 }
                 .into(),
             );
@@ -241,6 +243,7 @@ impl Runner {
             .is_some_and(|cap| turns >= cap)
         {
             let fix_turns = Some(turns);
+            let rerun = self.rerun_offered(&head);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -248,6 +251,7 @@ impl Runner {
                     checks,
                     fix_turns,
                     review,
+                    rerun,
                 }
                 .into(),
             );
