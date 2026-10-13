@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl, ShepLeases,
-    SystemClock, SystemGit, stop_calls,
+    ClaudeCli, Curl, CurlGithub, DoorPace, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl,
+    ShepLeases, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -31,7 +31,7 @@ use crate::github::{AppTokens, AppVoice, Apps};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, GRANT};
-use crate::ports::{Leases, LocalPace, Ports, Routed, SandboxError};
+use crate::ports::{Leases, Ports, Routed, SandboxError};
 use crate::runner::{
     ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
     wakes,
@@ -203,7 +203,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         test_runner: Arc::new(claude.test_runner()),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
-        pace: Arc::new(LocalPace::new()),
+        pace: Arc::new(DoorPace::new(paths.door.clone())),
         flock,
     };
     let finished: OnFinished = {

@@ -28,6 +28,7 @@ fn e2e_ask(worktree: &Path) -> Ask {
     Ask {
         take: E2E.into(),
         worktree: Some(worktree.to_owned()),
+        forge: None,
         ..ask("shep-kelpie lease e2e")
     }
 }

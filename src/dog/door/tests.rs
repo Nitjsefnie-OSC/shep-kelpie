@@ -55,6 +55,7 @@ fn ask(what: &str) -> Ask {
         what: what.into(),
         running: false,
         worktree: None,
+        forge: None,
     }
 }
 
@@ -502,6 +503,7 @@ async fn e2e_answer() -> (Answer, Vec<Answer>) {
     let ask = Ask {
         take: E2E.into(),
         worktree: Some(worktree),
+        forge: None,
         ..ask("e2e")
     };
     let mut visit = Visit::knock(&socket, &ask).await.unwrap();
@@ -558,3 +560,4 @@ async fn a_live_door_is_never_taken_over_and_a_dead_one_is() {
 }
 
 mod e2e;
+mod forge;
