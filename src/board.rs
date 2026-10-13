@@ -25,6 +25,9 @@ use crate::runner::IN_PROGRESS;
 use crate::settings::AgentName;
 
 pub mod briefing;
+mod open;
+
+pub use open::{OpenPullRequest, ReviewMarks};
 
 /// The label that puts an issue on the board
 pub const READY: &str = "ready-for-agent";
@@ -96,19 +99,6 @@ pub struct Blocker {
     pub number: u64,
     /// Whether the forge shows it open
     pub open: bool,
-}
-
-/// An open pull request, as the forge lists it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenPullRequest {
-    /// Its number
-    pub number: u64,
-    /// The branch it merges from
-    pub head: String,
-    /// The issues on the same repo that it closes when it merges
-    pub closes: Vec<u64>,
-    /// Its labels' names
-    pub labels: Vec<String>,
 }
 
 /// Why the board passed over a ready issue
@@ -509,6 +499,7 @@ impl core::error::Error for LabelError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Checks;
 
     fn ready(number: u64) -> ReadyIssue {
         ReadyIssue {
@@ -778,6 +769,12 @@ mod tests {
             head: "feat/2".into(),
             closes: vec![2],
             labels: vec![],
+            draft: false,
+            commit: "c0ffee".into(),
+            checks: Checks::None,
+            from_fork: false,
+            author: "someone".into(),
+            marks: ReviewMarks::default(),
         }];
         let pick = pick(
             &[ready(2), taken, ready(5)],

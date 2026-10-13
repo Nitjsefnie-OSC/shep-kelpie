@@ -109,6 +109,7 @@ mod several;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
+mod snapshot;
 mod started;
 mod thread_replies;
 mod timings;
@@ -355,6 +356,8 @@ pub struct Runner {
     parked_reads: BTreeMap<u64, Timestamp>,
     // When the board was last read and each failing step runs again, in memory only
     looks: looks::Looks,
+    // The open pull requests the pass in progress listed, in memory only
+    snapshot: snapshot::Snapshot,
     // Until when every forge call is held, the forge's rate limit used up
     forge_hold: ForgeHold,
     // The login `gh` acts as, which a ruling mentions when `git.maintainer` is unset,
@@ -565,6 +568,7 @@ impl Runner {
             late_reads: BTreeMap::new(),
             parked_reads: BTreeMap::new(),
             looks: looks::Looks::default(),
+            snapshot: snapshot::Snapshot::default(),
             forge_hold,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
