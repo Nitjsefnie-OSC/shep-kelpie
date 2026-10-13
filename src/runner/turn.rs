@@ -600,7 +600,11 @@ impl Runner {
         // The plugins the repo turns on reach every call the runner makes in it,
         // unless the project's `repo_setup` keeps them from this call's role.
         if self.settings.repo_setup.reaches(call.role) {
-            for plugin in self.repo_plugins.dirs() {
+            // A call in a worktree that matches `main` loads the repo's own
+            // `.claude` files from it already, and must not get them twice.
+            let own_loaded = call.harness.reads_claude_files()
+                && crate::fence::matches_main(&self.settings.git.checkout, &call.cwd);
+            for plugin in self.repo_plugins.dirs(own_loaded) {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());
                 }

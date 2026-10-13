@@ -1,7 +1,7 @@
-//! What reaches each agent of the repo's plugins, `[app.dogs.kelpie.repo_setup]`
+//! What reaches each agent of the repo's plugins and own files, `[app.dogs.kelpie.repo_setup]`
 //!
-//! Kelpie loads every plugin the repo turns on in `.claude/settings.json`
-//! into every call (`crate::skills`). A project narrows that here, and adds
+//! Kelpie loads every plugin the repo turns on in `.claude/settings.json`,
+//! and the repo's own `.claude` files, into every call (`crate::skills`). A project narrows that here, and adds
 //! a plugin the repo does not name. Every key is optional, and a value is a
 //! string, a list of strings or a table of strings, which lookout edits.
 
@@ -23,11 +23,16 @@ pub struct RepoSetup {
     /// `false` loads none of them, and `extra` still loads.
     #[serde(default = "yes")]
     pub plugins: bool,
-    /// The calls that get the plugins: `worker`, `reviewer`, `issue-writer`,
+    /// Whether the repo's own `.claude/skills/`, `.claude/agents/`,
+    /// `.claude/commands/` and the `hooks` of `.claude/settings.json` load,
+    /// with no plugin. `false` leaves them out and keeps the plugins.
+    #[serde(default = "yes")]
+    pub own: bool,
+    /// The calls that get the plugins and the repo's own files: `worker`, `reviewer`, `issue-writer`,
     /// `pm`, `advisor` and `researcher`. All of them when absent.
     #[serde(default = "every_role")]
     pub roles: Vec<CallRole>,
-    /// The parts of a plugin that load: `skills`, `agents`, `commands`,
+    /// The parts of a plugin, and of the repo's own files, that load: `skills`, `agents`, `commands`,
     /// `hooks` and `mcp`. All of them when absent.
     #[serde(default = "every_part")]
     pub parts: Vec<Part>,
@@ -58,6 +63,7 @@ impl Default for RepoSetup {
     fn default() -> Self {
         Self {
             plugins: true,
+            own: true,
             roles: every_role(),
             parts: every_part(),
             skip: Vec::new(),

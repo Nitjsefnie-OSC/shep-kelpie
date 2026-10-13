@@ -12,6 +12,8 @@
 //! `--plugin-dir`. A plugin's hooks sit in its own folder, so they run beside
 //! the hooks in the call's settings file and cannot replace them.
 //!
+//! The repo's own `.claude` files load as one more plugin (`own`).
+//!
 //! A plugin that cannot load is skipped with its reason, and the run goes on.
 
 use std::collections::BTreeMap;
@@ -67,6 +69,9 @@ pub struct RepoPlugin {
     // Where it is read from, until `install` has copied it to `dir`.
     #[serde(skip)]
     found: Option<Found>,
+    // The repo's own `.claude` files, which are no plugin of a marketplace, in place of `found`.
+    #[serde(skip)]
+    own: Option<own::Own>,
     // What its files held when it was read, so a change to them alone is a change.
     #[serde(skip)]
     digest: u64,
@@ -106,10 +111,11 @@ impl RepoPlugins {
         setup: &RepoSetup,
     ) -> Self {
         let into = skills.join(FOLDER);
-        let plugins = resolve(checkout, kelpie_home, git, true, setup)
+        let mut plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, git, true, setup)
             .into_iter()
             .map(|resolved| plan_one(resolved, &into, setup))
             .collect();
+        plugins.extend(own::plan(checkout, &into, setup));
         Self { plugins }
     }
 
@@ -120,8 +126,9 @@ impl RepoPlugins {
         let into = skills.join(FOLDER);
         let plugins: Vec<RepoPlugin> = (self.plugins.into_iter())
             .map(|mut plugin| {
-                let failed = match (&plugin.found, &plugin.dir) {
-                    (Some(found), Some(dir)) => install(found, dir).err(),
+                let failed = match (&plugin.found, &plugin.own, &plugin.dir) {
+                    (Some(found), _, Some(dir)) => install(found, dir).err(),
+                    (None, Some(files), Some(dir)) => own::install(files, dir).err(),
                     _ => None,
                 };
                 if let Some(reason) = failed {
@@ -141,9 +148,13 @@ impl RepoPlugins {
         Self { plugins }
     }
 
-    /// Every plugin folder that loaded, for `claude --plugin-dir`
-    pub fn dirs(&self) -> impl Iterator<Item = &Path> {
-        self.plugins.iter().filter_map(|p| p.dir.as_deref())
+    /// Every plugin folder that loaded, for `claude --plugin-dir`, the one
+    /// that holds the repo's own `.claude` files left out where the call
+    /// already loads them from a worktree that matches `main`
+    pub fn dirs(&self, own_loaded: bool) -> impl Iterator<Item = &Path> {
+        (self.plugins.iter())
+            .filter(move |p| !(own_loaded && p.own.is_some()))
+            .filter_map(|p| p.dir.as_deref())
     }
 
     /// Each plugin the repo turns on, with its skills or why it was skipped
@@ -178,6 +189,7 @@ impl RepoPlugin {
             stale: None,
             dir: None,
             found: None,
+            own: None,
             digest: 0,
         }
     }
@@ -219,6 +231,7 @@ fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) ->
         dir: Some(into.join(&found.name)),
         digest: fingerprint(&found),
         found: Some(found),
+        own: None,
     }
 }
 
@@ -639,10 +652,12 @@ fn skills_in(folder: &Path) -> Vec<String> {
 /// marketplaces already fetched, fetching nothing and writing only the copy of a
 /// `directory` marketplace under kelpie's home
 pub fn inspect(checkout: &Path, kelpie_home: &Path, setup: &RepoSetup) -> Vec<RepoPlugin> {
-    resolve(checkout, kelpie_home, &Fetched, false, setup)
+    let mut plugins: Vec<RepoPlugin> = resolve(checkout, kelpie_home, &Fetched, false, setup)
         .into_iter()
         .map(|resolved| plan_one(resolved, Path::new(""), setup))
-        .collect()
+        .collect();
+    plugins.extend(own::plan(checkout, Path::new(""), setup));
+    plugins
 }
 
 // A git that fetches nothing: a marketplace is as the last runner left it.
@@ -729,6 +744,8 @@ fn manifest(plugin: &Path, name: &str) -> String {
 fn plain(name: &str) -> bool {
     SkillName::try_from(name.to_owned()).is_ok()
 }
+
+mod own;
 
 #[cfg(test)]
 mod tests;
