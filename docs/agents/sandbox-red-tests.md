@@ -11,7 +11,7 @@ A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/pro
 
 The doctor, flock, dog (`left_over`), `lease::cli`, sheep, shepherd and upgrade tests run in a worker: they dial `FakeShepherd`, which answers in memory through the `Dial` port, and `lease::cli::e2e` reads the dog's answers off a connected pair of streams. What is listed below binds on purpose or for a reason of its own.
 
-Measured with `cargo test --lib` in a worker: 144 of 3225 tests fail, 3064 pass, 17 are ignored. A module's name covers its child modules.
+Measured with `cargo test --lib` in a worker: 145 of 3231 tests fail, 3069 pass, 17 are ignored. A module's name covers its child modules.
 
 | Reason | Modules |
 |---|---|
@@ -19,7 +19,7 @@ Measured with `cargo test --lib` in a worker: 144 of 3225 tests fail, 3064 pass,
 | Unix socket bind in shep-client's fake shepherd (`shep-client/src/testing/shared.rs`), kept to prove a real socket | `dog::link` (4 tests), `shepherd::connection` (2 tests: the `Socket` dial reaching a shepherd, and its protocol-mismatch refusal), `tests/upgrade.rs` (the binary against a shepherd on a real socket) |
 | Loopback TCP bind refused | `adapters::local::endpoint`, `adapters::forwarder` (the stand-in model server in `src/test/endpoint.rs`), `adapters::gpu`, `adapters::paddock`, `adapters::curl`, `adapters::pi::gateway_tests`, `doctor::gateways`, `runner::gpu_tests`, `runner::limits_tests` (the paddock holder status test), `runner::review::local`, `github` (2 tests) |
 | `ps` cannot say whether a process runs | `runner::attach`, `runner::pm::tests::attach`, `runner::slots_tests`, `runner::turn::tests::held` (the 2 tests that attach) |
-| Process groups: a group check or signal the sandbox does not allow | `adapters::process` (3 tests) |
+| Process groups: a group check or signal the sandbox does not allow | `adapters::process` (3 tests), `adapters::claude::calls` (1 test, the stop) |
 | The temp folder is under `~/.shep`, which these tests' fences refuse to read | `issues::tests` (2 tests), `runner::panel::tests::fences` (2), `runner::pm::tests::code` (1) |
 
 ## The tests behind `short_tempdir`
