@@ -278,6 +278,7 @@ mod tests {
                 "# url = \"http://gpu-box:8700\"",
                 "url = \"http://gpu-box:8700\"",
             )
+            .replace("# kind = \"paddock\"", "kind = \"paddock\"")
             .replace("# key_env =", "key_env =")
             .replace(
                 "# [kelpie.leases]\n# cargo-test",

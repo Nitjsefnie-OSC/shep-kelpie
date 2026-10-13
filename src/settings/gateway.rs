@@ -16,8 +16,10 @@ use serde::Deserialize;
 use super::local::EndpointUrl;
 use super::reviewers::lowercase_name;
 use super::{AgentName, SettingsError};
+use crate::adapters::paddock::{Paddock, Timing};
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
+use crate::ports::ModelGateway;
 
 /// A gateway's name, as `[gateways.<name>]` and an agent's `gateway` give it
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, JsonSchema)]
@@ -49,10 +51,22 @@ impl fmt::Display for GatewayName {
     }
 }
 
+/// What a gateway is, which says how kelpie talks to it beyond chat
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum GatewayKind {
+    /// Paddock, a shep dog, which checks keys and leases models by its own routes
+    #[default]
+    Paddock,
+}
+
 /// One gateway in kelpie's own settings
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Gateway {
+    /// What it is, `paddock` when absent
+    #[serde(default)]
+    pub kind: GatewayKind,
     /// Its address, such as `http://gpu-box:8700`, over plain `http://`.
     /// Its OpenAI routes are under `/v1`.
     pub url: EndpointUrl,
@@ -152,6 +166,7 @@ pub struct Route {
 pub struct Gateways {
     table: BTreeMap<GatewayName, Gateway>,
     env: fn(&str) -> Option<String>,
+    paddock: Timing,
 }
 
 impl fmt::Debug for Gateways {
@@ -174,6 +189,7 @@ impl Gateways {
         Self {
             table,
             env: |name| std::env::var(name).ok().filter(|key| !key.is_empty()),
+            paddock: Timing::RUNNER,
         }
     }
 
@@ -183,7 +199,45 @@ impl Gateways {
         table: BTreeMap<GatewayName, Gateway>,
         env: fn(&str) -> Option<String>,
     ) -> Self {
-        Self { table, env }
+        Self {
+            table,
+            env,
+            paddock: Timing::RUNNER,
+        }
+    }
+
+    /// These gateways, with a paddock's leases on `paddock`'s schedule
+    #[cfg(test)]
+    pub(crate) fn with_paddock_timing(mut self, paddock: Timing) -> Self {
+        self.paddock = paddock;
+        self
+    }
+
+    /// The port to `gateway`, for its kind
+    pub fn port(&self, gateway: &Gateway) -> Box<dyn ModelGateway> {
+        match gateway.kind {
+            GatewayKind::Paddock => Box::new(Paddock {
+                timing: self.paddock,
+            }),
+        }
+    }
+
+    /// The port to the gateway `name`
+    ///
+    /// # Errors
+    ///
+    /// The reason when kelpie's settings lack a gateway of that name.
+    pub fn port_named(&self, name: &GatewayName) -> Result<Box<dyn ModelGateway>, String> {
+        Ok(self.port(self.named(name)?))
+    }
+
+    fn named(&self, name: &GatewayName) -> Result<&Gateway, String> {
+        self.table.get(name).ok_or_else(|| {
+            format!(
+                "gateway {name} is not in kelpie's settings: add `[kelpie.gateways.{name}]` \
+                 with its `url` and `key_env`"
+            )
+        })
     }
 
     /// Each gateway, by name
@@ -237,12 +291,7 @@ impl Gateways {
             }
             ModelHost::Gateway(name) => name,
         };
-        let Some(gateway) = self.table.get(name) else {
-            return Err(format!(
-                "gateway {name} is not in kelpie's settings: add `[kelpie.gateways.{name}]` \
-                 with its `url` and `key_env`"
-            ));
-        };
+        let gateway = self.named(name)?;
         Ok(Route {
             base: gateway.base(),
             key: Some(self.key(gateway)?),
@@ -296,6 +345,7 @@ mod tests {
 
     fn paddock(url: &str) -> BTreeMap<GatewayName, Gateway> {
         let gateway = Gateway {
+            kind: GatewayKind::Paddock,
             url: EndpointUrl::try_from(url.to_owned()).unwrap(),
             key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
         };

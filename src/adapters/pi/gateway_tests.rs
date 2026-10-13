@@ -10,13 +10,14 @@ use std::sync::Arc;
 use super::tests::{FRESH, FRESH_ID, World, id};
 use super::*;
 use crate::ports::Role;
-use crate::settings::{ContextSize, EndpointUrl, Gateway, GatewayName, KeyVar};
+use crate::settings::{ContextSize, EndpointUrl, Gateway, GatewayKind, GatewayName, KeyVar};
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 const KEY: &str = "pk-not-for-workers";
 
 fn gateways(host: &str) -> Gateways {
     let gateway = Gateway {
+        kind: GatewayKind::Paddock,
         url: EndpointUrl::try_from(host.to_owned()).unwrap(),
         key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
     };
