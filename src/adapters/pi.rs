@@ -34,12 +34,16 @@ use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Kept,
     Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage,
-    Wait, written_at,
+    Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
+mod activity;
 mod adopt;
+
+#[cfg(test)]
+mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
@@ -221,9 +225,7 @@ impl Agents for PiCli {
     }
 
     fn last_active(&self, call: &AgentCall) -> CallActivity {
-        // pi names its session file when it first writes it.
-        session_file(&Files::of(call).sessions(), call.session.id())
-            .map_or(CallActivity::Nothing, |file| written_at(&file))
+        activity::of_stdout(&CallFiles::of(call).stdout)
     }
 }
 
