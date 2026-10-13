@@ -94,11 +94,30 @@ fn a_turn_held_back_by_a_draining_runner_says_so_in_status() {
     assert_eq!(rig.claude.all_calls(), []);
 }
 
-fn attach(runner: &Mutex<Runner>, issue: u64) {
-    let by = crate::work_item::Holder {
-        pid: 4242,
-        started: "Mon Sep 21 14:00:00 2026".into(),
-    };
+// A process that runs until dropped, for an attach to hold the work item by:
+// the runner lets go of one whose process `ps` does not find
+struct Live(std::process::Child);
+
+impl Live {
+    fn new() -> Self {
+        let child = std::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        Self(child)
+    }
+}
+
+impl Drop for Live {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn attach(runner: &Mutex<Runner>, issue: u64, by: &Live) {
+    let by = crate::runner::attach::running(by.0.id()).expect("`ps` names the process");
     runner
         .lock()
         .unwrap()
@@ -116,7 +135,8 @@ fn attach(runner: &Mutex<Runner>, issue: u64) {
 #[test]
 fn a_turn_for_an_attached_work_item_says_so_in_status() {
     let (rig, runner) = with_issue_7("acme");
-    attach(&runner, 7);
+    let session = Live::new();
+    attach(&runner, 7, &session);
     idle(&runner);
     assert_eq!(
         because(&rig, &runner),
@@ -134,7 +154,8 @@ fn an_attach_replaces_the_reason_a_turn_was_held_up_for() {
         "the runner is draining, so no turn starts"
     );
 
-    attach(&runner, 7);
+    let session = Live::new();
+    attach(&runner, 7, &session);
     idle(&runner);
     assert_eq!(
         because(&rig, &runner),
