@@ -252,6 +252,7 @@ impl FakeForge {
             checks: Checks::None,
             from_fork: false,
             author: VIEWER.to_owned(),
+            author_is_bot: false,
             marks: ReviewMarks::default(),
         });
         let pr = FakePullRequest {
@@ -261,14 +262,9 @@ impl FakeForge {
             draft: true,
             from_fork: false,
             author: VIEWER.to_owned(),
+            author_is_bot: false,
         };
         self.pull_requests.lock().unwrap().insert(number, pr);
-    }
-
-    /// Makes pull request `number` one `login` opened, not kelpie's account
-    pub(crate) fn set_author(&self, number: u64, login: &str) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number).expect("an opened pull request").author = login.to_owned();
     }
 
     /// How many times the account kelpie acts as was asked
@@ -982,6 +978,7 @@ pub(crate) use issues::CreatedIssue;
 use handed::FakePullRequest;
 
 mod app;
+mod authors;
 mod down;
 mod handed;
 mod issues;
