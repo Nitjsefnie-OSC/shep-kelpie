@@ -42,7 +42,7 @@ impl Runner {
         let Phase::Ci { head: seen, since } = item.phase.clone() else {
             return Ok(Begin::Idle);
         };
-        let pr = match self.ports.forge.pull_request(&self.remote, number) {
+        let pr = match self.pull_request_view(number) {
             Ok(pr) => pr,
             Err(e) => return Ok(self.gate_failed(format!("cannot read #{number}: {e}"))),
         };

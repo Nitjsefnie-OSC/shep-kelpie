@@ -103,6 +103,13 @@ impl Runner {
     // `start_over` is the item whose session died unborn, which begins the
     // same turn again.
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
+        self.snapshot.begin_pass();
+        let begin = self.step_rotation(start_over);
+        self.snapshot.end_pass();
+        begin
+    }
+
+    fn step_rotation(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         if let Some(issue) = start_over {
             self.focus = Some(issue);
             let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
