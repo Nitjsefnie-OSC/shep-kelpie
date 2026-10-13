@@ -812,6 +812,8 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
         }
     }
     lock(runner).end_overdue();
+    // Before any turn is chosen, so none resumes a session a vote still counts in.
+    lock(runner).panel_settle_worker();
     lock(runner).fall_back();
     let alerts = Arc::clone(&lock(runner).ports.alerts);
     if let Some(posted) = post_due(runner, alerts.as_ref()) {

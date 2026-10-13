@@ -89,6 +89,8 @@ pub(crate) enum Scripted {
     Hold(Hold),
     /// Blocks until the test releases it, then fails with this error
     HoldThenFail(Hold, AgentError),
+    /// Blocks like [`Self::Hold`], then answers with this final message
+    HoldThenSay(Hold, &'static str),
     /// Waits for a lease on its model until the test releases the hold, as a
     /// call queued at a gateway does, then goes on as the second does
     Queued(Hold, Box<Scripted>),
@@ -375,6 +377,10 @@ impl Agents for FakeClaude {
             Some(Scripted::Hold(hold)) => {
                 self.hold(&hold, call, ending)?;
                 Ok(said("done"))
+            }
+            Some(Scripted::HoldThenSay(hold, text)) => {
+                self.hold(&hold, call, ending)?;
+                Ok(said(text))
             }
             Some(Scripted::Queued(..)) => unreachable!("turned into its second above"),
             Some(Scripted::HoldThenFail(hold, error)) => {
