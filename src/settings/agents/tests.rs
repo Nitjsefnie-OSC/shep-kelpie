@@ -249,6 +249,48 @@ fn a_pi_implementer_may_not_be_allowed_the_model_host_or_the_loopback() {
     assert!(settings.role_agents(&book()).is_ok());
 }
 
+// An agent file cannot name goose as an implementer yet, so the model is built directly.
+#[test]
+fn a_goose_implementer_beside_guard_hooks_or_the_model_hosts_domain_is_refused() {
+    let goose = RoleModel {
+        model: "qwen3.8:27b".to_owned().try_into().unwrap(),
+        effort: Effort::Low,
+        harness: AgentHarness::Goose(ModelServer {
+            host: ModelHost::Url("http://box:11434/v1".to_owned().try_into().unwrap()),
+            context: 65_536_i64.try_into().unwrap(),
+        }),
+        tools: None,
+    };
+    let name = AgentName::kelpies("goosey");
+    let settings = project("implementers = [\"sonnet-high\"]\n");
+    assert!(settings.under_worker_fence(&name, &goose).is_ok());
+
+    let err = hooked(project("implementers = [\"sonnet-high\"]\n"))
+        .under_worker_fence(&name, &goose)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("implementer goosey runs on goose, which cannot run `worker.guard_hooks`"),
+        "{err}"
+    );
+
+    for domain in ["box", "BOX", "localhost", "127.0.0.1", "*.localhost"] {
+        let mut settings = project("implementers = [\"sonnet-high\"]\n");
+        settings.worker.allowed_domains = vec![domain.to_owned().try_into().unwrap()];
+        let err = settings
+            .under_worker_fence(&name, &goose)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("worker.allowed_domains") && err.contains(domain) && err.contains("goose"),
+            "{err}"
+        );
+    }
+    let mut settings = project("implementers = [\"sonnet-high\"]\n");
+    settings.worker.allowed_domains = vec!["github.com".to_owned().try_into().unwrap()];
+    assert!(settings.under_worker_fence(&name, &goose).is_ok());
+}
+
 #[test]
 fn an_agents_name_is_lowercase_letters_digits_and_dashes() {
     assert!(AgentName::try_from("Opus".to_owned()).is_err());

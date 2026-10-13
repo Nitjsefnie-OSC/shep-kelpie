@@ -71,7 +71,7 @@ impl Runner {
 fn reads_code(call: &AgentCall) -> bool {
     let harness = match call.harness {
         AgentHarness::ClaudeCode => true,
-        AgentHarness::Pi(_) | AgentHarness::Codex => false,
+        AgentHarness::Pi(_) | AgentHarness::Codex | AgentHarness::Goose(_) => false,
         #[cfg(test)]
         AgentHarness::StandIn => true,
     };

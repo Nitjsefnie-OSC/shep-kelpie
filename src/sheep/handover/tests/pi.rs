@@ -190,7 +190,7 @@ fn agents(rig: &Rig, folder: &Path, host: &str) -> (ClaudeCli, Arc<Routed>) {
         .with_program(folder.join("pi"))
         .with_gateways(gateways(host));
     let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(stand_in.clone(), Arc::new(pi), stand_in);
+    let routed = Routed::new(stand_in.clone(), Arc::new(pi), stand_in.clone(), stand_in);
     (claude, Arc::new(routed))
 }
 

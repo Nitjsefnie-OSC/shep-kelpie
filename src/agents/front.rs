@@ -108,6 +108,7 @@ enum ReviewerHarness {
     ClaudeCode,
     Pi,
     Codex,
+    Goose,
     Command,
     Endpoint,
     Bot,
@@ -196,7 +197,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     }
     let body = body.trim();
     let prompt = (!body.is_empty()).then(|| body.to_owned());
-    match front {
+    let agent = match front {
         Front::Implementer(keys) => Ok(Agent {
             role: Role::Implementer,
             runs: session(&SessionKeys {
@@ -242,6 +243,38 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         ),
         Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
         Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
+    }?;
+    goose_opens_at(&agent, &yaml)?;
+    Ok(agent)
+}
+
+// goose runs the researcher alone until the slices that open the other roles
+fn goose_opens_at(agent: &Agent, yaml: &str) -> Result<(), String> {
+    let on_goose = matches!(
+        agent.runs.session(),
+        Some((
+            RoleModel {
+                harness: AgentHarness::Goose(_),
+                ..
+            },
+            _
+        ))
+    );
+    let (who, slice) = match agent.role {
+        Role::Implementer => ("an implementer", "#788"),
+        Role::Reviewer => ("a reviewer", "#789"),
+        Role::Advisor => ("an advisor", "#789"),
+        _ => return Ok(()),
+    };
+    match on_goose {
+        true => Err(at_key(
+            yaml,
+            "harness",
+            &format!(
+                "{who} cannot run on goose yet: {slice} opens it, and only a researcher runs on it until then"
+            ),
+        )),
+        false => Ok(()),
     }
 }
 
@@ -321,6 +354,7 @@ impl Reviewer {
             ReviewerHarness::ClaudeCode => Harness::ClaudeCode,
             ReviewerHarness::Pi => Harness::Pi,
             ReviewerHarness::Codex => Harness::Codex,
+            ReviewerHarness::Goose => Harness::Goose,
             #[cfg(test)]
             ReviewerHarness::StandIn => Harness::StandIn,
             ReviewerHarness::Command => {
@@ -492,22 +526,17 @@ fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
             return Err("runs on claude-code, which takes no `url`, `gateway` or `context`".into());
         }
         (Harness::Pi, Some(host), Some(context)) => {
-            if let ModelHost::Url(url) = host
-                && let Err(e) = Upstream::new(url)
-            {
-                return Err(format!(
-                    "runs on pi, with a `url` kelpie cannot forward to: {e}"
-                ));
-            }
-            AgentHarness::Pi(ModelServer {
-                host: host.clone(),
-                context,
-            })
+            AgentHarness::Pi(model_server("pi", host, context)?)
         }
-        (Harness::Pi, ..) => {
-            return Err("runs on pi, which needs the model's server as `url` or a \
-                        `gateway`, and its context size as `context`"
-                .into());
+        (Harness::Goose, Some(host), Some(context)) => {
+            AgentHarness::Goose(model_server("goose", host, context)?)
+        }
+        (Harness::Pi | Harness::Goose, ..) => {
+            return Err(format!(
+                "runs on {}, which needs the model's server as `url` or a \
+                 `gateway`, and its context size as `context`",
+                keys.harness.as_str()
+            ));
         }
         (Harness::Codex, None, None) => AgentHarness::Codex,
         (Harness::Codex, ..) => {
@@ -524,6 +553,25 @@ fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
     })
 }
 
+// The server a pi or goose agent named `harness` runs its model on
+fn model_server(
+    harness: &str,
+    host: &ModelHost,
+    context: ContextSize,
+) -> Result<ModelServer, String> {
+    if let ModelHost::Url(url) = host
+        && let Err(e) = Upstream::new(url)
+    {
+        return Err(format!(
+            "runs on {harness}, with a `url` kelpie cannot forward to: {e}"
+        ));
+    }
+    Ok(ModelServer {
+        host: host.clone(),
+        context,
+    })
+}
+
 /// What holds a session's calls back, or why its keys do not say
 ///
 /// The reader must be the harness's own: an agent on Claude Code spends
@@ -531,7 +579,7 @@ fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
 fn limit(keys: &SessionKeys<'_>) -> Result<Limit, String> {
     let own = match keys.harness {
         Harness::ClaudeCode => UsageReader::Claude,
-        Harness::Pi => UsageReader::None,
+        Harness::Pi | Harness::Goose => UsageReader::None,
         Harness::Codex => UsageReader::Codex,
         #[cfg(test)]
         Harness::StandIn => keys.usage.unwrap_or(UsageReader::Claude),

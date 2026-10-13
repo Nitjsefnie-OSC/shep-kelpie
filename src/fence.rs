@@ -1,8 +1,8 @@
 //! Each harness's own files in a worktree, which no worker writes
 //!
 //! A harness loads its own files from the worktree: Claude Code its `.claude`
-//! folder and `.mcp.json`, Codex its `.codex` folder. Settings, hooks and MCP
-//! servers there run code, so the sandbox and `kelpie confine` refuse writes
+//! folder and `.mcp.json`, Codex its `.codex` folder, goose its `.goose`
+//! folder. Settings, hooks and MCP servers there run code, so the sandbox and `kelpie confine` refuse writes
 //! to every harness's files, each call checks them against `main`'s, and a
 //! pull request that changes them waits on the maintainer. Names match in any
 //! case, since macOS reads `.CLAUDE` as `.claude`.
@@ -37,7 +37,7 @@ pub struct OwnFiles {
 ///
 /// A worker on one harness could otherwise plant files that the next call,
 /// on another, runs.
-pub const HARNESSES: [OwnFiles; 3] = [
+pub const HARNESSES: [OwnFiles; 4] = [
     OwnFiles {
         harness: "Claude Code",
         folders: &[".claude"],
@@ -63,6 +63,21 @@ pub const HARNESSES: [OwnFiles; 3] = [
         root_files: &[],
         credentials: &["~/.pi/**"],
         program: "pi",
+    },
+    // goose also loads `.goosehints` from the working folder, which the goose
+    // adapter keeps unread, so it is not listed here. Its config, secrets and
+    // session database sit in four places, by platform.
+    OwnFiles {
+        harness: "goose",
+        folders: &[".goose"],
+        root_files: &[],
+        credentials: &[
+            "~/.config/goose/**",
+            "~/.local/share/goose/**",
+            "~/.local/state/goose/**",
+            "~/Library/Application Support/Block/goose/**",
+        ],
+        program: "goose",
     },
 ];
 
@@ -542,12 +557,63 @@ mod tests {
     fn a_call_reads_no_other_harnesss_login() {
         assert_eq!(
             others_credentials("Claude Code"),
-            ["~/.codex/**", "~/.pi/**"]
+            [
+                "~/.codex/**",
+                "~/.pi/**",
+                "~/.config/goose/**",
+                "~/.local/share/goose/**",
+                "~/.local/state/goose/**",
+                "~/Library/Application Support/Block/goose/**",
+            ]
         );
         assert_eq!(
             others_credentials("Codex"),
-            ["~/.claude/.credentials.json", "~/.claude.json", "~/.pi/**"]
+            [
+                "~/.claude/.credentials.json",
+                "~/.claude.json",
+                "~/.pi/**",
+                "~/.config/goose/**",
+                "~/.local/share/goose/**",
+                "~/.local/state/goose/**",
+                "~/Library/Application Support/Block/goose/**",
+            ]
         );
+    }
+
+    #[test]
+    fn a_goose_folder_is_fenced_and_its_credentials_are_unreadable_to_every_other_harness() {
+        for path in [
+            ".goose",
+            ".goose/config.yaml",
+            "src/.GOOSE/x",
+            "a/b/.Goose/recipes",
+        ] {
+            assert_eq!(owner(Path::new(path)), Some("goose"), "{path}");
+        }
+        for path in ["goose/notes.md", ".goosehints", "src/goose.rs"] {
+            assert!(!fenced(Path::new(path)), "{path}");
+        }
+        assert_eq!(
+            owner(Path::new(".agents/skills")),
+            Some("Codex"),
+            ".agents stays Codex's"
+        );
+
+        let goose = [
+            "~/.config/goose/**",
+            "~/.local/share/goose/**",
+            "~/.local/state/goose/**",
+            "~/Library/Application Support/Block/goose/**",
+        ];
+        for harness in ["Claude Code", "Codex", PI] {
+            let unread = others_credentials(harness);
+            for path in goose {
+                assert!(unread.iter().any(|p| p == path), "{harness}: {path}");
+            }
+        }
+        let own = others_credentials("goose");
+        assert!(goose.iter().all(|path| !own.iter().any(|p| p == path)));
+        assert!(own.iter().any(|p| p == "~/.pi/**"));
     }
 
     #[test]
@@ -569,6 +635,8 @@ mod tests {
                 "/k/wt/7/**/.agents",
                 "/k/wt/7/.pi",
                 "/k/wt/7/**/.pi",
+                "/k/wt/7/.goose",
+                "/k/wt/7/**/.goose",
             ]
         );
     }
@@ -584,6 +652,7 @@ mod tests {
             "docs/.CODEX",
             "docs/.agents",
             "tools/.pi/extensions",
+            "app/.Goose/recipes",
             "src/plain",
             "src/claude",
         ] {
@@ -599,10 +668,11 @@ mod tests {
         };
 
         let linux = listed(true);
-        assert_eq!(linux[..9], listed(false)[..]);
+        assert_eq!(linux[..11], listed(false)[..]);
         assert_eq!(
-            linux[9..],
+            linux[11..],
             [
+                "app/.Goose",
                 "docs/.CODEX",
                 "docs/.agents",
                 "lib/.codex",
@@ -625,7 +695,7 @@ mod tests {
         fs::create_dir_all(wt.join(".git/.claude")).unwrap();
         fs::create_dir_all(wt.join("near/.claude")).unwrap();
         let listed = deny_write_on(wt, true);
-        assert_eq!(listed[9..], [wt.join("near/.claude")]);
+        assert_eq!(listed[11..], [wt.join("near/.claude")]);
     }
 
     #[test]
