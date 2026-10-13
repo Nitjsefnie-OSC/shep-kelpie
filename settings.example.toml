@@ -6,6 +6,13 @@
 # `[pacing]` tables that hold them. The `[worker]` table must be present too,
 # though every key in it has a default, as does every other key.
 # This entry holds the first build's defaults, for shep.
+# `env` must hold `SHEP_HOME` as an absolute path, since a sheep starts
+# without it. An older entry's `kill_timeout = "10s"` still works and is no
+# longer needed.
+# `shep kelpie get` prints a project's table and `shep kelpie set <key>
+# <value>` changes one key. A running runner takes a change at its next
+# wake, within a minute when idle. `git.checkout`, `git.remote`, `hooks` and
+# kelpie's gateways wait for its next start, and the log says so.
 
 [[app]]
 name = "shep"
@@ -18,7 +25,8 @@ shutdown_with_message = true
 [app.dogs.kelpie.git]
 checkout = "~/GitHub/shep" # the checkout `shep kelpie add` ran in
 # The repo on GitHub as `owner/name`. Left out, it is read from the
-# checkout's `origin` when the runner starts.
+# checkout's `origin` when the runner starts, and an `origin` that is not a
+# GitHub repo stops the runner, naming this setting.
 remote = "shep-pm/shep"
 # Who merges a green, reviewed pull request. `ask` raises a merge ruling.
 # `auto` merges and sends a notice after, to the webhook, or the log when
@@ -29,7 +37,7 @@ remote = "shep-pm/shep"
 merging = "ask"
 # Findings a worker deferred, once its pull request merges. `ask` raises a
 # ruling before filing them as issues, `file` files them at once, and
-# `skip` files nothing and leaves them in the review.
+# `skip` files nothing and leaves them in the review. `ask` when absent.
 issues = "ask"
 # The GitHub login kelpie mentions on a ruling it posts through its App, so
 # GitHub notifies you. The login `gh` acts as when absent, so set this when
@@ -55,8 +63,9 @@ fix_attempts = -1
 
 [app.dogs.kelpie.concurrency]
 # How many work items may hold a slot, which a worker's turn or a review
-# needs. Each has its own branch, worktree and gates. One parked on a
-# ruling gives its slot up.
+# needs. Each has its own branch, worktree and gates. With more than one,
+# their turns and reviews run at the same time, one call at a time per work
+# item. One parked on a ruling gives its slot up.
 active_items = 1
 # How many work items may wait parked on rulings before the board opens
 # nothing new. It is not a cap on rulings: items already working can still
@@ -67,10 +76,16 @@ pending_rulings = 2
 
 [app.dogs.kelpie.budget]
 # What one work item may spend, in dollars, on its worker's and reviewers'
-# priced calls together. Past it, the work item raises a ruling before its
-# worker's next turn: a yes doubles the cap, and a no with a note sends the
-# worker the note and doubles it too. A call whose harness reports no dollars
-# counts nothing.
+# priced calls together. Past it, the work item raises a `stuck` ruling for
+# `over-budget` before its worker's next turn starts, and a turn already
+# running is never cut off. A yes doubles the cap, and again while it is
+# still below the spend (one long turn can cost more than the doubled cap),
+# and the worker carries on. A no with a note sends the worker the note
+# ahead of the turn that was due, and raises the cap the same. A call whose
+# harness reports no dollars counts nothing. The review rounds are not held
+# back by it. A change takes effect at once, and `status` and the board show
+# each open work item's spend against its cap. A cap below one cent is
+# refused.
 per_item_usd = 10
 
 # The agents that build the project's work items, by the names of kelpie's
@@ -90,8 +105,8 @@ implementers = ["sonnet-high"]
 # sets `paths` runs only on a pull request that changes one of them.
 # `defect-hunter` is kelpie's own: Opus 5.5 at high, reading for defects and
 # then looking again for what it missed, with one fix turn after both.
-# `qwen` runs the maintainer's qwen-review script, and `add` writes it only
-# where the script is installed. The review bots `coderabbit`, `cubic` and
+# `qwen` runs the maintainer's qwen-review script, and `add` writes it, and
+# lists it first, only where `~/.claude/scripts/qwen-review.sh` exists. The review bots `coderabbit`, `cubic` and
 # `codex` are reviewers too, on files `add` writes but lists nowhere: one
 # listed here, as in `["qwen", "defect-hunter", "coderabbit"]`, reads the
 # pull request in its place, once a pass, after waiting for its window, and
@@ -135,7 +150,9 @@ implementers = ["sonnet-high"]
 
 # Turn `enabled` off for a stretch when usage limits do not matter: neither
 # the daily allowance nor the 5-hour window then holds anything, and `status`
-# says pacing is off. Usage is still read and shown.
+# says pacing is off. Usage is still read and shown. `kickoff_hours` is the
+# hours a day that the per-hour figure in `status` divides the day's
+# allowance by.
 [app.dogs.kelpie.pacing]
 enabled = true
 kickoff_hours = 8
@@ -143,8 +160,10 @@ kickoff_hours = 8
 # Domains a worker's sandbox may reach besides GitHub: here the crates
 # registry, for a cold cargo cache. An entry is a host such as `crates.io`,
 # with one optional leading `*.` label (`*.crates.io`) and an optional
-# `:port`; a `*` anywhere else, a scheme or a path is refused when the settings
-# load. `build_env` points tool caches into the
+# `:port`; a `*` anywhere else, such as `productionresultssa*.blob.core.windows.net`,
+# a scheme or a path is refused when the settings load, since the sandbox would
+# refuse to start on them: a live reread keeps the running settings and names
+# the entry. `build_env` points tool caches into the
 # worker's build folder, such as `BUN_INSTALL_CACHE_DIR = "bun"` for bun.
 # `CARGO_TARGET_DIR` is always the build folder itself.
 [app.dogs.kelpie.worker]
@@ -160,13 +179,14 @@ build_env = {}
 
 # A worker turn still running at this ceiling is more likely stuck than
 # busy: kelpie stops it, parks it and asks. A yes resumes the same session.
+# In minutes.
 turn_timeout = 60
 
 # Tokens of context at which Claude Code compacts a worker's session in the
 # middle of a turn. Left alone it waits for the model's whole window, and a
 # long turn can read hundreds of thousands of tokens on every call by then.
 # After a compaction the worker is handed the turn's prompt again. 0 leaves
-# Claude Code's own point.
+# Claude Code's own point. Reviewers and the project manager are not bounded.
 compact_window = 200000
 
 # A project's own hooks, run after kelpie's guard, which every worker gets.
@@ -186,12 +206,32 @@ compact_window = 200000
 # `write` (every file an agent writes or edits), `after_command` (a shell
 # command's result, as feedback to the agent), `turn_start` (a prompt kelpie
 # is about to send) and `turn_end` (a worker's turn that ended). Notices,
-# which only tell: `reset`, `ruling`, `ci` and `done`. The command gets a JSON
+# which only tell: `reset` (before kelpie compacts a session), `ruling`, `ci`
+# and `done`. The command gets a JSON
 # payload on stdin. At a gate, exit 0 passes, 2 refuses with its stderr as the
 # reason, and anything else is a hook that failed, which also refuses. A
 # notice that exits non-zero is logged by name and kelpie goes on. A hook that
 # runs past 30 seconds has failed. Each command must resolve when the runner
-# starts, as a guard hook's must.
+# starts, as a guard hook's must, and a runner reads `hooks` only then, so a
+# change waits for its next start. A point that is not one of these stops the
+# runner at load, naming the points there are.
+# The payload carries what the point is about: `command` has the `command`
+# line and its `cwd`; `write` the `path`, `tool` and `content` or `patch`;
+# `after_command` the `exit` and the output tail; `turn_end` the
+# `last_message`; `ruling` the `kind`, `question` and `choices`; `ci` the
+# `head`, its `conclusion` and the `failed` checks; `done` the work item's
+# `history` entry.
+# `commit`, `push`, `command`, `write`, `after_command` and a worker's
+# `publish` run inside kelpie's sandbox, in the worker's fence, so they read
+# only what the worker can. The rest run in the runner, outside it.
+# A refused commit, push, command, write or `gh` post goes back to the agent
+# as the tool's error, a refused `after_command` as feedback on the result,
+# and a refused pull request file, branch or `turn_end` back to the worker
+# once. A refused `turn_start`, or a post of kelpie's own, parks on a ruling
+# naming the hook.
+# Use `hooks` for a check that must hold on every harness, and
+# `worker.guard_hooks` for a Claude Code hook on a tool call kelpie has no
+# point for.
 # [[app.dogs.kelpie.hooks]]
 # point = "publish"
 # command = "~/bin/check-words"
@@ -221,7 +261,8 @@ compact_window = 200000
 # `command` is a file in the repo and `results` a folder in it, both relative
 # with no `..`. The host must be disposable: the project's script runs there
 # as the alias's account, and a worker edits that script. Left out, a worker's
-# ask is answered that the project has no e2e host.
+# ask is answered that the project has no e2e host. A runner reads these
+# when it starts. See https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/leases-and-e2e.md#end-to-end-tests.
 # [app.dogs.kelpie.e2e]
 # host = "e2e-box"
 # command = "scripts/e2e-remote.sh"
@@ -264,6 +305,8 @@ compact_window = 200000
 # reviewer agent that reads a contribution for security. `quiet_days` and
 # `nudge_days` are whole days above 0, and `nudge_days` is below `quiet_days`.
 # The agent files are checked only when `pick` is not `off`.
+# `security_reviewer` is read when a contribution's head is; the other keys
+# are not read yet.
 # [app.dogs.kelpie.contributions]
 # pick = "off"
 # reviewers = ["defect-hunter"]
@@ -272,7 +315,8 @@ compact_window = 200000
 # nudge_days = 3
 
 # The skill each step runs. A step left out runs its default from kelpie's
-# own copy of mattpocock/skills, so the project installs nothing; the README
+# own copy of mattpocock/skills, so the project installs nothing;
+# https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/building.md#skills
 # lists each step and its default. `retro` is the exception: it is off
 # unless named, and then it is the project manager's batch retro. `path` is a skill folder of your own, `plugin` a skill in a
 # Claude Code plugin's folder, `kelpie` the step's default from kelpie's copy,

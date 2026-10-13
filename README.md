@@ -124,7 +124,7 @@ runner `scratch`: added with its settings, stopped
 `shep kelpie start scratch` runs it
 ```
 
-On a repo without those four labels, `add` makes them. The runner puts `in-progress` on an issue while a work item has it. It writes kelpie's own [agent files](docs/guide/agents.md#agents) where they are missing, and never over one you edited. The project is named after the repo, or `shep kelpie add <name>`, as `scratch` was here.
+On a repo without those four labels, `add` makes them. The runner puts `in-progress` on an issue while a work item has it. It writes kelpie's own [agent files](docs/guide/agents.md#agents) where they are missing, and never over one you edited, and registers the runner with the project's settings, stopped. The project is named after the repo, or `shep kelpie add <name>`, as `scratch` was here. Running `add` again changes nothing.
 
 The settings `add` writes, with their defaults, are in [What `add` writes](docs/guide/settings.md#what-add-writes).
 
@@ -163,9 +163,9 @@ ok       scratch: rulings: no webhook, so rulings reach you only in the log, `st
 nothing a project needs is missing
 ```
 
-Each `MISSING` line names its fix, and `doctor` exits non-zero until they are done. A ruling is a question shep-kelpie cannot settle itself, such as a merge, and it must reach you. With no webhook it shows only in the runner's log, `shep kelpie status` and `shep kelpie rule`, so you have to look. To be told, add a `[kelpie.webhook]` table for ntfy or Discord to `dogs.toml` in the shepherd's home. Copy that table alone from `kelpie-settings.example.toml`, and put your own URL in it: the file's `url` is a public ntfy.sh topic anyone can read.
+Each `MISSING` line names its fix, and `doctor` exits non-zero until they are done. [Commands](docs/guide/commands.md#add-and-doctor) lists what it checks.
 
-Run `shep kelpie doctor` again. With a webhook set it ends:
+With no webhook, a ruling shows only in the runner's log, `shep kelpie status` and `shep kelpie rule`, so you have to look. To be told, set one: [The webhook](docs/guide/rulings.md#the-webhook) says how. With a webhook set, `doctor` ends:
 
 ```
 ok       scratch: rulings: rulings post to the ntfy webhook
@@ -189,7 +189,7 @@ It ends up holding:
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 ```
 
-For npm, that is `registry.npmjs.org`. An entry is a host, with one optional leading `*.` label to take its subdomains (`*.crates.io`) and an optional `:port`. A `*` anywhere else, such as `productionresultssa*.blob.core.windows.net`, a scheme and a path are refused when the settings load, since the sandbox would refuse to start on them: a live reread keeps the running settings and names the entry. `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
+For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](settings.example.toml), and `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
 
 ### 8. Start it, and label a first issue
 
@@ -199,21 +199,18 @@ shep kelpie start
 
 It starts the project's runner, and the project runs while it does: `shep start scratch` and lookout's start do the same, and `shep ls` shows it `online`. The runner reads the board from its first pass.
 
-Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have the issue writer write it (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Then the review runs, each listed reviewer once, then CI. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
+Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have the issue writer write it (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Once CI passes on it, the review runs, each listed reviewer once. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
 
 ### 9. Answer a ruling
 
-A ruling reaches the webhook you set in step 6, or waits in `status` and `shep kelpie rule`. Answer it from the terminal:
+A ruling waits in `status` and `shep kelpie rule`, and reaches the webhook if you set one in step 6. Answer it from the terminal:
 
 ```sh
 shep kelpie rule          # lists the rulings waiting
 shep kelpie rule 427 yes  # the number of the ruling's pull request, or its issue before there is one
-shep kelpie rule 427 no rename the flag
 ```
 
-On ntfy you can also reply in the topic, after a one-time `shep kelpie totp`. [Rulings](docs/guide/rulings.md#rulings) has the six kinds and how to answer each.
-
-A self-hosted ntfy, and a topic you mark `trusted`, take more keys in `[kelpie.webhook]`: see [A self-hosted or trusted ntfy](docs/guide/rulings.md#a-self-hosted-or-trusted-ntfy).
+[Rulings](docs/guide/rulings.md#rulings) has the six kinds and every way to answer one, including a reply on GitHub or in an ntfy topic.
 
 ### 10. Pause, and find the log
 
@@ -221,7 +218,7 @@ A self-hosted ntfy, and a topic you mark `trusted`, take more keys in `[kelpie.w
 shep kelpie pause
 ```
 
-The runner starts no new call, the calls already running finish and a merge found in flight lands, then shep stops it, so `shep ls` shows it `stopped`. It says what it waits on meanwhile. A session you attached keeps running in your terminal. A ruling still waiting can be answered with `shep kelpie rule` while it is stopped, and the runner acts on the answer when it starts. `shep kelpie start` runs it again. A merge a ruling starts in the moment between that check and the stop can still be cut short, and its work item resumes when the runner starts. If a wait runs out, you interrupt it or shep refuses the stop, the runner keeps running. A runner's log is `shep bleats <project>`, and the dog's is `shep bleats kelpie`.
+The runner stops once its calls end, and `shep kelpie start` runs it again (see [Pausing and finishing](docs/guide/commands.md#pausing-and-finishing)). A runner's log is `shep bleats <project>`, and the dog's is `shep bleats kelpie`.
 
 To wind a project down without watching it, finish it instead:
 
@@ -229,7 +226,7 @@ To wind a project down without watching it, finish it instead:
 shep kelpie finish
 ```
 
-`finish` runs every open work item to its end before it stops the runner. [Pausing and finishing](docs/guide/commands.md#pausing-and-finishing) sets it against `pause` and `drain`.
+`finish` runs every open work item to its end before it stops the runner. The commands page sets it against `pause` and `drain`.
 
 ## Guides
 
