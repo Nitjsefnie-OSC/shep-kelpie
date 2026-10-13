@@ -391,6 +391,16 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError>;
 
+    /// Approves the CI runs on `head` that wait for a maintainer to approve
+    /// them, as the login the forge acts as: the first runs of a fork's
+    /// pull request, which run the contributor's code once approved. Returns
+    /// `Ok` when no run waits.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn approve_workflow_runs(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError>;
+
     /// Marks draft pull request `number` ready for review
     ///
     /// # Errors

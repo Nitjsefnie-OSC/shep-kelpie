@@ -19,7 +19,7 @@ fn write(folder: &std::path::Path, file: &str, text: &str) {
 }
 
 // A pull request whose head the reviewer flags: its number is 30
-fn flagged() -> (Rig, Mutex<Runner>, String) {
+pub(super) fn flagged() -> (Rig, Mutex<Runner>, String) {
     let (rig, runner) = picking("all");
     rig.claude.script([Scripted::Text(FOUND)]);
     let head = contribute(&rig, 30, |h| write(h, "build.rs", "fn main() {}\n"));
@@ -34,7 +34,7 @@ fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
     status["rulings"].as_array().cloned().unwrap_or_default()
 }
 
-fn rule(rig: &Rig, runner: &Mutex<Runner>, words: &str) -> Value {
+pub(super) fn rule(rig: &Rig, runner: &Mutex<Runner>, words: &str) -> Value {
     rig.ask(runner, "rule", Some(words))
 }
 

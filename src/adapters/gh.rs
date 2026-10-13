@@ -249,6 +249,10 @@ impl Forge for Gh {
         runs::rerun_failed(repo, head)
     }
 
+    fn approve_workflow_runs(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        runs::approve_workflow_runs(repo, head)
+    }
+
     fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
         runs::rerun_run(repo, run)
     }

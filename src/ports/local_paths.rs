@@ -311,6 +311,10 @@ impl Forge for Guarded {
         self.forge.rerun_run(repo, run)
     }
 
+    fn approve_workflow_runs(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        self.forge.approve_workflow_runs(repo, head)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.mark_ready(repo, number)
     }

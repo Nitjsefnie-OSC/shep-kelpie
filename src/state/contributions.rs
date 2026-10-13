@@ -32,6 +32,13 @@ pub struct Contribution {
     /// unless it is not an ancestor of the next head.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passed: Option<String>,
+    /// CI on the head, once kelpie approved its held runs
+    ///
+    /// Left out until it did, and after a push: the new head is not approved
+    /// until it passes the security review, so absent reads as waiting to be
+    /// approved. Always names the current `head` or nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ci: Option<Ci>,
     /// What the contributor said and did on the pull request, oldest first,
     /// the last [`KEPT`]
     ///
@@ -71,6 +78,32 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+/// CI on a contribution's head after kelpie approved its held runs
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ci {
+    /// The head it approved and follows
+    pub head: String,
+    /// When kelpie approved the runs: the checks register after it
+    pub since: Timestamp,
+    /// Where CI stands
+    pub state: CiState,
+}
+
+/// Where CI stands on a contribution's head
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CiState {
+    /// Not every check has reported, or the rollup is not yet trusted
+    Waiting,
+    /// Every check finished and none failed, or all were skipped
+    Green,
+    /// Every check finished, and these failed
+    Red(Vec<String>),
+}
+
 /// What the calls on a pull request that is not followed any more cost, kept
 /// for when it is followed again
 // wire format: changing this is a breaking change to the state file
@@ -100,6 +133,7 @@ impl Contribution {
             seen,
             security: None,
             passed: None,
+            ci: None,
             spend: Cost::default(),
             budget_raises: 0,
             heard: Vec::new(),
@@ -155,6 +189,7 @@ impl Contribution {
             head: head.clone(),
             seen,
             security: None,
+            ci: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -192,6 +227,11 @@ impl Contribution {
     /// Whether the security review has read the current head
     pub fn is_read(&self) -> bool {
         self.security.as_ref().is_some_and(|s| s.head == self.head)
+    }
+
+    /// Whether kelpie approved the current head's held runs
+    pub fn is_approved(&self) -> bool {
+        self.ci.as_ref().is_some_and(|ci| ci.head == self.head)
     }
 
     /// Whether the current head passed the security review, or the maintainer

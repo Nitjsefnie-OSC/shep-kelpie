@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), and runs nothing of theirs. #617, #618, #619, #625
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), and runs nothing of theirs but the CI runs of a head that passed the security review (below). #617, #618, #619, #622, #625
 
 ## Settings
 
@@ -35,3 +35,13 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 
 - `worktree::Remote` is where a work item's branch lives: `Origin`, or `Fork { url, branch }` for a contributor's fork. `prepare` (`Start::Pushed`), `origin_head`, `base_of`, `adopt`, `rebase` and `remove` take it, and every runner caller passes `Remote::Origin`, so nothing observable changes yet. A fork is fetched and pushed by URL, never added as a remote of the repo. `src/worktree/remote.rs`
 - A fork's branch is fetched to `refs/remotes/fork-<hash of the URL>/<branch>`, never under `origin`, so a fork cannot overwrite `origin/main`. `Start::Main` and the catch-up with `main` always read `origin/main`. #631
+
+## CI on a trusted head
+
+- GitHub holds a fork's first CI runs until a maintainer approves them, and approving runs the contributor's code. `Forge::approve_workflow_runs(repo, head)` lists the runs with `status=action_required` and that `head_sha`, drops any whose `head_sha` differs or whose `status` and `conclusion` are neither `action_required` (the query matches either field), and approves each. Kind `approve_workflow_runs`, REST. `src/adapters/gh/runs.rs`
+- Kelpie approves as the maintainer's `gh` login, from the runner outside any sandbox, as it merges. If the App's token can approve (#636), moving to it is a follow-up.
+- `follow_ci` (`src/runner/contributions/ci.rs`) runs at the end of `follow_contributions`, once a poll. A head is approved only when it equals `passed`: a flagged, unread or stale head never is, and a yes to a flagged head's ruling makes it `passed`, so the next poll approves it. A new push clears `ci`, so the new head waits for its own pass.
+- `contributions[].ci` is `{ head, since, state }`, left out until the approval succeeds. `since` is the approval, and `state` is `waiting`, `green` or `{ red: [failed checks' names] }`.
+- A rollup is trusted `CHECKS_SETTLE` (two minutes) after `since`, as at the gate, and only when `Forge::pull_request` reads the same head. No check or a pending one stays `waiting`. A skipped rollup is `green`: a contribution is never a draft. With `ci.block` off the state is `green` at the approval, as the gate passes a project without CI.
+- A refused approval or an unreadable pull request logs and changes nothing: the next poll tries again, and no poll fails. A call that listed no held run is an approval. A run GitHub holds after that listing is approved by listing again at each poll while the settled rollup shows no check or a pending one. State version 50.
+- No reviewer reads a contribution before green, per ADR 0008. #623 enforces it.

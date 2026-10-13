@@ -93,6 +93,8 @@ pub(crate) struct FakeForge {
     board_reads: Arc<AtomicUsize>,
     // The reads of pull requests: the listing, one's view, and one's review
     pull_request_reads: Arc<reads::PullRequestReads>,
+    // The heads whose held CI runs kelpie approved
+    approvals: Arc<approvals::Approvals>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
     limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
@@ -164,6 +166,7 @@ impl FakeForge {
             asked: Arc::default(),
             board_reads: Arc::default(),
             pull_request_reads: Arc::default(),
+            approvals: Arc::default(),
             down: Arc::default(),
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
@@ -310,27 +313,6 @@ impl FakeForge {
     /// Makes posting comments fail, or work again
     pub(crate) fn set_comments_down(&self, down: bool) {
         self.comments_down.store(down, Ordering::SeqCst);
-    }
-
-    /// Makes pull request `number` report `head` whatever origin holds, as
-    /// GitHub does for a moment after a push, or stop doing so
-    pub(crate) fn set_lagging(&self, number: u64, head: Option<&str>) {
-        let mut lagging = self.lagging.lock().unwrap();
-        match head {
-            Some(head) => lagging.insert(number, head.to_owned()),
-            None => lagging.remove(&number),
-        };
-    }
-
-    /// Makes pull request `number` keep reading as a draft after it is marked
-    /// ready, as GitHub does for a moment, or stop doing so
-    pub(crate) fn set_lagging_draft(&self, number: u64, lagging: bool) {
-        let mut drafts = self.lagging_drafts.lock().unwrap();
-        if lagging {
-            drafts.insert(number);
-        } else {
-            drafts.remove(&number);
-        }
     }
 
     /// Makes merging fail, or work again
@@ -844,6 +826,10 @@ impl Forge for FakeForge {
         ci.rerun_of_run(run).map_err(ForgeError::Failed)
     }
 
+    fn approve_workflow_runs(&self, _repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        self.approve(head)
+    }
+
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.opened(number)?;
@@ -984,6 +970,7 @@ pub(crate) use issues::CreatedIssue;
 use handed::FakePullRequest;
 
 mod app;
+mod approvals;
 mod authors;
 mod down;
 mod handed;

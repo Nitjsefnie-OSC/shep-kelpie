@@ -450,6 +450,12 @@ impl Forge for RateHeld {
         self.call(Kind::RerunRun, |f| f.rerun_run(repo, run))
     }
 
+    fn approve_workflow_runs(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        self.call(Kind::ApproveWorkflowRuns, |f| {
+            f.approve_workflow_runs(repo, head)
+        })
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(Kind::MarkReady, |f| f.mark_ready(repo, number))
     }
