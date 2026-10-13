@@ -22,6 +22,7 @@ const CLAUDE: Harness = Harness::ClaudeCode;
 
 #[cfg(test)]
 mod escapes;
+mod graph;
 pub(crate) mod sandbox;
 pub(crate) mod settings;
 
@@ -256,6 +257,7 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     if let Some(window) = call.compact_window {
         settings::compacting(&mut value, window, &again);
     }
+    graph::allow(&mut value, call);
     let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
@@ -275,6 +277,11 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
         ))
     })?;
     write(&call.settings, text)?;
+    if let Some(code_graph) = &call.reach.code_graph {
+        let config = graph::config(code_graph, &call.cwd);
+        let text = serde_json::to_string_pretty(&config).expect("an MCP config is JSON");
+        write(&graph::mcp_file(&call.settings), text)?;
+    }
     match call.compact_window {
         Some(_) => write(&again, compacted_prompt(&call.prompt)),
         None => Ok(()),
@@ -343,6 +350,13 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
     };
     if let Some(tools) = tools {
+        // Only the config named here is loaded, so the server is the one MCP server.
+        if call.reach.code_graph.is_some() {
+            argv.extend([
+                "--mcp-config".into(),
+                graph::mcp_file(&call.settings).into(),
+            ]);
+        }
         argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
     }
     argv
