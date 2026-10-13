@@ -602,3 +602,137 @@ fn the_question_names_the_pull_request_number_or_the_issue_number_before_one_ope
         "{before_one}"
     );
 }
+
+const FLAG_TEST: &str = "tests/flag.rs";
+const FLAG_TEXT: &str = "#[test]\nfn flag_is_read() { assert!(false); }\n";
+
+fn failed(output: &str) -> crate::ports::TestOutcome {
+    crate::ports::TestOutcome::Failed {
+        output: output.to_owned(),
+    }
+}
+
+// Round 2's reviewer attached a test that fails before the fix and after both
+// of the worker's fixes: ruling 71 waits on it.
+fn a_test_still_failing_after_two_fixes() -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    rig.test_command("cargo test --test {name}");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    rig.tests
+        .script([failed("before"), failed("after one"), failed("after two")]);
+    rig.claude.script([Scripted::Attach(
+        FLAG_TEST,
+        FLAG_TEXT,
+        "MEDIUM|src/lib.rs:3|the flag is read first|a caller sees nothing|tests/flag.rs",
+    )]);
+    step(&runner).unwrap(); // round 2, claude
+    step(&runner).unwrap(); // the findings sent
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap(); // the first fix turn
+    step(&runner).unwrap(); // the fix ended: the worker is sent back
+    rig.claude.script([Scripted::Push("again.txt", "again\n")]);
+    step(&runner).unwrap(); // the second fix turn
+    let raised = step(&runner).unwrap();
+    assert!(
+        matches!(raised, Some(StepReport::Ruling { id: 71, .. })),
+        "{raised:?}"
+    );
+    (rig, runner)
+}
+
+#[test]
+fn a_yes_on_a_failing_test_sends_one_more_fix_turn() {
+    let (rig, runner) = a_test_still_failing_after_two_fixes();
+
+    rig.ask(&runner, "rule", Some("71 yes"));
+    rig.tests.script([crate::ports::TestOutcome::Passed]);
+    rig.claude.script([Scripted::Push("third.txt", "third\n")]);
+    step(&runner).unwrap(); // the third fix turn
+    let prompt = rig.claude.calls().last().unwrap().prompt.clone();
+    assert!(prompt.contains(FLAG_TEST), "{prompt}");
+    assert!(prompt.contains("after two"), "{prompt}");
+    assert!(prompt.contains("leave the test alone"), "{prompt}");
+
+    step(&runner).unwrap(); // the fix ended: the test runs again
+    let item = &rig.ask(&runner, "status", None)["work_item"];
+    assert_eq!(item["phase"]["state"], "ci");
+    assert_eq!(
+        item["test_checks"][0]["after"],
+        json!({ "result": "passed" })
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_no_on_it_lets_the_pass_go_on() {
+    let (rig, runner) = a_test_still_failing_after_two_fixes();
+    let reads = rig.reviewer.seen().len();
+
+    rig.ask(&runner, "rule", Some("71 no leave that test be"));
+    rig.claude.script([Scripted::Text("Understood.")]);
+    step(&runner).unwrap(); // the worker's turn on the note
+    let note = rig.claude.calls().last().unwrap().prompt.clone();
+    assert!(note.contains("leave that test be"), "{note}");
+
+    step(&runner).unwrap(); // the turn ended, and the pass goes on
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ci");
+    assert_eq!(rig.reviewer.seen().len(), reads, "no round ran again");
+    assert_eq!(rig.tests.ran().len(), 3, "the test is not run again");
+    assert_eq!(
+        status["work_item"]["test_checks"][0]["after"],
+        json!({ "result": "failed", "output": "after two" }),
+        "status keeps the failed check"
+    );
+}
+
+// A commit the note's turn pushes is a fix turn's push: kelpie vouches for it,
+// and the merge gate does not name it unread.
+#[test]
+fn a_commit_pushed_on_a_no_is_vouched_for() {
+    let (rig, runner) = a_test_still_failing_after_two_fixes();
+
+    rig.ask(&runner, "rule", Some("71 no rename it instead"));
+    rig.claude.script([Scripted::Push("note.txt", "noted\n")]);
+    step(&runner).unwrap(); // the worker's turn on the note
+    step(&runner).unwrap(); // the turn ended, and the pass goes on
+
+    let runner = runner.lock().unwrap();
+    let item = &runner.state.work_items[0];
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    assert!(item.vouches_for(&head));
+    assert!(matches!(item.phase, Phase::Ci { .. }), "{:?}", item.phase);
+    assert!(item.nit_fix_heads.is_empty(), "{:?}", item.nit_fix_heads);
+}
+
+// The pull request is public, and a test's output may hold anything: its
+// comment says that a test fails, and the terminal question carries the tails.
+#[test]
+fn the_public_line_names_no_test_output() {
+    let kind = RulingKind::from(Stuck::TestStillFails {
+        fix: Fix::Review(Review::first()),
+        head: "abcdef1234567".into(),
+        tests: vec![crate::state::FailingTest {
+            test: FLAG_TEST.into(),
+            output: "panicked at the secret token".into(),
+        }],
+        prompt: "fix it".into(),
+    });
+
+    let said = comment(&kind).expect("a stuck ruling is said");
+
+    assert_eq!(
+        said,
+        "A reviewer's test still fails after two fixes.\n\nWaiting on the maintainer."
+    );
+    let asked = question(7, Some(71), &kind);
+    assert!(asked.contains("panicked at the secret token"), "{asked}");
+    assert!(asked.contains(FLAG_TEST), "{asked}");
+    assert!(asked.contains("abcdef1"), "{asked}");
+    assert!(asked.contains("`shep kelpie rule 71 yes`"), "{asked}");
+}
