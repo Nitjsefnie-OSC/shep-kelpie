@@ -390,6 +390,14 @@ impl Runner {
             return Ok(());
         }
         let mut next = self.state.clone();
+        // The comment is the ruling's answer, not a request of the worker.
+        if let Some(item) = next
+            .work_items
+            .iter_mut()
+            .find(|i| i.pull_request == Some(comment.thread))
+        {
+            item.talked.hear(comment.id);
+        }
         for ruling in &self.state.rulings {
             if let Some(watch) = self.threads.watching.get(&ruling.id) {
                 next.heard.insert(ruling.id, watch.heard.clone());

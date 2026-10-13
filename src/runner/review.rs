@@ -47,6 +47,7 @@ use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport
 use super::retro::journal::{Entry, Held};
 use super::review_bot::Answered;
 use super::ruling::park;
+use super::talk::At;
 use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
@@ -102,6 +103,9 @@ impl Runner {
                     return Ok(begin);
                 }
                 if let Some(begin) = self.late_review()? {
+                    return Ok(begin);
+                }
+                if let Some(begin) = self.talk_turn(&At::Round(review.clone()))? {
                     return Ok(begin);
                 }
                 let chosen = match self.choose_reviewer(&review, &worktree, &base) {

@@ -28,6 +28,7 @@
 
 mod failed;
 mod late;
+pub(in crate::runner) use late::LATE_READ;
 mod lease;
 mod on_ready;
 mod settle;
@@ -38,6 +39,7 @@ pub(crate) use settle::SETTLE_LEAST;
 use super::Runner;
 use super::gate::settled;
 use super::report::{Begin, StepReport};
+use super::talk::COMMENT_REQUEST;
 
 use crate::lease::wire::WindowFact;
 use crate::ports::{Finding, ForgeError, PullRequestState, Timestamp, Visibility};
@@ -792,6 +794,11 @@ impl Runner {
         let mut failed = None;
         let app = self.app_covers();
         for id in self.item().threads_sent.clone() {
+            // A comment on the conversation has no thread to reply on.
+            if id.starts_with(COMMENT_REQUEST) {
+                self.update(|item| item.thread_answered(&id))?;
+                continue;
+            }
             let answer = self.item().answer_of(&id).cloned();
             let (resolve, body) = reply_to(answer.as_ref(), pushed);
             let (forge, voice) = (&self.ports.forge, &self.ports.voice);

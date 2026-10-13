@@ -44,7 +44,7 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
             }
             if *note_fix {
                 unread.push_str(
-                    " This head is the worker's fix for your note, and no reviewer read it.",
+                    " This head is the worker's fix for a note or comment, and no reviewer read it.",
                 );
             }
             if *late_fix {

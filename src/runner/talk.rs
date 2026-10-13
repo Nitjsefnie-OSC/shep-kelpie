@@ -1,0 +1,314 @@
+//! What people with write access wrote on the pull request, sent to the worker
+//!
+//! Kelpie reads the pull request's comments and review threads at the start
+//! of each review round, when CI goes green, and every [`LATE_READ`] seconds
+//! while a merge ruling waits, which costs one forge read each time. What
+//! someone with write access wrote there is a request of the worker, sent as
+//! one resumed turn, the way a merge ruling's `no <note>` is. A comment that
+//! lands while a merge ruling waits withdraws the ruling and is handled as
+//! that `no` is, so its fix goes to CI and back to a new ruling. What the
+//! owner, a member or a collaborator wrote is trusted. Others' comments, and
+//! any App's or bot's, are ignored and logged. The review bots kelpie lists
+//! are read by their own rounds.
+//!
+//! The worker's reply names each request it fixed or declined, as it does
+//! for a review bot's threads, and kelpie replies on each review thread and
+//! resolves the fixed ones (see [`Runner::answer_sent`]). A request that is
+//! ambiguous or architectural ends the turn with a question block, which
+//! raises a `question` ruling. After [`TALK_ROUNDS`] rounds of comments the
+//! next comments go to the maintainer as such a ruling instead.
+//!
+//! A conversation comment from the login a ruling mentions is left to that
+//! ruling's own thread, which answers it (see [`super::thread_replies`]).
+
+use std::collections::BTreeSet;
+
+use self::sort::{Request, Sieve, Sorted, sort};
+use super::Runner;
+use super::report::Begin;
+use super::review_bot::Answered;
+use super::rework::HUMAN;
+use super::ruling::needs_pass;
+use super::turn::KEEP_BODY_TRUE;
+use crate::state::{Resume, RulingKind, StateError};
+use crate::work_item::{Phase, Review, TALK_ROUNDS, Turn};
+
+mod sort;
+
+/// What the id of a request that is a conversation comment starts with
+pub(super) const COMMENT_REQUEST: &str = "comment:";
+#[cfg(test)]
+mod tests;
+
+/// Where the work item stands when the comments are read
+pub(super) enum At {
+    /// About to start a round of the review
+    Round(Review),
+    /// CI is green on this head
+    Ci(String),
+    /// Waiting on this merge ruling
+    Parked(u64),
+}
+
+impl Runner {
+    /// Reads what people wrote on the pull request and, when there is a
+    /// request in it that is new, starts the worker's turn for it
+    ///
+    /// `None` when there is nothing new to send, or when threads sent to
+    /// the worker are not yet answered. A read that fails is told and the
+    /// work item goes on without it.
+    pub(super) fn talk_turn(&mut self, at: &At) -> Result<Option<Begin>, StateError> {
+        let Some(item) = self.current() else {
+            return Ok(None);
+        };
+        let Some(number) = item.pull_request else {
+            return Ok(None);
+        };
+        if !item.threads_sent.is_empty() || item.talked.head.is_some() {
+            return Ok(None);
+        }
+        let talk = match self.ports.forge.talk(&self.remote, number) {
+            Ok(talk) => talk,
+            Err(e) => {
+                self.notes
+                    .push(format!("cannot read what people wrote on #{number}: {e}"));
+                return Ok(None);
+            }
+        };
+        let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
+        own.extend(self.posted.borrow().iter().copied());
+        let left = self.ruling_replies(number);
+        let sieve = Sieve {
+            talked: &item.talked,
+            own: &own,
+            left: &left,
+            quiet: !item.talked.read && (item.adopted || item.rework),
+        };
+        let sorted = sort(&talk, &sieve);
+        let capped = item.talked.capped();
+        if sorted.requests.is_empty() {
+            self.note_heard(&sorted)?;
+            self.notes.extend(sorted.ignored);
+            return Ok(None);
+        }
+        let begin = if capped {
+            self.too_many_rounds(number, at, &sorted)?
+        } else {
+            self.send_requests(number, at, &sorted)?
+        };
+        if begin.is_some() {
+            self.notes.extend(sorted.ignored);
+        }
+        Ok(begin)
+    }
+
+    // The logins of the people a pending ruling on the pull request asks to
+    // reply in its thread, where kelpie's App reads those replies.
+    fn ruling_replies(&self, number: u64) -> Vec<String> {
+        if !self.app_covers() {
+            return Vec::new();
+        }
+        (self.state.rulings.iter())
+            .filter(|r| r.pull_request == Some(number))
+            .filter_map(|r| self.state.heard.get(&r.id))
+            .map(|heard| heard.mentions.clone())
+            .collect()
+    }
+
+    // Notes the comments of `sorted` as handled.
+    fn note_heard(&mut self, sorted: &Sorted) -> Result<(), StateError> {
+        let before = self.current().expect("comments are read on a work item").talked.clone();
+        let mut after = before.clone();
+        after.read = true;
+        for id in &sorted.comments {
+            after.hear(*id);
+        }
+        for (thread, id) in &sorted.threads {
+            after.hear_thread(thread, *id);
+        }
+        if after == before {
+            return Ok(());
+        }
+        self.update(|item| item.talked = after)
+    }
+
+    // Sends the requests to the worker as its next turn, in place of the
+    // merge ruling that waits, if one does.
+    fn send_requests(
+        &mut self,
+        number: u64,
+        at: &At,
+        sorted: &Sorted,
+    ) -> Result<Option<Begin>, StateError> {
+        let head = match self.origin_head() {
+            Ok(head) => head,
+            Err(reason) => return Ok(Some(self.gate_failed(reason))),
+        };
+        let (phase, noted_from, parked) = self.after_comments(at);
+        let prompt = prompt(number, &sorted.requests);
+        let ids: Vec<String> = sorted.requests.iter().map(|r| r.id.clone()).collect();
+        let mut next = self.state.clone();
+        next.rulings.retain(|r| Some(r.id) != parked);
+        let item = self
+            .current_in(&mut next)
+            .expect("comments are read on a work item");
+        for id in &sorted.comments {
+            item.talked.hear(*id);
+        }
+        for (thread, id) in &sorted.threads {
+            item.talked.hear_thread(thread, *id);
+        }
+        item.talked.read = true;
+        item.talked.rounds = item.talked.rounds.saturating_add(1);
+        item.talked.head = Some(head);
+        item.threads_sent = ids;
+        item.thread_answers.clear();
+        item.turn = Turn::Next { prompt };
+        item.phase = Phase::Implement;
+        item.resume = phase;
+        item.noted_from = noted_from.or(item.noted_from.take());
+        item.late_from = None;
+        let issue = item.issue;
+        self.save(next)?;
+        let Some(id) = parked else {
+            return Ok(Some(Begin::Idle));
+        };
+        self.late_reads.remove(&issue);
+        let why = "someone with write access commented on the pull request, so the worker gets \
+                   the comment as a no, and the merge ruling is raised again once CI is green after it";
+        self.say_withdrawn(id, issue, Some(number), why);
+        // The worker's turn again, so the hand-back label comes off.
+        match (self.ports.forge).set_label(&self.remote, number, HUMAN, false) {
+            Ok(()) => self.update(|item| item.known.labels.retain(|l| l != HUMAN))?,
+            Err(e) => eprintln!("cannot take the `{HUMAN}` label off #{number}: {e}"),
+        }
+        Ok(Some(Begin::Idle))
+    }
+
+    // Where the turn for comments read `at` goes once it ends, the head the
+    // fix is sent unread from, and the ruling it withdraws.
+    fn after_comments(&self, at: &At) -> (Option<Phase>, Option<String>, Option<u64>) {
+        match at {
+            At::Round(review) => (Some(Phase::Review(review.clone())), None, None),
+            At::Ci(head) => (None, Some(head.clone()), None),
+            At::Parked(id) => {
+                let kind = self.state.rulings.iter().find(|r| r.id == *id);
+                match kind.map(|r| &r.kind) {
+                    Some(kind) if needs_pass(kind) => {
+                        (Some(Phase::Review(Review::first())), None, Some(*id))
+                    }
+                    Some(RulingKind::Merge { head, .. }) => (None, Some(head.clone()), Some(*id)),
+                    _ => (None, None, Some(*id)),
+                }
+            }
+        }
+    }
+
+    // The comments come after the rounds kelpie sends by itself, so the
+    // maintainer reads them, and their answer is what the worker is sent.
+    fn too_many_rounds(
+        &mut self,
+        number: u64,
+        at: &At,
+        sorted: &Sorted,
+    ) -> Result<Option<Begin>, StateError> {
+        let list: Vec<String> = sorted.requests.iter().map(|r| r.quoted()).collect();
+        let asked = format!(
+            "People with write access commented on the pull request after {TALK_ROUNDS} rounds \
+             of fixes for comments, which is as many as kelpie sends by itself:\n\n{}\n\n\
+             Say what the worker should do about them.",
+            list.join("\n\n")
+        );
+        let (phase, noted_from, parked) = self.after_comments(at);
+        let resume = match (at, phase) {
+            (At::Round(review), _) => Resume::Review(review.clone()),
+            (_, Some(Phase::Review(_))) => Resume::ReviewFirst,
+            _ => Resume::Nothing,
+        };
+        let mut next = self.state.clone();
+        next.rulings.retain(|r| Some(r.id) != parked);
+        let item = self
+            .current_in(&mut next)
+            .expect("comments are read on a work item");
+        for id in &sorted.comments {
+            item.talked.hear(*id);
+        }
+        for (thread, id) in &sorted.threads {
+            item.talked.hear_thread(thread, *id);
+        }
+        item.noted_from = noted_from.or(item.noted_from.take());
+        let issue = item.issue;
+        self.save(next)?;
+        if let Some(id) = parked {
+            self.late_reads.remove(&issue);
+            let why = "comments came in after the rounds kelpie sends by itself, so the maintainer reads them";
+            self.say_withdrawn(id, issue, Some(number), why);
+        }
+        let kind = RulingKind::Question { asked, resume };
+        Ok(Some(self.raise(number, kind)?))
+    }
+
+    /// Replies on the threads the last round of comments was sent, and
+    /// resolves the ones the worker fixed, once its turn is over
+    ///
+    /// `None` when the turn ended, or there is nothing to answer.
+    pub(super) fn answer_talk(&mut self) -> Result<Option<Begin>, StateError> {
+        let Some(item) = self.current() else {
+            return Ok(None);
+        };
+        let (Some(number), Some(sent_at)) = (item.pull_request, item.talked.head.clone()) else {
+            return Ok(None);
+        };
+        if !matches!(item.turn, Turn::Ended { .. }) {
+            return Ok(None);
+        }
+        let pushed = match self.origin_head() {
+            Ok(head) => head != sent_at,
+            Err(reason) => return Ok(Some(self.gate_failed(reason))),
+        };
+        match self.answer_sent(number, pushed)? {
+            Answered::Done => {}
+            Answered::Retry(reason) => return Ok(Some(self.gate_failed(reason))),
+            Answered::LeftOpen { reason, .. } => self.notes.push(reason),
+        }
+        self.update(|item| item.talked.head = None)?;
+        Ok(None)
+    }
+}
+
+impl Request {
+    // What it says, as the maintainer reads it.
+    fn quoted(&self) -> String {
+        let place = self.place.as_ref().map_or_else(String::new, |p| format!(" on {p}"));
+        let said: Vec<String> = (self.said.iter())
+            .map(|(who, text)| {
+                let quoted: Vec<String> = text.lines().map(|l| format!("> {l}")).collect();
+                format!("{who}{place}:\n{}", quoted.join("\n"))
+            })
+            .collect();
+        said.join("\n")
+    }
+}
+
+// The worker's turn for `requests`, which it answers by their numbers.
+fn prompt(number: u64, requests: &[Request]) -> String {
+    let list: Vec<String> = requests
+        .iter()
+        .enumerate()
+        .map(|(at, request)| format!("Request {}:\n{}", at + 1, request.quoted()))
+        .collect();
+    format!(
+        "People with write access to the repository commented on pull request #{number}. \
+         Each numbered request is a comment on its conversation or a review thread on its \
+         diff.\n\n{}\n\n\
+         Make the change each one asks for when it is clear, and push it. A request that is \
+         ambiguous, or asks for an architectural change, is not yours to decide: make no \
+         change for it, and end your reply with a question block that says what you need \
+         to know, as `<kelpie-question>` and `</kelpie-question>` around the question.\n\n\
+         Otherwise end your reply with one line for each request, using the number it has \
+         here: `thread <n>: fixed` or `thread <n>: declined: <the reason>`. Kelpie replies \
+         on each review thread for you and resolves the ones you fixed, and a request with \
+         no line is replied to as not addressed.\n\n{KEEP_BODY_TRUE}\n",
+        list.join("\n\n")
+    )
+}

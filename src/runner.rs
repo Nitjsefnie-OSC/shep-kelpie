@@ -114,6 +114,7 @@ mod slots_tests;
 mod snapshot;
 mod started;
 mod step_log;
+mod talk;
 mod thread_replies;
 mod timings;
 mod token_wait;
