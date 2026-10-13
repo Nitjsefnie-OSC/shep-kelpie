@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #625
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #624, #625
 
 ## Settings
 
@@ -45,3 +45,11 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 - A rollup is trusted `CHECKS_SETTLE` (two minutes) after `since`, as at the gate, and only when `Forge::pull_request` reads the same head. No check or a pending one stays `waiting`. A skipped rollup is `green`: a contribution is never a draft. With `ci.block` off the state is `green` at the approval, as the gate passes a project without CI.
 - A refused approval or an unreadable pull request logs and changes nothing: the next poll tries again, and no poll fails. A call that listed no held run is an approval. A run GitHub holds after that listing is approved by listing again at each poll while the settled rollup shows no check or a pending one. State version 50.
 - No reviewer reads a contribution before green, per ADR 0008. The pass (`contribution-pass.md`) enforces it.
+
+## A review bot in the list
+
+- A bot in `contributions.reviewers` reads in its turn, through the work item's round (`src/runner/contributions/bots.rs`). Its turn is no call: the runner steps it each `BOARD_POLL`, after `follow_ci`, with no slot. The walk waits in `contributions[].walking` (`past`, `ran`, `missed`, and `bot`, the turn's `ReviewStage`) until the bot answers or is passed over.
+- It is summoned on the head by its label (off, then on) or by its full-review comment, under the dog's lease. The `Summoned` stage is saved before the comment is posted, so a restart never posts it twice, and an unanswered summon is not sent again. The lease row has no issue. `paths` are not checked.
+- Passed over, so the next reviewer reads and the local agent at the end is the backstop: a bot whose window opens more than `FAR` (an hour) on, one that refuses with such a window or declines, and one silent, processing or failed two hours after its summon (`REVIEW_WAIT`), and CodeRabbit where the repo is not public. A pass every reviewer was passed over for ends unread, with each reason.
+- A review of the head ends the pass once its threads settle (two reads that agree, 60 to 120 seconds, as `lands`). Its open threads above a nit are `pass.findings`, its nits are `pass.nits`, and the bot is `last_answered`. Nothing is posted: the bot's comments are the post.
+- A push or a dropped pull request clears the walk, takes the label off and returns the lease or the ask, unless another turn needs it. Threads recorded on a head are not carried to the next unless the bot reads that head too.

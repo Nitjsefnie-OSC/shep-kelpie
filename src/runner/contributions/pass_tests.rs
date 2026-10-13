@@ -24,7 +24,7 @@ const FOUND: &str = "HIGH|build.rs:3|downloads and runs a script|it runs at buil
 
 const HAIKU: &str = "claude-haiku-5-5";
 
-fn write(folder: &Path, file: &str, text: &str) {
+pub(in crate::runner) fn write(folder: &Path, file: &str, text: &str) {
     if let Some(parent) = folder.join(file).parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
@@ -34,7 +34,7 @@ fn write(folder: &Path, file: &str, text: &str) {
 // A project that follows every pull request and lists `list` as its
 // contributions' reviewers, over agent files for `mine`, `other` and `docs`,
 // stand-in commands (`docs` reads only `docs/`), and `haiku`, a Claude session
-fn listing(list: &[&str]) -> (Rig, Mutex<Runner>) {
+pub(in crate::runner) fn listing(list: &[&str]) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
     rig.with_app();
     rig.maintainer("Boss");
@@ -65,7 +65,7 @@ fn listing(list: &[&str]) -> (Rig, Mutex<Runner>) {
 }
 
 // The local reviewers the stand-in was asked, in order, by their commands' names
-fn asked(rig: &Rig) -> Vec<String> {
+pub(in crate::runner) fn asked(rig: &Rig) -> Vec<String> {
     let name = |round: SeenRound| match round.local {
         LocalRound::Command(c) => {
             let file = Path::new(&c.command).file_name().unwrap().to_owned();
@@ -85,7 +85,7 @@ fn haiku(rig: &Rig) -> Vec<Seen> {
 }
 
 // Polls until `head` has a pass, and returns the contribution
-fn read_through(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Value {
+pub(in crate::runner) fn read_through(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Value {
     for _ in 0..10 {
         let held = contribution(rig, runner);
         if held.get("pass").is_some_and(|p| p["head"] == head) {
@@ -100,7 +100,7 @@ fn read_through(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Value {
 
 // Polls three times, enough for a head to be read for security, approved, and
 // handed to the reviewers
-fn poll_through(rig: &Rig, runner: &Mutex<Runner>) {
+pub(in crate::runner) fn poll_through(rig: &Rig, runner: &Mutex<Runner>) {
     for _ in 0..3 {
         rig.next_look();
         step(runner).unwrap();

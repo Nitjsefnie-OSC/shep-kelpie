@@ -5,6 +5,7 @@
 //! waits on it.
 
 use super::super::Runner;
+use super::super::contributions::waiting_on;
 use crate::lease::wire::WindowFact;
 use crate::ports::Timestamp;
 use crate::review_bot::Bot;
@@ -96,9 +97,16 @@ impl Runner {
         self.state.leases.iter().any(mine)
     }
 
-    // Whether a work item other than this one waits to summon `bot`
+    // Whether a work item other than this one, or a contribution's walk, waits
+    // to summon `bot`
     fn lease_wanted_elsewhere(&self, bot: Bot) -> bool {
         let this = self.current().map(|item| item.issue);
+        self.item_waits_on(bot, this)
+            || (self.state.contributions.iter()).any(|c| waiting_on(c) == Some(bot))
+    }
+
+    /// Whether a work item other than `except` waits to summon `bot`
+    pub(in crate::runner) fn item_waits_on(&self, bot: Bot, except: Option<u64>) -> bool {
         self.state.work_items.iter().any(|item| {
             let waits = matches!(
                 &item.phase,
@@ -107,7 +115,7 @@ impl Runner {
                     ..
                 }) if *theirs == bot
             );
-            Some(item.issue) != this && waits
+            Some(item.issue) != except && waits
         })
     }
 
