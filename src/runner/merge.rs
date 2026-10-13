@@ -363,6 +363,15 @@ impl Runner {
         if merged && let Some(begin) = self.follow_ups()? {
             return Ok(begin);
         }
+        // Before anything is removed, so a refused close runs this step again.
+        if let (true, Some(item)) = (merged, self.current())
+            && let Some(number) = item.pull_request
+        {
+            let issue = item.issue;
+            if let Some(reason) = self.close_merged_issue(issue, number) {
+                return Ok(self.gate_failed(reason));
+            }
+        }
         self.release_all()?;
         let item = self.current().expect("a finish is of a work item");
         if let (false, Some(number)) = (merged, item.pull_request)
@@ -408,7 +417,7 @@ impl Runner {
             qwen: item.qwen,
             timings,
         };
-        let (issue, pull_request) = (item.issue, item.pull_request);
+        let issue = item.issue;
         let mut next = self.state.clone();
         next.work_items.retain(|open| open.issue != item.issue);
         // Rulings about this work item go with it, a question asked before
@@ -425,12 +434,6 @@ impl Runner {
             listed.push(item.issue);
         }
         next.record_finished(record);
-        // Before the save, so a runner that stops partway still has the work
-        // item and comes back here. The step reads the issue first, so it
-        // closes nothing twice.
-        if let (true, Some(number)) = (merged, pull_request) {
-            self.close_merged_issue(issue, number);
-        }
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
         if let Some(text) = friction {
@@ -450,6 +453,9 @@ mod queue;
 mod auto;
 
 #[cfg(test)]
+mod close;
+
+#[cfg(test)]
 mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Mutex;
@@ -462,7 +468,7 @@ mod tests {
     use crate::runner::step;
     use crate::test::{Rig, Scripted, git};
 
-    fn finished(report: Option<StepReport>) -> bool {
+    pub(super) fn finished(report: Option<StepReport>) -> bool {
         matches!(
             report,
             Some(StepReport::Finished {
@@ -483,7 +489,7 @@ mod tests {
 
     // After a yes: the pass that marks the draft ready, then the pass that
     // merges once CI has had time to settle
-    fn ready_then_merge(rig: &Rig, runner: &Mutex<Runner>) -> Option<StepReport> {
+    pub(super) fn ready_then_merge(rig: &Rig, runner: &Mutex<Runner>) -> Option<StepReport> {
         assert_eq!(step(runner).unwrap(), marked_ready());
         rig.clock.advance(CHECKS_SETTLE);
         step(runner).unwrap()
@@ -872,7 +878,16 @@ mod tests {
         rig.forge.set_closes_down(true);
         rig.forge.list_ready(7, false);
         rig.ask(&runner, "rule", Some("1 yes"));
-        assert!(finished(ready_then_merge(&rig, &runner)));
+        // The close is refused in each of three steps before the item finishes.
+        assert!(matches!(
+            ready_then_merge(&rig, &runner),
+            Some(StepReport::GateFailed { issue: 7, .. })
+        ));
+        for wait in [15, 30] {
+            rig.clock.advance(wait);
+            let report = step(&runner).unwrap();
+            assert_eq!(finished(report.clone()), wait == 30, "{report:?}");
+        }
         assert_eq!(finished_on_disk(&rig), json!([7]));
 
         assert_eq!(step(&runner).unwrap(), None);
@@ -893,107 +908,5 @@ mod tests {
         rig.forge.remove_issue(7);
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(finished_on_disk(&rig), json!([7]));
-    }
-
-    #[test]
-    fn a_pull_request_merged_without_a_closing_reference_gets_its_issue_closed() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.set_closes(71, &[]);
-        rig.forge.list_ready(7, false);
-        rig.forge.list_ready(8, false);
-        rig.forge.block(8, 7);
-        rig.ask(&runner, "rule", Some("1 yes"));
-
-        assert!(finished(ready_then_merge(&rig, &runner)));
-        assert_eq!(rig.forge.closings(), [7]);
-        let comments = rig.forge.comments();
-        assert_eq!(comments.len(), 1, "{comments:?}");
-        assert_eq!(comments[0].0, 7);
-        assert!(comments[0].1.contains("#71"), "{comments:?}");
-        rig.next_look();
-        assert!(matches!(
-            step(&runner).unwrap(),
-            Some(StepReport::Dispatched { issue: 8, .. })
-        ));
-    }
-
-    #[test]
-    fn a_pull_request_the_maintainer_merged_by_hand_gets_its_issue_closed_too() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.set_closes(71, &[]);
-        rig.forge.list_ready(7, false);
-        rig.ask(&runner, "rule", Some("1 yes"));
-        rig.forge.set_state(71, PullRequestState::Merged);
-
-        assert!(finished(step(&runner).unwrap()));
-        assert_eq!(rig.forge.closings(), [7]);
-        assert_eq!(rig.forge.comments().len(), 1);
-    }
-
-    #[test]
-    fn an_issue_the_pull_request_names_is_left_to_the_forge_though_it_still_reads_open() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.list_ready(7, false);
-        rig.ask(&runner, "rule", Some("1 yes"));
-        // The forge has merged it and not yet closed #7, which #71 names.
-        rig.forge.set_state(71, PullRequestState::Merged);
-
-        assert!(finished(step(&runner).unwrap()));
-        assert!(rig.forge.closings().is_empty());
-        assert!(rig.forge.comments().is_empty());
-    }
-
-    #[test]
-    fn an_issue_the_forge_already_closed_gets_no_comment_and_no_second_close() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.ask(&runner, "rule", Some("1 yes"));
-
-        assert!(finished(ready_then_merge(&rig, &runner)));
-        assert!(rig.forge.closings().is_empty());
-        assert!(rig.forge.comments().is_empty());
-    }
-
-    #[test]
-    fn a_close_the_forge_refuses_is_noted_and_the_work_item_still_finishes() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.set_closes(71, &[]);
-        rig.forge.list_ready(7, false);
-        rig.forge.set_closes_down(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
-
-        assert!(finished(ready_then_merge(&rig, &runner)));
-        assert!(rig.forge.closings().is_empty());
-        assert_eq!(rig.forge.comments().len(), 1);
-        let notes = runner.lock().unwrap().take_notes();
-        assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].contains("cannot close issue #7"), "{notes:?}");
-        assert!(notes[0].contains("closing is refused"), "{notes:?}");
-        assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
-    }
-
-    #[test]
-    fn a_comment_the_forge_refuses_is_noted_and_the_issue_is_closed_without_it() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.set_closes(71, &[]);
-        rig.forge.list_ready(7, false);
-        rig.forge.set_comments_down(true);
-        rig.ask(&runner, "rule", Some("1 yes"));
-
-        assert!(finished(ready_then_merge(&rig, &runner)));
-        assert_eq!(rig.forge.closings(), [7]);
-        let notes = runner.lock().unwrap().take_notes();
-        assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].contains("cannot comment on issue #7"), "{notes:?}");
-    }
-
-    #[test]
-    fn an_item_that_ended_without_a_merge_leaves_its_issue_untouched() {
-        let (rig, runner, _) = Rig::parked("koji");
-        rig.forge.set_closes(71, &[]);
-        rig.forge.list_ready(7, false);
-
-        rig.ask(&runner, "drop", Some("7"));
-        assert!(rig.forge.closings().is_empty());
-        assert!(rig.forge.comments().is_empty());
     }
 }

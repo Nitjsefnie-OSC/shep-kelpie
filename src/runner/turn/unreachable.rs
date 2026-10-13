@@ -16,7 +16,7 @@ use super::super::Runner;
 use super::super::alert::backoff;
 use super::super::flight::Waiting;
 use super::super::report::Begin;
-use crate::ports::{AgentCall, AgentError, ForgeError, Timestamp, Wait};
+use crate::ports::{AgentCall, AgentError, Timestamp, Wait};
 use crate::profile;
 
 /// Seconds the wait lasts from the first failure before the turn parks
@@ -168,10 +168,7 @@ impl Runner {
                 }
                 self.token_wait.ends();
             }
-            Err(ForgeError::AppBusy(_)) => {
-                self.token_wait.busy_at(now);
-                return Some(Begin::Idle);
-            }
+            Err(e) if self.token_error_passes(&e) => return Some(Begin::Idle),
             Ok(None) | Err(_) => {}
         }
         Some(Begin::Call {

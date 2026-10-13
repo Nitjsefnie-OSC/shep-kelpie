@@ -4,7 +4,7 @@
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
-use crate::ports::{ForgeError, Timestamp};
+use crate::ports::{Cooldown, ForgeError, Timestamp};
 
 /// What every call fails with while the forge is down, and when its rate
 /// limit resets where it can say
@@ -28,6 +28,17 @@ impl FakeForge {
         *self.down.lock().unwrap() = Some((said.to_owned(), reset));
     }
 
+    /// Makes every call fail as gh does when GitHub's secondary limit is
+    /// passed, with `cooldown` as the headers of the answer
+    pub(crate) fn set_limited(&self, cooldown: Cooldown) {
+        *self.limited.lock().unwrap() = Some(cooldown);
+    }
+
+    /// Lets every call through again after [`Self::set_limited`]
+    pub(crate) fn set_unlimited(&self) {
+        *self.limited.lock().unwrap() = None;
+    }
+
     /// Makes every call fail as gh does with no network, or lets every call through again
     pub(crate) fn set_down(&self, down: bool) {
         let said = "error connecting to api.github.com";
@@ -37,6 +48,13 @@ impl FakeForge {
     /// Counts a call, and fails it while the forge is down
     pub(super) fn ask(&self) -> Result<(), ForgeError> {
         self.asked.fetch_add(1, Ordering::SeqCst);
+        if let Some(cooldown) = *self.limited.lock().unwrap() {
+            let said = "gh: You have exceeded a secondary rate limit. (HTTP 403)";
+            return Err(ForgeError::Limited {
+                said: format!("gh failed: {said}"),
+                cooldown,
+            });
+        }
         match &*self.down.lock().unwrap() {
             Some((said, _)) => Err(ForgeError::Failed(said.clone())),
             None => Ok(()),

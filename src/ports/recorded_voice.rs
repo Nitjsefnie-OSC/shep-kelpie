@@ -50,8 +50,9 @@ impl RecordedVoice {
 
 /// Whether the App's call failed on a rate limit, which its errors say in words
 fn rate_limited(error: &ForgeError) -> bool {
-    matches!(error, ForgeError::App(why) | ForgeError::AppBusy(why)
-        if why.to_lowercase().contains("rate limit"))
+    matches!(error, ForgeError::Limited { .. })
+        || matches!(error, ForgeError::App(why) | ForgeError::AppBusy(why)
+            if why.to_lowercase().contains("rate limit"))
 }
 
 impl fmt::Debug for RecordedVoice {
@@ -136,6 +137,7 @@ mod tests {
     use super::*;
     use crate::forge_ledger::{self, Api};
     use crate::github::{ApiError, AppVoice};
+    use crate::ports::Cooldown;
     use crate::test::{FakeClock, FakeGithub};
 
     fn koji() -> ForgeSlug {
@@ -159,7 +161,7 @@ mod tests {
         clock.advance(10);
         voice.thumbs_up(&koji(), 1).unwrap();
         clock.advance(10);
-        github.refuse_comments(ApiError::RateLimited);
+        github.refuse_comments(ApiError::RateLimited(Cooldown::default()));
         voice.comment(&koji(), 7, "again").unwrap_err();
 
         let lines = forge_ledger::read(&home.path().join(forge_ledger::FILE)).unwrap();

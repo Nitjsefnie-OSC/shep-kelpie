@@ -27,6 +27,8 @@ mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
+mod pace;
+mod paced_voice;
 mod rate_limit;
 mod recorded_voice;
 mod reviewer;
@@ -40,14 +42,16 @@ pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence, Guard,
     PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-pub use forge_error::ForgeError;
+pub use forge_error::{Cooldown, ForgeError};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
-pub use rate_limit::{ForgeHold, RateHeld, Say};
+pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
+pub use paced_voice::PacedVoice;
+pub use rate_limit::{ForgeHold, RateHeld, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
@@ -66,6 +70,11 @@ pub struct Timestamp(pub u64);
 pub trait Clock: Send + Sync {
     /// The current time
     fn now(&self) -> Timestamp;
+
+    /// Lets `seconds` pass
+    fn wait(&self, seconds: u64) {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+    }
 }
 
 /// Who a repo is visible to on the forge
@@ -964,6 +973,8 @@ pub struct Ports {
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
+    /// The login's forge hold and pace, kept by the dog where it is reached
+    pub pace: Arc<dyn Pace>,
     /// The repo of every project in the flock, whose names a post to a public
     /// repo leaves out when GitHub marks them private
     pub flock: Vec<ForgeSlug>,
