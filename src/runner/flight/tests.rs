@@ -7,7 +7,6 @@ use std::sync::mpsc::{self, Receiver};
 use serde_json::json;
 
 use super::*;
-use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::ports::{Cost, Session, Usage};
 use crate::runner::step;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -70,13 +69,13 @@ impl<'a> Driven<'a> {
     }
 }
 
-// An implementer on the GPU, which waits for the `gpu` lease
+// An implementer on a local model
 pub(super) const CODER: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\n\
                      effort: low\nusage: none\n---\n";
 
-// A running project with issue 7 open on `coder`, and the GPU lock held by
-// someone else, released when the returned claim is
-fn seven_queued_for_the_gpu(project: &str) -> (Rig, Mutex<Runner>, GpuLock, Claim) {
+// A running project with issue 7 open on `coder`, whose call queues at its
+// model's lease until the returned hold is released, then does `then`
+fn seven_queued(project: &str, then: Scripted) -> (Rig, Mutex<Runner>, Hold) {
     let rig = Rig::new(project);
     rig.write_agent("coder", CODER);
     rig.implementers(&["sonnet-high", "coder"]);
@@ -86,13 +85,10 @@ fn seven_queued_for_the_gpu(project: &str) -> (Rig, Mutex<Runner>, GpuLock, Clai
         rig.ask(&runner, "add", Some("7"));
         (rig, runner)
     };
-    let lock = GpuLock::under(&rig.home.path().join("tmp"));
-    let round = Claim {
-        pid: std::process::id(),
-        what: "qwen-review round 1".into(),
-    };
-    assert_eq!(lock.try_take(&round).unwrap(), Attempt::Taken);
-    (rig, runner, lock, round)
+    let queue = Hold::default();
+    rig.claude
+        .script([Scripted::Queued(queue.clone(), Box::new(then))]);
+    (rig, runner, queue)
 }
 
 fn usage() -> Usage {
@@ -348,16 +344,15 @@ fn a_restart_with_calls_in_flight_resumes_each_work_item_from_its_session() {
 
 #[test]
 fn a_turn_queued_for_its_lease_gets_its_whole_ceiling_from_the_grant() {
-    let (rig, runner, lock, round) = seven_queued_for_the_gpu("acme");
     let hold = Hold::default();
-    rig.claude.script([Scripted::Hold(hold.clone())]);
+    let (rig, runner, queue) = seven_queued("acme", Scripted::Hold(hold.clone()));
     let driven = Driven::new(&runner);
     driven.started();
     rig.clock.advance(3000);
     driven.pass();
     assert_eq!(rig.claude.calls(), [], "the turn ran before its lease");
 
-    lock.release(round.pid).unwrap();
+    queue.release();
     assert_eq!(driven.heard(), None, "the grant is not a report");
     assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(CEILING - 1);
@@ -376,7 +371,7 @@ fn a_turn_queued_for_its_lease_gets_its_whole_ceiling_from_the_grant() {
 
 #[test]
 fn a_turn_still_queued_at_its_ceiling_leaves_the_queue_without_running() {
-    let (rig, runner, lock, round) = seven_queued_for_the_gpu("shep");
+    let (rig, runner, _queue) = seven_queued("shep", Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     rig.clock.advance(CEILING);
@@ -386,7 +381,4 @@ fn a_turn_still_queued_at_its_ceiling_leaves_the_queue_without_running() {
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
     assert_eq!(rig.claude.calls(), [], "it spawned only to be ended");
-    let holder = lock.holder().expect("the other claim still holds the GPU");
-    assert_eq!(holder.what, round.what);
-    lock.release(round.pid).unwrap();
 }

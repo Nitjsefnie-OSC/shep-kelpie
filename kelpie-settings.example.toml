@@ -60,8 +60,8 @@ url = "https://ntfy.sh/your-private-topic"
 # its OpenAI routes under `/v1`. `key_env` names the variable in the
 # runner's environment holding the key the gateway gave kelpie: no agent
 # call sees that variable, and no file kelpie writes holds the key. Kelpie
-# takes no GPU lease and reads no `/api/ps` for a model behind a gateway,
-# which queues its calls itself. A runner reads its gateways when it starts.
+# takes no lease for a model behind a gateway, which queues its calls itself.
+# A runner reads its gateways when it starts.
 # `kind` says how kelpie talks to it beyond chat, `paddock` when absent and
 # the only kind so far.
 # [kelpie.gateways.paddock]
@@ -129,19 +129,13 @@ url = "https://ntfy.sh/your-private-topic"
 #   url: http://gpu-box:11434/v1
 #   model: qwen2.5-coder:14b
 #   context: 32768
-#   lease: gpu-box
 #   ---
 #
-# `lease` is the lock kelpie holds around each such round. `gpu` is this
-# machine's GPU lock, the one the qwen scripts take, so leave it off for a
-# command that takes that lock itself, as the script does. Any other name
-# is a lock of its own, so a reviewer on another machine's GPU never waits
-# on this one's. With a lease, before a round against Ollama, kelpie reads
-# the host's `/api/ps`: a model partly or wholly on the CPU fails the round
-# and raises a ruling. An endpoint's host is its url. A command names its
-# host with `ollama` and may name its model with `ollama_model`, else every
-# model the host has loaded is checked. A missing command or an unreachable
-# endpoint stops the runner of a project that lists it.
+# A model reached by `url` is not queued: kelpie holds no lock around it, so
+# put a server shared with other callers behind a `gateway` (see
+# `[kelpie.gateways]`). A `lease` key in an agent file is refused. A missing
+# command or an unreachable endpoint stops the runner of a project that lists
+# it.
 #
 # A pull request review bot is a reviewer too, on `harness: bot`. Kelpie
 # ships `coderabbit`, `cubic` and `codex`, which `add` writes out and no

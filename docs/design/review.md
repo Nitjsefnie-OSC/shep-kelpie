@@ -20,7 +20,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Fix turn counts only if it moves `origin` head, unless it deferred all or got only nits; else parks `fix-not-pushed`. #40, #354
 - Clean reply is exactly `CLEAN`. #314
 - Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`; `command` keeps qwen script contract. #107
-- Local reviewer `lease` names its lock; CPU-spilled model parks `local-model-spilled`; running round never preempted (kill wastes the work). #145
+- Local reviewer holds no lock (`lease` refused, no `/api/ps` check, no `local-model-spilled`); running round never preempted (kill wastes the work). #145, #502
 - One finding shape for every reviewer kind; bots are one provider with a tested profile each. #123
 - With `ci.test_command`, reviewer's attached failing test runs before/after fix, recorded, blocks nothing until trusted. #517, #518
 - Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped). `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `src/runner/follow_up.rs`

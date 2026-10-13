@@ -62,9 +62,7 @@ impl Draft {
     pub fn local(local: &LocalRound, issue: u64, agent: &str, started: Timestamp) -> Self {
         let model = match local {
             LocalRound::Endpoint(endpoint) => Some(endpoint.model.as_str().to_owned()),
-            LocalRound::Command(command) => {
-                (command.ollama_model.as_ref()).map(|model| model.as_str().to_owned())
-            }
+            LocalRound::Command(_) => None,
         };
         Self {
             issue: Some(issue),

@@ -18,8 +18,8 @@ use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, PacedVoice,
-    Ports, RateHeld, RecordedVoice, Say, SessionId, Timestamp,
+    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, PacedVoice, Ports,
+    RateHeld, RecordedVoice, Say, SessionId, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -407,8 +407,6 @@ impl Runner {
         let local = LocalPaths::new([home, paths.kelpie_home.as_path(), checkout]);
         let forge_hold = ForgeHold::shared(Arc::clone(&ports.pace));
         let told = claim::Notes::default();
-        let leases = Arc::clone(&ports.local_leases);
-        ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
         let gpu = gpu::GpuWatch::start(
             Arc::clone(&ports.gpu),
             kelpie_settings.gpu_metrics_url.clone(),
@@ -689,7 +687,6 @@ impl Runner {
             skills: self.skills.status(),
             plugins: self.repo_plugins.status(),
             pull_request_template: self.template_source(),
-            local_model: self.ports.reviewer.seat().map(Into::into),
             gpu: self.gpu.status(),
             local_leases: self.local_leases(),
             board: &self.paths.board,

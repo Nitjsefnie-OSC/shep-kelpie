@@ -10,7 +10,6 @@ use serde::Deserialize;
 
 use super::NonBlank;
 use super::gateway::ModelHost;
-use super::reviewers::LeaseName;
 
 // The smallest context the endpoint reviewer accepts, in tokens. At 4096 a
 // reply keeps 1,024 and the prompt about 500, leaving about 2,600 for a diff.
@@ -25,44 +24,6 @@ pub enum LocalRound {
     Command(LocalCommand),
 }
 
-impl LocalRound {
-    /// The lease kelpie holds around each round, if any
-    pub fn lease(&self) -> Option<LeaseName> {
-        match self {
-            Self::Endpoint(endpoint) => endpoint.lease.clone(),
-            Self::Command(command) => command.lease.clone(),
-        }
-    }
-
-    /// The Ollama host to read `/api/ps` from before a round, and the model
-    /// to look for there
-    ///
-    /// Only where kelpie holds a lease around the round: a read without it
-    /// races whoever holds the model, who may reload it spilled. An
-    /// endpoint's host is its URL without the `/v1`, and its model is the one
-    /// it asks. A command names its host in `ollama` and may name its model
-    /// in `ollama_model`, else every model the host has loaded is looked at.
-    pub fn ollama(&self) -> Option<(String, Option<&str>)> {
-        self.lease()?;
-        match self {
-            Self::Endpoint(endpoint) => {
-                // A gateway's model takes no lease, so this is never reached for one.
-                let ModelHost::Url(url) = &endpoint.host else {
-                    return None;
-                };
-                let url = url.as_str();
-                let host = url.strip_suffix("/v1").unwrap_or(url);
-                Some((host.to_owned(), Some(endpoint.model.as_str())))
-            }
-            Self::Command(command) => {
-                let host = command.ollama.as_ref()?;
-                let model = command.ollama_model.as_ref().map(NonBlank::as_str);
-                Some((host.as_str().to_owned(), model))
-            }
-        }
-    }
-}
-
 /// An OpenAI-compatible server and the model kelpie's reviewer asks
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -72,9 +33,6 @@ pub struct Endpoint {
     pub model: NonBlank,
     /// The context size the server gives the model, in tokens
     pub context: ContextSize,
-    /// The lease kelpie holds around each round: `gpu` is this machine's
-    /// GPU lock, and any other name a lock of its own. None when absent.
-    pub lease: Option<LeaseName>,
     /// The agent file's body. It replaces the opening sentence and what the
     /// fixed prompt asks to report; kelpie still adds the diff's format and
     /// the answer's format. None when the file has no body.
@@ -86,19 +44,6 @@ pub struct Endpoint {
 pub struct LocalCommand {
     /// Its path. A leading `~/` is the home folder.
     pub command: PathBuf,
-    /// The lease kelpie holds around each round: `gpu` is this machine's
-    /// GPU lock, and any other name a lock of its own. None when absent, as
-    /// for a command that takes the lock itself.
-    pub lease: Option<LeaseName>,
-    /// The Ollama host the command's model runs on, such as
-    /// `http://localhost:11434`. Kelpie reads its `/api/ps` before each round.
-    /// Off when absent, since a command does not say where its model is.
-    /// Needs a lease, so kelpie reads it only while it holds one.
-    pub ollama: Option<EndpointUrl>,
-    /// The one model on that host the command uses, as Ollama names it.
-    /// Without it every model the host has loaded is checked, and one that
-    /// is spilled for another reason fails the round too.
-    pub ollama_model: Option<NonBlank>,
 }
 
 /// An `http://` or `https://` URL, kept without a trailing `/`
@@ -179,40 +124,6 @@ mod tests {
         assert_eq!(
             format!("{:?}", url("http://gpu-box:9835/metrics")),
             "EndpointUrl(..)"
-        );
-    }
-
-    #[test]
-    fn the_ollama_host_is_an_endpoints_url_or_a_commands_own_setting_and_only_under_a_lease() {
-        let mut endpoint = Endpoint {
-            host: ModelHost::Url(url("http://gpu-box:11434/v1/")),
-            model: "coder".to_owned().try_into().unwrap(),
-            context: ContextSize::try_from(8192).unwrap(),
-            lease: None,
-            prompt: None,
-        };
-        assert_eq!(LocalRound::Endpoint(endpoint.clone()).ollama(), None);
-        endpoint.lease = Some(LeaseName::gpu());
-        assert_eq!(
-            LocalRound::Endpoint(endpoint).ollama(),
-            Some(("http://gpu-box:11434".to_owned(), Some("coder")))
-        );
-        let mut command = LocalCommand {
-            command: PathBuf::from("/opt/review"),
-            lease: Some(LeaseName::gpu()),
-            ollama: None,
-            ollama_model: None,
-        };
-        assert_eq!(LocalRound::Command(command.clone()).ollama(), None);
-        command.ollama = Some(url("http://gpu-box:11434/"));
-        assert_eq!(
-            LocalRound::Command(command.clone()).ollama(),
-            Some(("http://gpu-box:11434".to_owned(), None))
-        );
-        command.ollama_model = Some("coder:14b".to_owned().try_into().unwrap());
-        assert_eq!(
-            LocalRound::Command(command).ollama(),
-            Some(("http://gpu-box:11434".to_owned(), Some("coder:14b")))
         );
     }
 

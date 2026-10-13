@@ -175,6 +175,31 @@ fn a_report_totals_the_retros_apart_from_the_builds_and_the_project_managers_wak
     assert!(!none.iter().any(|l| l.starts_with("retro")), "{none:#?}");
 }
 
+// Rulings of a kind that has since gone stay in the ledger: their calls'
+// tokens and cost still count.
+#[test]
+fn a_call_that_voted_on_a_ruling_of_a_removed_kind_still_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let text = json!({
+        "line": "call", "at": 100, "issue": null, "role": "pm", "kind": "wake",
+        "usage": { "input": 10, "cache_write": 0, "cache_read": 0, "output": 0 },
+        "units": 10, "cost_usd": 0.5, "seconds": 5, "ended": "answered",
+        "votes": [{
+            "ruling": 3, "ruling_kind": "local-model-spilled", "voter": "pm",
+            "panel": "fix", "work": "feat",
+        }],
+    });
+    std::fs::write(&path, format!("{text}\n")).unwrap();
+    let lines = read(&path).unwrap();
+    assert_eq!(lines.len(), 1);
+    let Line::Call(call) = &lines[0] else {
+        panic!("{lines:?}")
+    };
+    assert_eq!(call.cost_usd, Some(0.5));
+    assert_eq!(call.votes[0].ruling, 3);
+}
+
 #[test]
 fn a_ledger_line_reads_back_and_a_torn_one_is_passed_over() {
     let dir = tempfile::tempdir().unwrap();

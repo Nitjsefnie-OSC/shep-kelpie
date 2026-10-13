@@ -644,11 +644,6 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
             format!("Merging at {} was refused twice.", short(head))
         }
         Stuck::Closed => "This pull request was closed without merging.".to_owned(),
-        Stuck::LocalModelSpilled { .. } => {
-            "The local model for this pull request's review is not fully on the GPU, \
-             so a review round did not run."
-                .to_owned()
-        }
         Stuck::FixNotPushed { .. } => {
             "A fix for review findings ended without a push, so those findings still hold."
                 .to_owned()
@@ -825,9 +820,6 @@ fn decide(
         },
         // No work item is parked on it, so an answer only clears it.
         (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. })) => Phase::Implement,
-        (Answer::Yes, RulingKind::Stuck(Stuck::LocalModelSpilled { review, .. })) => {
-            Phase::Review(review)
-        }
         // The turn ends under the same round, which checks the worktree again.
         (
             Answer::Yes,

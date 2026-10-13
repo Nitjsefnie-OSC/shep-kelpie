@@ -1,19 +1,16 @@
 //! A local round's command, run as a subprocess
 //!
 //! The command is the maintainer's qwen-review script or anything that
-//! keeps its contract, which the README sets out. The script takes the GPU
-//! lock itself and waits in line for it, up to an hour; a long wait is not
-//! a hang. A round's findings and its completion marker both come from
+//! keeps its contract, which the README sets out. A round's findings and its completion marker both come from
 //! disk, never from stdout: only the marker tells a finished `round-N.txt`
 //! from one a killed round left.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use super::{LocalReviewer, queue};
+use super::LocalReviewer;
 use crate::adapters::process::RunError;
-use crate::lease::gpu::GpuLock;
-use crate::ports::{Finding, ReviewerError, RoundStage, parse_findings};
+use crate::ports::{Finding, ReviewerError, parse_findings};
 use crate::settings::LocalCommand;
 use crate::worktree::Linked;
 
@@ -26,14 +23,12 @@ struct Round<'a> {
     head: &'a str,
     round: u32,
     criteria: Option<&'a Path>,
-    watch: Option<&'a (dyn Fn(RoundStage) + Sync)>,
 }
 
 impl LocalReviewer {
     /// Runs `local`'s command for round `round`, then again on a hunk of
     /// each file it skipped as too large, folding those findings back in
     /// against the original file
-    #[expect(clippy::too_many_arguments, reason = "`round`'s own, and the watch")]
     pub(super) fn command_round(
         &self,
         local: &LocalCommand,
@@ -42,7 +37,6 @@ impl LocalReviewer {
         out: &Path,
         round: u32,
         criteria: &str,
-        watch: Option<&(dyn Fn(RoundStage) + Sync)>,
     ) -> Result<Vec<Finding>, ReviewerError> {
         let head = super::head(worktree)?;
         let criteria = write_criteria(out, criteria)?;
@@ -59,7 +53,6 @@ impl LocalReviewer {
             head: &head,
             round,
             criteria: criteria.as_deref(),
-            watch,
         };
         let findings = self.run(&at, out, None)?;
         let mut combined = Vec::with_capacity(findings.len());
@@ -121,23 +114,14 @@ impl LocalReviewer {
                 command.arg("--diff").arg(at.base);
             }
         }
-        let lock = GpuLock::under(&self.temp_dir);
-        let output = std::thread::scope(|scope| {
-            let (spawned, pid) = std::sync::mpsc::channel();
-            if let Some(watch) = at.watch {
-                let lock = &lock;
-                scope.spawn(move || queue::watch_queue(lock, &pid, watch));
-            }
-            self.processes.output_telling(&mut command, None, &|pid| {
-                let _ = spawned.send(pid);
-            })
-        })
-        .map_err(|e| match e {
-            RunError::Io(e) => ReviewerError::Spawn(e.to_string()),
-            RunError::Stopped => ReviewerError::Stopped,
-            // No deadline is set, so this never fires.
-            RunError::TimedOut => ReviewerError::Failed("timed out".into()),
-        })?;
+        let output = (self.processes)
+            .output_telling(&mut command, None, &|_| {})
+            .map_err(|e| match e {
+                RunError::Io(e) => ReviewerError::Spawn(e.to_string()),
+                RunError::Stopped => ReviewerError::Stopped,
+                // No deadline is set, so this never fires.
+                RunError::TimedOut => ReviewerError::Failed("timed out".into()),
+            })?;
         if !output.status.success() {
             return Err(ReviewerError::Failed(format!(
                 "{}\n{}",
@@ -244,9 +228,6 @@ mod tests {
     fn local(script: &Path) -> LocalRound {
         LocalRound::Command(LocalCommand {
             command: script.to_owned(),
-            ollama: None,
-            ollama_model: None,
-            lease: None,
         })
     }
 
@@ -275,45 +256,8 @@ mod tests {
         assert_eq!(findings[0].file, head);
     }
 
-    // A stand-in for the real script: it takes and releases a lock of its
-    // own around the round, the way the maintainer's script takes the GPU
-    // lock. Kelpie's side of the call never touches that path, so the round
-    // still succeeds and the lock is gone once the script exits.
-    #[test]
-    fn a_round_never_touches_the_lock_the_script_takes_itself() {
-        let home = tempfile::tempdir().unwrap();
-        let script_dir = home.path().join(".claude/scripts");
-        std::fs::create_dir_all(&script_dir).unwrap();
-        let script = script_dir.join("qwen-review.sh");
-        let lock = home.path().join("gpu.lock");
-        let contents = format!(
-            "#!/bin/sh\nmkdir '{lock}'\nsleep 0.05\nrmdir '{lock}'\n\
-             mkdir -p \"$QWEN_REVIEW_OUT\"\n\
-             : > \"$QWEN_REVIEW_OUT/round-1.txt\"\n\
-             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
-            lock = lock.display(),
-        );
-        write_script(&script, &contents);
-
-        let wt = crate::test::linked_worktree(home.path());
-        let out = home.path().join("out");
-        let reviewer = LocalReviewer::default();
-
-        assert_eq!(
-            reviewer
-                .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
-                .unwrap(),
-            vec![]
-        );
-        assert!(
-            !lock.exists(),
-            "the script's own lock is released once it finishes, \
-             and kelpie never created or left it behind"
-        );
-    }
-
     // A stand-in that records the `TMPDIR` it was started with, as the real
-    // script would build its GPU lock from it.
+    // script builds its own GPU lock from it.
     #[test]
     fn a_round_runs_with_the_given_temp_folder() {
         let home = tempfile::tempdir().unwrap();

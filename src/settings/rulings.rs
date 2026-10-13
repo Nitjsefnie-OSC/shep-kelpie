@@ -63,8 +63,6 @@ pub enum RulingName {
     MergeRefused,
     /// The pull request was closed
     Closed,
-    /// The local model spilled off the GPU
-    LocalModelSpilled,
     /// A fix turn ended without a push
     FixNotPushed,
     /// Work in the worktree is not pushed
@@ -77,6 +75,10 @@ pub enum RulingName {
     Unlabelled,
     /// A work item is over its budget
     OverBudget,
+    /// The local model sat on the CPU. No ruling is raised for it now, and
+    /// the name stays so ledger and history lines written before it went
+    /// still read; `pm_alone` refuses it.
+    LocalModelSpilled,
 }
 
 impl RulingName {
@@ -93,7 +95,6 @@ impl RulingName {
                 Stuck::StillRed { .. } => Self::StillRed,
                 Stuck::MergeRefused { .. } => Self::MergeRefused,
                 Stuck::Closed => Self::Closed,
-                Stuck::LocalModelSpilled { .. } => Self::LocalModelSpilled,
                 Stuck::FixNotPushed { .. } => Self::FixNotPushed,
                 Stuck::Unpushed { .. } => Self::Unpushed,
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
@@ -116,13 +117,13 @@ impl RulingName {
             Self::StillRed => "still-red",
             Self::MergeRefused => "merge-refused",
             Self::Closed => "closed",
-            Self::LocalModelSpilled => "local-model-spilled",
             Self::FixNotPushed => "fix-not-pushed",
             Self::Unpushed => "unpushed",
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
             Self::OverBudget => "over-budget",
+            Self::LocalModelSpilled => "local-model-spilled",
         }
     }
 }
@@ -134,12 +135,22 @@ impl Rulings {
     }
 
     /// Why `pm_alone` is refused, if it is: a merge ruling is never decided
-    /// by the project manager alone
+    /// by the project manager alone, and a kind of ruling that is gone is
+    /// not one to list
     pub fn refusal(&self) -> Option<String> {
-        self.pm_alone.contains(&RulingName::Merge).then(|| {
-            "a merge ruling is never decided by the project manager alone: take `merge` \
-             out of the list"
-                .to_owned()
-        })
+        if self.pm_alone.contains(&RulingName::Merge) {
+            return Some(
+                "a merge ruling is never decided by the project manager alone: take `merge` \
+                 out of the list"
+                    .to_owned(),
+            );
+        }
+        self.pm_alone
+            .contains(&RulingName::LocalModelSpilled)
+            .then(|| {
+                "`local-model-spilled` is no longer a kind of ruling, since kelpie no longer \
+                 checks where a local model sits: take it out of the list"
+                    .to_owned()
+            })
     }
 }

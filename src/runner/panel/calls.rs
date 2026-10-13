@@ -144,7 +144,6 @@ impl Runner {
             plugin_dirs: Vec::new(),
             tools,
             agent_tools: None,
-            lease: agent.limit.lease().cloned(),
             reach,
             compact_window: None,
         })

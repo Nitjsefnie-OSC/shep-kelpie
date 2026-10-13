@@ -790,9 +790,6 @@ pub(super) struct Reviewed {
 pub(super) enum ReviewResult {
     /// A round's raw findings, from a local round or a reviewer's session
     Findings(Result<Vec<Finding>, String>),
-    /// The local model sat partly or wholly on the CPU, so the round did not
-    /// run, and why
-    Spilled(String),
     /// The call was ended because the runner is stopping, before it came
     /// back with anything
     Stopped,

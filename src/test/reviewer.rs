@@ -8,7 +8,7 @@ use std::time::Duration;
 use super::Hold;
 use crate::adapters::LocalReviewer;
 use crate::adapters::paddock::Timing;
-use crate::ports::{Finding, ModelSeat, Reviewer, ReviewerError, RoundStage};
+use crate::ports::{Finding, Reviewer, ReviewerError, RoundStage};
 use crate::settings::{Gateways, LocalRound};
 use crate::worktree::Linked;
 
@@ -44,7 +44,6 @@ pub(crate) struct FakeReviewer {
     seen: Arc<Mutex<Vec<SeenRound>>>,
     script: Arc<Mutex<VecDeque<ScriptedRound>>>,
     real: Arc<Mutex<Option<LocalReviewer>>>,
-    seat: Arc<Mutex<Option<ModelSeat>>>,
 }
 
 impl FakeReviewer {
@@ -69,11 +68,6 @@ impl FakeReviewer {
             .with_gateways(gateways)
             .with_paddock_timing(quick);
         *self.real.lock().unwrap() = Some(real);
-    }
-
-    /// Where its model sat, for `status`, as the last round's look at it
-    pub(crate) fn set_seat(&self, seat: Option<ModelSeat>) {
-        *self.seat.lock().unwrap() = seat;
     }
 
     /// Queues answers for its next rounds, oldest first
@@ -135,9 +129,5 @@ impl Reviewer for FakeReviewer {
             }
             None => Ok(Vec::new()),
         }
-    }
-
-    fn seat(&self) -> Option<ModelSeat> {
-        self.seat.lock().unwrap().clone()
     }
 }

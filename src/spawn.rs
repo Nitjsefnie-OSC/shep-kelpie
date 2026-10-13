@@ -60,19 +60,13 @@ mod tests {
              : > \"$QWEN_REVIEW_OUT/round-1.txt\"\n\
              : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
         );
-        let local = LocalRound::Command(crate::settings::LocalCommand {
-            command: script,
-            lease: None,
-            ollama: None,
-            ollama_model: None,
-        });
+        let local = LocalRound::Command(crate::settings::LocalCommand { command: script });
         let out = dir.path().join("out");
         let linked = crate::worktree::Linked {
             repo: &repo,
             worktree: &worktree,
         };
         crate::adapters::LocalReviewer::default()
-            .with_temp_dir(dir.path().join("locks"))
             .round(&local, linked, "main", &out, 1, "")
             .unwrap();
         let env = std::fs::read_to_string(out.join("env.txt")).unwrap();

@@ -431,7 +431,7 @@ impl Runner {
         let start = start_of(item);
         let WorkerAgent {
             harness,
-            limit,
+            limit: _,
             model,
             effort,
             tools: agent_tools,
@@ -500,7 +500,6 @@ impl Runner {
             tools: Tools::Work,
             agent_tools,
             reach,
-            lease: limit.lease().cloned(),
             compact_window,
         })
     }
