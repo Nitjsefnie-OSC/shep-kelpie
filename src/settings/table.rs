@@ -33,6 +33,10 @@ impl Settings {
         let text = toml_text(table).map_err(refused)?;
         super::refuse_removed_settings(&text, home).map_err(refused)?;
         let mut settings: Self = toml::from_str(&text).map_err(|e| refused(located(&text, &e)))?;
+        settings
+            .contributions
+            .check()
+            .map_err(|e| refused(e.to_string()))?;
         settings.expand(home);
         settings.relative_to(folder);
         Ok(settings)
