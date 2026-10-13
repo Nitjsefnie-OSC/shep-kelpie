@@ -12,9 +12,9 @@ use std::time::Instant;
 
 use super::Revalidated;
 use super::{
-    Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel, OpenIssue,
-    Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
-    Visibility, pace,
+    BranchRun, Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel,
+    OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
+    Timestamp, Visibility, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -419,6 +419,14 @@ impl Forge for RateHeld {
         })
     }
 
+    fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
+        self.call(Kind::BranchRuns, |f| f.branch_runs(repo, branch))
+    }
+
+    fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
+        self.call(Kind::RunLogTail, |f| f.run_log_tail(repo, run))
+    }
+
     fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
         self.call(Kind::RerunFailed, |f| f.rerun_failed(repo, head))
     }
@@ -607,6 +615,88 @@ mod tests {
 
             assert_eq!(
                 held.viewer().unwrap_err(),
+                ForgeError::Held(Timestamp(1_000 + FALLBACK))
+            );
+        }
+    }
+
+    mod branch_runs {
+        use super::*;
+        use crate::test::{FakeClock, FakeForge};
+
+        fn repo() -> ForgeSlug {
+            ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap()
+        }
+
+        fn run(workflow: &str, id: u64, conclusion: &str) -> BranchRun {
+            BranchRun {
+                workflow: workflow.to_owned(),
+                id,
+                head: "abc".to_owned(),
+                event: "push".to_owned(),
+                conclusion: conclusion.to_owned(),
+                created: Timestamp(1_000),
+            }
+        }
+
+        fn held_on(forge: &FakeForge, clock: &FakeClock) -> RateHeld {
+            RateHeld::new(
+                Arc::new(forge.clone()),
+                Arc::new(clock.clone()),
+                ForgeHold::default(),
+                Box::new(|_| {}),
+            )
+        }
+
+        #[test]
+        fn each_branch_lists_the_runs_a_test_scripted_for_it_and_a_run_has_its_log_tail() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let held = held_on(&forge, &FakeClock::at(1_000));
+            forge.set_branch_runs("kelpie/1", vec![run("test", 7, "failure")]);
+            forge.set_branch_runs("kelpie/2", vec![run("test", 8, "cancelled")]);
+            forge.set_run_log_tail(7, "error[E0308]");
+
+            assert_eq!(
+                held.branch_runs(&repo(), "kelpie/1").unwrap(),
+                [run("test", 7, "failure")]
+            );
+            assert_eq!(
+                held.branch_runs(&repo(), "kelpie/2").unwrap(),
+                [run("test", 8, "cancelled")]
+            );
+            assert_eq!(held.branch_runs(&repo(), "kelpie/3").unwrap(), []);
+            assert_eq!(held.run_log_tail(&repo(), 7).unwrap(), "error[E0308]");
+            held.run_log_tail(&repo(), 8).unwrap_err();
+        }
+
+        #[test]
+        fn a_branchs_runs_fail_with_the_error_a_test_scripted() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let held = held_on(&forge, &FakeClock::at(1_000));
+            forge.set_branch_runs_error("gh: Not Found (HTTP 404)");
+
+            assert_eq!(
+                held.branch_runs(&repo(), "kelpie/1").unwrap_err(),
+                ForgeError::Failed("gh: Not Found (HTTP 404)".into())
+            );
+        }
+
+        #[test]
+        fn listing_a_branchs_runs_is_held_while_the_rate_limit_is_used_up() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let held = held_on(&forge, &FakeClock::at(1_000));
+            forge.set_limited(crate::ports::Cooldown::default());
+            held.visibility(&repo()).unwrap_err();
+
+            assert_eq!(
+                held.branch_runs(&repo(), "kelpie/1").unwrap_err(),
+                ForgeError::Held(Timestamp(1_000 + FALLBACK))
+            );
+            assert_eq!(
+                held.run_log_tail(&repo(), 7).unwrap_err(),
                 ForgeError::Held(Timestamp(1_000 + FALLBACK))
             );
         }

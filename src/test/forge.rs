@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
-    Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
-    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
+    BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview,
+    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
     ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
@@ -99,27 +99,6 @@ pub(crate) struct FakeForge {
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
     pub(crate) threads: thread::FakeThreads,
-}
-
-/// A pull request on the fake forge. Its head is its branch on the rig's
-/// origin, so a push the runner makes moves it.
-#[derive(Debug, Clone)]
-struct FakePullRequest {
-    base: String,
-    branch: String,
-    state: PullRequestState,
-    draft: bool,
-    from_fork: bool,
-    author: String,
-}
-
-/// An issue kelpie opened on the fake forge
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CreatedIssue {
-    pub(crate) number: u64,
-    pub(crate) title: String,
-    pub(crate) body: String,
-    pub(crate) labels: Vec<String>,
 }
 
 /// The account the fake forge says kelpie acts as, and opens pull requests as
@@ -844,6 +823,16 @@ impl Forge for FakeForge {
         self.ci.lock().unwrap().log().map_err(ForgeError::Failed)
     }
 
+    fn branch_runs(&self, _repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
+        self.ask()?;
+        self.branch_runs_of(branch).map_err(ForgeError::Failed)
+    }
+
+    fn run_log_tail(&self, _repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
+        self.ask()?;
+        self.run_log_tail_of(run).map_err(ForgeError::Failed)
+    }
+
     fn rerun_failed(&self, _repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
         self.ask()?;
         self.ci
@@ -987,6 +976,10 @@ impl Forge for FakeForge {
         Ok(self.reset())
     }
 }
+
+pub(crate) use issues::CreatedIssue;
+
+use handed::FakePullRequest;
 
 mod app;
 mod down;

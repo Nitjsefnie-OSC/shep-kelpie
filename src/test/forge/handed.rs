@@ -1,7 +1,22 @@
 //! The fake forge's pull requests kelpie opens for a worker, and the CI logs
 //! it reads for one
 
+use std::collections::HashMap;
+
 use super::FakeForge;
+use crate::ports::{BranchRun, PullRequestState};
+
+/// A pull request on the fake forge. Its head is its branch on the rig's
+/// origin, so a push the runner makes moves it.
+#[derive(Debug, Clone)]
+pub(super) struct FakePullRequest {
+    pub(super) base: String,
+    pub(super) branch: String,
+    pub(super) state: PullRequestState,
+    pub(super) draft: bool,
+    pub(super) from_fork: bool,
+    pub(super) author: String,
+}
 
 /// What the fake forge's failed CI runs say, and the reruns asked of them
 #[derive(Debug, Default)]
@@ -10,6 +25,12 @@ pub(super) struct CiRuns {
     log_error: Option<String>,
     reruns: Vec<String>,
     rerun_error: Option<String>,
+    // The latest run of each workflow, by branch
+    branch_runs: HashMap<String, Vec<BranchRun>>,
+    // Why listing a branch's runs fails
+    branch_runs_error: Option<String>,
+    // The end of each run's failed log, by run id
+    run_logs: HashMap<u64, String>,
 }
 
 impl CiRuns {
@@ -53,6 +74,47 @@ impl FakeForge {
     /// Makes rerunning failed CI jobs fail with `error`, verbatim
     pub(crate) fn set_rerun_error(&self, error: &str) {
         self.ci.lock().unwrap().rerun_error = Some(error.to_owned());
+    }
+
+    /// Makes `branch` list `runs`, the latest completed run of each of its workflows
+    pub(crate) fn set_branch_runs(&self, branch: &str, runs: Vec<BranchRun>) {
+        self.ci
+            .lock()
+            .unwrap()
+            .branch_runs
+            .insert(branch.to_owned(), runs);
+    }
+
+    /// Makes listing a branch's runs fail with `error`, verbatim
+    pub(crate) fn set_branch_runs_error(&self, error: &str) {
+        self.ci.lock().unwrap().branch_runs_error = Some(error.to_owned());
+    }
+
+    /// Makes the failed log of run `run` end in `tail`
+    pub(crate) fn set_run_log_tail(&self, run: u64, tail: &str) {
+        self.ci
+            .lock()
+            .unwrap()
+            .run_logs
+            .insert(run, tail.to_owned());
+    }
+
+    /// The runs `branch` lists: none for a branch no test scripted
+    pub(super) fn branch_runs_of(&self, branch: &str) -> Result<Vec<BranchRun>, String> {
+        let ci = self.ci.lock().unwrap();
+        match &ci.branch_runs_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(ci.branch_runs.get(branch).cloned().unwrap_or_default()),
+        }
+    }
+
+    /// The end of run `run`'s failed log, or why none can be read
+    pub(super) fn run_log_tail_of(&self, run: u64) -> Result<String, String> {
+        let ci = self.ci.lock().unwrap();
+        ci.run_logs
+            .get(&run)
+            .cloned()
+            .ok_or_else(|| format!("no log for run {run}"))
     }
 
     /// Makes pull request `number` read with `title`
