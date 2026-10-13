@@ -67,7 +67,11 @@ console.log(JSON.stringify(out));
 "#;
 
 // What the guard extension decides for each of `events`, with `kelpie` as its checks.
-fn guarded(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_json::Value> {
+pub(super) fn guarded(
+    w: &World,
+    kelpie: &Path,
+    events: serde_json::Value,
+) -> Vec<serde_json::Value> {
     let call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
     let fence = call.reach.fence.as_deref().unwrap();
     std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();

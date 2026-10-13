@@ -321,6 +321,36 @@ mod tests {
         assert!(matches!(verdict, Verdict::Refuse(_)), "{verdict:?}");
     }
 
+    // A pi reviewer's `write`, as pi's guard hands it to `confine`: the tests
+    // folder twice, and the file's absolute path.
+    #[test]
+    fn a_write_through_a_link_in_the_tests_folder_to_the_worktree_is_refused() {
+        let w = world();
+        let tests = w.root.join("target/review-tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        symlink(w.root.join("wt"), tests.join("code")).unwrap();
+        let reviewer = |path: &str| {
+            let call = json!({
+                "cwd": w.root.join("wt"),
+                "tool_name": "Write",
+                "tool_input": { "file_path": w.path(path), "content": "#[test] fn t() {}" },
+            });
+            judge(call.to_string().as_bytes(), &[tests.clone(), tests.clone()])
+        };
+
+        assert_eq!(
+            reviewer("target/review-tests/tests/flag.rs"),
+            Verdict::Allow
+        );
+        for path in [
+            "target/review-tests/code/src/lib.rs",
+            "target/review-tests/code/tests/flag.rs",
+        ] {
+            let verdict = reviewer(path);
+            assert!(matches!(verdict, Verdict::Refuse(_)), "{path}: {verdict:?}");
+        }
+    }
+
     #[test]
     fn claude_codes_own_files_are_refused_to_write_and_edit() {
         let w = world();
