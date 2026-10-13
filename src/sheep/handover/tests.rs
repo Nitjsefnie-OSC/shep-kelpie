@@ -295,5 +295,6 @@ fn a_build_that_starts_with_no_feed_going_is_carryable() {
     assert_eq!(fitness(&build, &[], true, &|| false), Verdict::Carryable);
 }
 
+mod codex;
 mod exec;
 mod pi;

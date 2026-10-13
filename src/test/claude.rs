@@ -328,6 +328,7 @@ impl Agents for FakeClaude {
             flying: *flying,
             harness: crate::settings::Harness::ClaudeCode,
             kept: None,
+            session: None,
         })
     }
 
