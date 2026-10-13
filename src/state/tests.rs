@@ -767,16 +767,17 @@ fn a_malformed_file_names_its_path() {
 fn a_newer_format_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
+    let newer = VERSION + 1;
     fs::write(
         dir.path().join(STATE_FILE),
-        r#"{"version": 36, "shape": "new"}"#,
+        format!(r#"{{"version": {newer}, "shape": "new"}}"#),
     )
     .unwrap();
     assert_eq!(
         store.load().unwrap_err(),
         StateError::Version {
             path: store.path.clone(),
-            found: 36
+            found: newer
         }
     );
 }
