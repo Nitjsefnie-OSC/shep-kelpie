@@ -853,6 +853,13 @@ fn rulings_take_a_deciding_panel_and_the_kinds_the_project_manager_decides_alone
 }
 
 #[test]
+fn rulings_take_the_always_deciding_mode() {
+    let on = "\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n";
+    let rulings = parse(&format!("{EXAMPLE}{on}")).unwrap().rulings;
+    assert_eq!(rulings.decide, Decide::Always);
+}
+
+#[test]
 fn full_panel_paths_default_to_none_and_take_globs() {
     assert!(parse(EXAMPLE).unwrap().rulings.full_panel_paths.is_empty());
     let on = "\n[app.dogs.kelpie.rulings]\n\
@@ -872,7 +879,7 @@ fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
     assert!(kind.contains("rulings.pm_alone"), "{kind}");
     assert!(kind.contains("coffee"), "{kind}");
     let mode = parse_err(&format!(
-        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n"
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"sometimes\"\n"
     ));
     assert!(mode.contains("rulings.decide"), "{mode}");
 }
