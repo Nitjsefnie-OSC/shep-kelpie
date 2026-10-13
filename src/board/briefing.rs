@@ -52,6 +52,9 @@ pub struct Briefing<'a> {
     pub items: Vec<Item>,
     /// The rulings waiting on the maintainer, oldest first
     pub rulings: Vec<RulingLine>,
+    /// The workflows whose latest completed run on `main` failed, in the order
+    /// they went red
+    pub red: Vec<RedLine>,
     /// The ready queue as last read, `None` before the first read
     pub ready: Option<Ready>,
     /// The board events the project manager has not read
@@ -159,6 +162,19 @@ pub struct RulingLine {
     pub question: String,
 }
 
+/// A workflow red on `main`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedLine {
+    /// The workflow's name
+    pub workflow: String,
+    /// When its first red run was created
+    pub since: Timestamp,
+    /// The commit its latest red run ran on
+    pub head: String,
+    /// Its latest red run's page on the forge
+    pub url: String,
+}
+
 /// The ready queue as the board last read it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ready {
@@ -216,6 +232,7 @@ pub fn render(board: &Briefing<'_>) -> String {
     }
     open_work(&mut out, board);
     rulings(&mut out, &board.rulings);
+    red_on_main(&mut out, board);
     ready_queue(&mut out, board.ready.as_ref(), now);
     events(&mut out, board);
     overlap(&mut out, board);
@@ -322,6 +339,24 @@ fn rulings(out: &mut String, rulings: &[RulingLine]) {
             .pull_request
             .map_or(String::new(), |n| format!(" (PR #{n})"));
         let _ = writeln!(out, "- {}{issue}{pr}: {}", ruling.id, ruling.question);
+    }
+    out.push('\n');
+}
+
+fn red_on_main(out: &mut String, board: &Briefing<'_>) {
+    if board.red.is_empty() {
+        return;
+    }
+    out.push_str("## Red on main\n\n");
+    for red in &board.red {
+        let _ = writeln!(
+            out,
+            "- {}: red for {}, latest run {} at {}",
+            red.workflow,
+            age(board.now, red.since),
+            red.url,
+            short(&red.head)
+        );
     }
     out.push('\n');
 }
@@ -577,7 +612,11 @@ fn path_like(span: &str) -> Option<&str> {
 
 /// How long ago `then` was at `now`, as `45m` or `3h05m`
 pub fn age(now: Timestamp, then: Timestamp) -> String {
-    let seconds = now.0.saturating_sub(then.0);
+    elapsed(now.0.saturating_sub(then.0))
+}
+
+/// `seconds` as `45m` or `3h05m`
+pub fn elapsed(seconds: u64) -> String {
     let (hours, minutes) = (seconds / 3600, seconds % 3600 / 60);
     if hours == 0 {
         format!("{minutes}m")
