@@ -3,9 +3,11 @@
 //! Reading them each wake is how a change made in lookout reaches a running
 //! runner: within a minute when idle, and at the next wake after a step.
 //! The agent files are looked at with them, so an edit to one lands the same way.
-//! A read that fails, or a change the runner refuses, keeps the settings in
-//! effect and says so once. A refused change is offered again each wake,
-//! so it lands once what refused it is fixed.
+//! A read that fails keeps the settings in effect and says so once. So does a
+//! change the runner refuses, a table that fails to load, or a moved
+//! `git.checkout` or `git.remote` another project runs: those are also kept
+//! on the runner for `status` and posted once to the webhook. A refused change
+//! is offered again each wake, so it lands once what refused it is fixed.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
