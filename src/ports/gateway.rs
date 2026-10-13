@@ -84,7 +84,7 @@ pub trait ModelGateway: Send + Sync {
     fn key(&self, gateway: &Upstream) -> KeyCheck;
 
     /// Runs `call` holding a lease on `taking.model`, taken before it and
-    /// released after
+    /// released after, and told the lease's id
     ///
     /// `None` when this kind offers no lease, and `call` has not run. `Some`
     /// when it was asked: `Err` when the lease was not taken or was lost,
@@ -93,7 +93,7 @@ pub trait ModelGateway: Send + Sync {
         &self,
         gateway: &Upstream,
         taking: &Taking<'_>,
-        call: &mut dyn FnMut(),
+        call: &mut dyn FnMut(&str),
     ) -> Option<Result<(), Unheld>>;
 }
 
@@ -110,14 +110,29 @@ impl dyn ModelGateway + '_ {
         taking: &Taking<'_>,
         call: impl FnOnce() -> T,
     ) -> Result<T, Unheld> {
+        self.around_leased(gateway, taking, |_| call())
+    }
+
+    /// Runs `call` under a lease on `taking.model`, told the lease's id, or at
+    /// once with `None` when this kind offers none
+    ///
+    /// # Errors
+    ///
+    /// [`Unheld`] when the lease was asked and not taken, or was lost.
+    pub fn around_leased<T>(
+        &self,
+        gateway: &Upstream,
+        taking: &Taking<'_>,
+        call: impl FnOnce(Option<&str>) -> T,
+    ) -> Result<T, Unheld> {
         let mut call = Some(call);
         let mut done = None;
-        let mut run = || done = call.take().map(|call| call());
+        let mut run = |id: &str| done = call.take().map(|call| call(Some(id)));
         if let Some(Err(unheld)) = self.lease(gateway, taking, &mut run) {
             return Err(unheld);
         }
         // A kind with no lease left the call unrun.
-        done.or_else(|| call.map(|call| call()))
+        done.or_else(|| call.map(|call| call(None)))
             .ok_or_else(|| Unheld::Refused("the lease ran no call".into()))
     }
 }
@@ -145,7 +160,7 @@ mod tests {
             &self,
             _: &Upstream,
             _: &Taking<'_>,
-            _: &mut dyn FnMut(),
+            _: &mut dyn FnMut(&str),
         ) -> Option<Result<(), Unheld>> {
             None
         }

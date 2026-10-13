@@ -146,7 +146,7 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
     let pi = pi_on(&w, &server, FRESH, 0);
     let call = on_gateway(&w, Role::Worker);
     pi.prepare(&call).unwrap();
-    let (command, forwarder) = pi.sandboxed_command(&call).unwrap();
+    let (command, forwarder) = pi.sandboxed_command(&call, None).unwrap();
 
     let body = r#"{"model":"qwen3.8:27b"}"#;
     let chat = format!(
@@ -185,7 +185,7 @@ fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
     for role in [Role::Reviewer, Role::Worker] {
         let call = on_gateway(&w, role);
         pi.prepare(&call).unwrap();
-        let (_command, forwarder) = pi.sandboxed_command(&call).unwrap();
+        let (_command, forwarder) = pi.sandboxed_command(&call, None).unwrap();
         let body = r#"{"model":"qwen3.8:27b"}"#;
         let chat = format!(
             "POST http://model.kelpie.test/v1/chat/completions HTTP/1.1\r\n\
@@ -200,4 +200,60 @@ fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
     }
     let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
     assert_eq!(server.paddock_headers(), [batch.clone(), batch]);
+}
+
+// The paddock headers a chat call through `forwarder` reaches the gateway with.
+fn chat_through(forwarder: &Forwarder) -> String {
+    let body = r#"{"model":"qwen3.8:27b"}"#;
+    let chat = format!(
+        "POST http://model.kelpie.test/v1/chat/completions HTTP/1.1\r\n\
+         content-length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    stream.write_all(chat.as_bytes()).unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    reply
+}
+
+#[test]
+fn a_workers_chat_call_names_the_lease_its_turn_holds() {
+    let server = StandInEndpoint::start([Answer::Says("hello"), Answer::Says("hello")])
+        .like_paddock(KEY, &[]);
+    let w = World::new();
+    let pi = pi_on(&w, &server, FRESH, 0);
+    let worker = on_gateway(&w, Role::Worker);
+    pi.prepare(&worker).unwrap();
+    // The lease is let go of when `leased` returns, and the forwarder keeps its name.
+    let (_command, forwarder) = pi
+        .leased(&worker, &Ending::default(), |lease| {
+            pi.sandboxed_command(&worker, lease)
+        })
+        .unwrap()
+        .unwrap();
+    assert!(chat_through(&forwarder).contains("hello"));
+
+    let (_command, unleased) = pi.sandboxed_command(&worker, None).unwrap();
+    assert!(chat_through(&unleased).contains("hello"));
+
+    let batch = ("x-paddock-priority".to_owned(), "batch".to_owned());
+    let lease = ("x-paddock-lease".to_owned(), "L1".to_owned());
+    assert_eq!(
+        server.paddock_headers(),
+        [vec![batch.clone(), lease], vec![batch]]
+    );
+}
+
+#[test]
+fn a_resume_with_no_session_fails_before_any_lease_is_taken() {
+    let server = StandInEndpoint::start([]).like_paddock(KEY, &[]);
+    let w = World::new();
+    let pi = pi_on(&w, &server, FRESH, 0);
+    let mut call = on_gateway(&w, Role::Worker);
+    call.session = Session::Resume(id(FRESH_ID));
+    pi.prepare(&call).unwrap();
+    let err = pi.run(&call, &Ending::default()).unwrap_err();
+    assert_eq!(err, AgentError::NoSession(Harness::Pi, id(FRESH_ID)));
+    assert_eq!(lease_calls(&server), Vec::<String>::new());
 }
