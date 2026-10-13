@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::FakeForge;
-use crate::ports::{BranchRun, PullRequestState};
+use crate::ports::{BranchRun, PullRequestState, Workflow, WorkflowState};
 
 /// A pull request on the fake forge. Its head is its branch on the rig's
 /// origin, so a push the runner makes moves it.
@@ -28,10 +28,19 @@ pub(super) struct CiRuns {
     rerun_error: Option<String>,
     // The latest run of each workflow, by branch
     branch_runs: HashMap<String, Vec<BranchRun>>,
+    // The workflow names any scripted runs carried, in the order they came
+    run_workflows: Vec<String>,
     // Why listing a branch's runs fails
     branch_runs_error: Option<String>,
     // How many times a branch's runs were listed
     branch_runs_reads: usize,
+    // The repo's workflows, or none scripted: every name a branch's runs
+    // have carried, all active
+    workflows: Option<Vec<Workflow>>,
+    // Why listing the workflows fails
+    workflows_error: Option<String>,
+    // How many times the workflows were listed
+    workflows_reads: usize,
     // The end of each run's failed log, by run id
     run_logs: HashMap<u64, String>,
 }
@@ -81,11 +90,13 @@ impl FakeForge {
 
     /// Makes `branch` list `runs`, the latest completed run of each of its workflows
     pub(crate) fn set_branch_runs(&self, branch: &str, runs: Vec<BranchRun>) {
-        self.ci
-            .lock()
-            .unwrap()
-            .branch_runs
-            .insert(branch.to_owned(), runs);
+        let mut ci = self.ci.lock().unwrap();
+        for run in &runs {
+            if !ci.run_workflows.contains(&run.workflow) {
+                ci.run_workflows.push(run.workflow.clone());
+            }
+        }
+        ci.branch_runs.insert(branch.to_owned(), runs);
     }
 
     /// Makes listing a branch's runs fail with `error`, verbatim
@@ -96,6 +107,21 @@ impl FakeForge {
     /// How many times a branch's runs were listed, failed lists included
     pub(crate) fn branch_runs_reads(&self) -> usize {
         self.ci.lock().unwrap().branch_runs_reads
+    }
+
+    /// Makes the repo list `workflows`
+    pub(crate) fn set_workflows(&self, workflows: Vec<Workflow>) {
+        self.ci.lock().unwrap().workflows = Some(workflows);
+    }
+
+    /// Makes listing the workflows fail with `error`, verbatim
+    pub(crate) fn set_workflows_error(&self, error: &str) {
+        self.ci.lock().unwrap().workflows_error = Some(error.to_owned());
+    }
+
+    /// How many times the workflows were listed, failed lists included
+    pub(crate) fn workflows_reads(&self) -> usize {
+        self.ci.lock().unwrap().workflows_reads
     }
 
     /// Makes the failed log of run `run` end in `tail`
@@ -115,6 +141,28 @@ impl FakeForge {
             Some(error) => Err(error.clone()),
             None => Ok(ci.branch_runs.get(branch).cloned().unwrap_or_default()),
         }
+    }
+
+    /// The workflows listed: those a test scripted, or else one active
+    /// workflow for each name any scripted run carried
+    pub(super) fn workflows_listed(&self) -> Result<Vec<Workflow>, String> {
+        let mut ci = self.ci.lock().unwrap();
+        ci.workflows_reads += 1;
+        if let Some(error) = &ci.workflows_error {
+            return Err(error.clone());
+        }
+        if let Some(workflows) = &ci.workflows {
+            return Ok(workflows.clone());
+        }
+        Ok(ci
+            .run_workflows
+            .iter()
+            .map(|name| Workflow {
+                name: name.clone(),
+                path: format!(".github/workflows/{name}.yml"),
+                state: WorkflowState::Active,
+            })
+            .collect())
     }
 
     /// The end of run `run`'s failed log, or why none can be read

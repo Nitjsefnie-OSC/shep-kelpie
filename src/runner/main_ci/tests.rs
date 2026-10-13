@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use crate::ports::{BranchRun, Timestamp};
+use crate::ports::{BranchRun, Timestamp, Workflow, WorkflowState};
 use crate::runner::{MAIN_CI_POLL, step};
 use crate::test::Rig;
 
@@ -278,4 +278,125 @@ fn main_is_read_in_a_pass_where_a_work_item_acts() {
 
     assert!(report.is_some(), "the work item acted");
     assert_eq!(rig.forge.branch_runs_reads(), before + 1);
+}
+
+fn workflow(name: &str, state: WorkflowState) -> Workflow {
+    Workflow {
+        name: name.into(),
+        path: format!(".github/workflows/{name}.yml"),
+        state,
+    }
+}
+
+// A runner that has read `test` red, with the forge's workflows as `listed`
+// says, and the quarter hour on so the next pass reads again
+fn red_then_listed(rig: &Rig, listed: Vec<Workflow>) -> std::sync::Mutex<crate::runner::Runner> {
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(status(rig, &runner)[0]["workflow"], "test");
+    rig.forge.set_workflows(listed);
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    runner
+}
+
+#[test]
+fn a_red_workflow_whose_file_was_deleted_drops_out() {
+    let rig = Rig::new("acme");
+    let runner = red_then_listed(&rig, vec![workflow("test", WorkflowState::Deleted)]);
+
+    step(&runner).unwrap();
+
+    assert_eq!(status(&rig, &runner), json!(null));
+}
+
+#[test]
+fn a_red_workflow_the_forge_no_longer_lists_drops_out() {
+    let rig = Rig::new("acme");
+    let runner = red_then_listed(&rig, vec![workflow("lint", WorkflowState::Active)]);
+
+    step(&runner).unwrap();
+
+    assert_eq!(status(&rig, &runner), json!(null));
+}
+
+#[test]
+fn a_disabled_red_workflow_drops_out() {
+    for state in [
+        WorkflowState::DisabledManually,
+        WorkflowState::DisabledInactivity,
+        WorkflowState::DisabledFork,
+    ] {
+        let rig = Rig::new("acme");
+        let runner = red_then_listed(&rig, vec![workflow("test", state)]);
+
+        step(&runner).unwrap();
+
+        assert_eq!(status(&rig, &runner), json!(null), "{state:?}");
+    }
+}
+
+#[test]
+fn a_red_workflow_whose_latest_run_fell_outside_the_read_stays_red_while_it_is_active() {
+    let rig = Rig::new("acme");
+    let runner = red_then_listed(&rig, vec![workflow("test", WorkflowState::Active)]);
+    let before = status(&rig, &runner);
+    rig.forge
+        .set_branch_runs("main", vec![run("lint", 99, "success", Rig::EPOCH + 900)]);
+
+    step(&runner).unwrap();
+
+    assert_eq!(status(&rig, &runner), before);
+}
+
+#[test]
+fn a_workflow_that_fails_while_disabled_is_not_listed_as_red() {
+    let rig = Rig::new("acme");
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "failure", Rig::EPOCH)]);
+    rig.forge
+        .set_workflows(vec![workflow("test", WorkflowState::DisabledManually)]);
+    let runner = rig.open().unwrap();
+
+    step(&runner).unwrap();
+
+    assert_eq!(status(&rig, &runner), json!(null));
+}
+
+#[test]
+fn the_workflows_are_listed_only_while_something_is_red() {
+    let rig = Rig::new("acme");
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 91, "success", Rig::EPOCH)]);
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.workflows_reads(), 0);
+
+    rig.forge
+        .set_branch_runs("main", vec![run("test", 93, "failure", Rig::EPOCH + 900)]);
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    step(&runner).unwrap();
+
+    assert_eq!(rig.forge.workflows_reads(), 1);
+    assert_eq!(status(&rig, &runner)[0]["workflow"], "test");
+}
+
+#[test]
+fn a_workflow_list_that_fails_keeps_the_red_workflows_and_is_retried_on_the_backoff() {
+    let rig = Rig::new("acme");
+    let runner = red_then_listed(&rig, vec![workflow("test", WorkflowState::Deleted)]);
+    let red = status(&rig, &runner);
+    rig.forge.set_workflows_error("gh: HTTP 502");
+    let before = rig.forge.workflows_reads();
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.workflows_reads(), before + 1);
+
+    rig.clock.advance(14);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.workflows_reads(), before + 1, "read 14s on");
+    rig.clock.advance(1);
+    step(&runner).unwrap();
+    assert_eq!(rig.forge.workflows_reads(), before + 2, "no read 15s on");
+    assert_eq!(status(&rig, &runner), red);
 }

@@ -5,12 +5,13 @@
 //! workflows whose latest run failed in the project's state, for `status` and
 //! the board to show. A workflow stays red until a run of it succeeds: a run
 //! that was cancelled or skipped says nothing about the code, so it changes
-//! nothing.
+//! nothing. A workflow the forge no longer runs, because its file is gone or
+//! it is disabled, drops out whatever its last run was.
 
 use serde::Serialize;
 
 use super::Runner;
-use crate::ports::{BranchRun, Timestamp};
+use crate::ports::{BranchRun, ForgeError, Timestamp, WorkflowState};
 use crate::state::RedWorkflow;
 use crate::worktree::BASE;
 
@@ -45,13 +46,12 @@ impl Runner {
         if !self.looks.main_ci_due(now) || self.forge_hold.until(now).is_some() {
             return;
         }
-        let runs = self.ports.forge.branch_runs(&self.remote, BASE);
+        let red = self.read_red();
         self.looks
-            .main_ci_read(now, runs.is_ok(), self.forge_hold.until(now));
-        let Ok(runs) = runs else {
+            .main_ci_read(now, red.is_ok(), self.forge_hold.until(now));
+        let Ok(red) = red else {
             return;
         };
-        let red = still_red(&self.state.red, &runs);
         if red == self.state.red {
             return;
         }
@@ -61,6 +61,22 @@ impl Runner {
             Ok(()) => self.board_changed(),
             Err(e) => eprintln!("cannot save the red workflows on main: {e}"),
         }
+    }
+
+    // The red workflows after the latest runs on `main`. A red workflow
+    // stays listed when its latest run is older than the runs read, so the
+    // forge's list of workflows is what drops one that can no longer run;
+    // it is asked only while something is red.
+    fn read_red(&self) -> Result<Vec<RedWorkflow>, ForgeError> {
+        let runs = self.ports.forge.branch_runs(&self.remote, BASE)?;
+        let mut red = still_red(&self.state.red, &runs);
+        if !red.is_empty() {
+            let workflows = self.ports.forge.workflows(&self.remote)?;
+            red.retain(|r| {
+                (workflows.iter()).any(|w| w.name == r.workflow && w.state == WorkflowState::Active)
+            });
+        }
+        Ok(red)
     }
 
     /// The workflows red on `main` as `status` shows them, in the order they went red

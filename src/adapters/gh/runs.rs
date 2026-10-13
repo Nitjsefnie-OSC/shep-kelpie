@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{BranchRun, ForgeError, Timestamp};
+use crate::ports::{BranchRun, ForgeError, Timestamp, Workflow, WorkflowState};
 use crate::settings::ForgeSlug;
 
 /// How many failed runs are read
@@ -56,6 +56,63 @@ pub(super) fn branch_runs(repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRu
         "databaseId,workflowName,conclusion,headSha,event,createdAt",
     ])?;
     latest_runs(&listed)
+}
+
+/// How many workflows are asked for: a list this long may have been cut off
+const WORKFLOWS: usize = 1000;
+
+/// Every workflow of `repo`, the disabled ones too
+pub(super) fn workflows(repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError> {
+    let limit = WORKFLOWS.to_string();
+    let listed = gh(&[
+        "workflow",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--all",
+        "--limit",
+        &limit,
+        "--json",
+        "name,path,state",
+    ])?;
+    let workflows = parse_workflows(&listed)?;
+    if workflows.len() >= WORKFLOWS {
+        return Err(ForgeError::Failed(format!(
+            "{} workflows listed, which may not be all of them",
+            workflows.len()
+        )));
+    }
+    Ok(workflows)
+}
+
+// `state` is the field GitHub documents for a workflow, in "List repository
+// workflows"; a value outside its documented ones is a list kelpie cannot read
+fn parse_workflows(listed: &[u8]) -> Result<Vec<Workflow>, ForgeError> {
+    #[derive(Deserialize)]
+    struct Listed {
+        name: String,
+        path: String,
+        state: String,
+    }
+    let workflows: Vec<Listed> = serde_json::from_slice(listed).map_err(|_| unreadable(listed))?;
+    workflows
+        .into_iter()
+        .map(|w| {
+            let state = match w.state.as_str() {
+                "active" => WorkflowState::Active,
+                "deleted" => WorkflowState::Deleted,
+                "disabled_manually" => WorkflowState::DisabledManually,
+                "disabled_inactivity" => WorkflowState::DisabledInactivity,
+                "disabled_fork" => WorkflowState::DisabledFork,
+                _ => return Err(unreadable(listed)),
+            };
+            Ok(Workflow {
+                name: w.name,
+                path: w.path,
+                state,
+            })
+        })
+        .collect()
 }
 
 // The newest run of each workflow and event in `listed`, in the order they
@@ -412,6 +469,75 @@ mod tests {
     fn a_listing_gh_did_not_print_as_json_is_unreadable() {
         assert!(matches!(
             latest_runs(b"not json"),
+            Err(ForgeError::Unreadable(_))
+        ));
+    }
+
+    // What `gh workflow list --all --json name,path,state` printed on
+    // shep-pm/shep with gh 2.96, where every workflow is active.
+    const WORKFLOW_LIST: &[u8] = include_bytes!("../../../fixtures/gh-workflow-list.json");
+
+    #[test]
+    fn the_recorded_workflow_list_reads_as_active_workflows_with_their_paths() {
+        let workflows = parse_workflows(WORKFLOW_LIST).unwrap();
+
+        assert_eq!(workflows.len(), 11);
+        assert!(workflows.iter().all(|w| w.state == WorkflowState::Active));
+        assert_eq!(
+            workflows[7],
+            Workflow {
+                name: "test".to_owned(),
+                path: ".github/workflows/test.yml".to_owned(),
+                state: WorkflowState::Active,
+            }
+        );
+    }
+
+    // Hand-written: no repo of the maintainer's has a deleted or disabled
+    // workflow. The states are the ones GitHub documents for a workflow's
+    // `state` field in "List repository workflows".
+    #[test]
+    fn every_state_github_documents_for_a_workflow_is_read() {
+        let listed = br#"[
+            {"name":"a","path":".github/workflows/a.yml","state":"active"},
+            {"name":"b","path":".github/workflows/b.yml","state":"deleted"},
+            {"name":"c","path":".github/workflows/c.yml","state":"disabled_manually"},
+            {"name":"d","path":".github/workflows/d.yml","state":"disabled_inactivity"},
+            {"name":"e","path":".github/workflows/e.yml","state":"disabled_fork"}
+        ]"#;
+
+        let states: Vec<_> = parse_workflows(listed)
+            .unwrap()
+            .into_iter()
+            .map(|w| w.state)
+            .collect();
+
+        assert_eq!(
+            states,
+            [
+                WorkflowState::Active,
+                WorkflowState::Deleted,
+                WorkflowState::DisabledManually,
+                WorkflowState::DisabledInactivity,
+                WorkflowState::DisabledFork,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_workflow_state_github_does_not_document_is_unreadable() {
+        let listed = br#"[{"name":"a","path":"a.yml","state":"archived"}]"#;
+
+        assert!(matches!(
+            parse_workflows(listed),
+            Err(ForgeError::Unreadable(_))
+        ));
+    }
+
+    #[test]
+    fn a_workflow_list_gh_did_not_print_as_json_is_unreadable() {
+        assert!(matches!(
+            parse_workflows(b"not json"),
             Err(ForgeError::Unreadable(_))
         ));
     }

@@ -63,7 +63,7 @@ pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
-pub use run::BranchRun;
+pub use run::{BranchRun, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
@@ -342,6 +342,14 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError>;
+
+    /// Every workflow of the repo, whatever its state
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read, or
+    /// lists a state this port does not know.
+    fn workflows(&self, repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError>;
 
     /// The end of the failed jobs' log of CI run `run`
     ///
