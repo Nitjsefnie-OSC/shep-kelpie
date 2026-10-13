@@ -2,7 +2,8 @@
 //!
 //! A reviewer's finding goes to the worker, which fixes it. One it leaves, because
 //! the fix is out of scope for the pull request, it copies into the deferred
-//! findings file in its build folder. When the pull request merges, kelpie
+//! findings file in its build folder, and one it shows is wrong it disputes in
+//! the disputed findings file, which files nothing. When the pull request merges, kelpie
 //! reads that file once and files only findings it sent the worker itself,
 //! in its own words: a line the worker invents or rewrites files nothing.
 //! `git.issues` decides what follows: under `file` each finding is filed at
@@ -21,7 +22,7 @@ use crate::board::{READY, TRIAGE};
 use crate::ports::{Finding, ForgeError, NewLabel, OpenIssue, Severity};
 use crate::settings::Filing;
 use crate::state::{RulingKind, StateError};
-use crate::work_item::FollowUps;
+use crate::work_item::{FollowUps, WorkItem};
 
 // A GitHub title stops at 256 characters, and one this long is unreadable
 // in a list anyway.
@@ -61,7 +62,7 @@ impl Runner {
             Some(pending) => pending,
             None if filing == Filing::Skip => return Ok(None),
             None => {
-                let found = match read_deferred(&item.build, &item.held, &item.worktree) {
+                let found = match read_deferred(item) {
                     Ok(found) => found,
                     Err(reason) => return Ok(Some(self.gate_failed(reason))),
                 };
@@ -200,15 +201,22 @@ impl Runner {
 // The findings kelpie sent the worker that the file names again, in kelpie's
 // own words and each once. A file that was never written is a worker with
 // nothing to defer. A nit is never filed, though a version 13 state file
-// may still hold one.
-fn read_deferred(build: &Path, held: &[Finding], worktree: &Path) -> Result<Vec<Finding>, String> {
-    let deferred = findings::deferred(build)?;
+// may still hold one. A finding the worker disputed with a reason is not
+// filed, though it also deferred it.
+fn read_deferred(item: &WorkItem) -> Result<Vec<Finding>, String> {
+    let deferred = findings::deferred(&item.build)?;
+    let disputed = findings::disputed(&item.build)?;
+    let wrong = |held: &Finding| {
+        (disputed.iter()).any(|d| d.reason.is_some() && d.finding.is_same_as(held))
+            || (item.disputes.iter()).any(|d| d.finding.is_same_as(held))
+    };
     let named = |held: &Finding| deferred.iter().any(|d| d.is_same_as(held));
-    Ok(held
+    Ok(item
+        .held
         .iter()
-        .filter(|held| !held.is_nit() && named(held))
+        .filter(|held| !held.is_nit() && named(held) && !wrong(held))
         .cloned()
-        .map(|finding| relative(finding, worktree))
+        .map(|finding| relative(finding, &item.worktree))
         .collect())
 }
 

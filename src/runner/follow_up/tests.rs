@@ -312,6 +312,41 @@ fn the_same_finding_deferred_twice_files_once() {
     assert_eq!(rig.forge.created().len(), 1);
 }
 
+// What the worker writes to dispute `found` with `reason`
+fn disputed_lines(found: &[Finding], reason: &str) -> String {
+    let line = |f: &Finding| format!("{}  {reason}\n", lines(std::slice::from_ref(f)));
+    found.iter().map(line).collect()
+}
+
+#[test]
+fn a_disputed_finding_is_not_filed_after_the_merge() {
+    let found = [racy()];
+    let (rig, runner) = auto_ready_to_merge(&found, "");
+    std::fs::write(
+        rig.build_7().join("disputed-findings.md"),
+        disputed_lines(&found, "src/lib.rs:3 holds the lock"),
+    )
+    .unwrap();
+    // Deferred as well, which counts as disputed.
+    defer(&rig, &lines(&found));
+
+    assert!(matches!(
+        after_merge(&runner),
+        Some(StepReport::Finished { merged: true, .. })
+    ));
+    assert_eq!(rig.forge.created(), []);
+}
+
+#[test]
+fn a_dispute_with_no_reason_leaves_the_deferred_finding_to_be_filed() {
+    let found = [racy()];
+    let (rig, runner) = auto_ready_to_merge(&found, &lines(&found));
+    std::fs::write(rig.build_7().join("disputed-findings.md"), lines(&found)).unwrap();
+
+    assert_eq!(after_merge(&runner), filed(&[900], &[], 0));
+    assert_eq!(rig.forge.created().len(), 1);
+}
+
 // A version 13 state file could hold a nit among the findings sent, from a
 // round above a nit; deferred, it is not filed either.
 #[test]

@@ -479,6 +479,7 @@ impl Runner {
             &self.skills,
             &self.kelpie,
             &findings::deferred_path(&item.build),
+            &findings::disputed_path(&item.build),
         );
         write(folder, &instructions, &text)?;
         let prompt = match prompt {

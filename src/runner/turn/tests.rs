@@ -67,6 +67,7 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
             std::path::Path::new(Rig::KELPIE),
             None,
             &rig.build_7().join("deferred-findings.md"),
+            &rig.build_7().join("disputed-findings.md"),
         )),
         "{instructions}"
     );

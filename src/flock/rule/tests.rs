@@ -66,6 +66,7 @@ fn a_merge_ruling_takes_a_rework_and_another_ruling_refuses_one() {
             note_fix: false,
             late_fix: false,
             nits: None,
+            disputes: None,
         },
         ..yes_or_no(16)
     };

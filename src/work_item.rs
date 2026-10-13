@@ -12,6 +12,7 @@ use crate::review_bot::Bot;
 use crate::settings::AgentName;
 
 mod bots;
+mod disputes;
 mod follow_ups;
 mod heads;
 mod known;
@@ -25,6 +26,7 @@ mod threads;
 mod timings;
 
 pub use bots::BotSkipped;
+pub use disputes::Dispute;
 pub use follow_ups::FollowUps;
 pub use known::{Known, foreign_change};
 pub use local::LOCAL_FAILURES_DOWN;
@@ -255,6 +257,15 @@ pub struct WorkItem {
     /// rounds. Only one of these is filed when the worker defers it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held: Vec<Finding>,
+    /// The findings a fix turn disputed in this pass, with the worker's
+    /// reasons. A finding in here that is raised again cannot be disputed
+    /// again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disputes: Vec<Dispute>,
+    /// The comment on the pull request that carries the disputes no
+    /// reviewer followed, by the forge's id
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disputes_comment: Option<u64>,
     /// What kelpie ran of the tests reviewers attached to findings, before
     /// and after the fix, oldest first
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -475,6 +486,8 @@ impl WorkItem {
             local_unreviewed_by: None,
             rebased: false,
             held: Vec::new(),
+            disputes: Vec::new(),
+            disputes_comment: None,
             test_checks: Vec::new(),
             follow_ups: None,
             summary: None,
@@ -499,6 +512,8 @@ impl WorkItem {
         self.forget_threads();
         self.bots_skipped.clear();
         self.late_from = None;
+        self.disputes.clear();
+        self.disputes_comment = None;
     }
 
     /// Remembers findings sent to the worker, once each, but for nits: a
