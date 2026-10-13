@@ -616,6 +616,8 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     assert!(policy.write.contains(&w.path("wt")));
     assert!(policy.read.contains(&home));
     assert!(policy.read.contains(&w.path("settings.guard.ts")));
+    assert!(policy.read.contains(&w.path("settings.stdout.jsonl")));
+    assert!(policy.read.contains(&w.path("settings.stderr.log")));
     assert!(
         !policy.hosts.iter().any(|h| h.contains("192.0.2.9")),
         "{:?}",
