@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::{ForgeError, OpenIssue};
+use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
 use crate::settings::ForgeSlug;
 
 // The same ceiling the board's lists use, since `gh` lists newest first and
@@ -92,6 +92,36 @@ pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeErro
     gh(&["issue", "close", &number, "--repo", repo.as_str()]).map(drop)
 }
 
+// GitHub allows a parent 100 sub-issues, so one page lists them all.
+pub(super) fn sub_issues(repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+    let path = format!(
+        "repos/{}/issues/{parent}/sub_issues?per_page=100",
+        repo.as_str()
+    );
+    parse_sub_issues(&gh(&["api", &path])?)
+}
+
+fn parse_sub_issues(stdout: &[u8]) -> Result<Vec<SubIssue>, ForgeError> {
+    #[derive(Deserialize)]
+    struct Listed {
+        number: u64,
+        state: String,
+        state_reason: Option<String>,
+    }
+    let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    Ok(listed
+        .into_iter()
+        .map(|sub| SubIssue {
+            number: sub.number,
+            state: match (sub.state.as_str(), sub.state_reason.as_deref()) {
+                ("closed", Some("not_planned" | "duplicate")) => SubIssueState::NotPlanned,
+                ("closed", _) => SubIssueState::Completed,
+                _ => SubIssueState::Open,
+            },
+        })
+        .collect())
+}
+
 // `gh issue create` prints the new issue's URL, which ends in its number.
 fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
     let text = String::from_utf8_lossy(stdout);
@@ -123,6 +153,32 @@ mod tests {
                     title: "c".into(),
                     body: String::new()
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn sub_issues_are_read_with_the_reason_each_closed_for() {
+        let out = br#"[
+            {"number":1,"state":"open","state_reason":"reopened"},
+            {"number":2,"state":"closed","state_reason":"completed"},
+            {"number":3,"state":"closed","state_reason":"not_planned"},
+            {"number":4,"state":"closed","state_reason":"duplicate"},
+            {"number":5,"state":"closed","state_reason":null}
+        ]"#;
+        let states: Vec<_> = parse_sub_issues(out)
+            .unwrap()
+            .iter()
+            .map(|s| s.state)
+            .collect();
+        assert_eq!(
+            states,
+            [
+                SubIssueState::Open,
+                SubIssueState::Completed,
+                SubIssueState::NotPlanned,
+                SubIssueState::NotPlanned,
+                SubIssueState::Completed,
             ]
         );
     }
