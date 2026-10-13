@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use super::history::Record;
-use crate::panel::{Case, Policy, Stage, Step, Tier, Voter, settle};
+use crate::panel::{Case, Policy, Skip, Stage, Step, Tier, Voter, settle};
 use crate::settings::{Decide, RulingName};
 
 /// After this many rulings the panel has voted on, `docs/facts/the-panel.md`
@@ -50,6 +50,8 @@ pub struct Standing {
     pub whatif: BTreeMap<String, Score>,
     /// Whether `docs/facts/the-panel.md` is due its entry on the panel
     pub facts_due: bool,
+    /// Rulings answered that the panel cast no vote on, by the reason
+    pub skipped: BTreeMap<String, usize>,
 }
 
 /// One expert's votes against the maintainer's answers
@@ -128,6 +130,12 @@ pub(super) fn standing(
             ..Score::default()
         };
         stand.whatif.insert(policy.name().to_owned(), score);
+    }
+    for skip in [Skip::Draining, Skip::Posted] {
+        stand.skipped.insert(skip.name().to_owned(), 0);
+    }
+    for skip in records.iter().filter_map(|r| r.skipped) {
+        *stand.skipped.entry(skip.name().to_owned()).or_default() += 1;
     }
     let mut scored: u32 = 0;
     for record in records.iter().filter(|r| !r.ballots.is_empty()) {

@@ -223,6 +223,7 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
         panel: None,
         verdict: None,
         unposted: false,
+        skipped: None,
         effects: Vec::new(),
         raised: None,
     });
@@ -274,6 +275,7 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
         panel: None,
         verdict: None,
         unposted: false,
+        skipped: None,
         effects: Vec::new(),
         raised: None,
     });
@@ -550,14 +552,51 @@ fn a_followed_contribution_survives_a_save_and_a_load() {
     assert_eq!(store.load().unwrap(), Some(state));
 }
 
-// A version 41 file has no `red`, so no workflow is red on `main` until the
+// A version 41 file has no `skipped`: its rulings loaded as any panel may
+// still vote on them, and a skip saved since is kept as the runner left it.
+#[test]
+fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
+    use crate::panel::Skip;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        id: 71,
+        issue: Some(7),
+        question: "q".into(),
+        pull_request: Some(71),
+        kind: RulingKind::Stuck(Stuck::Closed),
+        alerted: false,
+        panel: None,
+        verdict: None,
+        unposted: true,
+        skipped: None,
+        effects: Vec::new(),
+        raised: None,
+    });
+    let mut old = serde_json::to_value(&state).unwrap();
+    old["version"] = 41.into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.rulings[0].skipped, None);
+    loaded.rulings[0].skipped = Some(Skip::Draining);
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["rulings"][0]["skipped"], "draining");
+}
+
+// A version 42 file has no `red`, so no workflow is red on `main` until the
 // runner reads it. A red workflow survives a save and a load.
 #[test]
-fn a_version_41_file_loads_with_no_red_workflow_and_red_ones_round_trip() {
+fn a_version_42_file_loads_with_no_red_workflow_and_red_ones_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
-    old["version"] = 41.into();
+    old["version"] = 42.into();
     assert!(old.get("red").is_none(), "{old}");
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 

@@ -501,6 +501,7 @@ impl Runner {
         if self.pm_holds_comment(id) {
             return None;
         }
+        self.panel_unvoted(id);
         self.mark_unposted(id, false);
         let ruling = self.state.rulings.iter().find(|r| r.id == id)?;
         if self.app_covers() {
@@ -582,6 +583,7 @@ pub(super) fn park(
         panel: None,
         verdict: None,
         unposted: false,
+        skipped: None,
         effects: Vec::new(),
         raised: Some(names.now),
     });
