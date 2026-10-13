@@ -11,4 +11,4 @@ No reviewer read it in its last review. Review bot threads are still open on it.
 - 👍 or 👎 answers, or tick one:
 - [ ] A
 - [ ] B
-- Or reply `1 no <note>`
+- Or reply `71 no <note>`

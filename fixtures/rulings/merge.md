@@ -11,4 +11,4 @@
 - [ ] A
 - [ ] B
 - [ ] C
-- Or reply `1 no <note>` or `1 rework <note>`
+- Or reply `71 no <note>` or `71 rework <note>`

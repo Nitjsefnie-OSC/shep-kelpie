@@ -7,13 +7,11 @@ use crate::runner::review::pushed::off_text;
 use crate::state::{Fix, RulingKind, Stuck};
 use crate::work_item::{Phase, raised_cap};
 
-pub(in crate::runner) fn question(
-    id: u64,
-    issue: u64,
-    number: Option<u64>,
-    kind: &RulingKind,
-) -> String {
-    let trigger = |answer: &str| format!("`shep kelpie rule {id} {answer}`");
+pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &RulingKind) -> String {
+    // The maintainer answers by the number they read: the pull request's, or
+    // the issue's until there is one.
+    let named = number.unwrap_or(issue);
+    let trigger = |answer: &str| format!("`shep kelpie rule {named} {answer}`");
     let (yes, no) = (trigger("yes"), trigger("no <note>"));
     let about = number.map_or_else(
         || format!("issue #{issue}"),

@@ -548,7 +548,7 @@ pub(super) fn park(
         .expect("a ruling is about an open work item");
     item.phase = Phase::Ruling { id };
     item.counts.rulings = item.counts.rulings.saturating_add(1);
-    let text = question(id, issue, pull_request, &kind);
+    let text = question(issue, pull_request, &kind);
     next.last_ruling = id;
     next.rulings.push(Ruling {
         id,

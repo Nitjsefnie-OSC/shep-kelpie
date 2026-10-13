@@ -239,7 +239,7 @@ impl Runner {
         let mut next = self.state.clone();
         let id = names.ids.claim(names.project, next.last_ruling);
         let kind = RulingKind::Stuck(Stuck::Unlabelled { why });
-        let question = super::super::ruling::question(id, issue, None, &kind);
+        let question = super::super::ruling::question(issue, None, &kind);
         next.last_ruling = id;
         next.rulings.push(Ruling {
             id,

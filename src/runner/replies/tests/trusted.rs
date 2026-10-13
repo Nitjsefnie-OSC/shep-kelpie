@@ -77,8 +77,8 @@ fn a_workers_answer_needs_no_code_on_a_trusted_topic() {
 #[test]
 fn a_yes_on_a_merge_ruling_is_refused_without_a_code_and_taken_with_one() {
     let (rig, runner, head) = alerted_trusted("koji");
-    rig.alerts.reply("1 yes", rig.clock.now());
-    let reason = "a yes on a merge ruling takes the authenticator code: `1 yes <code>`";
+    rig.alerts.reply("71 yes", rig.clock.now());
+    let reason = "a yes on a merge ruling takes the authenticator code: `71 yes <code>`";
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::ReplyRefused {
@@ -89,7 +89,7 @@ fn a_yes_on_a_merge_ruling_is_refused_without_a_code_and_taken_with_one() {
     );
     assert_eq!(
         lines(&rig),
-        [format!("Ruling 1 was not answered: {reason}.")]
+        [format!("Ruling #71 was not answered: {reason}.")]
     );
     assert_eq!(phase(&rig, &runner), json!({ "state": "ruling", "id": 1 }));
     assert_eq!(rig.forge.merges(), []);

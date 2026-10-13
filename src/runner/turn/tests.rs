@@ -858,8 +858,8 @@ fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() 
         question,
         "The work on issue #7 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
          the reviewers $0.00, so the worker's next turn has not started. \
-         `shep kelpie rule 1 yes` raises the cap to $10.00 and the worker carries on, and \
-         `shep kelpie rule 1 no <note>` sends the worker your note and raises the cap the same."
+         `shep kelpie rule 7 yes` raises the cap to $10.00 and the worker carries on, and \
+         `shep kelpie rule 7 no <note>` sends the worker your note and raises the cap the same."
     );
     assert_eq!(rig.claude.calls().len(), 1, "no call after the cap");
     let status = rig.ask(&runner, "status", None);

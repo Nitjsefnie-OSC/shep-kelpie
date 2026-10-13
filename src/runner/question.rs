@@ -166,14 +166,14 @@ mod tests {
             question,
             format!(
                 "The worker on issue #7 asks:\n\n{QUESTION}\n\n\
-                 `shep kelpie rule 1 <text>` sends the worker your answer."
+                 `shep kelpie rule 7 <text>` sends the worker your answer."
             )
         );
         let status = rig.ask(&runner, "status", None);
         assert_eq!(
             status["rulings"],
             json!([{
-                "id": 1,
+                "id": 7,
                 "issue": 7,
                 "question": question,
                 "pull_request": null,
@@ -369,7 +369,7 @@ mod tests {
             rig.ask(&runner, "rule", Some("1 answer")),
             json!({ "error": "`rule` takes `<id> yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`, not \"1 answer\"" })
         );
-        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
 
         let (rig, runner, _) = Rig::parked("golbat");
         assert_eq!(

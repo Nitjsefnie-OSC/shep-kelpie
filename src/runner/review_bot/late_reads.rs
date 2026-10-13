@@ -147,7 +147,7 @@ fn a_bot_passed_over_that_reviews_while_the_merge_ruling_waits_withdraws_it() {
     rig.clock.advance(LATE_READ - 1);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(logins(), read_at_ruling, "no read before LATE_READ");
-    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 1);
+    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 71);
 
     rig.clock.advance(1);
     assert_eq!(step(&runner).unwrap(), None);
@@ -228,7 +228,7 @@ fn a_late_read_with_nothing_new_costs_no_fix_turn() {
     rig.clock.advance(LATE_READ);
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.forge.coderabbit.logins().len(), reads + 1, "cubic read");
-    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 1);
+    assert_eq!(status(&rig, &runner)["rulings"][0]["id"], 71);
     assert_eq!(rig.claude.calls().len(), worker_turns, "no fix turn");
 
     let rig = listing("shep", &["cubic"]);

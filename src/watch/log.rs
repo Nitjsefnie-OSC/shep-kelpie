@@ -1,4 +1,4 @@
-//! The runner's log: shep's timestamp and then one step as JSON, per line
+//! The runner's steps file: one step as a JSON object per line, with the time it was logged
 
 use std::path::PathBuf;
 
@@ -20,13 +20,12 @@ const STARTED: &str = "session-started";
 /// A step the project manager's session is named in
 const PM_STEPS: &str = "pm-";
 
-/// The log line `line` as a step, or `None` for a line that is not one
+/// The line of the steps file `line` as a step, or `None` for a line that is not one
 pub(super) fn parse(line: &str) -> Option<Step> {
-    let (at, json) = line.split_once(' ')?;
-    let at = at.parse::<Timestamp>().ok()?;
-    let Value::Object(fields) = serde_json::from_str(json.trim()).ok()? else {
+    let Value::Object(mut fields) = serde_json::from_str(line.trim()).ok()? else {
         return None;
     };
+    let at = fields.remove("at")?.as_str()?.parse::<Timestamp>().ok()?;
     fields.get("step")?.as_str()?;
     Some(Step { at, fields })
 }

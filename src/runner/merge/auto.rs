@@ -77,8 +77,14 @@ fn raised(report: Option<StepReport>) -> u64 {
 fn still_asks(rig: &Rig, runner: &Mutex<Runner>, id: u64, kind: &str) {
     let status = rig.ask(runner, "status", None);
     assert_eq!(status["merging"], "auto");
-    assert_eq!(status["rulings"][0]["id"], id);
-    assert_eq!(status["rulings"][0]["kind"]["kind"], kind);
+    // Named by its pull request, or by its issue before there is one.
+    let ruling = &status["rulings"][0];
+    let number = match &ruling["pull_request"] {
+        serde_json::Value::Null => &ruling["issue"],
+        pull_request => pull_request,
+    };
+    assert_eq!(&ruling["id"], number);
+    assert_eq!(ruling["kind"]["kind"], kind);
     assert_eq!(
         status["work_item"]["phase"],
         json!({ "state": "ruling", "id": id })
@@ -248,8 +254,8 @@ fn a_merge_the_forge_refuses_is_caught_up_once_then_parks_and_a_yes_looks_again(
         status["rulings"][0]["question"],
         format!(
             "Kelpie could not merge pull request #71 at {} after catching it up: {refused}. \
-             `shep kelpie rule {id} yes` has kelpie look again and merge once \
-             every gate passes, and `shep kelpie rule {id} no <note>` sends \
+             `shep kelpie rule 71 yes` has kelpie look again and merge once \
+             every gate passes, and `shep kelpie rule 71 no <note>` sends \
              the worker your note.",
             &head[..7]
         )

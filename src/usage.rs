@@ -398,7 +398,17 @@ impl Ledger {
 ///
 /// The [`io::Error`] that opening, reading or writing the file failed with.
 pub fn append_to(path: &Path, line: &Line) -> io::Result<()> {
-    let mut bytes = serde_json::to_vec(line).map_err(io::Error::other)?;
+    append_json_line(path, line)
+}
+
+/// Appends `value` as one JSON line to the file at `path`, the way
+/// [`append_to`] does a ledger line
+///
+/// # Errors
+///
+/// The [`io::Error`] that opening, reading or writing the file failed with.
+pub(crate) fn append_json_line(path: &Path, value: &impl serde::Serialize) -> io::Result<()> {
+    let mut bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     bytes.push(b'\n');
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;

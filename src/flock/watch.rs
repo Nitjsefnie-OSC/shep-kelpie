@@ -1,8 +1,9 @@
 //! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: a project's
 //! runner steps and session transcripts, followed live
 //!
-//! It reads the runner's log and the transcripts it names from disk, so it
-//! needs the shepherd only to find the project from the folder it runs in.
+//! It reads the runner's `steps.jsonl` and the transcripts it names from
+//! disk, so it needs the shepherd only to find the project from the folder
+//! it runs in.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -61,33 +62,40 @@ pub(super) fn read_args(args: &[&str]) -> Result<Ask, String> {
     Ok(ask)
 }
 
-/// The runner's log under the shepherd's home, as shep keeps it
-fn log_of(shep_home: &Path, project: &ProjectName) -> PathBuf {
-    let name = format!("{}-0-out.log", project.as_str());
-    shep_home.join("logs").join(name)
+/// The folder of `project`, which holds its `steps.jsonl` once its runner
+/// logs a step
+///
+/// The file itself may not exist yet: a runner with nothing to do logs no
+/// step, and `watch` waits for the first.
+///
+/// # Errors
+///
+/// A message when the project has no folder, which its runner makes as it opens.
+fn folder_of(kelpie_home: &Path, project: &ProjectName) -> Result<PathBuf, String> {
+    let folder = kelpie_home.join(project.as_str());
+    if folder.is_dir() {
+        return Ok(folder);
+    }
+    Err(format!(
+        "{project} has no folder at {}: `shep kelpie start` runs it",
+        folder.display()
+    ))
 }
 
 /// Follows `project` until interrupted, printing what the stream shows
 ///
 /// # Errors
 ///
-/// A message when the project has no log yet, or the output cannot be written.
-pub(super) fn follow(shep_home: &Path, project: &ProjectName, ask: Ask) -> Result<(), String> {
-    let log = log_of(shep_home, project);
-    if !log.is_file() {
-        return Err(format!(
-            "{} has no log at {}: `shep kelpie start` runs it",
-            project,
-            log.display()
-        ));
-    }
+/// A message when the project has no folder yet, or the output cannot be written.
+pub(super) fn follow(kelpie_home: &Path, project: &ProjectName, ask: Ask) -> Result<(), String> {
+    let folder = folder_of(kelpie_home, project)?;
     let options = Options {
         scope: ask.scope,
         back: ask.back,
         full: ask.full,
         zone: jiff::tz::TimeZone::system(),
     };
-    let (mut watch, first) = Watch::start(log, options);
+    let (mut watch, first) = Watch::start(folder, options);
     let mut out = std::io::stdout().lock();
     let mut show = |lines: Vec<crate::watch::Line>| -> Result<(), String> {
         for line in lines {
@@ -109,6 +117,31 @@ mod tests {
     fn ask(line: &str) -> Result<Ask, String> {
         let words: Vec<&str> = line.split_whitespace().collect();
         read_args(&words)
+    }
+
+    #[test]
+    fn a_running_project_with_no_step_logged_yet_is_followed_not_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let koji = ProjectName::try_from("koji").unwrap();
+        assert!(folder_of(home.path(), &koji).is_err());
+        std::fs::create_dir(home.path().join("koji")).unwrap();
+        let folder = folder_of(home.path(), &koji).unwrap();
+        let (mut watch, first) = Watch::start(
+            folder.clone(),
+            Options {
+                scope: Scope::Project,
+                back: 0,
+                full: false,
+                zone: jiff::tz::TimeZone::UTC,
+            },
+        );
+        assert!(first.is_empty() && watch.poll().is_empty());
+        std::fs::write(
+            folder.join(crate::runner::STEPS_FILE),
+            "{\"at\":\"2026-10-10T12:00:00.000Z\",\"step\":\"finished\",\"issue\":7}\n",
+        )
+        .unwrap();
+        assert_eq!(watch.poll().len(), 1);
     }
 
     #[test]

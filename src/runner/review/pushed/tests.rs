@@ -127,8 +127,8 @@ fn a_turn_to_push_that_commits_without_pushing_starts_no_review_round() {
         format!(
             "The worker on pull request #71 still has work not pushed after its turn to \
              push or discard it: it has {} checked out, and the head on origin is {}. \
-             Round 1 of the review did not run. `shep kelpie rule {id} yes` gives the \
-             worker another turn to push or discard it, and `shep kelpie rule {id} no \
+             Round 1 of the review did not run. `shep kelpie rule 71 yes` gives the \
+             worker another turn to push or discard it, and `shep kelpie rule 71 no \
              <note>` sends the worker your note.",
             &head[..7],
             &pushed[..7]
