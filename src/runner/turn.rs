@@ -104,6 +104,7 @@ impl Runner {
     // same turn again.
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         self.snapshot.begin_pass();
+        self.looks.pass_began(self.forge_ledger.writes());
         let begin = self.step_rotation(start_over);
         self.snapshot.end_pass();
         begin
@@ -608,6 +609,14 @@ impl Runner {
                 if !call.plugin_dirs.iter().any(|dir| dir == plugin) {
                     call.plugin_dirs.push(plugin.to_owned());
                 }
+            }
+            // Their MCP servers go in the call's own MCP config, since `--strict-mcp-config`
+            // drops every other. A call that only reads (a vote, a retro) is given none that
+            // could write, and only Claude Code takes the config.
+            if call.harness.reads_claude_files() && call.tools != Tools::Retro {
+                call.reach
+                    .mcp_servers
+                    .extend(self.repo_plugins.mcp_servers());
             }
         }
         self.with_code_graph(&mut call);

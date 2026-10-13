@@ -4,11 +4,13 @@
 //! test gave it (a 404, as a server that is not Ollama answers, until then), and each
 //! `POST …/chat/completions` with the next scripted reply (as server-sent events
 //! when the request streams), or `CLEAN` once the script runs out. It keeps
-//! every chat request's body, and the request line and `Authorization` of
-//! every request it got. Given a key, it answers paddock's own routes too:
+//! every chat request's body, and the request line, `Authorization` and
+//! `x-paddock-*` headers of every request it got. Given a key, it answers paddock's own routes too:
 //! `/paddock/status` to that key alone, a lease's take with the next scripted
 //! [`Take`] or a grant, and a renewal or release with `204`, as paddock does,
-//! unless told to refuse or hang on renewals. Each connection is served on a
+//! unless told to refuse or hang on renewals. Given [`like_openai`](StandInEndpoint::like_openai)
+//! instead, it answers `/models` to that key alone and `404` to every
+//! `/paddock/` route, as a gateway that knows only OpenAI's routes does. Each connection is served on a
 //! thread of its own, so one left hanging holds up no other.
 
 use std::collections::VecDeque;
@@ -61,6 +63,7 @@ struct Shared {
     lines: Vec<String>,
     auths: Vec<Option<String>>,
     every_auth: Vec<Vec<String>>,
+    paddock: Vec<Vec<(String, String)>>,
     ps: Option<String>,
     metrics: Option<String>,
     models: Vec<String>,
@@ -69,6 +72,8 @@ struct Shared {
     paddock_status: Option<String>,
     key: Option<String>,
     takes: VecDeque<Take>,
+    openai: bool,
+    models_status: Option<u16>,
 }
 
 /// A server on a free local port, until the test ends
@@ -114,6 +119,21 @@ impl StandInEndpoint {
         self
     }
 
+    /// Answers as a bare OpenAI-compatible gateway does: `/models` lists
+    /// `models` to `key` alone and refuses any other with `401`, and it has
+    /// no `/paddock/` route
+    pub(crate) fn like_openai(self, key: &str, models: &[&str]) -> Self {
+        let this = self.like_paddock(key, models);
+        this.shared.lock().unwrap().openai = true;
+        this
+    }
+
+    /// Has `/models` answer this HTTP status, whatever key it gets
+    pub(crate) fn with_models_status(self, status: u16) -> Self {
+        self.shared.lock().unwrap().models_status = Some(status);
+        self
+    }
+
     /// Has `/models` answer `200` with this body, whatever it is
     pub(crate) fn with_models_body(self, body: &str) -> Self {
         self.shared.lock().unwrap().models_body = Some(body.to_owned());
@@ -152,6 +172,12 @@ impl StandInEndpoint {
     /// Every `Authorization` header each request carried, in order, not only its last
     pub(crate) fn authorization_headers(&self) -> Vec<Vec<String>> {
         self.shared.lock().unwrap().every_auth.clone()
+    }
+
+    /// Every `x-paddock-*` header each request carried, in order: the name in
+    /// lower case, then the value
+    pub(crate) fn paddock_headers(&self) -> Vec<Vec<(String, String)>> {
+        self.shared.lock().unwrap().paddock.clone()
     }
 
     /// Has `/metrics` answer with this page, as a Prometheus exporter does
@@ -202,7 +228,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         .unwrap()
         .lines
         .push(request_line.trim().to_owned());
-    let (mut length, mut auth, mut every) = (0, None, Vec::new());
+    let (mut length, mut auth, mut every, mut paddock) = (0, None, Vec::new(), Vec::new());
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
@@ -216,6 +242,9 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 every.push(value.trim().to_owned());
                 auth = Some(value.trim().to_owned());
             }
+            Some((name, value)) if name.trim().to_ascii_lowercase().starts_with("x-paddock-") => {
+                paddock.push((name.trim().to_ascii_lowercase(), value.trim().to_owned()));
+            }
             _ => {}
         }
     }
@@ -223,6 +252,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         // Under one lock, so the two records stay in the same order.
         let mut held = shared.lock().unwrap();
         held.every_auth.push(every);
+        held.paddock.push(paddock);
         held.auths.push(auth.clone());
     }
     let mut body = vec![0; length];
@@ -240,13 +270,19 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             None => (404, "404 page not found".to_owned()),
         }
     } else if request_line.contains("/models ") {
-        let (models, scripted) = {
-            let held = shared.lock().unwrap();
-            (held.models.clone(), held.models_body.clone())
-        };
+        let held = shared.lock().unwrap();
+        let (models, scripted) = (held.models.clone(), held.models_body.clone());
+        let (refused, status) = (held.openai && held.key != auth, held.models_status);
+        drop(held);
         let data: Vec<_> = models.iter().map(|id| json!({ "id": id })).collect();
         let list = json!({ "object": "list", "data": data }).to_string();
-        (200, scripted.unwrap_or(list))
+        match (status, refused) {
+            (Some(status), _) => (status, json!({ "error": "scripted" }).to_string()),
+            (None, true) => (401, json!({ "error": "unauthorized" }).to_string()),
+            (None, false) => (200, scripted.unwrap_or(list)),
+        }
+    } else if request_line.contains(" /paddock/") && shared.lock().unwrap().openai {
+        (404, "404 page not found".to_owned())
     } else if request_line.contains(" /paddock/") {
         let mut held = shared.lock().unwrap();
         let keyed = held.key.is_some() && held.key == auth;

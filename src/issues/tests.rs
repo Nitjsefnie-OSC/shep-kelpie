@@ -729,3 +729,35 @@ fn a_codex_issue_writer_gets_the_repos_own_files_as_a_plugin() {
         "{dirs:?}"
     );
 }
+
+// The MCP servers the issue writer's call was given, for a run whose default branch holds the
+// repo's `.mcp.json` and the plugin `style`, under `repo_setup`'s `roles`
+fn servers_of_the_run(roles: &str) -> Vec<String> {
+    let s = Setup::with(|rig| {
+        style_for(roles)(rig);
+        rig.land(".mcp.json", r#"{"mcpServers":{"docs":{"command":"docs"}}}"#);
+        rig.land(
+            "markets/house/style/.mcp.json",
+            r#"{"mcpServers":{"search":{"command":"search"}}}"#,
+        );
+    });
+    s.rig.forge.set_repo_labels(&[HUMAN]);
+    s.filed(41, "Pause a project", BODY, &[HUMAN, "agent:sonnet-high"]);
+    s.headless("{\"filed\": [41]}").unwrap();
+    let calls = s.rig.claude.all_calls();
+    assert_eq!(calls.len(), 1);
+    calls[0].reach.mcp_servers.keys().cloned().collect()
+}
+
+#[test]
+fn the_repos_mcp_servers_reach_the_issue_writer_when_its_role_is_listed() {
+    assert_eq!(
+        servers_of_the_run("[\"issue-writer\"]"),
+        ["docs", "plugin_style_search"]
+    );
+}
+
+#[test]
+fn the_repos_mcp_servers_do_not_reach_the_issue_writer_when_its_role_is_left_out() {
+    assert!(servers_of_the_run("[\"worker\"]").is_empty());
+}

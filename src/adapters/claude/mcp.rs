@@ -1,0 +1,202 @@
+//! The MCP servers in a call's MCP config
+//!
+//! A call that loads any server gets one config file beside its settings file,
+//! named with `--mcp-config`. `--strict-mcp-config` keeps every other source
+//! out, so the servers here are all it has: the code graph, and those of the
+//! repo's plugins and its `.mcp.json`. Headless, a tool nothing allows is
+//! refused, and `--tools` names built-in tools only, so each server is also
+//! allowed in the settings file.
+
+use std::path::{Path, PathBuf};
+
+use serde_json::{Value, json};
+
+use super::graph;
+use crate::ports::AgentCall;
+
+/// Where the call's MCP config goes, beside its settings file
+pub(crate) fn mcp_file(settings: &Path) -> PathBuf {
+    settings.with_extension("mcp.json")
+}
+
+/// The servers the call loads, by name: the repo's, then the code graph, which a repo's server of
+/// the same name does not replace
+pub(crate) fn servers(call: &AgentCall) -> serde_json::Map<String, Value> {
+    let mut servers: serde_json::Map<String, Value> = (call.reach.mcp_servers.iter())
+        .map(|(name, entry)| (name.clone(), entry.clone()))
+        .collect();
+    if let Some(code_graph) = &call.reach.code_graph {
+        servers.insert(
+            graph::SERVER.to_owned(),
+            graph::entry(code_graph, &call.cwd),
+        );
+    }
+    servers
+}
+
+/// Whether the call loads any server
+pub(crate) fn loads(call: &AgentCall) -> bool {
+    call.reach.code_graph.is_some() || !call.reach.mcp_servers.is_empty()
+}
+
+/// The call's MCP config, where it loads a server
+pub(crate) fn config(call: &AgentCall) -> Option<Value> {
+    loads(call).then(|| json!({ "mcpServers": servers(call) }))
+}
+
+/// Adds each server's tools to the settings' allow-list
+pub(crate) fn allow(settings: &mut Value, call: &AgentCall) {
+    let rules: Vec<Value> = servers(call)
+        .keys()
+        .map(|name| Value::from(format!("mcp__{name}")))
+        .collect();
+    if rules.is_empty() {
+        return;
+    }
+    match settings["permissions"]["allow"].as_array_mut() {
+        Some(allow) => allow.extend(rules),
+        None => settings["permissions"]["allow"] = Value::Array(rules),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::adapters::claude::{ClaudeCli, argv, sandbox};
+    use crate::ports::{Agents, CodeGraph, Reach, Role, Session, SessionId, Tools};
+    use crate::settings::{AgentHarness, Effort};
+
+    fn call(role: Role, tools: Tools, settings: &Path, reach: Reach) -> AgentCall {
+        AgentCall {
+            harness: AgentHarness::ClaudeCode,
+            role,
+            issue: 7,
+            model: "claude-sonnet-5".into(),
+            effort: Effort::Medium,
+            session: Session::New(SessionId("7e812e8a-3bf1-42a7-bddf-0ab283b7372a".into())),
+            cwd: PathBuf::from("/work/7"),
+            settings: settings.to_owned(),
+            instructions: None,
+            prompt: "go".into(),
+            plugin_dirs: Vec::new(),
+            tools,
+            agent_tools: None,
+            reach,
+            lease: None,
+            compact_window: None,
+        }
+    }
+
+    fn reach() -> Reach {
+        Reach {
+            mcp_servers: [
+                (
+                    "docs".to_owned(),
+                    json!({ "type": "http", "url": "https://docs.example.com" }),
+                ),
+                (
+                    "plugin_style_search".to_owned(),
+                    json!({ "command": "/k/search" }),
+                ),
+            ]
+            .into(),
+            ..Reach::default()
+        }
+    }
+
+    fn flags(call: &AgentCall) -> Vec<String> {
+        argv(call)
+            .into_iter()
+            .map(|a| a.into_string().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn every_kind_of_call_with_a_server_names_the_config_and_an_allow_listed_one_stays_strict() {
+        let settings = Path::new("/k/worker/settings.json");
+        for (role, tools, strict) in [
+            (Role::Worker, Tools::Work, true),
+            (Role::Researcher, Tools::Research, true),
+            (Role::IssueWriter, Tools::Issues, false),
+        ] {
+            let flags = flags(&call(role, tools, settings, reach()));
+            let at = flags.iter().position(|a| a == "--mcp-config").unwrap();
+            assert_eq!(flags[at + 1], mcp_file(settings).display().to_string());
+            assert_eq!(flags.contains(&"--strict-mcp-config".to_owned()), strict);
+        }
+    }
+
+    #[test]
+    fn a_call_with_no_server_names_no_config() {
+        let settings = Path::new("/k/worker/settings.json");
+        let call = call(Role::Worker, Tools::Work, settings, Reach::default());
+        assert!(!flags(&call).contains(&"--mcp-config".to_owned()));
+    }
+
+    #[test]
+    fn preparing_a_call_writes_each_server_and_the_code_graph_and_allows_their_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("worker/settings.json");
+        let mut reach = reach();
+        reach.code_graph = Some(CodeGraph {
+            binary: "/k/tools/codebase-memory-mcp".into(),
+            index: "/k/graphs/7".into(),
+        });
+        let call = call(Role::Worker, Tools::Work, &settings, reach);
+        ClaudeCli::default().prepare(&call).unwrap();
+
+        let read = |path: &Path| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+        };
+        let config = read(&mcp_file(&settings));
+        let names: Vec<_> = config["mcpServers"].as_object().unwrap().keys().collect();
+        assert_eq!(
+            names,
+            ["codebase-memory-mcp", "docs", "plugin_style_search"]
+        );
+        assert_eq!(
+            config["mcpServers"]["docs"]["url"],
+            "https://docs.example.com"
+        );
+        assert_eq!(
+            read(&settings)["permissions"]["allow"],
+            json!([
+                "mcp__codebase-memory-mcp",
+                "mcp__docs",
+                "mcp__plugin_style_search"
+            ])
+        );
+    }
+
+    #[test]
+    fn a_repo_server_cannot_take_the_code_graphs_place() {
+        let mut reach = reach();
+        reach.mcp_servers.insert(
+            "codebase-memory-mcp".into(),
+            json!({ "command": "/repo/impostor" }),
+        );
+        reach.code_graph = Some(CodeGraph {
+            binary: "/k/tools/codebase-memory-mcp".into(),
+            index: "/k/graphs/7".into(),
+        });
+        let call = call(Role::Worker, Tools::Work, Path::new("/k/s.json"), reach);
+        assert_eq!(
+            servers(&call)["codebase-memory-mcp"]["command"],
+            "/k/tools/codebase-memory-mcp"
+        );
+    }
+
+    #[test]
+    fn the_sandbox_lets_a_call_read_the_config_that_names_its_servers() {
+        let settings = Path::new("/k/worker/settings.json");
+        let with = call(Role::Worker, Tools::Work, settings, reach());
+        let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
+        assert!(policy.read.contains(&mcp_file(settings)));
+
+        let without = call(Role::Worker, Tools::Work, settings, Reach::default());
+        let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
+        assert!(!policy.read.contains(&mcp_file(settings)));
+    }
+}

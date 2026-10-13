@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, DoorPace, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken, Openssl,
-    ShepLeases, SystemClock, SystemGit, stop_calls,
+    ClaudeCli, Curl, CurlGithub, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken,
+    Openssl, ShepLeases, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -31,7 +31,7 @@ use crate::github::{AppTokens, AppVoice, Apps};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, GRANT};
-use crate::ports::{Leases, Ports, Routed, SandboxError};
+use crate::ports::{Leases, Ports, Revalidated, Routed, SandboxError};
 use crate::runner::{
     ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
     wakes,
@@ -180,7 +180,10 @@ fn serve(project: &str) -> Result<(), Exit> {
         Box::new(Openssl),
         Box::new(SystemClock),
     ));
-    let app_reads = GhApps::new(app_tokens.clone(), &kelpie_home.join("reads"));
+    let revalidated = Revalidated::default();
+    let etags = Etags::new(revalidated.clone());
+    let app_reads =
+        GhApps::new(app_tokens.clone(), &kelpie_home.join("reads")).with_etags(etags.clone());
     let flock = shepherd::block_on(async {
         let client = shepherd::connect(&*dial, &shep_home)
             .await
@@ -193,8 +196,9 @@ fn serve(project: &str) -> Result<(), Exit> {
             Arc::new(claude.pi().with_gateways(gateways)),
             Arc::new(claude.codex(codex_home.clone())),
         )),
-        forge: Arc::new(Gh),
+        forge: Arc::new(Gh::new(etags)),
         app_reads: Some(Arc::new(app_reads)),
+        revalidated,
         voice: Arc::new(AppVoice::new(app_tokens, Box::new(CurlGithub))),
         meter: Box::new(claude.meter()),
         codex_meter: Box::new(claude.codex_meter(codex_home)),

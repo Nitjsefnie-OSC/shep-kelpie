@@ -101,3 +101,80 @@ async fn repo_plugins_shows_what_loads_beside_what_is_skipped() {
         "absent@house is skipped: the marketplace lists no plugin absent; style@house (style)"
     );
 }
+
+// Puts an MCP server `search` on `url` in the `.mcp.json` of plugin `style`, which
+// `marketplace` made, before `settle` lands it
+fn with_server(scene: &Scene, url: &str) {
+    let server = json!({ "mcpServers": { "search": { "type": "http", "url": url } } });
+    let at = scene.home.join("golbat/market/plugins/style/.mcp.json");
+    std::fs::write(at, server.to_string()).unwrap();
+}
+
+#[tokio::test]
+async fn repo_mcp_names_a_server_whose_host_worker_allowed_domains_lacks() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |_| {});
+    let market = marketplace(&scene, "style", "style");
+    with_server(&scene, "https://search.example.com/mcp");
+    settle(&scene, &enabling("style@house", &market));
+
+    let report = scene.report().await;
+
+    let Verdict::Unsure { what, next } = verdict(&report, "golbat: repo mcp servers") else {
+        panic!("{:#?}", report.render());
+    };
+    assert!(
+        what.contains("plugin_style_search") && what.contains("search.example.com"),
+        "{what}"
+    );
+    assert!(next.contains("worker.allowed_domains"), "{next}");
+    assert!(report.passed(), "{:#?}", report.render());
+}
+
+#[tokio::test]
+async fn repo_mcp_is_content_with_a_host_the_allowed_domains_cover() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |table| {
+        table["worker"]["allowed_domains"] = json!(["*.example.com"]);
+    });
+    let market = marketplace(&scene, "style", "style");
+    with_server(&scene, "https://search.example.com/mcp");
+    settle(&scene, &enabling("style@house", &market));
+
+    let report = scene.report().await;
+
+    let said = ok(&report, "golbat: repo mcp servers");
+    assert!(said.contains("search.example.com"), "{said}");
+}
+
+#[tokio::test]
+async fn repo_mcp_is_silent_where_no_server_names_a_host() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |_| {});
+    let market = marketplace(&scene, "style", "style");
+    settle(&scene, &enabling("style@house", &market));
+
+    let report = scene.report().await;
+
+    assert!(!subjects(&report).contains(&"golbat: repo mcp servers"));
+}
+
+#[tokio::test]
+async fn repo_mcp_names_the_host_of_a_server_in_the_default_branchs_mcp_json_too() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |_| {});
+    let server = json!({ "docs": { "type": "sse", "url": "https://docs.example.com/sse" } });
+    std::fs::create_dir_all(scene.home.join("golbat")).unwrap();
+    std::fs::write(scene.home.join("golbat/.mcp.json"), server.to_string()).unwrap();
+    settle(&scene, &json!({}));
+
+    let report = scene.report().await;
+
+    let Verdict::Unsure { what, .. } = verdict(&report, "golbat: repo mcp servers") else {
+        panic!("{:#?}", report.render());
+    };
+    assert_eq!(
+        what,
+        "docs reaches docs.example.com, which worker.allowed_domains lacks"
+    );
+}

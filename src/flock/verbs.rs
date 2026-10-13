@@ -207,7 +207,7 @@ async fn run(
                 agents: &agents,
                 old_home: old_home.as_deref(),
             };
-            add::add(&client, &Gh, &launch, &name, place).await
+            add::add(&client, &Gh::default(), &launch, &name, place).await
         }
         ("start" | "pause" | "finish", [] | [_]) => {
             let name = match positional(args.first())? {
@@ -328,10 +328,10 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         kelpie: &kelpie,
     };
     if interactive {
-        issues::make_labels(&Gh, &project, Mode::Interactive)?;
+        issues::make_labels(&Gh::default(), &project, Mode::Interactive)?;
         let mut claude = issues::interactive(&project, &writer, &request, OsStr::new("claude"))?;
         let status = claude.command.status();
-        let landed = claude.end(&project, &Gh);
+        let landed = claude.end(&project, &Gh::default());
         let status = status.map_err(|e| format!("cannot run claude: {e}"))?;
         return match (landed, status.success()) {
             (landed, true) => landed,
@@ -352,7 +352,14 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
     let claude = ClaudeCli::default()
         .in_runtime(tools, here.home.to_owned(), &codex_home, secret_vars)
         .with_login(LoginToken::take());
-    issues::headless(&project, &writer, &request, &Gh, &claude, &SystemGit)
+    issues::headless(
+        &project,
+        &writer,
+        &request,
+        &Gh::default(),
+        &claude,
+        &SystemGit,
+    )
 }
 
 // `rule`: the ruling and its answer read first, asking in a terminal, so

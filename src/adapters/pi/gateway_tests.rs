@@ -15,9 +15,9 @@ use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 const KEY: &str = "pk-not-for-workers";
 
-fn gateways(host: &str) -> Gateways {
+fn gateways(host: &str, kind: GatewayKind) -> Gateways {
     let gateway = Gateway {
-        kind: GatewayKind::Paddock,
+        kind,
         url: EndpointUrl::try_from(host.to_owned()).unwrap(),
         key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
     };
@@ -27,6 +27,16 @@ fn gateways(host: &str) -> Gateways {
 
 // pi as a script that prints `stdout` and exits with `code`.
 fn pi_on(world: &World, server: &StandInEndpoint, stdout: &str, code: u8) -> PiCli {
+    pi_of_kind(world, server, GatewayKind::Paddock, stdout, code)
+}
+
+fn pi_of_kind(
+    world: &World,
+    server: &StandInEndpoint,
+    kind: GatewayKind,
+    stdout: &str,
+    code: u8,
+) -> PiCli {
     let (out, program) = (
         world.path(&format!("out-{code}")),
         world.path(&format!("pi-{code}")),
@@ -38,7 +48,7 @@ fn pi_on(world: &World, server: &StandInEndpoint, stdout: &str, code: u8) -> PiC
         .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
         .pi()
         .with_program(program)
-        .with_gateways(gateways(server.host()))
+        .with_gateways(gateways(server.host(), kind))
 }
 
 fn on_gateway(world: &World, role: Role) -> AgentCall {
@@ -103,6 +113,33 @@ fn a_workers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
 }
 
 #[test]
+fn a_worker_turn_on_an_openai_gateway_starts_at_once_and_asks_no_paddock_route() {
+    let server = StandInEndpoint::start([]).like_openai(KEY, &["qwen3.8:27b"]);
+    let w = World::new();
+    let worker = on_gateway(&w, Role::Worker);
+    let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (began, waited) = (Arc::clone(&told), Arc::clone(&told));
+    let ending = Ending::telling(
+        move || began.lock().unwrap().push("began".to_owned()),
+        move |wait| waited.lock().unwrap().push(format!("{wait:?}")),
+    );
+    let pi = pi_of_kind(&w, &server, GatewayKind::Openai, FRESH, 0);
+    pi.prepare(&worker).unwrap();
+    let reply = pi.run(&worker, &ending).unwrap();
+    assert!(reply.usage.input > 0, "{reply:?}");
+    assert_eq!(
+        *told.lock().unwrap(),
+        Vec::<String>::new(),
+        "no lease to wait for or to begin from"
+    );
+    assert_eq!(
+        server.seen(),
+        Vec::<String>::new(),
+        "only the forwarder talks to it"
+    );
+}
+
+#[test]
 fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
     let server = StandInEndpoint::start([Answer::Says("hello")]).like_paddock(KEY, &[]);
     let w = World::new();
@@ -137,4 +174,30 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
         }
     }
     assert!(Path::new(&w.path("settings.pi/models.json")).is_file());
+}
+
+#[test]
+fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
+    let server = StandInEndpoint::start([Answer::Says("hello"), Answer::Says("hello")])
+        .like_paddock(KEY, &[]);
+    let w = World::new();
+    let pi = pi_on(&w, &server, FRESH, 0);
+    for role in [Role::Reviewer, Role::Worker] {
+        let call = on_gateway(&w, role);
+        pi.prepare(&call).unwrap();
+        let (_command, forwarder) = pi.sandboxed_command(&call).unwrap();
+        let body = r#"{"model":"qwen3.8:27b"}"#;
+        let chat = format!(
+            "POST http://model.kelpie.test/v1/chat/completions HTTP/1.1\r\n\
+             content-length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+        stream.write_all(chat.as_bytes()).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        assert!(reply.contains("hello"), "{role:?}: {reply}");
+    }
+    let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
+    assert_eq!(server.paddock_headers(), [batch.clone(), batch]);
 }
