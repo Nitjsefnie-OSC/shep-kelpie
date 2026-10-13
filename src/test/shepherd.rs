@@ -2,7 +2,8 @@
 //! `pause` and `status`
 //!
 //! It keeps each sheep's config and status, answers the requests those
-//! commands send as shep 0.12 does, and records every request.
+//! commands send as shep 0.12 does, and records every request. It is dialed
+//! in memory, so a test that uses it binds no socket.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -12,13 +13,12 @@ use shep_client::shep_core::config::AppConfig;
 use shep_client::shep_core::protocol::request::{
     ActionOutcome, ActionReply, DogSource, ProcessInfo, Response, SheepConfigView,
 };
-use shep_client::shep_core::protocol::{Envelope, Request, SelectorSpec};
+use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
-use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::home::SHEP_SOCKET;
-use crate::shepherd::SHEP_VERSION;
+use super::Memory;
+use crate::shepherd::{self, Connection, Dial, SHEP_VERSION};
 
 /// One sheep: its config, whether it runs, and whether a dog holds its
 /// name, which is `Some` saying whether that dog has the channel
@@ -51,35 +51,47 @@ pub(crate) struct FakeShepherd {
     home: tempfile::TempDir,
     flock: Arc<Mutex<Vec<Sheep>>>,
     section: Arc<Mutex<String>>,
-    sent: UnboundedReceiver<Envelope>,
+    memory: Memory,
+    sent: UnboundedReceiver<Request>,
 }
 
 impl FakeShepherd {
     /// A shepherd on the pinned shep with an empty flock
-    pub(crate) async fn new() -> Self {
-        Self::on(SHEP_VERSION).await
+    pub(crate) fn new() -> Self {
+        Self::on(SHEP_VERSION)
     }
 
     /// A shepherd that says it runs `version`
-    pub(crate) async fn on(version: &str) -> Self {
+    pub(crate) fn on(version: &str) -> Self {
         let home = tempfile::tempdir().unwrap();
-        std::fs::create_dir(home.path().join("run")).unwrap();
-        let mut ack = sample_ack();
-        ack.daemon_version = version.into();
         let flock = Arc::new(Mutex::new(Vec::new()));
         let answers = Arc::clone(&flock);
         let section = Arc::new(Mutex::new(String::new()));
         let held = Arc::clone(&section);
-        let sent = fake_daemon_answering_with_ack(&home.path().join(SHEP_SOCKET), ack, move |r| {
+        let (memory, sent) = Memory::answering(home.path(), version, move |r| {
             answer(&mut answers.lock().unwrap(), &held.lock().unwrap(), r)
-        })
-        .await;
+        });
         Self {
             home,
             flock,
             section,
+            memory,
             sent,
         }
+    }
+
+    /// How to reach this shepherd, from the code under test
+    pub(crate) fn dial(&self) -> Arc<dyn Dial> {
+        Arc::new(self.memory.clone())
+    }
+
+    /// A connection to this shepherd, as kelpie makes one
+    ///
+    /// # Panics
+    ///
+    /// When kelpie refuses the shepherd's version.
+    pub(crate) async fn connect(&self) -> Box<dyn Connection> {
+        shepherd::connect(&self.memory, self.home()).await.unwrap()
     }
 
     pub(crate) fn home(&self) -> &Path {
@@ -219,7 +231,6 @@ impl FakeShepherd {
     /// The requests sent since the last look, leaving out the reads
     pub(crate) fn writes(&mut self) -> Vec<Request> {
         std::iter::from_fn(|| self.sent.try_recv().ok())
-            .map(|e| e.body)
             .filter(|r| {
                 !matches!(
                     r,

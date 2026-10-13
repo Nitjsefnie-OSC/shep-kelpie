@@ -7,7 +7,6 @@ use super::*;
 use crate::ports::Visibility;
 use crate::runner::ProjectPaths;
 use crate::settings::{AgentName, ForgeSlug};
-use crate::shepherd;
 use crate::state::STATE_FILE;
 use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd};
 
@@ -25,7 +24,7 @@ struct Scene {
 
 impl Scene {
     async fn new() -> Self {
-        let shepherd = FakeShepherd::new().await;
+        let shepherd = FakeShepherd::new();
         shepherd.holds_dog("kelpie", true);
         let root = shepherd.scratch("koji");
         std::fs::create_dir_all(root.join(".github/workflows")).unwrap();
@@ -63,7 +62,7 @@ impl Scene {
     }
 
     async fn add(&self) -> Result<Vec<String>, String> {
-        let client = shepherd::connect(self.shepherd.home()).await.unwrap();
+        let client = self.shepherd.connect().await;
         let (folder, agents, old) = (self.folder(), self.agents(), self.old_home());
         let place = Place {
             checkout: &self.checkout,
@@ -355,7 +354,7 @@ async fn a_project_cannot_take_kelpie_s_own_name() {
 #[tokio::test]
 async fn add_says_when_kelpie_s_dog_is_not_enabled() {
     let mut scene = Scene::new().await;
-    scene.shepherd = FakeShepherd::new().await;
+    scene.shepherd = FakeShepherd::new();
     let lines = scene.add().await.unwrap();
     assert_eq!(
         lines[lines.len() - 2..],
@@ -374,7 +373,7 @@ async fn add_says_when_kelpie_s_dog_is_not_enabled() {
 #[tokio::test]
 async fn add_says_how_to_give_an_old_adoption_the_channel() {
     let mut scene = Scene::new().await;
-    scene.shepherd = FakeShepherd::new().await;
+    scene.shepherd = FakeShepherd::new();
     scene.shepherd.holds_dog("kelpie", false);
     let lines = scene.add().await.unwrap();
     let last = &lines[lines.len() - 2];

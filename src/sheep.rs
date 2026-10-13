@@ -37,7 +37,7 @@ use crate::runner::{
     wakes,
 };
 use crate::shep_home;
-use crate::shepherd;
+use crate::shepherd::{self, Dial, Socket};
 use crate::upgrade::restart::{Interrupt, Patience};
 
 /// How long queued replies get to reach the shepherd before the runner exits
@@ -140,7 +140,9 @@ fn serve(project: &str) -> Result<(), Exit> {
         .ok()
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| project.as_str().to_owned());
+    let dial: Arc<dyn Dial> = Arc::new(Socket);
     let mut look = Look::new(
+        Arc::clone(&dial),
         shep_home.clone(),
         sheep,
         look::Sources {
@@ -179,7 +181,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         Box::new(SystemClock),
     ));
     let flock = shepherd::block_on(async {
-        let client = shepherd::connect(&shep_home)
+        let client = shepherd::connect(&*dial, &shep_home)
             .await
             .map_err(|e| e.describe(&shep_home))?;
         control::repos(&client, &home).await
@@ -207,8 +209,8 @@ fn serve(project: &str) -> Result<(), Exit> {
         flock,
     };
     let finished: OnFinished = {
-        let (shep_home, project) = (shep_home.clone(), project.clone());
-        Box::new(move |runner| stop_own_sheep(&shep_home, &project, runner))
+        let (dial, shep_home, project) = (Arc::clone(&dial), shep_home.clone(), project.clone());
+        Box::new(move |runner| stop_own_sheep(&dial, &shep_home, &project, runner))
     };
     let runner = Runner::open(
         project,
@@ -337,8 +339,13 @@ struct Hooks {
 // `pause` does: the pause sends this runner triggers, which its loop must
 // keep answering, and the stop's shutdown ends this process before it
 // returns. A stop that fails is the runner's to log, and lets `start` in.
-fn stop_own_sheep(shep_home: &Path, project: &ProjectName, runner: &Arc<Mutex<Runner>>) {
-    let (shep_home, project) = (shep_home.to_owned(), project.clone());
+fn stop_own_sheep(
+    dial: &Arc<dyn Dial>,
+    shep_home: &Path,
+    project: &ProjectName,
+    runner: &Arc<Mutex<Runner>>,
+) {
+    let (dial, shep_home, project) = (Arc::clone(dial), shep_home.to_owned(), project.clone());
     let failed = |runner: &Mutex<Runner>, why: &str| {
         (runner.lock())
             .unwrap_or_else(PoisonError::into_inner)
@@ -348,8 +355,8 @@ fn stop_own_sheep(shep_home: &Path, project: &ProjectName, runner: &Arc<Mutex<Ru
     let stop = move || {
         let say = &mut |line: String| eprintln!("{line}");
         let stopped = shepherd::block_on(async {
-            let client =
-                (shepherd::connect(&shep_home).await).map_err(|e| e.describe(&shep_home))?;
+            let client = (shepherd::connect(&*dial, &shep_home).await)
+                .map_err(|e| e.describe(&shep_home))?;
             control::pause(
                 &client,
                 &project,
@@ -788,12 +795,11 @@ mod tests {
         assert!(worker.stop(JOIN_BOUND, || {}));
     }
 
-    // Real sockets under a real clock, as `pause`'s own tests run.
     #[tokio::test]
     async fn a_finished_runner_stops_its_own_sheep_as_pause_does() {
         use shep_client::shep_core::protocol::Request;
 
-        let mut shepherd = crate::test::FakeShepherd::new().await;
+        let mut shepherd = crate::test::FakeShepherd::new();
         let launch = crate::flock::Launch {
             kelpie: "/opt/kelpie".into(),
             shep_home: shepherd.home().to_owned(),
@@ -808,7 +814,7 @@ mod tests {
         let rig = Rig::new("koji");
         let runner = Arc::new(rig.open().unwrap());
 
-        stop_own_sheep(shepherd.home(), &project, &runner);
+        stop_own_sheep(&shepherd.dial(), shepherd.home(), &project, &runner);
         let deadline = Instant::now() + CALL_PATIENCE;
         while shepherd.sheep("koji").unwrap().1 {
             assert!(Instant::now() < deadline, "the sheep never stopped");
@@ -844,7 +850,8 @@ mod tests {
         let nowhere = tempfile::tempdir().unwrap();
         let project = ProjectName::try_from("koji").unwrap();
         runner.lock().unwrap().take_notes();
-        stop_own_sheep(nowhere.path(), &project, &runner);
+        let elsewhere = crate::test::FakeShepherd::new();
+        stop_own_sheep(&elsewhere.dial(), nowhere.path(), &project, &runner);
         eventually("the failed stop", || {
             rig.ask(&runner, "start", None).get("error").is_none()
         });

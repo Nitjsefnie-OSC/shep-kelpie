@@ -2,14 +2,13 @@
 
 use std::path::Path;
 
-use shep_client::Client;
 use shep_client::shep_core::protocol::request::ProcessInfo;
 
 use super::Line;
 use super::host::Host;
 use crate::adapters::{LOGIN_FIX, LOGIN_VAR};
 use crate::ports::{Clock, Forge, ForgeError, Meter, MeterError};
-use crate::shepherd::ConnectRefused;
+use crate::shepherd::{ConnectRefused, Connection};
 use crate::tools::Tools;
 
 // A tool's own message can run to a page, and the first line says what went wrong.
@@ -197,7 +196,7 @@ pub(super) fn login(
 }
 
 /// The shepherd, on the pinned shep line
-pub(super) fn shepherd(client: &Client, shep_home: &Path) -> Line {
+pub(super) fn shepherd(client: &dyn Connection, shep_home: &Path) -> Line {
     let version = &client.daemon().daemon_version;
     Line::ok(
         "shepherd",

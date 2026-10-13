@@ -15,10 +15,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use shep_client::TRIGGER_DEADLINE;
 use shep_client::shep_core::protocol::request::{ActionOutcome, ProcessInfo, Response};
 use shep_client::shep_core::protocol::{Request, SelectorSpec};
 use shep_client::shep_core::status::ProcStatus;
-use shep_client::{Client, TRIGGER_DEADLINE};
+
+use crate::shepherd::Connection;
 
 use super::{Checkout, flock, halt, kelpie_sheep, resume, tables};
 use crate::runner::{ProjectName, leave_answer};
@@ -43,7 +45,7 @@ const ASK_AGAIN: Duration = Duration::from_millis(500);
 /// A message when no project, or more than one, has its repo there, listing
 /// the projects so one can be named with `-p`.
 pub async fn project_here(
-    client: &Client,
+    client: &dyn Connection,
     folder: &Path,
     home: &Path,
 ) -> Result<ProjectName, String> {
@@ -108,7 +110,7 @@ fn repo_of(settings: &Settings) -> Option<ForgeSlug> {
 /// A message when the shepherd cannot be asked for the projects' tables, or
 /// when a project's repo cannot be told, since a post could then name a private
 /// repo of the flock unseen.
-pub async fn repos(client: &Client, home: &Path) -> Result<Vec<ForgeSlug>, String> {
+pub async fn repos(client: &dyn Connection, home: &Path) -> Result<Vec<ForgeSlug>, String> {
     let tables = tables(client).await?;
     tables
         .iter()
@@ -225,7 +227,7 @@ fn checkout_roots(folder: &Path) -> Vec<PathBuf> {
 /// A message when the adopted kelpie is not running as the dog with its
 /// channel, the project has no kelpie runner, or it does not answer in
 /// time. Only kelpie's own runners are ever started.
-pub async fn start(client: &Client, project: &ProjectName) -> Result<Vec<String>, String> {
+pub async fn start(client: &dyn Connection, project: &ProjectName) -> Result<Vec<String>, String> {
     let rows = flock(client).await?;
     let runner = kelpie_runner(client, &rows, project).await?;
     // A runner with no dog is never granted a lease.
@@ -287,7 +289,7 @@ fn run(body: &str) -> Option<String> {
 /// reason, or it did not answer. With [`Format::Json`] it returns the runner's
 /// answer as it came, once the runner has taken `finish`.
 pub async fn finish(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     format: Format,
     patience: Patience,
@@ -362,7 +364,7 @@ fn listed(status: &str, list: &str, key: &str) -> Vec<u64> {
 /// shepherd refuses the stop. The runner is then sent `undrain` and left
 /// running. Once the stop is sent, `interrupt` is no longer heard.
 pub async fn pause(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     patience: Patience,
     interrupt: Interrupt,
@@ -440,7 +442,7 @@ pub async fn pause(
 }
 
 // Sends `name` `action`, refusing any answer but the runner's own with no error.
-async fn ask(client: &Client, name: &str, action: &str) -> Result<(), String> {
+async fn ask(client: &dyn Connection, name: &str, action: &str) -> Result<(), String> {
     match trigger(client, name, action, None).await? {
         Answered::Runner(body) => refusal(&body).map_or(Ok(()), Err),
         other => Err(unanswered(name, other)),
@@ -448,7 +450,7 @@ async fn ask(client: &Client, name: &str, action: &str) -> Result<(), String> {
 }
 
 // Whether shep shows `name` running.
-async fn up(client: &Client, name: &str) -> Result<bool, String> {
+async fn up(client: &dyn Connection, name: &str) -> Result<bool, String> {
     let rows = flock(client).await?;
     let row = rows.iter().find(|row| row.name == name);
     Ok(row.is_some_and(|row| matches!(row.status, ProcStatus::Online | ProcStatus::Starting)))
@@ -457,7 +459,7 @@ async fn up(client: &Client, name: &str) -> Result<bool, String> {
 // Returns once `name` answers `status` as a runner or is down, saying it
 // waits while it starts: a runner still opening takes no `drain`.
 async fn come_up(
-    client: &Client,
+    client: &dyn Connection,
     name: &str,
     patience: Patience,
     say: &mut dyn FnMut(String),
@@ -504,7 +506,7 @@ fn attached(status: &str) -> Vec<u64> {
 /// answer, with its reason, it is starting or did not answer, or a stopped
 /// runner's answer cannot be left.
 pub async fn rule(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     params: &str,
     answers: &Path,
@@ -582,7 +584,7 @@ pub enum Format {
 /// # Errors
 ///
 /// A message when the shepherd cannot list the projects.
-pub async fn status(client: &Client, format: Format) -> Result<Vec<String>, String> {
+pub async fn status(client: &dyn Connection, format: Format) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for sheep in tables(client).await?.into_keys() {
         match trigger(client, &sheep, "status", None).await? {
@@ -610,7 +612,7 @@ pub async fn status(client: &Client, format: Format) -> Result<Vec<String>, Stri
 /// A message when the project has no kelpie runner, it is not running, or
 /// it refused the trigger, with its reason.
 pub async fn send(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     action: &str,
     params: Option<&str>,
@@ -640,7 +642,7 @@ pub async fn send(
 /// it refused the note, with its reason. With [`Format::Json`] it returns the
 /// runner's answer as it came.
 pub async fn tell(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     note: &str,
     format: Format,
@@ -705,7 +707,7 @@ fn refusal(body: &str) -> Option<String> {
 // `project`'s runner, refusing a name that is not one: a sheep with no
 // kelpie table, or one kelpie did not start as `runner <project>`.
 async fn kelpie_runner(
-    client: &Client,
+    client: &dyn Connection,
     rows: &[ProcessInfo],
     project: &ProjectName,
 ) -> Result<ProcessInfo, String> {
@@ -737,7 +739,7 @@ pub(crate) enum Answered {
 
 // What `sheep` made of `action`, under `shep trigger`'s own budget.
 pub(crate) async fn trigger(
-    client: &Client,
+    client: &dyn Connection,
     sheep: &str,
     action: &str,
     params: Option<&str>,

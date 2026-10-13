@@ -8,13 +8,13 @@
 //! so it lands once what refused it is fixed.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::agents;
 use crate::runner::Runner;
 use crate::settings::Settings;
 use crate::settings::source::{self, Loaded};
-use crate::shepherd;
+use crate::shepherd::{self, Dial};
 use crate::webhook::KelpieSettings;
 
 /// What a look read: the project's settings, kelpie's, and the agent files' text
@@ -22,6 +22,7 @@ type Read = (Settings, KelpieSettings, Vec<(String, String)>);
 
 /// Where a runner's settings are read from, and what it read last
 pub(super) struct Look {
+    dial: Arc<dyn Dial>,
     shep_home: PathBuf,
     sheep: String,
     folder: PathBuf,
@@ -40,8 +41,15 @@ pub(super) struct Sources {
 }
 
 impl Look {
-    pub(super) fn new(shep_home: PathBuf, sheep: String, sources: Sources, home: PathBuf) -> Self {
+    pub(super) fn new(
+        dial: Arc<dyn Dial>,
+        shep_home: PathBuf,
+        sheep: String,
+        sources: Sources,
+        home: PathBuf,
+    ) -> Self {
         Self {
+            dial,
             shep_home,
             sheep,
             folder: sources.folder,
@@ -54,7 +62,11 @@ impl Look {
 
     /// Reads the tables, and remembers them
     pub(super) fn read(&mut self) -> Result<Loaded, String> {
-        let tables = shepherd::block_on(shepherd::read_tables(&self.shep_home, &self.sheep))?;
+        let tables = shepherd::block_on(shepherd::read_tables(
+            &*self.dial,
+            &self.shep_home,
+            &self.sheep,
+        ))?;
         let loaded = source::load(&tables, &self.sheep, &self.home, &self.folder)
             .map_err(|e| e.to_string())?;
         let agents = agents::snapshot(&self.agents);
@@ -114,54 +126,31 @@ mod tests {
     use shep_client::shep_core::config::DogTable;
     use shep_client::shep_core::protocol::Request;
     use shep_client::shep_core::protocol::request::Response;
-    use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
 
     use super::*;
-    use crate::home::SHEP_SOCKET;
     use crate::runner::{StepReport, step};
     use crate::settings::Merging;
     use crate::shepherd::SHEP_VERSION;
-    use crate::test::{Rig, Scripted, project_table};
+    use crate::test::{Memory, Rig, Scripted, project_table};
 
     const SECTION: &str = "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example/t\"\n";
 
-    // A shepherd on a thread of its own, holding whatever `table` holds when
-    // asked. It answers until the returned sender is dropped.
-    fn shepherd(
-        home: &std::path::Path,
-        table: Arc<Mutex<Map<String, Value>>>,
-    ) -> tokio::sync::oneshot::Sender<()> {
-        std::fs::create_dir_all(home.join("run")).unwrap();
-        let socket = home.join(SHEP_SOCKET);
-        let mut ack = sample_ack();
-        ack.daemon_version = SHEP_VERSION.into();
-        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-        let (up, is_up) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            runtime.block_on(async move {
-                let answer = move |request: &Request| match request {
-                    Request::DogSheepSettings { .. } => Response::DogSheepSettings {
-                        tables: BTreeMap::from([(
-                            "shep".to_owned(),
-                            DogTable::from(table.lock().unwrap().clone()),
-                        )]),
-                    },
-                    Request::DogConfig { .. } => Response::DogSection {
-                        toml: SECTION.to_owned().into(),
-                    },
-                    other => panic!("the runner asked {other:?}"),
-                };
-                let _sent = fake_daemon_answering_with_ack(&socket, ack, answer).await;
-                up.send(()).unwrap();
-                let _ = stopped.await;
+    // A shepherd in memory, holding whatever `table` holds when asked.
+    fn shepherd(home: &std::path::Path, table: Arc<Mutex<Map<String, Value>>>) -> Arc<dyn Dial> {
+        let (shepherd, _sent) =
+            Memory::answering(home, SHEP_VERSION, move |request| match request {
+                Request::DogSheepSettings { .. } => Response::DogSheepSettings {
+                    tables: BTreeMap::from([(
+                        "shep".to_owned(),
+                        DogTable::from(table.lock().unwrap().clone()),
+                    )]),
+                },
+                Request::DogConfig { .. } => Response::DogSection {
+                    toml: SECTION.to_owned().into(),
+                },
+                other => panic!("the runner asked {other:?}"),
             });
-        });
-        is_up.recv().unwrap();
-        stop
+        Arc::new(shepherd)
     }
 
     #[test]
@@ -170,8 +159,10 @@ mod tests {
         let runner = rig.open().unwrap();
         let before = runner.lock().unwrap().settings().clone();
         let no_shepherd = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
         let paths = rig.paths();
         let mut look = Look::new(
+            shepherd(elsewhere.path(), Arc::default()),
             no_shepherd.path().to_owned(),
             "shep".into(),
             Sources {
@@ -196,9 +187,10 @@ mod tests {
         on["agents"]["reviewers"] = Value::Array(listed.to_vec());
         let table = Arc::new(Mutex::new(on));
         let shep_home = tempfile::tempdir().unwrap();
-        let _shepherd = shepherd(shep_home.path(), Arc::clone(&table));
+        let dial = shepherd(shep_home.path(), Arc::clone(&table));
         let paths = rig.paths();
         let mut look = Look::new(
+            dial,
             shep_home.path().to_owned(),
             "shep".into(),
             Sources {
@@ -238,9 +230,10 @@ mod tests {
         let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
         let table = Arc::new(Mutex::new(project_table(&entry)));
         let shep_home = tempfile::tempdir().unwrap();
-        let _shepherd = shepherd(shep_home.path(), Arc::clone(&table));
+        let dial = shepherd(shep_home.path(), Arc::clone(&table));
         let paths = rig.paths();
         let mut look = Look::new(
+            dial,
             shep_home.path().to_owned(),
             "shep".into(),
             Sources {
@@ -269,9 +262,10 @@ mod tests {
         let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
         let table = Arc::new(Mutex::new(project_table(&entry)));
         let shep_home = tempfile::tempdir().unwrap();
-        let _shepherd = shepherd(shep_home.path(), Arc::clone(&table));
+        let dial = shepherd(shep_home.path(), Arc::clone(&table));
         let paths = rig.paths();
         let mut look = Look::new(
+            dial,
             shep_home.path().to_owned(),
             "shep".into(),
             Sources {
@@ -301,13 +295,14 @@ mod tests {
 
     // A look at the rig's settings as they stand, through a shepherd that
     // holds them, read once so the next look sees only what changes after.
-    fn looking(rig: &Rig) -> (Look, tokio::sync::oneshot::Sender<()>, tempfile::TempDir) {
+    fn looking(rig: &Rig) -> (Look, tempfile::TempDir) {
         let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
         let table = Arc::new(Mutex::new(project_table(&entry)));
         let shep_home = tempfile::tempdir().unwrap();
-        let shepherd = shepherd(shep_home.path(), table);
+        let dial = shepherd(shep_home.path(), table);
         let paths = rig.paths();
         let mut look = Look::new(
+            dial,
             shep_home.path().to_owned(),
             "shep".into(),
             Sources {
@@ -317,7 +312,7 @@ mod tests {
             rig.home.path().to_owned(),
         );
         look.read().unwrap();
-        (look, shepherd, shep_home)
+        (look, shep_home)
     }
 
     // Issue 7 on the agent `mine`, its first turn due.
@@ -334,7 +329,7 @@ mod tests {
     fn an_agent_file_edited_while_its_item_runs_reaches_the_next_turn() {
         let rig = Rig::new("shep");
         let runner = on_mine(&rig);
-        let (mut look, _shepherd, _home) = looking(&rig);
+        let (mut look, _home) = looking(&rig);
         rig.claude.script([Scripted::Say("done")]);
         step(&runner).unwrap();
 
@@ -359,7 +354,7 @@ mod tests {
             Some(StepReport::Failed { .. })
         ));
         step(&runner).unwrap(); // the alert
-        let (mut look, _shepherd, _home) = looking(&rig);
+        let (mut look, _home) = looking(&rig);
 
         rig.write_agent("mine", MINE);
         look.again(&runner);

@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::{Map, Value};
-use shep_client::Client;
 use shep_client::shep_core::config::{AppConfig, DogTable};
 use shep_client::shep_core::protocol::request::{DogSource, ProcessInfo, Response};
 use shep_client::shep_core::protocol::{Request, SelectorSpec};
@@ -32,7 +31,7 @@ use shep_client::shep_core::status::ProcStatus;
 
 use crate::runner::ProjectName;
 use crate::settings::ForgeSlug;
-use crate::shepherd::DOG;
+use crate::shepherd::{Connection, DOG};
 
 /// A git checkout, and the forge repo its `origin` remote names
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,7 +198,7 @@ pub(crate) fn dog_problem(rows: &[ProcessInfo]) -> Option<(String, String)> {
 /// The sheep named `name`, if the flock has one, refusing one that is not
 /// kelpie's: a dog, or a sheep started with arguments other than `args`
 pub(crate) async fn kelpie_sheep(
-    client: &Client,
+    client: &dyn Connection,
     rows: &[ProcessInfo],
     name: &str,
     args: &[&str],
@@ -226,7 +225,10 @@ pub(crate) async fn kelpie_sheep(
 ///
 /// A plain key could hold an empty or blank value, which shep's reply does not
 /// show, so only a reference to the secret store counts as set.
-pub(crate) async fn env_secrets(client: &Client, name: &str) -> Result<Vec<String>, String> {
+pub(crate) async fn env_secrets(
+    client: &dyn Connection,
+    name: &str,
+) -> Result<Vec<String>, String> {
     let request = Request::SheepConfig {
         name: name.to_owned(),
     };
@@ -238,7 +240,7 @@ pub(crate) async fn env_secrets(client: &Client, name: &str) -> Result<Vec<Strin
 }
 
 /// The program `name`'s entry runs
-pub(crate) async fn script(client: &Client, name: &str) -> Result<String, String> {
+pub(crate) async fn script(client: &dyn Connection, name: &str) -> Result<String, String> {
     let request = Request::SheepConfig {
         name: name.to_owned(),
     };
@@ -255,7 +257,7 @@ pub(crate) async fn script(client: &Client, name: &str) -> Result<String, String
 ///
 /// An entry from before that code existed would restart a refused runner in
 /// a loop.
-pub(crate) async fn stop_on_refusal(client: &Client, name: &str) -> Result<bool, String> {
+pub(crate) async fn stop_on_refusal(client: &dyn Connection, name: &str) -> Result<bool, String> {
     let request = Request::SheepConfig {
         name: name.to_owned(),
     };
@@ -282,7 +284,7 @@ pub(crate) async fn stop_on_refusal(client: &Client, name: &str) -> Result<bool,
 }
 
 /// Every sheep in the flock
-pub(crate) async fn flock(client: &Client) -> Result<Vec<ProcessInfo>, String> {
+pub(crate) async fn flock(client: &dyn Connection) -> Result<Vec<ProcessInfo>, String> {
     match client.request(Request::ListFlock).await {
         Ok(Response::Flock(rows)) => Ok(rows),
         Ok(other) => Err(format!("the flock listing came back as {other:?}")),
@@ -292,7 +294,7 @@ pub(crate) async fn flock(client: &Client) -> Result<Vec<ProcessInfo>, String> {
 
 /// Every sheep's `[app.dogs.kelpie]` table, by sheep
 pub(crate) async fn tables(
-    client: &Client,
+    client: &dyn Connection,
 ) -> Result<BTreeMap<String, Map<String, Value>>, String> {
     match client
         .request(Request::DogSheepSettings { dog: DOG.into() })
@@ -309,7 +311,7 @@ pub(crate) async fn tables(
 
 /// Sends `request`, which names one sheep, and refuses any other answer than `expect`
 async fn send(
-    client: &Client,
+    client: &dyn Connection,
     request: Request,
     expect: fn(&Response) -> bool,
 ) -> Result<(), String> {
@@ -324,7 +326,7 @@ async fn send(
 /// Starts `name`, which the caller has seen registered and not running
 ///
 /// A restart, so a sheep that is running is restarted: callers check first.
-pub(crate) async fn resume(client: &Client, name: &str) -> Result<(), String> {
+pub(crate) async fn resume(client: &dyn Connection, name: &str) -> Result<(), String> {
     let request = Request::Restart {
         selector: SelectorSpec::Name(name.to_owned()),
     };
@@ -332,7 +334,7 @@ pub(crate) async fn resume(client: &Client, name: &str) -> Result<(), String> {
 }
 
 /// Stops `name`, which the caller has seen registered
-pub(crate) async fn halt(client: &Client, name: &str) -> Result<(), String> {
+pub(crate) async fn halt(client: &dyn Connection, name: &str) -> Result<(), String> {
     let request = Request::Stop {
         selector: SelectorSpec::Name(name.to_owned()),
     };
