@@ -9,4 +9,4 @@ This pull request changes agents' own files: .claude/settings.json, .mcp.json.
 
 @octocat
 - 👍 answers yes, 👎 answers no
-- Or reply `1 yes` or `1 no <note>`
+- Or reply `71 yes` or `71 no <note>`

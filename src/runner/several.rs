@@ -250,7 +250,7 @@ fn a_ruling_answered_for_one_item_leaves_the_other_alone() {
     assert_eq!(rulings.len(), 1);
     assert_eq!(
         (&rulings[0]["id"], &rulings[0]["issue"]),
-        (&json!(1), &json!(7))
+        (&json!(71), &json!(7))
     );
     assert_eq!(
         phases(&rig, &runner),

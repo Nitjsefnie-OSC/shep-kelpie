@@ -27,6 +27,10 @@ pub struct RepoSetup {
     /// `pm`, `advisor` and `researcher`. All of them when absent.
     #[serde(default = "every_role")]
     pub roles: Vec<CallRole>,
+    /// The parts of a plugin that load: `skills`, `agents`, `commands`,
+    /// `hooks` and `mcp`. All of them when absent.
+    #[serde(default = "every_part")]
+    pub parts: Vec<Part>,
     /// Plugins, as `name@marketplace`, left out though the repo turns them on
     #[serde(default)]
     pub skip: Vec<PluginId>,
@@ -42,6 +46,10 @@ fn yes() -> bool {
     true
 }
 
+fn every_part() -> Vec<Part> {
+    Part::ALL.to_vec()
+}
+
 fn every_role() -> Vec<CallRole> {
     CallRole::ALL.to_vec()
 }
@@ -51,6 +59,7 @@ impl Default for RepoSetup {
         Self {
             plugins: true,
             roles: every_role(),
+            parts: every_part(),
             skip: Vec::new(),
             extra: BTreeMap::new(),
         }
@@ -63,9 +72,64 @@ impl RepoSetup {
         self.roles.iter().any(|r| r.0 == role)
     }
 
+    /// Whether `part` of a plugin loads
+    pub fn loads(&self, part: Part) -> bool {
+        self.parts.contains(&part)
+    }
+
     /// Whether the repo's plugin `id` is left out
     pub fn skips(&self, id: &str) -> bool {
         self.skip.iter().any(|skipped| skipped.as_str() == id)
+    }
+}
+
+/// One part of a plugin, written as the folder or file that holds it
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(try_from = "String")]
+// schemars describes a `try_from` type by its source, so the bound goes here.
+#[schemars(extend("pattern" = "^(skills|agents|commands|hooks|mcp)$"))]
+pub enum Part {
+    /// `skills/`
+    Skills,
+    /// `agents/`
+    Agents,
+    /// `commands/`
+    Commands,
+    /// `hooks/`
+    Hooks,
+    /// The plugin's MCP servers
+    Mcp,
+}
+
+impl Part {
+    const ALL: [Self; 5] = [
+        Self::Skills,
+        Self::Agents,
+        Self::Commands,
+        Self::Hooks,
+        Self::Mcp,
+    ];
+
+    /// The name the setting writes it as, which is its folder where it has one
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Skills => "skills",
+            Self::Agents => "agents",
+            Self::Commands => "commands",
+            Self::Hooks => "hooks",
+            Self::Mcp => "mcp",
+        }
+    }
+}
+
+impl TryFrom<String> for Part {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::ALL
+            .into_iter()
+            .find(|part| part.as_str() == value)
+            .ok_or("must be skills, agents, commands, hooks or mcp")
     }
 }
 

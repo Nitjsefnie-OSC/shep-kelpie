@@ -260,14 +260,15 @@ fn a_number_from_a_clone_is_the_clone_s_project_s_when_it_has_one() {
 }
 
 #[test]
-fn a_number_waiting_nowhere_says_so_and_a_counter_id_wins_over_a_number() {
+fn a_number_waiting_nowhere_says_so_and_a_number_wins_over_a_counter_id() {
     let (_home, ids) = on_a_pull_request();
     let err = prepare(&ids, None, &["koji#9", "yes"], None).unwrap_err();
     assert_eq!(
         err,
         "no ruling on koji#9 is waiting: `shep kelpie rule` lists those that are"
     );
-    // Rotom's ruling 15 is about issue 14, which is koji's ruling's id.
+    // Rotom's ruling 15 is about issue 14, which is koji's ruling's id. The
+    // question prints the number, so 14 is rotom's issue and koji's id waits.
     let home = tempfile::tempdir().unwrap();
     let about_14 = Ruling {
         issue: Some(14),
@@ -278,9 +279,13 @@ fn a_number_waiting_nowhere_says_so_and_a_counter_id_wins_over_a_number() {
     waiting(home.path(), "rotom", vec![about_14]);
     let ids = RulingIds::under(home.path());
     let sent = prepare(&ids, None, &["14", "yes"], None);
-    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
+    assert_eq!(sent, Ok((project("rotom"), "15 yes".into())));
     let sent = prepare(&ids, None, &["#14", "yes"], None);
     assert_eq!(sent, Ok((project("rotom"), "15 yes".into())));
+    // With no ruling about 14, the bare 14 is still koji's ruling's id.
+    waiting(home.path(), "rotom", vec![question(15)]);
+    let sent = prepare(&ids, None, &["14", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "14 yes".into())));
 }
 
 // Ids given before they were unique can still be open on two projects.
@@ -473,4 +478,21 @@ fn the_picker_takes_the_answer_on_the_id_s_line() {
         let answered = prepare(&ids, None, &[], ask);
         assert_eq!(answered, Ok((project("koji"), sent.into())), "{typed:?}");
     }
+}
+
+// A question prints the number, so `rule 71` is the ruling on #71 even when
+// a ruling on another project has the counter id 71.
+#[test]
+fn a_number_names_its_ruling_though_another_project_has_that_counter_id() {
+    let home = tempfile::tempdir().unwrap();
+    let on_90 = Ruling {
+        issue: Some(90),
+        pull_request: Some(90),
+        ..yes_or_no(71)
+    };
+    waiting(home.path(), "koji", vec![yes_or_no(3)]);
+    waiting(home.path(), "rotom", vec![on_90]);
+    let ids = RulingIds::under(home.path());
+    let sent = prepare(&ids, None, &["71", "yes"], None);
+    assert_eq!(sent, Ok((project("koji"), "3 yes".into())));
 }

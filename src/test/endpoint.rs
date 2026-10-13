@@ -19,6 +19,7 @@ use std::thread;
 
 use serde_json::{Value, json};
 
+use super::Hold;
 use crate::ports::CLEAN;
 
 /// One scripted answer to a lease's take
@@ -28,6 +29,8 @@ pub(crate) enum Take {
     Status(u16, &'static str),
     /// No answer, until the client hangs up, as a take paddock keeps queued
     Hang,
+    /// No answer until the test releases this, and then a grant
+    Held(Hold),
 }
 
 /// How the stand-in answers a lease's renewal
@@ -253,6 +256,10 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             (true, true, Some(Take::Hang)) => {
                 let _ = reader.read_to_end(&mut Vec::new());
                 return;
+            }
+            (true, true, Some(Take::Held(hold))) => {
+                hold.block();
+                (200, json!({ "id": "L1", "ttl": "120s" }).to_string())
             }
             (true, true, Some(Take::Status(status, body))) => (status, body.to_owned()),
             (true, true, None) => (200, json!({ "id": "L1", "ttl": "120s" }).to_string()),

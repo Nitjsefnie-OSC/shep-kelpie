@@ -78,7 +78,7 @@ fn a_thumbs_from_someone_else_changes_nothing_whatever_it_may_write() {
     read_and_merge(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn a_thumbs_up_and_a_thumbs_down_from_the_maintainer_answer_nothing() {
     read_and_merge(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn a_box_ticked_by_someone_else_is_ignored_even_with_write_access() {
     read_and_merge(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn a_box_the_maintainer_ticked_after_someone_else_edited_is_ignored() {
     read_and_merge(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn two_boxes_ticked_answer_nothing() {
     read_and_merge(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), []);
-    assert_eq!(pending(&rig, &runner), [1]);
+    assert_eq!(pending(&rig, &runner), [71]);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn every_ruling_comment_that_cannot_be_read_is_told_not_only_the_last() {
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(notes.contains(&format!("comment {first}")), "{notes}");
     assert!(notes.contains(&format!("comment {second}")), "{notes}");
-    assert_eq!(pending(&rig, &runner), [1, 2]);
+    assert_eq!(pending(&rig, &runner), [71, 71]);
 }
 
 #[test]

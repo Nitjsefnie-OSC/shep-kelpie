@@ -387,7 +387,7 @@ mod tests {
             question.starts_with(
                 "Kelpie cannot rebase pull request #71 onto main: \
                  its worktree is in the middle of a merge. Once the branch is fixed, \
-                 `shep kelpie rule 1 yes` has kelpie look again"
+                 `shep kelpie rule 71 yes` has kelpie look again"
             ),
             "{question}"
         );

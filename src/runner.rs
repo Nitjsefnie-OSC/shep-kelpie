@@ -111,6 +111,7 @@ mod slots;
 mod slots_tests;
 mod snapshot;
 mod started;
+mod step_log;
 mod thread_replies;
 mod timings;
 mod token_wait;
@@ -146,6 +147,7 @@ pub use report::StepReport;
 pub(crate) use reread::check_gateways;
 pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
+pub use step_log::FILE as STEPS_FILE;
 pub use timings::{Totals, settle};
 use trigger::issue_list;
 pub use trigger::{ACTIONS, BudgetStatus, Status, WorkItemStatus, answer, wakes};
@@ -326,6 +328,7 @@ pub struct Runner {
     flights: flight::Flights,
     // Where each call is recorded as it ends
     ledger: crate::usage::Ledger,
+    steps: step_log::StepLog,
     // What the board briefing keeps between writes, in memory only
     brief: briefing::BoardCache,
     // What the board withholds, as the forge does
@@ -555,6 +558,7 @@ impl Runner {
             started: Vec::new(),
             flights: flight::Flights::default(),
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
+            steps: step_log::StepLog::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),
             local,
             hooks,
@@ -648,7 +652,9 @@ impl Runner {
             adopted: &self.state.adopted,
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
-            rulings: &self.state.rulings,
+            rulings: (self.state.rulings.iter())
+                .map(trigger::RulingStatus)
+                .collect(),
             panel: self.panel_status(),
             leases: &self.state.leases,
             history: &self.state.history[self

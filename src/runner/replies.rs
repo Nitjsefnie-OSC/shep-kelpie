@@ -192,8 +192,9 @@ impl Runner {
         self.totp.as_ref().is_some_and(|auth| auth.answers.locked())
     }
 
-    /// What ruling `id`'s alert says a reply takes, where replies are read
-    pub(super) fn reply_with(&self, id: u64, kind: &RulingKind) -> Option<ReplyWith> {
+    /// What the alert of the ruling numbered `number` says a reply takes, where
+    /// replies are read
+    pub(super) fn reply_with(&self, number: u64, kind: &RulingKind) -> Option<ReplyWith> {
         self.replies_on()?;
         let takes = match Wants::of(kind) {
             Wants::Answer => Takes::Answer,
@@ -202,7 +203,7 @@ impl Runner {
             Wants::Merge => Takes::Merge,
             Wants::YesOrNo => Takes::YesOrNo,
         };
-        Some(ReplyWith { id, takes })
+        Some(ReplyWith { number, takes })
     }
 
     /// Keeps reading the topic until [`LATE`] after `now`: a ruling's alert
@@ -346,8 +347,9 @@ impl Runner {
         })
     }
 
-    // A line for the topic about `id`, or about answers as a whole
-    fn line(&self, id: Option<u64>, text: String) -> Option<Line> {
+    // A line for the topic about the ruling numbered `number`, or about answers
+    // as a whole
+    fn line(&self, number: Option<u64>, text: String) -> Option<Line> {
         // Not `replies_on`: the line saying answers are off goes out once they are.
         let ntfy = self
             .webhook
@@ -355,8 +357,8 @@ impl Runner {
             .filter(|w| w.kind == WebhookKind::Ntfy);
         let webhook = ntfy?.clone();
         let project = self.project.as_str();
-        let title = match id {
-            Some(id) => format!("kelpie: {project} ruling {id}"),
+        let title = match number {
+            Some(number) => format!("kelpie: {project} ruling #{number}"),
             None => format!("kelpie: {project} answers"),
         };
         let reply = None;
@@ -448,15 +450,16 @@ impl Runner {
             return ignored;
         }
         if claim == Some(Claim::Replayed) {
+            let shown = self.ruling_number(id);
             let text = format!(
-                "Ruling {id} was not answered: that code was used already. \
+                "Ruling #{shown} was not answered: that code was used already. \
                  Send the reply again with the next one."
             );
             let report = StepReport::ReplyCodeUsed {
                 id,
                 line_failed: None,
             };
-            return (report, self.line(Some(id), text));
+            return (report, self.line(Some(shown), text));
         }
         // Only a right code forgives the wrong ones before it.
         if claim.is_some() {
@@ -475,13 +478,14 @@ impl Runner {
         }
         let pending = self.state.rulings.iter().find(|r| r.id == id);
         let Some(pending) = pending else {
-            let text =
-                format!("Ruling {id} on {project} is already settled, so that reply ran nothing.");
+            let text = format!(
+                "Ruling #{number} on {project} is already settled, so that reply ran nothing."
+            );
             let report = StepReport::ReplyToSettled {
                 id,
                 line_failed: None,
             };
-            return (report, self.line(Some(id), text));
+            return (report, self.line(Some(number), text));
         };
         // A number can name a new ruling on the same issue or pull request,
         // so a reply from before this one was raised may answer another question.
@@ -499,16 +503,19 @@ impl Runner {
             Err(reason) => return self.reply_refused(id, reason),
         };
         // The topic alone never merges: a trusted one still takes a code for that.
+        let shown = pending.number();
         if claim.is_none() && wants == Wants::Merge && answer == Answer::Yes {
             // While coded answers are off, the code the line would ask for is dropped too.
             let reason = if auth.answers.locked() {
                 format!(
                     "a yes on a merge ruling takes the authenticator code, and coded answers \
                      are off: turn them back on with `shep kelpie totp --unlock` on the \
-                     terminal, then send `{id} yes <code>`"
+                     terminal, then send `{shown} yes <code>`"
                 )
             } else {
-                format!("a yes on a merge ruling takes the authenticator code: `{id} yes <code>`")
+                format!(
+                    "a yes on a merge ruling takes the authenticator code: `{shown} yes <code>`"
+                )
             };
             return self.reply_refused(id, reason);
         }
@@ -537,13 +544,14 @@ impl Runner {
 
     // A reply that answered nothing, and the line saying why.
     fn reply_refused(&self, id: u64, reason: String) -> (StepReport, Option<Line>) {
-        let text = format!("Ruling {id} was not answered: {reason}.");
+        let shown = self.ruling_number(id);
+        let text = format!("Ruling #{shown} was not answered: {reason}.");
         let report = StepReport::ReplyRefused {
             id,
             reason,
             line_failed: None,
         };
-        (report, self.line(Some(id), text))
+        (report, self.line(Some(shown), text))
     }
 }
 

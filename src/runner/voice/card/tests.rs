@@ -10,7 +10,7 @@ fn ruling(id: u64, kind: RulingKind) -> Ruling {
     Ruling {
         id,
         issue: Some(7),
-        question: question(id, 7, Some(71), &kind),
+        question: question(7, Some(71), &kind),
         pull_request: Some(71),
         kind,
         alerted: false,
@@ -112,8 +112,8 @@ fn an_unmentioned_ruling_names_only_the_terminal_answers_its_options_allow() {
     });
     let only_yes = ruling_comment(None, &ruling(1, stuck));
 
-    assert!(no_rework.ends_with("`shep kelpie rule 1 yes` or `shep kelpie rule 1 no <note>`."));
-    assert!(only_yes.ends_with("the terminal: `shep kelpie rule 1 yes`."));
+    assert!(no_rework.ends_with("`shep kelpie rule 71 yes` or `shep kelpie rule 71 no <note>`."));
+    assert!(only_yes.ends_with("the terminal: `shep kelpie rule 71 yes`."));
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn a_questions_card_opens_with_the_problem_and_shows_each_options_effect_and_the
          - Tick one:\n\
          - [ ] A\n\
          - [ ] B\n\
-         - Or reply with your answer, and start it with `1` if other rulings wait on this thread"
+         - Or reply with your answer, and start it with `71` if other rulings wait on this thread"
     );
 }
 

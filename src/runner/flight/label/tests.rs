@@ -174,7 +174,7 @@ fn a_reply_naming_no_listed_implementer_raises_a_ruling_and_the_board_waits() {
         status["skipped"],
         json!([{ "reason": "unlabelled", "issue": 7, "ruling": id }])
     );
-    assert_eq!(status["rulings"][0]["id"], id);
+    assert_eq!(status["rulings"][0]["id"], 7);
     assert_eq!(
         rig.claude.all_calls().len(),
         1,
@@ -323,7 +323,7 @@ fn an_unlabelled_ruling_takes_a_yes_and_refuses_a_no() {
          for: label the issue, then answer yes"
     );
     assert_eq!(refused, json!({ "error": why }));
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], id);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
 }
 
 #[test]
