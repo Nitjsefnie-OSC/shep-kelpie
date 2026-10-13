@@ -1,7 +1,5 @@
 use super::*;
-use crate::settings::{
-    Account, AgentHarness, AgentName, EndpointUrl, GatewayName, LeaseName, ModelHost,
-};
+use crate::settings::{Account, AgentHarness, AgentName, EndpointUrl, GatewayName, ModelHost};
 
 fn url(text: &str) -> EndpointUrl {
     EndpointUrl::try_from(text.to_owned()).unwrap()
@@ -95,7 +93,7 @@ fn a_file_adds_an_agent_and_one_named_for_a_default_replaces_it() {
     };
     assert_eq!(server.host, ModelHost::Url(url("http://box:11434/v1")));
     assert_eq!(server.context.get(), 65536);
-    assert_eq!(*limit(qwen), Limit::Lease(LeaseName::gpu()));
+    assert_eq!(*limit(qwen), Limit::Unqueued);
     assert!(agents.get(&name("opus-high")).is_some());
     assert!(agents.get(&name("notes")).is_none());
 }
@@ -256,11 +254,6 @@ fn a_harness_missing_a_key_it_needs_is_refused_naming_the_key() {
             "runs on pi, whose usage is read with `none`, so it cannot set `usage: claude`",
         ),
         (
-            "---\nrole: implementer\nharness: codex\nmodel: gpt\neffort: low\nlease: gpu\n---\n"
-                .to_owned(),
-            "sets `lease`, which only an agent with `usage: none` takes",
-        ),
-        (
             "---\nrole: implementer\nharness: claude-code\nmodel: m\neffort: low\n\
              usage: codex\n---\n"
                 .to_owned(),
@@ -341,7 +334,6 @@ fn kelpies_own_reviewers_are_defect_hunter_and_qwen() {
         command.command,
         PathBuf::from("~/.claude/scripts/qwen-review.sh")
     );
-    assert_eq!(command.lease, None, "the script takes the GPU lock itself");
     assert_eq!(qwen.prompt, None);
 }
 
@@ -353,7 +345,7 @@ fn a_reviewer_runs_a_session_a_command_or_an_endpoint() {
         (
             "box.md",
             "---\nrole: reviewer\nharness: endpoint\nurl: http://box:11434/v1\n\
-             model: coder\ncontext: 32768\nlease: gpu-box\n---\n",
+             model: coder\ncontext: 32768\n---\n",
         ),
     ]);
     let agents = Agents::load(dir.path()).unwrap();
@@ -367,9 +359,8 @@ fn a_reviewer_runs_a_session_a_command_or_an_endpoint() {
     };
     assert_eq!(endpoint.host, ModelHost::Url(url("http://box:11434/v1")));
     assert_eq!(endpoint.context.get(), 32768);
-    assert_eq!(endpoint.lease.as_ref().unwrap().as_str(), "gpu-box");
     let script = agents.get(&name("script")).unwrap();
-    assert!(matches!(&script.runs, Runs::Command(c) if c.lease.is_none()));
+    assert!(matches!(&script.runs, Runs::Command(_)));
 }
 
 #[test]
@@ -480,20 +471,6 @@ fn a_reviewer_whose_keys_its_harness_cannot_use_is_refused_naming_why() {
             "`command` must start with `/` or `~/`",
         ),
         (
-            COMMAND.replace(
-                "command: ~/bin/review\n",
-                "command: ~/bin/review\nollama: http://h:1\n",
-            ),
-            "`ollama` needs a lease",
-        ),
-        (
-            COMMAND.replace(
-                "command: ~/bin/review\n",
-                "command: ~/bin/review\nollama_model: m\n",
-            ),
-            "`ollama_model` needs `ollama`",
-        ),
-        (
             "---\nrole: reviewer\nharness: endpoint\nurl: http://box/v1\nmodel: m\n---\n"
                 .to_owned(),
             "runs on an endpoint, which needs the server as `url` or a `gateway`, its \
@@ -508,7 +485,7 @@ fn a_reviewer_whose_keys_its_harness_cannot_use_is_refused_naming_why() {
 }
 
 #[test]
-fn a_model_behind_a_gateway_takes_no_lease_and_its_endpoint_reads_no_api_ps() {
+fn a_model_behind_a_gateway_is_queued_by_it_and_a_url_model_is_not() {
     let on = QWEN.replace("url: http://box:11434/v1", "gateway: paddock");
     let endpoint = "---\nrole: reviewer\nharness: endpoint\ngateway: paddock\nmodel: coder\n\
                     context: 32768\n---\n";
@@ -516,21 +493,10 @@ fn a_model_behind_a_gateway_takes_no_lease_and_its_endpoint_reads_no_api_ps() {
     let agents = Agents::load(dir.path()).unwrap();
     let local = agents.get(&name("local")).unwrap();
     assert_eq!(*limit(local), Limit::Gateway);
-    assert_eq!(limit(local).lease(), None);
     let paddock = GatewayName::try_from("paddock".to_owned()).unwrap();
     assert_eq!(local.runs.gateway(), Some((&paddock, "qwen3.8:27b")));
-    let round = agents.get(&name("box")).unwrap().runs.local().unwrap();
-    assert_eq!((round.lease(), round.ollama()), (None, None));
 
     for (text, why) in [
-        (
-            on.replace("effort: low", "effort: low\nlease: gpu"),
-            "whose lease kelpie takes for each call itself",
-        ),
-        (
-            endpoint.replace("model: coder", "model: coder\nlease: gpu"),
-            "whose lease kelpie takes for each call itself",
-        ),
         (
             on.replace("gateway: paddock", "gateway: paddock\nurl: http://box/v1"),
             "names both",

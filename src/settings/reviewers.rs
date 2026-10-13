@@ -8,9 +8,6 @@
 
 use std::path::Path;
 
-use schemars::JsonSchema;
-use serde::Deserialize;
-
 use super::agents::find;
 use super::{AgentName, NonBlank, Settings, SettingsError};
 use crate::agents::{self, Agents, DEFECT_HUNTER, QWEN, QWEN_REVIEW, Role, Runs};
@@ -21,44 +18,6 @@ const SETTING: &str = "agents.reviewers";
 
 /// Where a project lists its contributions' reviewers, as a refusal names it
 const CONTRIBUTION_SETTING: &str = "contributions.reviewers";
-
-/// A lease a local reviewer holds around its round
-///
-/// `gpu` is this machine's GPU lock, the one the qwen scripts take. Any
-/// other name is a lock of its own in the same format, so reviewers on two
-/// machines' GPUs never wait on each other.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(try_from = "String")]
-pub struct LeaseName(String);
-
-impl LeaseName {
-    /// This machine's GPU lock
-    pub fn gpu() -> Self {
-        Self(crate::lease::GPU.to_owned())
-    }
-
-    /// Whether it is this machine's GPU lock
-    pub fn is_gpu(&self) -> bool {
-        self.0 == crate::lease::GPU
-    }
-
-    /// The name as written
-    #[inline]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for LeaseName {
-    type Error = &'static str;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match lowercase_name(&value) {
-            true => Ok(Self(value)),
-            false => Err("must be lowercase letters, digits and `-`"),
-        }
-    }
-}
 
 pub(super) fn lowercase_name(value: &str) -> bool {
     let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';

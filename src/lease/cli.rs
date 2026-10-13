@@ -2,10 +2,9 @@
 //!
 //! `run` waits for a lease, runs a command and returns the lease when the
 //! command exits, however it exits. `take` and `return` hold one for
-//! longer. The GPU lease is a paddock lease on a model, held by `shep
-//! paddock run`; a `take` leaves a holder process behind, whose life is the
-//! lease's. `cargo-test` is held for one `run` at the dog's door. Every
-//! other kind is the dog's, reached through shep.
+//! longer. `cargo-test` is held for one `run` at the dog's door. Every
+//! other kind is the dog's, reached through shep. The GPU has no lease
+//! here: `gpu` is refused, and paddock holds a model.
 
 use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::Duration;
@@ -17,26 +16,22 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 
 use super::counted::CARGO_TEST;
 use super::door;
-use super::gpu::{self, GpuLock};
-use super::{GPU, LeaseKind};
+use super::{GPU, GPU_GONE, LeaseKind};
 use crate::{dog, home, shepherd};
 
 pub(crate) mod counted_run;
 mod e2e;
-mod paddock;
 
 /// The usage lines for `shep-kelpie lease`
 pub const USAGE: &str = "\
-       shep-kelpie lease run gpu --model <model> -- <command> [args...]
        shep-kelpie lease run <kind> -- <command> [args...]
-       shep-kelpie lease take gpu --model <model>
        shep-kelpie lease take <kind>
        shep-kelpie lease return <kind>
        shep-kelpie lease status
        shep-kelpie lease e2e
-       <kind> is gpu, a paddock lease on --model, as `shep paddock run --model` takes
-       it, cargo-test, which a few commands hold at once and only for a run, or a
-       lease the dog holds
+       <kind> is cargo-test, which a few commands hold at once and only for a run, or
+       a lease the dog holds. The GPU is no lease: `shep paddock run --model <model>
+       -- <command>` holds a model
        e2e runs the project's end-to-end tests on its host, from a worktree, and
        prints their output and exits with their code";
 
@@ -46,16 +41,11 @@ const DOG_POLL: Duration = Duration::from_secs(1);
 
 /// Runs `shep kelpie lease <args>`
 pub fn main(args: &[String]) -> ExitCode {
-    main_with(paddock::SHEP, args)
-}
-
-// `main`, with the program that runs `paddock run` named.
-fn main_with(shep: &str, args: &[String]) -> ExitCode {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build();
     let outcome = match runtime {
-        Ok(runtime) => runtime.block_on(dispatch(shep, args)),
+        Ok(runtime) => runtime.block_on(dispatch(args)),
         Err(e) => Err(format!("cannot start the async runtime: {e}")),
     };
     match outcome {
@@ -67,13 +57,10 @@ fn main_with(shep: &str, args: &[String]) -> ExitCode {
     }
 }
 
-async fn dispatch(shep: &str, args: &[String]) -> Result<ExitCode, String> {
+async fn dispatch(args: &[String]) -> Result<ExitCode, String> {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
-        ["run", GPU, "--model", model, "--", command @ ..] if !command.is_empty() => {
-            run_gpu(shep, model, command, &mut Signals::new()?).await
-        }
-        ["run", GPU, "--", command @ ..] if !command.is_empty() => Err(paddock::NEEDS_MODEL.into()),
+        ["run" | "take" | "return" | "hold", GPU, ..] => Err(GPU_GONE.into()),
         ["run", CARGO_TEST, "--", command @ ..] if !command.is_empty() => {
             let code = match door::socket() {
                 Ok(socket) => counted_run::run(&socket, command).await,
@@ -87,18 +74,10 @@ async fn dispatch(shep: &str, args: &[String]) -> Result<ExitCode, String> {
         ["run", kind, "--", command @ ..] if !command.is_empty() => {
             run_book(&kind_of(kind)?, command).await
         }
-        ["take", GPU, "--model", model] => paddock::take(shep, model).map(|()| ExitCode::SUCCESS),
-        ["take", GPU] => Err(paddock::NEEDS_MODEL.into()),
         ["take", kind] => take_book(&kind_of(kind)?).await,
-        ["return", GPU] => paddock::give_back().map(|()| ExitCode::SUCCESS),
         ["return", kind] => return_book(&kind_of(kind)?).await,
         ["status"] => status().await,
         ["e2e"] => run_e2e().await,
-        // take reads a holder's stdout alone, so its errors go there.
-        ["hold", GPU] => Ok(paddock::hold().await.unwrap_or_else(|e| {
-            println!("shep kelpie lease: {e}");
-            ExitCode::FAILURE
-        })),
         _ => {
             eprintln!("usage: {}", USAGE.trim_start());
             Ok(ExitCode::from(2))
@@ -117,23 +96,6 @@ async fn run_e2e() -> Result<ExitCode, String> {
 
 fn kind_of(kind: &str) -> Result<LeaseKind, String> {
     LeaseKind::try_from(kind).map_err(|e| e.to_string())
-}
-
-fn gpu_lock() -> GpuLock {
-    GpuLock::under(&gpu::temp_dir())
-}
-
-// Runs the command under `shep paddock run`, which waits for the lease,
-// holds it while the command runs and gives it back as the command ends.
-async fn run_gpu(
-    shep: &str,
-    model: &str,
-    command: &[&str],
-    signals: &mut Signals,
-) -> Result<ExitCode, String> {
-    let note = paddock::run_note(command);
-    let line = paddock::run_line(shep, model, &note, command);
-    run_command(&line, signals).await
 }
 
 async fn run_book(kind: &LeaseKind, command: &[&str]) -> Result<ExitCode, String> {
@@ -211,26 +173,9 @@ async fn withdraw(kind: &LeaseKind, caught: Caught) -> Caught {
 }
 
 async fn status() -> Result<ExitCode, String> {
-    match ask_dog("status", "").await {
-        Ok(status) => {
-            println!("{status}");
-            Ok(ExitCode::SUCCESS)
-        }
-        Err(e) => {
-            // The GPU needs no dog: its lock says who holds it.
-            let lock = gpu_lock();
-            let holder = lock.holder();
-            let gpu = serde_json::json!({
-                "kind": GPU,
-                "lock": lock.path(),
-                "since": holder.as_ref().and_then(|h| h.since),
-                "holder": holder,
-            });
-            println!("{}", serde_json::json!({ "leases": [gpu] }));
-            eprintln!("shep kelpie lease: the dog did not answer, so this is the GPU alone: {e}");
-            Ok(ExitCode::FAILURE)
-        }
-    }
+    let status = ask_dog("status", "").await?;
+    println!("{status}");
+    Ok(ExitCode::SUCCESS)
 }
 
 // Sends a trigger to the dog and returns its JSON reply, or its error.
@@ -390,26 +335,12 @@ impl Signals {
 #[cfg(test)]
 mod tests {
     use std::os::unix::process::ExitStatusExt;
-    use std::path::Path;
 
     use super::*;
-    use crate::test::write_script;
 
     // A caught signal reaches every run alive when it lands, so the tests
     // that listen for signals take turns.
     static LISTENING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    // A `shep` that notes its arguments in `<it>.args`, one a line, and then
-    // does what `paddock run` does: runs the command after `--`.
-    fn stand_in_shep(dir: &Path) -> String {
-        let shep = dir.join("shep");
-        write_script(
-            &shep,
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\n\
-             while [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n",
-        );
-        shep.to_str().unwrap().to_owned()
-    }
 
     fn words(args: &[&str]) -> Vec<String> {
         args.iter().map(|&a| a.to_owned()).collect()
@@ -475,60 +406,17 @@ mod tests {
         assert!(!marker.exists(), "the command started anyway");
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn run_gpu_runs_the_command_under_a_paddock_run_and_exits_with_its_code() {
-        let _turn = LISTENING.lock().await;
-        let temp = tempfile::tempdir().unwrap();
-        let shep = stand_in_shep(temp.path());
-        let args = words(&["run", "gpu", "--model", "qwen3", "--", "sh", "-c", "exit 3"]);
-        let ended = dispatch(&shep, &args).await;
-        assert_eq!(ended, Ok(ExitCode::from(3)));
-        let seen = std::fs::read_to_string(format!("{shep}.args")).unwrap();
-        assert_eq!(
-            seen.lines().collect::<Vec<_>>(),
-            [
-                "paddock",
-                "run",
-                "--model",
-                "qwen3",
-                "--note",
-                "shep kelpie lease run: sh -c exit 3",
-                "--",
-                "sh",
-                "-c",
-                "exit 3",
-            ]
-        );
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn run_gpu_without_a_model_is_refused_and_runs_nothing() {
-        let temp = tempfile::tempdir().unwrap();
-        let shep = stand_in_shep(temp.path());
-        let ended = dispatch(&shep, &words(&["run", "gpu", "--", "true"])).await;
-        let refused = ended.unwrap_err();
-        assert!(refused.contains("--model <model>"), "{refused}");
-        assert!(!Path::new(&format!("{shep}.args")).exists(), "paddock ran");
-        let take = dispatch(&shep, &words(&["take", "gpu"])).await;
-        assert_eq!(take, Err(refused));
-    }
-
-    // As for `cargo-test`: a signal that landed before the command started
-    // ends the run, exit code 128 plus its number, and runs nothing.
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_interrupt_before_paddock_starts_ends_run_gpu_without_it() {
-        let _turn = LISTENING.lock().await;
-        let temp = tempfile::tempdir().unwrap();
-        let shep = stand_in_shep(temp.path());
-        let mut signals = Signals::new().unwrap();
-        std::process::Command::new("kill")
-            .args(["-INT", &std::process::id().to_string()])
-            .status()
-            .unwrap();
-        // See the test above: the signal reaches the stream only once the run yields.
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let ended = run_gpu(&shep, "qwen3", &["true"], &mut signals).await;
-        assert_eq!(ended, Ok(ExitCode::from(130)));
-        assert!(!Path::new(&format!("{shep}.args")).exists(), "paddock ran");
+    #[tokio::test]
+    async fn the_gpu_lease_is_refused_and_paddock_is_named() {
+        for args in [
+            &["take", "gpu"][..],
+            &["take", "gpu", "--model", "qwen3"],
+            &["run", "gpu", "--", "true"],
+            &["run", "gpu", "--model", "qwen3", "--", "true"],
+            &["return", "gpu"],
+        ] {
+            let refused = dispatch(&words(args)).await.unwrap_err();
+            assert!(refused.contains("shep paddock run"), "{args:?}: {refused}");
+        }
     }
 }

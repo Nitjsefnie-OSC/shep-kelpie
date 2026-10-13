@@ -15,7 +15,8 @@
 //! becomes a pass of the listed bots. A pending ruling of a kind folded into
 //! `stuck` is a `stuck` ruling with that kind as its reason, and a
 //! `claude-files` ruling is `agent-files`. A pending ruling of a removed kind
-//! has nothing here to answer it, so the file is refused.
+//! has nothing here to answer it, so the file is refused: `local-model-spilled`
+//! is one, since nothing now reads where a local model sits.
 
 use serde_json::{Map, Value, json};
 
@@ -26,13 +27,14 @@ pub(super) use bot_rounds::fold_bot_rounds;
 pub(super) use ruling_kinds::fold_ruling_kinds;
 
 // The kinds of ruling removed features raised, which nothing answers now
-const RULINGS: [&str; 6] = [
+const RULINGS: [&str; 7] = [
     "split",
     "split-stuck",
     "close-stuck",
     "audit",
     "review-guard",
     "deep-review",
+    "local-model-spilled",
 ];
 
 // The judge and the check each ran as a fresh Claude session reviewing the
@@ -77,7 +79,13 @@ const LOCAL: &str = "local";
 pub(super) fn removed_ruling(value: &Value) -> Option<(u64, String)> {
     let rulings = value.get("rulings")?.as_array()?;
     rulings.iter().find_map(|ruling| {
-        let kind = ruling.get("kind")?.get("kind")?.as_str()?;
+        let shape = ruling.get("kind")?;
+        let kind = shape.get("kind")?.as_str()?;
+        // A removed kind that was folded into `stuck` is its reason.
+        let kind = match kind {
+            "stuck" => shape.get("reason")?.as_str()?,
+            kind => kind,
+        };
         let id = ruling.get("id")?.as_u64()?;
         RULINGS.contains(&kind).then(|| (id, kind.to_owned()))
     })

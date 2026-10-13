@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
@@ -28,7 +27,7 @@ const BESIDE_QWEN: &str = "implementers = [\"sonnet-high\", \"coder\"]\n";
 const ALL_QWEN: &str = "implementers = [\"sonnet-high\", \"coder\"]\nreviewers = [\"qwen\"]\n";
 
 // A running project whose `[agents]` table is `names`, over kelpie's agent
-// files and four more: `codex` on the Codex account and `coder` on the GPU,
+// files and four more: `codex` on the Codex account and `coder` on a local model,
 // which build, and a reviewer on each, `codex-review` and `coder-review`.
 fn named(project: &str, names: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new(project);
@@ -222,12 +221,11 @@ fn a_review_round_waits_on_its_reviewers_account_while_the_worker_works_on() {
 }
 
 #[test]
-fn a_local_worker_is_never_paced_and_holds_the_gpu_for_its_whole_turn() {
+fn a_local_worker_is_never_paced_and_shows_no_lease() {
     let (rig, runner) = named("rotom", ALL_QWEN);
     // A new item may run on Claude, unlabelled, so its window is read once.
     rig.meter.set(Rig::utilization(0, 1));
     rig.codex_meter.set(Rig::utilization(90, 90));
-    let lock = GpuLock::under(&rig.home.path().join("tmp"));
     rig.forge.list_ready(7, false);
     rig.forge.label(7, "agent:coder");
     assert!(dispatched(&step(&runner).unwrap()));
@@ -243,52 +241,18 @@ fn a_local_worker_is_never_paced_and_holds_the_gpu_for_its_whole_turn() {
             hold.entered(Duration::from_secs(10)),
             "the turn never began"
         );
-        let holder = lock.holder().expect("the GPU is held during the turn");
-        assert_eq!(holder.pid, Some(std::process::id()));
-        assert!(
-            holder.what.starts_with("kelpie worker call for #7 in "),
-            "{}",
-            holder.what
-        );
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["local_leases"]["gpu"]["what"], json!(holder.what));
+        assert_eq!(status.get("local_leases"), None);
         assert_eq!(status["pacer"]["claude"]["holding"], json!(null));
         hold.release();
         turn.join().unwrap();
     });
-    assert_eq!(lock.holder(), None, "let go when the turn ends");
     assert_eq!((rig.meter.reads(), rig.codex_meter.reads()), (1, 0));
-    let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["local_leases"], json!({ "gpu": null }));
     let call = &rig.claude.all_calls()[0];
     assert_eq!(
         (call.harness.clone(), call.model.as_str()),
         (AgentHarness::StandIn, "qwen3-coder")
     );
-}
-
-#[test]
-fn a_local_turn_waits_while_a_review_round_holds_the_gpu() {
-    let (rig, runner) = named("xilriws", BESIDE_QWEN);
-    rig.forge.label(7, "agent:coder");
-    rig.ask(&runner, "add", Some("7"));
-    let lock = GpuLock::under(&rig.home.path().join("tmp"));
-    let round = Claim {
-        pid: std::process::id(),
-        what: "qwen-review round 1".into(),
-    };
-    assert_eq!(lock.try_take(&round).unwrap(), Attempt::Taken);
-    rig.claude.script([Scripted::Say("done")]);
-    std::thread::scope(|s| {
-        let turn = s.spawn(|| step(&runner).unwrap());
-        std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(rig.claude.calls(), [], "the turn waits on the lock");
-        let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["local_leases"]["gpu"]["what"], "qwen-review round 1");
-        lock.release(round.pid).unwrap();
-        turn.join().unwrap();
-    });
-    assert_eq!(rig.claude.calls().len(), 1);
 }
 
 // The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
@@ -328,26 +292,6 @@ fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
     );
 }
 
-#[test]
-fn a_gateway_model_named_like_a_lock_is_shown_beside_it_not_over_it() {
-    let rig = Rig::new("rotom");
-    rig.write_agent("mine", BEHIND_PADDOCK);
-    rig.write_agent(
-        "locked",
-        &QWEN.replace("usage: none\n", "usage: none\nlease: coder\n"),
-    );
-    rig.implementers(&["sonnet-high", "mine", "locked"]);
-    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
-    let gateway =
-        "[gateways.paddock]\nurl = \"http://127.0.0.1:9\"\nkey_env = \"CARGO_PKG_NAME\"\n";
-    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
-    let runner = rig.open().unwrap();
-
-    let status = rig.ask(&runner, "status", None);
-    let shown: Vec<_> = status["local_leases"].as_object().unwrap().keys().collect();
-    assert_eq!(shown, ["coder", "coder@paddock"]);
-}
-
 // The runner for `named`'s rig, reopened once `change` has been made.
 fn reopened(rig: &Rig, runner: Mutex<Runner>, change: impl FnOnce()) -> Mutex<Runner> {
     drop(runner);
@@ -371,7 +315,6 @@ fn a_work_item_keeps_its_agent_and_runs_its_file_as_it_now_stands() {
     step(&runner).unwrap();
     let call = &rig.claude.calls()[0];
     assert_eq!(call.harness, AgentHarness::StandIn);
-    assert_eq!(call.lease.as_ref().map(|l| l.as_str()), Some("gpu"));
     assert_eq!(
         (call.model.as_str(), call.effort),
         ("next", crate::settings::Effort::High),
@@ -404,7 +347,7 @@ fn a_work_item_whose_agent_file_is_gone_fails_its_turn_saying_so() {
 }
 
 #[test]
-fn a_review_round_on_a_local_agent_runs_on_that_agent_under_its_lease() {
+fn a_review_round_on_a_local_agent_runs_on_that_agent() {
     let names = "implementers = [\"sonnet-high\"]\nreviewers = [\"coder-review\"]\n";
     let (rig, runner) = named("chelone", names);
     rig.meter.set(Rig::utilization(0, 1));
@@ -419,7 +362,6 @@ fn a_review_round_on_a_local_agent_runs_on_that_agent_under_its_lease() {
     let calls = rig.claude.all_calls();
     let review = calls.iter().find(|c| c.role == Role::Reviewer).unwrap();
     assert_eq!(review.harness, AgentHarness::StandIn);
-    assert_eq!(review.lease.as_ref().map(|l| l.as_str()), Some("gpu"));
     assert_eq!(
         calls[0].harness,
         AgentHarness::ClaudeCode,
@@ -450,10 +392,7 @@ fn beside_a_local_implementer_listed_first_the_issue_writer_labels_an_issue_and_
     rig.claude.script([Scripted::Say("done")]);
     step(&runner).unwrap();
     let call = &rig.claude.calls()[0];
-    assert_eq!(
-        (call.model.as_str(), call.lease.as_ref()),
-        ("claude-sonnet-5-5", None)
-    );
+    assert_eq!(call.model, "claude-sonnet-5-5");
     assert_eq!(call.harness, AgentHarness::ClaudeCode);
 }
 

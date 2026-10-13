@@ -138,15 +138,11 @@ fn a_review_kept_by_a_ruling_or_a_resume_loses_the_loops_fields_too() {
     let fixing = json!({ "stage": "fixing", "clean": false, "head": "c0ffee" });
     let store = saved_with(dir.path(), |value| {
         value["work_items"][0]["resume"] = in_phase(loop_review(json!({ "stage": "round" })));
-        value["last_ruling"] = json!(2);
+        value["last_ruling"] = json!(1);
         value["rulings"] = json!([
             {
                 "id": 1, "issue": 42, "question": "q", "pull_request": 51,
                 "kind": { "kind": "fix-not-pushed", "review": loop_review(fixing), "prompt": "p" },
-            },
-            {
-                "id": 2, "issue": 42, "question": "q", "pull_request": 51,
-                "kind": { "kind": "local-model-spilled", "review": loop_review(json!({ "stage": "round" })), "reason": "r" },
             },
         ]);
     });
@@ -172,13 +168,6 @@ fn a_review_kept_by_a_ruling_or_a_resume_loses_the_loops_fields_too() {
                 deferred_before: Vec::new(),
             })),
             prompt: "p".into(),
-        })
-    );
-    assert_eq!(
-        state.rulings[1].kind,
-        RulingKind::from(Stuck::LocalModelSpilled {
-            review: round_3(ReviewStage::Round),
-            why: "r".into(),
         })
     );
 }

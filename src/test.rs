@@ -372,10 +372,7 @@ impl Rig {
             meter,
             codex_meter: FakeMeter::idle(),
             reviewer: FakeReviewer::default(),
-            // A held lock is looked at again soon, so a test waits little.
-            local_leases: LocalReviewer::default()
-                .with_temp_dir(home.path().join("tmp"))
-                .with_naps(|_| Duration::from_millis(100)),
+            local_leases: LocalReviewer::default(),
             alerts: FakeAlerts::on(clock.clone()),
             leases: FakeLeases::default(),
             tests: FakeTests::default(),

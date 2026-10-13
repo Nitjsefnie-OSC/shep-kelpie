@@ -53,7 +53,7 @@ pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
 pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
-pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
+pub use reviewers::{ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
 
@@ -264,8 +264,8 @@ const REMOVED: &[Removed] = &[
         key: "review.local",
         because: REVIEWER_FILES,
         fix: "write the round as an agent file with `role: reviewer`, its `kind` as \
-              `harness` and `gpu_lease = true` as `lease: gpu`, and list it in \
-              `agents.reviewers`; `kind = \"off\"` is `agents.reviewers = [\"defect-hunter\"]`",
+              `harness`, and list it in `agents.reviewers`; `kind = \"off\"` is \
+              `agents.reviewers = [\"defect-hunter\"]`",
     },
     Removed {
         key: "review",

@@ -10,16 +10,19 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 
 use super::{Agent, Role, Runs};
 use crate::forwarder::Upstream;
 use crate::review_bot::Bot;
 
 mod bot;
+#[cfg(test)]
+mod tests;
 
 use crate::settings::{
-    Account, AgentHarness, ContextSize, Effort, Endpoint, EndpointUrl, GatewayName, Harness,
-    LeaseName, Limit, LocalCommand, ModelHost, ModelServer, NonBlank, RoleModel, UsageReader,
+    Account, AgentHarness, ContextSize, Effort, Endpoint, EndpointUrl, GatewayName, Harness, Limit,
+    LocalCommand, ModelHost, ModelServer, NonBlank, RoleModel, UsageReader,
 };
 use bot::at_key;
 
@@ -52,7 +55,7 @@ struct Implementer {
     #[serde(default)]
     usage: Option<UsageReader>,
     #[serde(default)]
-    lease: Option<LeaseName>,
+    lease: Option<IgnoredAny>,
     #[serde(default)]
     url: Option<EndpointUrl>,
     #[serde(default)]
@@ -88,7 +91,7 @@ struct Expert {
     #[serde(default)]
     usage: Option<UsageReader>,
     #[serde(default)]
-    lease: Option<LeaseName>,
+    lease: Option<IgnoredAny>,
     #[serde(default)]
     url: Option<EndpointUrl>,
     #[serde(default)]
@@ -126,7 +129,7 @@ struct Reviewer {
     #[serde(default)]
     usage: Option<UsageReader>,
     #[serde(default)]
-    lease: Option<LeaseName>,
+    lease: Option<IgnoredAny>,
     #[serde(default)]
     url: Option<EndpointUrl>,
     #[serde(default)]
@@ -135,10 +138,6 @@ struct Reviewer {
     context: Option<ContextSize>,
     #[serde(default)]
     command: Option<PathBuf>,
-    #[serde(default)]
-    ollama: Option<EndpointUrl>,
-    #[serde(default)]
-    ollama_model: Option<NonBlank>,
     #[serde(default)]
     paths: Vec<NonBlank>,
     #[serde(default)]
@@ -163,7 +162,6 @@ struct SessionKeys<'a> {
     model: &'a NonBlank,
     effort: Effort,
     usage: Option<UsageReader>,
-    lease: Option<&'a LeaseName>,
     host: Option<ModelHost>,
     context: Option<ContextSize>,
     tools: Option<&'a NonBlank>,
@@ -187,6 +185,15 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
     };
+    let leased = match &front {
+        Front::Implementer(keys) => keys.lease.is_some(),
+        Front::Reviewer(keys) => keys.lease.is_some(),
+        Front::Advisor(keys) | Front::Researcher(keys) => keys.lease.is_some(),
+        Front::IssueWriter(_) | Front::Pm(_) => false,
+    };
+    if leased {
+        return Err(at_key(&yaml, "lease", LEASE_GONE));
+    }
     let body = body.trim();
     let prompt = (!body.is_empty()).then(|| body.to_owned());
     match front {
@@ -197,7 +204,6 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
                 model: &keys.model,
                 effort: keys.effort,
                 usage: keys.usage,
-                lease: keys.lease.as_ref(),
                 host: host(keys.url.as_ref(), keys.gateway.as_ref())?,
                 context: keys.context,
                 tools: keys.tools.as_ref(),
@@ -255,7 +261,6 @@ impl Expert {
                 model: &self.model,
                 effort: self.effort,
                 usage: self.usage,
-                lease: self.lease.as_ref(),
                 host: host(self.url.as_ref(), self.gateway.as_ref())?,
                 context: self.context,
                 tools: None,
@@ -297,7 +302,6 @@ impl OnClaude {
                 model: &self.model,
                 effort: self.effort,
                 usage: None,
-                lease: None,
                 host: None,
                 context: None,
                 tools: None,
@@ -337,10 +341,9 @@ impl Reviewer {
         };
         let name = harness.as_str();
         self.no_bot_keys(name, yaml)?;
-        if self.command.is_some() || self.ollama.is_some() || self.ollama_model.is_some() {
+        if self.command.is_some() {
             return Err(format!(
-                "runs a session on {name}, which takes no `command`, `ollama` or \
-                 `ollama_model`"
+                "runs a session on {name}, which takes no `command`"
             ));
         }
         let (Some(model), Some(effort)) = (&self.model, self.effort) else {
@@ -359,7 +362,6 @@ impl Reviewer {
             model,
             effort,
             usage: self.usage,
-            lease: self.lease.as_ref(),
             host: host(self.url.as_ref(), self.gateway.as_ref())?,
             context: self.context,
             tools: self.tools.as_ref(),
@@ -389,20 +391,9 @@ impl Reviewer {
         if !(command.is_absolute() || command.starts_with("~")) {
             return Err("`command` must start with `/` or `~/`".into());
         }
-        match (&self.ollama, &self.ollama_model, &self.lease) {
-            (Some(_), _, None) => Err("`ollama` needs a lease, such as `lease: gpu`: \
-                                       without it kelpie reads `/api/ps` while another \
-                                       round may hold the model, and would rule on that \
-                                       round's model"
-                .into()),
-            (None, Some(_), _) => Err("`ollama_model` needs `ollama`".into()),
-            _ => Ok(LocalCommand {
-                command: command.clone(),
-                lease: self.lease.clone(),
-                ollama: self.ollama.clone(),
-                ollama_model: self.ollama_model.clone(),
-            }),
-        }
+        Ok(LocalCommand {
+            command: command.clone(),
+        })
     }
 
     // An endpoint takes a body for what to report. Kelpie sends the diff in
@@ -417,15 +408,11 @@ impl Reviewer {
                 ));
             }
         }
-        let other = self.effort.is_some()
-            || self.command.is_some()
-            || self.ollama.is_some()
-            || self.ollama_model.is_some()
-            || self.tools.is_some();
+        let other = self.effort.is_some() || self.command.is_some() || self.tools.is_some();
         if other {
-            return Err("runs on an endpoint, which takes no `effort`, `command`, \
-                        `ollama`, `ollama_model` or `tools`: its url is the Ollama host"
-                .into());
+            return Err(
+                "runs on an endpoint, which takes no `effort`, `command` or `tools`".into(),
+            );
         }
         let host = host(self.url.as_ref(), self.gateway.as_ref())?;
         let (Some(host), Some(model), Some(context)) = (host, &self.model, self.context) else {
@@ -433,14 +420,10 @@ impl Reviewer {
                         `gateway`, its `model` and the model's context size as `context`"
                 .into());
         };
-        if matches!(host, ModelHost::Gateway(_)) && self.lease.is_some() {
-            return Err(NO_LEASE.into());
-        }
         Ok(Endpoint {
             host,
             model: model.clone(),
             context,
-            lease: self.lease.clone(),
             prompt: prompt.map(str::to_owned),
         })
     }
@@ -491,9 +474,10 @@ fn host(
     }
 }
 
-/// Why a model behind a gateway takes no `lease`
-const NO_LEASE: &str =
-    "names a `gateway`, whose lease kelpie takes for each call itself, so it takes no `lease`";
+/// Why a `lease` is refused: kelpie holds no lock of its own on a model
+const LEASE_GONE: &str = "kelpie holds no lock of its own on a GPU now, so `lease` is gone: \
+     name a `gateway` such as paddock in place of `url`, which queues the model's calls, \
+     and leave `lease` out";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
     if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {
@@ -563,15 +547,11 @@ fn limit(keys: &SessionKeys<'_>) -> Result<Limit, String> {
         ));
     }
     let gateway = matches!(keys.host, Some(ModelHost::Gateway(_)));
-    match (usage, keys.lease) {
-        (UsageReader::None, Some(_)) if gateway => Err(NO_LEASE.into()),
-        (UsageReader::None, None) if gateway => Ok(Limit::Gateway),
-        (UsageReader::None, lease) => {
-            Ok(Limit::Lease(lease.cloned().unwrap_or_else(LeaseName::gpu)))
-        }
-        (_, Some(_)) => Err("sets `lease`, which only an agent with `usage: none` takes".into()),
-        (UsageReader::Claude, None) => Ok(Limit::Account(Account::Claude)),
-        (UsageReader::Codex, None) => Ok(Limit::Account(Account::Codex)),
+    match usage {
+        UsageReader::None if gateway => Ok(Limit::Gateway),
+        UsageReader::None => Ok(Limit::Unqueued),
+        UsageReader::Claude => Ok(Limit::Account(Account::Claude)),
+        UsageReader::Codex => Ok(Limit::Account(Account::Codex)),
     }
 }
 

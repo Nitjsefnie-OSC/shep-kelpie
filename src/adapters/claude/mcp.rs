@@ -84,7 +84,6 @@ mod tests {
             tools,
             agent_tools: None,
             reach,
-            lease: None,
             compact_window: None,
         }
     }

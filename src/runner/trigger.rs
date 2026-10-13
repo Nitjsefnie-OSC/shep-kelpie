@@ -11,8 +11,8 @@ use super::gpu::GpuStatus;
 use super::pace::PacerStatus;
 use super::{Answer, Runner};
 use crate::board::Skip;
-use crate::ports::LeaseHolder;
-use crate::ports::{ModelSeat, SessionId, Timestamp};
+use crate::ports::PaddockHolder;
+use crate::ports::{SessionId, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::{RepoPlugin, StepSkill};
@@ -106,18 +106,14 @@ pub struct Status<'a> {
     /// Where a worker's pull request template comes from: the repo, its
     /// owner's `.github` repository, or none
     pub pull_request_template: super::TemplateSource,
-    /// Where the local model sat when a round last looked, when there was
-    /// an Ollama host to ask
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub local_model: Option<LocalModelStatus>,
     /// The GPU's load as the metrics page last said, when kelpie's settings
     /// name one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpu: Option<GpuStatus>,
-    /// Who holds each lease a local agent's calls take, by its name, or
-    /// null while it is free
+    /// Who holds the gateway's lease on each model a local agent calls, by
+    /// the model's name, or null while it is free
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub local_leases: BTreeMap<String, Option<LeaseHolder>>,
+    pub local_leases: BTreeMap<String, Option<PaddockHolder>>,
     /// The board briefing the project manager's agent reads
     pub board: &'a Path,
     /// The project manager, when the project names one
@@ -134,33 +130,6 @@ pub struct Status<'a> {
     /// used up, in seconds since the Unix epoch; left out when it makes them
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forge_held_until: Option<Timestamp>,
-}
-
-/// The local model's placement, as Ollama's `/api/ps` last said
-///
-/// `/api/ps` has no utilization, so this says where the model sits and not
-/// how busy the GPU is.
-#[derive(Debug, Serialize)]
-pub struct LocalModelStatus {
-    /// The model's name
-    pub name: String,
-    /// How much of it is on the GPU, in whole percent
-    pub gpu_percent: u64,
-    /// The context length it was loaded with, in tokens
-    pub context_length: Option<u64>,
-    /// When Ollama unloads it
-    pub expires_at: Option<String>,
-}
-
-impl From<ModelSeat> for LocalModelStatus {
-    fn from(seat: ModelSeat) -> Self {
-        Self {
-            gpu_percent: seat.gpu_percent(),
-            name: seat.name,
-            context_length: seat.context_length,
-            expires_at: seat.expires_at,
-        }
-    }
 }
 
 /// A waiting ruling, as `status` shows it: the ruling as saved, with its

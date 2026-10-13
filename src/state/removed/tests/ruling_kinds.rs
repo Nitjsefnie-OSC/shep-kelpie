@@ -94,18 +94,6 @@ fn a_closed_ruling_is_stuck_on_the_close() {
 }
 
 #[test]
-fn a_local_model_spilled_ruling_is_stuck_on_the_spill() {
-    let review = serde_json::to_value(round_2()).unwrap();
-    loads_as(
-        json!({ "kind": "local-model-spilled", "review": review, "reason": "qwen at 60%" }),
-        Stuck::LocalModelSpilled {
-            review: round_2(),
-            why: "qwen at 60%".into(),
-        },
-    );
-}
-
-#[test]
 fn a_fix_not_pushed_ruling_is_stuck_on_the_fix() {
     let review = serde_json::to_value(round_2()).unwrap();
     loads_as(

@@ -186,3 +186,24 @@ fn day(at: Timestamp) -> String {
         .and_then(|s| jiff::Timestamp::from_second(s).ok())
         .map_or_else(|| at.0.to_string(), |t| t.strftime("%Y-%m-%d").to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An answered ruling of a kind that has since gone stays in the history.
+    #[test]
+    fn an_answered_ruling_of_a_removed_kind_is_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rulings.jsonl");
+        let text = serde_json::json!({
+            "id": 3, "at": 100, "issue": 7, "pull_request": null,
+            "asked": "q", "answer": "yes", "kind": "local-model-spilled",
+        });
+        std::fs::write(&file, format!("{text}\n")).unwrap();
+        let records = records(&file);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, 3);
+        assert!(read(&file).contains("yes"));
+    }
+}

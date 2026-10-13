@@ -389,7 +389,7 @@ async fn the_lease_round_trip_runs_through_a_real_shepherd() {
     );
     until("koji's grant", async || holds(&client, "koji").await).await;
 
-    // Status names each holder, the GPU's read from its lock.
+    // Status names each holder.
     let status = shepherd.kelpie(&["lease", "status"]).output().unwrap();
     assert!(
         status.status.success(),
@@ -397,15 +397,8 @@ async fn the_lease_round_trip_runs_through_a_real_shepherd() {
         String::from_utf8_lossy(&status.stderr)
     );
     let status: Value = serde_json::from_slice(&status.stdout).unwrap();
-    // shep hands an adopted dog no TMPDIR, so its lock is under the
-    // user's own temp folder, never the scratch home.
     let leases = status["leases"].as_array().unwrap();
-    let gpu = leases
-        .iter()
-        .find(|l| l["kind"] == "gpu")
-        .expect("a GPU line");
-    let lock = gpu["lock"].as_str().unwrap();
-    assert!(lock.ends_with("/qwen-review/gpu.lock"), "{lock}");
+    assert!(leases.iter().all(|l| l["kind"] != "gpu"), "{leases:?}");
     assert_eq!(stand_in(&status)["holder"], json!({ "runner": "koji" }));
     assert!(stand_in(&status)["since"].as_u64().is_some());
 

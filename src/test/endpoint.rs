@@ -1,7 +1,6 @@
 //! A stand-in OpenAI-compatible server, for kelpie's own local reviewer
 //!
-//! It answers `GET …/models` with an empty list, `GET /api/ps` with what the
-//! test gave it (a 404, as a server that is not Ollama answers, until then), and each
+//! It answers `GET …/models` with an empty list and each
 //! `POST …/chat/completions` with the next scripted reply (as server-sent events
 //! when the request streams), or `CLEAN` once the script runs out. It keeps
 //! every chat request's body, and the request line, `Authorization` and
@@ -64,7 +63,6 @@ struct Shared {
     auths: Vec<Option<String>>,
     every_auth: Vec<Vec<String>>,
     paddock: Vec<Vec<(String, String)>>,
-    ps: Option<String>,
     metrics: Option<String>,
     models: Vec<String>,
     models_body: Option<String>,
@@ -101,12 +99,6 @@ impl StandInEndpoint {
             }
         });
         Self { url, shared }
-    }
-
-    /// Has `/api/ps` answer with this body, as Ollama does
-    pub(crate) fn with_ps(self, body: &str) -> Self {
-        self.shared.lock().unwrap().ps = Some(body.to_owned());
-        self
     }
 
     /// Answers as paddock does: `/models` lists `models`, and its own
@@ -262,11 +254,6 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
     let (status, reply) = if request_line.contains("/metrics ") {
         match &shared.lock().unwrap().metrics {
             Some(page) => (200, page.clone()),
-            None => (404, "404 page not found".to_owned()),
-        }
-    } else if request_line.contains("/api/ps ") {
-        match &shared.lock().unwrap().ps {
-            Some(body) => (200, body.clone()),
             None => (404, "404 page not found".to_owned()),
         }
     } else if request_line.contains("/models ") {

@@ -3,6 +3,7 @@ use super::*;
 mod contributions;
 mod gateway_kind;
 mod repo_setup;
+mod rulings;
 mod test_command;
 
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
@@ -628,8 +629,8 @@ fn the_review_settings_reviewer_files_replace_are_refused_saying_what_replaces_e
             "review.local",
             table("review.local", "kind = \"command\"\ncommand = \"~/q.sh\""),
             "write the round as an agent file with `role: reviewer`, its `kind` as \
-             `harness` and `gpu_lease = true` as `lease: gpu`, and list it in \
-             `agents.reviewers`; `kind = \"off\"` is `agents.reviewers = [\"defect-hunter\"]`",
+             `harness`, and list it in `agents.reviewers`; `kind = \"off\"` is \
+             `agents.reviewers = [\"defect-hunter\"]`",
         ),
         ("review", table("review", ""), "delete it"),
     ];
@@ -874,17 +875,6 @@ fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
         "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n"
     ));
     assert!(mode.contains("rulings.decide"), "{mode}");
-}
-
-#[test]
-fn only_a_merge_kind_makes_the_list_refuse() {
-    let merge = parse(&format!(
-        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n"
-    ))
-    .unwrap()
-    .rulings;
-    assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
-    assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
 }
 
 // The example settings, with its budget table taken out and `table` put in its place

@@ -419,8 +419,7 @@ impl KelpieSettings {
                 key: "local_reviewers",
                 because: "reviewers are agent files listed in a project's `agents.reviewers`",
                 fix: "write each `[local_reviewers.<name>]` table as `agents/<name>.md` in \
-                      kelpie's home, with `role: reviewer`, its `kind` as `harness` and \
-                      `gpu_lease = true` as `lease: gpu`; a `kind = \"claude\"` or \
+                      kelpie's home, with `role: reviewer`, its `kind` as `harness`; a `kind = \"claude\"` or \
                       `\"session\"` table is a session reviewer on its model and effort \
                       whose body is its prompt. Then delete the tables",
             },
@@ -520,7 +519,7 @@ mod tests {
             "{err}"
         );
         assert!(err.contains("`role: reviewer`"), "{err}");
-        assert!(err.contains("`gpu_lease = true` as `lease: gpu`"), "{err}");
+        assert!(!err.contains("lease: gpu"), "{err}");
         assert!(err.contains("whose body is its prompt"), "{err}");
         assert!(!err.contains("s3cr3t"), "{err}");
     }

@@ -21,7 +21,7 @@ use super::{End, News};
 use crate::board::{AGENT_LABEL, ReadyIssue, agent_label};
 use crate::issues::Writer;
 use crate::ports::{AgentError, AgentReply, Ending, Role, Timestamp, Tools};
-use crate::settings::{AgentName, Limit};
+use crate::settings::AgentName;
 use crate::state::{Ruling, RulingKind, StateError, Stuck};
 use crate::usage::{CallKind, Draft};
 
@@ -138,12 +138,11 @@ impl Runner {
     ) -> Result<crate::ports::AgentCall, String> {
         let folder = &self.paths.worker;
         let checkout = &self.settings.git.checkout;
-        let model = (&writer.model, &Limit::default());
         let mut call = build_call(
             Role::IssueWriter,
             issue.number,
             checkout,
-            model,
+            &writer.model,
             label_prompt(self, issue),
         )?;
         let instructions = folder.join(format!("label-instructions-{}.md", issue.number));

@@ -20,7 +20,7 @@ use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::agents::Runs;
 use crate::pacer::{Assessment, Hold, RECHECK_SECS, Reading, Scope, assess, named};
-use crate::ports::{LeaseHolder, Timestamp};
+use crate::ports::{PaddockHolder, Timestamp};
 use crate::settings::{Account, AgentHarness, GatewayName, Limit, ModelHost};
 use crate::state::StateError;
 
@@ -160,23 +160,18 @@ impl Runner {
     fn spent_accounts(&self) -> BTreeSet<Account> {
         let account = |limit: &Limit| match limit {
             Limit::Account(account) => Some(*account),
-            Limit::Lease(_) | Limit::Gateway => None,
+            Limit::Unqueued | Limit::Gateway => None,
         };
         self.spent_limits().filter_map(account).collect()
     }
 
-    /// Who holds each lease the project's local agents take, for `status`
+    /// Who holds the gateway's lease on each model the project's local agents
+    /// call, for `status`
     ///
-    /// A lock a lease names is shown by its name. A model behind a gateway is
-    /// shown by its own name, with the holder of the gateway's lease on it,
-    /// or as `model@gateway` when that name is a lock's or another
-    /// gateway's model's, so no holder hides another.
-    pub(super) fn local_leases(&self) -> BTreeMap<String, Option<LeaseHolder>> {
-        let locks = self.spent_limits().filter_map(Limit::lease).map(|lease| {
-            let holder = self.ports.local_leases.holder(lease);
-            (lease.as_str().to_owned(), holder.map(LeaseHolder::Lock))
-        });
-        let mut shown: BTreeMap<String, Option<LeaseHolder>> = locks.collect();
+    /// A model is shown by its own name, or as `model@gateway` when another
+    /// gateway's model has that name, so no holder hides another.
+    pub(super) fn local_leases(&self) -> BTreeMap<String, Option<PaddockHolder>> {
+        let mut shown = BTreeMap::new();
         for (gateway, model) in self.gateway_models() {
             let name = match shown.contains_key(&model) {
                 true => format!("{model}@{gateway}"),
@@ -184,7 +179,7 @@ impl Runner {
             };
             let up = self.gateways.upstream(&ModelHost::Gateway(gateway)).ok();
             let holder = up.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
-            shown.insert(name, holder.map(LeaseHolder::Paddock));
+            shown.insert(name, holder);
         }
         shown
     }
