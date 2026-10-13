@@ -132,7 +132,7 @@ pub use drain::{CallRole, CallRunning, Draining};
 pub use finishing::{Run, StartError};
 #[cfg(test)]
 pub use flight::step;
-pub use flight::{Pass, advance};
+pub use flight::{CarriedTurn, Pass, advance};
 pub use gpu::GpuStatus;
 pub use in_flight::Stopping;
 pub use ledger::count_stopped;
