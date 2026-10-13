@@ -898,3 +898,5 @@ fn a_work_item_under_its_cap_is_left_alone() {
     assert_eq!(again.prompt, SENT_BACK, "exactly the cap is not over it");
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
 }
+
+mod held;

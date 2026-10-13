@@ -13,6 +13,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Implementers default `sonnet-high`, `opus-high` for work hard to undo (Sonnet high builds as well as Opus; `xhigh` no better). #313
 - `worker.turn_timeout` (60 min) counts from turn start, so restart buys no hour; past it parks `turn-timeout`; lease wait refunded. #16, `src/runner/turn/unfinished.rs`
 - Failed turn parks `stuck` `turn-failed`. #57
+- A due turn that does not start says why in `status` (`held_up`) and on the board line: no slot, push by someone else, pacer hold, GitHub token wait, drain, `attach`. Memory only; one log line once held 5 min, once per reason. #503, `src/runner/turn/held_up.rs`
 - First turn ending with no PR or question resumed once, then parks; uncommitted work with no push sent back once to commit. #140, #275
 - Item whose issue closed with no work ends with no ruling; parked item's issue read at most every 5 min. #385
 - Retro moved from worker to PM: batch after every 10 finished items and at a drain, one call with the PM's agent over a digest kelpie builds (`journal.jsonl`, rulings, ledger). The worker never saw PM wakes, rulings or merges, and overnight 30 retros were ~14% of spend (~94k-token cache write for ~3k of report). Worker keeps a PR-body `Friction` section. Off unless `skills.retro`; no slot, never retried, saved unread (agents acting on retros loop). #361, #566, `src/runner/retro.rs`

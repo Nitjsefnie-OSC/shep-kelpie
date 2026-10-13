@@ -184,6 +184,10 @@ pub struct WorkItemStatus<'a> {
     /// Its worker's turn in flight, while that waits for its model
     #[serde(skip_serializing_if = "Option::is_none")]
     pub waiting: Option<super::flight::Waiting>,
+    /// What its due worker turn waits on, while its last step left that turn
+    /// unstarted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub held_up: Option<super::turn::held_up::HeldUp>,
     /// The worker's session, which the maintainer can resume by hand
     pub session: &'a SessionId,
     /// Where the worker's turn stands
@@ -254,6 +258,7 @@ impl<'a> WorkItemStatus<'a> {
             agent: &item.agent,
             pinned: item.pinned,
             waiting: None,
+            held_up: None,
             session: &item.session,
             turn: &item.turn,
             phase: &item.phase,
