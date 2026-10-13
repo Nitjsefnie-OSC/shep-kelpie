@@ -202,7 +202,7 @@ fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
     assert_eq!(server.paddock_headers(), [batch.clone(), batch]);
 }
 
-// The paddock headers a chat call through `forwarder` reaches the gateway with.
+// Sends one chat call through `forwarder` and returns the reply.
 fn chat_through(forwarder: &Forwarder) -> String {
     let body = r#"{"model":"qwen3.8:27b"}"#;
     let chat = format!(
@@ -239,10 +239,11 @@ fn a_workers_chat_call_names_the_lease_its_turn_holds() {
 
     let batch = ("x-paddock-priority".to_owned(), "batch".to_owned());
     let lease = ("x-paddock-lease".to_owned(), "L1".to_owned());
-    assert_eq!(
-        server.paddock_headers(),
-        [vec![batch.clone(), lease], vec![batch]]
-    );
+    // The lease's own take and release are requests too, with no paddock header.
+    let chats: Vec<_> = (server.paddock_headers().into_iter())
+        .filter(|headers| !headers.is_empty())
+        .collect();
+    assert_eq!(chats, [vec![batch.clone(), lease], vec![batch]]);
 }
 
 #[test]
