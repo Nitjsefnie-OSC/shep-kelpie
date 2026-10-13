@@ -33,6 +33,9 @@ use crate::runner::{CarriedTurn, Runner};
 /// The trigger that asks for a handover
 pub const ACTION: &str = "handover";
 
+/// The trigger that withdraws a handover still waiting for the quiet point
+pub const WITHDRAW: &str = "withdraw_handover";
+
 /// How long a `handover` trigger waits for a refusal before it answers that
 /// the request is waiting, inside the shepherd's 3s limit on an action
 const ANSWER_WITHIN: Duration = Duration::from_millis(2500);
@@ -167,6 +170,14 @@ impl Handing {
             }
             Err(RecvTimeoutError::Disconnected) => error("the handover was dropped"),
         }
+    }
+
+    /// Answers a `withdraw_handover` trigger: drops the request if the loop
+    /// has not taken it yet
+    pub(super) fn withdraw(&self) -> String {
+        let dropped = self.slot().take().is_some();
+        let state = if dropped { "withdrawn" } else { "none waiting" };
+        serde_json::json!({ "handover": state }).to_string()
     }
 
     /// Hands over if one is asked for and nothing holds it, at the loop's

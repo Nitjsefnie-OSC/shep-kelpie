@@ -178,9 +178,16 @@ fn answer(flock: &[AppConfig], says: &Mutex<Vec<&'static str>>, request: &Reques
                 refused: Vec::new(),
             }
         }
-        Request::Trigger { selector, .. } => {
+        Request::Trigger {
+            selector, action, ..
+        } => {
             let at = named(selector).unwrap();
             let body = match flock[at].name.as_str() {
+                // The stand-in runner hands nothing over, so it is drained as before.
+                "koji" if action == "handover" => {
+                    r#"{"error":"handover refused: the stand-in runner does not hand over"}"#
+                        .to_owned()
+                }
                 "koji" => {
                     let mut says = says.lock().unwrap();
                     match says.len() {

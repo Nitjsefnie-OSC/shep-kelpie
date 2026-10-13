@@ -98,6 +98,30 @@ fn call(call: &Value) -> String {
     }
 }
 
+/// Sends `name` `action`, and `None` when it is a build from before it
+///
+/// An action nobody took is a runner still opening, or one from before the
+/// action. One that answers `status` and then the same again is old.
+pub(super) async fn asked(
+    client: &dyn Connection,
+    name: &str,
+    action: &str,
+) -> Result<Option<Answered>, String> {
+    let mut answer = trigger(client, name, action, None).await?;
+    if matches!(answer, Answered::Starting)
+        && matches!(
+            trigger(client, name, "status", None).await?,
+            Answered::Runner(_)
+        )
+    {
+        answer = trigger(client, name, action, None).await?;
+        if matches!(answer, Answered::Starting) {
+            return Ok(None);
+        }
+    }
+    Ok(Some(answer))
+}
+
 /// Drains `name` for `purpose` and returns once it has no call running,
 /// saying what it waits on through `say`
 ///
@@ -122,20 +146,9 @@ pub async fn drain(
     let mut told = Vec::new();
     let mut began = false;
     loop {
-        let mut answer = trigger(client, name, "drain", None).await?;
-        // An action nobody took: a runner still opening, or one from before
-        // `drain`. One that answers `status` and then the same again is old.
-        if matches!(answer, Answered::Starting)
-            && matches!(
-                trigger(client, name, "status", None).await?,
-                Answered::Runner(_)
-            )
-        {
-            answer = trigger(client, name, "drain", None).await?;
-            if matches!(answer, Answered::Starting) {
-                return predates(name, purpose, say);
-            }
-        }
+        let Some(answer) = asked(client, name, "drain").await? else {
+            return predates(name, purpose, say);
+        };
         let busy = match answer {
             Answered::Runner(body) => match drained(&body) {
                 Some(drained) => {
