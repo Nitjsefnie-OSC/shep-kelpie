@@ -106,6 +106,7 @@ impl Runner {
         self.snapshot.begin_pass();
         self.looks.pass_began(self.forge_ledger.writes());
         let begin = self.step_rotation(start_over);
+        self.read_main_ci();
         self.snapshot.end_pass();
         begin
     }

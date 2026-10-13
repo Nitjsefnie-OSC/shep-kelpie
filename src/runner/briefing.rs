@@ -14,8 +14,8 @@ use super::Runner;
 use super::trigger::lock;
 use super::turn::held_up::HeldUp;
 use crate::board::briefing::{
-    self, Briefing, Files, IDLE_AFTER, Item, Merge, Ready, ReadyLine, RulingLine, Session, age,
-    quiet_for,
+    self, Briefing, Files, IDLE_AFTER, Item, Merge, Ready, ReadyLine, RedLine, RulingLine, Session,
+    age, quiet_for,
 };
 use crate::board::{ReadyIssue, Skip, priority, rule_order};
 use crate::local_paths::Surface;
@@ -289,6 +289,14 @@ impl Runner {
                     issue: r.issue,
                     pull_request: r.pull_request,
                     question: self.shown(events::quote(&r.question)),
+                })
+                .collect(),
+            red: (self.red_status(now).into_iter())
+                .map(|red| RedLine {
+                    workflow: red.workflow,
+                    since: red.since,
+                    head: red.head,
+                    url: red.url,
                 })
                 .collect(),
             ready: self.ready_lines(),

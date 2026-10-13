@@ -12,7 +12,7 @@ use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, Sub
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview,
     NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
-    ThreadComment, Timestamp, Visibility,
+    ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -822,6 +822,11 @@ impl Forge for FakeForge {
     fn branch_runs(&self, _repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         self.ask()?;
         self.branch_runs_of(branch).map_err(ForgeError::Failed)
+    }
+
+    fn workflows(&self, _repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError> {
+        self.ask()?;
+        self.workflows_listed().map_err(ForgeError::Failed)
     }
 
     fn run_log_tail(&self, _repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
