@@ -38,6 +38,7 @@ use crate::runner::{
     ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
     wakes,
 };
+use crate::settings::Settings;
 use crate::shep_home;
 use crate::shepherd::{self, Dial, Socket};
 use crate::upgrade::restart::{Interrupt, Patience};
@@ -121,6 +122,20 @@ impl From<&str> for Exit {
     }
 }
 
+// Refuses the start of a runner whose checkout or repo another project runs: two
+// runners would take the same issues.
+fn unshared(look: &Look, settings: &Settings) -> Result<(), Exit> {
+    let Some(taken) = look.taken(settings)? else {
+        return Ok(());
+    };
+    let (project, sheep) = (look.sheep(), &taken.sheep);
+    Err(Exit::Refused(format!(
+        "{taken}. Give {project} a checkout and repo of its own with `shep kelpie set \
+         git.checkout <path>` (and `git.remote <owner/name>`), or remove {project}'s table \
+         if it was copied from {sheep}'s"
+    )))
+}
+
 fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     // The file this build started from, before anything can replace it.
     crate::upgrade::seen::running();
@@ -165,6 +180,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     );
     let loaded = look.read()?;
     let (settings, kelpie_settings) = (loaded.settings, loaded.kelpie);
+    unshared(&look, &settings)?;
     let codex_home = kelpie_settings
         .codex_home(&home, &kelpie_home)
         .map_err(|e| e.to_string())?;
@@ -569,7 +585,74 @@ mod tests {
 
     use super::*;
     use crate::ports::ReviewerError;
-    use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
+    use crate::test::{CALL_PATIENCE, FakeShepherd, Hold, Rig, Scripted, ScriptedRound};
+
+    // A shepherd that holds a project `older` whose table is the rig's, less what
+    // `edit` changes, and a look at it from the rig's own project.
+    fn beside_older(rig: &Rig, edit: impl FnOnce(&mut serde_json::Value)) -> (Look, FakeShepherd) {
+        let shepherd = FakeShepherd::new();
+        let launch = crate::flock::Launch {
+            kelpie: "/opt/kelpie".into(),
+            shep_home: shepherd.home().to_owned(),
+            kelpie_home: None,
+        };
+        let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
+        let mut table = serde_json::Value::Object(crate::test::project_table(&entry));
+        edit(&mut table);
+        let older = ProjectName::try_from("older").unwrap();
+        let serde_json::Value::Object(table) = table else {
+            unreachable!("a table is an object")
+        };
+        shepherd.holds(launch.runner(&older, table), true);
+        let paths = rig.paths();
+        let look = Look::new(
+            shepherd.dial(),
+            shepherd.home().to_owned(),
+            "shep".into(),
+            look::Sources {
+                folder: paths.folder.clone(),
+                agents: paths.agents.clone(),
+            },
+            rig.home.path().to_owned(),
+        );
+        (look, shepherd)
+    }
+
+    #[test]
+    fn a_runner_whose_checkout_another_project_runs_refuses_to_start_and_names_it() {
+        let rig = Rig::new("shep");
+        let (look, _shepherd) = beside_older(&rig, |table| {
+            table["git"]["remote"] = "someone/else".into();
+        });
+        let Err(Exit::Refused(why)) = unshared(&look, &rig.settings()) else {
+            panic!("the runner started beside `older`");
+        };
+        assert!(why.contains("project `older`"), "{why}");
+        assert!(why.contains("shep kelpie set git.checkout"), "{why}");
+    }
+
+    #[test]
+    fn a_runner_whose_repo_another_project_runs_refuses_to_start_and_names_it() {
+        let rig = Rig::new("shep");
+        let (look, _shepherd) = beside_older(&rig, |table| {
+            table["git"]["checkout"] = "/src/elsewhere".into();
+        });
+        let Err(Exit::Refused(why)) = unshared(&look, &rig.settings()) else {
+            panic!("the runner started beside `older`");
+        };
+        assert!(why.contains("project `older`"), "{why}");
+        assert!(why.contains(Rig::REMOTE), "{why}");
+    }
+
+    #[test]
+    fn a_runner_with_a_checkout_and_repo_of_its_own_starts() {
+        let rig = Rig::new("shep");
+        let (look, _shepherd) = beside_older(&rig, |table| {
+            table["git"]["checkout"] = "/src/elsewhere".into();
+            table["git"]["remote"] = "someone/else".into();
+        });
+        assert_eq!(unshared(&look, &rig.settings()), Ok(()));
+    }
 
     // The code is what shep's `stop_exit_codes` matches to leave a runner stopped.
     #[test]

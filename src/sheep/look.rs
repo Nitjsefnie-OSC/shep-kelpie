@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::agents;
+use crate::flock::share::{self, Taken};
 use crate::runner::Runner;
 use crate::settings::Settings;
 use crate::settings::source::{self, Loaded};
@@ -72,6 +73,21 @@ impl Look {
         let agents = agents::snapshot(&self.agents);
         self.last = Some((loaded.settings.clone(), loaded.kelpie.clone(), agents));
         Ok(loaded)
+    }
+
+    /// The sheep whose tables this reads
+    pub(super) fn sheep(&self) -> &str {
+        &self.sheep
+    }
+
+    /// Whether another project runs the checkout or repo `settings` name
+    pub(super) fn taken(&self, settings: &Settings) -> Result<Option<Taken>, String> {
+        shepherd::block_on(async {
+            let client = shepherd::connect(&*self.dial, &self.shep_home)
+                .await
+                .map_err(|e| e.describe(&self.shep_home))?;
+            share::check(&client, &self.sheep, &self.home, settings).await
+        })
     }
 
     /// Reads again, and hands `runner` whatever changed since the last read
