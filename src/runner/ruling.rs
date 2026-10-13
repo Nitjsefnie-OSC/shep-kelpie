@@ -220,6 +220,16 @@ impl Runner {
                 RulingKind::Stuck(Stuck::Rebase { .. } | Stuck::StillRed { .. })
             )
         );
+        let mid_review = matches!(
+            (&answer, &ruling.kind),
+            (
+                Answer::Yes,
+                RulingKind::Stuck(Stuck::StillRed {
+                    review: Some(_),
+                    ..
+                })
+            )
+        );
         // Any answer to a refused merge gives the next one its catch-up again.
         let refusal_answered = matches!(ruling.kind, RulingKind::Stuck(Stuck::MergeRefused { .. }));
         // Either answer to a work item over its budget lifts its cap, as far as
@@ -309,6 +319,9 @@ impl Runner {
             }
             let regate = match (vouches, self.settings.git.merging) {
                 (true, Merging::Auto) => regate(&self.settings.git.checkout, item)?,
+                // The round it returns to reads the worktree, so a fix the
+                // maintainer pushed is adopted before it, as under `auto`.
+                (true, Merging::Ask) if mid_review => regate(&self.settings.git.checkout, item)?,
                 (true, Merging::Ask) => {
                     item.known.head = None;
                     false

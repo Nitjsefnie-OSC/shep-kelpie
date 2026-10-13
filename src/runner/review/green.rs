@@ -468,3 +468,21 @@ fn a_still_red_yes_after_review_goes_to_ci() {
     );
     assert_eq!(reads(&rig), rounds, "no new round");
 }
+
+#[test]
+fn a_still_red_yes_under_ask_adopts_the_fix_pushed_by_hand_before_the_review() {
+    let (rig, runner, head) = pushed();
+    parked_still_red(&rig, &runner, &head);
+
+    let fixed = rig.push_by_hand("kelpie/7", "lint.txt");
+    rig.ask(&runner, "rule", Some("1 yes"));
+    assert_eq!(state(&rig, &runner), "review");
+
+    rig.forge.set_checks(&fixed, Checks::Passed);
+    let report = rig.verdict(&runner);
+    assert!(
+        !matches!(report, Some(StepReport::Ruling { .. })),
+        "the worktree was behind the pushed head: {report:?}"
+    );
+    assert_eq!(reads(&rig), 1, "the first reviewer reads the fix");
+}
