@@ -23,6 +23,7 @@
 //! ([`budget`]).
 
 mod budget;
+mod ci;
 mod heard;
 mod ruling;
 mod security;
@@ -125,12 +126,14 @@ impl Runner {
             ruling::withdraw(&mut next);
             self.save(next)?;
         }
-        Ok(())
+        self.follow_ci()
     }
 }
 
 #[cfg(test)]
 mod budget_tests;
+#[cfg(test)]
+mod ci_tests;
 #[cfg(test)]
 mod heard_tests;
 #[cfg(test)]

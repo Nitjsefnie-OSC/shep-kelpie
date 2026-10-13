@@ -195,6 +195,49 @@ pub(super) fn rerun_run(repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
     gh(&["run", "rerun", &id, "--repo", repo.as_str(), "--failed"]).map(drop)
 }
 
+/// Approves every run of `head` that waits for a maintainer, as the login `gh` acts as
+///
+/// Every run is asked for, and the first refusal is returned once all were
+/// tried: a run approved is no longer waiting, so a retry finds only the
+/// ones that failed.
+pub(super) fn approve_workflow_runs(repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+    let path = format!(
+        "repos/{}/actions/runs?status=action_required&head_sha={head}&per_page=100",
+        repo.as_str()
+    );
+    let mut first_error = None;
+    for id in held_runs(&gh(&["api", &path])?, head)? {
+        let approve = format!("repos/{}/actions/runs/{id}/approve", repo.as_str());
+        if let Err(e) = gh(&["api", "--method", "POST", &approve]) {
+            first_error = first_error.or(Some(e));
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+// The runs of `head` that wait for approval, from the listing of a repo's
+// runs. The forge was asked for that head and that status, and a run that is
+// neither is dropped here too: approving runs the contributor's code.
+fn held_runs(listed: &[u8], head: &str) -> Result<Vec<u64>, ForgeError> {
+    #[derive(Deserialize)]
+    struct Listing {
+        workflow_runs: Vec<Run>,
+    }
+    #[derive(Deserialize)]
+    struct Run {
+        id: u64,
+        head_sha: String,
+        status: String,
+    }
+    let listing: Listing = serde_json::from_slice(listed).map_err(|_| unreadable(listed))?;
+    Ok(listing
+        .workflow_runs
+        .into_iter()
+        .filter(|r| r.head_sha == head && r.status == "action_required")
+        .map(|r| r.id)
+        .collect())
+}
+
 fn list(repo: &ForgeSlug) -> Result<Vec<u8>, ForgeError> {
     gh(&[
         "run",
@@ -544,6 +587,52 @@ mod tests {
     fn a_workflow_list_gh_did_not_print_as_json_is_unreadable() {
         assert!(matches!(
             parse_workflows(b"not json"),
+            Err(ForgeError::Unreadable(_))
+        ));
+    }
+
+    // Shaped like the example GitHub documents for "List workflow runs for a
+    // repository", with `status` set to `action_required` and a fork's pull
+    // request as the event. Hand-written, not recorded: the real recording
+    // (shep-pm/shep-kelpie#636) replaces it.
+    const HELD: &[u8] = include_bytes!("../../../fixtures/gh-api-action-required-runs.json");
+
+    #[test]
+    fn the_gh_adapter_parses_the_recorded_run_listing() {
+        let head = "acb5820ced9479c074f688cc328bf03f341a511d";
+
+        assert_eq!(held_runs(HELD, head).unwrap(), [30_433_642, 30_433_643]);
+    }
+
+    #[test]
+    fn a_run_of_another_head_is_never_listed_for_approval() {
+        assert_eq!(
+            held_runs(HELD, "f".repeat(40).as_str()).unwrap(),
+            Vec::<u64>::new()
+        );
+    }
+
+    #[test]
+    fn a_run_that_is_not_waiting_for_approval_is_never_listed() {
+        let listed = br#"{"total_count":2,"workflow_runs":[
+            {"id":1,"head_sha":"abc","status":"completed"},
+            {"id":2,"head_sha":"abc","status":"action_required"}
+        ]}"#;
+
+        assert_eq!(held_runs(listed, "abc").unwrap(), [2]);
+    }
+
+    #[test]
+    fn a_listing_with_no_runs_is_an_empty_list() {
+        let listed = br#"{"total_count":0,"workflow_runs":[]}"#;
+
+        assert_eq!(held_runs(listed, "abc").unwrap(), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn a_run_listing_gh_did_not_print_as_json_is_unreadable() {
+        assert!(matches!(
+            held_runs(b"not json", "abc"),
             Err(ForgeError::Unreadable(_))
         ));
     }

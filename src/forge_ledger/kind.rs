@@ -72,6 +72,8 @@ pub enum Kind {
     RerunFailed,
     /// The failed jobs of one CI run rerun
     RerunRun,
+    /// The held CI runs of a head approved
+    ApproveWorkflowRuns,
     /// A pull request marked ready
     MarkReady,
     /// A label put on a pull request or taken off
@@ -202,6 +204,7 @@ impl Kind {
             | Self::RunLogTail
             | Self::RerunFailed
             | Self::RerunRun
+            | Self::ApproveWorkflowRuns
             | Self::AppWorkerToken
             | Self::AppComment
             | Self::AppEditComment
