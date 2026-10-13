@@ -23,6 +23,7 @@ use crate::worktree;
 
 mod prompts;
 mod question;
+mod test_fails;
 use prompts::{
     answer_prompt, declined_prompt, failed_again, note_prompt, noted_prompt, rework_prompt,
 };
@@ -648,6 +649,7 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
             "A fix for review findings ended without a push, so those findings still hold."
                 .to_owned()
         }
+        Stuck::TestStillFails { .. } => test_fails::PUBLIC_LINE.to_owned(),
         Stuck::Unpushed { .. } => {
             "Work in this pull request's worktree is not pushed, so its review waits.".to_owned()
         }
@@ -782,6 +784,15 @@ fn decide(
             merged: true,
             closed: false,
         },
+        // The test is ended: the note is the worker's turn, and the pass goes on.
+        (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {
+            let (prompt, phase) = test_fails::no(ruling.pull_request, fix, &head, &note);
+            return Ok(Move::Turn {
+                prompt,
+                phase,
+                force: None,
+            });
+        }
         // A no's fix is new code, unreviewed: it goes through a pass of the
         // review again before CI, whatever other ruling this answers.
         (Answer::No(note), _) => {
@@ -836,6 +847,15 @@ fn decide(
                     stage: ReviewStage::Pushing,
                     ..review
                 }),
+                force: None,
+            });
+        }
+        // The fix ends under the same round, which runs the tests again.
+        (Answer::Yes, RulingKind::Stuck(Stuck::TestStillFails { fix, prompt, .. })) => {
+            let (prompt, phase) = test_fails::yes(fix, prompt);
+            return Ok(Move::Turn {
+                prompt,
+                phase,
                 force: None,
             });
         }

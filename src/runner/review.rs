@@ -292,9 +292,24 @@ impl Runner {
         let round = review.round;
         let mut left_open = None;
         let (mut checks, mut unchecked) = (Vec::new(), 0);
+        let mut failing = Vec::new();
         let pushed = match head {
             Some(before) => match self.origin_head() {
+                // A note's turn after a test ended sent no findings: pushing nothing is no fault.
+                Ok(now) if now == before && sent.findings.is_empty() => None,
                 Ok(now) if now == before => {
+                    // The worker sent back to a failing test is not asked about
+                    // nits or deferrals: it was to change code.
+                    let failing = self.still_failing(round, sent.findings);
+                    let path = findings::findings_path(build);
+                    let threads =
+                        (self.current()).is_some_and(|item| !item.threads_sent.is_empty());
+                    if failing.iter().any(|f| f.sent_back) {
+                        let tests: Vec<_> = failing.into_iter().map(|f| f.test).collect();
+                        let prompt = findings::still_failing_prompt(number, round, build, &tests);
+                        let fix = Fix::Review(review);
+                        return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
+                    }
                     // A size-skipped file's notice an older kelpie sent is no finding.
                     let count = (sent.findings.iter())
                         .filter(|f| !f.is_skipped_for_size())
@@ -309,9 +324,6 @@ impl Runner {
                         Ok(false) => {}
                         Err(reason) => return Ok(self.gate_failed(reason)),
                     }
-                    let path = findings::findings_path(build);
-                    let threads =
-                        (self.current()).is_some_and(|item| !item.threads_sent.is_empty());
                     let prompt = findings::again_prompt(number, round, &path, threads);
                     let fix = Fix::Review(review);
                     return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
@@ -330,7 +342,8 @@ impl Runner {
                     // So is a nit fix's head, which a bot's nits are not sent on.
                     if self.worktree_head().as_ref() == Some(&now) {
                         let head = now.clone();
-                        let nits = sent.findings.iter().all(Finding::is_nit);
+                        let nits =
+                            !sent.findings.is_empty() && sent.findings.iter().all(Finding::is_nit);
                         self.update(|item| {
                             item.send_unread(head.clone());
                             if nits {
@@ -340,6 +353,7 @@ impl Runner {
                         // The tests ran only at a head the worker holds: a
                         // test is not run against code that is not its own.
                         checks = self.tests_after(round, sent.findings)?;
+                        failing = self.still_failing(round, sent.findings);
                     } else {
                         checks = self.round_checks(round, sent.findings);
                         unchecked = checks.len();
@@ -350,8 +364,16 @@ impl Runner {
             },
             None => None,
         };
-        let next = self.after_round(review, self.ports.clock.now());
-        self.update(|item| item.phase = next)?;
+        // A test that fails after the fix keeps the round open for the worker, or
+        // raises its ruling.
+        if let (Some(head), false) = (&pushed, failing.is_empty()) {
+            if let Some(raised) = self.tests_failed(number, review.clone(), head, sent, failing)? {
+                return Ok(raised);
+            }
+        } else {
+            let next = self.after_round(review, self.ports.clock.now());
+            self.update(|item| item.phase = next)?;
+        }
         Ok(Begin::Report(match left_open {
             Some((threads, reason)) => StepReport::ThreadsLeftOpen {
                 issue,

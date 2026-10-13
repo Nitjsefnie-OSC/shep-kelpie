@@ -7,18 +7,22 @@
 //! taken out again, so the worktree is as clean as it was. When the fix has
 //! moved the head and the worktree holds it, the same run is made again.
 //!
-//! The runs are recorded in the work item's `test_checks` and reported, and
-//! they block nothing: whatever the outcomes, the pass goes on as it did.
+//! The runs are recorded in the work item's `test_checks` and reported. A test
+//! that fails after the fix sends the worker back for one more fix turn on it,
+//! and one that still fails after that raises a `test-still-fails` ruling. Any
+//! other outcome blocks nothing: the pass goes on.
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use super::super::Runner;
+use super::super::report::Begin;
 use super::super::turn::start_of;
 use super::attached::kept_folder;
+use super::findings::{Sent, still_failing_prompt};
 use crate::ports::{CEILING, Finding, TestOutcome, TestRun};
-use crate::state::StateError;
-use crate::work_item::TestCheck;
+use crate::state::{FailingTest, Fix, StateError, Stuck};
+use crate::work_item::{Phase, Review, ReviewStage, TestCheck, Turn};
 use crate::worker_folder;
 
 /// What a check says when the worktree is not at the head the reviewer read
@@ -60,6 +64,7 @@ impl Runner {
                     },
                 },
                 after: None,
+                sent_back: false,
             })
             .collect()
     }
@@ -97,6 +102,88 @@ impl Runner {
             })?;
         }
         Ok(self.round_checks(round, found))
+    }
+
+    /// The tests of `found` whose latest run after the fix failed, with the
+    /// finding each is for and whether the worker was sent back to it
+    pub(super) fn still_failing(&self, round: u32, found: &[Finding]) -> Vec<Failing> {
+        let Some(item) = self.current() else {
+            return Vec::new();
+        };
+        found
+            .iter()
+            .filter_map(|finding| {
+                let test = finding.test.clone()?;
+                let check = &item.test_checks[latest(&item.test_checks, round, finding)?];
+                let Some(TestOutcome::Failed { output }) = &check.after else {
+                    return None;
+                };
+                Some(Failing {
+                    finding: finding.clone(),
+                    test: FailingTest {
+                        test,
+                        output: output.clone(),
+                    },
+                    sent_back: check.sent_back,
+                })
+            })
+            .collect()
+    }
+
+    /// What a fix whose tests still fail comes to: the worker's one more fix
+    /// turn on them, or once it has had that, a ruling
+    ///
+    /// Returns the ruling's step when it raised one, and none when the worker
+    /// was sent back, with its turn and the round's fix stage saved.
+    ///
+    /// # Errors
+    ///
+    /// [`StateError`] when the state cannot be saved.
+    pub(super) fn tests_failed(
+        &mut self,
+        number: u64,
+        review: Review,
+        head: &str,
+        sent: Sent<'_>,
+        failing: Vec<Failing>,
+    ) -> Result<Option<Begin>, StateError> {
+        let round = review.round;
+        let build = self
+            .current()
+            .expect("a fix is a work item's")
+            .build
+            .clone();
+        let tests: Vec<FailingTest> = failing.iter().map(|f| f.test.clone()).collect();
+        let prompt = still_failing_prompt(number, round, &build, &tests);
+        let review = Review {
+            stage: ReviewStage::Fixing {
+                head: Some(head.to_owned()),
+                sent: failing.iter().map(|f| f.finding.clone()).collect(),
+                deferred_before: sent.deferred_before.to_vec(),
+            },
+            ..review
+        };
+        if failing.iter().all(|f| f.sent_back) {
+            let kind = Stuck::TestStillFails {
+                fix: Fix::Review(review),
+                head: head.to_owned(),
+                tests,
+                prompt,
+            };
+            return self.raise(number, kind.into()).map(Some);
+        }
+        let marked: Vec<Finding> = failing.into_iter().map(|f| f.finding).collect();
+        self.update(|item| {
+            for finding in &marked {
+                if let Some(at) = latest(&item.test_checks, round, finding) {
+                    item.test_checks[at].sent_back = true;
+                }
+            }
+            item.turn = Turn::Next { prompt };
+            item.counts.fix_turns = item.counts.fix_turns.saturating_add(1);
+            item.phase = Phase::Review(review);
+        })?;
+        Ok(None)
     }
 
     /// The checks `found`'s tests have in `round`, as recorded
@@ -262,10 +349,24 @@ fn latest(checks: &[TestCheck], round: u32, finding: &Finding) -> Option<usize> 
     checks.iter().rposition(|c| c.is_for(round, finding))
 }
 
-// The newest check of `finding` in `round` that no run after the fix has
-// been made for.
+/// A test that failed after the fix
+pub(super) struct Failing {
+    /// The finding it is attached to
+    pub finding: Finding,
+    /// The test and its output
+    pub test: FailingTest,
+    /// Whether the worker was already sent back to it
+    pub sent_back: bool,
+}
+
+// The newest check of `finding` in `round` that the fix has not been run for:
+// none was made yet, or the worker was sent back after a failed one.
 fn waiting(checks: &[TestCheck], round: u32, finding: &Finding) -> Option<usize> {
-    latest(checks, round, finding).filter(|at| checks[*at].after.is_none())
+    latest(checks, round, finding).filter(|at| {
+        let check = &checks[*at];
+        check.after.is_none()
+            || (check.sent_back && matches!(check.after, Some(TestOutcome::Failed { .. })))
+    })
 }
 
 // A test file put in the worktree, and the folders made for it
