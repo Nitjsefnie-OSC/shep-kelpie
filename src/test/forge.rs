@@ -35,6 +35,7 @@ pub(crate) struct FakeForge {
     closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
+    closes_refused: Arc<AtomicUsize>,
     open: Arc<Mutex<Vec<OpenPullRequest>>>,
     board_down: Arc<AtomicBool>,
     calls: Arc<AtomicUsize>,
@@ -129,6 +130,7 @@ impl FakeForge {
             sub_issues: Arc::default(),
             closings: Arc::default(),
             closes_down: Arc::default(),
+            closes_refused: Arc::default(),
             open: Arc::default(),
             board_down: Arc::default(),
             calls: Arc::default(),
@@ -249,6 +251,11 @@ impl FakeForge {
     /// Makes closing an issue fail, or work again
     pub(crate) fn set_closes_down(&self, down: bool) {
         self.closes_down.store(down, Ordering::SeqCst);
+    }
+
+    /// How many closes the forge refused while closing was down
+    pub(crate) fn closes_refused(&self) -> usize {
+        self.closes_refused.load(Ordering::SeqCst)
     }
 
     /// The issues kelpie closed
@@ -802,6 +809,7 @@ impl Forge for FakeForge {
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
+            self.closes_refused.fetch_add(1, Ordering::SeqCst);
             return Err(ForgeError::Failed("closing is refused".into()));
         }
         self.closed.lock().unwrap().insert(number);
