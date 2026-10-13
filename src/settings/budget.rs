@@ -15,7 +15,8 @@ pub struct Budget {
     /// the worker's next turn
     ///
     /// The worker's and the reviewers' calls count, and a call whose harness
-    /// reports no dollars counts nothing. A yes doubles the work item's cap,
+    /// reports no dollars counts nothing. A followed contribution has the same
+    /// cap, over the calls kelpie runs on it. A yes doubles the work item's cap,
     /// and so does a no with a note, and each doubles it again while the cap is
     /// still below what the item has spent. More than 0, and rounded to a cent.
     /// 10 when absent.

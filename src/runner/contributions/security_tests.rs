@@ -21,7 +21,12 @@ fn write(folder: &Path, file: &str, text: &str) {
 // Commits what `edit` does to the contributor's clone on `branch`, which
 // starts from `base` there, pushes the branch (forced) and points
 // `refs/pull/<number>/head` at it the way the forge does. Returns the head.
-pub(super) fn commit_on(rig: &Rig, number: u64, base: &str, edit: impl FnOnce(&Path)) -> String {
+pub(in crate::runner) fn commit_on(
+    rig: &Rig,
+    number: u64,
+    base: &str,
+    edit: impl FnOnce(&Path),
+) -> String {
     let hand = hand(rig);
     if !hand.exists() {
         let origin = rig.home.path().join("origin.git");
@@ -46,7 +51,7 @@ pub(super) fn commit_on(rig: &Rig, number: u64, base: &str, edit: impl FnOnce(&P
 
 // Opens pull request `number` by `newcomer` whose branch is `main` and one
 // commit that `edit` makes. Returns its head.
-pub(super) fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> String {
+pub(in crate::runner) fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> String {
     let head = commit_on(rig, number, "origin/main", edit);
     rig.forge
         .open_pull_request(number, &format!("topic/{number}"), &[]);
@@ -55,14 +60,14 @@ pub(super) fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> St
     head
 }
 
-pub(super) fn reviews(rig: &Rig) -> Vec<Seen> {
+pub(in crate::runner) fn reviews(rig: &Rig) -> Vec<Seen> {
     let all = rig.claude.all_seen();
     all.into_iter()
         .filter(|s| s.call.role == Role::Reviewer)
         .collect()
 }
 
-pub(super) fn contribution(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+pub(in crate::runner) fn contribution(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     rig.ask(runner, "status", None)["contributions"][0].clone()
 }
 

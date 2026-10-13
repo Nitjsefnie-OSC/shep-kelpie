@@ -11,7 +11,7 @@ use crate::test::{Rig, Scripted};
 const MAINTAINER: &str = "Boss";
 
 // A runner for a project whose App covers the repo, with `pick` set
-pub(super) fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
+pub(in crate::runner) fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
     rig.with_app();
     rig.maintainer(MAINTAINER);
@@ -22,7 +22,7 @@ pub(super) fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
 
 // Pull request `number` on a branch of its own, opened by `author`, ready
 // for review. Returns its head.
-pub(super) fn opened(rig: &Rig, number: u64, author: &str) -> String {
+pub(in crate::runner) fn opened(rig: &Rig, number: u64, author: &str) -> String {
     let branch = format!("topic/{number}");
     let head = rig.push_by_hand(&branch, &format!("{number}.txt"));
     rig.forge.open_pull_request(number, &branch, &[]);
@@ -32,7 +32,7 @@ pub(super) fn opened(rig: &Rig, number: u64, author: &str) -> String {
 }
 
 // What `status` lists as followed: each one's number, author and head
-pub(super) fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, String)> {
+pub(in crate::runner) fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, String)> {
     let status = rig.ask(runner, "status", None);
     let listed = status["contributions"].as_array().cloned();
     listed
@@ -51,7 +51,7 @@ pub(super) fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, S
 
 // The App's writes to a pull request or issue, such as a comment. Setting up
 // the repo's labels is not one.
-pub(super) fn posts(rig: &Rig) -> Vec<String> {
+pub(in crate::runner) fn posts(rig: &Rig) -> Vec<String> {
     let writes = rig.github.writes();
     let on = |path: &&str| path.contains("/issues/") || path.contains("/pulls/");
     writes
@@ -67,7 +67,7 @@ fn one(number: u64, author: &str, head: &str) -> Vec<(u64, String, String)> {
 }
 
 // A step with nothing for the board to do, after the next poll is due
-pub(super) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
+pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     rig.next_look();
     assert_eq!(step(runner).unwrap(), None);
 }

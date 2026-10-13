@@ -809,7 +809,7 @@ impl Runner {
     }
 
     fn save(&mut self, mut next: ProjectState) -> Result<(), StateError> {
-        slots::seat(&self.state, &mut next, self.active_items());
+        slots::seat(&self.state, &mut next, self.item_slots());
         self.charge(&mut next);
         self.note_changes(&mut next);
         // A ruling that is answered takes the place read to in its thread with

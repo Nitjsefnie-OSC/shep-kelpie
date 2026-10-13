@@ -18,7 +18,7 @@ use super::thread_replies::Settler;
 use super::{Names, Runner};
 use crate::ports::Timestamp;
 use crate::settings::Merging;
-use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
+use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
 use crate::worktree::{self, Remote};
 
@@ -337,6 +337,11 @@ impl Runner {
         }
         let worktree = parked.map(|item| item.worktree.clone());
         contributions::trust(&mut next, &answer, &ruling)?;
+        // A contribution's cap lifts, and its next call may start at the next look.
+        let per_item = self.settings.budget.per_item_usd;
+        if contributions::raise_budget(&mut next, &answer, &ruling, per_item) {
+            self.looks.board_moved();
+        }
         let moved = decide(id, answer, ruling, now, head_moved)?;
         let did = (act.as_ref())
             .map(|act| self.carry_out(id, act, worktree.as_deref()))
@@ -871,7 +876,8 @@ fn decide(
             closed: false,
         },
         // No work item is parked on it, so an answer only clears it.
-        (Answer::Trust(_) | Answer::No(_), RulingKind::Contribution(_)) => Phase::Implement,
+        (Answer::Trust(_) | Answer::No(_), RulingKind::Contribution(_))
+        | (Answer::Yes, RulingKind::Contribution(Held::OverBudget { .. })) => Phase::Implement,
         // `trust` has refused these before `decide` is asked.
         (Answer::Trust(_), _) | (Answer::Yes, RulingKind::Contribution(_)) => {
             return Err(RuleError::Head(id, "takes no such yes".to_owned()));

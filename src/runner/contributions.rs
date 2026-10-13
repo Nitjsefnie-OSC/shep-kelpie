@@ -14,13 +14,21 @@
 //! security review has read is read ([`security`]) before anything of the
 //! contributor's can run ([`ruling`] raises one for a flagged head). Nothing
 //! is posted and nothing runs for a contribution here.
+//!
+//! A contribution holds no slot while it waits on its contributor. A call on
+//! it takes one for as long as it runs, starts only where a slot is free, and
+//! goes ahead of the board's next issue ([`Runner::security_due`], asked by
+//! `dispatch`). Its priced cost adds to the contribution's `spend`, and past
+//! `budget.per_item_usd` no call starts until a ruling is answered
+//! ([`budget`]).
 
+mod budget;
 mod heard;
 mod ruling;
 mod security;
 
-pub(super) use ruling::{flagged_lines, trust};
-pub(super) use security::Job;
+pub(super) use ruling::{flagged_lines, raise_budget, trust};
+pub(super) use security::{Job, Reading};
 
 use super::Runner;
 use crate::board::{OpenPullRequest, READY};
@@ -77,7 +85,7 @@ impl Runner {
                 return Ok(());
             }
             let mut next = self.state.clone();
-            next.contributions.clear();
+            next.follow(Vec::new());
             ruling::withdraw(&mut next);
             return self.save(next);
         }
@@ -91,6 +99,7 @@ impl Runner {
         let Ok(own) = self.own_logins() else {
             return Ok(());
         };
+        self.flights.security_retry();
         let mut followed: Vec<Contribution> = Vec::new();
         for pr in open.iter().filter(|pr| self.is_contribution(pr, &own)) {
             let known = (self.state.contributions.iter()).find(|c| c.pull_request == pr.number);
@@ -99,7 +108,8 @@ impl Runner {
                 // A new head is unread, and the last head that passed stays the
                 // one it is read since. The push is heard.
                 Some(known) => known.pushed(pr.commit.clone(), now),
-                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now),
+                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
+                    .with_spent(self.state.spent_by(pr.number)),
             });
         }
         // Oldest first: the ones already followed keep their places
@@ -111,19 +121,21 @@ impl Runner {
         followed.sort_by_key(place);
         if followed != self.state.contributions {
             let mut next = self.state.clone();
-            next.contributions = followed;
+            next.follow(followed);
             ruling::withdraw(&mut next);
             self.save(next)?;
         }
-        self.read_securities()
+        Ok(())
     }
 }
 
+#[cfg(test)]
+mod budget_tests;
 #[cfg(test)]
 mod heard_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]
-mod security_tests;
+pub(in crate::runner) mod security_tests;
 #[cfg(test)]
-mod tests;
+pub(in crate::runner) mod tests;

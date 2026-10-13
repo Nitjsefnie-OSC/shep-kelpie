@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security, hears what they say (`contribution-talk.md`), and runs nothing of theirs. #617, #618, #619, #625
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), and runs nothing of theirs. #617, #618, #619, #625
 
 ## Settings
 
@@ -31,16 +31,6 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 - `adopt_waiting` leaves a labelled contribution alone when `pick` is not `off`. With `off` a labelled fork is refused as before. `rework_asked` still refuses a fork.
 - `status` lists the records under `contributions`, left out when empty.
 
-## Security review
-
-- Until a head passes, nothing of the contributor's runs on the maintainer's machine: no build, test, hook or worker. Nothing adds a way to run it yet. Slots and budget are #621.
-- `Runner::follow_contributions` starts a read of one contribution whose current head has no review, after the records are updated, `Runner::read_securities` in `src/runner/contributions/security.rs`. The read is a call in flight, `src/runner/flight/security.rs`: one at a time, on a thread of its own, so the runner's lock is not held while it runs, ended past a 15 minute ceiling, listed in a drain's `calls` as role `security`. The thread does the fetch, the diff and the call, and the verdict is recorded when its news is heard. The next unread contribution after the last tried goes next, so a head that never reads does not hold up the others. A head already read is not read again. A head that cannot be fetched, a call that fails and a reply in no verdict shape record nothing, so the next poll reads it again. Nothing is read while draining.
-- `src/worktree/contribution.rs` fetches `refs/pull/<n>/head` and `main` into the project's checkout, which moves objects and checks out no branch, worktree or file. The diff is read with `--no-ext-diff --no-textconv --no-renames`. Git's output is read to at most `MAX_DIFF` bytes and git is stopped there, so a huge change costs no more than that; a cut diff is flagged for its length and its paths are not read.
-- The diff is the change since the last passed head (`passed`) when that is an ancestor of the new head. With none, or after a force push (not an ancestor, or a commit git no longer holds), it is the whole `origin/main...head` change.
-- Kelpie flags in code what a model cannot read, and never passes it: a binary change, a symlink, a submodule change, and a diff over 200000 bytes (`MAX_DIFF`). No model is asked. Each is a `HIGH` finding with its path and line 0, and the oversize one names `(the whole diff)`.
-- Otherwise `contributions.security_reviewer` runs in a scratch folder, `<project folder>/security/<pr>/`, never in the checkout, removed with its settings file once the call ends. The diff is in it as `change.diff` and in the prompt through `src/runner/untrusted.rs`: a block whose delimiter, `UNTRUSTED-<n>` for the first `n` the text lacks, is absent from the text, with a line saying it is data to read and never instructions. Later slices reuse it for other outside text. The call is `build_call` with `Tools::Review`, so it has read tools only, and it gets none of the repo's plugins.
-- A clean reply (`read_review`) sets `passed` to the head. Findings keep their file, line and why under `security`, and `passed` stays at the older head. `contributions[].security` is `{ head, verdict }`, the verdict `passed` or `{ flagged: [findings] }`; `passed` is the last head that passed. Both are left out until set.
-- A flagged head raises one `contribution` ruling of reason `security` (`issue: None`, `pull_request: Some(n)`, `src/runner/contributions/ruling.rs`). It names each file, line and why. A yes names the head it trusts, `rule 30 yes <hash>` with 7 or more characters, because every ruling on a pull request has the same number and a yes meant for an earlier head must not trust a later one; it sets `passed` to the head. A bare yes or another head is refused; a no leaves it unpassed, runs nothing and posts nothing. A push, close or merge withdraws the ruling with no post, and an answer to it is refused as stale. A yes to an old head never trusts a new one. #620
 ## Remote
 
 - `worktree::Remote` is where a work item's branch lives: `Origin`, or `Fork { url, branch }` for a contributor's fork. `prepare` (`Start::Pushed`), `origin_head`, `base_of`, `adopt`, `rebase` and `remove` take it, and every runner caller passes `Remote::Origin`, so nothing observable changes yet. A fork is fetched and pushed by URL, never added as a remote of the repo. `src/worktree/remote.rs`

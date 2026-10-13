@@ -345,6 +345,19 @@ impl Card {
                     ),
                 ],
             },
+            RulingKind::Contribution(Held::OverBudget { cap }) => Self {
+                problem: None,
+                board: None,
+                title: "This contribution is over its budget. Raise the cap?".to_owned(),
+                facts: Some(format!(
+                    "The calls on it have cost more than its cap of ${:.2}.",
+                    cap.usd()
+                )),
+                choices: yes_no(
+                    "Doubles the cap, and again until it covers the spend, and the next call starts",
+                    Some("Doubles the cap the same, and nothing is posted"),
+                ),
+            },
             RulingKind::FollowUp { findings, refused } => {
                 let count = match findings.len() {
                     1 => "1 unfixed finding".to_owned(),

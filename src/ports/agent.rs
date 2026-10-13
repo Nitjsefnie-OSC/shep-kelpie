@@ -351,6 +351,11 @@ impl Cost {
         (usd.is_finite() && usd >= 0.0).then(|| Self((usd * Self::PER_USD).round() as u64))
     }
 
+    /// Whether it is nothing
+    pub fn is_free(&self) -> bool {
+        self.0 == 0
+    }
+
     /// The amount in dollars
     pub fn usd(self) -> f64 {
         self.0 as f64 / Self::PER_USD

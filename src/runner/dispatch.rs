@@ -3,7 +3,8 @@
 //! A running project with fewer than `concurrency.active_items` working and fewer than
 //! `concurrency.pending_rulings` parked asks the board on its steps, after starting any pull
 //! request it adopted and checking its open pull requests for one asking
-//! for a rework. A queued issue waits until a slot is free, an issue, or a
+//! for a rework, and before a call a contribution is due goes ahead of any
+//! issue. A queued issue waits until a slot is free, an issue, or a
 //! pull request, whose work item is open waits for it to end, and an issue
 //! naming a file a parked item's branch changes waits for that item. With a
 //! project manager and two or more issues the board could take, its pick
@@ -50,6 +51,12 @@ impl Runner {
         let (begin, reworks) = self.rework_asked(&open)?;
         failed.extend(reworks);
         if let Some(begin) = begin {
+            self.skipped = failed;
+            return Ok(begin);
+        }
+        // A contribution's call goes before any new issue, and takes the slot
+        // the board would have.
+        if let Some(begin) = self.security_due()? {
             self.skipped = failed;
             return Ok(begin);
         }
