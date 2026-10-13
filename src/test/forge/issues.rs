@@ -59,16 +59,29 @@ impl FakeForge {
             .collect())
     }
 
+    /// Makes the listing of finished parents name `parent` from now on, as a
+    /// stale listing would, whether or not its sub-issues are all closed
+    pub(crate) fn list_finished_whatever_its_sub_issues(&self, parent: u64) {
+        self.listed_finished.lock().unwrap().push(parent);
+    }
+
+    /// Shows closed issue `number` as completed, as someone else changing the
+    /// reason it closed with would
+    pub(crate) fn reclose_as_completed(&self, number: u64) {
+        self.not_planned.lock().unwrap().remove(&number);
+    }
+
     pub(super) fn read_finished_parents(&self) -> Result<Vec<FinishedParent>, ForgeError> {
         self.ask()?;
         let mut parents: Vec<_> = self.sub_issues.lock().unwrap().keys().copied().collect();
         parents.sort_unstable();
+        let stale = self.listed_finished.lock().unwrap().clone();
         let closed = self.closed.lock().unwrap();
         Ok(parents
             .into_iter()
             .filter(|parent| !closed.contains(parent))
             .map(|number| (number, self.sub_issues_of(number)))
-            .filter(|(_, subs)| subs.iter().all(|s| closed.contains(s)))
+            .filter(|(n, subs)| stale.contains(n) || subs.iter().all(|s| closed.contains(s)))
             .map(|(number, subs)| FinishedParent {
                 number,
                 sub_issues: subs.len() as u64,

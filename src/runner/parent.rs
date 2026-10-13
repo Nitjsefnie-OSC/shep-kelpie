@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use super::Runner;
 use super::report::{Begin, StepReport};
 use crate::board::ReadyIssue;
-use crate::ports::SubIssueState;
+use crate::ports::{SubIssueState, Timestamp};
 
 /// Refusals in a row before this runner stops closing an issue, until it
 /// restarts, so one the forge will never close cannot hold up the board
@@ -26,9 +26,13 @@ pub(super) const PARENT_CLOSED: &str =
 pub(super) type Refused = BTreeMap<u64, u32>;
 
 /// The parents off the ready list whose sub-issues were all closed as not
-/// planned, with how many they had, kept in memory only so a look does not
-/// read them again
-pub(super) type Unbuilt = BTreeMap<u64, u64>;
+/// planned, with how many they had and when they were read, kept in memory
+/// only so a look does not read them again
+pub(super) type Unbuilt = BTreeMap<u64, (u64, Timestamp)>;
+
+/// How long a parent read as all not planned goes unread, since the forge can
+/// change how a closed sub-issue closed without changing their count
+const UNBUILT_RECHECK: u64 = 3600;
 
 impl Runner {
     /// Closes an issue whose sub-issues are all closed, if the board lists a
@@ -53,8 +57,9 @@ impl Runner {
     /// one completed
     ///
     /// One listing names the candidates. Each is read once more for how its
-    /// sub-issues closed, and one with none completed is read again only when
-    /// its count of sub-issues changes. A read that fails is told in the log.
+    /// sub-issues closed, and one with none completed is read again when its
+    /// count of sub-issues changes, or an hour on. A read that fails is told
+    /// in the log.
     fn unlisted_done_parent(&mut self, ready: &[ReadyIssue]) -> Option<u64> {
         let listed = match (self.ports.forge).finished_parents(&self.remote) {
             Ok(listed) => listed,
@@ -65,8 +70,10 @@ impl Runner {
                 return None;
             }
         };
-        self.unbuilt.retain(|number, total| {
-            (listed.iter()).any(|p| p.number == *number && p.sub_issues == *total)
+        let now = self.ports.clock.now();
+        self.unbuilt.retain(|number, (total, at)| {
+            let fresh = now.0 < at.0.saturating_add(UNBUILT_RECHECK);
+            fresh && (listed.iter()).any(|p| p.number == *number && p.sub_issues == *total)
         });
         for parent in listed {
             let number = parent.number;
@@ -77,11 +84,13 @@ impl Runner {
                 continue;
             }
             match (self.ports.forge).sub_issues(&self.remote, number) {
+                // The listing can be stale, so every sub-issue is checked closed here.
+                Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Open) => {}
                 Ok(subs) if subs.iter().any(|s| s.state == SubIssueState::Completed) => {
                     return Some(number);
                 }
-                Ok(subs) if subs.iter().all(|s| s.state == SubIssueState::NotPlanned) => {
-                    self.unbuilt.insert(number, parent.sub_issues);
+                Ok(subs) if !subs.is_empty() => {
+                    self.unbuilt.insert(number, (parent.sub_issues, now));
                 }
                 Ok(_) => {}
                 Err(e) => self.notes.push(format!(
@@ -310,5 +319,34 @@ mod tests {
         rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
         assert_eq!(rig.forge.comments(), [(5, PARENT_CLOSED.to_owned())]);
+    }
+
+    #[test]
+    fn a_stale_listing_never_closes_a_parent_with_a_sub_issue_open() {
+        let (rig, runner) = running("pelagia");
+        rig.forge.open_issue(5, "A parent", "Split in two.\n");
+        rig.forge.link_sub_issue(5, 6);
+        rig.forge.link_sub_issue(5, 7);
+        rig.forge.close_issue(6);
+        rig.forge.list_finished_whatever_its_sub_issues(5);
+        assert_eq!(step(&runner).unwrap(), None);
+        assert!(rig.forge.closings().is_empty());
+    }
+
+    #[test]
+    fn a_parent_read_as_not_planned_is_read_again_an_hour_on() {
+        let (rig, runner) = running("pelagia");
+        rig.forge.open_issue(5, "A parent", "Split in two.\n");
+        rig.forge.link_sub_issue(5, 6);
+        rig.forge.close_issue_as_not_planned(6);
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.forge.reclose_as_completed(6);
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.clock.advance(UNBUILT_RECHECK);
+        assert_eq!(
+            step(&runner).unwrap(),
+            Some(StepReport::ParentClosed { issue: 5 })
+        );
     }
 }

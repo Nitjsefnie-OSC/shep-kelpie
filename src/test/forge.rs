@@ -35,6 +35,7 @@ pub(crate) struct FakeForge {
     not_planned: Arc<Mutex<HashSet<u64>>>,
     // Whether listing a parent's sub-issues fails
     sub_issues_down: Arc<AtomicBool>,
+    listed_finished: Arc<Mutex<Vec<u64>>>,
     // The issues kelpie closed
     closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
@@ -121,6 +122,7 @@ impl FakeForge {
             sub_issues: Arc::default(),
             not_planned: Arc::default(),
             sub_issues_down: Arc::default(),
+            listed_finished: Arc::default(),
             closings: Arc::default(),
             closes_down: Arc::default(),
             closes_refused: Arc::default(),
