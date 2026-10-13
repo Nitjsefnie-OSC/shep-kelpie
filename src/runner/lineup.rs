@@ -32,7 +32,7 @@ pub struct Place {
     pub issue: u64,
     /// Its title
     pub title: String,
-    /// Its priority, from `P0` to `P3`, or null with none
+    /// Its priority, from `P0` to `P4`, or null with none
     pub priority: Option<&'static str>,
     /// Whether an open issue blocks it, so the board passes it over
     pub blocked: bool,
