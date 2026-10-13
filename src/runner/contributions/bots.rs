@@ -597,17 +597,17 @@ impl Runner {
         if theirs {
             return Ok(());
         }
-        self.give_back_bot(bot)
+        self.give_back_bot(bot, Some(number))
     }
 
     // Gives the lease back, as `release_bot` does once it is no other turn's.
     // The ask and the grant are the project's, so giving them back for a turn
     // that never took the lease would cancel another round's place in the
-    // dog's queue.
-    fn give_back_bot(&mut self, bot: Bot) -> Result<(), StateError> {
+    // dog's queue: a work item's, or a contribution's other than `except`.
+    fn give_back_bot(&mut self, bot: Bot, except: Option<u64>) -> Result<(), StateError> {
         let mine = |l: &LeaseHeld| l.resource == bot.resource() && l.issue.is_none();
         let held = self.state.leases.iter().any(mine);
-        if !held && self.bot_held_or_wanted_by_an_item(bot) {
+        if !held && (self.bot_held_or_wanted_by_an_item(bot) || self.turn_waits_on(bot, except)) {
             return Ok(());
         }
         self.ports.leases.give_back(&self.profile(bot).lease());
@@ -617,6 +617,12 @@ impl Runner {
         let mut next = self.state.clone();
         next.leases.retain(|l| !mine(l));
         self.save(next)
+    }
+
+    // Whether a contribution other than `except` has a turn waiting to summon `bot`
+    fn turn_waits_on(&self, bot: Bot, except: Option<u64>) -> bool {
+        (self.state.contributions.iter())
+            .any(|c| Some(c.pull_request) != except && waiting_on(c) == Some(bot))
     }
 
     fn bot_held_or_wanted_by_an_item(&self, bot: Bot) -> bool {
@@ -634,7 +640,20 @@ impl Runner {
             .filter(|bot| (self.state.contributions.iter()).all(|c| summoned_on(c) != Some(*bot)))
             .collect();
         for bot in idle {
-            self.give_back_bot(bot)?;
+            self.give_back_bot(bot, None)?;
+        }
+        Ok(())
+    }
+
+    // Gives back the ask of each bot in `asked`, whose turns waited to summon
+    // it and were cleared, unless a turn still summoned or waiting on it
+    // needs it. Called once the walks are cleared.
+    pub(super) fn give_up_asks(&mut self, asked: &[Bot]) -> Result<(), StateError> {
+        for bot in asked {
+            let summoned = (self.state.contributions.iter()).any(|c| summoned_on(c) == Some(*bot));
+            if !summoned {
+                self.give_back_bot(*bot, None)?;
+            }
         }
         Ok(())
     }
@@ -642,19 +661,28 @@ impl Runner {
     // Takes the label off each pull request whose walk is about to be cleared
     // while its bot is summoned, because the contribution is no longer
     // followed or has a new head. A push with the label on would summon the
-    // bot outside its lease.
-    pub(super) fn abandon_turns(&self, followed: &[Contribution]) {
+    // bot outside its lease. Returns the bots whose turns were still waiting
+    // to summon, which may have asked for the lease.
+    #[must_use]
+    pub(super) fn abandon_turns(&self, followed: &[Contribution]) -> Vec<Bot> {
+        let mut asked = Vec::new();
         for held in &self.state.contributions {
-            let Some(bot) = labelled_on(held) else {
-                continue;
-            };
             let moved = followed
                 .iter()
                 .all(|c| c.pull_request != held.pull_request || c.head != held.head);
-            if moved {
+            if !moved {
+                continue;
+            }
+            if let Some(bot) = labelled_on(held) {
                 self.label_off(held.pull_request, bot);
             }
+            if let Some(bot) = waiting_on(held)
+                && !asked.contains(&bot)
+            {
+                asked.push(bot);
+            }
         }
+        asked
     }
 }
 

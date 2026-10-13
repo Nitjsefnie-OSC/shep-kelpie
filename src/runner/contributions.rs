@@ -173,11 +173,12 @@ impl Runner {
             if self.state.contributions.is_empty() {
                 return Ok(());
             }
-            self.abandon_turns(&[]);
+            let asked = self.abandon_turns(&[]);
             let mut next = self.state.clone();
             next.follow(Vec::new());
             ruling::withdraw(&mut next);
             self.save(next)?;
+            self.give_up_asks(&asked)?;
             return self.release_idle_bots();
         }
         let now = self.ports.clock.now();
@@ -211,11 +212,12 @@ impl Runner {
         };
         followed.sort_by_key(place);
         if followed != self.state.contributions {
-            self.abandon_turns(&followed);
+            let asked = self.abandon_turns(&followed);
             let mut next = self.state.clone();
             next.follow(followed);
             ruling::withdraw(&mut next);
             self.save(next)?;
+            self.give_up_asks(&asked)?;
         }
         self.follow_ci()?;
         self.follow_bots()

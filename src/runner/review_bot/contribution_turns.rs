@@ -310,3 +310,47 @@ fn a_label_that_will_not_come_off_does_not_hold_the_pass() {
     assert_eq!(held["pass"]["answered"], "coderabbit");
     assert_eq!(asked(&rig), Vec::<String>::new());
 }
+
+#[test]
+fn a_push_while_a_bot_turn_waits_for_its_lease_gives_the_ask_back() {
+    let (rig, runner, _head) = contributed(&["cubic", "mine"]);
+    rig.leases.close(&cubic(), true);
+    for _ in 0..4 {
+        poll(&rig, &runner);
+    }
+    assert!(
+        want_count(&rig, &cubic()) > 0,
+        "the turn asked for the lease"
+    );
+    rig.leases.grant(&cubic());
+
+    commit_on(&rig, 30, "topic/30", |h| write(h, "two.txt", "two\n"));
+    poll(&rig, &runner);
+
+    assert!(!rig.leases.held(&cubic()), "the grant went back unused");
+}
+
+#[test]
+fn a_turn_passing_a_bot_over_leaves_the_ask_another_contributions_turn_waits_on() {
+    let (rig, runner, head) = contributed(&["cubic", "mine"]);
+    rig.claude
+        .script(std::iter::repeat_n(Scripted::Text(CLEAN), 2));
+    contribute(&rig, 31, |h| write(h, "other.txt", "other\n"));
+    rig.leases.close(&cubic(), true);
+    for _ in 0..4 {
+        poll(&rig, &runner);
+    }
+    assert_eq!(summons_by_comment(&rig), 0, "both turns wait for the lease");
+    rig.leases.grant(&cubic());
+    rig.forge
+        .coderabbit
+        .cubic_review(30, &head, now(&rig) + 30, &[]);
+
+    poll(&rig, &runner);
+
+    assert_eq!(
+        summons_by_comment(&rig),
+        1,
+        "31 used the grant 30 passed by"
+    );
+}
