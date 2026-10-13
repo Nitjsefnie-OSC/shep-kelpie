@@ -51,7 +51,7 @@ pub use host::SystemHost;
 pub use leases::ShepLeases;
 pub use local::LocalReviewer;
 pub use pi::PiCli;
-pub use process::{Sealed, feeding};
+pub use process::{Sealed, end_groups, feeding};
 pub use srt::SandboxRuntime;
 #[cfg(test)]
 pub(crate) use srt::srt_settings;

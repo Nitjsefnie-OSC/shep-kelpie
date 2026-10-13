@@ -107,7 +107,7 @@ fn outgoing(folder: &Path) {
     let claude = agents(&rig, folder);
     let runner = Arc::new(rig.open_agents(Arc::new(claude.clone())).unwrap());
     rig.ask(&runner, "add", Some("7"));
-    let handing = Handing::installed(claude);
+    let handing = Handing::installed_unchecked(claude);
     let (_worker, wake) = worker_of(&runner, Arc::clone(&handing));
     eventually("the turn's child", || folder.join("started").exists());
     write(folder, "pid.before", &std::process::id().to_string());

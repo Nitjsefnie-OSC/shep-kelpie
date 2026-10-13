@@ -14,7 +14,7 @@ use std::time::Instant;
 use shep_handover::ChildExit;
 
 use super::record::{Record, Recorded};
-use super::{END_GRACE, POLL, Processes, RunError, Scrap, signal_group};
+use super::{END_GRACE, POLL, Processes, RunError, Scrap, group_running, signal_group};
 use crate::ports::{Adopted, Ending};
 
 // Counts a call as being finished while it lives, from its child's reaping
@@ -173,6 +173,20 @@ fn end_group(pgid: u32, exited: &Receiver<io::Result<ChildExit>>) {
     }
     signal_group(pgid, "KILL");
     let _ = exited.recv_timeout(END_GRACE);
+}
+
+/// Ends the process groups `pgids` lead: TERM, then KILL for any left once
+/// the grace has passed
+///
+/// For a runner that took over turns from a previous image and cannot
+/// serve them, so none is left running with no one to finish it.
+pub fn end_groups(pgids: &[u32]) {
+    pgids.iter().for_each(|&pgid| signal_group(pgid, "TERM"));
+    let deadline = Instant::now() + END_GRACE;
+    while Instant::now() < deadline && pgids.iter().any(|&pgid| group_running(pgid)) {
+        thread::sleep(POLL);
+    }
+    pgids.iter().for_each(|&pgid| signal_group(pgid, "KILL"));
 }
 
 fn status_of(exit: ChildExit) -> ExitStatus {

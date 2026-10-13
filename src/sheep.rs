@@ -63,9 +63,15 @@ use look::Look;
 ///
 /// Kelpie's home is `KELPIE_HOME`, or `$SHEP_HOME/kelpie` when that is unset.
 pub fn run(project: &str, arrival: Option<Arrival<Carry>>) -> ExitCode {
+    let carried = arrival.as_ref().map(|a| a.state.pids());
     match serve(project, arrival) {
         Ok(()) => ExitCode::SUCCESS,
         Err(exit) => {
+            // The turns a handover left running would be orphaned, and a restart
+            // resumes their sessions beside them.
+            if let Some(pids) = carried {
+                crate::adapters::end_groups(&pids);
+            }
             eprintln!("kelpie runner {project}: {}", exit.message());
             ExitCode::from(exit.code())
         }
@@ -140,7 +146,6 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
             .to_string()
             .into());
     }
-    let shepherd = shep_channel::serve();
     let sheep = std::env::var("SHEP_NAME")
         .ok()
         .filter(|name| !name.is_empty())
@@ -162,6 +167,12 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         .codex_home(&home, &kelpie_home)
         .map_err(|e| e.to_string())?;
     // A runner reads the gateways once, so each key's variable is unset in every call it makes.
+    // A handover starts the installed build to here before it execs it, so a build
+    // that would stop on the settings is refused while the old image still runs.
+    if std::env::var_os(handover::CHECK_VAR).is_some() {
+        return Ok(());
+    }
+    let shepherd = shep_channel::serve();
     let gateways = kelpie_settings.gateways();
     crate::spawn::hide(gateways.key_vars());
     // The runner's `env` holds the token `claude` logs in with, for `claude` alone.

@@ -11,13 +11,18 @@
 //! The channel's descriptor is not named to `shep_handover`: the shepherd
 //! passes it without close-on-exec and `SHEP_CHANNEL_FD` stays in the
 //! environment, so the new image's `shep_channel::serve` takes it again.
-//! Any refusal leaves this image running with every call.
+//! Before it execs, the build to be run is started once as a runner that stops
+//! after reading its settings, so one that would fail there is refused while
+//! this image still runs. Any refusal leaves this image running with every call.
 
 use std::any::Any;
+use std::ffi::OsString;
+use std::io::Read;
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
@@ -32,6 +37,13 @@ pub const ACTION: &str = "handover";
 /// the request is waiting, inside the shepherd's 3s limit on an action
 const ANSWER_WITHIN: Duration = Duration::from_millis(2500);
 
+/// The variable that starts a runner in its start check: it stops once it has
+/// read the settings and agent files a runner serves on
+pub(super) const CHECK_VAR: &str = "KELPIE_HANDOVER_CHECK";
+
+/// How long the installed build has to pass that check
+const CHECK_WITHIN: Duration = Duration::from_secs(20);
+
 /// How often a handover held for a stdin feed looks again
 pub(super) const HOLD_POLL: Duration = Duration::from_millis(200);
 
@@ -45,6 +57,11 @@ pub struct Carry {
 impl Carry {
     pub(super) fn into_turns(self) -> Vec<CarriedTurn> {
         self.turns
+    }
+
+    /// The processes the turns run as
+    pub(super) fn pids(&self) -> Vec<u32> {
+        self.turns.iter().map(CarriedTurn::pid).collect()
     }
 }
 
@@ -72,13 +89,24 @@ impl Handing {
     /// The handover to the installed build, held while a child's stdin is
     /// written and with `claude`'s calls kept from ending while it is made
     pub(super) fn installed(claude: ClaudeCli) -> Arc<Self> {
+        Self::installed_with(claude, true)
+    }
+
+    /// The same, with a test's image as the target, which cannot be asked to
+    /// start as a runner
+    #[cfg(test)]
+    pub(super) fn installed_unchecked(claude: ClaudeCli) -> Arc<Self> {
+        Self::installed_with(claude, false)
+    }
+
+    fn installed_with(claude: ClaudeCli, check: bool) -> Arc<Self> {
         let seal: Seal = Box::new(move || {
             claude
                 .seal()
                 .map(|sealed| Box::new(sealed) as Box<dyn Any + Send>)
         });
         Self::with(
-            Box::new(exec_installed),
+            Box::new(move |carry| exec_installed(carry, check)),
             seal,
             Box::new(crate::adapters::feeding),
         )
@@ -165,6 +193,12 @@ impl Handing {
         };
         // Held through the exec, so nothing changes what was carried.
         let held = runner.lock().unwrap_or_else(PoisonError::into_inner);
+        // A notice hook runs on a thread the new image would not have, and
+        // the notices queued behind it would be dropped.
+        if held.notices_running() {
+            *self.slot() = Some(tell);
+            return;
+        }
         match held.carry_calls() {
             Ok(turns) => refuse((self.exec)(&Carry { turns })),
             Err(why) => refuse(why),
@@ -177,17 +211,74 @@ fn error(message: &str) -> String {
 }
 
 // Execs the installed build, and says why it did not.
-fn exec_installed(carry: &Carry) -> String {
+fn exec_installed(carry: &Carry, check: bool) -> String {
     // Asked once the target is resolved and before anything is written. That
-    // the target reads `Carry` is the probe's to check.
-    let gate = |_: &Path| match crate::adapters::feeding() {
-        true => Verdict::Refused("a child's stdin began to be written".into()),
-        false => Verdict::Carryable,
+    // the target reads `Carry` is the probe's to check; that it can start as
+    // this runner is the check's, since a build that fails after the exec
+    // would leave the runner stopped with its calls running.
+    let gate = |target: &Path| {
+        if crate::adapters::feeding() {
+            return Verdict::Refused("a child's stdin began to be written".into());
+        }
+        let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+        match check
+            .then(|| starts(target, &args, CHECK_WITHIN))
+            .transpose()
+        {
+            Ok(_) => Verdict::Carryable,
+            Err(why) => Verdict::Refused(why),
+        }
     };
     match Handover::new(carry).exec(&gate) {
         Err(e) => e.to_string(),
         Ok(never) => match never {},
     }
+}
+
+// Runs `target` with `args` as a runner that stops once it has read its
+// settings, and says why it could not.
+fn starts(target: &Path, args: &[OsString], within: Duration) -> Result<(), String> {
+    let mut child = Command::new(target)
+        .args(args)
+        .env(CHECK_VAR, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("the installed build could not be started: {e}"))?;
+    let mut stderr = child.stderr.take();
+    let (said, heard) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(stderr) = stderr.as_mut() {
+            let _ = stderr.by_ref().take(1 << 16).read_to_end(&mut bytes);
+        }
+        let _ = said.send(bytes);
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= within => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("the installed build did not finish its start check in time".into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(e) => return Err(format!("the installed build's start check failed: {e}")),
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let said = heard
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap_or_default();
+    let said = String::from_utf8_lossy(&said);
+    let last = said.lines().last().unwrap_or("it said nothing");
+    Err(format!(
+        "the installed build would not start as this runner: {last}"
+    ))
 }
 
 #[cfg(test)]

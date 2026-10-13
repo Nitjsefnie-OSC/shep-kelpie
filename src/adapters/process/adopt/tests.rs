@@ -1,3 +1,4 @@
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -64,4 +65,19 @@ fn a_seal_is_refused_while_one_stands_or_a_call_is_being_read() {
     assert!(processes.seal().is_none(), "sealed with a call being read");
     drop(counting);
     assert!(processes.seal().is_some());
+}
+
+#[test]
+fn a_group_left_with_no_one_to_finish_it_is_ended() {
+    let mut child = Command::new("sh")
+        .args(["-c", "sleep 30"])
+        .process_group(0)
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    super::end_groups(&[child.id()]);
+
+    let status = child.wait().unwrap();
+    assert!(!status.success(), "it ran to its end: {status:?}");
 }

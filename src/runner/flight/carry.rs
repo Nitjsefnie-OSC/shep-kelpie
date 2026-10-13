@@ -36,6 +36,11 @@ impl CarriedTurn {
     pub fn issue(&self) -> u64 {
         self.issue
     }
+
+    /// The process the turn's call runs as
+    pub fn pid(&self) -> u32 {
+        self.adopted.pid
+    }
 }
 
 impl Runner {

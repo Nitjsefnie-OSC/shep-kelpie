@@ -138,6 +138,44 @@ fn a_handover_waits_out_a_call_whose_stdin_is_being_fed() {
 }
 
 #[test]
+fn a_handover_waits_out_a_notice_hook_that_is_running() {
+    use crate::hooks::Role;
+    use crate::settings::HookPoint;
+    let rig = Rig::new("shep");
+    let flag = rig.home.path().join("go");
+    let script = format!(
+        "read line; while [ ! -e {0} ]; do sleep 0.02; done",
+        flag.display()
+    );
+    rig.hook("slow.sh", &["done"], &script);
+    let runner = Arc::new(rig.open().unwrap());
+    runner
+        .lock()
+        .unwrap()
+        .tell_hooks(HookPoint::Done, Role::Kelpie, serde_json::json!({ "n": 1 }));
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover: Arc::clone(&handing),
+    };
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake.clone(), woken, died);
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(answer["handover"], "waiting for the runner's quiet point");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it did not wait");
+    assert!(handing.pending());
+    std::fs::write(&flag, "").unwrap();
+    eventually("the handover once the hook ended", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
 fn a_second_request_while_one_waits_is_refused() {
     let rig = Rig::new("shep");
     let hold = Hold::default();
@@ -160,6 +198,50 @@ fn a_second_request_while_one_waits_is_refused() {
     first.join().unwrap();
     hold.release();
     assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+// A build to start for the check: a script that runs `body`.
+fn build(rig: &Rig, body: &str) -> std::path::PathBuf {
+    let path = rig.home.path().join("build.sh");
+    crate::test::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
+    path
+}
+
+#[test]
+fn a_build_that_starts_as_the_runner_passes_the_check() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "[ -n \"$KELPIE_HANDOVER_CHECK\" ] && exit 0; exit 9");
+
+    assert_eq!(starts(&build, &[], Duration::from_secs(10)), Ok(()));
+}
+
+#[test]
+fn a_build_that_stops_on_the_settings_is_refused_with_what_it_said() {
+    let rig = Rig::new("shep");
+    let build = build(
+        &rig,
+        "echo 'kelpie runner koji: a setting is not valid' >&2; exit 1",
+    );
+
+    let why = starts(&build, &[], Duration::from_secs(10)).unwrap_err();
+
+    assert_eq!(
+        why,
+        "the installed build would not start as this runner: kelpie runner koji: a setting is not valid"
+    );
+}
+
+#[test]
+fn a_build_that_does_not_finish_its_check_is_stopped() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "exec sleep 30");
+
+    let why = starts(&build, &[], Duration::from_millis(200)).unwrap_err();
+
+    assert_eq!(
+        why,
+        "the installed build did not finish its start check in time"
+    );
 }
 
 mod exec;

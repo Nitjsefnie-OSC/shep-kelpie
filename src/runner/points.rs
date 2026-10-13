@@ -8,7 +8,8 @@
 //! in the runner, outside any sandbox, so they read what the runner can.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{OnceLock, mpsc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock, mpsc};
 
 use serde_json::{Value, json};
 
@@ -90,6 +91,8 @@ impl Job {
 #[derive(Debug, Default)]
 struct Notices {
     queue: OnceLock<mpsc::Sender<Job>>,
+    // The notices handed over and not yet run to their end
+    open: Arc<AtomicUsize>,
 }
 
 impl Notices {
@@ -97,12 +100,26 @@ impl Notices {
     fn send(&self, job: Job) -> Result<(), Box<Job>> {
         let queue = self.queue.get_or_init(|| {
             let (sender, jobs) = mpsc::channel::<Job>();
+            let open = Arc::clone(&self.open);
             let _ = std::thread::Builder::new()
                 .name("kelpie-notices".to_owned())
-                .spawn(move || jobs.into_iter().for_each(Job::run));
+                .spawn(move || {
+                    for job in jobs {
+                        job.run();
+                        open.fetch_sub(1, Ordering::SeqCst);
+                    }
+                });
             sender
         });
-        queue.send(job).map_err(|e| Box::new(e.0))
+        self.open.fetch_add(1, Ordering::SeqCst);
+        queue.send(job).map_err(|e| {
+            self.open.fetch_sub(1, Ordering::SeqCst);
+            Box::new(e.0)
+        })
+    }
+
+    fn running(&self) -> bool {
+        self.open.load(Ordering::SeqCst) > 0
     }
 
     #[cfg(test)]
@@ -144,7 +161,7 @@ impl Runner {
 
     /// Hands the project's notice hooks at `point` `details` to run, off
     /// the runner's lock, and logs the ones that did not exit 0
-    pub(super) fn tell_hooks(&self, point: HookPoint, role: Role, details: Value) {
+    pub(crate) fn tell_hooks(&self, point: HookPoint, role: Role, details: Value) {
         if !self.hooks.has(point) {
             return;
         }
@@ -159,6 +176,12 @@ impl Runner {
             // No thread could start, so the notice runs here, as it would have.
             job.run();
         }
+    }
+
+    /// Whether a notice hook is running or waits its turn, on a thread a
+    /// handover could not carry
+    pub fn notices_running(&self) -> bool {
+        self.told_points.notices.running()
     }
 
     /// Waits until every notice told so far has run

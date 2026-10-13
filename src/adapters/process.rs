@@ -25,7 +25,7 @@ mod adopt;
 pub(super) mod record;
 
 use self::adopt::Finishing;
-pub use self::adopt::Sealed;
+pub use self::adopt::{Sealed, end_groups};
 
 /// How often a running child is checked for its exit
 const POLL: Duration = Duration::from_millis(50);
