@@ -249,6 +249,7 @@ impl Runner {
             panel: None,
             verdict: None,
             unposted: false,
+            skipped: None,
             effects: Vec::new(),
             raised: Some(names.now),
         });
