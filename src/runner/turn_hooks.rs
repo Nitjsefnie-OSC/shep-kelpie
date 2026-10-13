@@ -14,10 +14,11 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::claim::Notes;
-use super::pm::COMPACT;
 use super::points::phase_name;
 use crate::hooks::{Hooks, Role};
-use crate::ports::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Session};
+use crate::ports::{
+    AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Session,
+};
 use crate::ports::{Role as Recipient, Transcript};
 use crate::settings::HookPoint;
 use crate::work_item::WorkItem;
