@@ -61,7 +61,10 @@ jobs:
   # The 30 minutes comes from a local macOS run (about 5 minutes of tests
   # after the build) and a hosted run where every test passed but the lib
   # suite alone took 17 minutes, so 20 cancelled the job before the rest ran.
+  # It runs after merge, not on pull requests: the org gets five macOS
+  # runners at once and pull requests queued behind them.
   test-macos:
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
