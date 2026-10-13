@@ -38,7 +38,7 @@ fn parked_red(project: &str, setup: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>, S
 
 #[test]
 fn a_red_item_wakes_it_with_the_failed_logs_tail_in_its_folder_and_the_board_naming_it() {
-    let log = "--- run 9\nFAIL TestFailedBootstrapRecordSwitchesTheAreaBackOff\n";
+    let log = "--- run 9\nFAIL TestFailedBootstrapRecordSwitchesTheAreaBackOff work.txt\n";
     let (rig, _runner, _) = parked_red("koji", |rig| rig.forge.set_ci_log(log));
 
     let pm = rig.paths().pm;
@@ -83,7 +83,9 @@ fn a_log_that_cannot_be_read_is_noted_and_the_wake_still_happens() {
 
 #[test]
 fn a_diffs_folder_that_cannot_be_cleared_does_not_cost_the_wake_its_ci_log() {
-    let (rig, runner, _) = parked_red("snorlax", |rig| rig.forge.set_ci_log("--- run 9\nboom\n"));
+    let (rig, runner, _) = parked_red("snorlax", |rig| {
+        rig.forge.set_ci_log("--- run 9\nboom work.txt\n")
+    });
     let pm = rig.paths().pm;
     std::fs::remove_dir_all(pm.join("diffs")).unwrap();
     std::fs::write(pm.join("diffs"), "in the way").unwrap();
@@ -103,7 +105,9 @@ fn a_diffs_folder_that_cannot_be_cleared_does_not_cost_the_wake_its_ci_log() {
 
 #[test]
 fn a_log_does_not_outlive_its_ruling() {
-    let (rig, runner, _) = parked_red("ditto", |rig| rig.forge.set_ci_log("--- run 9\nboom\n"));
+    let (rig, runner, _) = parked_red("ditto", |rig| {
+        rig.forge.set_ci_log("--- run 9\nboom work.txt\n")
+    });
     let pm = rig.paths().pm;
     assert!(pm.join("ci/7.log").is_file());
 

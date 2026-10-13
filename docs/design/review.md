@@ -40,6 +40,7 @@ Review passes, bots, CI, the merge, rulings.
 
 ## CI and the merge
 
+- Red CI whose failed logs (read as the maintainer's login) name no file the branch changed: kelpie reruns that head's failed jobs once (`gh run rerun --failed`), no fix turn, `reran` on the item, `rerunning` in `status`, `ci-rerun` in the log. Unreadable log, a changed file named, a refused rerun or a rerun head: fix turn as below, saying the failure repeated after a rerun. #648, `src/runner/gate/rerun.rs`
 - After review item waits for CI; red = fix turn; second red on untouched head parks `still-red`; `ci.fix_attempts` caps fix turns (`-1` no cap). `ci.block` off reads no checks. #9, #380, `src/runner/gate.rs`, `src/settings/ci.rs`
 - Branch behind `main` caught up by kelpie: rebase with lease, or merge where commits aren't kelpie's to rewrite. Conflict: kelpie starts `git merge --no-commit origin/main` in the worktree itself (so `main`'s files the sandbox refuses, `.claude/` included, land staged), and the worker turn only resolves the conflicted files, `git commit --no-edit`s and pushes without force. A rebase that conflicts falls back to that merge; a merge with no conflict is committed and pushed. A worktree already mid-merge is not merged again; unresolved parks `rebase`. #61, #609, `src/runner/gate/catch_up.rs`
 - `git.merging` required: `auto` or `ask`. `ask`: yes merges only the head asked about while green and current, `--merge --match-head-commit`, never squash. `src/runner/merge.rs`

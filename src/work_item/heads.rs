@@ -1,8 +1,8 @@
 //! The heads a work item's merge may take: ones a review round read, ones
 //! kelpie sends to CI unread on purpose, and an adopted pull request's head
-//! as it arrived
+//! as it arrived, and the one whose CI rerun is awaited
 
-use super::WorkItem;
+use super::{Phase, WorkItem};
 
 impl WorkItem {
     /// Records that a review round read `head`
@@ -36,5 +36,21 @@ impl WorkItem {
         self.reviewed_heads.iter().any(is)
             || self.sent_unread.iter().any(is)
             || self.arrived.as_ref().is_some_and(is)
+    }
+
+    /// The head whose failed CI jobs kelpie reran, while the item still
+    /// waits on that rerun: in CI, or in a review whose CI wait on that
+    /// head is not yet green, with no fix turn sent for it
+    pub fn rerunning(&self) -> Option<&str> {
+        let reran = self.reran.as_deref()?;
+        let waiting = match &self.phase {
+            Phase::Ci { head, .. } => head.as_deref() == Some(reran),
+            Phase::Review(review) => review
+                .ci
+                .as_ref()
+                .is_some_and(|ci| ci.head == reran && !ci.green),
+            _ => false,
+        };
+        (waiting && self.red_head.as_deref() != Some(reran)).then_some(reran)
     }
 }

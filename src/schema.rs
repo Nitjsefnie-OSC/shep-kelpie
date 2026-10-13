@@ -119,6 +119,16 @@ mod tests {
         keys
     }
 
+    // Names the keys only one side has, not either whole set.
+    fn assert_same_keys(schema: &BTreeSet<String>, set: &BTreeSet<String>) {
+        let unset: Vec<_> = schema.difference(set).collect();
+        let unknown: Vec<_> = set.difference(schema).collect();
+        assert!(
+            unset.is_empty() && unknown.is_empty(),
+            "in the schema but never set: {unset:?}; set but not in the schema: {unknown:?}"
+        );
+    }
+
     fn keys_of_table(root: &Value, schema: &Value, text: &str) -> BTreeSet<String> {
         let mut keys = BTreeSet::new();
         table_keys(root, schema, &toml::from_str(text).unwrap(), "", &mut keys);
@@ -216,13 +226,16 @@ mod tests {
             .iter()
             .flat_map(|text| keys_of_table(&root, sheep_schema, text))
             .collect();
-        assert_eq!(sheep, set);
+        assert_same_keys(&sheep, &set);
         for key in [
             "agents.reviewers",
             "agents.implementers",
             "worker.build_env",
         ] {
-            assert!(sheep.contains(key), "{key}: {sheep:?}");
+            assert!(
+                sheep.contains(key),
+                "{key} is not a key of the project schema"
+            );
         }
     }
 
@@ -269,7 +282,10 @@ mod tests {
             );
         let example: toml::Table = toml::from_str(&example).unwrap();
         let section = toml::to_string(&example["kelpie"]).unwrap();
-        assert_eq!(keys_of_schema(&root), keys_of_table(&root, &root, &section));
+        assert_same_keys(
+            &keys_of_schema(&root),
+            &keys_of_table(&root, &root, &section),
+        );
     }
 
     #[test]
@@ -323,8 +339,8 @@ mod tests {
     #[test]
     fn only_the_webhooks_url_ca_cert_and_token_are_secrets() {
         let root = schema();
-        let text = root.to_string();
-        assert_eq!(text.matches(SECRET_KEY).count(), 3, "{text}");
+        let secrets = root.to_string().matches(SECRET_KEY).count();
+        assert_eq!(secrets, 3, "the schema marks {secrets} keys secret");
         let webhook = resolve(&root, &root["properties"]["webhook"]);
         for key in ["url", "ca_cert", "token"] {
             assert_eq!(webhook["properties"][key][SECRET_KEY], true, "{key}");

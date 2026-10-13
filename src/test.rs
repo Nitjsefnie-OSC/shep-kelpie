@@ -99,6 +99,7 @@ pub(crate) fn a_work_item() -> WorkItem {
             since: Timestamp(11),
         },
         red_head: Some("bad".into()),
+        reran: None,
         conflict: Some(crate::work_item::Conflict {
             head: "c0ffee".into(),
             main: "a11ce".into(),

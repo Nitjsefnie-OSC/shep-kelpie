@@ -31,6 +31,7 @@ pub(crate) const CHECKS_SETTLE: u64 = 120;
 mod catch_up;
 #[cfg(test)]
 mod fix_attempts;
+mod rerun;
 
 impl Runner {
     pub(super) fn check_ci(&mut self) -> Result<Begin, StateError> {
@@ -222,6 +223,10 @@ impl Runner {
                 .into(),
             );
         }
+        if let Some(begin) = self.rerun_if_unrelated(number, &head, &checks)? {
+            return Ok(begin);
+        }
+        let item = self.current().expect("CI runs on a work item");
         let turns = item.counts.ci_fix_turns;
         if self
             .settings
@@ -242,9 +247,11 @@ impl Runner {
             );
         }
         let help = self.red_help(number, &head);
-        let prompt = self
-            .skills
-            .invoke(Step::CiFix, &red_prompt(number, &head, &checks, &help));
+        let repeated = self.current().and_then(|i| i.reran.as_deref()) == Some(head.as_str());
+        let prompt = self.skills.invoke(
+            Step::CiFix,
+            &red_prompt(number, &head, &checks, &help, repeated),
+        );
         self.back_to_worker(number, head, checks, prompt, true, review)
     }
 
@@ -324,9 +331,16 @@ pub(super) fn short(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
 }
 
-fn red_prompt(number: u64, head: &str, checks: &[String], help: &str) -> String {
+fn red_prompt(number: u64, head: &str, checks: &[String], help: &str, repeated: bool) -> String {
+    let repeated = match repeated {
+        true => {
+            " Its log named no file this branch changed, so kelpie reran this head's failed \
+             jobs and they failed again: the failure repeats, so do not call it a flake."
+        }
+        false => "",
+    };
     format!(
-        "CI failed on your pull request #{number} at {}: {}. {help} \
+        "CI failed on your pull request #{number} at {}: {}.{repeated} {help} \
          Fix it on this branch, commit, and push with `git push origin HEAD`. \
          {KEEP_BODY_TRUE}",
         short(head),

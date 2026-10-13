@@ -12,6 +12,7 @@ mod attach;
 pub mod control;
 mod pm;
 pub mod rule;
+mod set;
 mod usage;
 mod verbs;
 mod watch;

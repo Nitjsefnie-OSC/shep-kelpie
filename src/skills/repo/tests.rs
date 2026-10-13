@@ -489,7 +489,7 @@ fn a_directory_that_is_not_inside_the_checkout_is_refused() {
         .iter()
         .map(|p| p["skipped"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(reasons.len(), 2, "{status}");
+    assert_eq!(reasons.len(), 2, "{}", status["plugins"]);
     for reason in reasons {
         assert!(
             reason.ends_with("it is not a folder inside the checkout"),
