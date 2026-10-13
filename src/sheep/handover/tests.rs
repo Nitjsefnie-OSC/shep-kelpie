@@ -267,5 +267,33 @@ fn a_build_that_does_not_finish_its_check_is_stopped() {
     );
 }
 
+#[test]
+fn a_feed_that_begins_during_the_start_check_refuses_the_exec() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "sleep 0.5");
+    let feeding = Arc::new(AtomicBool::new(false));
+    let begins = Arc::clone(&feeding);
+    let later = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        begins.store(true, Ordering::SeqCst);
+    });
+
+    let verdict = fitness(&build, &[], true, &|| feeding.load(Ordering::SeqCst));
+
+    later.join().unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Refused("a child's stdin began to be written".into())
+    );
+}
+
+#[test]
+fn a_build_that_starts_with_no_feed_going_is_carryable() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "exit 0");
+
+    assert_eq!(fitness(&build, &[], true, &|| false), Verdict::Carryable);
+}
+
 mod exec;
 mod pi;
