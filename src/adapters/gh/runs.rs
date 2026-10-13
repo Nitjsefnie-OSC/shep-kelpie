@@ -32,7 +32,7 @@ pub(super) fn failed_run_logs(
         let log = gh(&["run", "view", &id, "--repo", repo.as_str(), "--log-failed"])?;
         text.push_str(&format!(
             "--- run {id}\n{}\n",
-            tail(&String::from_utf8_lossy(&log), LOG_BYTES)
+            failure_tail(&String::from_utf8_lossy(&log), LOG_BYTES)
         ));
     }
     Ok(text)
@@ -107,6 +107,65 @@ fn failed_runs(listed: &[u8], head: &str, merge_group: bool) -> Result<Vec<u64>,
         .collect())
 }
 
+// The last `max` bytes of `log` once cargo's progress lines and GitHub's
+// timestamps are gone, so the end is the failure and not the build before it
+fn failure_tail(log: &str, max: usize) -> String {
+    let kept: Vec<String> = log
+        .lines()
+        .filter(|line| !is_progress(line))
+        .map(strip_timestamp)
+        .collect();
+    tail(&kept.join("\n"), max).to_owned()
+}
+
+// A line cargo prints as it builds: a right-aligned verb, then a crate
+fn is_progress(line: &str) -> bool {
+    let text = strip_timestamp(line);
+    // `gh run view --log-failed` puts the job and step before the text
+    let text = text.rsplit('\t').next().unwrap_or(&text).trim_start();
+    [
+        "Compiling",
+        "Downloaded",
+        "Downloading",
+        "Checking",
+        "Fresh",
+    ]
+    .iter()
+    .any(|verb| {
+        text.strip_prefix(verb)
+            .is_some_and(|rest| rest.starts_with(' '))
+    })
+}
+
+// `line` without the `2026-10-13T10:00:00.0000000Z ` GitHub puts before the
+// text of each log line, which follows the job and step names
+fn strip_timestamp(line: &str) -> String {
+    let (head, text) = match line.rsplit_once('\t') {
+        Some((head, text)) => (format!("{head}\t"), text),
+        None => (String::new(), line),
+    };
+    let stamped = text
+        .split_once(' ')
+        .filter(|(stamp, _)| is_timestamp(stamp));
+    match stamped {
+        Some((_, rest)) => format!("{head}{rest}"),
+        None => line.to_owned(),
+    }
+}
+
+// `2026-10-13T10:00:00.0000000Z`
+fn is_timestamp(word: &str) -> bool {
+    let b = word.as_bytes();
+    b.len() >= 20
+        && b.ends_with(b"Z")
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[10] == b'T'
+        && b[11..b.len() - 1]
+            .iter()
+            .all(|c| c.is_ascii_digit() || matches!(c, b':' | b'.'))
+}
+
 // The last `max` bytes of `log`, from the start of a line where one is near
 fn tail(log: &str, max: usize) -> &str {
     if log.len() <= max {
@@ -154,6 +213,29 @@ mod tests {
     #[test]
     fn the_queues_failed_runs_are_those_of_the_merge_group_event() {
         assert_eq!(failed_runs(LISTED, "abc", true).unwrap(), [4]);
+    }
+
+    #[test]
+    fn a_failed_logs_tail_has_no_cargo_progress_lines() {
+        let mut log = String::new();
+        for n in 0..400 {
+            log.push_str(&format!(
+                "test\tBuild\t2026-10-13T10:00:00.0000000Z    Compiling crate{n} v0.1.0\n\
+                 test\tBuild\t2026-10-13T10:00:00.0000000Z  Downloaded dep{n} v1.0.0\n\
+                 test\tBuild\t2026-10-13T10:00:00.0000000Z  Downloading crates ...\n\
+                 test\tBuild\t2026-10-13T10:00:00.0000000Z    Checking crate{n} v0.1.0\n\
+                 test\tBuild\t2026-10-13T10:00:00.0000000Z       Fresh crate{n} v0.1.0\n"
+            ));
+        }
+        log.push_str("test\tBuild\t2026-10-13T10:01:00.0000000Z error[E0308]: mismatched types\n");
+        log.push_str("test\tBuild\t2026-10-13T10:01:00.0000000Z  --> src/lib.rs:1:1\n");
+
+        let kept = failure_tail(&log, LOG_BYTES);
+
+        assert_eq!(
+            kept,
+            "test\tBuild\terror[E0308]: mismatched types\ntest\tBuild\t --> src/lib.rs:1:1"
+        );
     }
 
     #[test]
