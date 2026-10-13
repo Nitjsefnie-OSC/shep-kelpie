@@ -8,7 +8,7 @@ use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
-use crate::test::{Answer, Hold, Rig, Scripted, StandInEndpoint};
+use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
 const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
                      effort: medium\nusage: codex\n---\n";
@@ -292,12 +292,12 @@ fn a_local_turn_waits_while_a_review_round_holds_the_gpu() {
 }
 
 // The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
-const BEHIND_PADDOCK: &str = "---\nrole: reviewer\nharness: endpoint\ngateway: paddock\n\
-                              model: coder\ncontext: 8192\n---\n";
+const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\neffort: low\n\
+                              gateway: paddock\ncontext: 65536\n---\n";
 
 #[test]
 fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
-    let server = StandInEndpoint::start([Answer::Says(CLEAN)])
+    let server = StandInEndpoint::start([])
         .like_paddock(env!("CARGO_PKG_NAME"), &["coder"])
         .with_paddock_status(
             r#"{"leases":[
@@ -306,8 +306,8 @@ fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
             ],"waiters":[]}"#,
         );
     let rig = Rig::new("rotom");
-    rig.reviewers(&["mine"]);
     rig.write_agent("mine", BEHIND_PADDOCK);
+    rig.implementers(&["sonnet-high", "mine"]);
     let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
     let gateway = format!(
         "[gateways.paddock]\nurl = \"{}\"\nkey_env = \"CARGO_PKG_NAME\"\n",
