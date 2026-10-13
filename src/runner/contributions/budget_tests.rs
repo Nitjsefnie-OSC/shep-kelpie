@@ -43,7 +43,7 @@ fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
 }
 
 // Steps until no security review is in flight
-fn settle(runner: &Mutex<Runner>) {
+pub(super) fn settle(runner: &Mutex<Runner>) {
     let by = Instant::now() + CALL_PATIENCE;
     while runner.lock().unwrap().flights.securing() {
         assert!(Instant::now() < by, "the call never ended");
@@ -89,9 +89,15 @@ fn a_contribution_holds_no_slot_while_it_waits_on_the_contributor() {
     assert!(runner.lock().unwrap().slot_free());
     assert!(runner.lock().unwrap().board_open());
 
-    // Waiting on its contributor, it holds none, and a work item opens.
+    // Approved and green, its head is read by the reviewers, whose call takes the slot.
     let kept = contribution(&rig, &runner);
     assert_eq!(kept["passed"], kept["head"]);
+    poll(&rig, &runner);
+    settle(&runner);
+    assert_eq!(contribution(&rig, &runner)["pass"]["answered"], "qwen");
+
+    // Waiting on its contributor, it holds none, and a work item opens.
+    assert!(runner.lock().unwrap().slot_free());
     rig.forge.list_ready(8, false);
     rig.next_look();
     assert!(matches!(

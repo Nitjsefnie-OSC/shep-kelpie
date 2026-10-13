@@ -12,12 +12,13 @@
 //! the record of one that was closed, merged, made a draft again, or, under
 //! `"label"`, lost the label. A new head updates the record, and each head no
 //! security review has read is read ([`security`]) before anything of the
-//! contributor's can run ([`ruling`] raises one for a flagged head). Nothing
-//! is posted and nothing runs for a contribution here.
+//! contributor's can run ([`ruling`] raises one for a flagged head). A head
+//! that passed, and whose CI is green, is then read by the reviewers
+//! ([`pass`]). Nothing is posted and nothing of the contributor's runs here.
 //!
 //! A contribution holds no slot while it waits on its contributor. A call on
 //! it takes one for as long as it runs, starts only where a slot is free, and
-//! goes ahead of the board's next issue ([`Runner::security_due`], asked by
+//! goes ahead of the board's next issue ([`Runner::contribution_due`], asked by
 //! `dispatch`). Its priced cost adds to the contribution's `spend`, and past
 //! `budget.per_item_usd` no call starts until a ruling is answered
 //! ([`budget`]).
@@ -25,17 +26,77 @@
 mod budget;
 mod ci;
 mod heard;
+mod pass;
 mod ruling;
 mod security;
 
 pub(super) use ruling::{flagged_lines, raise_budget, trust};
-pub(super) use security::{Job, Reading};
+
+use crate::ports::{Agents, Ending, Reviewer};
+use crate::state::StateError;
 
 use super::Runner;
+use super::report::Begin;
 use crate::board::{OpenPullRequest, READY};
 use crate::ports::ForgeError;
 use crate::settings::Pick;
-use crate::state::{Contribution, StateError};
+use crate::state::Contribution;
+
+/// A call on a contribution's head, with everything it needs
+pub(super) enum Job {
+    /// The security review of the head
+    Security(security::Job),
+    /// The pass of the reviewers over the head
+    Pass(pass::Job),
+}
+
+/// What a call on a contribution's head came to
+#[derive(Debug)]
+pub(super) enum Reading {
+    /// A security review's
+    Security(security::Reading),
+    /// A pass's
+    Pass(pass::Walked),
+}
+
+impl Job {
+    /// The contribution it is on
+    pub(super) fn pull_request(&self) -> u64 {
+        match self {
+            Self::Security(job) => job.pull_request,
+            Self::Pass(job) => job.pull_request,
+        }
+    }
+
+    /// The head it reads
+    pub(super) fn head(&self) -> &str {
+        match self {
+            Self::Security(job) => &job.head,
+            Self::Pass(job) => &job.head,
+        }
+    }
+
+    /// What the call leaves when it panics: the head unread, for the next poll
+    pub(super) fn unread(&self) -> Reading {
+        match self {
+            Self::Security(_) => Reading::Security(security::Reading::default()),
+            Self::Pass(_) => Reading::Pass(pass::Walked::default()),
+        }
+    }
+
+    /// Runs the call to its end, or until `ending` is asked
+    pub(super) fn run(
+        self,
+        agents: &dyn Agents,
+        reviewer: &dyn Reviewer,
+        ending: &Ending,
+    ) -> Reading {
+        match self {
+            Self::Security(job) => Reading::Security(job.read(agents, ending)),
+            Self::Pass(job) => Reading::Pass(job.walk(agents, reviewer, ending)),
+        }
+    }
+}
 
 /// The two logins whose pull requests are not contributions
 pub(super) struct Logins {
@@ -50,6 +111,16 @@ impl Logins {
 }
 
 impl Runner {
+    // The call on a contribution's head to start, if one is due: its security
+    // review first, then the pass over a green head. See `security_due` and
+    // `run_pass`.
+    pub(super) fn contribution_due(&mut self) -> Result<Option<Begin>, StateError> {
+        match self.security_due()? {
+            Some(begin) => Ok(Some(begin)),
+            None => self.run_pass(),
+        }
+    }
+
     // The logins whose pull requests are not contributions: the maintainer's,
     // and the account kelpie acts as
     pub(super) fn own_logins(&mut self) -> Result<Logins, ForgeError> {
@@ -81,6 +152,16 @@ impl Runner {
     // requests, once a poll. A listing or a login that cannot be read leaves
     // the records as they are, for the board's own read to report.
     pub(super) fn follow_contributions(&mut self) -> Result<(), StateError> {
+        let before: Vec<u64> = (self.state.contributions.iter())
+            .map(|c| c.pull_request)
+            .collect();
+        self.follow_open()?;
+        // A pull request that left the record takes its checkout with it.
+        self.remove_checkouts(&before);
+        Ok(())
+    }
+
+    fn follow_open(&mut self) -> Result<(), StateError> {
         if self.settings.contributions.is_off() {
             if self.state.contributions.is_empty() {
                 return Ok(());
@@ -136,6 +217,8 @@ mod budget_tests;
 mod ci_tests;
 #[cfg(test)]
 mod heard_tests;
+#[cfg(test)]
+mod pass_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

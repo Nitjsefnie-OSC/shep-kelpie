@@ -56,7 +56,7 @@ impl Runner {
         }
         // A contribution's call goes before any new issue, and takes the slot
         // the board would have.
-        if let Some(begin) = self.security_due()? {
+        if let Some(begin) = self.contribution_due()? {
             self.skipped = failed;
             return Ok(begin);
         }

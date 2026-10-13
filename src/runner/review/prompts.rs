@@ -24,7 +24,7 @@ fn filled(body: &str, base: &str, diff: &str) -> String {
 /// against `base`, the issue's `criteria`, on a project with a test command
 /// the `tests` it may write, as that command and the folder, and on a second
 /// look what the first found
-pub(super) fn reviewer_prompt(
+pub(in crate::runner) fn reviewer_prompt(
     body: &str,
     base: &str,
     diff: &str,

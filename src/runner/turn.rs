@@ -155,7 +155,7 @@ impl Runner {
                 }
                 Slot::Contributions => {
                     self.focus = None;
-                    self.security_due()?.unwrap_or(Begin::Idle)
+                    self.contribution_due()?.unwrap_or(Begin::Idle)
                 }
             };
             let held = self.forge_hold.until(now);

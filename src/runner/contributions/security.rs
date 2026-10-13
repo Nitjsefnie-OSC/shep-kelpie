@@ -24,7 +24,7 @@ use super::super::Runner;
 use super::super::report::Begin;
 use super::super::review::calls::build_call;
 use super::super::untrusted;
-use super::ruling;
+use super::{Job as Call, ruling};
 use crate::ports::{Agents, Cost, Ending, Finding, Role, Severity, Tools, read_review};
 use crate::settings::RoleModel;
 use crate::state::{Security, SecurityVerdict, StateError};
@@ -58,7 +58,7 @@ pub(in crate::runner) struct Job {
 }
 
 /// What reading one head came to
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(in crate::runner) struct Reading {
     /// The verdict, or `None` when the head could not be read, which leaves it
     /// unread for the next poll
@@ -87,7 +87,9 @@ impl Runner {
             if self.over_budget(number)? {
                 continue;
             }
-            return Ok(self.security_job(number).map(Begin::Secure));
+            return Ok(self
+                .security_job(number)
+                .map(|job| Begin::Secure(Call::Security(job))));
         }
         Ok(None)
     }
