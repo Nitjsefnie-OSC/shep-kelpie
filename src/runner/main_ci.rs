@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use super::Runner;
 use crate::ports::{BranchRun, ForgeError, Timestamp, WorkflowState};
-use crate::state::RedWorkflow;
+use crate::state::{MainNotice, Notice, RedWorkflow};
 use crate::worktree::BASE;
 
 /// A workflow red on `main`, as `status` shows it
@@ -46,17 +46,19 @@ impl Runner {
         if !self.looks.main_ci_due(now) || self.forge_hold.until(now).is_some() {
             return;
         }
-        let red = self.read_red();
+        let read = self.read_red();
         self.looks
-            .main_ci_read(now, red.is_ok(), self.forge_hold.until(now));
-        let Ok(red) = red else {
+            .main_ci_read(now, read.is_ok(), self.forge_hold.until(now));
+        let Ok(read) = read else {
             return;
         };
-        if red == self.state.red {
+        let mut next = self.state.clone();
+        next.red = read.red;
+        let notices = self.act_on_reds(&read.failing, &mut next.red, &read.cleared, now);
+        next.notices.extend(notices);
+        if next.red == self.state.red {
             return;
         }
-        let mut next = self.state.clone();
-        next.red = red;
         match self.save(next) {
             Ok(()) => self.board_changed(),
             Err(e) => eprintln!("cannot save the red workflows on main: {e}"),
@@ -67,16 +69,80 @@ impl Runner {
     // stays listed when its latest run is older than the runs read, so the
     // forge's list of workflows is what drops one that can no longer run;
     // it is asked only while something is red.
-    fn read_red(&self) -> Result<Vec<RedWorkflow>, ForgeError> {
+    fn read_red(&self) -> Result<Read, ForgeError> {
         let runs = self.ports.forge.branch_runs(&self.remote, BASE)?;
-        let mut red = still_red(&self.state.red, &runs);
-        if !red.is_empty() {
+        let mut read = still_red(&self.state.red, &runs);
+        if !read.red.is_empty() {
             let workflows = self.ports.forge.workflows(&self.remote)?;
-            red.retain(|r| {
+            read.red.retain(|r| {
                 (workflows.iter()).any(|w| w.name == r.workflow && w.state == WorkflowState::Active)
             });
         }
-        Ok(red)
+        Ok(read)
+    }
+
+    // What to do about the workflows this read found red, and the notices it
+    // leaves to post. A workflow in `failing` is rerun the first time, and
+    // told once it is red again: after its rerun, or at once where the forge
+    // refuses one. A limit that is used up waits for the next read. Each of
+    // `cleared` that was told is told green.
+    fn act_on_reds(
+        &self,
+        failing: &[String],
+        red: &mut [RedWorkflow],
+        cleared: &[Cleared],
+        now: Timestamp,
+    ) -> Vec<Notice> {
+        let mut notices = Vec::new();
+        for workflow in red
+            .iter_mut()
+            .filter(|r| !r.noticed && failing.contains(&r.workflow))
+        {
+            if workflow.reran.is_none() {
+                match self.ports.forge.rerun_run(&self.remote, workflow.run) {
+                    Ok(()) => {
+                        workflow.reran = Some(workflow.run);
+                        continue;
+                    }
+                    Err(ForgeError::Held(_) | ForgeError::Limited { .. }) => continue,
+                    Err(e) => eprintln!("cannot rerun {} on main: {e}", workflow.workflow),
+                }
+            }
+            workflow.noticed = true;
+            notices.push(Notice::Main(MainNotice {
+                workflow: workflow.workflow.clone(),
+                run: workflow.run,
+                red_for: now.0.saturating_sub(workflow.since.0),
+                log: self.log_end(workflow.run),
+                green: false,
+            }));
+        }
+        for Cleared { was, by } in cleared.iter().filter(|c| c.was.noticed) {
+            notices.push(Notice::Main(MainNotice {
+                workflow: was.workflow.clone(),
+                run: *by,
+                red_for: now.0.saturating_sub(was.since.0),
+                log: String::new(),
+                green: true,
+            }));
+        }
+        notices
+    }
+
+    // The last lines of run `run`'s failed log, or none where it cannot be read
+    fn log_end(&self, run: u64) -> String {
+        let log = self.ports.forge.run_log_tail(&self.remote, run);
+        let log = log.unwrap_or_else(|e| {
+            eprintln!("cannot read the log of run {run} on main: {e}");
+            String::new()
+        });
+        let lines: Vec<&str> = log.lines().collect();
+        let end = lines[lines.len().saturating_sub(NOTICE_LOG_LINES)..].join("\n");
+        let mut cut = end.len().saturating_sub(NOTICE_LOG_BYTES);
+        while !end.is_char_boundary(cut) {
+            cut += 1;
+        }
+        end[cut..].to_owned()
     }
 
     /// The workflows red on `main` as `status` shows them, in the order they went red
@@ -122,18 +188,54 @@ fn on_main(runs: &[BranchRun]) -> Vec<&BranchRun> {
     latest
 }
 
+/// How much of the end of a failed log a notice carries: at most this many
+/// lines, and at most this many bytes, which a webhook's message has room for
+const NOTICE_LOG_LINES: usize = 20;
+const NOTICE_LOG_BYTES: usize = 2000;
+
+/// What a read of `main`'s runs found
+struct Read {
+    /// The red workflows after it
+    red: Vec<RedWorkflow>,
+    /// The workflows whose latest run it read was red
+    failing: Vec<String>,
+    /// The workflows a successful run took out of `red`
+    cleared: Vec<Cleared>,
+}
+
+/// A workflow that went green
+struct Cleared {
+    /// How it stood when it was red
+    was: RedWorkflow,
+    /// The run that cleared it
+    by: u64,
+}
+
 // `red` after `runs`, the latest completed run of each workflow and event: a
 // red run keeps or adds its workflow, a successful one drops it, and any
-// other leaves it as it was
-fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Vec<RedWorkflow> {
+// other leaves it as it was. A red workflow's run from before the first one
+// kelpie read is not its latest: while its failed jobs are rerunning the run
+// is not completed, and an older run shows in its place.
+fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Read {
     let mut next = red.to_vec();
+    let mut failing = Vec::new();
+    let mut cleared = Vec::new();
     for run in on_main(runs) {
         let at = next.iter().position(|r| r.workflow == run.workflow);
+        if at.is_some_and(|at| run.created < next[at].since) {
+            continue;
+        }
         if !is_red(&run.conclusion) {
             if let (Some(at), "success") = (at, run.conclusion.as_str()) {
-                next.remove(at);
+                cleared.push(Cleared {
+                    was: next.remove(at),
+                    by: run.id,
+                });
             }
-        } else if let Some(at) = at {
+            continue;
+        }
+        failing.push(run.workflow.clone());
+        if let Some(at) = at {
             next[at].run = run.id;
             next[at].head.clone_from(&run.head);
         } else {
@@ -143,11 +245,19 @@ fn still_red(red: &[RedWorkflow], runs: &[BranchRun]) -> Vec<RedWorkflow> {
                 run: run.id,
                 head: run.head.clone(),
                 since: run.created,
+                reran: None,
+                noticed: false,
             });
         }
     }
-    next
+    Read {
+        red: next,
+        failing,
+        cleared,
+    }
 }
 
+#[cfg(test)]
+mod notice_tests;
 #[cfg(test)]
 mod tests;

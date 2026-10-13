@@ -21,4 +21,12 @@ pub struct RedWorkflow {
     pub head: String,
     /// When `first_run` was created, so how long kelpie has known it red
     pub since: Timestamp,
+    /// The run whose failed jobs kelpie reran when it first read the workflow
+    /// red, once it has
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reran: Option<u64>,
+    /// Whether the maintainer was told it stayed red, so a red stretch is
+    /// told once
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub noticed: bool,
 }

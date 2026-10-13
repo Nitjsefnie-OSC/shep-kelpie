@@ -26,6 +26,7 @@ pub(super) struct CiRuns {
     log_error: Option<String>,
     reruns: Vec<String>,
     rerun_error: Option<String>,
+    run_reruns: Vec<u64>,
     // The latest run of each workflow, by branch
     branch_runs: HashMap<String, Vec<BranchRun>>,
     // The workflow names any scripted runs carried, in the order they came
@@ -66,7 +67,25 @@ impl CiRuns {
     }
 }
 
+impl CiRuns {
+    /// Records a rerun of run `run`, or says why it fails
+    pub(super) fn rerun_of_run(&mut self, run: u64) -> Result<(), String> {
+        match &self.rerun_error {
+            Some(error) => Err(error.clone()),
+            None => {
+                self.run_reruns.push(run);
+                Ok(())
+            }
+        }
+    }
+}
+
 impl FakeForge {
+    /// The runs whose failed CI jobs kelpie reran by id, in order
+    pub(crate) fn run_reruns(&self) -> Vec<u64> {
+        self.ci.lock().unwrap().run_reruns.clone()
+    }
+
     /// Makes the failed CI runs' logs say `log`
     pub(crate) fn set_ci_log(&self, log: &str) {
         let mut ci = self.ci.lock().unwrap();

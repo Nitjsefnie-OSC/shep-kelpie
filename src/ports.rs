@@ -368,6 +368,13 @@ pub trait Forge: Send + Sync {
     /// failed on `head`.
     fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError>;
 
+    /// Reruns the failed jobs of CI run `run`, as the login the forge acts as
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError>;
+
     /// Marks draft pull request `number` ready for review
     ///
     /// # Errors

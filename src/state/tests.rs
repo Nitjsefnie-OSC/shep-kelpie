@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 43);
+    assert_eq!(VERSION, 44);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -246,11 +246,11 @@ fn the_file_format_is_pinned() {
             why: "its call failed".into(),
         }),
     ));
-    state.notices = vec![Notice {
+    state.notices = vec![Notice::Merged(MergeNotice {
         issue: 22,
         pull_request: 30,
         head: "c0ffee".into(),
-    }];
+    })];
     state.finished = vec![22, 30];
     state.reworked = vec!["PRR_1".into()];
     state.adopted = vec![

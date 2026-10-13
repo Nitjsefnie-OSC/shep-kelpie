@@ -15,8 +15,9 @@ use super::Runner;
 use super::gate::short;
 use super::report::StepReport;
 use super::trigger::lock;
+use crate::board::briefing::elapsed;
 use crate::ports::{Alert, AlertError, Alerts, ReplyWith, Timestamp};
-use crate::state::{Notice, StateError};
+use crate::state::{MainNotice, MergeNotice, Notice, StateError};
 use crate::webhook::Webhook;
 
 // A failed post waits a minute, then twice as long after each failure, up
@@ -36,6 +37,13 @@ pub(super) enum Posting {
         issue: u64,
         /// The pull request merged
         pull_request: u64,
+    },
+    /// The notice of a workflow on `main`
+    Main {
+        /// The run it names
+        run: u64,
+        /// Whether the workflow went green
+        green: bool,
     },
 }
 
@@ -93,11 +101,22 @@ impl Runner {
             return Some(self.ruling_due(id, reply));
         }
         let notice = self.state.notices.first()?;
-        let of = Posting::Notice {
-            issue: notice.issue,
-            pull_request: notice.pull_request,
+        let (of, alert) = match notice {
+            Notice::Merged(notice) => (
+                Posting::Notice {
+                    issue: notice.issue,
+                    pull_request: notice.pull_request,
+                },
+                merge_alert(self.project.as_str(), notice),
+            ),
+            Notice::Main(notice) => (
+                Posting::Main {
+                    run: notice.run,
+                    green: notice.green,
+                },
+                self.main_alert(notice),
+            ),
         };
-        let alert = notice_alert(self.project.as_str(), notice);
         (!waiting(self.retry, of)).then(|| Due {
             of,
             webhook: self.webhook.clone(),
@@ -156,6 +175,12 @@ impl Runner {
                     reason,
                     retry_at: at,
                 },
+                Posting::Main { run, green } => StepReport::MainNoticeFailed {
+                    workflow: self.main_notice_workflow(run, green),
+                    green,
+                    reason,
+                    retry_at: at,
+                },
             });
         }
         self.retry = None;
@@ -172,11 +197,17 @@ impl Runner {
                 issue,
                 pull_request,
             } => {
-                next.notices.retain(|n| n.pull_request != pull_request);
+                next.notices
+                    .retain(|n| !matches!(n, Notice::Merged(n) if n.pull_request == pull_request));
                 StepReport::Noticed {
                     issue,
                     pull_request,
                 }
+            }
+            Posting::Main { run, green } => {
+                let workflow = self.main_notice_workflow(run, green);
+                next.notices.retain(|n| !is_main(n, run, green));
+                StepReport::MainNoticed { workflow, green }
             }
         };
         self.save(next)?;
@@ -192,8 +223,56 @@ pub(super) fn backoff(first: u64, failures: u32, max: u64) -> u64 {
         .min(max)
 }
 
-fn notice_alert(project: &str, notice: &Notice) -> Alert {
-    let Notice {
+fn is_main(notice: &Notice, run: u64, green: bool) -> bool {
+    matches!(notice, Notice::Main(n) if n.run == run && n.green == green)
+}
+
+impl Runner {
+    // The workflow of the main notice posted as `run` and `green`
+    fn main_notice_workflow(&self, run: u64, green: bool) -> String {
+        (self.state.notices.iter())
+            .find_map(|n| match n {
+                Notice::Main(n) if n.run == run && n.green == green => Some(n.workflow.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    fn main_alert(&self, notice: &MainNotice) -> Alert {
+        let MainNotice {
+            workflow,
+            run,
+            red_for,
+            log,
+            green,
+        } = notice;
+        let project = self.project.as_str();
+        let url = format!(
+            "https://github.com/{}/actions/runs/{run}",
+            self.remote.as_str()
+        );
+        let red_for = elapsed(*red_for);
+        if *green {
+            return Alert {
+                title: format!("kelpie: {project} {workflow} is green on main"),
+                text: format!("{workflow} is green on main again after {red_for} red.\nRun: {url}"),
+                reply: None,
+            };
+        }
+        let end = match log.is_empty() {
+            true => "Its failed log could not be read.".to_owned(),
+            false => format!("The end of its failed log:\n{log}"),
+        };
+        Alert {
+            title: format!("kelpie: {project} {workflow} is red on main"),
+            text: format!("{workflow} has been red on main for {red_for}.\nRun: {url}\n{end}"),
+            reply: None,
+        }
+    }
+}
+
+fn merge_alert(project: &str, notice: &MergeNotice) -> Alert {
+    let MergeNotice {
         issue,
         pull_request,
         head,

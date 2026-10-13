@@ -16,7 +16,7 @@ use super::retro::journal::Entry;
 use super::trigger::WhichItem;
 use crate::ports::{Checks, PullRequestState};
 use crate::settings::Merging;
-use crate::state::{Finished, Notice, RulingKind, StateError, Stuck};
+use crate::state::{Finished, MergeNotice, Notice, RulingKind, StateError, Stuck};
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
 use crate::worktree::{self, Base};
 
@@ -289,12 +289,12 @@ impl Runner {
             merged: true,
             closed: false,
         };
-        let notice = notice.then_some(Notice {
+        let notice = notice.then_some(MergeNotice {
             issue,
             pull_request: number,
             head,
         });
-        next.notices.extend(notice.clone());
+        next.notices.extend(notice.clone().map(Notice::Merged));
         self.save(next)?;
         // A comment that fails is told once and not retried: the webhook's
         // retry is the notice's, and nothing here waits on the comment.
