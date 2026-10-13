@@ -39,7 +39,7 @@ pub(super) fn run_log_tail(repo: &ForgeSlug, run: u64) -> Result<String, ForgeEr
     Ok(failure_tail(&String::from_utf8_lossy(&log), LOG_BYTES))
 }
 
-/// The latest completed run of each workflow among the 50 newest completed runs on `branch`
+/// The latest completed run of each workflow and event among the 50 newest completed runs on `branch`
 pub(super) fn branch_runs(repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
     let listed = gh(&[
         "run",
@@ -58,7 +58,7 @@ pub(super) fn branch_runs(repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRu
     latest_runs(&listed)
 }
 
-// The newest run of each workflow in `listed`, in the order the workflows
+// The newest run of each workflow and event in `listed`, in the order they
 // first appear; of two runs created in the same second the one listed first stays
 fn latest_runs(listed: &[u8]) -> Result<Vec<BranchRun>, ForgeError> {
     #[derive(Deserialize)]
@@ -89,7 +89,7 @@ fn latest_runs(listed: &[u8]) -> Result<Vec<BranchRun>, ForgeError> {
             conclusion: run.conclusion,
             created,
         };
-        match latest.iter_mut().find(|r| r.workflow == run.workflow) {
+        match (latest.iter_mut()).find(|r| r.workflow == run.workflow && r.event == run.event) {
             Some(kept) if kept.created < run.created => *kept = run,
             Some(_) => {}
             None => latest.push(run),
@@ -394,6 +394,18 @@ mod tests {
         let runs = latest_runs(listed).unwrap();
 
         assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), [2]);
+    }
+
+    #[test]
+    fn a_pull_request_run_does_not_hide_the_push_run_of_the_same_workflow() {
+        let listed = br#"[
+            {"conclusion":"failure","createdAt":"2026-10-13T11:00:00Z","databaseId":2,"event":"pull_request","headSha":"b","workflowName":"test"},
+            {"conclusion":"success","createdAt":"2026-10-13T10:00:00Z","databaseId":1,"event":"push","headSha":"a","workflowName":"test"}
+        ]"#;
+
+        let runs = latest_runs(listed).unwrap();
+
+        assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), [2, 1]);
     }
 
     #[test]

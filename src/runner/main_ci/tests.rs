@@ -234,3 +234,48 @@ fn the_board_names_the_red_workflow_how_long_it_has_been_red_and_its_run() {
         "{board}"
     );
 }
+
+#[test]
+fn a_pull_request_runs_failure_does_not_mark_a_workflow_red_and_its_pass_does_not_clear_one() {
+    let rig = Rig::new("acme");
+    let pull_request = |id, conclusion, created| BranchRun {
+        event: "pull_request".into(),
+        ..run("test", id, conclusion, created)
+    };
+    rig.forge.set_branch_runs(
+        "main",
+        vec![
+            pull_request(92, "failure", Rig::EPOCH + 60),
+            run("test", 91, "success", Rig::EPOCH),
+        ],
+    );
+    let runner = rig.open().unwrap();
+    step(&runner).unwrap();
+    assert_eq!(status(&rig, &runner), json!(null));
+
+    rig.forge.set_branch_runs(
+        "main",
+        vec![
+            pull_request(94, "success", Rig::EPOCH + 1200),
+            run("test", 93, "failure", Rig::EPOCH + 900),
+        ],
+    );
+    rig.clock.advance(MAIN_CI_POLL.as_secs());
+    step(&runner).unwrap();
+
+    let red = status(&rig, &runner);
+    assert_eq!(red[0]["run"], 93, "{red}");
+}
+
+#[test]
+fn main_is_read_in_a_pass_where_a_work_item_acts() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let before = rig.forge.branch_runs_reads();
+
+    let report = step(&runner).unwrap();
+
+    assert!(report.is_some(), "the work item acted");
+    assert_eq!(rig.forge.branch_runs_reads(), before + 1);
+}

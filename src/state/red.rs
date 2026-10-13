@@ -11,12 +11,14 @@ use crate::ports::Timestamp;
 pub struct RedWorkflow {
     /// The workflow's name
     pub workflow: String,
-    /// The forge's id for the first red run since the workflow last was green
+    /// The forge's id for the first red run kelpie read since it last read the
+    /// workflow green, which is not the workflow's first red run when it failed
+    /// before kelpie read it
     pub first_run: u64,
     /// The forge's id for its latest red run
     pub run: u64,
     /// The commit the latest red run ran on
     pub head: String,
-    /// When the first red run was created, so how long it has been red
+    /// When `first_run` was created, so how long kelpie has known it red
     pub since: Timestamp,
 }
