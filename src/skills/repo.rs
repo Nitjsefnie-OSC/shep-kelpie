@@ -6,11 +6,13 @@
 //! so kelpie does it: it reads that file from the checkout's default branch
 //! (never a worker's branch, so a branch cannot turn a plugin on for itself),
 //! finds each enabled plugin's folder in its marketplace, and copies the
-//! plugin's skills into a plugin of the same name under the project's skills
-//! folder. Every call the runner makes gets that folder with `--plugin-dir`.
+//! plugin's `skills/`, `agents/`, `commands/` and `hooks/` that
+//! `repo_setup.parts` loads into a plugin of the same name under the project's
+//! skills folder. Every call the runner makes gets that folder with
+//! `--plugin-dir`. A plugin's hooks sit in its own folder, so they run beside
+//! the hooks in the call's settings file and cannot replace them.
 //!
-//! Only a plugin's skills load so far. A plugin that cannot load is skipped
-//! with its reason, and the run goes on.
+//! A plugin that cannot load is skipped with its reason, and the run goes on.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,7 +24,7 @@ use serde_json::{Map, Value};
 
 use super::is_kelpies_own;
 use crate::ports::{Git, GitError};
-use crate::settings::{RepoSetup, SkillName};
+use crate::settings::{Part, RepoSetup, SkillName};
 
 /// The folder under the skills folder that holds the repo's plugins, so none
 /// is ever kelpie's own
@@ -33,8 +35,11 @@ pub const MARKETPLACES: &str = "marketplaces";
 
 const SETTINGS: &str = ".claude/settings.json";
 
+/// The parts of a plugin that are one folder each, which kelpie copies whole
+const FOLDERS: [Part; 4] = [Part::Skills, Part::Agents, Part::Commands, Part::Hooks];
+
 /// The manifest keys a copied plugin keeps: what names and describes it. The
-/// rest of a manifest points at parts kelpie does not copy yet.
+/// rest of a manifest points at parts outside the folders kelpie copies.
 const MANIFEST_KEYS: [&str; 6] = [
     "name",
     "version",
@@ -103,7 +108,7 @@ impl RepoPlugins {
         let into = skills.join(FOLDER);
         let plugins = resolve(checkout, kelpie_home, git, true, setup)
             .into_iter()
-            .map(|resolved| plan_one(resolved, &into))
+            .map(|resolved| plan_one(resolved, &into, setup))
             .collect();
         Self { plugins }
     }
@@ -178,24 +183,42 @@ impl RepoPlugin {
     }
 }
 
-// A plugin that was found, read for its skills and aimed at its folder under
-// `into`, or the reason it cannot load.
-fn plan_one(resolved: Result<Found, Skipped>, into: &Path) -> RepoPlugin {
-    let found = match resolved {
+// A plugin that was found, read for the parts `setup` loads and aimed at its
+// folder under `into`, or the reason it cannot load.
+fn plan_one(resolved: Result<Found, Skipped>, into: &Path, setup: &RepoSetup) -> RepoPlugin {
+    let mut found = match resolved {
         Ok(found) => found,
         Err(skipped) => return RepoPlugin::skipped(skipped.id, skipped.reason),
     };
-    match skills_in(&found.folder) {
-        Ok(skills) => RepoPlugin {
-            plugin: found.id.clone(),
-            skills,
-            skipped: None,
-            stale: found.stale.clone(),
-            dir: Some(into.join(&found.name)),
-            digest: fingerprint(&found.folder),
-            found: Some(found),
-        },
-        Err(reason) => RepoPlugin::skipped(found.id, reason),
+    let skills = if setup.loads(Part::Skills) {
+        skills_in(&found.folder)
+    } else {
+        Vec::new()
+    };
+    found.parts = FOLDERS
+        .into_iter()
+        .filter(|part| setup.loads(*part))
+        .filter(|part| match part {
+            Part::Skills => !skills.is_empty(),
+            _ => is_folder(&found.folder.join(part.as_str())),
+        })
+        .collect();
+    if found.parts.is_empty() {
+        let asked: Vec<&str> = setup.parts.iter().map(|part| part.as_str()).collect();
+        let reason = format!(
+            "it has none of the parts repo_setup.parts loads ({})",
+            asked.join(", ")
+        );
+        return RepoPlugin::skipped(found.id, reason);
+    }
+    RepoPlugin {
+        plugin: found.id.clone(),
+        skills,
+        skipped: None,
+        stale: found.stale.clone(),
+        dir: Some(into.join(&found.name)),
+        digest: fingerprint(&found),
+        found: Some(found),
     }
 }
 
@@ -210,6 +233,8 @@ pub(crate) struct Found {
     pub(crate) folder: PathBuf,
     /// Why the marketplace is the last good copy, where it could not be fetched
     pub(crate) stale: Option<String>,
+    /// The parts that load: those `repo_setup.parts` names that the plugin has
+    pub(crate) parts: Vec<Part>,
 }
 
 /// A plugin the repo turns on that cannot load
@@ -313,6 +338,7 @@ pub(crate) fn resolve(
                 name: name.to_owned(),
                 folder,
                 stale: stale.clone(),
+                parts: Vec::new(),
             }),
             Err(reason) => Err(reason.clone()),
         };
@@ -529,7 +555,7 @@ fn export(checkout: &Path, relative: &Path, into: &Path) -> Result<(), String> {
 }
 
 // What the files of the plugin at `folder` hold, to tell a change to them.
-fn fingerprint(folder: &Path) -> u64 {
+fn fingerprint(found: &Found) -> u64 {
     fn walk(dir: &Path, hasher: &mut DefaultHasher) {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
@@ -549,8 +575,11 @@ fn fingerprint(folder: &Path) -> u64 {
         }
     }
     let mut hasher = DefaultHasher::new();
-    walk(&folder.join("skills"), &mut hasher);
-    manifest(folder, "").hash(&mut hasher);
+    for part in &found.parts {
+        part.as_str().hash(&mut hasher);
+        walk(&found.folder.join(part.as_str()), &mut hasher);
+    }
+    manifest(&found.folder, "").hash(&mut hasher);
     hasher.finish()
 }
 
@@ -591,24 +620,19 @@ fn inside(root: &Path, relative: &Path) -> Result<PathBuf, ()> {
     }
 }
 
-// The names of the skills in the plugin at `folder`.
-fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
-    let root = folder.join("skills");
-    if !is_folder(&root) {
-        return Err(format!("{} has no skills folder", folder.display()));
-    }
-    // Only what `copy_plain` copies counts.
-    let mut skills: Vec<String> = fs::read_dir(root)
-        .map_err(|_| format!("{} has no skills folder", folder.display()))?
+// The names of the skills in the plugin at `folder`: the folders of its
+// `skills/` that `copy_plain` copies whole, with a `SKILL.md` in them.
+fn skills_in(folder: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(folder.join("skills")) else {
+        return Vec::new();
+    };
+    let mut skills: Vec<String> = entries
         .filter_map(Result::ok)
         .filter(|entry| is_folder(&entry.path()) && is_file(&entry.path().join("SKILL.md")))
         .filter_map(|entry| entry.file_name().into_string().ok())
         .collect();
     skills.sort();
-    if skills.is_empty() {
-        return Err("it has no skills, and only a plugin's skills load so far".into());
-    }
-    Ok(skills)
+    skills
 }
 
 /// What a runner starting now would load of the checkout's plugins, from the
@@ -617,7 +641,7 @@ fn skills_in(folder: &Path) -> Result<Vec<String>, String> {
 pub fn inspect(checkout: &Path, kelpie_home: &Path, setup: &RepoSetup) -> Vec<RepoPlugin> {
     resolve(checkout, kelpie_home, &Fetched, false, setup)
         .into_iter()
-        .map(|resolved| plan_one(resolved, Path::new("")))
+        .map(|resolved| plan_one(resolved, Path::new(""), setup))
         .collect()
 }
 
@@ -635,10 +659,9 @@ impl Git for Fetched {
     }
 }
 
-// Writes the plugin's skills and a trimmed manifest into `dir`, replacing
+// Writes the plugin's parts and a trimmed manifest into `dir`, replacing
 // what was there.
 fn install(found: &Found, dir: &Path) -> Result<(), String> {
-    let from = found.folder.join("skills");
     let manifest = manifest(&found.folder, &found.name);
     let written = (|| {
         match fs::remove_dir_all(dir) {
@@ -647,7 +670,11 @@ fn install(found: &Found, dir: &Path) -> Result<(), String> {
         }
         fs::create_dir_all(dir.join(".claude-plugin"))?;
         fs::write(dir.join(".claude-plugin/plugin.json"), manifest)?;
-        copy_plain(&from, &dir.join("skills"))
+        for part in &found.parts {
+            let folder = part.as_str();
+            copy_plain(&found.folder.join(folder), &dir.join(folder))?;
+        }
+        Ok(())
     })();
     written.map_err(|e| format!("cannot copy it into {}: {e}", dir.display()))
 }
