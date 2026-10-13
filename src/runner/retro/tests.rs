@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::ports::{AgentError, Role, Session, Timestamp, Tools};
+use crate::ports::{AgentError, Forge, Role, Session, Timestamp, Tools};
 use crate::runner::flight::advance;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
@@ -484,4 +484,90 @@ fn the_friction_a_worker_reported_in_its_pull_request_reaches_the_retro() {
         "{prompt}"
     );
     assert!(!prompt.contains("Resolves #7"), "{prompt}");
+}
+
+#[test]
+fn a_pull_request_file_that_does_not_parse_falls_back_to_the_forges_body() {
+    let (rig, runner) = parked_after(9);
+    let file = rig.paths().build(7).join("pull-request.md");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, "\n\n").unwrap();
+    let (remote, number) = {
+        let runner = runner.lock().unwrap();
+        let item = runner.current().expect("a parked work item");
+        (
+            runner.remote.clone(),
+            item.pull_request.expect("a pull request"),
+        )
+    };
+    let body = "feat: the thing\n\n## Friction\n\nThe forge kept this.\n";
+    rig.forge
+        .edit_pull_request(&remote, number, "feat: the thing", body)
+        .unwrap();
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let seen = retros(&rig);
+    let [retro] = seen.as_slice() else {
+        panic!("one retro call: {seen:#?}")
+    };
+    let prompt = &retro.call.prompt;
+    assert!(
+        prompt.contains("- Friction the worker reported: The forge kept this."),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_journal_that_cannot_be_marked_starts_no_retro_and_is_not_asked_again() {
+    let (rig, runner) = parked_after(9);
+    let journal = rig.paths().journal;
+    let _ = fs::remove_file(&journal);
+    fs::create_dir_all(&journal).unwrap();
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+    step(&runner).unwrap();
+
+    assert!(retros(&rig).is_empty());
+    assert!(notes(&runner).contains("no retro of"));
+}
+
+#[test]
+fn a_drain_that_starts_during_a_retro_asks_for_the_work_items_finished_meanwhile() {
+    let (rig, runner) = parked_after(9);
+    let hold = Hold::default();
+    rig.claude.script_for(
+        Role::Pm,
+        [Scripted::Hold(hold.clone()), Scripted::Say(REPORT)],
+    );
+    rig.ask(&runner, "rule", Some("1 yes"));
+    std::thread::scope(|scope| {
+        let looking = scope.spawn(|| {
+            for _ in 0..6 {
+                rig.clock.advance(CHECKS_SETTLE);
+                step(&runner).unwrap();
+            }
+        });
+        let began = hold.entered(PATIENCE);
+        assert!(began, "the retro never began");
+        rig.clock.advance(60);
+        {
+            let mut runner = runner.lock().unwrap();
+            let mut meanwhile = earlier(1).remove(0);
+            meanwhile.issue = 300;
+            meanwhile.at = runner.ports.clock.now();
+            runner.state.history.push(meanwhile);
+        }
+        rig.ask(&runner, "drain", None);
+        hold.release();
+        looking.join().unwrap();
+    });
+    for _ in 0..3 {
+        rig.clock.advance(CHECKS_SETTLE);
+        step(&runner).unwrap();
+    }
+
+    let seen = retros(&rig);
+    assert_eq!(seen.len(), 2, "{seen:#?}");
+    assert!(seen[1].call.prompt.contains("1 work items of koji"));
 }

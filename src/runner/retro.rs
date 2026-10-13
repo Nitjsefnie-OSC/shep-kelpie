@@ -121,13 +121,19 @@ impl Runner {
     /// cannot be asked for now, because the project manager is busy or held
     /// back, is asked for on a later pass, except at a drain, which asks once.
     pub(super) fn retro_launched(&mut self) -> bool {
-        let draining_now = std::mem::take(&mut self.retro_book.at_drain);
         let Some(agent) = self.agents.pm.clone() else {
+            self.retro_book.at_drain = false;
             return false;
         };
-        if self.flights.retro_running() || self.skills.off(Step::Retro) {
+        if self.skills.off(Step::Retro) {
+            self.retro_book.at_drain = false;
             return false;
         }
+        // A drain's request waits for the retro in flight to end.
+        if self.flights.retro_running() {
+            return false;
+        }
+        let draining_now = std::mem::take(&mut self.retro_book.at_drain);
         let batch = self.finished_since_retro();
         let due = batch.len() >= EVERY || (draining_now && !batch.is_empty());
         if !due || (self.draining && !draining_now) {
@@ -149,11 +155,18 @@ impl Runner {
         let built = self.retro_call(&agent, &batch);
         // Marked before the call starts: a stop or a crash in the middle of
         // it does not ask again, and a batch that cannot start is let go.
-        self.journal(journal::Entry::Retro {
+        let now = self.ports.clock.now();
+        let mark = journal::Entry::Retro {
             issues: issues.clone(),
-        });
-        let now = self.ports.clock.now().0;
-        self.retro_book.last = Some(Some((now, issues.clone())));
+        };
+        let marked = journal::append(&self.paths.journal, now, mark);
+        self.retro_book.last = Some(Some((now.0, issues.clone())));
+        if let Err(why) = marked {
+            // Unmarked, a restart would pay for the same batch twice.
+            self.notes
+                .push(format!("no retro of {issues:?}, since {why}"));
+            return false;
+        }
         match built {
             Ok(call) => {
                 self.launch_retro(call, CEILING, agent.name.as_str());

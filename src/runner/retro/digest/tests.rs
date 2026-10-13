@@ -256,7 +256,7 @@ fn an_item_carries_its_review_rounds_ci_fixes_merges_and_friction() {
     for expected in [
         "- Review rounds reported: 1",
         "  - #11 round 1 by claude: 3 findings, 2 sent to the worker",
-        "- CI fix turns: 1",
+        "- Fix turns after a failed check: 1",
         "  - failed: test",
         "- Merges of main: 1 rebased, 1 conflicted",
         "  - conflict in docs/design-log.md",

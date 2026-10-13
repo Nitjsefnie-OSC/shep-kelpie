@@ -45,9 +45,13 @@ impl Runner {
     /// the file it handed over or else the forge's copy
     pub(super) fn friction_of(&self, item: &WorkItem) -> Option<String> {
         let file = crate::worker_folder::read(&item.build, Path::new(pull_request_file::FILE));
-        let body = match file {
-            Ok(Some(file)) => pull_request_file::parse(&file)?.body,
-            _ => {
+        let handed = match file {
+            Ok(Some(file)) => pull_request_file::parse(&file).map(|text| text.body),
+            _ => None,
+        };
+        let body = match handed {
+            Some(body) => body,
+            None => {
                 let number = item.pull_request?;
                 self.ports.forge.reviewed(&self.remote, number).ok()?.body
             }

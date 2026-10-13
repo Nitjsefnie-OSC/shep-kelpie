@@ -228,7 +228,7 @@ fn fixes(out: &mut String, mine: &[&Stamped]) {
             _ => {}
         }
     }
-    let _ = writeln!(out, "- CI fix turns: {}", ci.len());
+    let _ = writeln!(out, "- Fix turns after a failed check: {}", ci.len());
     for checks in ci {
         let _ = writeln!(out, "  - failed: {checks}");
     }
