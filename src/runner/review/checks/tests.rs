@@ -68,6 +68,7 @@ fn the_flag_check(before: TestOutcome, after: Option<TestOutcome>) -> TestCheck 
         round: 2,
         before,
         after,
+        sent_back: false,
     }
 }
 
@@ -130,22 +131,150 @@ fn a_test_that_passes_before_the_fix_is_not_reproducing_and_blocks_nothing() {
     assert_eq!(held.len(), 1, "the finding is still held");
 }
 
+// The worker's turn after a send-back pushes, and the turn ends.
+fn fixed_again(rig: &Rig, runner: &Mutex<Runner>) -> StepReport {
+    rig.claude.script([Scripted::Push("again.txt", "again\n")]);
+    step(runner).unwrap(); // the worker's second fix turn
+    step(runner).unwrap().expect("the fix ended with a report")
+}
+
+fn sent_back(check: TestCheck) -> TestCheck {
+    TestCheck {
+        sent_back: true,
+        ..check
+    }
+}
+
+fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
+    rig.ask(runner, "status", None)["rulings"].clone()
+}
+
 #[test]
-fn a_test_that_still_fails_after_the_fix_is_recorded_and_the_pass_goes_on() {
+fn a_test_still_failing_after_the_fix_sends_the_worker_back_once() {
     let (rig, runner) = asking_tests();
     rig.tests.script([failed("before"), failed("after")]);
+    sent(&rig, &runner, TEST_FILE, FINDING);
 
+    let report = fixed(&rig, &runner);
+
+    assert!(matches!(report, StepReport::FixPushed { .. }), "{report:?}");
+    assert_eq!(
+        phase(&rig, &runner),
+        "review",
+        "the pass waits on the worker"
+    );
+    assert_eq!(rulings(&rig, &runner), json!([]));
+    assert_eq!(
+        checks_of(&runner),
+        [sent_back(the_flag_check(
+            failed("before"),
+            Some(failed("after"))
+        ))],
+        "the failed run stays, with the mark"
+    );
+    rig.claude.script([Scripted::Push("again.txt", "again\n")]);
+    step(&runner).unwrap(); // the worker's second fix turn
+    let prompt = rig.claude.calls().last().unwrap().prompt.clone();
+    let kept = rig.paths().worker.join("review-tests-7");
+    assert!(prompt.contains(TEST_FILE), "{prompt}");
+    assert!(prompt.contains("after"), "{prompt}");
+    assert!(!prompt.contains("before"), "{prompt}");
+    assert!(prompt.contains("leave the test alone"), "{prompt}");
+    assert!(
+        !prompt.contains(kept.to_str().unwrap()),
+        "the worker reads the build folder's copy: {prompt}"
+    );
+    assert_eq!(rig.tests.ran().len(), 2, "the test is not run mid-turn");
+}
+
+#[test]
+fn a_test_still_failing_after_the_second_fix_raises_a_stuck_ruling_naming_it() {
+    let (rig, runner) = asking_tests();
+    rig.tests
+        .script([failed("before"), failed("after"), failed("after again")]);
     sent(&rig, &runner, TEST_FILE, FINDING);
     fixed(&rig, &runner);
 
-    let checks = checks_of(&runner);
+    let report = fixed_again(&rig, &runner);
+
+    let StepReport::Ruling {
+        id: 71, question, ..
+    } = report
+    else {
+        panic!("{report:?}");
+    };
+    assert!(question.contains(TEST_FILE), "{question}");
+    assert!(question.contains("after again"), "{question}");
+    assert_eq!(phase(&rig, &runner), "ruling");
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    let kind = rulings(&rig, &runner)[0]["kind"].clone();
+    assert_eq!(kind["reason"], "test-still-fails", "{kind}");
+    assert_eq!(kind["head"], head.as_str(), "{kind}");
+    assert_eq!(kind["review"]["round"], 2, "{kind}");
     assert_eq!(
-        checks,
-        [the_flag_check(failed("before"), Some(failed("after")))]
+        kind["tests"],
+        json!([{ "test": TEST_FILE, "output": "after again" }])
     );
-    assert_eq!(checks[0].reading(), Reading::StillFailing);
+    assert_eq!(rig.tests.ran().len(), 3);
+}
+
+#[test]
+fn a_test_that_passes_on_the_second_fix_is_verified_and_raises_nothing() {
+    let (rig, runner) = asking_tests();
+    rig.tests
+        .script([failed("before"), failed("after"), Passed]);
+    sent(&rig, &runner, TEST_FILE, FINDING);
+    fixed(&rig, &runner);
+
+    let report = fixed_again(&rig, &runner);
+
+    assert!(matches!(report, StepReport::FixPushed { .. }), "{report:?}");
+    let verified = sent_back(the_flag_check(failed("before"), Some(Passed)));
+    assert_eq!(checks_of(&runner), [verified]);
+    assert_eq!(rulings(&rig, &runner), json!([]));
     assert_eq!(phase(&rig, &runner), "ci", "the pass went on");
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+}
+
+#[test]
+fn a_fix_that_pushes_nothing_raises_fix_not_pushed_not_this_ruling() {
+    let (rig, runner) = asking_tests();
+    rig.tests.script([failed("before"), failed("after")]);
+    sent(&rig, &runner, TEST_FILE, FINDING);
+    fixed(&rig, &runner);
+
+    rig.claude.script([Scripted::Text("Nothing to push.")]);
+    step(&runner).unwrap(); // the worker's second fix turn
+    let report = step(&runner).unwrap().expect("the fix ended with a report");
+
+    assert!(
+        matches!(report, StepReport::Ruling { id: 71, .. }),
+        "{report:?}"
+    );
+    let kind = rulings(&rig, &runner)[0]["kind"].clone();
+    assert_eq!(kind["reason"], "fix-not-pushed", "{kind}");
+    assert_eq!(
+        rig.tests.ran().len(),
+        2,
+        "no run for a fix that moved nothing"
+    );
+}
+
+#[test]
+fn a_run_that_timed_out_or_never_ran_does_not_send_the_worker_back() {
+    for after in [
+        TimedOut,
+        NotRun {
+            reason: "the command could not start".into(),
+        },
+    ] {
+        let (rig, runner) = asking_tests();
+        rig.tests.script([failed("before"), after]);
+        sent(&rig, &runner, TEST_FILE, FINDING);
+        fixed(&rig, &runner);
+        assert_eq!(phase(&rig, &runner), "ci", "the pass went on");
+        assert_eq!(rulings(&rig, &runner), json!([]));
+        assert!(!checks_of(&runner)[0].sent_back);
+    }
 }
 
 #[test]

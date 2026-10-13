@@ -128,9 +128,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 let Fix::Review(review) = fix;
                 format!(
                     "The worker on {about} ended its fix for round {} of the review without \
-                     pushing, so those findings still hold. {yes} sends it the findings again",
+                     pushing, so those findings still hold. {yes} sends it the same fix turn \
+                     again: the findings, or the reviewer's tests still failing when it was sent back to them",
                     review.round
                 )
+            }
+            Stuck::TestStillFails {
+                fix, head, tests, ..
+            } => {
+                return super::test_fails::question(&about, (&yes, &no), fix, head, tests);
             }
             Stuck::TurnTimeout { .. } => {
                 return format!(
