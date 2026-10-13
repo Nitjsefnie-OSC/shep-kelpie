@@ -28,6 +28,7 @@ pub struct Upstream {
     host: String,
     base: String,
     key: Option<GatewayKey>,
+    lease: Option<String>,
 }
 
 /// Why a model server's URL cannot be forwarded to
@@ -78,6 +79,7 @@ impl Upstream {
             host: canonical(host),
             base: base.to_owned(),
             key: None,
+            lease: None,
         })
     }
 
@@ -87,6 +89,23 @@ impl Upstream {
             key: Some(key),
             ..self
         }
+    }
+
+    /// The same server, its chat calls put on the gateway lease `id`
+    ///
+    /// `id` goes in a header as given, so the caller vouches it holds only
+    /// ASCII letters and digits.
+    pub fn with_lease(self, id: &str) -> Self {
+        Self {
+            lease: Some(id.to_owned()),
+            ..self
+        }
+    }
+
+    /// The gateway lease the forwarder names on each chat call, if any
+    #[inline]
+    pub fn lease(&self) -> Option<&str> {
+        self.lease.as_deref()
     }
 
     /// The gateway's key the forwarder sends in place of the worker's, if any

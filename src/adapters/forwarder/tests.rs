@@ -454,6 +454,26 @@ fn a_paddock_header_the_worker_sends_never_reaches_the_gateway() {
 }
 
 #[test]
+fn a_call_under_a_lease_names_it_once() {
+    let server = StandInEndpoint::start([Answer::Says("ok")]);
+    let dir = crate::test::short_tempdir();
+    let leased = upstream(server.url())
+        .with_key(crate::settings::GatewayKey::for_test("pk-g"))
+        .with_lease("L1");
+    let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), leased).unwrap();
+    let request = format!("{CHAT}X-Paddock-Lease: L9\r\ncontent-length: 2\r\n\r\n{{}}");
+    let reply = send(&forwarder, request.as_bytes());
+    assert!(status(&reply).contains("200"), "{reply}");
+    assert_eq!(
+        server.paddock_headers(),
+        [[
+            ("x-paddock-priority".to_owned(), "batch".to_owned()),
+            ("x-paddock-lease".to_owned(), "L1".to_owned()),
+        ]]
+    );
+}
+
+#[test]
 fn a_key_with_a_line_break_is_refused_and_no_request_is_sent() {
     for key in ["pk-1\r\nx-evil: 1", "pk-1\nx-evil: 1", "pk-1\rx-evil: 1"] {
         let server = StandInEndpoint::start([Answer::Says("ok")]);

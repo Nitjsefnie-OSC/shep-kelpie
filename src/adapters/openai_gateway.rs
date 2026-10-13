@@ -40,7 +40,7 @@ impl ModelGateway for OpenAi {
         &self,
         _: &Upstream,
         _: &Taking<'_>,
-        _: &mut dyn FnMut(),
+        _: &mut dyn FnMut(&str),
     ) -> Option<Result<(), Unheld>> {
         None
     }

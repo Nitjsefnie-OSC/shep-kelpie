@@ -991,6 +991,6 @@ fn record_a_turn_a_resumed_turn_and_two_refusals() {
 }
 
 fn run_raw(pi: &PiCli, call: &AgentCall) -> Output {
-    let (mut command, _forwarder) = pi.sandboxed_command(call).unwrap();
+    let (mut command, _forwarder) = pi.sandboxed_command(call, None).unwrap();
     command.stdin(std::process::Stdio::null()).output().unwrap()
 }
