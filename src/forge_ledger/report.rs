@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Ended, Line};
+use super::{Ended, Identity, Line};
 use crate::ports::Timestamp;
 
 /// How many of the busiest minutes are listed
@@ -45,6 +45,8 @@ pub fn report(ledger: &[Line], since: Option<Timestamp>) -> Vec<String> {
 
     out.push("by project (calls, minutes with a call, a minute, busiest minute):".to_owned());
     out.extend(rates(&made, |l| l.project.clone()));
+    out.push("by identity (calls, minutes with a call, a minute, busiest minute):".to_owned());
+    out.extend(rates(&made, |l| l.by.name()));
     out.push("by kind (calls, minutes with a call, a minute, busiest minute):".to_owned());
     out.extend(rates(&made, |l| {
         format!("{} {}", l.kind.name(), l.api.name())
@@ -79,12 +81,15 @@ pub fn report(ledger: &[Line], since: Option<Timestamp>) -> Vec<String> {
             })
             .map(|(_, l)| l)
             .collect();
+        let spent = match line.by {
+            Identity::Login => line.api.name(),
+            by => format!("{}, {}", line.api.name(), by.name()),
+        };
         out.push(format!(
-            "  {} {} {} ({}); the {BEFORE} seconds before: {}",
+            "  {} {} {} ({spent}); the {BEFORE} seconds before: {}",
             time(line.at.0),
             line.project,
             line.kind.name(),
-            line.api.name(),
             tally(&before)
         ));
     }

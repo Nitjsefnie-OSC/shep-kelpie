@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{Clock, ForgeError, NewLabel, PostedComment, Voice};
-use crate::forge_ledger::{Ended, Kind, Ledger};
+use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
 use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
 
@@ -43,7 +43,7 @@ impl RecordedVoice {
             Err(error) if rate_limited(error) => Ended::UsedUp,
             Err(_) => Ended::Failed,
         };
-        self.ledger.record(self.clock.now(), kind, millis, ended);
+        (self.ledger).record_by(Identity::App, self.clock.now(), kind, millis, ended);
         result
     }
 }
