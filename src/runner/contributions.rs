@@ -49,7 +49,14 @@ impl Runner {
             Pick::Label => labelled,
             Pick::All => true,
         };
-        picked && !pr.draft && !pr.author_is_bot && !own.own(&pr.author)
+        picked && !pr.draft && self.by_someone_else(pr, own)
+    }
+
+    // Whether another person opened `pr`, ready or not: the contributions
+    // pick, and adoption leaves alone, a draft of theirs too, so that it is
+    // not refused before it is marked ready.
+    pub(super) fn by_someone_else(&self, pr: &OpenPullRequest, own: &Logins) -> bool {
+        !self.settings.contributions.is_off() && !pr.author_is_bot && !own.own(&pr.author)
     }
 
     // Brings the contributions the state records in line with the open pull

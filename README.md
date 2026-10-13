@@ -344,7 +344,7 @@ A pull request from someone else is a contribution. The runner sees one before i
 - A contribution is open, not a draft, and not opened by the maintainer (`git.maintainer`, else the login `gh` acts as), by the account kelpie acts as, or by a bot. Logins compare ignoring case. The author decides, never the branch: a fork's branch named `kelpie/5` is still a contribution
 - `contributions.pick` sets which ones. `"label"` takes those labelled `ready-for-agent`, `"all"` every one, and `"off"`, the default, none
 - Once a minute, whether or not a slot is free, the runner records each contribution with its author and head, and drops the record of one that is closed, merged, a draft again, or, under `"label"`, no longer labelled. A new head updates the record. `status` lists them under `contributions`, and the plain `status` prints a line each
-- Under `pick = "label"` or `"all"`, `ready-for-agent` on a contribution does not adopt it, so a fork's pull request is not refused as one. Under `"off"` it is refused as before. A rework request on a fork's pull request is still refused
+- Under `pick = "label"` or `"all"`, `ready-for-agent` on another person's pull request, a draft included, does not adopt it, so a fork's pull request is not refused as one. Under `"off"` it is refused as before. A rework request on a fork's pull request is still refused
 
 ### Building
 

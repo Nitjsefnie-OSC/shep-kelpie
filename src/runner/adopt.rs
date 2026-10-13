@@ -241,17 +241,17 @@ impl Runner {
     }
 
     // The labelled pull requests whose branch isn't `kelpie/N` that adoption
-    // queues. A labelled contribution is left to the contributions, and when
-    // the logins that tell one cannot be read there is no answer, so the
-    // queue stays as it is.
+    // queues. A labelled pull request of someone else's, a draft included, is
+    // left to the contributions, and when the logins that tell one cannot be
+    // read there is no answer, so the queue stays as it is.
     fn labelled_for_adoption(&mut self, open: &[OpenPullRequest]) -> Option<Vec<u64>> {
         let own = match self.settings.contributions.is_off() {
             true => None,
             false => Some(self.own_logins().ok()?),
         };
-        let contribution = |pr: &OpenPullRequest| {
+        let theirs = |pr: &OpenPullRequest| {
             own.as_ref()
-                .is_some_and(|own| self.is_contribution(pr, own))
+                .is_some_and(|own| self.by_someone_else(pr, own))
         };
         let labelled = open
             .iter()
@@ -260,7 +260,7 @@ impl Runner {
                 let kelpies = pr.head.strip_prefix("kelpie/").and_then(trigger::number);
                 kelpies.is_none()
             })
-            .filter(|pr| !contribution(pr))
+            .filter(|pr| !theirs(pr))
             .map(|pr| pr.number)
             .collect();
         Some(labelled)

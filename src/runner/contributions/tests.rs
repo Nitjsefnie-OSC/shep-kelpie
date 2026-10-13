@@ -196,6 +196,27 @@ fn a_labelled_contribution_is_not_refused_by_adoption_under_pick_label() {
 }
 
 #[test]
+fn a_labelled_draft_from_another_person_is_not_refused_by_adoption() {
+    for pick in ["label", "all"] {
+        let (rig, runner) = picking(pick);
+        let head = opened(&rig, 30, "newcomer");
+        rig.forge.set_draft(30, true);
+        rig.forge.set_from_fork(30);
+        rig.forge.label_pull_request(30, "ready-for-agent");
+
+        assert_eq!(step(&runner).unwrap(), None);
+
+        assert_eq!(rig.forge.pull_request_labels(30), ["ready-for-agent"]);
+        assert_eq!(posts(&rig), Vec::<String>::new(), "no refusal comment");
+        assert_eq!(followed(&rig, &runner), []);
+
+        rig.forge.ready_pull_request(30);
+        poll(&rig, &runner);
+        assert_eq!(followed(&rig, &runner), one(30, "newcomer", &head));
+    }
+}
+
+#[test]
 fn a_new_head_updates_the_record() {
     let (rig, runner) = picking("all");
     let first = opened(&rig, 30, "newcomer");
