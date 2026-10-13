@@ -375,9 +375,15 @@ impl Runner {
     /// Whether question ruling `id` waits on the project manager's answer,
     /// at most one wake, and so is not posted to the maintainer yet
     pub(super) fn pm_holds_ruling(&self, id: u64) -> bool {
+        !self.draining && self.pm_has_asked(id)
+    }
+
+    /// Whether question ruling `id` was put to the project manager, at most
+    /// one wake ago, a drain or not: the panel leaves it to the project manager
+    pub(super) fn pm_has_asked(&self, id: u64) -> bool {
         let now = self.ports.clock.now();
         let by = |since: &Timestamp| now.0 < since.0.saturating_add(CEILING);
-        !self.draining && self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
+        self.agents.pm.is_some() && self.pm.asking.get(&id).is_some_and(by)
     }
 
     /// Holds ruling `id`'s comment on its thread back while the project
