@@ -322,8 +322,11 @@ pub trait Forge: Send + Sync {
         merge_group: bool,
     ) -> Result<String, ForgeError>;
 
-    /// The latest completed CI run of each workflow on `branch`, newest
-    /// first by workflow, whatever its conclusion
+    /// The latest completed CI run of each workflow among the 50 newest
+    /// completed runs on `branch`, whatever its conclusion
+    ///
+    /// A workflow whose latest run is older than those 50 is absent, so an
+    /// absent workflow is not a green one.
     ///
     /// # Errors
     ///

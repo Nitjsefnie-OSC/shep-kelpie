@@ -39,7 +39,7 @@ pub(super) fn run_log_tail(repo: &ForgeSlug, run: u64) -> Result<String, ForgeEr
     Ok(failure_tail(&String::from_utf8_lossy(&log), LOG_BYTES))
 }
 
-/// The latest completed run of each workflow on `branch`
+/// The latest completed run of each workflow among the 50 newest completed runs on `branch`
 pub(super) fn branch_runs(repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
     let listed = gh(&[
         "run",
