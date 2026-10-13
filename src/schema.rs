@@ -187,6 +187,7 @@ mod tests {
                 "# [app.dogs.kelpie.repo_setup]\n# plugins =",
                 "[app.dogs.kelpie.repo_setup]\nplugins =",
             )
+            .replace("# own =", "own =")
             .replace("# roles =", "roles =")
             .replace("# parts =", "parts =")
             .replace("# skip =", "skip =")
@@ -249,6 +250,7 @@ mod tests {
         let setup = resolve(&root, &project["properties"]["repo_setup"]);
         let key = |name: &str| resolve(&root, &setup["properties"][name]);
         assert_eq!(key("plugins")["type"], "boolean");
+        assert_eq!(key("own")["type"], "boolean");
         for list in ["roles", "parts", "skip"] {
             let items = resolve(&root, &key(list)["items"]);
             assert_eq!(key(list)["type"], "array", "{list}");
@@ -276,6 +278,7 @@ mod tests {
                 "# url = \"http://gpu-box:8700\"",
                 "url = \"http://gpu-box:8700\"",
             )
+            .replace("# kind = \"paddock\"", "kind = \"paddock\"")
             .replace("# key_env =", "key_env =")
             .replace(
                 "# [kelpie.leases]\n# cargo-test",

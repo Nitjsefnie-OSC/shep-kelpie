@@ -445,7 +445,7 @@ mod tests {
         let (url, served) = stand_in(200);
         let alert = Alert {
             reply: Some(ReplyWith {
-                id: 3,
+                number: 3,
                 takes: Takes::YesOrNo,
             }),
             ..alert("Merge pull request #71?")
@@ -465,7 +465,7 @@ mod tests {
         let (url, served) = stand_in(200);
         let alert = Alert {
             reply: Some(ReplyWith {
-                id: 3,
+                number: 3,
                 takes: Takes::YesOrNo,
             }),
             ..alert(&"a".repeat(6000))
@@ -511,7 +511,7 @@ mod tests {
         let now = crate::adapters::SystemClock.now();
         let alert = Alert {
             reply: Some(ReplyWith {
-                id: 3,
+                number: 3,
                 takes: Takes::YesOrNo,
             }),
             ..alert("Merge pull request #71 at 4d2c9e1 into main?")

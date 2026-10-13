@@ -23,7 +23,8 @@ usage: shep kelpie rule <ruling> yes
 
 A <ruling> is its id (14), or the number of its issue or pull request: 427,
 #427 or koji#427. A number that two projects have a ruling on needs the
-project. An id wins over a number that is also an id.
+project. A number wins over an id that is also a number, and an id is
+taken when no ruling is on that number.
 
 Quotes are optional. In zsh a note with ?, *, ! or an apostrophe still
 needs them: shep kelpie rule 14 no \"it's the wrong flag\". `-p` goes
@@ -170,8 +171,9 @@ impl Reference {
     }
 }
 
-// The ruling `reference` names among those waiting. A bare number is a
-// ruling's id when one is waiting under it, and a number otherwise.
+// The ruling `reference` names among those waiting. A bare number is the
+// number of an issue or pull request when a ruling waits on it, since that
+// is what a question prints, and a ruling's id otherwise.
 fn locate(
     ids: &RulingIds,
     waiting: Waiting<'_>,
@@ -183,10 +185,6 @@ fn locate(
         number,
         bare,
     } = reference;
-    let counter = *bare && waiting.open.iter().any(|(_, r)| r.id == *number);
-    if counter {
-        return find(ids, waiting, named, *number);
-    }
     let on = match (project, named) {
         (Some(p), Some(n)) if p != n => {
             return Err(format!(

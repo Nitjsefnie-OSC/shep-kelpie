@@ -51,7 +51,7 @@ fn a_ruling_answered_in_its_own_thread_is_left_as_it_is() {
     step(&runner).unwrap();
     assert_eq!(
         replies_on_71(&rig).last().map(String::as_str),
-        Some("@octocat Ruling 1 is already answered in its own thread: no, not yet.")
+        Some("@octocat Ruling #71 is already answered in its own thread: no, not yet.")
     );
 }
 
@@ -130,7 +130,7 @@ fn a_terminal_answer_to_a_head_the_branch_moved_past_edits_the_old_comment_to_sa
 
     rig.ask(&runner, "rule", Some("1 yes"));
 
-    assert_eq!(pending(&rig, &runner), [2]);
+    assert_eq!(pending(&rig, &runner), [71]);
     let [(edited, body)] = rig.github.edits().try_into().unwrap();
     assert_eq!(edited, comment);
     assert!(
@@ -158,6 +158,6 @@ fn an_answer_in_the_thread_to_a_head_the_branch_moved_past_leaves_the_comment_as
     rig.next_look();
     step(&runner).unwrap();
 
-    assert_eq!(pending(&rig, &runner), [2]);
+    assert_eq!(pending(&rig, &runner), [71]);
     assert_eq!(rig.github.edits(), []);
 }

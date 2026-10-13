@@ -6,4 +6,4 @@
 
 @octocat
 - 👍 answers yes
-- Or reply `1 yes`
+- Or reply `71 yes`

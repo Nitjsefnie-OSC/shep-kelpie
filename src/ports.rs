@@ -21,6 +21,7 @@ use crate::webhook::Webhook;
 
 mod agent;
 mod forge_error;
+mod gateway;
 mod git;
 mod gpu;
 mod issue;
@@ -44,6 +45,7 @@ pub use agent::{
     PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use forge_error::{Cooldown, ForgeError};
+pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use issue::{Issue, OpenIssue, SubIssue, SubIssueState};
@@ -630,8 +632,8 @@ pub struct Alert {
 /// The ruling a reply on the webhook's topic answers, and what it takes
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyWith {
-    /// The ruling
-    pub id: u64,
+    /// The number a reply starts with: the ruling's pull request or issue
+    pub number: u64,
     /// What answers it
     pub takes: Takes,
 }

@@ -85,10 +85,11 @@ impl Runner {
                 (self.state.rulings.iter()).find(|r| !r.alerted && !self.ruling_held(r.id))
         {
             let (id, kind) = (ruling.id, ruling.kind.clone());
+            let number = ruling.number();
             if waiting(self.retry, Posting::Ruling(id)) {
                 return None;
             }
-            let reply = self.reply_with(id, &kind);
+            let reply = self.reply_with(number, &kind);
             return Some(self.ruling_due(id, reply));
         }
         let notice = self.state.notices.first()?;
@@ -117,7 +118,7 @@ impl Runner {
             of: Posting::Ruling(id),
             webhook: self.webhook.clone(),
             alert: Alert {
-                title: format!("kelpie: {project} ruling {id}"),
+                title: format!("kelpie: {project} ruling #{}", ruling.number()),
                 text,
                 reply,
             },
@@ -221,20 +222,20 @@ mod tests {
     use crate::test::{Rig, Scripted};
 
     #[test]
-    fn each_new_ruling_posts_once_with_its_id_question_and_trigger() {
+    fn each_new_ruling_posts_once_with_its_number_question_and_trigger() {
         let (rig, runner, head) = Rig::parked("shep");
         assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
         let [(webhook, alert)] = rig.alerts.posts().try_into().unwrap();
         assert_eq!(webhook, rig.webhook());
-        assert_eq!(alert.title, "kelpie: shep ruling 1");
+        assert_eq!(alert.title, "kelpie: shep ruling #71");
         let short = &head[..7];
         assert_eq!(
             alert.text,
             format!(
                 "Merge pull request #71 at {short} into main? \
-                 `shep kelpie rule 1 yes` merges it, \
-                 `shep kelpie rule 1 no <note>` sends the worker your note for a fix that \
-                 goes to CI and back to you, and `shep kelpie rule 1 rework <note>` sends \
+                 `shep kelpie rule 71 yes` merges it, \
+                 `shep kelpie rule 71 no <note>` sends the worker your note for a fix that \
+                 goes to CI and back to you, and `shep kelpie rule 71 rework <note>` sends \
                  it your note for a change the whole review reads again."
             )
         );
@@ -275,7 +276,7 @@ mod tests {
         assert_eq!(step(&runner).unwrap(), Some(failed(start + 180 + 240)));
 
         let status = rig.ask(&runner, "status", None);
-        assert_eq!(status["rulings"][0]["id"], 1);
+        assert_eq!(status["rulings"][0]["id"], 71);
         assert_eq!(status["rulings"][0]["alerted"], false);
         assert_eq!(
             status["work_item"]["phase"],

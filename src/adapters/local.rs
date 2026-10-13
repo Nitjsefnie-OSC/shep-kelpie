@@ -5,7 +5,7 @@
 //! kelpie's own reviewer. Either way kelpie holds a lease around a round
 //! only when the definition names one: the qwen-review script takes the GPU
 //! lock itself, and would wait forever behind kelpie's hold. An endpoint
-//! behind a gateway never names one: it holds a paddock lease on its model
+//! behind a gateway never names one: it holds the gateway's lease on its model
 //! for each round instead, and the gateway queues the rounds.
 
 mod command;
@@ -21,7 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::paddock::{self, Timing};
+use super::paddock;
+#[cfg(test)]
+use super::paddock::Timing;
 use super::process::Processes;
 use crate::forwarder::Upstream;
 use crate::lease::gpu::{self, Attempt, Claim, GpuHold, GpuLock, LockHolder};
@@ -48,8 +50,6 @@ pub struct LocalReviewer {
     naps: fn(u64) -> Duration,
     // Where an endpoint behind a gateway sends its rounds, with the gateway's key
     pub(super) gateways: Gateways,
-    // How a round behind a gateway takes and renews its lease
-    pub(super) paddock: Timing,
 }
 
 impl Default for LocalReviewer {
@@ -60,7 +60,6 @@ impl Default for LocalReviewer {
             seat: Arc::default(),
             naps: gpu::scripts_naps,
             gateways: Gateways::default(),
-            paddock: Timing::RUNNER,
         }
     }
 }
@@ -87,7 +86,7 @@ impl LocalReviewer {
     /// Takes and renews a gateway lease on `paddock`'s schedule
     #[cfg(test)]
     pub(crate) fn with_paddock_timing(mut self, paddock: Timing) -> Self {
-        self.paddock = paddock;
+        self.gateways = self.gateways.with_paddock_timing(paddock);
         self
     }
 

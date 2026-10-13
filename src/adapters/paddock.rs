@@ -1,4 +1,6 @@
-//! Paddock's own routes, for a gateway that is paddock, a shep dog
+//! Paddock's own routes, for a gateway of kind `paddock`, a shep dog
+//!
+//! [`Paddock`] is the one adapter of the gateway port.
 //!
 //! `GET /v1/models` lists its models and needs no key. `GET /paddock/status`
 //! needs one, so it tells a key paddock takes from one it refuses. A call or
@@ -19,7 +21,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::forwarder::Upstream;
-use crate::ports::{Ending, PaddockHolder};
+use crate::ports::{Ending, KeyCheck, ModelGateway, PaddockHolder, Stand, Taking, Unheld};
 
 // Paddock's default is 60s. Twice that rides out one lost renewal.
 const TTL: &str = "120s";
@@ -124,77 +126,61 @@ fn holder_in(body: &str, model: &str) -> Result<Option<PaddockHolder>, String> {
         }))
 }
 
-/// Where a take stands, told to whoever waits on it
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Stand {
-    /// The take is about to be asked
-    Asking,
-    /// Paddock turned it away because the model's turn is another lease's
-    /// (`reason_kind` `turn`): it waits in line, as for a lock
-    Turn,
-    /// Paddock turned it away for another reason, such as a load
-    Busy,
-    /// The lease is held
-    Granted,
-}
-
-/// What a call or round needs to hold a lease on its model
-pub(crate) struct Taking<'a> {
-    pub(crate) gateway: &'a Upstream,
-    pub(crate) model: &'a str,
-    pub(crate) note: &'a str,
-    /// Says when the wait for the grant should end
-    pub(crate) give_up: &'a dyn Fn() -> bool,
-    /// Told where the take stands, at each change
-    pub(crate) tell: &'a dyn Fn(Stand),
-    /// Asked to end the call if the lease is lost
-    pub(crate) ending: &'a Ending,
+/// The gateway port for a paddock, taking its leases on `timing`'s schedule
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Paddock {
     pub(crate) timing: Timing,
 }
 
-/// Why a call did not run under its lease
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Unheld {
-    /// `give_up` said to stop before the grant
-    GaveUp,
-    /// Paddock refused the take other than as busy, or could not be asked
-    Refused(String),
-    /// Paddock took the lease back while the call ran, with why
-    Lost(String),
+impl Default for Paddock {
+    fn default() -> Self {
+        Self {
+            timing: Timing::RUNNER,
+        }
+    }
 }
 
-impl Taking<'_> {
-    /// Runs `call` holding the lease, taken before it and released after
-    ///
-    /// A lease lost while it ran is an error whatever `call` returned, since
-    /// the call was asked to end for it.
-    ///
-    /// # Errors
-    ///
-    /// [`Unheld`] when the lease was not taken, or was lost.
-    pub(crate) fn around<T>(self, call: impl FnOnce() -> T) -> Result<T, Unheld> {
-        (self.tell)(Stand::Asking);
+impl ModelGateway for Paddock {
+    fn models(&self, gateway: &Upstream) -> Result<Vec<String>, String> {
+        models(gateway)
+    }
+
+    fn key(&self, gateway: &Upstream) -> KeyCheck {
+        match key_taken(gateway) {
+            Ok(true) => KeyCheck::Taken,
+            Ok(false) => KeyCheck::Refused,
+            Err(why) => KeyCheck::Unsure(why),
+        }
+    }
+
+    fn lease(
+        &self,
+        gateway: &Upstream,
+        taking: &Taking<'_>,
+        call: &mut dyn FnMut(),
+    ) -> Option<Result<(), Unheld>> {
+        (taking.tell)(Stand::Asking);
         let taken = Lease::take(
-            self.gateway,
-            self.model,
-            self.note,
-            self.give_up,
-            self.tell,
-            self.ending,
+            gateway,
+            taking.model,
+            taking.note,
+            taking.give_up,
+            taking.tell,
+            taking.ending,
             self.timing,
         );
         let mut lease = match taken {
             Ok(Some(lease)) => lease,
-            Ok(None) => return Err(Unheld::GaveUp),
-            Err(why) => return Err(Unheld::Refused(why)),
+            Ok(None) => return Some(Err(Unheld::GaveUp)),
+            Err(why) => return Some(Err(Unheld::Refused(why))),
         };
-        (self.tell)(Stand::Granted);
-        let done = call();
+        (taking.tell)(Stand::Granted);
+        call();
         // Finishing it first settles that no later renewal can end the call.
-        match lease.finish() {
+        Some(match lease.finish() {
             Some(why) => Err(Unheld::Lost(why)),
-            None => Ok(done),
-        }
+            None => Ok(()),
+        })
     }
 }
 
@@ -789,15 +775,15 @@ mod tests {
     ) -> Result<T, Unheld> {
         let tell = |stand| told.lock().unwrap().push(stand);
         let taking = Taking {
-            gateway: &gateway(server),
             model: "qwen",
             note: "kelpie local round 1",
             give_up,
             tell: &tell,
             ending,
-            timing: QUICK,
         };
-        taking.around(call)
+        let paddock = Paddock { timing: QUICK };
+        let port: &dyn ModelGateway = &paddock;
+        port.around(&gateway(server), &taking, call)
     }
 
     #[test]

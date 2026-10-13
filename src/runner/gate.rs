@@ -376,9 +376,9 @@ pub(super) mod tests {
         assert_eq!(
             question,
             format!(
-                "Merge pull request #71 at {} into main? `shep kelpie rule 1 yes` \
-                 merges it, `shep kelpie rule 1 no <note>` sends the worker your note for \
-                 a fix that goes to CI and back to you, and `shep kelpie rule 1 rework \
+                "Merge pull request #71 at {} into main? `shep kelpie rule 71 yes` \
+                 merges it, `shep kelpie rule 71 no <note>` sends the worker your note for \
+                 a fix that goes to CI and back to you, and `shep kelpie rule 71 rework \
                  <note>` sends it your note for a change the whole review reads again.",
                 &head[..7]
             )
@@ -388,7 +388,7 @@ pub(super) mod tests {
         assert_eq!(
             status["rulings"],
             json!([{
-                "id": 1,
+                "id": 71,
                 "issue": 7,
                 "question": question,
                 "pull_request": 71,
@@ -651,7 +651,7 @@ pub(super) mod tests {
             comment_failed.as_deref(),
             Some("gh failed: comments are down")
         );
-        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+        assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
     }
 
     #[test]
@@ -713,8 +713,8 @@ pub(super) mod tests {
         assert_eq!(
             question,
             "Pull request #71 changed outside kelpie: the `bug` label was added. \
-             `shep kelpie rule 1 yes` accepts it and kelpie carries on, and \
-             `shep kelpie rule 1 no <note>` sends the worker your note."
+             `shep kelpie rule 71 yes` accepts it and kelpie carries on, and \
+             `shep kelpie rule 71 no <note>` sends the worker your note."
         );
         assert_eq!(
             rig.ask(&runner, "status", None)["rulings"][0]["kind"],

@@ -68,8 +68,8 @@ pub(super) fn ruling_comment(mention: Option<&str>, ruling: &Ruling) -> String {
     blocks.extend(panel(ruling, &card.choices));
     blocks.extend(recommendation(ruling));
     blocks.push(match mention {
-        Some(login) => answering(login, ruling.id, &ruling.kind, &card.choices),
-        None => unmentioned(ruling.id, &ruling.kind, &card.choices),
+        Some(login) => answering(login, ruling.number(), &ruling.kind, &card.choices),
+        None => unmentioned(ruling.number(), &ruling.kind, &card.choices),
     });
     blocks.join("\n\n")
 }
@@ -603,7 +603,7 @@ fn cell(text: &str) -> String {
     line.replace('|', "\\|")
 }
 
-fn answering(login: &str, id: u64, kind: &RulingKind, choices: &[Choice]) -> String {
+fn answering(login: &str, number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
     let mut lines = vec![format!("@{login}")];
     let tick = |lines: &mut Vec<String>| {
         lines.extend(
@@ -617,13 +617,13 @@ fn answering(login: &str, id: u64, kind: &RulingKind, choices: &[Choice]) -> Str
             lines.push("- 👍 or 👎 answers, or tick one:".to_owned());
             tick(&mut lines);
             lines.push(match needs_pass(kind) {
-                true => format!("- Or reply `{id} no <note>`"),
-                false => format!("- Or reply `{id} no <note>` or `{id} rework <note>`"),
+                true => format!("- Or reply `{number} no <note>`"),
+                false => format!("- Or reply `{number} no <note>` or `{number} rework <note>`"),
             });
         }
         Wants::Answer => {
             let reply = format!(
-                "with your answer, and start it with `{id}` if other rulings wait on this thread"
+                "with your answer, and start it with `{number}` if other rulings wait on this thread"
             );
             if choices.is_empty() {
                 lines.push(format!("- Reply {reply}"));
@@ -635,19 +635,19 @@ fn answering(login: &str, id: u64, kind: &RulingKind, choices: &[Choice]) -> Str
         }
         Wants::YesOrNo if choices.len() == 1 => {
             lines.push("- 👍 answers yes".to_owned());
-            lines.push(format!("- Or reply `{id} yes`"));
+            lines.push(format!("- Or reply `{number} yes`"));
         }
         Wants::YesOrNo => {
             lines.push("- 👍 answers yes, 👎 answers no".to_owned());
-            lines.push(format!("- Or reply `{id} yes` or `{id} no <note>`"));
+            lines.push(format!("- Or reply `{number} yes` or `{number} no <note>`"));
         }
     }
     lines.join("\n")
 }
 
 // A ruling that mentions no one is answered at the terminal only.
-fn unmentioned(id: u64, kind: &RulingKind, choices: &[Choice]) -> String {
-    let rule = format!("shep kelpie rule {id}");
+fn unmentioned(number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
+    let rule = format!("shep kelpie rule {number}");
     let forms = match Wants::of(kind) {
         Wants::Answer => format!("`{rule} <your answer>`"),
         Wants::Merge if needs_pass(kind) => format!("`{rule} yes` or `{rule} no <note>`"),
