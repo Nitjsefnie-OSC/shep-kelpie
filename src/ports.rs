@@ -36,6 +36,7 @@ mod revalidated;
 mod reviewed;
 mod reviewer;
 mod routed;
+mod run;
 mod sandbox;
 mod talk;
 mod test_runner;
@@ -62,6 +63,7 @@ pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
+pub use run::BranchRun;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
@@ -328,6 +330,24 @@ pub trait Forge: Send + Sync {
         head: &str,
         merge_group: bool,
     ) -> Result<String, ForgeError>;
+
+    /// The latest completed CI run of each workflow among the 50 newest
+    /// completed runs on `branch`, whatever its conclusion
+    ///
+    /// A workflow whose latest run is older than those 50 is absent, so an
+    /// absent workflow is not a green one.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError>;
+
+    /// The end of the failed jobs' log of CI run `run`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError>;
 
     /// Reruns the failed jobs of the CI runs that failed on `head`, as the
     /// login the forge acts as
