@@ -301,7 +301,7 @@ fn run(org: Option<Owner>, name: Option<String>, replace: bool) -> Result<(), St
     let owner = match &org {
         Some(org) => org.clone(),
         None => {
-            let login = Gh
+            let login = Gh::default()
                 .viewer()
                 .map_err(|e| format!("`gh` cannot say who you are: {e}"))?;
             Owner::try_from(login.as_str())?

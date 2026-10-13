@@ -9,6 +9,8 @@
 //! reading paths it had not compared. A step that fails waits [`RETRY_FIRST`] before it runs again,
 //! twice as long after each failure in a row up to [`RETRY_MAX`], and no
 //! less than the forge's rate-limit hold. Any other outcome ends the wait.
+//! A write of kelpie's own, a comment, a label, a merge, makes the next look
+//! due at once, since the read after it is the one that shows what it did.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -48,6 +50,8 @@ pub(super) struct Looks {
     dropped_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
+    // How many writes of kelpie's the forge had taken when the last pass began
+    writes_seen: u64,
 }
 
 impl Looks {
@@ -105,6 +109,17 @@ impl Looks {
         let wait = backoff(RETRY_FIRST, failures, RETRY_MAX);
         let at = Timestamp(now.0.saturating_add(wait)).max(held.unwrap_or(now));
         self.retries.insert(slot, (failures, at));
+    }
+
+    /// Records that a pass begins with `writes` of kelpie's made so far
+    pub(super) fn pass_began(&mut self, writes: u64) {
+        self.writes_seen = writes;
+    }
+
+    /// Whether `writes` are more than the last pass began with, so what
+    /// kelpie wrote has not been read yet
+    pub(super) fn written_since(&self, writes: u64) -> bool {
+        writes > self.writes_seen
     }
 
     /// Lets the board be read on the next pass
@@ -170,7 +185,8 @@ impl Runner {
         let now = self.ports.clock.now();
         let looks = self.looks.next_due(now, &self.rotation());
         let host = self.next_retry().map(|d| d.max(DUE_FLOOR));
-        [looks, host].into_iter().flatten().min()
+        let wrote = (self.looks.written_since(self.forge_ledger.writes())).then_some(DUE_FLOOR);
+        [looks, host, wrote].into_iter().flatten().min()
     }
 }
 
