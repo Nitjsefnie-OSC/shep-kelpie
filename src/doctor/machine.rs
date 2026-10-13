@@ -161,6 +161,21 @@ pub(super) fn sandbox(host: &dyn Host, tools: &Tools) -> Line {
     Line::ok("sandbox", "the sandbox runtime can run")
 }
 
+/// What the sandbox cannot do on this machine, when it is Linux
+///
+/// srt skips the globs of `denyWrite` there, and turns every Unix socket off
+/// whatever the policy lists (`docs/facts/worker-profile-and-sandbox.md`).
+pub(super) fn sandbox_limits(host: &dyn Host) -> Option<Line> {
+    (host.os() == "linux").then(|| {
+        Line::ok(
+            "sandbox: limits",
+            "on Linux the sandbox fences only the nested harness folders that exist when a call \
+             starts, so nested harness folders made during a call are caught after it, and \
+             workers cannot reach the lease door, so `cargo-test` runs unleased",
+        )
+    })
+}
+
 /// The login a project's `claude` calls run with, for a repo the App covers (`covered`)
 /// on a machine with a keychain, where the calls cannot reach the one `claude` keeps there
 ///
