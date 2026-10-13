@@ -4,11 +4,9 @@ use std::collections::BTreeSet;
 
 use super::COMMENT_REQUEST;
 use crate::ports::{Remark, Standing, Talk};
+use crate::runner::review_bot::is_reply;
+use crate::runner::thread_replies::is_reply_words;
 use crate::work_item::Talked;
-
-// How the replies kelpie posts on a thread begin. Under the maintainer's own
-// login, `gh` posts them, and they are no one's request.
-const OWN_REPLIES: [&str; 4] = ["Fixed.", "Not fixed:", "Declined:", "Not addressed:"];
 
 /// What was written, to be sent to the worker as one numbered request
 #[derive(Debug, PartialEq, Eq)]
@@ -34,14 +32,21 @@ pub(super) struct Sorted {
     pub threads: Vec<(String, u64)>,
 }
 
+/// A login a pending ruling asks to reply
+pub(super) struct Left {
+    pub login: String,
+    /// Whether the ruling takes any text as its answer, a worker's question
+    pub takes_text: bool,
+}
+
 /// What a read is sorted by
 pub(super) struct Sieve<'a> {
     pub talked: &'a Talked,
     /// The ids of the comments kelpie posted itself
     pub own: &'a BTreeSet<u64>,
-    /// Logins whose conversation comments are answers to a ruling, which the
-    /// ruling's thread reads
-    pub left: &'a [String],
+    /// The logins a pending ruling asks to reply in its thread, whose replies
+    /// that thread reads
+    pub left: &'a [Left],
     /// Whether what is already written is only noted: a pull request kelpie
     /// did not open has comments the worker has seen
     pub quiet: bool,
@@ -62,10 +67,10 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
             sorted.comments.push(comment.id);
             continue;
         }
-        let aimed_at_a_ruling = sieve
-            .left
-            .iter()
-            .any(|login| login.eq_ignore_ascii_case(&comment.author));
+        let aimed_at_a_ruling = sieve.left.iter().any(|left| {
+            left.login.eq_ignore_ascii_case(&comment.author)
+                && (left.takes_text || is_reply_words(&comment.body))
+        });
         if aimed_at_a_ruling {
             continue;
         }
@@ -99,7 +104,7 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
         for remark in &thread.remarks {
             let fresh = remark.id > seen;
             match remark.standing {
-                Standing::Writer if !is_own_reply(remark) => {
+                Standing::Writer if !is_reply(&remark.body) => {
                     asked |= fresh;
                     said.push((remark.author.clone(), remark.body.clone()));
                 }
@@ -117,12 +122,6 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
         }
     }
     sorted
-}
-
-fn is_own_reply(remark: &Remark) -> bool {
-    OWN_REPLIES
-        .iter()
-        .any(|start| remark.body.starts_with(start))
 }
 
 fn ignored(remark: &Remark, on: &str) -> String {

@@ -145,6 +145,41 @@ fn an_ambiguous_comment_raises_a_question_ruling() {
     );
 }
 
+// A thread the worker asked about before fixing it is answered when the
+// fix comes: the answered turn is told to name the thread, and the thread
+// is not replied to as unaddressed.
+#[test]
+fn a_thread_asked_about_is_replied_to_once_the_answered_turn_fixes_it() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    let thread = rig.forge.coderabbit.person_opens(
+        71,
+        "src/lib.rs",
+        "octo-reviewer",
+        Standing::Writer,
+        "Make it better.",
+    );
+    rig.clock.advance(LATE_READ);
+    step(&runner).unwrap(); // the thread is read
+    rig.claude.script([Scripted::Say(
+        "Better how?\n\n<kelpie-question>\nFaster or smaller?\n</kelpie-question>\n",
+    )]);
+    step(&runner).unwrap(); // the worker asks
+    rig.ask(&runner, "rule", Some("2 answer smaller"));
+    rig.claude.script([Scripted::PushSay(
+        "smaller.txt",
+        "smaller\n",
+        "Made it smaller.\nthread 1: fixed",
+    )]);
+    step(&runner).unwrap(); // the answered turn pushes
+    let prompt = rig.claude.seen().last().unwrap().call.prompt.clone();
+    assert!(prompt.contains("thread <n>: fixed"), "{prompt}");
+    step(&runner).unwrap(); // the replies
+    assert_eq!(rig.forge.coderabbit.resolved(), [thread]);
+    let replies = rig.forge.coderabbit.replies();
+    assert!(replies.iter().all(|(_, r)| r == "Fixed."), "{replies:?}");
+}
+
 // The worker declines a thread, or says nothing of it: kelpie replies so,
 // and leaves it open.
 #[test]
@@ -325,6 +360,53 @@ fn a_reply_that_answers_a_ruling_in_its_thread_is_not_also_a_request() {
         panic!("no merge ruling on the fix");
     };
     assert_eq!(rig.claude.seen().len(), turns, "the words were sent once");
+}
+
+// The maintainer's plain comment under a waiting ruling is that ruling's
+// `no <note>`, whether or not it starts with the ruling's number.
+#[test]
+fn the_maintainers_plain_comment_under_a_waiting_ruling_is_its_no_note() {
+    let (rig, runner, _) = Rig::parked_set("shep", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+    });
+    rig.forge.threads.grant_write("octocat");
+    rig.clock.advance(5);
+    rig.writes_on(71, "octocat", ASK);
+    rig.claude
+        .script([Scripted::Push("rename.txt", "renamed\n")]);
+    for _ in 0..4 {
+        rig.clock.advance(LATE_READ);
+        step(&runner).unwrap();
+    }
+    let prompt = rig.claude.seen().last().unwrap().call.prompt.clone();
+    assert!(prompt.contains(ASK), "{prompt}");
+    let said: Vec<_> = rig.github.comments().into_iter().map(|(_, b)| b).collect();
+    assert!(
+        said.iter().all(|b| !b.contains("was not answered")),
+        "{said:?}"
+    );
+}
+
+// A reviewer may open a reply with the words kelpie's own replies start
+// with: only kelpie's exact replies are left out of a thread's request.
+#[test]
+fn a_reviewers_remark_that_starts_like_a_kelpie_reply_is_still_a_request() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    rig.forge.coderabbit.person_opens(
+        71,
+        "src/lib.rs",
+        "octo-reviewer",
+        Standing::Writer,
+        "Fixed. is wrong here, the doc says the opposite.",
+    );
+    rig.clock.advance(LATE_READ);
+    step(&runner).unwrap(); // the thread is read
+    rig.claude.script([Scripted::Push("doc.txt", "doc\n")]);
+    step(&runner).unwrap(); // the worker's turn
+    let prompt = rig.claude.seen().last().unwrap().call.prompt.clone();
+    assert!(prompt.contains("is wrong here"), "{prompt}");
 }
 
 // What was written on a pull request before kelpie took it over was seen

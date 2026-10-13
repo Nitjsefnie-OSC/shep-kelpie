@@ -22,21 +22,31 @@ const UNPOSTABLE_REASON: &str = "Declined: the worker's reason names something o
 const HOOK_REFUSED_REASON: &str =
     "Declined: the worker's reason was refused by a hook of the project's, so it is not posted.";
 
+const FIXED: &str = "Fixed.";
+
+const NOT_FIXED: &str = "Not fixed: the worker said it was, but pushed nothing, so it stays open.";
+
+const NOT_ADDRESSED: &str =
+    "Not addressed: the worker's reply did not mention this thread, so it stays open.";
+
+const DECLINED: &str = "Declined: ";
+
+/// Whether `body` is a reply kelpie posts on a thread, which `gh` posts under
+/// the maintainer's own login
+///
+/// A decline carries the worker's reason, so only its opening is known.
+pub(in crate::runner) fn is_reply(body: &str) -> bool {
+    [FIXED, NOT_FIXED, NOT_ADDRESSED].contains(&body) || body.starts_with(DECLINED)
+}
+
 // What kelpie replies on a thread sent to the worker, and whether it
 // resolves the thread, from what the worker's reply said of it.
 fn reply_to(answer: Option<&ThreadAnswer>, pushed: bool) -> (bool, String) {
     match answer {
-        Some(ThreadAnswer::Fixed { .. }) if pushed => (true, "Fixed.".to_owned()),
-        Some(ThreadAnswer::Fixed { .. }) => (
-            false,
-            "Not fixed: the worker said it was, but pushed nothing, so it stays open.".to_owned(),
-        ),
-        Some(ThreadAnswer::Declined { reason, .. }) => (false, format!("Declined: {reason}")),
-        None => (
-            false,
-            "Not addressed: the worker's reply did not mention this thread, so it stays open."
-                .to_owned(),
-        ),
+        Some(ThreadAnswer::Fixed { .. }) if pushed => (true, FIXED.to_owned()),
+        Some(ThreadAnswer::Fixed { .. }) => (false, NOT_FIXED.to_owned()),
+        Some(ThreadAnswer::Declined { reason, .. }) => (false, format!("{DECLINED}{reason}")),
+        None => (false, NOT_ADDRESSED.to_owned()),
     }
 }
 

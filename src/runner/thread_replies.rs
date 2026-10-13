@@ -378,6 +378,7 @@ impl Runner {
     // Moves the place read to forward to `comment` for each ruling on its
     // thread, and saves it with each pending ruling.
     fn hear(&mut self, comment: &ThreadComment) -> Result<(), StateError> {
+        let plain = self.is_plain(comment, &self.threads.aimed_by(comment));
         let mut moved = false;
         for watch in self.threads.watching.values_mut() {
             if watch.thread == comment.thread && watch.heard.before(comment.created, comment.id) {
@@ -390,10 +391,12 @@ impl Runner {
             return Ok(());
         }
         let mut next = self.state.clone();
-        // The comment is the ruling's answer, not a request of the worker.
+        // A reply is the ruling's answer, not a request of the worker. A plain
+        // comment is left for the worker's comment round to read.
         if let Some(item) = next
             .work_items
             .iter_mut()
+            .filter(|_| !plain)
             .find(|i| i.pull_request == Some(comment.thread))
         {
             item.talked.hear(comment.id);
@@ -406,8 +409,22 @@ impl Runner {
         self.save(next)
     }
 
+    // Whether `comment` answers none of the rulings `aimed` names: it is
+    // neither a number-led reply nor a yes, a no or a rework, and no ruling
+    // takes free text. The maintainer's comment on the pull request is then
+    // the worker's to read, as a `no <note>`.
+    fn is_plain(&self, comment: &ThreadComment, aimed: &[u64]) -> bool {
+        let takes_text = (self.state.rulings.iter())
+            .filter(|r| aimed.contains(&r.id))
+            .any(|r| Wants::of(&r.kind) == Wants::Answer);
+        !takes_text && !is_reply_words(&comment.body)
+    }
+
     // Acts on a reply by the login a ruling mentions, with write access.
     fn respond(&mut self, comment: &ThreadComment, aimed: &[u64]) {
+        if self.is_plain(comment, aimed) {
+            return;
+        }
         let words = comment.body.trim();
         let (named, words) = self.threads.name_of(words, comment, &self.state.rulings);
         let open = |id: &u64| self.state.rulings.iter().any(|r| r.id == *id);
@@ -727,6 +744,17 @@ impl Reading {
             _ => (None, words),
         }
     }
+}
+
+/// Whether `body` opens as a reply to a ruling does: with a number or an
+/// answer word
+pub(super) fn is_reply_words(body: &str) -> bool {
+    let first = body.split_whitespace().next().unwrap_or_default();
+    let first = first.trim_start_matches('#');
+    first.parse::<u64>().is_ok()
+        || ["yes", "no", "rework"]
+            .iter()
+            .any(|word| first.eq_ignore_ascii_case(word))
 }
 
 // Whether `comment` is new to the ruling `watch` follows, and from the login

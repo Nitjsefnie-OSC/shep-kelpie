@@ -29,7 +29,7 @@
 mod answer;
 mod failed;
 mod late;
-pub(in crate::runner) use answer::Answered;
+pub(in crate::runner) use answer::{Answered, is_reply};
 mod lease;
 mod on_ready;
 mod settle;

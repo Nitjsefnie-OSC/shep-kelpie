@@ -559,7 +559,7 @@ Comments on the pull request from people with write access to the repo (its owne
 
 - A comment the worker judges ambiguous or architectural ends its turn with a question block, which raises a `question` ruling. Your answer goes to the worker.
 - The fix goes to CI and back to the merge ruling with no new pass of the review. The ruling says its head is the worker's fix for a note or comment, and comes back to you even under `auto`.
-- A comment that lands while a merge ruling waits withdraws the ruling and is handled as that ruling's `no <note>`. A reply in the ruling's own GitHub thread is still answered as a ruling's reply.
+- A comment that lands while a merge ruling waits withdraws the ruling and is handled as that ruling's `no <note>`. A reply in the ruling's own GitHub thread that opens with a number, `yes`, `no` or `rework` is still answered as a ruling's reply. Any other comment from the login the ruling mentions is the `no <note>`, and a worker's question takes any text as its answer.
 - A work item gets three of these rounds. A fourth comment raises a `question` ruling that says so, and your answer is what the worker then gets.
 - The comments already on a pull request kelpie adopts or reworks are marked heard at the first read and sent to no one.
 - Review summaries with no inline thread are not read, and neither are comments that land while a turn runs; the next read finds them.

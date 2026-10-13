@@ -23,13 +23,14 @@
 
 use std::collections::BTreeSet;
 
-use self::sort::{Request, Sieve, Sorted, sort};
+use self::sort::{Left, Request, Sieve, Sorted, sort};
 use super::Runner;
 use super::report::Begin;
 use super::review_bot::Answered;
 use super::rework::HUMAN;
 use super::ruling::needs_pass;
 use super::turn::KEEP_BODY_TRUE;
+use super::words::Wants;
 use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, TALK_ROUNDS, Turn};
 
@@ -104,14 +105,19 @@ impl Runner {
 
     // The logins of the people a pending ruling on the pull request asks to
     // reply in its thread, where kelpie's App reads those replies.
-    fn ruling_replies(&self, number: u64) -> Vec<String> {
+    fn ruling_replies(&self, number: u64) -> Vec<Left> {
         if !self.app_covers() {
             return Vec::new();
         }
         (self.state.rulings.iter())
             .filter(|r| r.pull_request == Some(number))
-            .filter_map(|r| self.state.heard.get(&r.id))
-            .map(|heard| heard.mentions.clone())
+            .filter_map(|r| {
+                let heard = self.state.heard.get(&r.id)?;
+                Some(Left {
+                    login: heard.mentions.clone(),
+                    takes_text: Wants::of(&r.kind) == Wants::Answer,
+                })
+            })
             .collect()
     }
 
@@ -295,6 +301,16 @@ impl Request {
             .collect();
         said.join("\n")
     }
+}
+
+/// `prompt` with the reminder that the reply ends with the thread lines the
+/// requests asked for: the turn after a question about them is told so
+pub(super) fn with_thread_lines(prompt: String) -> String {
+    format!(
+        "{prompt}\nThe requests you were sent are still open. End your reply with one line \
+         for each, as `thread <n>: fixed` or `thread <n>: declined: <the reason>`, using the \
+         numbers they had.\n"
+    )
 }
 
 // The worker's turn for `requests`, which it answers by their numbers.
