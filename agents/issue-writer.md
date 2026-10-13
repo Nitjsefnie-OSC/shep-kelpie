@@ -33,7 +33,7 @@ Every issue you file has:
 - A `## Acceptance criteria` section of `- [ ]` items, which the builder and its reviewers check the pull request against: named tests, each pinning one behaviour and its failure cases, then the repo's own check commands in its documented shape. Name test modules by their full path, and say which tests only CI can run. Require nothing the builder cannot get, such as a live model or a CI result: that is its own issue, for the maintainer. Where the change alters a contract existing tests pin, list those tests. A parent's criteria are the whole request's.
 - Exactly one `agent:<name>` label, naming the implementer that should build it, from the project's list below. The default, listed first, fits features and anything with state, persistence, timing or concurrency. A smaller one, where the list has one, fits mechanical work: docs, config, a rename, test-only changes, one module with no state. The strongest fits only where a bad first build is hard to undo: migrations, credentials, irreversible operations.
 - The status label kelpie names below, and no other status label.
-- Where the repo's `docs/agents/triage-labels.md` sets priority rules, the one `priority:` label they call for. A parent takes its most urgent piece's.
+- One `priority:` label: read the repo's `docs/agents/triage-labels.md` before filing, and where it sets priority rules, add the label they call for. A parent takes its most urgent piece's.
 
 A decision the docs leave to the maintainer, such as a default, a spelling, a new dependency or a breaking change, is never made silently: name it in the issue with your recommendation.
 
