@@ -14,12 +14,20 @@
 //! security review has read is read ([`security`]) before anything of the
 //! contributor's can run ([`ruling`] raises one for a flagged head). Nothing
 //! is posted and nothing runs for a contribution here.
+//!
+//! A contribution holds no slot while it waits on its contributor. A call on
+//! it takes one for as long as it runs, starts only where a slot is free, and
+//! goes ahead of the board's next issue ([`Runner::security_due`], asked by
+//! `dispatch`). Its priced cost adds to the contribution's `spend`, and past
+//! `budget.per_item_usd` no call starts until a ruling is answered
+//! ([`budget`]).
 
+mod budget;
 mod ruling;
 mod security;
 
-pub(super) use ruling::{flagged_lines, trust};
-pub(super) use security::Job;
+pub(super) use ruling::{flagged_lines, raise_budget, trust};
+pub(super) use security::{Job, Reading};
 
 use super::Runner;
 use crate::board::{OpenPullRequest, READY};
@@ -90,6 +98,7 @@ impl Runner {
         let Ok(own) = self.own_logins() else {
             return Ok(());
         };
+        self.flights.security_retry();
         let mut followed: Vec<Contribution> = Vec::new();
         for pr in open.iter().filter(|pr| self.is_contribution(pr, &own)) {
             let known = (self.state.contributions.iter()).find(|c| c.pull_request == pr.number);
@@ -97,8 +106,11 @@ impl Runner {
                 Some(known) if known.head == pr.commit => known.clone(),
                 // A new head is unread, and the last head that passed stays the
                 // one it is read since.
+                // What it has spent is the contribution's, not the head's.
                 _ => Contribution {
                     passed: known.and_then(|k| k.passed.clone()),
+                    spend: known.map(|k| k.spend).unwrap_or_default(),
+                    budget_raises: known.map_or(0, |k| k.budget_raises),
                     ..Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
                 },
             });
@@ -116,13 +128,15 @@ impl Runner {
             ruling::withdraw(&mut next);
             self.save(next)?;
         }
-        self.read_securities()
+        Ok(())
     }
 }
 
 #[cfg(test)]
+mod budget_tests;
+#[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]
-mod security_tests;
+pub(in crate::runner) mod security_tests;
 #[cfg(test)]
-mod tests;
+pub(in crate::runner) mod tests;

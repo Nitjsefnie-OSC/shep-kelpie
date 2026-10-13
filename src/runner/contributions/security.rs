@@ -21,10 +21,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::super::Runner;
+use super::super::report::Begin;
 use super::super::review::calls::build_call;
 use super::super::untrusted;
 use super::ruling;
-use crate::ports::{Agents, Ending, Finding, Role, Severity, Tools, read_review};
+use crate::ports::{Agents, Cost, Ending, Finding, Role, Severity, Tools, read_review};
 use crate::settings::RoleModel;
 use crate::state::{Security, SecurityVerdict, StateError};
 use crate::worktree::{self, Change};
@@ -56,35 +57,54 @@ pub(in crate::runner) struct Job {
     instructions: String,
 }
 
+/// What reading one head came to
+#[derive(Debug)]
+pub(in crate::runner) struct Reading {
+    /// The verdict, or `None` when the head could not be read, which leaves it
+    /// unread for the next poll
+    pub(in crate::runner) verdict: Option<SecurityVerdict>,
+    /// What the call cost, where it came back priced
+    pub(in crate::runner) cost: Cost,
+}
+
 impl Runner {
-    // Starts reading the current head of one contribution no review has read,
-    // unless a read is in flight or the runner drains. The one after the last
-    // tried goes next, so a head that cannot be read does not hold up the
-    // others.
-    pub(super) fn read_securities(&mut self) -> Result<(), StateError> {
+    // The read of the current head of one contribution no review has read, as
+    // the call to start, unless a read is in flight or the runner drains. One
+    // is tried once a poll, so a head that cannot be read does not hold up the
+    // others. A contribution over its cap starts no call: a
+    // ruling asks the maintainer, and the next one is tried.
+    //
+    // The caller holds a free slot for it, which the call keeps until it ends.
+    pub(in crate::runner) fn security_due(&mut self) -> Result<Option<Begin>, StateError> {
         if self.draining || self.flights.securing() {
-            return Ok(());
+            return Ok(None);
         }
-        let cursor = self.flights.security_cursor();
-        let mut unread: Vec<_> = (self.state.contributions.iter())
-            .filter(|c| !c.is_read())
+        let unread: Vec<_> = (self.state.contributions.iter())
+            .filter(|c| !c.is_read() && !self.flights.security_tried(c.pull_request))
+            .map(|c| c.pull_request)
             .collect();
-        unread.sort_by_key(|c| (c.pull_request <= cursor, c.pull_request));
-        let Some(contribution) = unread.first() else {
-            return Ok(());
-        };
-        let number = contribution.pull_request;
+        for number in unread {
+            if self.over_budget(number)? {
+                continue;
+            }
+            return Ok(self.security_job(number).map(Begin::Secure));
+        }
+        Ok(None)
+    }
+
+    // Everything the read of `number`'s current head needs, or `None` when
+    // the security reviewer cannot run it.
+    fn security_job(&self, number: u64) -> Option<Job> {
+        let contribution = (self.state.contributions.iter()).find(|c| c.pull_request == number)?;
         let reviewer = match self.settings.security_reviewer(&self.book) {
             Ok(reviewer) => reviewer,
             Err(e) => {
                 eprintln!("contribution #{number}: the security review left it unread: {e}");
-                return Ok(());
+                return None;
             }
         };
-        let Some((model, _)) = reviewer.runs.session() else {
-            return Ok(());
-        };
-        let job = Job {
+        let (model, _) = reviewer.runs.session()?;
+        Some(Job {
             pull_request: number,
             head: contribution.head.clone(),
             passed: contribution.passed.clone(),
@@ -93,25 +113,30 @@ impl Runner {
             settings: (self.paths.worker).join(format!("security-settings-{number}.json")),
             model: model.clone(),
             instructions: reviewer.prompt.clone().unwrap_or_default(),
-        };
-        self.launch_security(job);
-        Ok(())
+        })
     }
 
-    // Records that the head `pull_request` was read at is read, and what came
-    // of it, unless the contribution moved on to another head or is gone. A
-    // passed head becomes the one the next is read since.
+    // Records what the call on `pull_request` came to: its cost goes to the
+    // contribution's spend whatever head it read, and the verdict is recorded
+    // for `head` unless the contribution moved on to another head or is
+    // gone. A passed head becomes the one the next is read since.
     pub(in crate::runner) fn record_security(
         &mut self,
         pull_request: u64,
         head: &str,
-        verdict: SecurityVerdict,
+        reading: Reading,
     ) -> Result<(), StateError> {
         let mut next = self.state.clone();
-        let Some(held) = (next.contributions.iter_mut())
-            .find(|c| c.pull_request == pull_request && c.head == head)
+        let Some(held) = (next.contributions.iter_mut()).find(|c| c.pull_request == pull_request)
         else {
             return Ok(());
+        };
+        held.spend = Cost(held.spend.0.saturating_add(reading.cost.0));
+        let Some(verdict) = reading.verdict.filter(|_| held.head == head) else {
+            return match reading.cost.is_free() {
+                true => Ok(()),
+                false => self.save(next),
+            };
         };
         if verdict == SecurityVerdict::Passed {
             held.passed = Some(head.to_owned());
@@ -136,11 +161,7 @@ impl Job {
     // Reads the head: its verdict, or `None` when it could not be had (a head
     // that cannot be fetched or diffed, a call that fails or is ended, a
     // reply in no shape), which leaves it unread for the next poll.
-    pub(in crate::runner) fn read(
-        self,
-        agents: &dyn Agents,
-        ending: &Ending,
-    ) -> Option<SecurityVerdict> {
+    pub(in crate::runner) fn read(self, agents: &dyn Agents, ending: &Ending) -> Reading {
         let number = self.pull_request;
         let change = worktree::contribution_change(
             &self.checkout,
@@ -156,30 +177,31 @@ impl Job {
                     "contribution #{number}: cannot fetch {} to read it: {e}",
                     self.head
                 );
-                return None;
+                return Reading::unread(Cost::default());
             }
         };
         let flagged = flagged_in_code(&change);
         if !flagged.is_empty() {
-            return Some(SecurityVerdict::Flagged(flagged));
+            return Reading::read(SecurityVerdict::Flagged(flagged), Cost::default());
         }
         self.ask(agents, ending, &change.diff)
     }
 
-    // The security reviewer's verdict on `diff`, the change the head makes.
-    fn ask(&self, agents: &dyn Agents, ending: &Ending, diff: &str) -> Option<SecurityVerdict> {
+    // The security reviewer's verdict on `diff`, the change the head makes,
+    // and what the call cost.
+    fn ask(&self, agents: &dyn Agents, ending: &Ending, diff: &str) -> Reading {
         let number = self.pull_request;
-        let fail = |why: String| {
+        let fail = |why: String, cost: Cost| {
             eprintln!("contribution #{number}: the security review left it unread: {why}");
-            None
+            Reading::unread(cost)
         };
         if let Err(e) = write_diff(&self.folder, diff) {
-            return fail(e);
+            return fail(e, Cost::default());
         }
         let prompt = prompt(&self.instructions, diff);
         let mut call = match build_call(Role::Reviewer, number, &self.folder, &self.model, prompt) {
             Ok(call) => call,
-            Err(e) => return fail(e),
+            Err(e) => return fail(e, Cost::default()),
         };
         call.settings.clone_from(&self.settings);
         call.tools = Tools::Review;
@@ -191,12 +213,32 @@ impl Job {
         let _ = fs::remove_file(&call.settings);
         let reply = match ran {
             Ok(reply) => reply,
-            Err(e) => return fail(e.to_string()),
+            Err(e) => return fail(e.to_string(), Cost::default()),
         };
+        // A fresh session, so what it has cost is what this call did.
+        let cost = reply.session_cost.unwrap_or_default();
         match read_review(&reply.text) {
-            Ok(findings) if findings.is_empty() => Some(SecurityVerdict::Passed),
-            Ok(findings) => Some(SecurityVerdict::Flagged(findings)),
-            Err(said) => fail(format!("its reply is no verdict: {said:?}")),
+            Ok(findings) if findings.is_empty() => Reading::read(SecurityVerdict::Passed, cost),
+            Ok(findings) => Reading::read(SecurityVerdict::Flagged(findings), cost),
+            Err(said) => fail(format!("its reply is no verdict: {said:?}"), cost),
+        }
+    }
+}
+
+impl Reading {
+    // A head read to `verdict`, by a call that cost `cost`
+    fn read(verdict: SecurityVerdict, cost: Cost) -> Self {
+        Self {
+            verdict: Some(verdict),
+            cost,
+        }
+    }
+
+    // A head left unread, by a call that cost `cost`
+    fn unread(cost: Cost) -> Self {
+        Self {
+            verdict: None,
+            cost,
         }
     }
 }

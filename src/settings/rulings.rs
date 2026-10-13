@@ -82,7 +82,7 @@ pub enum RulingName {
     TurnFailed,
     /// No implementer was picked
     Unlabelled,
-    /// A work item is over its budget
+    /// A work item or a contribution is over its budget
     OverBudget,
     /// The security review flagged a contribution's head. The panel never
     /// votes on it, so `pm_alone` refuses it.
@@ -104,6 +104,7 @@ impl RulingName {
             RulingKind::FollowUp { .. } => Self::FollowUp,
             RulingKind::Contribution(held) => match held {
                 Held::Security { .. } => Self::Security,
+                Held::OverBudget { .. } => Self::OverBudget,
             },
             RulingKind::Stuck(stuck) => match stuck {
                 Stuck::Rebase { .. } => Self::Rebase,

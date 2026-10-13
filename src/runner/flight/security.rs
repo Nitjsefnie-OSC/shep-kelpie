@@ -10,10 +10,10 @@ use std::sync::Arc;
 use std::thread;
 
 use super::super::Runner;
-use super::super::contributions::Job;
+use super::super::contributions::{Job, Reading};
 use super::News;
-use crate::ports::{Ending, Timestamp};
-use crate::state::{SecurityVerdict, StateError};
+use crate::ports::{Cost, Ending, Timestamp};
+use crate::state::StateError;
 
 /// How long the security review gets to read one head, in seconds
 pub(in crate::runner) const CEILING: u64 = 15 * 60;
@@ -21,6 +21,7 @@ pub(in crate::runner) const CEILING: u64 = 15 * 60;
 /// A head's security review, in flight
 #[derive(Debug)]
 pub(in crate::runner) struct Securing {
+    pull_request: u64,
     deadline: Timestamp,
     ending: Ending,
 }
@@ -45,9 +46,19 @@ impl super::Flights {
         self.securing.is_some()
     }
 
-    /// The number of the contribution a security review was last started on
-    pub(in crate::runner) fn security_cursor(&self) -> u64 {
-        self.security_cursor
+    /// The contribution whose head is being read, which holds a slot while it is
+    pub(in crate::runner) fn securing_pull_request(&self) -> Option<u64> {
+        self.securing.as_ref().map(|s| s.pull_request)
+    }
+
+    /// Whether a security review started on `pull_request` since the last poll
+    pub(in crate::runner) fn security_tried(&self, pull_request: u64) -> bool {
+        self.security_tried.contains(&pull_request)
+    }
+
+    /// Lets every contribution's head be tried again, as a poll does
+    pub(in crate::runner) fn security_retry(&mut self) {
+        self.security_tried.clear();
     }
 }
 
@@ -65,14 +76,17 @@ impl Runner {
         let run = move || {
             // A panic in the read leaves the head unread, as a failed call does.
             let read = catch_unwind(AssertUnwindSafe(|| job.read(agents.as_ref(), &held)));
-            let verdict = read.unwrap_or_else(|_| {
+            let reading = read.unwrap_or_else(|_| {
                 eprintln!("contribution #{pull_request}: the security review panicked");
-                None
+                Reading {
+                    verdict: None,
+                    cost: Cost::default(),
+                }
             });
             let heard = News::Secured {
                 pull_request,
                 head,
-                verdict,
+                reading,
             };
             let _ = news.send(heard);
             if let Some(wake) = &wake {
@@ -85,25 +99,23 @@ impl Runner {
             return;
         }
         self.flights.securing = Some(Securing {
+            pull_request,
             deadline: Timestamp(now.0.saturating_add(CEILING)),
             ending,
         });
-        self.flights.security_cursor = pull_request;
-        self.flights.security_launched = true;
+        self.flights.security_tried.push(pull_request);
     }
 
-    // Records the end of the security review in flight: the verdict, when it
-    // gave one, or nothing, which leaves the head to be read at the next poll.
+    // Records the end of the security review in flight, and gives its slot
+    // back: what it cost, and its verdict when it gave one, which otherwise
+    // leaves the head to be read at the next poll.
     pub(super) fn security_heard(
         &mut self,
         pull_request: u64,
         head: &str,
-        verdict: Option<SecurityVerdict>,
+        reading: Reading,
     ) -> Result<(), StateError> {
         self.flights.securing = None;
-        match verdict {
-            Some(verdict) => self.record_security(pull_request, head, verdict),
-            None => Ok(()),
-        }
+        self.record_security(pull_request, head, reading)
     }
 }

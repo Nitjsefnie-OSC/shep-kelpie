@@ -8,6 +8,12 @@
 //! an item goes on without a slot through anything that calls no model (CI,
 //! a merge, its end), and waits for one, ahead of any new work item, once
 //! it needs a turn or a review.
+//!
+//! A contribution holds no slot while it waits on its contributor. A model
+//! call on it takes one for as long as it runs and gives it back after, and
+//! it starts only where one is free, ahead of any new work item. An item
+//! waiting for a slot is seated before such a call starts, and not while one
+//! runs.
 
 use super::Runner;
 use crate::board::briefing::{Files, shared};
@@ -54,13 +60,28 @@ impl Runner {
             .collect()
     }
 
-    // The open work items that hold a slot or wait for one
+    // The open work items that hold a slot or wait for one, then the
+    // pull request of the contribution a call runs on
     pub(super) fn slot_issues(&self) -> Vec<u64> {
-        self.issues_where(|i| !i.parked() && i.seat != Seat::Without)
+        let mut held = self.issues_where(|i| !i.parked() && i.seat != Seat::Without);
+        held.extend(self.flights.securing_pull_request());
+        held
     }
 
-    // Whether another work item may open, under `concurrency.active_items`. An item
-    // waiting for a slot takes it first.
+    // How many slots a call on a contribution holds now
+    fn contribution_slots(&self) -> usize {
+        usize::from(self.flights.securing_pull_request().is_some())
+    }
+
+    // The slots the work items share: `concurrency.active_items`, less those
+    // that calls on contributions hold
+    pub(super) fn item_slots(&self) -> usize {
+        self.active_items()
+            .saturating_sub(self.contribution_slots())
+    }
+
+    // Whether another work item may open, or a call on a contribution start,
+    // under `concurrency.active_items`. An item waiting for a slot takes it first.
     pub(super) fn slot_free(&self) -> bool {
         self.slot_issues().len() < self.active_items()
     }
@@ -114,7 +135,7 @@ impl Runner {
                 _ => {}
             }
         }
-        ahead < self.active_items()
+        ahead < self.item_slots()
     }
 
     // Whether the current work item waits for a slot, so no model call may
@@ -140,7 +161,7 @@ impl Runner {
             return Ok(());
         }
         let mut next = self.state.clone();
-        if seat(&self.state, &mut next, self.active_items()) {
+        if seat(&self.state, &mut next, self.item_slots()) {
             self.save(next)?;
         }
         Ok(())

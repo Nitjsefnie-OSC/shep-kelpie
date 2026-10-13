@@ -764,6 +764,9 @@ pub(super) enum Begin {
     /// The issue writer's call to label an issue the board would open with
     /// no `agent:` label
     Label(crate::board::ReadyIssue),
+    /// The security review of a contribution's head, which takes a slot while
+    /// it runs
+    Secure(super::contributions::Job),
 }
 
 /// A review call, which runs in flight like a turn

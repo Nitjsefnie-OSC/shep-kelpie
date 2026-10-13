@@ -246,6 +246,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 flagged_lines(lines)
             );
         }
+        RulingKind::Contribution(Held::OverBudget { cap }) => {
+            return format!(
+                "The calls on {about} have cost more than its cap of {}, so no further call \
+                 starts on it. {yes} doubles the cap, and again until it covers the spend, and \
+                 {no} does the same: nothing of the contributor's runs because of either, and \
+                 nothing is posted.",
+                dollars(*cap)
+            );
+        }
         RulingKind::FollowUp { findings, refused } => {
             let list: Vec<String> = findings
                 .iter()

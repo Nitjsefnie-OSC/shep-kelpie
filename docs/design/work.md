@@ -33,7 +33,7 @@ Projects, the board, work items, slots, issue writer, project manager.
 ## Slots
 
 - `concurrency.active_items` (1): a project's slots, each item own branch + worktree (a parked PR must not hold the whole project). #103, `src/runner/slots.rs`
-- Slot bounds model calls only: parked item frees it, model-free phases run slotless; item needing a model again goes before new work. #355, ADR 0007
+- Slot bounds model calls only: parked item frees it, model-free phases run slotless; item needing a model again goes before new work. A call on a followed contribution takes a slot too, ahead of new work (`contribution-security.md`). #355, #621, ADR 0007
 - `concurrency.pending_rulings` (2): no new work while that many items parked (alerts can't open PR after PR); `add` ignores it. #355
 - Issue naming a file a parked branch changes skipped as `overlap` (ruling may still change it). #355
 - Resuming a parked session after 1h repays cache write; accepted. shep-pm/shep#707

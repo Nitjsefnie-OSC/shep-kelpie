@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::RulingKind;
-use crate::ports::{Finding, Timestamp};
+use crate::ports::{Cost, Finding, Timestamp};
+use crate::settings::PerItemUsd;
 
 /// A pull request from someone else, as the board last saw it
 // wire format: changing this is a breaking change to the state file
@@ -31,6 +32,20 @@ pub struct Contribution {
     /// unless it is not an ancestor of the next head.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passed: Option<String>,
+    /// What the contribution's priced model calls have cost, over every head
+    ///
+    /// A call whose harness reports no dollars adds nothing. Left out while
+    /// nothing is spent.
+    #[serde(default, skip_serializing_if = "Cost::is_free")]
+    pub spend: Cost,
+    /// How many over-budget rulings were answered, each of which doubled the
+    /// cap. Left out while none was.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub budget_raises: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl Contribution {
@@ -43,6 +58,31 @@ impl Contribution {
             seen,
             security: None,
             passed: None,
+            spend: Cost::default(),
+            budget_raises: 0,
+        }
+    }
+
+    /// The most its priced calls may cost before no further call starts:
+    /// `per_item`, doubled once for each over-budget ruling answered
+    pub fn budget_cap(&self, per_item: PerItemUsd) -> Cost {
+        let doubled = 2u64.saturating_pow(self.budget_raises);
+        Cost(per_item.cost().0.saturating_mul(doubled))
+    }
+
+    /// The cap its calls are over, or `None` while they cost no more than it
+    pub fn over_budget(&self, per_item: PerItemUsd) -> Option<Cost> {
+        let cap = self.budget_cap(per_item);
+        (self.spend > cap).then_some(cap)
+    }
+
+    /// Lifts its cap for an answer to an over-budget ruling: one doubling, and
+    /// more while its calls still cost more than the cap, so one answer
+    /// always lets the next call start
+    pub fn raise_budget(&mut self, per_item: PerItemUsd) {
+        self.budget_raises = self.budget_raises.saturating_add(1);
+        while self.over_budget(per_item).is_some() {
+            self.budget_raises = self.budget_raises.saturating_add(1);
         }
     }
 
@@ -93,6 +133,14 @@ pub enum Held {
         head: String,
         /// Each file, line and why the review flagged
         lines: Vec<Finding>,
+    },
+    /// The contribution's priced calls cost more than its cap, so no further
+    /// call starts on it. A yes doubles the cap, again while it is below the
+    /// spend, and so does a no with a note.
+    OverBudget {
+        /// The cap it was over: `budget.per_item_usd`, doubled once for each
+        /// ruling like this one that was answered
+        cap: Cost,
     },
 }
 

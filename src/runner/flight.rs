@@ -55,11 +55,10 @@ pub(super) struct Flights {
     labelling: Option<label::Labelling>,
     // The security review of a contribution's head
     securing: Option<security::Securing>,
-    // The last contribution a security review was started on, after which the
-    // next unread one goes
-    security_cursor: u64,
-    // Whether a security review started since the loop last heard of it
-    security_launched: bool,
+    // The contributions a security review started on since the last poll, which
+    // are not tried again before the next, so a head that cannot be read does
+    // not hold up the others or start a call on every pass
+    security_tried: Vec<u64>,
     // The experts of one ruling, voting
     panel: Option<panel::Panelling>,
     // The project manager's batch retro
@@ -80,8 +79,7 @@ impl Default for Flights {
             pm: None,
             labelling: None,
             securing: None,
-            security_cursor: 0,
-            security_launched: false,
+            security_tried: Vec::new(),
             panel: None,
             retro: None,
             ledger: InFlight::default(),
@@ -281,7 +279,7 @@ enum News {
     Secured {
         pull_request: u64,
         head: String,
-        verdict: Option<crate::state::SecurityVerdict>,
+        reading: crate::runner::contributions::Reading,
     },
     // The experts of a ruling ended, each as its own call did
     Paneled {
@@ -532,6 +530,10 @@ impl Runner {
                 let report = self.ask_writer(&issue)?;
                 return Ok(report.map_or(Pass::Started, Pass::Report));
             }
+            Begin::Secure(job) => {
+                self.launch_security(job);
+                return Ok(Pass::Started);
+            }
         };
         let issue = self.focus.expect("a call is a work item's");
         self.launch(issue, launch);
@@ -780,8 +782,7 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
             let woke = lock(runner).wake_pm();
             let asked = lock(runner).panel_launched();
             let looked = !woke && lock(runner).retro_launched();
-            let reading = std::mem::take(&mut lock(runner).flights.security_launched);
-            Ok(if woke || asked || looked || reading {
+            Ok(if woke || asked || looked {
                 Pass::Started
             } else {
                 Pass::Idle
@@ -865,9 +866,9 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         News::Secured {
             pull_request,
             head,
-            verdict,
+            reading,
         } => {
-            runner.security_heard(pull_request, &head, verdict)?;
+            runner.security_heard(pull_request, &head, reading)?;
             return Ok(None);
         }
         News::Paneled { id, ends } => return runner.panel_ended(id, ends),

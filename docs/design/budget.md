@@ -11,6 +11,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - Unreadable usage holds (guessing pacer would spend the account it protects). #15
 - Each account paces separately; new item paces on every account its agents spend. #129
 - `budget.per_item_usd` ($10) parks item `over-budget` before a turn or round, never mid-call; yes doubles it. #492, `src/work_item/spend.rs`
+- A contribution's calls take a slot while they run, count against `budget.per_item_usd` through its `spend`, and go ahead of new issues; a yes or a no with a note to its `over-budget` ruling doubles the cap. Like the PM's and the issue-label calls, they are tied to no work item. #621, `src/runner/contributions/budget.rs`
 
 ## Dog, leases, forge limits
 

@@ -16,7 +16,8 @@
 use super::super::gate::short;
 use super::super::ruling::question;
 use super::super::{Answer, RuleError};
-use crate::ports::{Finding, Timestamp};
+use crate::ports::{Cost, Finding, Timestamp};
+use crate::settings::PerItemUsd;
 use crate::state::{Held, ProjectState, Ruling, RulingKind};
 
 /// The longest a finding's `what` or `why` is shown, in characters: the
@@ -55,10 +56,26 @@ pub(super) fn raise(
     lines: Vec<Finding>,
     now: Timestamp,
 ) {
-    let kind = RulingKind::Contribution(Held::Security {
+    let held = Held::Security {
         head: head.to_owned(),
         lines,
-    });
+    };
+    raise_held(next, pull_request, held, now);
+}
+
+/// Adds the ruling that asks whether `pull_request`, whose calls cost more
+/// than `cap`, may go on, to `next`
+pub(super) fn raise_over_budget(
+    next: &mut ProjectState,
+    pull_request: u64,
+    cap: Cost,
+    now: Timestamp,
+) {
+    raise_held(next, pull_request, Held::OverBudget { cap }, now);
+}
+
+fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Timestamp) {
+    let kind = RulingKind::Contribution(held);
     next.rulings.push(Ruling {
         id: pull_request,
         issue: None,
@@ -76,15 +93,43 @@ pub(super) fn raise(
 }
 
 /// Takes out of `next` each contribution ruling whose head is not the head of
-/// a followed contribution any more
+/// a followed contribution any more, and each over-budget one whose pull
+/// request is not followed any more
 pub(super) fn withdraw(next: &mut ProjectState) {
     let followed = &next.contributions;
     next.rulings.retain(|r| match &r.kind {
         RulingKind::Contribution(Held::Security { head, .. }) => {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
+        RulingKind::Contribution(Held::OverBudget { .. }) => {
+            (followed.iter()).any(|c| c.pull_request == r.number())
+        }
         _ => true,
     });
+}
+
+/// Lifts the cap of the contribution `ruling` is about, in `next`, for an
+/// answer to its over-budget ruling, and says whether it did
+///
+/// A yes does, and so does a no with a note, as for a work item; each doubles
+/// the cap, and again while it is below what the calls have cost, so one answer
+/// always lets the next call start.
+pub(in crate::runner) fn raise_budget(
+    next: &mut ProjectState,
+    answer: &Answer,
+    ruling: &Ruling,
+    per_item: PerItemUsd,
+) -> bool {
+    let (Answer::Yes | Answer::No(_), RulingKind::Contribution(Held::OverBudget { .. })) =
+        (answer, &ruling.kind)
+    else {
+        return false;
+    };
+    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    if let Some(followed) = followed {
+        followed.raise_budget(per_item);
+    }
+    true
 }
 
 /// The fewest characters of a head's hash a yes may name

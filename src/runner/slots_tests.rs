@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 
 use crate::board::Skip;
 use crate::ports::{CLEAN, Checks, Cost, Usage};
+use crate::runner::contributions::security_tests::{contribute, contribution, reviews};
+use crate::runner::contributions::tests::picking;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -406,4 +408,34 @@ fn an_attach_takes_a_free_slot_for_an_item_going_on_without_one() {
         assert_eq!(step(&runner).unwrap(), None);
     }
     assert_eq!(slots(&rig, &runner), [json!([7]), json!([]), json!([])]);
+}
+
+#[test]
+fn a_contribution_waits_for_a_free_slot_under_active_items_1() {
+    let (rig, runner) = picking("all");
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude
+        .script([Scripted::Say(ASKS), Scripted::Text(CLEAN)]);
+    contribute(&rig, 30, |h| {
+        std::fs::write(h.join("one.txt"), "one\n").unwrap();
+    });
+    rig.forge.list_ready(8, false);
+
+    // #7 holds the one slot, so no review starts on the contribution.
+    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert!(reviews(&rig).is_empty());
+    assert_eq!(slots(&rig, &runner), [json!([]), json!([]), json!([7])]);
+
+    // #7 parked on its question and gave the slot up. The review takes it,
+    // ahead of the ready issue #8.
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(reviews(&rig).len(), 1, "the review ran");
+    let head = contribution(&rig, &runner);
+    assert_eq!(head["passed"], head["head"]);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_items"].as_array().unwrap().len(), 1);
+
+    // With the slot given back, #8 opens.
+    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
 }
