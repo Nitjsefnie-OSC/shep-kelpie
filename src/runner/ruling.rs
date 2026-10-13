@@ -206,6 +206,12 @@ impl Runner {
             }
             _ => None,
         };
+        // A yes to a merge vouches for the head it names, so a catch-up with
+        // `main` before the merge carries that on and asks nothing again.
+        let merged_head = match (&answer, &ruling.kind) {
+            (Answer::Yes, RulingKind::Merge { head, .. }) => Some(head.clone()),
+            _ => None,
+        };
         // These ask the maintainer to fix the branch, so a yes vouches for its head.
         let vouches = matches!(
             (&answer, &ruling.kind),
@@ -296,6 +302,9 @@ impl Runner {
                 item.threads_accepted.extend(accepted);
                 item.noted_from = noted_from;
                 item.late_from = None;
+                if let Some(head) = merged_head {
+                    item.send_unread(head);
+                }
                 self.late_reads.remove(&item.issue);
             }
             let regate = match (vouches, self.settings.git.merging) {
