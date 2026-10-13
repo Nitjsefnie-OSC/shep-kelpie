@@ -50,10 +50,15 @@ fn a_ref_is_built_where_it_stands_in_the_repo() {
 
     let work = dir.path().join("work");
     let repo = repo.to_str().unwrap();
+    // A hang fails the test in minutes and kills what it started.
+    let limits = fetch::Limits {
+        git: Duration::from_secs(60),
+        cargo: Duration::from_secs(5 * 60),
+    };
     for (reference, version) in [("v0.1.0", "0.1.0"), ("main", "0.2.0")] {
-        let binary = fetch::build_ref(&work, repo, reference).unwrap();
+        let binary = fetch::build_ref(&work, repo, reference, limits).unwrap();
         assert_eq!(Build::of(&binary).unwrap().kelpie, version, "{reference}");
     }
-    let err = fetch::build_ref(&work, repo, "nope").unwrap_err();
+    let err = fetch::build_ref(&work, repo, "nope", limits).unwrap_err();
     assert!(err.contains("has no ref nope"), "{err}");
 }

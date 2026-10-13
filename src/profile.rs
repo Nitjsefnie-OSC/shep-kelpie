@@ -931,6 +931,21 @@ mod tests {
         assert!(!text.contains("{deferred}"), "{text}");
     }
 
+    // A bare verb on a choice only the maintainer can carry out read as "kelpie,
+    // do this", and the answer reached a worker that could not (shep#829).
+    #[test]
+    fn the_worker_instructions_say_a_choice_the_maintainer_carries_out_starts_with_you() {
+        assert!(INSTRUCTIONS.contains("starts with `You`"), "{INSTRUCTIONS}");
+        assert!(
+            INSTRUCTIONS.contains("- You run the command => "),
+            "{INSTRUCTIONS}"
+        );
+        assert!(
+            INSTRUCTIONS.contains("Never offer a choice you cannot carry out"),
+            "{INSTRUCTIONS}"
+        );
+    }
+
     #[test]
     fn the_worker_instructions_name_the_disputed_findings_files_path() {
         let deferred = Path::new("/kelpie/shep/build-7/deferred-findings.md");
