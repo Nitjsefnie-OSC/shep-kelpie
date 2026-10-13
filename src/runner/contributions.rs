@@ -17,6 +17,8 @@
 
 mod security;
 
+pub(super) use security::Job;
+
 use super::Runner;
 use crate::board::{OpenPullRequest, READY};
 use crate::ports::ForgeError;

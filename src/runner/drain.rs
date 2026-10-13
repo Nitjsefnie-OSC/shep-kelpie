@@ -46,6 +46,8 @@ pub enum CallRole {
     Pm,
     /// The issue writer, labelling an issue
     IssueWriter,
+    /// The security review, reading a contribution's head
+    Security,
     /// The panel's experts, voting on a ruling
     Panel,
     /// The project manager's agent, running a batch retro
@@ -75,6 +77,8 @@ impl Runner {
         }
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
         let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
+        let securing =
+            (self.flights.security_running()).then_some(super::flight::security::CEILING);
         let retro = self
             .flights
             .retro_running()
@@ -83,6 +87,7 @@ impl Runner {
         let ceiling = (self.turn_ceiling().as_secs())
             .max(pm.unwrap_or(0))
             .max(labelling.unwrap_or(0))
+            .max(securing.unwrap_or(0))
             .max(retro.unwrap_or(0))
             .max(panel.unwrap_or(0));
         Some(Draining {

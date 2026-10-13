@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 
 use super::tests::{picking, poll};
 use crate::ports::{AgentError, CLEAN, Role};
-use crate::runner::{Runner, step};
+use crate::runner::{Pass, Runner, advance, step};
 use crate::settings::Harness;
-use crate::test::{Rig, Scripted, Seen, git};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git};
 
 // The clone the rig's contributors push from
 fn hand(rig: &Rig) -> PathBuf {
@@ -299,6 +299,50 @@ fn the_review_runs_in_a_folder_outside_the_checkout_and_nothing_is_checked_out()
     );
     assert_eq!(after, before, "no branch, no worktree, no checkout");
     assert_eq!(git(&rig.repo(), &["status", "--porcelain"]), "");
+}
+
+#[test]
+fn the_review_runs_in_flight_off_the_runners_lock_under_a_ceiling() {
+    let (rig, runner) = picking("all");
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the review never began");
+
+    // The runner answers while the review runs, and shows it as a call in flight.
+    assert_eq!(contribution(&rig, &runner).get("security"), None);
+    let draining = rig.ask(&runner, "drain", None)["draining"].clone();
+    assert_eq!(draining["calls"], json!([{ "role": "security" }]));
+    let ceiling = runner.lock().unwrap().next_ceiling();
+    assert_eq!(ceiling.map(|c| c.as_secs()), Some(15 * 60));
+
+    // The stand-in answers "done", no verdict, so the head stays unread.
+    hold.release();
+    assert!(hold.answered(CALL_PATIENCE), "the review never answered");
+    let by = std::time::Instant::now() + CALL_PATIENCE;
+    while !rig.ask(&runner, "status", None)["draining"]["calls"]
+        .as_array()
+        .is_some_and(Vec::is_empty)
+    {
+        assert!(std::time::Instant::now() < by, "the review never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        step(&runner).unwrap();
+    }
+    assert_eq!(contribution(&rig, &runner).get("security"), None);
+
+    // A drain starts no read, and once it ends the next poll reads the head.
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 1, "no read starts while draining");
+    rig.ask(&runner, "undrain", None);
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 2);
+    assert_eq!(
+        contribution(&rig, &runner)["passed"],
+        contribution(&rig, &runner)["head"]
+    );
 }
 
 #[test]
