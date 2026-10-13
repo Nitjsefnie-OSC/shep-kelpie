@@ -127,6 +127,10 @@ impl Notices {
         let (done, settled) = mpsc::channel();
         if self.send(Job::Settled(done)).is_ok() {
             let _ = settled.recv();
+            // The thread counts the mark itself out just after it signals.
+            while self.running() {
+                std::thread::yield_now();
+            }
         }
     }
 }
