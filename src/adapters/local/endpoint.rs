@@ -6,7 +6,7 @@
 //! through `curl`, and each reply is read in the findings format. The agent
 //! file's body, if it has one, replaces what the prompt asks to report.
 //! A gateway's key reaches `curl` on its stdin, never in its arguments, and
-//! a round behind one holds a paddock lease on its model across every chunk.
+//! a round behind one holds the gateway's lease on its model across every chunk.
 //! Requests and replies are kept under the round's folder, beside the
 //! `round-N.txt` and its completion marker a command would write.
 
@@ -18,9 +18,10 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::LocalReviewer;
-use crate::adapters::paddock::{Stand, Taking, Unheld};
 use crate::adapters::process::RunError;
-use crate::ports::{CLEAN, Ending, Finding, ReviewerError, RoundStage, read_review};
+use crate::ports::{
+    CLEAN, Ending, Finding, ReviewerError, RoundStage, Stand, Taking, Unheld, read_review,
+};
 use crate::settings::{Endpoint, ModelHost, Route};
 use crate::worktree::Linked;
 
@@ -141,6 +142,7 @@ impl LocalReviewer {
             return chunked();
         };
         let upstream = (self.gateways.upstream(&endpoint.host)).map_err(ReviewerError::Failed)?;
+        let port = (self.gateways.port_named(name)).map_err(ReviewerError::Failed)?;
         let place = worktree.worktree.file_name().unwrap_or_default();
         let note = format!("kelpie local round {round} in {}", place.to_string_lossy());
         // The wait for a turn is the round's queue, as the GPU lock's was.
@@ -151,22 +153,21 @@ impl LocalReviewer {
             _ => {}
         };
         let taking = Taking {
-            gateway: &upstream,
             model: endpoint.model.as_str(),
             note: &note,
             give_up: &|| self.processes.stopping(),
             tell: &tell,
             ending: &ending,
-            timing: self.paddock,
         };
-        taking.around(chunked).map_err(|unheld| match unheld {
-            Unheld::GaveUp => ReviewerError::Stopped,
-            Unheld::Refused(why) => ReviewerError::Failed(format!(
-                "cannot take a lease on {} from gateway {name}: {why}",
-                endpoint.model.as_str()
-            )),
-            Unheld::Lost(why) => ReviewerError::Failed(why),
-        })?
+        port.around(&upstream, &taking, chunked)
+            .map_err(|unheld| match unheld {
+                Unheld::GaveUp => ReviewerError::Stopped,
+                Unheld::Refused(why) => ReviewerError::Failed(format!(
+                    "cannot take a lease on {} from gateway {name}: {why}",
+                    endpoint.model.as_str()
+                )),
+                Unheld::Lost(why) => ReviewerError::Failed(why),
+            })?
     }
 
     #[expect(

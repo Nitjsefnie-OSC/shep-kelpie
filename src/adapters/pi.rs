@@ -9,8 +9,8 @@
 //! command and file write. pi starts no MCP servers. The sandbox allows no
 //! model host: pi's calls go to a forwarder outside it, which passes the
 //! server only the chat completions call. A model behind a gateway gets the
-//! gateway's key from the forwarder, and each call on one holds a paddock
-//! lease on its model from start to end.
+//! gateway's key from the forwarder, and each call on one holds the gateway's
+//! lease on its model from start to end, where its kind offers one.
 
 use std::ffi::OsString;
 use std::net::{IpAddr, ToSocketAddrs};
@@ -24,14 +24,13 @@ use serde_json::json;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
-use super::paddock;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy,
-    Sandbox, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
+    Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage, Wait, written_at,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
@@ -213,30 +212,30 @@ impl PiCli {
             return Ok(run());
         };
         let upstream = self.upstream(server)?;
+        let port = self.gateways.port_named(name).map_err(AgentError::Setup)?;
         let note = format!("kelpie {}", call.label());
         let tell = |stand| match stand {
-            paddock::Stand::Asking | paddock::Stand::Turn => ending.wait(Wait::Lease),
-            paddock::Stand::Busy => ending.wait(Wait::Busy),
-            paddock::Stand::Granted => ending.begin(),
+            Stand::Asking | Stand::Turn => ending.wait(Wait::Lease),
+            Stand::Busy => ending.wait(Wait::Busy),
+            Stand::Granted => ending.begin(),
         };
-        let taking = paddock::Taking {
-            gateway: &upstream,
+        let taking = Taking {
             model: &call.model,
             note: &note,
             give_up: &|| ending.asked() || self.processes.stopping(),
             tell: &tell,
             ending,
-            timing: paddock::Timing::RUNNER,
         };
-        taking.around(run).map_err(|unheld| match unheld {
-            paddock::Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
-            paddock::Unheld::GaveUp => AgentError::TimedOut(PI),
-            paddock::Unheld::Refused(why) => AgentError::Setup(format!(
-                "cannot take a lease on {} from gateway {name}: {why}",
-                call.model
-            )),
-            paddock::Unheld::Lost(why) => AgentError::Failed(PI, why),
-        })
+        port.around(&upstream, &taking, run)
+            .map_err(|unheld| match unheld {
+                Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
+                Unheld::GaveUp => AgentError::TimedOut(PI),
+                Unheld::Refused(why) => AgentError::Setup(format!(
+                    "cannot take a lease on {} from gateway {name}: {why}",
+                    call.model
+                )),
+                Unheld::Lost(why) => AgentError::Failed(PI, why),
+            })
     }
 
     fn sandboxed_command(&self, call: &AgentCall) -> Result<(Command, Forwarder), AgentError> {

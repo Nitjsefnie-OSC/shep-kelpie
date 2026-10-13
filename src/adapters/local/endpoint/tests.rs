@@ -690,12 +690,13 @@ fn a_worktree_whose_commondir_points_elsewhere_is_refused_and_runs_nothing() {
 
 #[test]
 fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease_and_no_lock() {
-    use crate::settings::{Gateway, GatewayName, Gateways, KeyVar};
+    use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
     let dir = tempfile::tempdir().unwrap();
     let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
     let server = StandInEndpoint::start([Answer::Says(CLEAN)]).like_paddock("pk-r", &[]);
     let name = GatewayName::try_from("paddock".to_owned()).unwrap();
     let gateway = Gateway {
+        kind: GatewayKind::Paddock,
         url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
         key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
     };
@@ -730,7 +731,7 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease_and
 fn a_round_waiting_for_its_turn_behind_a_gateway_queues_until_it_is_granted() {
     use crate::adapters::paddock::Timing;
     use crate::ports::RoundStage;
-    use crate::settings::{Gateway, GatewayName, Gateways, KeyVar};
+    use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
     use crate::test::Take;
     const TURN: &str =
         r#"{"error":"busy","reason":"coder is serving kelpie #9","reason_kind":"turn"}"#;
@@ -746,6 +747,7 @@ fn a_round_waiting_for_its_turn_behind_a_gateway_queues_until_it_is_granted() {
         ]);
     let name = GatewayName::try_from("paddock".to_owned()).unwrap();
     let gateway = Gateway {
+        kind: GatewayKind::Paddock,
         url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
         key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
     };
