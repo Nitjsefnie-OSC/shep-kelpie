@@ -103,13 +103,17 @@ impl Runner {
         last.clone().unwrap_or_default()
     }
 
-    // The work items finished since the last retro, oldest first
+    // The work items finished since the last retro, oldest first: the latest
+    // `EVERY` of them, so a history that built up with the retro off, or a
+    // retro that waited long, is not read all at once.
     fn finished_since_retro(&mut self) -> Vec<Finished> {
         let (since, covered) = self.last_retro();
-        (self.state.history.iter())
+        let mut batch: Vec<Finished> = (self.state.history.iter())
             .filter(|f| f.at.0 > since || (f.at.0 == since && !covered.contains(&f.issue)))
             .cloned()
-            .collect()
+            .collect();
+        batch.drain(..batch.len().saturating_sub(EVERY));
+        batch
     }
 
     /// Starts the batch retro if one is due and the project manager can run

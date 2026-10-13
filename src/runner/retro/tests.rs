@@ -571,3 +571,45 @@ fn a_drain_that_starts_during_a_retro_asks_for_the_work_items_finished_meanwhile
     assert_eq!(seen.len(), 2, "{seen:#?}");
     assert!(seen[1].call.prompt.contains("1 work items of koji"));
 }
+
+#[test]
+fn the_drain_starts_its_retro_itself_so_its_status_lists_it() {
+    let rig = Rig::new("koji");
+    name_pm(&rig);
+    rig.retro_on();
+    seed(&rig, 3);
+    let runner = rig.open().unwrap();
+    let hold = Hold::default();
+    rig.claude
+        .script_for(Role::Pm, [Scripted::Hold(hold.clone())]);
+    let status = rig.ask(&runner, "drain", None);
+    let began = hold.entered(PATIENCE);
+    hold.release();
+
+    assert!(began, "the retro never began");
+    assert_eq!(
+        status["draining"]["calls"],
+        serde_json::json!([{ "role": "retro" }])
+    );
+}
+
+#[test]
+fn a_history_of_many_old_work_items_gets_a_retro_of_the_latest_ten() {
+    let rig = Rig::new("koji");
+    name_pm(&rig);
+    rig.retro_on();
+    seed(&rig, 25);
+    let runner = rig.open().unwrap();
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    step(&runner).unwrap();
+
+    let seen = retros(&rig);
+    let [retro] = seen.as_slice() else {
+        panic!("one retro call: {seen:#?}")
+    };
+    let prompt = &retro.call.prompt;
+    assert!(prompt.contains("10 work items of koji"), "{prompt}");
+    assert!(prompt.contains("#125"), "{prompt}");
+    assert!(!prompt.contains("#115,"), "{prompt}");
+    assert!(prompt.contains("#116,"), "{prompt}");
+}

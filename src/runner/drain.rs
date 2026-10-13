@@ -55,9 +55,12 @@ pub enum CallRole {
 impl Runner {
     /// Starts no new call from now until a restart or [`Runner::undrain`]
     pub(super) fn drain(&mut self) {
-        // The one call a drain starts: a retro over what finished since the last.
+        // The one call a drain starts: a retro over what finished since the
+        // last. It starts here, so the status this answers lists it. One that
+        // cannot start yet is asked for on a later pass.
         self.retro_book.at_drain |= !self.draining;
         self.draining = true;
+        self.retro_launched();
     }
 
     /// Starts calls again
