@@ -6,8 +6,9 @@
 //! through `curl`, and each reply is read in the findings format. The agent
 //! file's body, if it has one, replaces what the prompt asks to report.
 //! A gateway's key reaches `curl` on its stdin, never in its arguments, and
-//! a round behind one holds the gateway's lease on its model across every chunk
-//! and asks for batch priority on each chunk's request.
+//! a round behind one holds the gateway's lease on its model across every chunk.
+//! Each chunk's request asks for batch priority, names that lease so it takes
+//! the lease's own turn, and allows the wait the request's timeout allows.
 //! Requests and replies are kept under the round's folder, beside the
 //! `round-N.txt` and its completion marker a command would write.
 
@@ -81,6 +82,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
 pub(super) const CONNECT_TIMEOUT: &str = "10";
 pub(super) const CHECK_TIMEOUT: &str = "15";
 
+/// The seconds a gateway may hold a request for its turn: the request's own timeout
+const MAX_WAIT: &str = "1800";
+
 /// How much of a reply an error quotes
 const QUOTE: usize = 300;
 
@@ -128,7 +132,7 @@ impl LocalReviewer {
     ) -> Result<Vec<Finding>, ReviewerError> {
         let route = (self.gateways.route(&endpoint.host)).map_err(ReviewerError::Failed)?;
         let ending = Ending::default();
-        let chunked = || {
+        let chunked = |lease: Option<&str>| {
             self.chunked_round(
                 &route,
                 endpoint,
@@ -136,11 +140,11 @@ impl LocalReviewer {
                 base,
                 (out, round),
                 criteria,
-                &ending,
+                (&ending, lease),
             )
         };
         let ModelHost::Gateway(name) = &endpoint.host else {
-            return chunked();
+            return chunked(None);
         };
         let upstream = (self.gateways.upstream(&endpoint.host)).map_err(ReviewerError::Failed)?;
         let port = (self.gateways.port_named(name)).map_err(ReviewerError::Failed)?;
@@ -160,7 +164,7 @@ impl LocalReviewer {
             tell: &tell,
             ending: &ending,
         };
-        port.around(&upstream, &taking, chunked)
+        port.around_leased(&upstream, &taking, chunked)
             .map_err(|unheld| match unheld {
                 Unheld::GaveUp => ReviewerError::Stopped,
                 Unheld::Refused(why) => ReviewerError::Failed(format!(
@@ -183,7 +187,7 @@ impl LocalReviewer {
         base: &str,
         (out, round): (&Path, u32),
         criteria: &str,
-        ending: &Ending,
+        (ending, lease): (&Ending, Option<&str>),
     ) -> Result<Vec<Finding>, ReviewerError> {
         let diff = diff(worktree, base)?;
         let system = system_prompt(endpoint.prompt.as_deref(), criteria);
@@ -214,7 +218,8 @@ impl LocalReviewer {
                 route,
                 &request,
                 &folder.join(format!("reply-{index}.json")),
-                ending,
+                (ending, lease),
+                reply,
             )?;
             text.push_str(answer.trim());
             text.push('\n');
@@ -239,7 +244,8 @@ impl LocalReviewer {
         route: &Route,
         request: &Path,
         reply: &Path,
-        ending: &Ending,
+        (ending, lease): (&Ending, Option<&str>),
+        asked: usize,
     ) -> Result<String, ReviewerError> {
         let url = format!("{}/chat/completions", route.base.as_str());
         // curl leaves the file alone on a reply with no body, and a retried
@@ -263,6 +269,12 @@ impl LocalReviewer {
         let config = match &route.key {
             Some(key) => {
                 command.args(["-H", "X-Paddock-Priority: batch"]);
+                // Without it the gateway gives the request any free turn of this
+                // client's leases, which can be another round's.
+                if let Some(lease) = lease {
+                    command.args(["-H", &format!("X-Paddock-Lease: {lease}")]);
+                }
+                command.args(["-H", &format!("X-Paddock-Max-Wait: {MAX_WAIT}")]);
                 command.args(["--config", "-"]);
                 let header = format!("Authorization: Bearer {}", key.expose());
                 crate::adapters::curl::render(&[("header", header)])
@@ -307,7 +319,25 @@ impl LocalReviewer {
         }
         let value: Value =
             serde_json::from_str(&body).map_err(|_| ReviewerError::Unreadable(quote(&body)))?;
-        let content = value["choices"][0]["message"]["content"]
+        let choice = &value["choices"][0];
+        if choice["finish_reason"] == "length" {
+            let held = match choice["message"]["content"].as_str() {
+                Some(content) if !content.is_empty() => "left its answer unfinished",
+                _ => "held no answer",
+            };
+            let tokens = |kind: &str| match value["usage"][kind].as_u64() {
+                Some(n) => n.to_string(),
+                None => "an unknown number of".to_owned(),
+            };
+            return Err(ReviewerError::Failed(format!(
+                "{}'s reply was cut off (finish_reason \"length\") after {} completion tokens \
+                 of the {asked} asked for, with {} in the prompt, and {held}",
+                route.base.as_str(),
+                tokens("completion_tokens"),
+                tokens("prompt_tokens"),
+            )));
+        }
+        let content = choice["message"]["content"]
             .as_str()
             .ok_or_else(|| ReviewerError::Unreadable(quote(&body)))?;
         // A thinking model's reasoning comes first, and may quote finding-shaped

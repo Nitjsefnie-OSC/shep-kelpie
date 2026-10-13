@@ -411,6 +411,62 @@ fn a_reply_cut_off_while_thinking_fails_the_round() {
 }
 
 #[test]
+fn a_reply_cut_off_by_length_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([Answer::CutOff(9216)]);
+    let out = dir.path().join("out");
+    let err = LocalReviewer::default()
+        .round(
+            &local(server.url(), 8192),
+            linked(&worktree),
+            "origin/main",
+            &out,
+            1,
+            "",
+        )
+        .unwrap_err();
+    let url = server.url();
+    assert_eq!(
+        err,
+        ReviewerError::Failed(format!(
+            "{url}'s reply was cut off (finish_reason \"length\") after 9216 completion \
+             tokens of the 2048 asked for, with 700 in the prompt, and held no answer"
+        ))
+    );
+    assert!(!out.join("round-1.txt.done").exists());
+}
+
+#[test]
+fn a_reply_cut_off_by_length_partway_through_its_answer_is_not_taken_as_complete() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([Answer::RunsOutSaying(
+        "MEDIUM|src/lib.rs:2|b is new|it matters\nHIGH|src/lib.rs:",
+    )]);
+    let out = dir.path().join("out");
+    let err = LocalReviewer::default()
+        .round(
+            &local(server.url(), 8192),
+            linked(&worktree),
+            "origin/main",
+            &out,
+            1,
+            "",
+        )
+        .unwrap_err();
+    let url = server.url();
+    assert_eq!(
+        err,
+        ReviewerError::Failed(format!(
+            "{url}'s reply was cut off (finish_reason \"length\") after 2048 completion \
+             tokens of the 2048 asked for, with 700 in the prompt, and left its answer unfinished"
+        ))
+    );
+    assert!(!out.join("round-1.txt.done").exists());
+}
+
+#[test]
 fn a_reply_with_no_findings_that_is_not_clean_fails_the_round() {
     let dir = tempfile::tempdir().unwrap();
     let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
@@ -537,8 +593,83 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease() {
     assert_eq!(server.authorizations()[2].as_deref(), Some("Bearer pk-r"));
 }
 
+// A reviewer sending its rounds to a paddock gateway at `server`, and the round that names it
+fn behind_paddock(server: &StandInEndpoint) -> (LocalReviewer, LocalRound) {
+    use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
+    let name = GatewayName::try_from("paddock".to_owned()).unwrap();
+    let gateway = Gateway {
+        kind: GatewayKind::Paddock,
+        url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    let table = std::collections::BTreeMap::from([(name.clone(), gateway)]);
+    let reviewer =
+        LocalReviewer::default().with_gateways(Gateways::reading(table, |_| Some("pk-r".into())));
+    let LocalRound::Endpoint(mut endpoint) = local("http://unused/v1", 8192) else {
+        unreachable!()
+    };
+    endpoint.host = ModelHost::Gateway(name);
+    (reviewer, LocalRound::Endpoint(endpoint))
+}
+
+// The lease each chat request named, in the order the requests arrived.
+fn leases_named_on_chat(server: &StandInEndpoint) -> Vec<String> {
+    let named = server.paddock_headers();
+    (server.seen().iter().zip(named))
+        .filter(|(line, _)| line.contains("/chat/completions"))
+        .flat_map(|(_, headers)| headers)
+        .filter(|(name, _)| name == "x-paddock-lease")
+        .map(|(_, id)| id)
+        .collect()
+}
+
 #[test]
-fn a_round_behind_a_gateway_asks_for_batch_on_its_chat_call_alone_and_a_plain_url_sends_none() {
+fn a_round_s_requests_name_its_own_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let big: String = (0..2000).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    let checkout = repo(dir.path(), &big);
+    let server = StandInEndpoint::start([]).like_paddock("pk-r", &[]);
+    let (reviewer, round) = behind_paddock(&server);
+    let out = dir.path().join("out");
+    let findings = reviewer.round(&round, linked(&checkout), "origin/main", &out, 1, "");
+    assert_eq!(findings, Ok(Vec::new()));
+    let named = leases_named_on_chat(&server);
+    assert!(named.len() > 1, "{} chunks", named.len());
+    assert!(
+        named.iter().all(|id| id == "L1"),
+        "every chunk's request names the lease the round took: {named:?}"
+    );
+}
+
+#[test]
+fn two_rounds_holding_leases_each_get_their_own_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+    let checkouts = [
+        repo(&first, "fn a() {}\nfn b() {}\n"),
+        repo(&second, "fn a() {}\nfn c() {}\n"),
+    ];
+    let server = StandInEndpoint::start([])
+        .like_paddock("pk-r", &[])
+        .granting_distinct_leases();
+    let (reviewer, round) = behind_paddock(&server);
+    std::thread::scope(|scope| {
+        for (at, checkout) in checkouts.iter().enumerate() {
+            let (reviewer, round, out) = (&reviewer, &round, dir.path().join(format!("out{at}")));
+            scope.spawn(move || {
+                let findings = reviewer.round(round, linked(checkout), "origin/main", &out, 1, "");
+                assert_eq!(findings, Ok(Vec::new()));
+            });
+        }
+    });
+    let mut named = leases_named_on_chat(&server);
+    named.sort();
+    assert_eq!(named, ["L1", "L2"], "each round names a lease of its own");
+}
+
+#[test]
+fn a_round_behind_a_gateway_asks_for_batch_its_lease_and_its_wait_on_its_chat_call_alone_and_a_plain_url_sends_none()
+ {
     use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
     let dir = tempfile::tempdir().unwrap();
     let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
@@ -566,10 +697,14 @@ fn a_round_behind_a_gateway_asks_for_batch_on_its_chat_call_alone_and_a_plain_ur
         .iter()
         .position(|l| l.contains("/chat/completions"))
         .unwrap();
-    let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
+    let on_chat = vec![
+        ("x-paddock-priority".to_owned(), "batch".to_owned()),
+        ("x-paddock-lease".to_owned(), "L1".to_owned()),
+        ("x-paddock-max-wait".to_owned(), "1800".to_owned()),
+    ];
     for (at, headers) in server.paddock_headers().into_iter().enumerate() {
         let expected = if at == chat {
-            batch.clone()
+            on_chat.clone()
         } else {
             Vec::new()
         };

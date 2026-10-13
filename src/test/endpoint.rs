@@ -2,7 +2,7 @@
 //!
 //! It answers `GET …/models` with an empty list and each
 //! `POST …/chat/completions` with the next scripted reply (as server-sent events
-//! when the request streams), or `CLEAN` once the script runs out. It keeps
+//! when the request streams, or cut off while thinking), or `CLEAN` once the script runs out. It keeps
 //! every chat request's body, and the request line, `Authorization` and
 //! `x-paddock-*` headers of every request it got. Given a key, it answers paddock's own routes too:
 //! `/paddock/status` to that key alone, a lease's take with the next scripted
@@ -53,6 +53,11 @@ pub(crate) enum Answer {
     Says(&'static str),
     /// This HTTP status, with this body
     Status(u16, &'static str),
+    /// A reply that spent this many tokens thinking and ran out of them: `finish_reason`
+    /// `length`, a null `content` and a `reasoning_content`
+    CutOff(u32),
+    /// A reply that ran out of tokens partway through writing this, with `finish_reason` `length`
+    RunsOutSaying(&'static str),
 }
 
 #[derive(Debug, Default)]
@@ -72,6 +77,8 @@ struct Shared {
     takes: VecDeque<Take>,
     openai: bool,
     models_status: Option<u16>,
+    distinct_leases: bool,
+    granted: u32,
 }
 
 /// A server on a free local port, until the test ends
@@ -118,6 +125,12 @@ impl StandInEndpoint {
         let this = self.like_paddock(key, models);
         this.shared.lock().unwrap().openai = true;
         this
+    }
+
+    /// Grants `L1`, `L2` and so on to each lease's take, not `L1` to every one
+    pub(crate) fn granting_distinct_leases(self) -> Self {
+        self.shared.lock().unwrap().distinct_leases = true;
+        self
     }
 
     /// Has `/models` answer this HTTP status, whatever key it gets
@@ -215,11 +228,6 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
     if reader.read_line(&mut request_line).is_err() {
         return;
     }
-    shared
-        .lock()
-        .unwrap()
-        .lines
-        .push(request_line.trim().to_owned());
     let (mut length, mut auth, mut every, mut paddock) = (0, None, Vec::new(), Vec::new());
     loop {
         let mut header = String::new();
@@ -243,6 +251,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
     {
         // Under one lock, so the two records stay in the same order.
         let mut held = shared.lock().unwrap();
+        held.lines.push(request_line.trim().to_owned());
         held.every_auth.push(every);
         held.paddock.push(paddock);
         held.auths.push(auth.clone());
@@ -293,10 +302,10 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             }
             (true, true, Some(Take::Held(hold))) => {
                 hold.block();
-                (200, json!({ "id": "L1", "ttl": "120s" }).to_string())
+                (200, grant(shared))
             }
             (true, true, Some(Take::Status(status, body))) => (status, body.to_owned()),
-            (true, true, None) => (200, json!({ "id": "L1", "ttl": "120s" }).to_string()),
+            (true, true, None) => (200, grant(shared)),
             (true, false, _) if request_line.starts_with("GET ") => (200, listing),
             (true, false, _) if request_line.starts_with("PUT ") => match renewals {
                 Renewals::Granted => (204, String::new()),
@@ -331,6 +340,40 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 .to_string(),
             ),
             Answer::Status(status, body) => (status, body.to_owned()),
+            Answer::RunsOutSaying(content) => (
+                200,
+                json!({
+                    "object": "chat.completion",
+                    "choices": [{
+                        "index": 0,
+                        "message": { "role": "assistant", "content": content },
+                        "finish_reason": "length",
+                    }],
+                    "usage": { "prompt_tokens": 700, "completion_tokens": 2048 },
+                })
+                .to_string(),
+            ),
+            Answer::CutOff(tokens) => (
+                200,
+                json!({
+                    "object": "chat.completion",
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": null,
+                            "reasoning_content": "Let me think about this change again",
+                        },
+                        "finish_reason": "length",
+                    }],
+                    "usage": {
+                        "prompt_tokens": 700,
+                        "completion_tokens": tokens,
+                        "total_tokens": u64::from(tokens) + 700,
+                    },
+                })
+                .to_string(),
+            ),
         }
     };
     let kind = if reply.starts_with("data: ") {
@@ -345,6 +388,18 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
          Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
         reply.len()
     );
+}
+
+// A lease's grant, with the next id when the stand-in hands out distinct ones.
+fn grant(shared: &Mutex<Shared>) -> String {
+    let mut held = shared.lock().unwrap();
+    let id = if held.distinct_leases {
+        held.granted += 1;
+        format!("L{}", held.granted)
+    } else {
+        "L1".to_owned()
+    };
+    json!({ "id": id, "ttl": "120s" }).to_string()
 }
 
 // What a streaming chat request is answered with: the words in one chunk, the
