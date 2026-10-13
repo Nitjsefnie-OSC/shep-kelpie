@@ -28,7 +28,7 @@ Of the sites that used `tempdir_in("/tmp")`:
 
 - Pass in a worker: `adapters::claude::sandbox`, `adapters::codex`, and the rest of `adapters::pi::tests`.
 - Pass by skipping: the two `adapters::srt::live` tests, which need macOS, kelpie's tools and a keychain, and say so on stderr.
-- Fail in a worker for a reason above: the 18 `adapters::forwarder::tests` that open a forwarder (Unix socket bind or the stand-in model server), and the 3 `adapters::pi::tests` that open a forwarder (Unix socket bind).
+- Fail in a worker for a reason above: the 20 `adapters::forwarder::tests` that open a forwarder (Unix socket bind or the stand-in model server), and the 3 `adapters::pi::tests` that open a forwarder (Unix socket bind).
 - `#[ignore]`d, and run by the `sandbox` CI job: `adapters::claude::escapes`.
 
 ## Keeping the list true
