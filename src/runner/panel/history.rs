@@ -11,7 +11,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::panel::{Ballot, Skip, Verdict};
+use crate::panel::{Ballot, Skip, Verdict, Voter};
 use crate::ports::Timestamp;
 use crate::runner::Answer;
 use crate::settings::RulingName;
@@ -67,6 +67,10 @@ pub(in crate::runner) struct Record {
     // Why the panel cast no vote on it, if it listed two options or more and none was cast
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) skipped: Option<Skip>,
+    // Who abstained since the answer came before their vote, which an
+    // expert's failed call does not say
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) overtaken: Vec<Voter>,
 }
 
 impl Record {
@@ -104,6 +108,7 @@ impl Record {
             verdict: ruling.verdict.clone(),
             ballots: ruling.panel.clone().unwrap_or_default(),
             skipped: ruling.skipped,
+            overtaken: Vec::new(),
         }
     }
 
@@ -135,6 +140,39 @@ impl Record {
             .and_then(|mut f| writeln!(f, "{line}"));
         opened.map_err(|e| format!("cannot add to {}: {}", file.display(), e.kind()))
     }
+}
+
+/// Sets `fields` on ruling `id`'s line in the file at `file`, leaving every
+/// other line and field as it is; a file with no such line is left alone
+///
+/// # Errors
+///
+/// What went wrong, for the log.
+pub(in crate::runner) fn amend(
+    file: &Path,
+    id: u64,
+    fields: Vec<(&str, serde_json::Value)>,
+) -> Result<(), String> {
+    let text = std::fs::read_to_string(file)
+        .map_err(|e| format!("cannot read {}: {}", file.display(), e.kind()))?;
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let at = lines.iter().rposition(|line| {
+        let value = serde_json::from_str::<serde_json::Value>(line).ok();
+        value.is_some_and(|v| v["id"] == id)
+    });
+    let Some(at) = at else {
+        return Ok(());
+    };
+    let mut value: serde_json::Value =
+        serde_json::from_str(&lines[at]).map_err(|e| e.to_string())?;
+    for (name, field) in fields {
+        value[name] = field;
+    }
+    lines[at] = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+    let kept = file.with_extension("jsonl.tmp");
+    let wrote =
+        std::fs::write(&kept, lines.join("\n") + "\n").and_then(|()| std::fs::rename(&kept, file));
+    wrote.map_err(|e| format!("cannot rewrite {}: {}", file.display(), e.kind()))
 }
 
 /// Every ruling answered in the file at `file`, oldest first; a line that

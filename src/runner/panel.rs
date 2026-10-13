@@ -24,15 +24,18 @@
 //! The votes and the verdict they reach are kept on the ruling. Under
 //! `rulings.decide = "panel"` the verdict decides it; under `"always"` the
 //! most votes of all four decide it unless no expert voted; under `"shadow"`
-//! it only informs the maintainer's comment and the measurements (#466).
+//! it only informs the maintainer's comment and the measurements (#466). A
+//! ruling the maintainer answers while its panel votes keeps the panel
+//! running under `"shadow"`, and the votes are written to its line in
+//! `rulings.jsonl`; under the others the answer ends the vote.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::Runner;
 use super::pm::Wake;
 use crate::panel::{
-    Ballot, Skip, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle, settle_always,
-    simulate, work_of,
+    Advice, Ballot, Skip, Stage, Step, Tier, Verdict, Vote, Voter, Work, first_tier, settle,
+    settle_always, simulate, work_of,
 };
 use crate::ports::{AgentError, AgentReply, Timestamp};
 use crate::settings::{Decide, Merging, RulingName};
@@ -74,6 +77,9 @@ pub(super) struct Desk {
     closed: BTreeMap<u64, Plan>,
 }
 
+// Why a voter ended by the maintainer's answer abstains.
+const OVERTAKEN: &str = "the maintainer answered the ruling first";
+
 // How many closed rulings' plans are kept.
 const CLOSED_KEPT: usize = 32;
 
@@ -85,6 +91,11 @@ struct Open {
     waiting: BTreeSet<Voter>,
     ballots: BTreeMap<Voter, Option<Vote>>,
     plan: Plan,
+    // The ruling as the maintainer answered it, while its panel votes on
+    // under `shadow`: its votes go to its line in `rulings.jsonl`
+    answered: Option<Ruling>,
+    // Who was ended since the answer came before their vote
+    overtaken: BTreeSet<Voter>,
 }
 
 // How a ruling's panel is asked.
@@ -255,7 +266,13 @@ impl Runner {
 
     // Drops what the panel keeps of a ruling that is answered or gone.
     fn panel_forget_answered(&mut self) {
-        let pending: BTreeSet<u64> = self.state.rulings.iter().map(|r| r.id).collect();
+        let mut pending: BTreeSet<u64> = self.state.rulings.iter().map(|r| r.id).collect();
+        // A ruling answered under `shadow` keeps its panel to the end of its hold.
+        pending.extend(
+            (self.panel.open.iter())
+                .filter(|(_, open)| open.answered.is_some())
+                .map(|(id, _)| *id),
+        );
         // Experts in flight for a ruling that is gone are ended, so a call
         // does not run on in a session the answer moves on.
         if (self.flights.panel_ruling()).is_some_and(|id| !pending.contains(&id)) {
@@ -312,13 +329,37 @@ impl Runner {
     // that cannot be saved leaves the ruling with the panel, to be skipped again
     // next step, so none goes unvoted with no reason on record.
     fn panel_skip(&mut self, id: u64, skip: Skip) {
-        if !self.panel_skipped(id, skip) {
+        let answered = self
+            .panel
+            .open
+            .get(&id)
+            .is_some_and(|o| o.answered.is_some());
+        let kept = match answered {
+            true => self.panel_skip_answered(id, skip),
+            false => self.panel_skipped(id, skip),
+        };
+        if !kept {
             return;
         }
         if let Some(open) = self.panel.open.remove(&id) {
             self.panel.retire(id, open.plan);
         }
         self.panel.queue.retain(|queued| *queued != id);
+    }
+
+    // Keeps on answered ruling `id`'s line that the panel cast no vote on it,
+    // since `skip`, and returns whether it is saved.
+    fn panel_skip_answered(&mut self, id: u64, skip: Skip) -> bool {
+        let field = serde_json::to_value(skip).unwrap_or_default();
+        match history::amend(&self.paths.rulings, id, vec![("skipped", field)]) {
+            Ok(()) => true,
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot save why the panel skipped ruling {id}: {e}"
+                ));
+                false
+            }
+        }
     }
 
     /// Keeps on ruling `id` that the panel cast no vote on it, since `skip`,
@@ -407,6 +448,8 @@ impl Runner {
             waiting: BTreeSet::new(),
             ballots: BTreeMap::new(),
             plan,
+            answered: None,
+            overtaken: BTreeSet::new(),
         };
         let open = self.panel_enlist(id, issue, &asked, open);
         let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
@@ -530,6 +573,10 @@ impl Runner {
                 open.ballots.insert(voter, Some(vote));
             }
             Err(why) => {
+                let why = match open.overtaken.contains(&voter) {
+                    true => OVERTAKEN.to_owned(),
+                    false => why,
+                };
                 open.ballots.insert(voter, None);
                 self.notes.push(format!(
                     "ruling {id}: the {} abstains, since {why}",
@@ -565,7 +612,10 @@ impl Runner {
                 let Some(open) = self.panel.open.remove(&id) else {
                     return;
                 };
-                self.panel_conclude(id, &open.plan, ballots);
+                match &open.answered {
+                    Some(_) => self.panel_record_late(id, &open, &ballots),
+                    None => self.panel_conclude(id, &open.plan, ballots),
+                }
                 self.panel.retire(id, open.plan);
                 return;
             };
@@ -591,14 +641,7 @@ impl Runner {
     // Saves ruling `id`'s votes and what they come to, and, under `panel`,
     // applies the option they decide on, unless the maintainer is to be asked.
     fn panel_conclude(&mut self, id: u64, plan: &Plan, ballots: Vec<Ballot>) {
-        let told = ballots
-            .iter()
-            .map(|b| match &b.vote {
-                Some(vote) => format!("{} {}", b.voter.name(), vote.choice),
-                None => format!("{} abstained", b.voter.name()),
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
+        let told = told(&ballots);
         let merge = (self.state.rulings.iter())
             .any(|r| r.id == id && matches!(r.kind, RulingKind::Merge { .. }));
         let step = match (plan.shadow, plan.always) {
@@ -606,23 +649,13 @@ impl Runner {
             (_, true) => settle_always(&ballots, merge),
             _ => settle(plan.stage, plan.tier, &ballots),
         };
-        let advice = match step {
-            Step::Decided(advice) => Some(advice),
-            Step::Maintainer { advice, .. } => advice,
-            Step::Up(_) => None,
-        };
+        let advice = advice_of(step);
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
             return;
         };
         ruling.panel = Some(ballots);
-        ruling.verdict = Some(Verdict {
-            work: plan.work.kind.clone(),
-            tier: plan.work.tier,
-            advice,
-            risky: plan.risky,
-            shadow: plan.shadow,
-        });
+        ruling.verdict = Some(verdict_of(plan, advice));
         // A merge under `ask` is the maintainer's whatever the panel says.
         let asks_merge = matches!(ruling.kind, RulingKind::Merge { .. })
             && self.settings.git.merging == Merging::Ask;
@@ -643,6 +676,68 @@ impl Runner {
             )),
             _ => {}
         }
+    }
+
+    // Saves the votes of a ruling the maintainer answered while they were
+    // being cast, on its line in `rulings.jsonl`, where `status` counts them
+    // against the answer. Under `shadow` they decide nothing.
+    fn panel_record_late(&mut self, id: u64, open: &Open, ballots: &[Ballot]) {
+        let plan = &open.plan;
+        let advice = advice_of(simulate(plan.start, plan.tier, ballots).1);
+        let overtaken: Vec<Voter> = (ballots.iter())
+            .filter(|b| b.vote.is_none() && open.overtaken.contains(&b.voter))
+            .map(|b| b.voter)
+            .collect();
+        let mut fields = vec![
+            ("ballots", serde_json::to_value(ballots).unwrap_or_default()),
+            (
+                "verdict",
+                serde_json::to_value(verdict_of(plan, advice)).unwrap_or_default(),
+            ),
+        ];
+        if !overtaken.is_empty() {
+            fields.push((
+                "overtaken",
+                serde_json::to_value(overtaken).unwrap_or_default(),
+            ));
+        }
+        match history::amend(&self.paths.rulings, id, fields) {
+            Ok(()) => self.notes.push(format!(
+                "ruling {id}: the panel voted after the answer: {}",
+                told(ballots)
+            )),
+            Err(e) => self.notes.push(format!(
+                "cannot save the panel's votes on answered ruling {id}: {e}"
+            )),
+        }
+    }
+
+    /// Keeps the panel of ruling `id` voting after the maintainer's answer to
+    /// `ruling`, now saved, when the project decides by `shadow`
+    pub(super) fn panel_outlives(&mut self, ruling: Ruling) {
+        let id = ruling.id;
+        // A worker whose call already failed has its own reason to abstain.
+        let worker_open = self.panel_worker_open(id);
+        let Some(open) = self.panel.open.get_mut(&id).filter(|o| o.plan.shadow) else {
+            return;
+        };
+        open.answered = Some(ruling);
+        // The answer moves its work item on at once, and the worker's vote
+        // shares that item's session, so the worker does not wait it out.
+        let overtaken = open.waiting.contains(&Voter::Worker) && worker_open;
+        if overtaken {
+            open.overtaken.insert(Voter::Worker);
+        }
+        if !self.panel_release_worker(id) && overtaken {
+            self.panel_abstains(id, Voter::Worker, OVERTAKEN.into());
+        }
+    }
+
+    // Ruling `id` as the panel votes on it: pending, or answered under `shadow`.
+    pub(super) fn panel_ruling(&self, id: u64) -> Option<Ruling> {
+        let pending = self.state.rulings.iter().find(|r| r.id == id);
+        let answered = self.panel.open.get(&id).and_then(|o| o.answered.as_ref());
+        pending.or(answered).cloned()
     }
 
     /// Hears the project manager's reply to its vote wakes: each ruling it
@@ -668,7 +763,8 @@ impl Runner {
 
     /// The option count of ruling `id`, for reading a vote on it
     pub(super) fn panel_options(&self, id: u64) -> usize {
-        (self.state.rulings.iter().find(|r| r.id == id)).map_or(0, |r| super::voice::brief(r).1)
+        self.panel_ruling(id)
+            .map_or(0, |r| super::voice::brief(&r).1)
     }
 
     // Records how the experts' calls ended.
@@ -695,6 +791,38 @@ impl Runner {
         for voter in missing {
             self.panel_abstains(id, voter, "it was not asked".into());
         }
+    }
+}
+
+// What the ballots say, for the log.
+fn told(ballots: &[Ballot]) -> String {
+    ballots
+        .iter()
+        .map(|b| match &b.vote {
+            Some(vote) => format!("{} {}", b.voter.name(), vote.choice),
+            None => format!("{} abstained", b.voter.name()),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+// The advice a step stands behind, if any.
+fn advice_of(step: Step) -> Option<Advice> {
+    match step {
+        Step::Decided(advice) => Some(advice),
+        Step::Maintainer { advice, .. } => advice,
+        Step::Up(_) => None,
+    }
+}
+
+// What a panel of `plan` concluded, with `advice`.
+fn verdict_of(plan: &Plan, advice: Option<Advice>) -> Verdict {
+    Verdict {
+        work: plan.work.kind.clone(),
+        tier: plan.work.tier,
+        advice,
+        risky: plan.risky,
+        shadow: plan.shadow,
     }
 }
 
