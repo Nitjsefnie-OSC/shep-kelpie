@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
@@ -455,6 +455,7 @@ impl Wait {
 #[derive(Clone, Default)]
 pub struct Ending {
     asked: Arc<AtomicBool>,
+    flying: Arc<Mutex<Option<Flying>>>,
     began: Option<Arc<dyn Fn() + Send + Sync>>,
     waits: Option<Arc<dyn Fn(Wait) + Send + Sync>>,
 }
@@ -476,6 +477,7 @@ impl Ending {
     ) -> Self {
         Self {
             asked: Arc::default(),
+            flying: Arc::default(),
             began: Some(Arc::new(began)),
             waits: Some(Arc::new(waits)),
         }
@@ -498,12 +500,41 @@ impl Ending {
         self.asked.load(Ordering::SeqCst)
     }
 
+    /// Notes what the runner knows of the call that its process does not, for
+    /// the record the call keeps on disk
+    pub fn carry(&self, flying: Flying) {
+        *self.flying.lock().unwrap_or_else(PoisonError::into_inner) = Some(flying);
+    }
+
+    /// What the runner last noted of the call, if it noted any
+    pub fn carried(&self) -> Option<Flying> {
+        *self.flying.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Says the call has the lease it waited for, and begins now
     pub fn begin(&self) {
         if let Some(began) = &self.began {
             began();
         }
     }
+}
+
+/// What the runner knows of a call in flight that the call's process does
+/// not, which its record on disk keeps beside the process's own facts
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Flying {
+    /// Seconds of the turn's ceiling the call had when it started, which it
+    /// has again from `began`
+    pub left: u64,
+    /// When the ceiling counts from: the call's start, or the grant of the
+    /// lease it waited for
+    pub began: Timestamp,
+    /// Whether the call starts over a session that died before it began
+    pub again: bool,
+    /// Whether a worker's turn is its work item's first
+    pub first: bool,
+    /// Whether the call is a `/compact` of the worker's session
+    pub compact: bool,
 }
 
 /// Why an agent call failed, naming the harness where it was the harness's doing
