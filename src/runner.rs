@@ -95,6 +95,7 @@ mod points;
 mod points_tests;
 mod pull_request_file;
 mod question;
+mod refused;
 mod replies;
 mod report;
 mod reread;
@@ -145,6 +146,7 @@ pub use owner_template::{TemplateSource, source_of};
 pub use pace::PacerStatus;
 pub use paths::{ProjectName, ProjectNameError, ProjectPaths};
 pub use pm::{PmAttaching, PmError, PmStatus};
+pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
 pub(crate) use reread::check_gateways;
@@ -370,6 +372,8 @@ pub struct Runner {
     looks: looks::Looks,
     // The open pull requests the pass in progress listed, in memory only
     snapshot: snapshot::Snapshot,
+    // Why the stored settings are refused while they are, in memory only
+    refusal: Option<refused::Refusal>,
     // Until when every forge call is held, the forge's rate limit used up
     forge_hold: ForgeHold,
     // Counts the writes kelpie made, so a pass can tell one was made since it began
@@ -603,6 +607,7 @@ impl Runner {
             parked_reads: BTreeMap::new(),
             looks: looks::Looks::default(),
             snapshot: snapshot::Snapshot::default(),
+            refusal: None,
             forge_hold,
             forge_ledger,
             gh_login: std::cell::OnceCell::new(),
@@ -705,6 +710,7 @@ impl Runner {
             draining: self.draining_status(),
             run: self.run_status(),
             forge_held_until: self.forge_hold.until(now),
+            settings_refused: self.refusal.as_ref(),
         }
     }
 

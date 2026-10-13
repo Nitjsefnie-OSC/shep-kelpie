@@ -130,9 +130,10 @@ fn unshared(look: &Look, settings: &Settings) -> Result<(), Exit> {
     };
     let (project, sheep) = (look.sheep(), &taken.sheep);
     Err(Exit::Refused(format!(
-        "{taken}. Give {project} a checkout and repo of its own with `shep kelpie set \
+        "{}. Give {project} a checkout and repo of its own with `shep kelpie set \
          git.checkout <path>` (and `git.remote <owner/name>`), or remove {project}'s table \
-         if it was copied from {sheep}'s"
+         if it was copied from {sheep}'s",
+        taken.clash()
     )))
 }
 

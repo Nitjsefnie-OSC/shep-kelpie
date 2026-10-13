@@ -21,6 +21,12 @@ use crate::webhook::KelpieSettings;
 /// What a look read: the project's settings, kelpie's, and the agent files' text
 type Read = (Settings, KelpieSettings, Vec<(String, String)>);
 
+// Why a read gave no settings: the shepherd could not be asked, or the table is bad.
+enum Unread {
+    Shepherd(String),
+    Table(String),
+}
+
 /// Where a runner's settings are read from, and what it read last
 pub(super) struct Look {
     dial: Arc<dyn Dial>,
@@ -63,13 +69,20 @@ impl Look {
 
     /// Reads the tables, and remembers them
     pub(super) fn read(&mut self) -> Result<Loaded, String> {
+        self.fetch().map_err(|e| match e {
+            Unread::Shepherd(why) | Unread::Table(why) => why,
+        })
+    }
+
+    fn fetch(&mut self) -> Result<Loaded, Unread> {
         let tables = shepherd::block_on(shepherd::read_tables(
             &*self.dial,
             &self.shep_home,
             &self.sheep,
-        ))?;
+        ))
+        .map_err(Unread::Shepherd)?;
         let loaded = source::load(&tables, &self.sheep, &self.home, &self.folder)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| Unread::Table(e.to_string()))?;
         let agents = agents::snapshot(&self.agents);
         self.last = Some((loaded.settings.clone(), loaded.kelpie.clone(), agents));
         Ok(loaded)
@@ -90,44 +103,88 @@ impl Look {
         })
     }
 
+    // Says `line` and `why` once, until something else is said or a read holds.
+    fn say(&mut self, line: &str, why: &str) {
+        if self.failed.as_deref() != Some(why) {
+            eprintln!("{line}: {why}");
+            self.failed = Some(why.to_owned());
+        }
+    }
+
+    // Why the git settings in `settings`, where they moved from the runner's,
+    // are another project's.
+    fn taken_by_another(&self, runner: &Mutex<Runner>, settings: &Settings) -> Option<String> {
+        let moved = {
+            let runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
+            let have = &runner.settings().git;
+            let mut moved = Vec::new();
+            if settings.git.checkout != have.checkout {
+                moved.push("git.checkout");
+            }
+            if settings.git.remote != have.remote {
+                moved.push("git.remote");
+            }
+            moved.join(" and ")
+        };
+        if moved.is_empty() {
+            return None;
+        }
+        match self.taken(settings) {
+            Ok(taken) => taken.map(|taken| format!("{moved}: {}", taken.clash())),
+            Err(e) => {
+                eprintln!("cannot tell whether another project runs the new {moved}: {e}");
+                None
+            }
+        }
+    }
+
+    // A refusal of the stored table, which `status` shows and the webhook is told of.
+    fn refuse(&mut self, runner: &Mutex<Runner>, line: &str, why: &str) {
+        self.say(line, why);
+        (runner.lock())
+            .unwrap_or_else(PoisonError::into_inner)
+            .refuse(why);
+    }
+
     /// Reads again, and hands `runner` whatever changed since the last read
     pub(super) fn again(&mut self, runner: &Mutex<Runner>) {
+        const KEPT: &str = "cannot read the settings again, so they stay as they are";
+        const REFUSED: &str = "a settings change was refused, so they stay as they are";
         let before = self.last.clone();
-        let loaded = match self.read() {
+        let loaded = match self.fetch() {
             Ok(loaded) => loaded,
-            Err(e) => {
-                if self.failed.as_ref() != Some(&e) {
-                    eprintln!("cannot read the settings again, so they stay as they are: {e}");
-                    self.failed = Some(e);
-                }
-                return;
-            }
+            Err(Unread::Shepherd(why)) => return self.say(KEPT, &why),
+            Err(Unread::Table(why)) => return self.refuse(runner, KEPT, &why),
         };
         if before == self.last {
             self.failed = None;
             // The repo's plugins come from its default branch, which no
             // setting of kelpie's announces.
             let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
+            runner.accept();
             if let Some(line) = runner.reread_plugins() {
                 eprintln!("{line}");
             }
             return;
         }
+        if let Some(why) = self.taken_by_another(runner, &loaded.settings) {
+            self.last = before;
+            return self.refuse(runner, REFUSED, &why);
+        }
         let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
         match runner.reread(loaded.settings, loaded.kelpie) {
             Ok(line) => {
                 self.failed = None;
+                runner.accept();
                 if let Some(line) = line {
                     eprintln!("{line}");
                 }
             }
             Err(e) => {
-                let e = e.to_string();
-                if self.failed.as_ref() != Some(&e) {
-                    eprintln!("a settings change was refused, so they stay as they are: {e}");
-                    self.failed = Some(e);
-                }
                 self.last = before;
+                let why = e.to_string();
+                self.say(REFUSED, &why);
+                runner.refuse(&why);
             }
         }
     }
@@ -144,10 +201,11 @@ mod tests {
     use shep_client::shep_core::protocol::request::Response;
 
     use super::*;
+    use crate::runner::ProjectName;
     use crate::runner::{StepReport, step};
     use crate::settings::Merging;
     use crate::shepherd::SHEP_VERSION;
-    use crate::test::{Memory, Rig, Scripted, project_table};
+    use crate::test::{FakeShepherd, Memory, Rig, Scripted, project_table};
 
     const SECTION: &str = "[webhook]\nkind = \"ntfy\"\nurl = \"https://ntfy.example/t\"\n";
 
@@ -304,6 +362,204 @@ mod tests {
         assert_eq!(runner.lock().unwrap().settings(), &before);
         let failed = look.failed.unwrap();
         assert!(failed.contains(&format!("`{bad}`")), "{failed}");
+    }
+
+    // A look through a shepherd holding the rig's table with `pm_alone` as
+    // `kinds`, a list the runner refuses; the table is returned to change it.
+    fn pm_alone(
+        rig: &Rig,
+        kinds: &[&str],
+    ) -> (Look, Arc<Mutex<Map<String, Value>>>, tempfile::TempDir) {
+        let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
+        let table = Arc::new(Mutex::new(project_table(&entry)));
+        set_pm_alone(&table, kinds);
+        let shep_home = tempfile::tempdir().unwrap();
+        let dial = shepherd(shep_home.path(), Arc::clone(&table));
+        let paths = rig.paths();
+        let mut look = Look::new(
+            dial,
+            shep_home.path().to_owned(),
+            "shep".into(),
+            Sources {
+                folder: paths.folder.clone(),
+                agents: paths.agents.clone(),
+            },
+            rig.home.path().to_owned(),
+        );
+        let agents = agents::snapshot(&paths.agents);
+        look.last = Some((rig.settings(), rig.kelpie_settings(), agents));
+        (look, table, shep_home)
+    }
+
+    fn set_pm_alone(table: &Mutex<Map<String, Value>>, kinds: &[&str]) {
+        let mut table = table.lock().unwrap();
+        let rulings = table.entry("rulings").or_insert_with(|| Map::new().into());
+        let kinds = kinds.iter().map(|kind| Value::from(*kind)).collect();
+        rulings["pm_alone"] = Value::Array(kinds);
+    }
+
+    #[test]
+    fn a_refused_reread_alerts_once_per_reason_and_keeps_the_old_settings() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let before = runner.lock().unwrap().settings().clone();
+        let (mut look, table, _home) = pm_alone(&rig, &["merge"]);
+
+        look.again(&runner);
+        look.again(&runner);
+        assert_eq!(runner.lock().unwrap().settings(), &before);
+        let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
+        assert_eq!(alert.title, "kelpie: shep settings change refused");
+        for said in [
+            "rulings.pm_alone",
+            "a merge ruling is never decided by the project manager alone",
+            "keeps its old settings until its table is fixed",
+        ] {
+            assert!(alert.text.contains(said), "{}", alert.text);
+        }
+
+        // Another reason is another alert.
+        set_pm_alone(&table, &["security"]);
+        look.again(&runner);
+        look.again(&runner);
+        assert_eq!(runner.lock().unwrap().settings(), &before);
+        let posts = rig.alerts.posts();
+        assert_eq!(posts.len(), 2);
+        assert!(
+            posts[1].1.text.contains("a contribution"),
+            "{}",
+            posts[1].1.text
+        );
+    }
+
+    #[test]
+    fn a_table_that_fails_to_load_is_refused_and_alerted_too() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let (mut look, table, _home) = pm_alone(&rig, &[]);
+        let bad = "productionresultssa*.blob.core.windows.net";
+        let mut held = table.lock().unwrap();
+        let worker = held.get_mut("worker").and_then(Value::as_object_mut);
+        worker
+            .unwrap()
+            .insert("allowed_domains".into(), Value::Array(vec![bad.into()]));
+        drop(held);
+
+        look.again(&runner);
+        look.again(&runner);
+        let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
+        assert!(alert.text.contains(bad), "{}", alert.text);
+        let status = rig.ask(&runner, "status", None);
+        assert!(
+            status["settings_refused"]["reason"]
+                .as_str()
+                .unwrap()
+                .contains(bad)
+        );
+    }
+
+    #[test]
+    fn a_refused_reread_whose_post_fails_is_posted_again_at_the_next_wake() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let (mut look, _table, _home) = pm_alone(&rig, &["merge"]);
+
+        rig.alerts.set_down(true);
+        look.again(&runner);
+        rig.alerts.set_down(false);
+        look.again(&runner);
+        look.again(&runner);
+        assert_eq!(rig.alerts.posts().len(), 2, "one failed and one landed");
+    }
+
+    #[test]
+    fn a_good_reread_after_a_refused_one_clears_the_refusal_from_status() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let (mut look, table, _home) = pm_alone(&rig, &["merge"]);
+        assert_eq!(
+            rig.ask(&runner, "status", None).get("settings_refused"),
+            None
+        );
+
+        rig.clock.advance(90);
+        look.again(&runner);
+        let refused = &rig.ask(&runner, "status", None)["settings_refused"];
+        let reason = refused["reason"].as_str().unwrap();
+        assert!(
+            reason.contains("never decided by the project manager alone"),
+            "{reason}"
+        );
+        assert_eq!(refused["at"], Rig::EPOCH + 90);
+
+        // Still refused a minute on, and it is still since the first time.
+        rig.clock.advance(60);
+        look.again(&runner);
+        assert_eq!(
+            rig.ask(&runner, "status", None)["settings_refused"]["at"],
+            Rig::EPOCH + 90
+        );
+
+        set_pm_alone(&table, &[]);
+        look.again(&runner);
+        assert_eq!(
+            rig.ask(&runner, "status", None).get("settings_refused"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_reread_moving_git_checkout_onto_another_projects_alerts_at_once() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let before = runner.lock().unwrap().settings().clone();
+        // A second checkout of the same repo, which `older` runs from and the
+        // table moves this project onto.
+        let theirs = rig.home.path().join("theirs");
+        crate::test::git(
+            rig.home.path(),
+            &["clone", "--quiet", rig.repo().to_str().unwrap(), "theirs"],
+        );
+        let shepherd = FakeShepherd::new();
+        shepherd.holds_section(SECTION);
+        let launch = crate::flock::Launch {
+            kelpie: "/opt/kelpie".into(),
+            shep_home: shepherd.home().to_owned(),
+            kelpie_home: None,
+        };
+        let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
+        let mut table = project_table(&entry);
+        table["git"]["checkout"] = theirs.display().to_string().into();
+        let shep = ProjectName::try_from("shep").unwrap();
+        shepherd.holds(launch.runner(&shep, table.clone()), true);
+        table["git"]["remote"] = "someone/else".into();
+        let older = ProjectName::try_from("older").unwrap();
+        shepherd.holds(launch.runner(&older, table), true);
+        let paths = rig.paths();
+        let mut look = Look::new(
+            shepherd.dial(),
+            shepherd.home().to_owned(),
+            "shep".into(),
+            Sources {
+                folder: paths.folder.clone(),
+                agents: paths.agents.clone(),
+            },
+            rig.home.path().to_owned(),
+        );
+        let agents = agents::snapshot(&paths.agents);
+        look.last = Some((rig.settings(), rig.kelpie_settings(), agents));
+
+        look.again(&runner);
+        look.again(&runner);
+        assert_eq!(runner.lock().unwrap().settings(), &before);
+        let [(_, alert)] = rig.alerts.posts().try_into().unwrap();
+        for said in [
+            "git.checkout",
+            "project `older` already runs this checkout",
+            "keeps its old settings until its table is fixed",
+        ] {
+            assert!(alert.text.contains(said), "{}", alert.text);
+        }
     }
 
     const MINE: &str = "---\nrole: implementer\nharness: claude-code\nmodel: claude-mine-1\n\

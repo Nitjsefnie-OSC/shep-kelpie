@@ -21,13 +21,17 @@ pub(crate) struct Taken {
     slug: String,
 }
 
+impl Taken {
+    /// What is taken and by whom, with no word of what to do about it
+    pub(crate) fn clash(&self) -> String {
+        let Self { sheep, slug } = self;
+        format!("project `{sheep}` already runs this checkout or {slug}")
+    }
+}
+
 impl core::fmt::Display for Taken {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let Self { sheep, slug } = self;
-        write!(
-            f,
-            "project `{sheep}` already runs this checkout or {slug}: `shep kelpie start {sheep}`"
-        )
+        write!(f, "{}: `shep kelpie start {}`", self.clash(), self.sheep)
     }
 }
 
