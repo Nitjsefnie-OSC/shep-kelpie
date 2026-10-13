@@ -1,9 +1,55 @@
 //! The fake forge's open issues, the ones kelpie opened, and the issues' calls going down
 
+use std::sync::atomic::Ordering;
+
 use super::{CreatedIssue, FakeForge};
-use crate::ports::OpenIssue;
+use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
 
 impl FakeForge {
+    /// Makes issue `child` a sub-issue of issue `parent`, as someone else would
+    pub(crate) fn link_sub_issue(&self, parent: u64, child: u64) {
+        let mut links = self.sub_issues.lock().unwrap();
+        links.entry(parent).or_default().push(child);
+    }
+
+    /// Closes issue `number` as not planned, as someone else would
+    pub(crate) fn close_issue_as_not_planned(&self, number: u64) {
+        self.not_planned.lock().unwrap().insert(number);
+        self.close_issue(number);
+    }
+
+    /// Makes listing a parent's sub-issues fail, or work again
+    pub(crate) fn set_sub_issues_down(&self, down: bool) {
+        self.sub_issues_down.store(down, Ordering::SeqCst);
+    }
+
+    /// Issue `parent`'s sub-issues, in the order they were linked
+    pub(crate) fn sub_issues_of(&self, parent: u64) -> Vec<u64> {
+        let links = self.sub_issues.lock().unwrap();
+        links.get(&parent).cloned().unwrap_or_default()
+    }
+
+    pub(super) fn read_sub_issues(&self, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+        self.ask()?;
+        if self.sub_issues_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("sub-issues are unreadable".into()));
+        }
+        let closed = self.closed.lock().unwrap();
+        let not_planned = self.not_planned.lock().unwrap();
+        Ok(self
+            .sub_issues_of(parent)
+            .into_iter()
+            .map(|number| SubIssue {
+                number,
+                state: match (closed.contains(&number), not_planned.contains(&number)) {
+                    (false, _) => SubIssueState::Open,
+                    (true, true) => SubIssueState::NotPlanned,
+                    (true, false) => SubIssueState::Completed,
+                },
+            })
+            .collect())
+    }
+
     /// Leaves issue `number` open, as someone other than kelpie would have,
     /// and shows this title and body when it is viewed
     pub(crate) fn open_issue(&self, number: u64, title: &str, body: &str) {

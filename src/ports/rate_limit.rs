@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use super::{
     Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
-    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Kind, Ledger};
@@ -199,6 +199,10 @@ impl Forge for RateHeld {
 
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
         self.call(Kind::Issue, |f| f.issue(repo, number))
+    }
+
+    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+        self.call(Kind::SubIssues, |f| f.sub_issues(repo, parent))
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

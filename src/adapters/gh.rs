@@ -19,7 +19,7 @@ use serde::Deserialize;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -105,6 +105,10 @@ impl Forge for Gh {
             "--json",
             "title,body,labels,state,parent,blockedBy",
         ])?)
+    }
+
+    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+        issues::sub_issues(repo, parent)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

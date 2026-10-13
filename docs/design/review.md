@@ -48,6 +48,7 @@ Review passes, bots, CI, the merge, rulings.
 - Merge queue holds the PR, kelpie skips gates meanwhile; removal goes back to worker like red CI. #213, `src/runner/merge/queue.rs`
 - Head, label or ready state kelpie didn't set parks `foreign-change`; its yes gets a review pass. #69
 - PR merged by hand ends item; closed unmerged parks `closed`. #377
+- After a merge, the item's parent closes (App comment names the PR) once no sub-issue is open and one was built; all not planned stays open; one level up only; failures logged. #640, `src/runner/close_merged.rs`
 - Rework reopens a kelpie PR on `ready-for-agent` or requested change (author can't request changes on own PR); fresh start, never force-push. #53
 - Adoption: work item from a PR kelpie didn't open; merges `main` in, never rebases (owner may push). #84
 - `ready-for-human` set at merge ruling, removed when work resumes. `src/runner/ruling.rs`

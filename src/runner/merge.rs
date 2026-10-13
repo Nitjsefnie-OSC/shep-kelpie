@@ -428,7 +428,7 @@ impl Runner {
         // item and comes back here. The step reads the issue first, so it
         // closes nothing twice.
         if let (true, Some(number)) = (merged, pull_request) {
-            self.close_merged_issue(issue, number);
+            self.close_after_merge(issue, number);
         }
         self.save(next)?;
         self.ledger.append(&crate::usage::Line::Finished(line));
@@ -447,6 +447,8 @@ mod queue;
 
 #[cfg(test)]
 mod auto;
+#[cfg(test)]
+mod parent;
 
 #[cfg(test)]
 mod tests {

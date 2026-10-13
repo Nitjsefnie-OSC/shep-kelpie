@@ -32,6 +32,7 @@ mod recorded_voice;
 mod reviewer;
 mod routed;
 mod sandbox;
+mod sub_issue;
 mod test_runner;
 mod thread;
 mod voice;
@@ -52,6 +53,7 @@ pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use sub_issue::{SubIssue, SubIssueState};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
@@ -146,6 +148,13 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked, has no such issue, or
     /// its answer cannot be read.
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
+
+    /// The sub-issues of issue `parent` on `repo`, with how each stands
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
+    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
 
     /// The open issues on `repo` labelled [`READY`]
     ///
