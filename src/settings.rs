@@ -48,7 +48,7 @@ pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost,
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
-pub use repo_setup::{CallRole, MarketplaceSource, PluginId, RepoSetup};
+pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{LeaseName, ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
