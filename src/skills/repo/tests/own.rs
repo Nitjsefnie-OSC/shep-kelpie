@@ -70,3 +70,20 @@ fn a_link_in_the_default_branchs_claude_folder_is_left_out() {
     assert!(plugin.join("skills/house/SKILL.md").is_file());
     assert!(!plugin.join("skills/house/passwd").exists());
 }
+
+#[test]
+fn a_server_the_default_branch_gains_after_the_runner_started_loads_when_it_looks_again() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.land(".mcp.json", r#"{"mcpServers":{"docs":{"command":"docs"}}}"#);
+    super::fetch(&rig);
+    assert!(runner.lock().unwrap().reread_plugins().is_some());
+    rig.ask(&runner, "add", Some("7"));
+    step(&runner).unwrap();
+    let worker = super::call_of(&rig, crate::ports::Role::Worker);
+    assert_eq!(
+        worker.reach.mcp_servers.keys().collect::<Vec<_>>(),
+        ["docs"]
+    );
+    assert_eq!(runner.lock().unwrap().reread_plugins(), None);
+}

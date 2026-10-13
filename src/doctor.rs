@@ -10,6 +10,7 @@ mod gateways;
 mod github;
 pub mod host;
 mod machine;
+mod mcp;
 mod project;
 mod rulings;
 

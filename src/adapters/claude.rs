@@ -23,6 +23,7 @@ const CLAUDE: Harness = Harness::ClaudeCode;
 #[cfg(test)]
 mod escapes;
 mod graph;
+mod mcp;
 pub(crate) mod sandbox;
 pub(crate) mod settings;
 
@@ -257,7 +258,7 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     if let Some(window) = call.compact_window {
         settings::compacting(&mut value, window, &again);
     }
-    graph::allow(&mut value, call);
+    mcp::allow(&mut value, call);
     let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
     if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
         deny.extend(reads.into_iter().map(serde_json::Value::from));
@@ -277,10 +278,9 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
         ))
     })?;
     write(&call.settings, text)?;
-    if let Some(code_graph) = &call.reach.code_graph {
-        let config = graph::config(code_graph, &call.cwd);
+    if let Some(config) = mcp::config(call) {
         let text = serde_json::to_string_pretty(&config).expect("an MCP config is JSON");
-        write(&graph::mcp_file(&call.settings), text)?;
+        write(&mcp::mcp_file(&call.settings), text)?;
     }
     match call.compact_window {
         Some(_) => write(&again, compacted_prompt(&call.prompt)),
@@ -335,8 +335,8 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         call.settings.clone().into(),
     ];
     // Every kind of call but an answer or the issue writer's runs on an
-    // allow-list and loads no MCP server, so what a project's settings allow
-    // adds nothing. An agent file's own list replaces a worker's and a
+    // allow-list and loads no MCP server but those kelpie names, so what a
+    // project's settings allow adds nothing. An agent file's own list replaces a worker's and a
     // reviewer's, and no other's.
     use crate::ports::Tools as Kind;
     let own = call.agent_tools.as_deref();
@@ -349,14 +349,11 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
         (_, Kind::Review) => Some(own.unwrap_or(settings::REVIEW_TOOLS)),
         (_, Kind::Answer | Kind::Issues | Kind::Pm) => None,
     };
+    if mcp::loads(call) {
+        argv.extend(["--mcp-config".into(), mcp::mcp_file(&call.settings).into()]);
+    }
     if let Some(tools) = tools {
-        // Only the config named here is loaded, so the server is the one MCP server.
-        if call.reach.code_graph.is_some() {
-            argv.extend([
-                "--mcp-config".into(),
-                graph::mcp_file(&call.settings).into(),
-            ]);
-        }
+        // Only the config named above is loaded, so its servers are the call's MCP servers.
         argv.extend(["--tools".into(), tools.into(), "--strict-mcp-config".into()]);
     }
     argv

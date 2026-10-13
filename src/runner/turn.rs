@@ -610,6 +610,14 @@ impl Runner {
                     call.plugin_dirs.push(plugin.to_owned());
                 }
             }
+            // Their MCP servers go in the call's own MCP config, since `--strict-mcp-config`
+            // drops every other. A call that only reads (a vote, a retro) is given none that
+            // could write, and only Claude Code takes the config.
+            if call.harness.reads_claude_files() && call.tools != Tools::Retro {
+                call.reach
+                    .mcp_servers
+                    .extend(self.repo_plugins.mcp_servers());
+            }
         }
         self.with_code_graph(&mut call);
         self.ports
