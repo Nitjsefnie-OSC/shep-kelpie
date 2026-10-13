@@ -416,6 +416,44 @@ fn a_gateway_gets_its_own_key_in_place_of_the_workers() {
 }
 
 #[test]
+fn a_gateways_chat_call_asks_for_batch_and_a_plain_servers_does_not() {
+    let gateway = StandInEndpoint::start([Answer::Says("ok")]);
+    let dir = crate::test::short_tempdir();
+    let keyed = upstream(gateway.url()).with_key(crate::settings::GatewayKey::for_test("pk-g"));
+    let keyed_forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
+    let reply = send(&keyed_forwarder, &chat("{}"));
+    assert!(status(&reply).contains("200"), "{reply}");
+    assert_eq!(
+        gateway.paddock_headers(),
+        [[("x-paddock-priority".to_owned(), "batch".to_owned())]]
+    );
+
+    let plain = StandInEndpoint::start([Answer::Says("ok")]);
+    let (_dir, forwarder) = forwarder(plain.url());
+    let reply = send(&forwarder, &chat("{}"));
+    assert!(status(&reply).contains("200"), "{reply}");
+    assert_eq!(plain.paddock_headers(), [Vec::<(String, String)>::new()]);
+}
+
+#[test]
+fn a_paddock_header_the_worker_sends_never_reaches_the_gateway() {
+    let server = StandInEndpoint::start([Answer::Says("ok")]);
+    let dir = crate::test::short_tempdir();
+    let keyed = upstream(server.url()).with_key(crate::settings::GatewayKey::for_test("pk-g"));
+    let forwarder = Forwarder::open(&dir.path().canonicalize().unwrap(), keyed).unwrap();
+    let request = format!(
+        "{CHAT}X-Paddock-Priority: interactive\r\nX-Paddock-Lease: L9\r\n\
+         content-length: 2\r\n\r\n{{}}"
+    );
+    let reply = send(&forwarder, request.as_bytes());
+    assert!(status(&reply).contains("200"), "{reply}");
+    assert_eq!(
+        server.paddock_headers(),
+        [[("x-paddock-priority".to_owned(), "batch".to_owned())]]
+    );
+}
+
+#[test]
 fn a_key_with_a_line_break_is_refused_and_no_request_is_sent() {
     for key in ["pk-1\r\nx-evil: 1", "pk-1\nx-evil: 1", "pk-1\rx-evil: 1"] {
         let server = StandInEndpoint::start([Answer::Says("ok")]);

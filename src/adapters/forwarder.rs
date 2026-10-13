@@ -384,7 +384,8 @@ fn connect(upstream: &Upstream) -> io::Result<TcpStream> {
 
 // The chat call as the model server gets it: its own path, and only the
 // headers a chat client needs, with a length the forwarder counted itself.
-// A gateway gets its own key, never the one the worker sent. A key holding a
+// A gateway gets its own key, never the one the worker sent, and a request
+// for the batch turn, as kelpie runs unattended. A key holding a
 // line break would start a header of the worker's choosing, so it is refused
 // before anything is sent.
 fn request(upstream: &Upstream, head: &Head, length: usize) -> Result<Vec<u8>, Reply> {
@@ -409,6 +410,7 @@ fn request(upstream: &Upstream, head: &Head, length: usize) -> Result<Vec<u8>, R
     }
     if let Some(key) = upstream.key() {
         text.push_str(&format!("authorization: Bearer {}\r\n", key.expose()));
+        text.push_str("x-paddock-priority: batch\r\n");
     }
     text.push_str("\r\n");
     Ok(text.into_bytes())

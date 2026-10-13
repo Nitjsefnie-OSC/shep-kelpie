@@ -175,3 +175,29 @@ fn the_key_reaches_the_gateway_only_from_the_forwarder_and_no_file_holds_it() {
     }
     assert!(Path::new(&w.path("settings.pi/models.json")).is_file());
 }
+
+#[test]
+fn a_reviewers_chat_call_on_a_gateway_asks_for_batch() {
+    let server = StandInEndpoint::start([Answer::Says("hello"), Answer::Says("hello")])
+        .like_paddock(KEY, &[]);
+    let w = World::new();
+    let pi = pi_on(&w, &server, FRESH, 0);
+    for role in [Role::Reviewer, Role::Worker] {
+        let call = on_gateway(&w, role);
+        pi.prepare(&call).unwrap();
+        let (_command, forwarder) = pi.sandboxed_command(&call).unwrap();
+        let body = r#"{"model":"qwen3.8:27b"}"#;
+        let chat = format!(
+            "POST http://model.kelpie.test/v1/chat/completions HTTP/1.1\r\n\
+             content-length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+        stream.write_all(chat.as_bytes()).unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        assert!(reply.contains("hello"), "{role:?}: {reply}");
+    }
+    let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
+    assert_eq!(server.paddock_headers(), [batch.clone(), batch]);
+}
