@@ -55,6 +55,10 @@ mod gateway_tests;
 #[cfg(test)]
 mod unreachable_tests;
 
+/// The oldest pi kelpie is built for: built-in MCP needs 0.99 or later, and
+/// compaction events carry a `reason` from 1.0.4
+pub const PI_MINIMUM: &str = "1.0.4";
+
 /// This adapter's harness, as its errors and the fence name it
 const PI: Harness = Harness::Pi;
 

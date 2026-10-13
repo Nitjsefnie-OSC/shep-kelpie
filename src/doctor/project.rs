@@ -13,7 +13,9 @@ use crate::runner::{
     NO_ORIGIN, ProjectName, ProjectPaths, SUMMON_LABEL, check_checkout, check_instructions,
     source_of,
 };
-use crate::settings::{Account, ForgeSlug, Limit, Settings, SettingsError};
+use crate::settings::{
+    Account, AgentHarness, ForgeSlug, Limit, RoleModel, Settings, SettingsError,
+};
 use crate::webhook::KelpieSettings;
 
 /// A line for each project folder in kelpie's home whose old settings file
@@ -155,6 +157,9 @@ pub(super) fn checks(
             ),
             Err(e) => Line::missing(at("codex usage"), e.to_string(), "set `codex_home` in kelpie's settings to a folder of kelpie's own, absolute or under `~/`"),
         });
+    }
+    if spends_pi(&settings, &book, here) {
+        lines.push(super::machine::pi(at("pi"), probes.host));
     }
     if let Some(kelpie) = kelpie {
         lines.push(rulings::channel(at("rulings"), kelpie));
@@ -322,6 +327,27 @@ fn spends_codex(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
         .filter_map(|r| r.runs.session())
         .any(|(_, limit)| codex(limit));
     sessions || roles.is_some_and(|roles| roles.implementers.iter().any(|i| codex(&i.limit)))
+}
+
+// Whether an implementer, another role agent or a listed reviewer runs on pi.
+// Settings that do not resolve are another line's to report.
+fn spends_pi(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
+    let pi = |model: &RoleModel| matches!(model.harness, AgentHarness::Pi(_));
+    let roles = settings.role_agents(book).ok();
+    let lineup = settings.lineup(book, here.home).unwrap_or_default();
+    let reviewers = lineup
+        .iter()
+        .filter_map(|r| r.runs.session())
+        .any(|(model, _)| pi(model));
+    reviewers
+        || roles.is_some_and(|roles| {
+            let others = [
+                roles.pm.as_ref().map(|a| &a.model),
+                roles.advisor.as_ref().map(|a| &a.model),
+                roles.researcher.as_ref().map(|a| &a.model),
+            ];
+            roles.implementers.iter().any(|i| pi(&i.model)) || others.into_iter().flatten().any(pi)
+        })
 }
 
 // The checkout's line, and the repo on the forge where it is known: from
