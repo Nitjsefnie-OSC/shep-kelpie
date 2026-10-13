@@ -80,7 +80,13 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
     }
     for thread in talk.threads.iter().filter(|t| !t.resolved) {
         let seen = sieve.talked.threads.get(&thread.id).copied().unwrap_or(0);
-        let Some(latest) = thread.remarks.iter().map(|r| r.id).max().filter(|l| *l > seen) else {
+        let Some(latest) = thread
+            .remarks
+            .iter()
+            .map(|r| r.id)
+            .max()
+            .filter(|l| *l > seen)
+        else {
             continue;
         };
         sorted.threads.push((thread.id.clone(), latest));
@@ -114,7 +120,9 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
 }
 
 fn is_own_reply(remark: &Remark) -> bool {
-    OWN_REPLIES.iter().any(|start| remark.body.starts_with(start))
+    OWN_REPLIES
+        .iter()
+        .any(|start| remark.body.starts_with(start))
 }
 
 fn ignored(remark: &Remark, on: &str) -> String {

@@ -681,7 +681,10 @@ impl Forge for FakeForge {
     fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
         self.ask()?;
         self.opened(number)?;
-        Ok(self.coderabbit.talk_of(number))
+        let mut talk = self.coderabbit.talk_of(number);
+        talk.comments.extend(self.threads.remarks(number));
+        talk.comments.sort_by_key(|r| r.id);
+        Ok(talk)
     }
 
     fn comments_since(

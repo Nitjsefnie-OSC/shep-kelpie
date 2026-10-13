@@ -157,7 +157,12 @@ mod tests {
         assert_eq!(talk.threads.len(), 2);
         let open = &talk.threads[0];
         assert_eq!(
-            (open.id.as_str(), open.path.as_str(), open.line, open.resolved),
+            (
+                open.id.as_str(),
+                open.path.as_str(),
+                open.line,
+                open.resolved
+            ),
             ("PRRT_open", "src/lib.rs", Some(12), false)
         );
         let ids: Vec<_> = open.remarks.iter().map(|r| r.id).collect();

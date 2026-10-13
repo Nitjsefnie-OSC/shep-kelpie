@@ -117,7 +117,11 @@ impl Runner {
 
     // Notes the comments of `sorted` as handled.
     fn note_heard(&mut self, sorted: &Sorted) -> Result<(), StateError> {
-        let before = self.current().expect("comments are read on a work item").talked.clone();
+        let before = self
+            .current()
+            .expect("comments are read on a work item")
+            .talked
+            .clone();
         let mut after = before.clone();
         after.read = true;
         for id in &sorted.comments {
@@ -279,7 +283,10 @@ impl Runner {
 impl Request {
     // What it says, as the maintainer reads it.
     fn quoted(&self) -> String {
-        let place = self.place.as_ref().map_or_else(String::new, |p| format!(" on {p}"));
+        let place = self
+            .place
+            .as_ref()
+            .map_or_else(String::new, |p| format!(" on {p}"));
         let said: Vec<String> = (self.said.iter())
             .map(|(who, text)| {
                 let quoted: Vec<String> = text.lines().map(|l| format!("> {l}")).collect();

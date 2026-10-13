@@ -9,7 +9,8 @@ use crate::ports::Checks;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
-const NOTE_FIX: &str = "This head is the worker's fix for a note or comment, and no reviewer read it.";
+const NOTE_FIX: &str =
+    "This head is the worker's fix for a note or comment, and no reviewer read it.";
 
 fn phase(rig: &Rig, runner: &Mutex<Runner>) -> serde_json::Value {
     rig.ask(runner, "status", None)["work_item"]["phase"].clone()

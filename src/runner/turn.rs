@@ -232,8 +232,8 @@ impl Runner {
         if self.unseated() {
             return Ok(self.idle(Reason::Unseated));
         }
-        let owes_replies = item.talked.head.is_some()
-            && matches!(item.phase, Phase::Review(_) | Phase::Ci { .. });
+        let owes_replies =
+            item.talked.head.is_some() && matches!(item.phase, Phase::Review(_) | Phase::Ci { .. });
         if owes_replies && let Some(begin) = self.answer_talk()? {
             return Ok(begin);
         }

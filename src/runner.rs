@@ -30,8 +30,7 @@ use crate::state::ids::RulingIds;
 use crate::state::{ProjectState, StateError, StateStore};
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{
-    Known, Phase, QwenTally, ReviewCallState, Seat, Talked, Timings, Turn, WorkItem,
-    new_session_id,
+    Known, Phase, QwenTally, ReviewCallState, Seat, Talked, Timings, Turn, WorkItem, new_session_id,
 };
 
 mod adopt;
