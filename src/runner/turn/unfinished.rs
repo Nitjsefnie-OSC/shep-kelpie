@@ -127,11 +127,10 @@ impl Runner {
             .find(|pr| pr.head == item.branch)
             .filter(|_| !pushed_nothing)
             .map(|pr| pr.number);
-        let (build, branch, pushed) = (
-            item.build.clone(),
-            item.branch.clone(),
-            item.known.head.is_some(),
-        );
+        let (build, branch) = (item.build.clone(), item.branch.clone());
+        // A refusal from the turn's end is told to the worker before the file
+        // is tried again.
+        let retry = item.known.head.is_some() && item.pull_request_refused.is_none();
         let handed_over = self.app_covers();
         // A pull request on another branch that closes the issue is work too.
         let claimed = open.iter().any(|pr| pr.closes.contains(&issue));
@@ -154,7 +153,7 @@ impl Runner {
         // from here, not sent back for a pull request it cannot open.
         let mut refusal = None;
         let found = match found {
-            None if handed_over && pushed && !pushed_nothing && !known => {
+            None if handed_over && retry && !pushed_nothing && !known => {
                 match self.open_handed_over(&build, &branch) {
                     Ok(opened) => opened,
                     Err(refused) => {
