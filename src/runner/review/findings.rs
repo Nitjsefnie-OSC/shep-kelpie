@@ -411,10 +411,10 @@ mod tests {
         assert!(!err.contains("a thing"), "{err}");
     }
 
-    // The first turn's instructions name this file's path, before any round
-    // has written a findings file with a header that does.
+    // The first turn's instructions name the path `deferred` reads, before any
+    // round has written a findings file with a header that does.
     #[test]
-    fn a_line_written_where_the_first_turn_instructions_name_is_read_at_merge() {
+    fn the_deferred_path_the_instructions_name_is_the_one_read_at_merge() {
         let rig = Rig::new("shep");
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
