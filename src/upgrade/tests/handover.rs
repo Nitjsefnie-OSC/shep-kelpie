@@ -139,8 +139,107 @@ async fn a_handover_that_never_shows_the_new_build_is_drained_and_named() {
     assert_eq!(restarted(&rig.shepherd.writes()), ["kelpie", "koji"]);
     assert!(
         said.iter().any(|l| l
-            == "`koji` did not show the new build within 0s of its handover, so it is drained \
+            == "`koji` still showed the old build within 30ms of its handover, so it is drained \
                 and restarted as before"),
         "{said:?}"
     );
+}
+
+#[tokio::test]
+async fn a_runner_stopped_while_it_hands_over_stays_stopped() {
+    let mut rig = Rig::new().await;
+    let looks = [IDLE, OLD, OLD, OLD, OLD, OLD, OLD, OLD, OLD, OLD];
+    rig.shepherd.says("koji", &looks);
+    rig.shepherd.hands("koji", &[None]);
+    let new = rig.build("new", "0.3.0", "0.13.0");
+    // Stopped once the upgrade has looked at it a few times.
+    let stopping = async {
+        while rig.shepherd.answers_left("koji") > looks.len() - 4 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        rig.shepherd.stops("koji");
+    };
+    let ((ran, said), ()) = tokio::join!(rig.install(&new), stopping);
+    ran.unwrap();
+
+    assert_eq!(rig.restarts(), ["kelpie"]);
+    assert!(!rig.shepherd.sheep("koji").unwrap().1);
+    assert!(
+        said.iter()
+            .any(|l| l == "`koji` was stopped meanwhile, so it stays stopped"),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_runner_that_shows_no_build_is_said_to_show_none() {
+    let mut rig = Rig::new().await;
+    rig.shepherd
+        .says("koji", &[IDLE, r#"{"work_items":[]}"#, DRAINED]);
+    rig.shepherd.hands("koji", &[None]);
+    let new = rig.build("new", "0.3.0", "0.13.0");
+    let patience = Patience {
+        start: Duration::from_millis(30),
+        ..FAST
+    };
+    let (ran, said) = rig
+        .upgrade_within(Action::Install(Source::Binary(new)), patience)
+        .await;
+    ran.unwrap();
+    assert!(
+        said.iter()
+            .any(|l| l.contains("`koji` showed no build in its `status` within 30ms")),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_runner_still_opening_is_not_taken_for_a_handover_in_progress() {
+    let mut rig = Rig::new().await;
+    // Neither `handover` nor `status` is taken yet, and never is.
+    let opening = Some("unknown action: status");
+    rig.shepherd.replies("koji", &[Some(IDLE), opening]);
+    rig.shepherd
+        .hands("koji", &[Some("unknown action: handover")]);
+    let new = rig.build("new", "0.3.0", "0.13.0");
+    let patience = Patience {
+        start: Duration::from_millis(30),
+        merge: Duration::from_millis(100),
+        ..FAST
+    };
+    let (ran, said) = rig
+        .upgrade_within(Action::Install(Source::Binary(new)), patience)
+        .await;
+    assert!(ran.is_err(), "the drain waits on a runner that never opens");
+    assert!(
+        said.iter().any(|l| l.contains(
+            "`koji` did not take the handover within 30ms, so it is drained and restarted"
+        )),
+        "{said:?}"
+    );
+    assert!(
+        !said.iter().any(|l| l.contains("is handing over")),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_ctrl_c_while_a_runner_hands_over_stops_the_upgrade() {
+    let mut rig = Rig::new().await;
+    rig.shepherd.says("koji", &[IDLE, OLD]);
+    rig.shepherd.hands("koji", &[None]);
+    let new = rig.build("new", "0.3.0", "0.13.0");
+    let scene = Scene {
+        interrupt: Interrupt::After(Duration::from_millis(100)),
+        ..rig.scene(FAST)
+    };
+    let (ran, _) = rig
+        .upgrade_in(scene, Action::Install(Source::Binary(new)))
+        .await;
+    let err = ran.unwrap_err();
+    assert!(
+        err.contains("stopped by Ctrl-C while `koji` was handing over"),
+        "{err}"
+    );
+    assert_eq!(rig.restarts(), ["kelpie"]);
 }

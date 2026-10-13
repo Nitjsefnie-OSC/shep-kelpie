@@ -75,6 +75,15 @@ pub fn stamp_of(path: &Path) -> Result<String, String> {
 pub fn running() -> Option<&'static str> {
     static RUNNING: OnceLock<Option<String>> = OnceLock::new();
     RUNNING
-        .get_or_init(|| stamp_of(&std::env::current_exe().ok()?).ok())
+        .get_or_init(|| {
+            let stamp = std::env::current_exe()
+                .map_err(|e| format!("cannot find its own file: {e}"))
+                .and_then(|path| stamp_of(&path));
+            // Said once, where `shep bleats` shows it: the upgrade can then
+            // only tell that `status` names no build.
+            stamp
+                .inspect_err(|e| eprintln!("this runner's `status` shows no build: {e}"))
+                .ok()
+        })
         .as_deref()
 }

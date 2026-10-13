@@ -109,7 +109,7 @@ impl Member {
     }
 }
 
-fn running(status: ProcStatus) -> bool {
+pub(super) fn running(status: ProcStatus) -> bool {
     matches!(status, ProcStatus::Online | ProcStatus::Starting)
 }
 
@@ -267,7 +267,11 @@ pub async fn restart_all(
             bounce_if_running(client, name, patience, say).await?;
             continue;
         };
-        match hand_over(client, name, installed, patience, say).await? {
+        let handed = tokio::select! {
+            handed = hand_over(client, name, installed, patience, say) => handed?,
+            by = &mut stop => return Err(format!("stopped by {by} while `{name}` was handing over")),
+        };
+        match handed {
             Handed::Over => continue,
             Handed::Stays(why) => say(why),
         }
