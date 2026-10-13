@@ -83,7 +83,7 @@ fn guarded(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<serde_jso
 }
 
 // A node that loads TypeScript as pi does, which an older one cannot.
-fn has_node() -> bool {
+pub(super) fn has_node() -> bool {
     std::process::Command::new("node")
         .args([
             "--input-type=module-typescript",

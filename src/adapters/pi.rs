@@ -22,6 +22,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use self::adopt::{Carried, kept_server};
+use self::compact::Tokens;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
@@ -32,21 +33,25 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Kept,
-    Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage,
-    Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
+    Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
+    Unheld, Usage, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
 mod activity;
 mod adopt;
+mod compact;
 
 #[cfg(test)]
 mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod compact_tests;
 
 #[cfg(test)]
 mod tests;
@@ -174,6 +179,10 @@ impl Agents for PiCli {
             let guard = files.guard();
             std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
         }
+        if call.role == Role::Worker {
+            let compact = files.compact();
+            std::fs::write(&compact, compact::EXTENSION).map_err(|e| setup(&compact, e))?;
+        }
         Ok(())
     }
 
@@ -206,7 +215,7 @@ impl Agents for PiCli {
                     RunError::TimedOut => AgentError::TimedOut(PI),
                 })
         })??;
-        parse_result(&output, call.session.id())
+        read(call, &output)
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
@@ -381,6 +390,8 @@ struct Files {
     sandbox_settings: PathBuf,
     /// The guard extension, outside anything the call may write
     guard_path: PathBuf,
+    /// The extension a compact call loads, outside anything the call may write
+    compact_path: PathBuf,
 }
 
 impl Files {
@@ -390,6 +401,7 @@ impl Files {
             scratch: call.settings.with_extension("tmp"),
             sandbox_settings: call.settings.with_extension("sandbox.json"),
             guard_path: call.settings.with_extension("guard.ts"),
+            compact_path: call.settings.with_extension("compact.ts"),
         }
     }
 
@@ -399,6 +411,10 @@ impl Files {
 
     fn guard(&self) -> PathBuf {
         self.guard_path.clone()
+    }
+
+    fn compact(&self) -> PathBuf {
+        self.compact_path.clone()
     }
 
     // pi takes a lock folder beside each store it reads at start, even when
@@ -453,7 +469,11 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
 // The skills it loads are the ones named with `--skill`, which need no project trust.
 // It does read the repo's AGENTS.md and CLAUDE.md, as Claude Code does.
 fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
-    let (prompt, skill) = skill_prompt(call);
+    let compacting = call.prompt == COMPACT;
+    let (prompt, skill) = match compacting {
+        true => (compact::COMMAND.to_owned(), None),
+        false => skill_prompt(call),
+    };
     let mut argv: Vec<OsString> = vec![
         "-p".into(),
         "--mode".into(),
@@ -484,6 +504,9 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     }
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
+    }
+    if compacting {
+        argv.extend(["--extension".into(), files.compact().into()]);
     }
     // The step's skill comes first, so its name wins a collision. Its text is in
     // the prompt, but any other skill needs `read` to open and only costs context.
@@ -618,12 +641,17 @@ fn policy(
     // the files kelpie opens for them.
     let outputs = CallFiles::of(call);
     policy.read.extend(
-        [files.home.clone(), files.guard(), files.scratch.clone()]
-            .into_iter()
-            .chain([outputs.stdout, outputs.stderr])
-            .chain(call.instructions.iter().cloned())
-            .chain(call.plugin_dirs.iter().cloned())
-            .chain(call.reach.read.iter().cloned()),
+        [
+            files.home.clone(),
+            files.guard(),
+            files.compact(),
+            files.scratch.clone(),
+        ]
+        .into_iter()
+        .chain([outputs.stdout, outputs.stderr])
+        .chain(call.instructions.iter().cloned())
+        .chain(call.plugin_dirs.iter().cloned())
+        .chain(call.reach.read.iter().cloned()),
     );
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
@@ -694,9 +722,28 @@ fn tail(text: &str) -> &str {
     &text[start..]
 }
 
+// A compact call's output is read for its compaction, any other call's for its turn.
+fn read(call: &AgentCall, output: &Output) -> Result<AgentReply, AgentError> {
+    match call.prompt == COMPACT {
+        true => compact::parse(output, call.session.id()),
+        false => parse_result(output, call.session.id()),
+    }
+}
+
+// An error for a call that failed with `detail`, unreachable where it says the
+// model host could not be reached.
+fn failed(detail: &str) -> AgentError {
+    if reaches_no_host(detail) {
+        AgentError::Unreachable(PI, detail.to_owned())
+    } else {
+        AgentError::Failed(PI, detail.to_owned())
+    }
+}
+
 // `pi -p --mode json` prints one event per line: a session header, then
 // every message as it ends. The call's usage is the sum of its assistant
-// messages, and its answer the last one's text. A local model has no price.
+// messages and its own compactions, its context the last request's prompt,
+// and its answer the last message's text. A local model has no price.
 fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentError> {
     #[derive(Deserialize)]
     struct Line {
@@ -714,7 +761,7 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
         #[serde(default)]
         content: Vec<Content>,
         #[serde(default)]
-        usage: Option<MessageUsage>,
+        usage: Option<Tokens>,
         #[serde(default)]
         stop_reason: Option<String>,
         #[serde(default)]
@@ -727,18 +774,11 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
         #[serde(default)]
         text: Option<String>,
     }
-    #[derive(Default, Deserialize)]
-    #[serde(default, rename_all = "camelCase")]
-    struct MessageUsage {
-        input: u64,
-        output: u64,
-        cache_read: u64,
-        cache_write: u64,
-    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let mut session = None;
     let mut usage = Usage::default();
+    let mut context = None;
     let mut last: Option<Message> = None;
     // Whether the latest message to end could not be read, so `last` is stale.
     let mut unread = false;
@@ -754,26 +794,16 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             ("session", _) => session = line.id,
             ("message_end", Some(message)) if message.role == "assistant" => {
                 if let Some(u) = &message.usage {
-                    usage += Usage {
-                        input: u.input,
-                        cache_write: u.cache_write,
-                        cache_write_5m: 0,
-                        cache_read: u.cache_read,
-                        output: u.output,
-                    };
+                    usage += u.usage();
+                    context = Some(u.context());
                 }
                 last = Some(message);
             }
+            // pi's own threshold compaction, which runs inside a turn.
+            ("compaction_end", _) => usage += compact::usage_of(text),
             _ => {}
         }
     }
-    let failed = |detail: &str| {
-        if reaches_no_host(detail) {
-            AgentError::Unreachable(PI, detail.to_owned())
-        } else {
-            AgentError::Failed(PI, detail.to_owned())
-        }
-    };
     if !output.status.success() {
         let why = last.as_ref().and_then(|m| m.error_message.clone());
         return Err(failed(why.as_deref().unwrap_or(tail(&stderr))));
@@ -810,6 +840,6 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
         text,
         usage,
         session_cost: None,
-        context: None,
+        context,
     })
 }

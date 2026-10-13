@@ -210,6 +210,10 @@ pub struct Guard {
     pub hooks: Hooks,
 }
 
+/// The prompt that asks a session to compact itself, which Claude Code runs as
+/// its own command
+pub const COMPACT: &str = "/compact";
+
 /// One session call to an agent
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentCall {
