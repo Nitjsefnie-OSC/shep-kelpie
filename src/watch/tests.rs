@@ -18,7 +18,17 @@ impl Rig {
         }
     }
 
-    fn log(&self) -> PathBuf {
+    // The project's folder, where the runner keeps `steps.jsonl`
+    fn folder(&self) -> PathBuf {
+        self.dir.path().to_owned()
+    }
+
+    fn steps(&self) -> PathBuf {
+        self.folder().join("steps.jsonl")
+    }
+
+    // The shepherd's log of what the runner prints, which `watch` does not read
+    fn out_log(&self) -> PathBuf {
         self.dir.path().join("koji-0-out.log")
     }
 
@@ -38,8 +48,10 @@ impl Rig {
         }
     }
 
+    // A step as the runner writes it: its JSON object with the time first
     fn step(&self, at: &str, json: &str) {
-        self.append(&self.log(), &[&format!("{at} {json}")]);
+        let line = json.replacen('{', &format!(r#"{{"at":"{at}","#), 1);
+        self.append(&self.steps(), &[&line]);
     }
 
     fn transcript(&self, session: &str, lines: &[&str]) {
@@ -80,7 +92,7 @@ fn shown(lines: &[super::Line]) -> Vec<String> {
 #[test]
 fn a_project_manager_wake_shows_its_prompt_and_answer_as_pm() {
     let rig = Rig::new();
-    let (mut watch, first) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, first) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
     assert!(first.is_empty());
 
     rig.step(
@@ -163,7 +175,7 @@ fn busy_project(rig: &Rig) {
 fn watching_one_issue_shows_only_its_sessions_and_steps() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Issue(7), 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Issue(7), 100));
     let lines = shown(&lines);
     assert!(
         lines
@@ -188,7 +200,7 @@ fn watching_one_issue_shows_only_its_sessions_and_steps() {
 fn watching_the_project_manager_shows_its_sessions_and_steps() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Pm, 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Pm, 100));
     let lines = shown(&lines);
     assert_eq!(lines.len(), 3, "{lines:#?}");
     assert!(lines[0].starts_with("12:00:02 runner step session-started"));
@@ -200,7 +212,7 @@ fn watching_the_project_manager_shows_its_sessions_and_steps() {
 fn back_shows_the_last_lines_of_all_sources_sorted_by_time() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 4));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 4));
     let lines = shown(&lines);
     assert_eq!(lines.len(), 4, "{lines:#?}");
     assert_eq!(lines[0], "12:00:12 pm said Waiting");
@@ -216,7 +228,7 @@ fn back_shows_the_last_lines_of_all_sources_sorted_by_time() {
 fn it_starts_at_the_end_and_follows_a_session_already_running() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (mut watch, first) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, first) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
     assert!(first.is_empty());
     assert!(watch.poll().is_empty());
 
@@ -231,7 +243,7 @@ fn it_starts_at_the_end_and_follows_a_session_already_running() {
 fn a_line_still_being_written_is_shown_once_it_ends() {
     let rig = Rig::new();
     busy_project(&rig);
-    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
     let path = rig.transcripts().join("pm.jsonl");
     let line = said("2026-10-10T12:01:00.000Z", "Half");
     let (head, tail) = line.split_at(line.len() / 2);
@@ -256,7 +268,7 @@ fn a_session_resumed_shows_only_its_new_call() {
             &said("2026-10-10T12:00:02.000Z", "First answer"),
         ],
     );
-    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
 
     // The next call resumes the session, a minute later.
     rig.step(
@@ -273,7 +285,7 @@ fn a_session_resumed_shows_only_its_new_call() {
 #[test]
 fn a_session_started_while_watching_is_read_from_its_first_line() {
     let rig = Rig::new();
-    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
     rig.transcript(
         "w7",
         &[
@@ -310,7 +322,7 @@ fn tools_and_their_results_show_as_one_clipped_line_each() {
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":"s"}]},"timestamp":"2026-10-10T12:00:05.000Z"}"#,
         ],
     );
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
     let lines = shown(&lines);
     assert_eq!(lines.len(), 5, "{lines:#?}");
     assert_eq!(
@@ -346,7 +358,7 @@ fn full_shows_prompts_and_results_whole() {
     );
     let mut options = rig.options(Scope::Project, 100);
     options.full = true;
-    let (_watch, lines) = Watch::start(rig.log(), options);
+    let (_watch, lines) = Watch::start(rig.folder(), options);
     let prompt = lines[1].to_string();
     let rows: Vec<&str> = prompt.lines().collect();
     assert_eq!(rows.len(), 3, "{prompt}");
@@ -382,7 +394,7 @@ fn a_codex_session_shows_from_its_rollout_once_kelpie_knows_its_thread() {
             r#"{"timestamp":"2026-10-10T12:00:05.500Z","type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#,
         ],
     );
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
     let lines = shown(&lines);
     assert_eq!(lines.len(), 5, "{lines:#?}");
     assert_eq!(lines[1], "12:00:02 #7 worker (gpt) prompt Build #7");
@@ -404,7 +416,7 @@ fn a_codex_first_turn_shows_from_the_rollout_no_session_claims() {
         &sessions.join("rollout-2020-10-10T11-00-00-other.jsonl"),
         &[r#"{"timestamp":"2020-10-10T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Not mine"}]}}"#],
     );
-    let (mut watch, _) = Watch::start(rig.log(), rig.options(Scope::Project, 0));
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
     rig.step(
         "2020-10-10T12:00:00.000+00:00",
         &format!(
@@ -443,7 +455,7 @@ fn a_pi_session_shows_from_its_session_file() {
             r#"{"type":"message","id":"a4","timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"CLEAN"}]}}"#,
         ],
     );
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
     let lines = shown(&lines);
     assert_eq!(lines.len(), 6, "{lines:#?}");
     assert_eq!(lines[1], "12:00:01 #7 reviewer (qwen) prompt Review #7");
@@ -460,16 +472,45 @@ fn a_pi_session_shows_from_its_session_file() {
 fn lines_that_are_not_steps_or_cannot_be_read_are_passed_over() {
     let rig = Rig::new();
     rig.append(
-        &rig.log(),
+        &rig.steps(),
         &[
-            "2026-10-10T12:00:00.000+00:00 up: {\"project\":\"koji\"}",
-            "not a log line",
-            "2026-10-10T12:00:01.000+00:00 {\"step\":\"finished\",\"issue\":7,\"merged\":true}",
+            "not a step",
+            r#"{"at":"2026-10-10T12:00:00.000+00:00","project":"koji"}"#,
+            r#"{"step":"finished","issue":7}"#,
+            r#"{"at":"2026-10-10T12:00:01.000+00:00","step":"finished","issue":7,"merged":true}"#,
         ],
     );
-    let (_watch, lines) = Watch::start(rig.log(), rig.options(Scope::Project, 100));
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
     assert_eq!(
         shown(&lines),
         ["12:00:01 runner step finished #7 merged=true"]
+    );
+}
+
+#[test]
+fn watch_follows_a_project_from_steps_jsonl_and_ignores_the_out_log() {
+    let rig = Rig::new();
+    // What a runner before `steps.jsonl` printed, and what one prints now.
+    rig.append(
+        &rig.out_log(),
+        &[
+            r#"2026-10-10T12:00:00.000+00:00 {"step":"dispatched","issue":6,"agent":"old","skipped":[]}"#,
+            "2026-10-10T12:00:01.000+00:00 #7 dispatched to claude-sonnet-5 (medium)",
+        ],
+    );
+    let (mut watch, first) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    assert!(first.is_empty(), "{first:?}");
+
+    rig.step(
+        "2026-10-10T12:00:02.000+00:00",
+        r#"{"step":"dispatched","issue":7,"agent":"sonnet","skipped":[]}"#,
+    );
+    rig.append(
+        &rig.out_log(),
+        &[r#"2026-10-10T12:00:03.000+00:00 {"step":"finished","issue":7,"merged":true}"#],
+    );
+    assert_eq!(
+        shown(&watch.poll()),
+        ["12:00:02 runner step dispatched #7 agent=sonnet"]
     );
 }

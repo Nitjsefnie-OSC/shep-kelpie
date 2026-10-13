@@ -192,18 +192,34 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let ended = |at: &str, session: &str| {
             format!(
-                "{at} {{\"step\":\"ended\",\"issue\":7,\"session\":\"{session}\",\"usage\":\
-                 {{\"input\":1,\"cache_write\":0,\"cache_read\":0,\"output\":1}}}}\n"
+                "{{\"at\":\"{at}\",\"step\":\"ended\",\"issue\":7,\"session\":\"{session}\",\
+                 \"usage\":{{\"input\":1,\"cache_write\":0,\"cache_read\":0,\"output\":1}}}}\n"
             )
         };
         let mut log = ended("2026-10-01T17:00:00Z", "a").into_bytes();
-        log.extend(b"2026-10-01T17:01:00Z {\"step\":\"ended\",\"session\":\"\xff\"}\n");
+        log.extend(b"{\"at\":\"2026-10-01T17:01:00Z\",\"step\":\"ended\",\"session\":\"\xff\"}\n");
         log.extend(ended("2026-10-01T17:02:00Z", "b").into_bytes());
-        let path = home.path().join("koji-0-out.log");
+        let path = home.path().join("steps.jsonl");
         std::fs::write(&path, log).unwrap();
         let named = ProjectName::try_from("koji").ok();
         let out = usage(home.path(), named, &["--import", path.to_str().unwrap()]).unwrap();
         assert!(out[0].starts_with("koji: 2 calls added"), "{out:?}");
+    }
+
+    #[test]
+    fn the_out_log_a_runner_wrote_before_steps_jsonl_imports_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("koji-0-out.log");
+        std::fs::write(
+            &path,
+            "2026-10-01T17:00:00Z {\"step\":\"ended\",\"issue\":7,\"session\":\"a\",\"usage\":\
+             {\"input\":1,\"cache_write\":0,\"cache_read\":0,\"output\":1}}\n\
+             2026-10-01T17:01:00Z #7 ended\n",
+        )
+        .unwrap();
+        let named = ProjectName::try_from("koji").ok();
+        let out = usage(home.path(), named, &["--import", path.to_str().unwrap()]).unwrap();
+        assert!(out[0].starts_with("koji: 0 calls added"), "{out:?}");
     }
 
     #[test]

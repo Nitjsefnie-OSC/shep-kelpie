@@ -241,3 +241,61 @@ fn a_repo_github_marks_private_may_list_cubic() {
     rig.open().unwrap();
     assert_eq!(rig.forge.calls(), 0);
 }
+
+fn is_json_object(line: &str) -> bool {
+    matches!(
+        serde_json::from_str::<serde_json::Value>(line),
+        Ok(serde_json::Value::Object(_))
+    )
+}
+
+#[test]
+fn a_runner_logs_no_json_object_at_its_start_or_a_dispatch() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    let report = step(&runner).unwrap().unwrap();
+    let mut runner = runner.lock().unwrap();
+    let lines = [runner.up_line(), runner.log_step(&report)];
+    for line in &lines {
+        assert!(!is_json_object(line), "{line}");
+        assert!(!line.contains('\n'), "{line}");
+    }
+    assert!(lines[0].starts_with("up: koji"), "{}", lines[0]);
+    assert!(lines[1].starts_with("#7 dispatched to "), "{}", lines[1]);
+    assert!(lines[1].ends_with(')'), "the model's effort: {}", lines[1]);
+}
+
+#[test]
+fn the_steps_a_runner_logs_are_in_steps_jsonl_one_object_per_line() {
+    let rig = Rig::new("koji");
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    let reports: Vec<StepReport> = (0..3).filter_map(|_| step(&runner).unwrap()).collect();
+    assert!(reports.len() >= 2, "{reports:?}");
+    let mut runner = runner.lock().unwrap();
+    for report in &reports {
+        runner.log_step(report);
+    }
+
+    let file = rig.paths().folder.join("steps.jsonl");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let logged: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let expected: Vec<serde_json::Value> = (reports.iter())
+        .map(|report| serde_json::to_value(report).unwrap())
+        .collect();
+    assert_eq!(logged.len(), reports.len(), "{text}");
+    for (line, mut want) in logged.into_iter().zip(expected) {
+        let mut line = line.as_object().unwrap().clone();
+        let at = line.remove("at").unwrap();
+        assert!(
+            at.as_str().unwrap().parse::<jiff::Timestamp>().is_ok(),
+            "{at}"
+        );
+        let want = want.as_object_mut().unwrap();
+        assert_eq!(&line, &*want);
+    }
+}
