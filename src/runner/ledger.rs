@@ -93,8 +93,6 @@ impl Runner {
     pub(super) fn review_line(&self, open: &Open, reviewed: &Reviewed) -> Option<CallLine> {
         let now = self.ports.clock.now();
         let (ended, spent) = match (&reviewed.result, &reviewed.spent) {
-            // The model sat on the CPU, so the round never ran.
-            (ReviewResult::Spilled(_), _) => return None,
             (ReviewResult::Stopped, _) => (Ended::Stopped, None),
             (_, Some(ReviewSpent::Unanswered(ended))) => (*ended, None),
             (ReviewResult::Findings(Ok(_)), spent) => (Ended::Answered, spent.as_ref()),

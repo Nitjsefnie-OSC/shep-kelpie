@@ -282,13 +282,13 @@ enum End {
 
 impl End {
     // Whether it ended before reaching a model: its settings, its harness or
-    // its session never got that far, or a local model sat on the CPU
+    // its session never got that far
     fn reached_no_model(&self) -> bool {
         match self {
             Self::Turn(result) => crate::usage::ended(result).is_none(),
             Self::Review(reviewed) => matches!(
                 (&reviewed.result, &reviewed.spent),
-                (ReviewResult::Spilled(_), _) | (ReviewResult::Findings(Err(_)), None)
+                (ReviewResult::Findings(Err(_)), None)
             ),
             Self::Panicked(_) => false,
         }

@@ -58,7 +58,6 @@ mod tests {
                 code_graph,
                 ..Reach::default()
             },
-            lease: None,
             compact_window: None,
         }
     }

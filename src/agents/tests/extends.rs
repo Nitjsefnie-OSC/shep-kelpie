@@ -36,7 +36,7 @@ fn keys_the_file_sets_replace_the_parents_and_the_rest_come_from_it() {
         (
             "base.md",
             "---\n# A comment.\nrole: implementer\nharness: pi\nmodel: m1\neffort: high\n\
-             url: http://box:11434/v1\ncontext: 65536\nlease: shared\n---\n",
+             url: http://box:11434/v1\ncontext: 65536\n---\n",
         ),
         (
             "light.md",
@@ -47,7 +47,7 @@ fn keys_the_file_sets_replace_the_parents_and_the_rest_come_from_it() {
     let light = agents.get(&name("light")).unwrap();
     assert_eq!(pair(light), ("m2", Effort::Low));
     assert_eq!(model(light).harness, model(base).harness);
-    assert_eq!(limit(light), limit(base), "`lease` comes from the parent");
+    assert_eq!(limit(light), limit(base), "`url` comes from the parent");
 }
 
 #[test]

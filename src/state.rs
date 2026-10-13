@@ -553,15 +553,6 @@ pub enum Stuck {
     /// Someone closed the pull request without merging it. A yes drops the
     /// work item and keeps its branch on the forge.
     Closed,
-    /// The local model sat partly or wholly on the CPU, so a review round was
-    /// not run. A yes runs the same round again, once the model is back on
-    /// the GPU.
-    LocalModelSpilled {
-        /// The review, at the round that was not run
-        review: Review,
-        /// Which model, and how much of it is on the GPU
-        why: String,
-    },
     /// The worker's fix turn for held findings ended with nothing pushed. A
     /// yes sends it the same findings again.
     FixNotPushed {

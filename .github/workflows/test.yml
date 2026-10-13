@@ -55,9 +55,8 @@ jobs:
       - run: cargo test --locked
 
   # The whole suite on macOS, where the APFS case folding in `src/fence.rs`,
-  # the GPU lock's temp folder and the Seatbelt policy `src/adapters/srt.rs`
-  # writes run for real. Apart from the runner and the timeout it is the
-  # `test` job.
+  # and the Seatbelt policy `src/adapters/srt.rs` writes run for real. Apart
+  # from the runner and the timeout it is the `test` job.
   # The 30 minutes comes from a local macOS run (about 5 minutes of tests
   # after the build) and a hosted run where every test passed but the lib
   # suite alone took 17 minutes, so 20 cancelled the job before the rest ran.

@@ -18,9 +18,9 @@ const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neff
 const GPT: &str = "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neffort: medium\n---\n";
 
 const BOX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: qwen3-coder\neffort: low\n\
-                   usage: none\nlease: gpu-box\n---\n";
+                   usage: none\n---\n";
 
-// Kelpie's own agents, with haiku, a pi agent, a Codex one and one on another GPU's lease.
+// Kelpie's own agents, with haiku, a pi agent, a Codex one and a stand-in on no limit.
 fn book() -> Agents {
     Agents::embedded()
         .with("haiku", HAIKU)

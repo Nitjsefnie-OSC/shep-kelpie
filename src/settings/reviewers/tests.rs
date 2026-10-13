@@ -11,7 +11,7 @@ const OPUS: &str = "---\nrole: reviewer\nharness: claude-code\nmodel: claude-opu
                     effort: high\npaths: [\"src/runner/merge/**\"]\n---\nRead it for defects.\n";
 
 const GPU_BOX: &str = "---\nrole: reviewer\nharness: endpoint\nurl: http://gpu-box:11434/v1\n\
-                       model: coder\ncontext: 32768\nlease: gpu-box\n---\n";
+                       model: coder\ncontext: 32768\n---\n";
 
 // Kelpie's own agents, with a Claude reviewer on some paths and an endpoint.
 fn book() -> Agents {
@@ -102,13 +102,6 @@ fn a_reviewer_with_no_file_or_an_implementers_is_refused_naming_it() {
         ),
         "{err}"
     );
-}
-
-#[test]
-fn a_lease_name_is_lowercase_letters_digits_and_dashes() {
-    assert!(LeaseName::try_from("gpu-box".to_owned()).is_ok());
-    assert!(LeaseName::try_from("GPU box".to_owned()).is_err());
-    assert!(LeaseName::gpu().is_gpu());
 }
 
 #[test]

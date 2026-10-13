@@ -5,24 +5,20 @@ use crate::review_bot::{Bot, BotReviewer, ReviewWindow};
 
 impl Reviewer {
     // A review bot is summoned on the pull request and answers there, within
-    // its account's window: it runs no model of kelpie's and takes no lease
-    // of the machine's.
+    // its account's window: it runs no model of kelpie's.
     pub(super) fn bot(&self, prompted: bool) -> Result<BotReviewer, String> {
         self.on_its_own("bot", prompted)?;
         let others = self.model.is_some()
             || self.effort.is_some()
-            || self.lease.is_some()
             || self.url.is_some()
             || self.gateway.is_some()
             || self.context.is_some()
             || self.command.is_some()
-            || self.ollama.is_some()
-            || self.ollama_model.is_some()
             || self.tools.is_some();
         if others {
             return Err(
-                "runs a review bot, which takes no `model`, `effort`, `lease`, \
-                        `url`, `gateway`, `context`, `command`, `ollama`, `ollama_model` or `tools`"
+                "runs a review bot, which takes no `model`, `effort`, `url`, `gateway`, \
+                        `context`, `command` or `tools`"
                     .into(),
             );
         }

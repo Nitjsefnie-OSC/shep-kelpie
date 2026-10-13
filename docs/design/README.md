@@ -7,7 +7,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 
 - Gates, locks, rate windows live in code; Claude only for work and judgement. ADR 0001
 - Kelpie controls each agent's context growth. `src/runner/turn.rs`
-- Naming: dog = adopted `kelpie` (lease dog); project = sheep (`runner <project>`); agent calls = lambs. One kelpie for all projects (GPU lock, bot windows, pacer are machine/account-wide). ADR 0001 to 0004
+- Naming: dog = adopted `kelpie` (lease dog); project = sheep (`runner <project>`); agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
 - Binary is the dog only with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs shepherd channel from `shep adopt`; names itself in handshake so shep never lists it `silent`. `src/sheep.rs`, shep-pm/shep#656
 - Needs shep 0.12.4+ in 0.12 (first whose stop sweeps a sheep's lamb tree); `upgrade` refuses a build its shepherd would refuse. shep-pm/shep#688, #319
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME` overrides), shep plugin, folder per project (no project may take a shared name); dog files stay under `$SHEP_HOME`. #253

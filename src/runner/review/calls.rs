@@ -9,7 +9,7 @@ use std::process::Stdio;
 
 use crate::adapters::CLAUDE_REVIEW_TOOLS;
 use crate::ports::{AgentCall, Reach, Role, Session, Severity, Tools};
-use crate::settings::{Limit, RoleModel};
+use crate::settings::RoleModel;
 use crate::work_item::new_session_id;
 
 /// A fresh session of a reviewer on `model` over issue `issue`'s
@@ -21,11 +21,11 @@ pub(super) fn reviewer_call(
     issue: u64,
     worktree: &Path,
     worker_folder: &Path,
-    (model, limit): (&RoleModel, &Limit),
+    model: &RoleModel,
     prompt: String,
     tests: Option<Reach>,
 ) -> Result<AgentCall, String> {
-    let mut call = build_call(Role::Reviewer, issue, worktree, (model, limit), prompt)?;
+    let mut call = build_call(Role::Reviewer, issue, worktree, model, prompt)?;
     // Named for the work item, whose reviewer runs beside other items' calls.
     call.settings = worker_folder.join(format!("review-settings-{issue}.json"));
     call.tools = Tools::Review;
@@ -44,7 +44,7 @@ pub(in crate::runner) fn build_call(
     role: Role,
     issue: u64,
     worktree: &Path,
-    (model, limit): (&RoleModel, &Limit),
+    model: &RoleModel,
     prompt: String,
 ) -> Result<AgentCall, String> {
     let session = new_session_id().map_err(|e| format!("cannot draw a session id: {e}"))?;
@@ -63,7 +63,6 @@ pub(in crate::runner) fn build_call(
         tools: Tools::Answer,
         agent_tools: model.tools.as_ref().map(|t| t.as_str().to_owned()),
         reach: Reach::default(),
-        lease: limit.lease().cloned(),
         compact_window: None,
     })
 }

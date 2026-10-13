@@ -8,7 +8,6 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::super::tests::{CEILING, CODER, Driven};
-use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::ports::{AgentError, CallActivity, Session, Timestamp};
 use crate::runner::{Runner, StepReport};
 use crate::settings::Harness;
@@ -20,7 +19,7 @@ fn clock(at: u64) -> String {
     format!("{:02}:{:02}", seconds / 3600, seconds % 3600 / 60)
 }
 
-/// A rig listing `listed`, `coder` and `coder2` on the GPU, with
+/// A rig listing `listed`, `coder` and `coder2` on a local model, with
 /// `fallback_after` set to `minutes` when given
 fn rig(project: &str, listed: &[&str], minutes: Option<u32>) -> Rig {
     let rig = Rig::new(project);
@@ -34,15 +33,13 @@ fn rig(project: &str, listed: &[&str], minutes: Option<u32>) -> Rig {
     rig
 }
 
-/// Holds the GPU lock for someone else until the claim is released
-fn gpu_taken(rig: &Rig) -> (GpuLock, Claim) {
-    let lock = GpuLock::under(&rig.home.path().join("tmp"));
-    let round = Claim {
-        pid: std::process::id(),
-        what: "qwen-review round 1".into(),
-    };
-    assert_eq!(lock.try_take(&round).unwrap(), Attempt::Taken);
-    (lock, round)
+/// Queues the next call at its model's lease until the hold is released, then
+/// has it do `then`
+fn queued(rig: &Rig, then: Scripted) -> Hold {
+    let queue = Hold::default();
+    let call = Scripted::Queued(queue.clone(), Box::new(then));
+    rig.claude.script([call]);
+    queue
 }
 
 /// The work item for `issue` as `status` shows it
@@ -63,9 +60,8 @@ fn a_turn_queued_for_its_lease_is_marked_waiting_until_it_begins() {
     rig.forge.label(7, "agent:coder");
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    let (lock, round) = gpu_taken(&rig);
     let hold = Hold::default();
-    rig.claude.script([Scripted::Hold(hold.clone())]);
+    let queue = queued(&rig, Scripted::Hold(hold.clone()));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None, "waiting is not a report");
@@ -79,7 +75,7 @@ fn a_turn_queued_for_its_lease_is_marked_waiting_until_it_begins() {
     );
     assert!(board(&rig).contains(&line), "{}", board(&rig));
 
-    lock.release(round.pid).unwrap();
+    queue.release();
     assert_eq!(driven.heard(), None, "the grant is not a report");
     assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     driven.pass();
@@ -123,7 +119,7 @@ fn a_first_turn_waiting_past_fallback_after_moves_to_the_next_implementer() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     let first = item(&rig, &runner, 7)["session"].clone();
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None);
@@ -163,7 +159,7 @@ fn a_first_turn_waiting_past_fallback_after_moves_to_the_next_implementer() {
         call.session,
         Session::New(serde_json::from_value(now["session"].clone()).unwrap())
     );
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
 #[test]
@@ -172,7 +168,7 @@ fn a_pinned_item_never_falls_back() {
     rig.forge.label(7, "agent:coder!");
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None);
@@ -196,7 +192,7 @@ fn a_pinned_item_never_falls_back() {
         driven.landed(),
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
 #[test]
@@ -245,7 +241,7 @@ fn a_later_turn_never_falls_back() {
         driven.landed(),
         Some(StepReport::Ended { issue: 7, .. })
     ));
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     driven.started();
     assert_eq!(driven.heard(), None);
     rig.clock.advance(20 * 60);
@@ -262,10 +258,10 @@ fn a_later_turn_never_falls_back() {
         driven.landed(),
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
-// Two first turns on `labels`' agents, both queued for the GPU past
+// Two first turns on `labels`' agents, both queued for their lease past
 // `fallback_after`, and the moves the one pass that follows makes
 fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(u64, String, String)>) {
     let rig = rig("acme", &["coder", "coder2", "sonnet-high"], Some(15));
@@ -275,7 +271,10 @@ fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(u64, String
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.ask(&runner, "add", Some("8"));
-    let (lock, round) = gpu_taken(&rig);
+    let queues = [
+        queued(&rig, Scripted::Say("done")),
+        queued(&rig, Scripted::Say("done")),
+    ];
     let moves = {
         let driven = Driven::new(&runner);
         // A pass hears the news that came before it, so each start is heard first.
@@ -297,7 +296,9 @@ fn both_waiting(labels: [&str; 2]) -> (Rig, Mutex<Runner>, BTreeSet<(u64, String
         }
         moves
     };
-    lock.release(round.pid).unwrap();
+    for queue in queues {
+        queue.release();
+    }
     (rig, runner, moves)
 }
 
@@ -331,7 +332,7 @@ fn a_first_turn_with_no_implementer_after_its_own_waits_on() {
     rig.forge.label(7, "agent:coder");
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None);
@@ -348,7 +349,7 @@ fn a_first_turn_with_no_implementer_after_its_own_waits_on() {
         driven.landed(),
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
 #[test]
@@ -356,7 +357,7 @@ fn a_first_turn_stopped_at_its_ceiling_times_out_rather_than_falling_back() {
     let rig = rig("acme", &["coder", "sonnet-high"], Some(60));
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None);
@@ -367,7 +368,7 @@ fn a_first_turn_stopped_at_its_ceiling_times_out_rather_than_falling_back() {
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
     assert_eq!(item(&rig, &runner, 7)["agent"], "coder");
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
 #[test]
@@ -375,7 +376,7 @@ fn a_first_turn_whose_agent_is_no_longer_listed_waits_on() {
     let rig = rig("acme", &["coder", "sonnet-high"], Some(15));
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
-    let (lock, round) = gpu_taken(&rig);
+    let queue = queued(&rig, Scripted::Say("done"));
     let driven = Driven::new(&runner);
     driven.started();
     assert_eq!(driven.heard(), None);
@@ -400,7 +401,7 @@ fn a_first_turn_whose_agent_is_no_longer_listed_waits_on() {
         driven.landed(),
         Some(StepReport::TimedOut { issue: 7, .. })
     ));
-    lock.release(round.pid).unwrap();
+    queue.release();
 }
 
 #[test]
@@ -423,12 +424,9 @@ fn a_later_turn_restarted_on_a_new_session_never_falls_back() {
         .script([Scripted::HoldThenFail(hold.clone(), gone), restart]);
     rig.claude.set_activity(CallActivity::Nothing);
     driven.started();
-    // The lease is granted at once, and the call waits until the grant is heard.
-    assert_eq!((driven.heard(), driven.heard()), (None, None));
     assert!(hold.entered(CALL_PATIENCE), "the later turn never began");
     hold.release();
     assert_eq!(driven.heard(), None, "the restart is not a report");
-    assert_eq!((driven.heard(), driven.heard()), (None, None));
     assert!(again.entered(CALL_PATIENCE), "the restart never began");
     let calls = rig.claude.all_calls();
     assert!(matches!(calls[2].session, Session::New(_)), "{calls:#?}");

@@ -34,7 +34,6 @@ use tokio::sync::mpsc;
 use crate::adapters::SystemClock;
 use crate::agents::{self, Agents};
 use crate::home;
-use crate::lease::gpu::{self, GpuLock};
 use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
 use crate::ports::{Clock, LocalPace};
@@ -113,7 +112,7 @@ impl Kept {
 // this build's format and cannot be read may have held a summon, so its
 // empty book starts with every review window closed for its span, as if
 // a summon had just been accepted. The first change overwrites the file.
-fn open(file: BookFile, clock: Box<dyn Clock>, gpu: GpuLock, reviewers: Reviewers) -> Kept {
+fn open(file: BookFile, clock: Box<dyn Clock>, reviewers: Reviewers) -> Kept {
     let empty = || SavedBook::new(Vec::new(), Vec::new(), Vec::new());
     let (last, unread) = match file.load() {
         Ok(Some(saved)) => (saved, false),
@@ -125,7 +124,7 @@ fn open(file: BookFile, clock: Box<dyn Clock>, gpu: GpuLock, reviewers: Reviewer
     };
     let now = clock.now();
     let bots: Vec<_> = reviewers.defined().map(|(bot, _)| bot).collect();
-    let mut desk = Desk::restore(clock, gpu, last.clone(), reviewers);
+    let mut desk = Desk::restore(clock, last.clone(), reviewers);
     if unread {
         for bot in bots {
             desk.book.summoned(&bot.lease(), now);
@@ -239,8 +238,6 @@ async fn serve() -> Result<(), String> {
     let client = link::connect(&socket, &identity, "for requests").await?;
     let mut events = link::subscribe(&listener, link::BUDGET).await?;
 
-    let lock = GpuLock::under(&gpu::temp_dir());
-    println!("the GPU lock is {}", lock.path().display());
     let file = BookFile::new(book_path()?);
     if let (Some(folder), Some(old)) = (file.path().parent(), home::old_dog_home()) {
         home::dog_may_start(&old, folder)?;
@@ -254,7 +251,7 @@ async fn serve() -> Result<(), String> {
     }
     println!("the book is {}", file.path().display());
     let settings = settings(&client).await?;
-    let mut kept = open(file, Box::new(SystemClock), lock, windows());
+    let mut kept = open(file, Box::new(SystemClock), windows());
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
     let desk = Arc::new(Mutex::new(kept));
@@ -492,13 +489,8 @@ mod tests {
     use crate::review_bot::{Bot, ReviewWindow};
     use crate::test::{EPOCH, FakeClock};
 
-    fn opened(dir: &std::path::Path, file: BookFile) -> Kept {
-        open(
-            file,
-            Box::new(FakeClock::at(EPOCH)),
-            GpuLock::under(dir),
-            Reviewers::default(),
-        )
+    fn opened(file: BookFile) -> Kept {
+        open(file, Box::new(FakeClock::at(EPOCH)), Reviewers::default())
     }
 
     fn window(kept: &mut Kept) -> serde_json::Value {
@@ -509,9 +501,8 @@ mod tests {
         line["window"].clone()
     }
 
-    fn kept(dir: &std::path::Path, file: BookFile) -> Kept {
-        let gpu = GpuLock::under(dir);
-        let desk = Desk::new(Box::new(FakeClock::at(EPOCH)), gpu, Reviewers::default());
+    fn kept(file: BookFile) -> Kept {
+        let desk = Desk::new(Box::new(FakeClock::at(EPOCH)), Reviewers::default());
         let last = desk.saved();
         Kept {
             desk,
@@ -529,7 +520,7 @@ mod tests {
     fn a_change_is_saved_and_loads_back() {
         let dir = tempfile::tempdir().unwrap();
         let file = BookFile::new(dir.path().join("book.json"));
-        let mut kept = kept(dir.path(), file.clone());
+        let mut kept = kept(file.clone());
         kept.change(take);
         let saved = file.load().unwrap().unwrap();
         assert_eq!(saved, kept.desk.saved());
@@ -541,7 +532,7 @@ mod tests {
     fn nothing_changed_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let file = BookFile::new(dir.path().join("book.json"));
-        let mut kept = kept(dir.path(), file.clone());
+        let mut kept = kept(file.clone());
         kept.change(|d| d.answer("status", None));
         assert!(!file.path().exists());
     }
@@ -550,7 +541,7 @@ mod tests {
     fn a_failed_save_is_tried_again_on_the_next_change() {
         let dir = tempfile::tempdir().unwrap();
         let file = BookFile::new(dir.path().join("dog/book.json"));
-        let mut kept = kept(dir.path(), file.clone());
+        let mut kept = kept(file.clone());
         kept.change(take);
         assert!(!file.path().exists(), "no dog folder yet");
         std::fs::create_dir(dir.path().join("dog")).unwrap();
@@ -570,7 +561,7 @@ mod tests {
     fn a_missing_or_older_book_starts_empty_with_the_window_open() {
         let dir = tempfile::tempdir().unwrap();
         let file = BookFile::new(dir.path().join("book.json"));
-        let mut kept = opened(dir.path(), file.clone());
+        let mut kept = opened(file.clone());
         assert_eq!(
             kept.desk.book.status().len(),
             1,
@@ -579,7 +570,7 @@ mod tests {
         assert_eq!(window(&mut kept)["opens"], serde_json::Value::Null);
 
         std::fs::write(file.path(), r#"{"leases": {"coderabbit": "koji"}}"#).unwrap();
-        let mut kept = opened(dir.path(), file);
+        let mut kept = opened(file);
         assert_eq!(window(&mut kept)["opens"], serde_json::Value::Null);
     }
 
@@ -590,7 +581,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = BookFile::new(dir.path().join("book.json"));
         std::fs::write(file.path(), r#"{"version": 1, "leases": "#).unwrap();
-        let mut kept = opened(dir.path(), file.clone());
+        let mut kept = opened(file.clone());
         assert_eq!(
             window(&mut kept),
             serde_json::json!({ "quota": 1, "summons": [EPOCH], "opens": EPOCH + 3600 })
@@ -692,7 +683,6 @@ mod tests {
         let mut kept = open(
             file,
             Box::new(FakeClock::at(EPOCH)),
-            GpuLock::under(dir.path()),
             windows_in(&dir.path().join("agents")),
         );
         assert_eq!(

@@ -94,7 +94,7 @@ run as a `command`, an `endpoint` or a `bot`.
 One endpoint in front of a host's model servers, such as paddock,
 named once in kelpie's own settings with the variable holding its key. A
 pi agent or an endpoint reviewer names one in place of its server's URL.
-It queues its calls, so kelpie takes no GPU lock for them. A worker's turn
+It queues its calls, and with it kelpie holds no lock on the GPU. A worker's turn
 on one holds a lease of the gateway's own on its model, so the gateway
 evicts nothing it runs on midway; a reviewer's round takes no lease at all.
 _Avoid_: proxy, router
@@ -312,10 +312,10 @@ _Avoid_: spend log, cost log
 Kelpie-granted use of a shared resource. The dog's **book** holds a review
 bot's window, which it books from the bot's file, and `cargo-test`, a share
 of the machine for running tests that a few commands hold at once through
-the dog's **door**. `gpu` and any other lock a reviewer names are file
-locks on this machine, which the qwen scripts take too. A bot's round
+the dog's **door**. There is no lease on the GPU: a **gateway** queues it,
+and `shep paddock run` holds a turn on a model by hand. A bot's round
 summons only under its lease.
-_Avoid_: lock (the file a lock lease is built on)
+_Avoid_: lock
 
 **Summon**:
 Anything that makes a review bot spend its review window. For CodeRabbit on
@@ -347,7 +347,7 @@ window, which holds every turn.
 A decision only the maintainer makes, one of six kinds: `merge`,
 `question`, `stuck` (with its reason), `agent-files`, `foreign-change` and
 `follow-up`. A `stuck` ruling's reason is one of `rebase`, `still-red`,
-`merge-refused`, `closed`, `local-model-spilled`, `fix-not-pushed`,
+`merge-refused`, `closed`, `fix-not-pushed`,
 `unpushed`, `turn-timeout` and `turn-failed`. A worker waiting on one is
 **parked**, and its work item gives up its slot under `concurrency.active_items`, which
 bounds model calls. `concurrency.pending_rulings` is a threshold for opening

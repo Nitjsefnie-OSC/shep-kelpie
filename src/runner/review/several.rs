@@ -89,7 +89,6 @@ fn each_listed_reviewer_runs_once_in_the_lists_order() {
     assert_eq!(status["work_item"]["phase"]["state"], "ci");
     let seen = rig.reviewer.seen();
     assert_eq!(seen.len(), 1);
-    assert!(seen[0].local.lease().is_none());
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! A state file saved while rulings had 13 kinds
 //!
-//! Eight of them are now the reasons a work item is `stuck`, and each loads
+//! Seven of them are now the reasons a work item is `stuck`, and each loads
 //! as a `stuck` ruling naming it, its question and fields kept. Their
 //! `reason` field, where they had one, is now `why`, since `reason` names the
 //! old kind. `claude-files` is `agent-files`.
@@ -8,12 +8,11 @@
 use serde_json::{Map, Value};
 
 // The kinds that are now a `stuck` ruling's reasons, under the same names
-const STUCK: [&str; 8] = [
+const STUCK: [&str; 7] = [
     "rebase",
     "still-red",
     "merge-refused",
     "closed",
-    "local-model-spilled",
     "fix-not-pushed",
     "turn-timeout",
     "turn-failed",

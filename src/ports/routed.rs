@@ -104,7 +104,6 @@ mod tests {
             plugin_dirs: Vec::new(),
             tools: Tools::Work,
             agent_tools: None,
-            lease: None,
             reach: Reach::default(),
             compact_window: None,
         }

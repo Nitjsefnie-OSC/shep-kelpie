@@ -36,7 +36,7 @@ fn the_advisor_and_the_researcher_run_on_any_harness_kelpie_runs() {
     let codex = "---\nrole: advisor\nharness: codex\nmodel: gpt-5.5\neffort: high\nusage: codex\n\
                  ---\nVote.\n";
     let pi = "---\nrole: researcher\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
-              url: http://box:11434/v1\ncontext: 65536\nusage: none\nlease: gpu\n---\nVote.\n";
+              url: http://box:11434/v1\ncontext: 65536\nusage: none\n---\nVote.\n";
     let dir = folder(&[("a.md", codex), ("r.md", pi)]);
     let agents = Agents::load(dir.path()).unwrap();
     let harness = |n: &str| {

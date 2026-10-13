@@ -3,7 +3,7 @@
 //! Kelpie's own settings name each one, `[gateways.<name>]`, with its `url`
 //! and the variable in kelpie's environment that holds its key. An agent
 //! file names a gateway in place of a server's `url`. The gateway queues
-//! its calls, so kelpie takes no GPU lock around them and reads no `/api/ps`.
+//! its calls, so kelpie takes no lease around them.
 //! The key is read when a call needs it and sent only from kelpie's own
 //! process: every sandboxed call has that variable unset.
 
