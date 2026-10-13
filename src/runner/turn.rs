@@ -121,6 +121,7 @@ impl Runner {
         let mut waiting = None;
         let now = self.ports.clock.now();
         let rotation = self.rotation();
+        self.note_left_out(&rotation, now);
         self.looks.keep_only(&rotation);
         for slot in rotation {
             if !self.looks.due(slot, now) {
@@ -160,6 +161,34 @@ impl Runner {
         let now = self.ports.clock.now();
         if let Some(line) = self.held_up.stepped(issue, begin, now) {
             self.notes.push(line);
+        }
+    }
+
+    // Says what holds back each open work item the rotation leaves out, whose
+    // turn is due, and forgets the wait of the rest: the rotation never steps
+    // them, so no step would
+    fn note_left_out(&mut self, rotation: &[Slot], now: Timestamp) {
+        let left_out: Vec<(u64, Option<Reason>)> = (self.state.work_items.iter())
+            .filter(|i| !rotation.contains(&Slot::Item(i.issue)))
+            .map(|i| {
+                let due = matches!(i.turn, Turn::Due | Turn::Next { .. });
+                let reason = if !due || self.flights.flying(i.issue) {
+                    None
+                } else if i.attached.is_some() {
+                    Some(Reason::Attached)
+                } else {
+                    (i.seat == Seat::Waiting).then_some(Reason::Unseated)
+                };
+                (i.issue, reason)
+            })
+            .collect();
+        for (issue, reason) in left_out {
+            if let Some(reason) = reason {
+                self.held_up.because(reason);
+            }
+            if let Some(line) = self.held_up.stepped(issue, &Begin::Idle, now) {
+                self.notes.push(line);
+            }
         }
     }
 

@@ -24,12 +24,16 @@ fn seven_and_eight(project: &str) -> (Rig, Mutex<Runner>) {
 
 // What `status` says issue 7 is held up on, if it says
 fn held_up(rig: &Rig, runner: &Mutex<Runner>) -> Option<Value> {
+    held_up_of(rig, runner, 7)
+}
+
+fn held_up_of(rig: &Rig, runner: &Mutex<Runner>, issue: u64) -> Option<Value> {
     let status = rig.ask(runner, "status", None);
     let item = status["work_items"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|i| i["issue"] == 7)
+        .find(|i| i["issue"] == issue)
         .unwrap()
         .clone();
     item.get("held_up").cloned()
@@ -90,15 +94,15 @@ fn a_turn_held_back_by_a_draining_runner_says_so_in_status() {
     assert_eq!(rig.claude.all_calls(), []);
 }
 
-#[test]
-fn a_turn_for_an_attached_work_item_says_so_in_status() {
-    let (rig, runner) = with_issue_7("acme");
+fn attach(runner: &Mutex<Runner>, issue: u64) {
     let by = crate::work_item::Holder {
         pid: 4242,
         started: "Mon Sep 21 14:00:00 2026".into(),
     };
-    let mut r = runner.lock().unwrap();
-    r.on(Some(7))
+    runner
+        .lock()
+        .unwrap()
+        .on(Some(issue))
         .update(|item| {
             item.attached = Some(crate::work_item::Attached {
                 by,
@@ -107,8 +111,31 @@ fn a_turn_for_an_attached_work_item_says_so_in_status() {
             });
         })
         .unwrap();
-    assert!(matches!(r.begin_turn(Some(7)).unwrap(), Begin::Idle));
-    drop(r);
+}
+
+#[test]
+fn a_turn_for_an_attached_work_item_says_so_in_status() {
+    let (rig, runner) = with_issue_7("acme");
+    attach(&runner, 7);
+    idle(&runner);
+    assert_eq!(
+        because(&rig, &runner),
+        "attached by the maintainer, so no turn starts"
+    );
+}
+
+#[test]
+fn an_attach_replaces_the_reason_a_turn_was_held_up_for() {
+    let (rig, runner) = with_issue_7("acme");
+    rig.ask(&runner, "drain", None);
+    idle(&runner);
+    assert_eq!(
+        because(&rig, &runner),
+        "the runner is draining, so no turn starts"
+    );
+
+    attach(&runner, 7);
+    idle(&runner);
     assert_eq!(
         because(&rig, &runner),
         "attached by the maintainer, so no turn starts"
@@ -118,16 +145,26 @@ fn a_turn_for_an_attached_work_item_says_so_in_status() {
 #[test]
 fn a_turn_for_a_work_item_with_no_slot_says_so_in_status() {
     let (rig, runner) = with_issue_7("acme");
-    let mut r = runner.lock().unwrap();
-    // Saved, the seat would go to the free slot: this is the seat as a
-    // slot taken by another item leaves it.
-    r.state.work_items[0].seat = crate::work_item::Seat::Waiting;
-    assert!(matches!(r.begin_turn(Some(7)).unwrap(), Begin::Idle));
-    drop(r);
+    {
+        // The board opens nothing past the one slot, but an item that left a
+        // ruling waits for it: this is the seat that item has.
+        let mut r = runner.lock().unwrap();
+        let mut eight = r.state.work_items[0].clone();
+        eight.issue = 8;
+        eight.seat = crate::work_item::Seat::Waiting;
+        r.state.work_items.push(eight);
+    }
+    let seven = Hold::default();
+    rig.claude.script([Scripted::Hold(seven.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    idle(&runner);
+    let held = held_up_of(&rig, &runner, 8).expect("status said nothing of the wait");
     assert_eq!(
-        because(&rig, &runner),
+        held["because"],
         "waiting for a slot under `concurrency.active_items`"
     );
+    assert_eq!(held_up_of(&rig, &runner, 7), None);
+    seven.release();
 }
 
 #[test]
