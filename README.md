@@ -786,6 +786,8 @@ A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie 
 - `shep kelpie rule 14 no rename the flag`
 - `shep kelpie rule 14 rework split the parser out`, for a merge ruling only
 - `shep kelpie rule 15 use --dry-run`, for a worker's question. A `yes` there is the answer's text
+- `shep kelpie rule 14 rerun`, for a `still-red` ruling that offers it: kelpie reruns the head's failed jobs once more and looks at CI again
+- `shep kelpie rule 14 restore`, for a `turn-failed` ruling that offers it: kelpie puts the uncommitted agent files back as the head has them and resumes the turn
 
 A ruling is named by the number of its pull request, or of its issue while it has no pull request: `rule 427 yes` answers the ruling on 427. A work item waits on one ruling at a time, and GitHub numbers issues and pull requests from one sequence, so within a project a number names one ruling. `rule #427 yes` and `rule shep-kelpie#427 yes` read the same number. From a clone, the clone's project is looked at first. Elsewhere a number that one project has a ruling on works, and one that two projects have is refused with their names: `rule shep-kelpie#427 yes` picks one. Quotes are optional, but zsh still needs them around a note with `?`, `*`, `!` or an apostrophe. `-p` goes before the answer: after its first word, and after a `--`, a `-p` is part of the answer. `shep kelpie rule` alone lists the rulings waiting and asks which to answer and how. Each ruling's question says what `yes` and `no`, and on a merge ruling `rework`, do. A `no` or `rework` with a note is the worker's next turn.
 

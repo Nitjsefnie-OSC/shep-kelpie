@@ -7,6 +7,9 @@
 //! head that fails again goes to the worker with the log, saying so. A log
 //! kelpie cannot read, a branch it cannot list, or a forge that refuses the
 //! rerun leaves the red run to the worker.
+//!
+//! A still-red ruling offers the same rerun as an option when the logs name
+//! no changed file, for the maintainer or the panel to choose.
 
 use crate::runner::Runner;
 use crate::runner::report::{Begin, StepReport};
@@ -15,6 +18,22 @@ use crate::work_item::Phase;
 use crate::worktree;
 
 impl Runner {
+    /// Whether a still-red ruling at `head` offers to rerun its failed jobs
+    /// once more: their logs name no file the branch changed
+    pub(super) fn rerun_offered(&self, head: &str) -> bool {
+        self.unrelated_logs(head).is_some()
+    }
+
+    // The failed runs' logs at `head`, when they are readable and name no
+    // file the branch changed
+    fn unrelated_logs(&self, head: &str) -> Option<String> {
+        let forge = &self.ports.forge;
+        let logs = forge.failed_run_logs(&self.remote, head, false).ok()?;
+        let changed = worktree::changed_files(&self.settings.git.checkout, head).ok()?;
+        let related = logs.trim().is_empty() || changed.is_empty() || names_any(&logs, &changed);
+        (!related).then_some(logs)
+    }
+
     /// Reruns the failed jobs of `head`, instead of a fix turn, when its logs
     /// name no file the branch changed and it has not been rerun
     pub(super) fn rerun_if_unrelated(
@@ -28,15 +47,9 @@ impl Runner {
             return Ok(None);
         }
         let issue = item.issue;
-        let Ok(logs) = self.ports.forge.failed_run_logs(&self.remote, head, false) else {
+        let Some(logs) = self.unrelated_logs(head) else {
             return Ok(None);
         };
-        let Ok(changed) = worktree::changed_files(&self.settings.git.checkout, head) else {
-            return Ok(None);
-        };
-        if logs.trim().is_empty() || changed.is_empty() || names_any(&logs, &changed) {
-            return Ok(None);
-        }
         self.journal_outside_diff(issue, &logs);
         if self.ports.forge.rerun_failed(&self.remote, head).is_err() {
             return Ok(None);

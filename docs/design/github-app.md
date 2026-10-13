@@ -47,10 +47,12 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 
 - Once `agents.advisor` or `agents.researcher` set, ruling with 2+ options gets blind panel: worker, PM, advisor, researcher. #465
 - A drain asks no expert: a ruling raised in one waits for the restart or `undrain` and takes its panel then. Still waiting after the hold, it goes to the maintainer with `skipped: draining` (also `posted`), kept in `rulings.jsonl` and counted in `status`. #711 A question put to the PM stays the PM's through a drain; the panel does not take it up.
+- Question listing under 2 options: PM's one wake drafts 2-3 `candidates` (one may be `Ask the maintainer`, a vote for it decides nothing), which become its `- ` options, then the panel votes as on any ruling. Question text stays as asked; free text still answers. No PM or no panel = no candidates. #709, `src/runner/pm/question.rs`
 - Comment waits up to 20 min for votes (`panel::HOLD`), each expert 15 min. Vote `{"choice", "why", "design"}`; malformed abstains. #465, `src/runner/flight/panel.rs`
 - Advisor (Opus 5.5 high) reads codebase; researcher (Sonnet 5.5 high) reads past rulings, threads, transcripts, web limited to `researcher.allowed_domains` (page may steer it). #465, `src/transcripts.rs`
 - `rulings.decide`: `shadow` (default), `panel` (3 agreeing votes, no `design` flag decide; splits and merges under `ask` go to maintainer) or `always` (see budget.md). Reopen within 24h with `<id> no <note>`. #466, `src/runner/panel/decided.rs`
 - PR title type sets who votes, smallest panel first. Questions and diffs touching `rulings.full_panel_paths` get full panel (agent under scrutiny chose the type). #466, #536, `src/panel/tally.rs`, `src/panel/policy.rs`
 - Policies scored from shadow votes as `whatif`: fixed list in code, not a setting (a setting can't say what a choice costs). #536
 - `rulings.pm_alone`: PM decides listed kinds alone, never `merge` (one voice must not merge). #466, `src/settings/rulings.rs`
+- An option can name an action kelpie runs in code when chosen (rerun, restore); the experts vote on its text and stay read-only. See merge.md. #710
 - Votes are ledger entries; `status` reports agreement with maintainer (trust by record). #466, `src/runner/panel/measure.rs`
