@@ -86,7 +86,7 @@ pub struct Status<'a> {
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
     /// Rulings waiting on the maintainer, oldest first
-    pub rulings: &'a [Ruling],
+    pub rulings: Vec<RulingStatus<'a>>,
     /// How the panel stands against the maintainer's answers, when the
     /// project has one
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,6 +160,19 @@ impl From<ModelSeat> for LocalModelStatus {
             context_length: seat.context_length,
             expires_at: seat.expires_at,
         }
+    }
+}
+
+/// A waiting ruling, as `status` shows it: the ruling as saved, with its
+/// `id` holding the number the maintainer answers it by
+#[derive(Debug)]
+pub struct RulingStatus<'a>(pub &'a Ruling);
+
+impl Serialize for RulingStatus<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut shown = serde_json::to_value(self.0).map_err(serde::ser::Error::custom)?;
+        shown["id"] = self.0.number().into();
+        shown.serialize(serializer)
     }
 }
 

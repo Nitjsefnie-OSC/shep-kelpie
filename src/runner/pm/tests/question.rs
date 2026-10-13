@@ -197,7 +197,7 @@ fn passing_a_question_on_puts_its_recommended_choice_first_in_the_list() {
         text,
         "The worker on issue #7 asks:\n\nWhich flag?\nPM recommends: `--check`\n\
          PM says: shep uses it\n- `--check`\n- `--dry-run`\n\n\
-         `shep kelpie rule 1 <text>` sends the worker your answer."
+         `shep kelpie rule 7 <text>` sends the worker your answer."
     );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["question"], text);
@@ -230,7 +230,7 @@ fn passing_a_question_on_rewrites_its_problem_and_adds_the_boards_note_over_the_
          PM board: #9 stays parked and 3 ready issues wait behind it.\n\
          PM says: shep uses it\n\
          - `--check` => The worker keeps it\n- `--dry-run` => The worker renames the flag\n\n\
-         `shep kelpie rule 1 <text>` sends the worker your answer."
+         `shep kelpie rule 7 <text>` sends the worker your answer."
     );
 }
 
@@ -246,7 +246,7 @@ fn a_recommendation_outside_the_list_is_added_as_its_first_line() {
         text,
         "The worker on issue #7 asks:\n\nWhich flag?\nPM recommends: --plan\n\
          - --plan\n- `--dry-run`\n- `--check`\n\n\
-         `shep kelpie rule 1 <text>` sends the worker your answer."
+         `shep kelpie rule 7 <text>` sends the worker your answer."
     );
 }
 
@@ -283,7 +283,7 @@ fn an_answer_for_an_item_not_parked_on_a_question_is_dropped_and_the_ruling_stan
         alert.text,
         "The worker on issue #7 asks:\n\nShould it be `--dry-run` or `--check`?\n\n\
          Both appear in the docs.\n\n\
-         `shep kelpie rule 1 <text>` sends the worker your answer."
+         `shep kelpie rule 7 <text>` sends the worker your answer."
     );
 }
 
@@ -318,7 +318,7 @@ fn an_answer_after_the_maintainer_was_alerted_is_dropped() {
         ["answer #7: ruling 1 already went to the maintainer"]
     );
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], 1, "the ruling still waits");
+    assert_eq!(status["rulings"][0]["id"], 7, "the ruling still waits");
     assert_eq!(rig.claude.calls().len(), 1, "the worker is not resumed");
 }
 

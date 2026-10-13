@@ -19,7 +19,7 @@ fn a_ruling_answered_while_the_runner_was_stopped_is_acted_on_when_it_starts() {
 
     let runner = rig.open().unwrap();
     let waiting = rig.ask(&runner, "status", None)["rulings"].clone();
-    assert_eq!(waiting[0]["id"], 1, "nothing is answered before a pass");
+    assert_eq!(waiting[0]["id"], 71, "nothing is answered before a pass");
     step(&runner).unwrap();
     rig.clock.advance(CHECKS_SETTLE);
     assert!(matches!(
@@ -101,7 +101,7 @@ fn an_answer_that_cannot_be_read_stays_for_the_next_pass() {
     let runner = rig.open().unwrap();
     let _ = step(&runner);
     assert!(answers.join("1").exists(), "the answer was removed unread");
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
     let notes = notes(&runner);
     assert!(
         notes

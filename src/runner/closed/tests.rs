@@ -120,7 +120,7 @@ fn a_closed_issue_whose_branch_holds_a_commit_is_still_sent_back_then_parked() {
         status["work_item"]["phase"],
         json!({ "state": "ruling", "id": 1 })
     );
-    assert_eq!(status["rulings"][0]["id"], 1);
+    assert_eq!(status["rulings"][0]["id"], 7);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn a_parked_item_whose_issue_is_closed_ends_at_its_next_read_and_its_ruling_goes
     rig.forge.close_issue(7);
     // Its issue was read on the alert's pass, so the next read waits.
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
     rig.clock.advance(PARKED_READ);
     assert!(closed_with_no_change(step(&runner).unwrap()));
     let status = rig.ask(&runner, "status", None);
@@ -172,7 +172,7 @@ fn a_parked_item_whose_closed_issue_an_open_pull_request_closes_stays() {
         status["work_item"]["phase"],
         json!({ "state": "ruling", "id": 1 })
     );
-    assert_eq!(status["rulings"][0]["id"], 1);
+    assert_eq!(status["rulings"][0]["id"], 7);
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn a_parked_item_stays_while_the_open_pull_requests_cannot_be_listed() {
     rig.forge.set_board_down(true);
     rig.clock.advance(PARKED_READ);
     step(&runner).unwrap();
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 1);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 7);
     let notes = runner.lock().unwrap().take_notes();
     let note = "cannot list open pull requests";
     assert!(notes.iter().any(|n| n.starts_with(note)), "{notes:?}");
@@ -461,7 +461,7 @@ fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead(
     let [ruling] = status["rulings"].as_array().unwrap().as_slice() else {
         panic!("the old ruling stayed: {}", status["rulings"]);
     };
-    assert_eq!(ruling["id"], 2);
+    assert_eq!(ruling["id"], 71);
     assert_eq!(ruling["pull_request"], 71);
     assert_eq!(ruling["kind"]["kind"], "stuck");
     assert_eq!(ruling["kind"]["reason"], "closed");
@@ -469,7 +469,7 @@ fn a_parked_item_whose_pull_request_was_closed_unmerged_asks_about_that_instead(
     // It stays parked on that one, and is not asked again.
     rig.clock.advance(PARKED_READ);
     assert_eq!(step(&runner).unwrap(), None);
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 2);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
 }
 
 #[test]
@@ -500,7 +500,7 @@ fn an_item_parked_on_its_follow_up_ruling_after_kelpies_own_merge_is_left_alone(
         assert_eq!(step(&runner).unwrap(), None);
     }
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["rulings"][0]["id"], id);
+    assert_eq!(status["rulings"][0]["id"], 71);
     assert_eq!(status["rulings"][0]["kind"]["kind"], "follow-up");
     assert_eq!(status["work_item"]["phase"]["id"], id);
 }

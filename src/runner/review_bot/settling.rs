@@ -203,7 +203,7 @@ fn the_merge_ruling_names_open_nits_and_under_auto_they_hold_nothing() {
         panic!("no merge ruling");
     };
     assert!(
-        question.contains(" into main? 2 nits left open (cubic). `shep kelpie rule 1 yes`"),
+        question.contains(" into main? 2 nits left open (cubic). `shep kelpie rule 71 yes`"),
         "{question}"
     );
     assert!(
@@ -234,8 +234,8 @@ fn a_no_on_a_merge_ruling_that_warns_of_open_threads_starts_a_new_pass() {
     };
     assert!(
         question.ends_with(
-            "`shep kelpie rule 1 yes` merges it, and `shep kelpie rule 1 no <note>` or \
-             `shep kelpie rule 1 rework <note>` sends the worker your note for a change the \
+            "`shep kelpie rule 71 yes` merges it, and `shep kelpie rule 71 no <note>` or \
+             `shep kelpie rule 71 rework <note>` sends the worker your note for a change the \
              whole review reads again, since only a new pass clears that."
         ),
         "{question}"

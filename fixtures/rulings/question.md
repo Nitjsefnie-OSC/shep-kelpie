@@ -15,4 +15,4 @@ Both appear in the docs.
 - Tick one:
 - [ ] A
 - [ ] B
-- Or reply with your answer, and start it with `1` if other rulings wait on this thread
+- Or reply with your answer, and start it with `71` if other rulings wait on this thread

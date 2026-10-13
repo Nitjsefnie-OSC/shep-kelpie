@@ -33,13 +33,13 @@ fn sent_back(report: &StepReport, head: &str) -> bool {
 fn fix_attempts_0_raises_the_ruling_on_the_first_red_run_with_no_fix_turn() {
     let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| rig.fix_attempts(0));
     let calls = rig.claude.calls().len();
-    let (id, question) = ruling_report(Some(red(&rig, &runner, &head)));
+    let (_, question) = ruling_report(Some(red(&rig, &runner, &head)));
     assert_eq!(
         question,
         format!(
             "CI failed on pull request #71 at {}: lint. The worker has had no fix turn on red \
-             runs, and the cap `ci.fix_attempts` sets is reached. `shep kelpie rule {id} yes` \
-             has kelpie look again, and `shep kelpie rule {id} no <note>` sends the worker \
+             runs, and the cap `ci.fix_attempts` sets is reached. `shep kelpie rule 71 yes` \
+             has kelpie look again, and `shep kelpie rule 71 no <note>` sends the worker \
              your note.",
             &head[..7]
         )
