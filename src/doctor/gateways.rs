@@ -6,9 +6,9 @@
 //! unsure rather than missing.
 
 use super::Line;
-use crate::adapters::paddock;
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
+use crate::ports::KeyCheck;
 use crate::settings::Gateways;
 
 /// A line for each gateway's reach and key, and for each agent's model on one
@@ -16,9 +16,10 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
     let mut lines = Vec::new();
     for (name, gateway) in gateways.iter() {
         let subject = format!("gateway {name}");
+        let port = gateways.port(gateway);
         let reached = Upstream::new(&gateway.base())
             .map_err(|e| e.to_string())
-            .and_then(|upstream| Ok((paddock::models(&upstream)?, upstream)));
+            .and_then(|upstream| Ok((port.models(&upstream)?, upstream)));
         let (listed, upstream) = match reached {
             Ok(reached) => reached,
             Err(why) => {
@@ -39,9 +40,9 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
                 );
                 Line::unsure(key, why, next)
             }
-            Ok(found) => match paddock::key_taken(&upstream.with_key(found)) {
-                Ok(true) => Line::ok(key, "taken"),
-                Ok(false) => Line::missing(
+            Ok(found) => match port.key(&upstream.with_key(found)) {
+                KeyCheck::Taken => Line::ok(key, "taken"),
+                KeyCheck::Refused => Line::missing(
                     key,
                     format!(
                         "refused: {} holds no key it takes",
@@ -49,7 +50,7 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
                     ),
                     "give kelpie a client key from the gateway's own settings",
                 ),
-                Err(why) => Line::unsure(key, why, "run doctor again"),
+                KeyCheck::Unsure(why) => Line::unsure(key, why, "run doctor again"),
             },
         });
         for (agent, model) in on(agents, name.as_str()) {
@@ -92,11 +93,12 @@ mod tests {
 
     use super::*;
     use crate::doctor::Verdict;
-    use crate::settings::{EndpointUrl, Gateway, GatewayName, KeyVar};
+    use crate::settings::{EndpointUrl, Gateway, GatewayKind, GatewayName, KeyVar};
     use crate::test::{Answer, StandInEndpoint, unreachable_url};
 
     fn gateways(url: &str, env: fn(&str) -> Option<String>) -> Gateways {
         let gateway = Gateway {
+            kind: GatewayKind::Paddock,
             url: EndpointUrl::try_from(url.to_owned()).unwrap(),
             key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
         };
