@@ -371,6 +371,7 @@ impl Runner {
             if let Some(reason) = self.close_merged_issue(issue, number) {
                 return Ok(self.gate_failed(reason));
             }
+            self.close_done_parent_of(issue, number);
         }
         self.release_all()?;
         let item = self.current().expect("a finish is of a work item");
@@ -451,6 +452,8 @@ mod queue;
 
 #[cfg(test)]
 mod auto;
+#[cfg(test)]
+mod parent;
 
 #[cfg(test)]
 mod close;

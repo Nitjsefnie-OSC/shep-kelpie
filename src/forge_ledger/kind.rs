@@ -26,6 +26,8 @@ pub enum Kind {
     ReviewBotSeen,
     /// One issue, read
     Issue,
+    /// One issue's sub-issues, listed
+    SubIssues,
     /// The board's ready issues
     ReadyIssues,
     /// The board's open pull requests
@@ -134,6 +136,7 @@ impl Kind {
             | Self::AppReplyToThread => Api::GraphQl,
             Self::Folder
             | Self::FileText
+            | Self::SubIssues
             | Self::CreateLabel
             | Self::RateLimitReset
             | Self::ReviewBotSeen
