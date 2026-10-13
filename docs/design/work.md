@@ -8,6 +8,7 @@ Projects, the board, work items, slots, issue writer, project manager.
 - `add` refuses a checkout or repo another project's table names, even a broken one (two runners, same issues). `src/flock/verbs.rs`
 - Project runs exactly while its runner's sheep runs; no paused state. #268
 - `finish`: open items end, nothing new picked, then stops the sheep; `finishing` saved so restart keeps finishing. `add`, `adopt`, `rework` refused meanwhile; flag cleared just before stop. #303
+- `get [<key>]` prints the project's table or one dotted key; `set <key> <value>` reads the value as TOML (else a string), checks the whole result as a runner start and reread do (settings, agents, reviewers, rulings, gateways, skills; and for a moved `git.checkout` or `git.remote`, the checkout and `add`'s one-runner-per-checkout-and-repo rule), and only then writes the table back; refusals write nothing. Says whether a running runner takes the change at its next wake or its next start. Not `[kelpie]`. #273, `src/flock/set.rs`
 - `start`, `pause`, `finish` touch only sheep kelpie started as `runner <project>` (never start one the maintainer stopped); `start` waits 30s for JSON `status`. `src/flock/verbs.rs`
 - `pause`: drain, wait out calls (ceiling + 5 min) and any merge (up to 1h), then stop sheep (stop mid-merge can leave a merged PR's item open); failed wait sends `undrain`. #268
 

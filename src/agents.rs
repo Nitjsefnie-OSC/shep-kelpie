@@ -237,10 +237,52 @@ pub struct Agent {
 }
 
 /// Every agent kelpie knows: its defaults, and the files that replace or add to them
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Agents {
     agents: BTreeMap<AgentName, Agent>,
     skipped: Vec<PathBuf>,
+}
+
+// Names each agent with its role, harness and model, and gives a prompt's
+// length in place of its text, so a failed assert prints a few lines.
+impl fmt::Debug for Agents {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct Summary<'a>(&'a Agent);
+
+        impl fmt::Debug for Summary<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Agent {
+                    role, runs, prompt, ..
+                } = self.0;
+                write!(f, "{}", role.as_str())?;
+                match runs.session() {
+                    Some((model, _)) => write!(
+                        f,
+                        " on {} {}",
+                        model.harness.harness().as_str(),
+                        model.model.as_str()
+                    )?,
+                    None => write!(f, " {runs:?}")?,
+                }
+                match prompt {
+                    Some(prompt) => write!(f, ", prompt {} bytes", prompt.len()),
+                    None => write!(f, ", no prompt"),
+                }
+            }
+        }
+
+        f.debug_struct("Agents")
+            .field(
+                "agents",
+                &self
+                    .agents
+                    .iter()
+                    .map(|(name, agent)| (name, Summary(agent)))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+            .field("skipped", &self.skipped)
+            .finish()
+    }
 }
 
 impl Agents {

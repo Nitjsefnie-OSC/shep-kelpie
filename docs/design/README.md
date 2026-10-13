@@ -13,7 +13,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME` overrides), shep plugin, folder per project (no project may take a shared name); dog files stay under `$SHEP_HOME`. #253
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into refusal). #311, #345
-- State file version 35 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
+- State file version 36 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Rust for all business code; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see workers.md, github-app.md).
 

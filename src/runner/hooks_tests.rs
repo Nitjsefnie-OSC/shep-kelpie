@@ -127,7 +127,7 @@ fn a_pull_request_the_hook_keeps_refusing_parks_on_a_ruling_naming_the_hook() {
 
     assert_eq!(rig.forge.text_of(500), None);
     let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["work_item"]["phase"]["state"], "ruling", "{status}");
+    assert_eq!(status["work_item"]["phase"]["state"], "ruling");
     let ruling = question;
     assert!(ruling.contains("forbid-word.sh"), "{ruling}");
     assert!(

@@ -19,7 +19,8 @@ This is early. It changes without notice, and there is no release yet.
  review: each listed reviewer reads it once, in order ──> one fix turn per reviewer
                                  │                          with any finding
                                  v
- CI:     red goes back to the worker; red again on the same head is a ruling
+ CI:     red goes back to the worker (one rerun first if the log names no changed file);
+         red again on the same head is a ruling
                                  │ green, on the latest main
                                  v
  merge:  a ruling under `ask`, kelpie's code under `auto`, as a merge commit
@@ -204,12 +205,13 @@ nothing a project needs is missing
 
 ### 7. Open the sandbox to your registries
 
-A worker's sandbox reaches `github.com`, `api.github.com` and the model's API, and nothing else. `add` leaves `allowed_domains` empty, so a first issue on a repo with a cold cache can't fetch crates or npm packages. The project's table is stored on its runner sheep, so edit it in `shep lookout`:
+A worker's sandbox reaches `github.com`, `api.github.com` and the model's API, and nothing else. `add` leaves `allowed_domains` empty, so a first issue on a repo with a cold cache can't fetch crates or npm packages. Set it with `set`, which writes the project's table on its runner sheep. A list is a TOML value, so quote it for the shell:
 
-1. Open the runner's pane: the sheep named for the project, `scratch` here
-2. Press `9` for the `dogs` tab, put the cursor on the `dogs` row and press `Enter` or `e`
-3. Open the `kelpie` row, then `worker.allowed_domains`, and add the registries the project builds from
-4. Press `Esc` to write the table
+```sh
+shep kelpie set worker.allowed_domains '["crates.io", "index.crates.io", "static.crates.io"]'
+```
+
+A value that does not fit the settings is refused with the reason, and nothing is written. `shep kelpie get worker.allowed_domains` reads it back.
 
 It ends up holding:
 
@@ -527,7 +529,7 @@ With a lease, before a round against Ollama, kelpie reads the host's `/api/ps`. 
 
 ### CI and the merge
 
-After the review's last reviewer, kelpie waits for CI on the pull request's head. A red run is the worker's next turn, naming the failed checks; a second red run on a head the worker left alone asks you. `ci.fix_attempts` caps those fix turns for a work item: once the worker has had that many, the next red run asks you instead, and `0` asks on the first. `-1`, the default, sets no cap. A green run on a branch without the latest `main` is caught up first: kelpie rebases its own commits onto `main` and pushes with a lease, or merges `main` in where the branch holds a merge or commits that are not its own, and a conflict is the worker's next turn. A project with `ci.block = false` reads no checks, and `ci.fix_attempts` does not apply. With it on, no reviewer reads a head until CI has passed on it (see [The review](#the-review)); with it off, the review starts at once.
+After the review's last reviewer, kelpie waits for CI on the pull request's head. A red run is the worker's next turn, naming the failed checks; a second red run on a head the worker left alone asks you. Before it spends that turn, kelpie reads the end of the failed runs' logs with your `gh` login, and when none of them names a file the branch changed (a panic location, a `--> path` line, a compiler error) it reruns that head's failed jobs once with `gh run rerun --failed`, since the worker's credential cannot, and sends no turn. `status` shows the head under `rerunning` while the rerun runs, and the log has a `ci-rerun` step. A head that fails again after its rerun goes to the worker as any red run does, and the prompt says the failure repeated, so the worker does not call it a flake. A log kelpie cannot read, one that names a file the branch changed, a rerun the forge refuses, and a head already rerun all go to the worker with no rerun. A rerun costs no fix turn, so `ci.fix_attempts` does not count it. `ci.fix_attempts` caps those fix turns for a work item: once the worker has had that many, the next red run asks you instead, and `0` asks on the first. `-1`, the default, sets no cap. A green run on a branch without the latest `main` is caught up first: kelpie rebases its own commits onto `main` and pushes with a lease, or merges `main` in where the branch holds a merge or commits that are not its own, and a conflict is the worker's next turn. A project with `ci.block = false` reads no checks, and `ci.fix_attempts` does not apply. With it on, no reviewer reads a head until CI has passed on it (see [The review](#the-review)); with it off, the review starts at once.
 
 A project on `git.merging = "ask"` gets a ruling before every merge, and a yes merges only the head it was asked about, while CI on it is green and it has the latest `main`. A project on `"auto"` merges its pull requests without asking once every gate passes, and posts a notice after. Every other ruling still asks under `auto`, and so does the merge for a pull request no reviewer read, one with a review bot's thread above a nit open, a head no round read, the fix a merge ruling's `no` asked for, and the fix for a bot's late round: each is a safety gate, not a setting, and the ruling names which one raised it. The merge is always a merge commit of the head the gates passed, never a squash, and kelpie then removes the worktree, both branches and the build folder. With a merge queue on `main`, kelpie queues the pull request and waits on the queue.
 
@@ -1035,7 +1037,7 @@ Add `:Z` to the volume on an SELinux host. The script runs as the account's own 
 
 ### Settings
 
-A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in the runner's pane. Every setting sits in a table of its own. `settings.example.toml` lists every key, and shows a runner's Flockfile entry for a project set up by hand. It needs `SHEP_HOME` as an absolute path in `env`, since a sheep starts without it. An older entry's `kill_timeout = "10s"` still works, and is no longer needed. The keys:
+A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]` prints it, or one dotted key, as TOML, and `shep kelpie set <key> <value>` changes one key, such as `shep kelpie set git.merging auto` or `shep kelpie set agents.reviewers '["qwen"]'`. The value is a TOML value, and text that is not one is a string. `set` writes only a table the runner would accept, and refuses to move `git.checkout` or `git.remote` onto a checkout or repo another project runs, as `add` does. It says when a running runner takes the change: at its next wake, or for `git.checkout`, `git.remote` and `hooks`, when it next starts. Lookout edits the table too, in the runner's pane. Every setting sits in a table of its own. `settings.example.toml` lists every key, and shows a runner's Flockfile entry for a project set up by hand. It needs `SHEP_HOME` as an absolute path in `env`, since a sheep starts without it. An older entry's `kill_timeout = "10s"` still works, and is no longer needed. The keys:
 
 - `git.checkout`: the project's checkout
 - `git.remote`: its GitHub repo as `owner/name`. Left out, the runner reads it from the checkout's `origin` when it starts, and an `origin` that is not a GitHub repo stops the runner naming the setting
