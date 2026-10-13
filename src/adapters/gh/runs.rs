@@ -107,49 +107,64 @@ fn failed_runs(listed: &[u8], head: &str, merge_group: bool) -> Result<Vec<u64>,
         .collect())
 }
 
-// The last `max` bytes of `log` once cargo's progress lines and GitHub's
-// timestamps are gone, so the end is the failure and not the build before it
+// The last `max` bytes of `log` once cargo's progress lines, GitHub's
+// timestamps and terminal colour codes are gone, so the end is the failure and
+// not the build before it
 fn failure_tail(log: &str, max: usize) -> String {
     let kept: Vec<String> = log
         .lines()
-        .filter(|line| !is_progress(line))
-        .map(strip_timestamp)
+        .filter_map(|line| {
+            // `gh run view --log-failed` puts the job and step before the text
+            let mut parts = line.splitn(3, '\t');
+            let (names, text) = match (parts.next(), parts.next(), parts.next()) {
+                (Some(job), Some(step), Some(text)) => (format!("{job}\t{step}\t"), text),
+                _ => (String::new(), line),
+            };
+            let text = strip_colour(strip_timestamp(text));
+            (!is_progress(&text)).then(|| format!("{names}{text}"))
+        })
         .collect();
     tail(&kept.join("\n"), max).to_owned()
 }
 
-// A line cargo prints as it builds: a right-aligned verb, then a crate
-fn is_progress(line: &str) -> bool {
-    let text = strip_timestamp(line);
-    // `gh run view --log-failed` puts the job and step before the text
-    let text = text.rsplit('\t').next().unwrap_or(&text).trim_start();
-    [
-        "Compiling",
-        "Downloaded",
-        "Downloading",
-        "Checking",
-        "Fresh",
-    ]
-    .iter()
-    .any(|verb| {
-        text.strip_prefix(verb)
-            .is_some_and(|rest| rest.starts_with(' '))
+// The verbs cargo prints as it builds, with the width it right-aligns them to
+const PROGRESS_WIDTH: usize = 12;
+const PROGRESS: [&str; 5] = [
+    "Compiling",
+    "Downloaded",
+    "Downloading",
+    "Checking",
+    "Fresh",
+];
+
+// A line cargo prints as it builds: its verb right-aligned to 12 columns,
+// then a crate and its version, or the `crates` a download counts. A test's
+// own line that starts with the same word is not indented so, and stays.
+fn is_progress(text: &str) -> bool {
+    let word = text.trim_start_matches(' ');
+    let indent = text.len() - word.len();
+    PROGRESS.iter().any(|verb| {
+        indent + verb.len() == PROGRESS_WIDTH
+            && word
+                .strip_prefix(verb)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .is_some_and(|rest| {
+                    rest.split(' ').any(|w| {
+                        w == "crates"
+                            || w.strip_prefix('v')
+                                .is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+                    })
+                })
     })
 }
 
-// `line` without the `2026-10-13T10:00:00.0000000Z ` GitHub puts before the
-// text of each log line, which follows the job and step names
-fn strip_timestamp(line: &str) -> String {
-    let (head, text) = match line.rsplit_once('\t') {
-        Some((head, text)) => (format!("{head}\t"), text),
-        None => (String::new(), line),
-    };
-    let stamped = text
-        .split_once(' ')
-        .filter(|(stamp, _)| is_timestamp(stamp));
-    match stamped {
-        Some((_, rest)) => format!("{head}{rest}"),
-        None => line.to_owned(),
+// `text` without the `2026-10-13T10:00:00.0000000Z ` GitHub puts before it,
+// and the byte order mark the first line of a log starts with
+fn strip_timestamp(text: &str) -> &str {
+    let text = text.trim_start_matches('\u{feff}');
+    match text.split_once(' ') {
+        Some((stamp, rest)) if is_timestamp(stamp) => rest,
+        _ => text,
     }
 }
 
@@ -164,6 +179,28 @@ fn is_timestamp(word: &str) -> bool {
         && b[11..b.len() - 1]
             .iter()
             .all(|c| c.is_ascii_digit() || matches!(c, b':' | b'.'))
+}
+
+// `text` without its ANSI escape sequences, such as the colour cargo writes
+// under `CARGO_TERM_COLOR=always`
+fn strip_colour(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        if chars.next_if_eq(&'[').is_some() {
+            // A sequence ends at its first byte from `@` to `~`
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 // The last `max` bytes of `log`, from the start of a line where one is near
@@ -215,20 +252,22 @@ mod tests {
         assert_eq!(failed_runs(LISTED, "abc", true).unwrap(), [4]);
     }
 
+    const STAMP: &str = "test\tBuild\t2026-10-13T10:00:00.0000000Z";
+
     #[test]
     fn a_failed_logs_tail_has_no_cargo_progress_lines() {
         let mut log = String::new();
         for n in 0..400 {
             log.push_str(&format!(
-                "test\tBuild\t2026-10-13T10:00:00.0000000Z    Compiling crate{n} v0.1.0\n\
-                 test\tBuild\t2026-10-13T10:00:00.0000000Z  Downloaded dep{n} v1.0.0\n\
-                 test\tBuild\t2026-10-13T10:00:00.0000000Z  Downloading crates ...\n\
-                 test\tBuild\t2026-10-13T10:00:00.0000000Z    Checking crate{n} v0.1.0\n\
-                 test\tBuild\t2026-10-13T10:00:00.0000000Z       Fresh crate{n} v0.1.0\n"
+                "{STAMP}    Compiling crate{n} v0.1.0\n\
+                 {STAMP}   Downloaded dep{n} v1.0.0\n\
+                 {STAMP}  Downloading crates ...\n\
+                 {STAMP}     Checking crate{n} v0.1.0\n\
+                 {STAMP}        Fresh crate{n} v0.1.0\n"
             ));
         }
-        log.push_str("test\tBuild\t2026-10-13T10:01:00.0000000Z error[E0308]: mismatched types\n");
-        log.push_str("test\tBuild\t2026-10-13T10:01:00.0000000Z  --> src/lib.rs:1:1\n");
+        log.push_str(&format!("{STAMP} error[E0308]: mismatched types\n"));
+        log.push_str(&format!("{STAMP}  --> src/lib.rs:1:1\n"));
 
         let kept = failure_tail(&log, LOG_BYTES);
 
@@ -236,6 +275,42 @@ mod tests {
             kept,
             "test\tBuild\terror[E0308]: mismatched types\ntest\tBuild\t --> src/lib.rs:1:1"
         );
+    }
+
+    #[test]
+    fn coloured_progress_lines_are_dropped_and_colour_is_stripped_from_the_rest() {
+        let log = format!(
+            "{STAMP} \x1b[1m\x1b[92m   Compiling\x1b[0m foo v0.1.0\n\
+             {STAMP} \x1b[1m\x1b[91merror\x1b[0m: could not compile `foo`\n"
+        );
+
+        assert_eq!(
+            failure_tail(&log, LOG_BYTES),
+            "test\tBuild\terror: could not compile `foo`"
+        );
+    }
+
+    #[test]
+    fn a_line_with_a_tab_in_its_text_loses_its_timestamp() {
+        let log = format!("{STAMP} ---- a stdout ----\tx\n");
+
+        assert_eq!(
+            failure_tail(&log, LOG_BYTES),
+            "test\tBuild\t---- a stdout ----\tx"
+        );
+    }
+
+    #[test]
+    fn a_failure_line_that_starts_with_a_progress_word_stays() {
+        let log = format!(
+            "{STAMP} Checking invariants after merge: left != right\n\
+             {STAMP} Checking formatting...\n\
+             {STAMP}   Downloading v1 of the fixture failed\n"
+        );
+
+        let kept = failure_tail(&log, LOG_BYTES);
+
+        assert_eq!(kept.lines().count(), 3, "{kept}");
     }
 
     #[test]
