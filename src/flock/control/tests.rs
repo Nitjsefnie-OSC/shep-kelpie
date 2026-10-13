@@ -10,6 +10,7 @@ use crate::shepherd;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
 
 mod finish;
+mod late;
 mod pause;
 
 // A pause's waits, short so a test of one running out ends soon
