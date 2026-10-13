@@ -77,6 +77,7 @@ impl SandboxedTests {
             what: run.command.clone(),
             running: false,
             worktree: None,
+            forge: None,
         };
         let visit = runtime.block_on(granted(&run.door, &ask))?;
         let ran = self.processes.output_within(&mut wrapped, run.ceiling);
@@ -122,6 +123,11 @@ async fn granted(door: &Path, ask: &Ask) -> Result<Visit, String> {
             Some(Answer::Output(_) | Answer::Done(_)) => {
                 return Err(format!(
                     "the dog answered {CARGO_TEST} with an e2e run's line"
+                ));
+            }
+            Some(Answer::Go | Answer::Wait(_) | Answer::Held(_)) => {
+                return Err(format!(
+                    "the dog answered {CARGO_TEST} with a forge pace's answer"
                 ));
             }
             None => {

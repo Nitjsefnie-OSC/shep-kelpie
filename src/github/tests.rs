@@ -11,7 +11,7 @@ use serde_json::json;
 use super::setup::{Flow, may_register, serve};
 use super::tokens::{Jwt, base64url, signing_input};
 use super::*;
-use crate::ports::{Cost, Timestamp, Usage};
+use crate::ports::{Cooldown, Cost, Timestamp, Usage};
 use crate::runner::step;
 use crate::test::{Asked, CALL_PATIENCE, FakeClock, FakeGithub, FakeSigner, PEM, Rig, Scripted};
 
@@ -453,14 +453,22 @@ fn an_owner_that_is_no_login_is_refused_before_any_file_is_read() {
 
 #[test]
 fn a_redirect_or_a_rate_limit_is_told_from_a_refusal() {
-    assert_eq!(api::refusal(301, ""), ApiError::Moved);
+    let none = Cooldown::default();
+    assert_eq!(api::refusal(301, "", none), ApiError::Moved);
     assert!(ApiError::Moved.to_string().contains("`git.remote`"));
-    assert_eq!(api::refusal(429, ""), ApiError::RateLimited);
+    assert_eq!(api::refusal(429, "", none), ApiError::RateLimited(none));
     let limited = r#"{"message":"API rate limit exceeded for installation ID 7."}"#;
-    assert_eq!(api::refusal(403, limited), ApiError::RateLimited);
+    let after = Cooldown {
+        retry_after: Some(30),
+        reset: Some(Timestamp(1_790_003_600)),
+    };
+    assert_eq!(
+        api::refusal(403, limited, after),
+        ApiError::RateLimited(after)
+    );
     let denied = r#"{"message":"Resource not accessible by integration"}"#;
-    assert_eq!(api::refusal(403, denied), ApiError::Refused(403));
-    assert!(ApiError::Refused(502).passes() && ApiError::RateLimited.passes());
+    assert_eq!(api::refusal(403, denied, after), ApiError::Refused(403));
+    assert!(ApiError::Refused(502).passes() && ApiError::RateLimited(none).passes());
     assert!(!ApiError::Refused(401).passes() && !ApiError::Moved.passes());
     assert_eq!(
         api::token_request(&slug("shep-pm/koji"), Grant::Kelpie),
@@ -829,7 +837,7 @@ fn a_refused_or_unanswered_mint_is_not_held_against_the_next_ask() {
     for error in [
         ApiError::Refused(401),
         ApiError::Refused(502),
-        ApiError::RateLimited,
+        ApiError::RateLimited(Cooldown::default()),
         ApiError::Unreachable("curl exited 6".to_owned()),
     ] {
         github.fail_next(error.clone());

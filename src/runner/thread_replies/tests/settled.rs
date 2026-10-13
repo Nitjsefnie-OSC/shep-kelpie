@@ -71,7 +71,7 @@ fn a_ruling_answered_by_a_reaction_on_its_comment_is_left_as_it_is() {
 }
 
 #[test]
-fn an_edit_that_failed_is_tried_again_at_the_next_poll() {
+fn an_edit_that_failed_is_tried_again_after_a_wait_that_doubles() {
     let (rig, runner, _) = a_merge_ruling_on_71();
     let comment = ruling_comment(&rig);
     rig.github.fail_next(ApiError::Refused(502));
@@ -79,11 +79,29 @@ fn an_edit_that_failed_is_tried_again_at_the_next_poll() {
     rig.ask(&runner, "rule", Some("1 no not yet"));
     assert_eq!(rig.github.edits().len(), 1, "the first try");
 
-    rig.next_look();
+    // No poll in the first 15 seconds sends it again.
+    rig.clock.advance(14);
     step(&runner).unwrap();
+    assert_eq!(rig.github.edits().len(), 1, "still waiting");
 
-    let [(first, said), (again, body)] = rig.github.edits().try_into().unwrap();
-    assert_eq!((first, again), (comment, comment));
+    rig.clock.advance(1);
+    rig.github.fail_next(ApiError::Refused(502));
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.github.edits().len(),
+        2,
+        "the second try, which fails too"
+    );
+
+    // The next wait is twice as long.
+    rig.clock.advance(29);
+    step(&runner).unwrap();
+    assert_eq!(rig.github.edits().len(), 2, "still waiting");
+
+    rig.clock.advance(1);
+    step(&runner).unwrap();
+    let [(first, said), (second, _), (again, body)] = rig.github.edits().try_into().unwrap();
+    assert_eq!((first, second, again), (comment, comment, comment));
     assert_eq!(said, body);
     assert!(
         body.starts_with("**Settled.** Answered at the terminal"),
@@ -93,7 +111,7 @@ fn an_edit_that_failed_is_tried_again_at_the_next_poll() {
     // Once it went through, it is not sent again.
     rig.next_look();
     step(&runner).unwrap();
-    assert_eq!(rig.github.edits().len(), 2);
+    assert_eq!(rig.github.edits().len(), 3);
 }
 
 #[test]

@@ -431,6 +431,11 @@ mod tests {
         step(&runner).unwrap();
         rig.clock.advance(crate::runner::CHECKS_SETTLE);
         step(&runner).unwrap();
+        // One refused close in each step, and the third lets the item go.
+        for wait in [15, 30] {
+            rig.clock.advance(wait);
+            step(&runner).unwrap();
+        }
         assert_eq!(rig.ask(&runner, "status", None)["work_item"], json!(null));
 
         // The forge still lists #7 as ready, and it stays skipped as finished

@@ -35,6 +35,7 @@ pub(crate) struct FakeForge {
     closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
+    closes_refused: Arc<AtomicUsize>,
     open: Arc<Mutex<Vec<OpenPullRequest>>>,
     board_down: Arc<AtomicBool>,
     calls: Arc<AtomicUsize>,
@@ -85,6 +86,7 @@ pub(crate) struct FakeForge {
     board_reads: Arc<AtomicUsize>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
+    limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
@@ -129,6 +131,7 @@ impl FakeForge {
             sub_issues: Arc::default(),
             closings: Arc::default(),
             closes_down: Arc::default(),
+            closes_refused: Arc::default(),
             open: Arc::default(),
             board_down: Arc::default(),
             calls: Arc::default(),
@@ -169,6 +172,7 @@ impl FakeForge {
             asked: Arc::default(),
             board_reads: Arc::default(),
             down: Arc::default(),
+            limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
         }
@@ -244,16 +248,6 @@ impl FakeForge {
     /// The issues issue `number` is blocked by, open or closed
     pub(crate) fn blockers(&self, number: u64) -> Vec<u64> {
         self.blockers_of(number).iter().map(|b| b.number).collect()
-    }
-
-    /// Makes closing an issue fail, or work again
-    pub(crate) fn set_closes_down(&self, down: bool) {
-        self.closes_down.store(down, Ordering::SeqCst);
-    }
-
-    /// The issues kelpie closed
-    pub(crate) fn closings(&self) -> Vec<u64> {
-        self.closings.lock().unwrap().clone()
     }
 
     /// Marks issue `number` blocked by issue `by`, which is open until closed
@@ -792,6 +786,7 @@ impl Forge for FakeForge {
         self.ask()?;
         self.issues_up()?;
         if self.closes_down.load(Ordering::SeqCst) {
+            self.closes_refused.fetch_add(1, Ordering::SeqCst);
             return Err(ForgeError::Failed("closing is refused".into()));
         }
         self.closed.lock().unwrap().insert(number);

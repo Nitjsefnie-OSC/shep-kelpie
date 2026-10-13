@@ -24,9 +24,7 @@ impl AppVoice {
     }
 
     fn token(&self, repo: &ForgeSlug) -> Result<InstallationToken, ForgeError> {
-        self.tokens
-            .token(repo)
-            .map_err(|e| ForgeError::App(e.to_string()))
+        self.tokens.token(repo).map_err(token_error)
     }
 
     fn write(&self, repo: &ForgeSlug, call: &Call) -> Result<String, ForgeError> {
@@ -35,9 +33,7 @@ impl AppVoice {
     }
 
     fn send(&self, token: &InstallationToken, call: &Call) -> Result<String, ForgeError> {
-        self.api
-            .write(token, call)
-            .map_err(|e| ForgeError::App(e.to_string()))
+        self.api.write(token, call).map_err(api_error)
     }
 
     // GraphQL answers a refusal with HTTP 200, so the body says how it went.
@@ -55,6 +51,25 @@ impl AppVoice {
             ))),
             Err(e) => Err(ForgeError::App(e.to_string())),
         }
+    }
+}
+
+// A rate limit keeps what its answer said of when to ask again, so the hold
+// waits for it. Any other failure is told in words.
+fn api_error(e: ApiError) -> ForgeError {
+    match e {
+        ApiError::RateLimited(cooldown) => ForgeError::Limited {
+            said: e.to_string(),
+            cooldown,
+        },
+        e => ForgeError::App(e.to_string()),
+    }
+}
+
+fn token_error(e: TokenError) -> ForgeError {
+    match e {
+        TokenError::Api(e) => api_error(e),
+        e => ForgeError::App(e.to_string()),
     }
 }
 
@@ -82,8 +97,10 @@ impl Voice for AppVoice {
                 Ok(None)
             }
             // GitHub out of reach, busy or rate limited: asking again later may work.
-            Err(TokenError::Api(e)) if e.passes() => Err(ForgeError::AppBusy(e.to_string())),
-            Err(e) => Err(ForgeError::App(e.to_string())),
+            Err(TokenError::Api(e)) if e.passes() && !matches!(e, ApiError::RateLimited(_)) => {
+                Err(ForgeError::AppBusy(e.to_string()))
+            }
+            Err(e) => Err(token_error(e)),
         }
     }
 
@@ -120,7 +137,7 @@ impl Voice for AppVoice {
     }
 
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
-        let token = (self.tokens.thread_token(repo)).map_err(|e| ForgeError::App(e.to_string()))?;
+        let token = (self.tokens.thread_token(repo)).map_err(token_error)?;
         let call = Call::resolve_thread(thread);
         self.thread_write(&token, &call, "resolveReviewThread")
     }

@@ -86,6 +86,20 @@ fn merge(rig: &Rig, runner: &Mutex<Runner>) -> Vec<StepReport> {
     panic!("the work item never finished: {reports:#?}");
 }
 
+// Steps until the retro the drain started has been heard and saved. The call
+// runs on a thread of its own from the drain, so a step that comes first finds
+// it still in flight and has nothing to wait on.
+fn step_until_saved(rig: &Rig, runner: &Mutex<Runner>) {
+    for _ in 0..10_000 {
+        step(runner).unwrap();
+        if !saved(rig).is_empty() {
+            return;
+        }
+        std::thread::yield_now();
+    }
+    panic!("the retro was never saved");
+}
+
 fn retros(rig: &Rig) -> Vec<Seen> {
     let all = rig.claude.all_seen().into_iter();
     all.filter(|s| s.call.tools == Tools::Retro).collect()
@@ -197,7 +211,7 @@ fn a_drain_with_finished_work_items_since_the_last_retro_starts_one() {
     let runner = rig.open().unwrap();
     rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
     rig.ask(&runner, "drain", None);
-    step(&runner).unwrap();
+    step_until_saved(&rig, &runner);
 
     let seen = retros(&rig);
     let [retro] = seen.as_slice() else {

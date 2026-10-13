@@ -36,6 +36,7 @@ async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) ->
         what: "shep-kelpie lease e2e".into(),
         running: false,
         worktree: Some(worktree),
+        forge: None,
     };
     let visit = match Visit::knock(socket, &ask).await {
         Ok(visit) => visit,
@@ -74,6 +75,9 @@ async fn follow(mut visit: Visit, out: &mut impl Write) -> u8 {
             }
             Ok(Some(Answer::Error(why))) => {
                 return failed(&format!("the dog refused: {why}"), 1);
+            }
+            Ok(Some(other @ (Answer::Go | Answer::Wait(_) | Answer::Held(_)))) => {
+                return failed(&format!("the dog answered {other:?} to the e2e ask"), 1);
             }
         }
         next = visit.answer().await;

@@ -66,6 +66,7 @@ pub(crate) async fn run_with_patience(socket: &Path, command: &[&str], patience:
         what: command.join(" "),
         running: false,
         worktree: None,
+        forge: None,
     };
     let visit = match wait_for_turn(socket, &ask, &mut signals, patience).await {
         Ok(Ok(visit)) => visit,
@@ -239,8 +240,14 @@ async fn one_turn(socket: &Path, ask: &Ask, signals: &mut Signals) -> Turn {
             Ok(Some(Answer::Error(why))) => {
                 return Turn::Refused(format!("the dog refused: {why}"));
             }
-            // Answers to an e2e ask; a dog never sends them to this one.
-            Ok(Some(other @ (Answer::Output(_) | Answer::Done(_)))) => {
+            // Answers to an e2e ask or a forge ask; a dog never sends them to this one.
+            Ok(Some(
+                other @ (Answer::Output(_)
+                | Answer::Done(_)
+                | Answer::Go
+                | Answer::Wait(_)
+                | Answer::Held(_)),
+            )) => {
                 return Turn::Refused(format!("the dog answered {other:?} to {CARGO_TEST}"));
             }
             Ok(None) => {

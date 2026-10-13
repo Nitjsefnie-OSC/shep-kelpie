@@ -424,9 +424,7 @@ impl Runner {
         // the maintainer's login; a token it cannot have now fails the call
         // rather than run it as the maintainer.
         let token = (self.ports.voice.worker_token(&self.remote)).map_err(|e| {
-            if matches!(e, crate::ports::ForgeError::AppBusy(_)) {
-                self.token_wait.busy_at(self.ports.clock.now());
-            }
+            self.token_error_passes(&e);
             format!("cannot get the worker a GitHub token: {e}")
         })?;
         let reach = self.worker_reach(item, start, token.as_ref())?;

@@ -20,8 +20,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl, ShepLeases,
-    SystemClock, SystemGit, stop_calls,
+    ClaudeCli, Curl, CurlGithub, DoorPace, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl,
+    ShepLeases, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -203,6 +203,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         test_runner: Arc::new(claude.test_runner()),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
+        pace: Arc::new(DoorPace::new(paths.door.clone())),
         flock,
     };
     let finished: OnFinished = {
