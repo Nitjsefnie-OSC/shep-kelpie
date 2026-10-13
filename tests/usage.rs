@@ -34,7 +34,7 @@ fn the_project_can_come_before_the_verb() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{stderr}");
     assert!(
-        stderr.starts_with("shep kelpie rule: no ruling 14 is waiting"),
+        stderr.starts_with("shep kelpie rule: no ruling on #14 is waiting"),
         "{stderr}"
     );
 }
