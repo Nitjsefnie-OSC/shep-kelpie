@@ -19,7 +19,7 @@ use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
     Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, PacedVoice,
-    Ports, RateHeld, RecordedVoice, Say, SessionId, Timestamp, Visibility,
+    Ports, RateHeld, RecordedVoice, Say, SessionId, Timestamp,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -102,6 +102,7 @@ mod reread;
 mod retro;
 mod review;
 mod review_bot;
+mod reviewers_check;
 mod rework;
 mod ruling;
 #[cfg(test)]
@@ -145,6 +146,7 @@ pub use pm::{PmAttaching, PmError, PmStatus};
 pub use replies::READ_EVERY;
 pub use report::StepReport;
 pub(crate) use reread::check_gateways;
+use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
 pub use step_log::FILE as STEPS_FILE;
@@ -925,23 +927,6 @@ pub(crate) fn check_instructions(settings: &Settings) -> Result<(), SettingsErro
     instructions::read_extra(settings).map(drop)
 }
 
-// Each local reviewer's command is there, or its endpoint answers.
-fn check_local(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsError> {
-    for reviewer in lineup {
-        let Some(local) = reviewer.runs.local() else {
-            continue;
-        };
-        ports
-            .reviewer
-            .check(&local)
-            .map_err(|reason| SettingsError::Invalid {
-                setting: "agents.reviewers",
-                reason: format!("{}: {reason}", reviewer.name),
-            })?;
-    }
-    Ok(())
-}
-
 // What a ruling's question names: its project, where its id comes from, and
 // when it is raised.
 #[derive(Debug, Clone)]
@@ -949,52 +934,6 @@ struct Names<'a> {
     project: &'a str,
     ids: RulingIds,
     now: Timestamp,
-}
-
-// Every listed review bot needs a profile.
-fn check_bots(lineup: &[ListedReviewer], ports: &Ports) -> Result<(), SettingsError> {
-    for reviewer in lineup {
-        let Some(bot) = reviewer.bot() else {
-            continue;
-        };
-        if !ports.review_bots.iter().any(|p| p.bot() == bot.bot) {
-            return Err(SettingsError::Invalid {
-                setting: "agents.reviewers",
-                reason: format!("{}: kelpie has no profile for {}", reviewer.name, bot.bot),
-            });
-        }
-    }
-    Ok(())
-}
-
-// CodeRabbit's free plan reviews public repos only, so listing it for a
-// repo the forge reports otherwise stops the runner.
-fn check_coderabbit(
-    remote: &ForgeSlug,
-    lineup: &[ListedReviewer],
-    ports: &Ports,
-) -> Result<(), OpenError> {
-    let listed = lineup
-        .iter()
-        .find(|r| r.bot().is_some_and(|b| b.bot == Bot::Coderabbit));
-    let Some(listed) = listed else {
-        return Ok(());
-    };
-    let visibility = match ports.forge.visibility(remote)? {
-        Visibility::Public => return Ok(()),
-        Visibility::Private => "private",
-        Visibility::Internal => "internal",
-    };
-    Err(SettingsError::Invalid {
-        setting: "agents.reviewers",
-        reason: format!(
-            "{}: {} is {visibility}, and {}'s free plan reviews public repos only",
-            listed.name,
-            remote.as_str(),
-            Bot::Coderabbit.name()
-        ),
-    }
-    .into())
 }
 
 #[cfg(test)]
