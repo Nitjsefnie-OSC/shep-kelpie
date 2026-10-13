@@ -1,9 +1,12 @@
-//! A contribution's head, fetched and diffed without checking anything out
+//! A contribution's head, fetched, diffed, and checked out for a reader
 //!
 //! Another person's pull request is code kelpie has not read. Fetching its
 //! head moves objects into the project's checkout and nothing else: no
 //! branch, no worktree, no file on disk. The diff is read from those objects
 //! with every program a config or an attribute could name switched off.
+//! [`checkout`] is the one call that puts its files on disk, in a detached
+//! worktree with hooks off, only for a head that has passed the security
+//! review, and only for a reader that runs no code in it.
 
 use std::ffi::OsStr;
 use std::io::Read;

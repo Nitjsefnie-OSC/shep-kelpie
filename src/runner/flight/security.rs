@@ -75,7 +75,7 @@ impl Runner {
         let agents = Arc::clone(&self.ports.agents);
         let reviewer = Arc::clone(&self.ports.reviewer);
         let (pull_request, head) = (job.pull_request(), job.head().to_owned());
-        let name = format!("#{pull_request} security");
+        let name = format!("#{pull_request} {}", job.name());
         let unread = job.unread();
         let run = move || {
             // A panic in the call leaves the head unread, as a failed call does.

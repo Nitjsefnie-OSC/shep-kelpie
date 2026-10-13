@@ -51,6 +51,9 @@ pub(in crate::runner) struct Job {
     reviewers: Vec<ListedReviewer>,
     // Why each listed one that cannot run is passed over
     passed_over: Vec<String>,
+    // The local reviewers sat out for reviewing nothing twice, whose count
+    // restarts with this pass so that they are tried again
+    rested: Vec<AgentName>,
 }
 
 /// What a pass came to
@@ -64,6 +67,7 @@ pub(in crate::runner) struct Walked {
     // nothing
     reviewed: Vec<AgentName>,
     nothing: Vec<AgentName>,
+    rested: Vec<AgentName>,
     /// What the calls cost, where they came back priced
     pub(in crate::runner) cost: Cost,
 }
@@ -116,12 +120,14 @@ impl Runner {
         let walk = (0..lineup.len()).map(|i| &lineup[(start + i) % lineup.len()]);
         let mut reviewers = Vec::new();
         let mut passed_over = Vec::new();
+        let mut rested = Vec::new();
         for r in walk {
             let failures = contribution.local_failures.get(&r.name).copied();
             if r.bot().is_some() {
                 passed_over.push(format!("{} is a bot, out of its window here", r.name));
             } else if r.is_local() && failures.is_some_and(|n| n >= LOCAL_FAILURES_DOWN) {
                 passed_over.push(format!("{} reviewed no file twice", r.name));
+                rested.push(r.name.clone());
             } else {
                 reviewers.push(r.clone());
             }
@@ -136,6 +142,7 @@ impl Runner {
             settings: (self.paths.worker).join(format!("pass-settings-{number}.json")),
             reviewers,
             passed_over,
+            rested,
         })
     }
 
@@ -161,7 +168,7 @@ impl Runner {
                 false => self.save(next),
             };
         };
-        for name in &walked.reviewed {
+        for name in walked.reviewed.iter().chain(&walked.rested) {
             held.local_failures.remove(name);
         }
         for name in walked.nothing {
@@ -174,17 +181,31 @@ impl Runner {
         self.save(next)
     }
 
-    // Removes the checkout of each pull request in `before` that the state
-    // no longer follows. A removal that fails is logged: the next pass over
-    // the pull request, if it comes back, replaces what is there.
-    pub(super) fn remove_checkouts(&self, before: &[u64]) {
+    // Removes the checkout of each pull request in the reading folder that
+    // the state no longer follows, unless a pass is reading it now, which the
+    // next poll tries again. A removal that fails is logged: the next pass
+    // over the pull request, if it comes back, replaces what is there.
+    pub(super) fn remove_checkouts(&self) {
         let folder = self.paths.folder.join(FOLDER);
-        let gone = before
-            .iter()
-            .filter(|n| (self.state.contributions.iter()).all(|c| c.pull_request != **n));
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            return;
+        };
+        let reading = self.flights.securing_pull_request();
+        let mut gone: Vec<u64> = (entries.filter_map(Result::ok))
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                name.strip_suffix("-out").unwrap_or(&name).parse().ok()
+            })
+            .filter(|n| Some(*n) != reading)
+            .filter(|n| (self.state.contributions.iter()).all(|c| c.pull_request != *n))
+            .collect();
+        gone.sort_unstable();
+        gone.dedup();
         for number in gone {
             let path = folder.join(number.to_string());
-            if let Err(e) = worktree::remove_view(&self.settings.git.checkout, &path) {
+            if path.exists()
+                && let Err(e) = worktree::remove_view(&self.settings.git.checkout, &path)
+            {
                 eprintln!("contribution #{number}: cannot remove its checkout: {e}");
             }
             let _ = std::fs::remove_dir_all(folder.join(format!("{number}-out")));
@@ -232,7 +253,10 @@ impl Job {
             Some(Ok(changed)) => changed,
             None => Vec::new(),
         };
-        let mut walked = Walked::default();
+        let mut walked = Walked {
+            rested: self.rested.clone(),
+            ..Walked::default()
+        };
         let mut ran = Vec::new();
         let mut missed = self.passed_over.clone();
         let diff = OnceDiff::new(&self, &base);
@@ -247,7 +271,13 @@ impl Job {
             ran.push(r.name.clone());
             let turn = self.turn(r, &diff, agents, reviewer, ending, &mut walked.cost);
             match turn {
-                Turn::Stopped => return Walked::default(),
+                // What the earlier reviewers cost is spent all the same.
+                Turn::Stopped => {
+                    return Walked {
+                        cost: walked.cost,
+                        ..Walked::default()
+                    };
+                }
                 Turn::Answered(findings) => {
                     if r.is_local() {
                         walked.reviewed.push(r.name.clone());
@@ -318,6 +348,9 @@ impl Job {
             match asked {
                 Ok(turn) => return turn,
                 Err(Stop::Stopped) => return Turn::Stopped,
+                // Past its ceiling the call is ended, which a harness reports
+                // as a failure, and no other attempt or reviewer gets a turn.
+                Err(Stop::Failed(_)) if ending.asked() => return Turn::Stopped,
                 Err(Stop::Failed(reason)) => {
                     eprintln!(
                         "contribution #{}: {} failed: {reason}",

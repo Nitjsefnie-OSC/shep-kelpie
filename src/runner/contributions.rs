@@ -68,6 +68,14 @@ impl Job {
         }
     }
 
+    /// What the thread it runs on is called
+    pub(super) fn name(&self) -> &'static str {
+        match self {
+            Self::Security(_) => "security",
+            Self::Pass(_) => "pass",
+        }
+    }
+
     /// The head it reads
     pub(super) fn head(&self) -> &str {
         match self {
@@ -152,12 +160,9 @@ impl Runner {
     // requests, once a poll. A listing or a login that cannot be read leaves
     // the records as they are, for the board's own read to report.
     pub(super) fn follow_contributions(&mut self) -> Result<(), StateError> {
-        let before: Vec<u64> = (self.state.contributions.iter())
-            .map(|c| c.pull_request)
-            .collect();
         self.follow_open()?;
         // A pull request that left the record takes its checkout with it.
-        self.remove_checkouts(&before);
+        self.remove_checkouts();
         Ok(())
     }
 

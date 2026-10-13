@@ -10,11 +10,14 @@ use super::budget_tests::settle;
 use super::security_tests::{commit_on, contribute, contribution};
 use super::tests::{poll, posts};
 use crate::ports::{
-    AgentError, CLEAN, Checks, Finding, PullRequestState, ReviewerError, Role, Severity, Tools,
+    AgentError, CLEAN, Checks, Cost, Finding, PullRequestState, ReviewerError, Role, Severity,
+    Tools,
 };
-use crate::runner::{CHECKS_SETTLE, Runner, step};
+use crate::runner::{CHECKS_SETTLE, Runner, advance, step};
 use crate::settings::{Harness, LocalRound};
-use crate::test::{Rig, Scripted, ScriptedRound, Seen, SeenRound, git, write_script};
+use crate::test::{
+    CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound, Seen, SeenRound, git, write_script,
+};
 
 // What the security reviewer finds in a head it flags
 const FOUND: &str = "HIGH|build.rs:3|downloads and runs a script|it runs at build time";
@@ -251,7 +254,7 @@ fn when_every_reviewer_fails_the_pass_ends_unread_and_status_says_why() {
 fn a_local_reviewer_that_reviewed_nothing_twice_is_skipped() {
     let (rig, runner) = listing(&["mine", "other"]);
     rig.claude
-        .script(std::iter::repeat_n(Scripted::Text(CLEAN), 3));
+        .script(std::iter::repeat_n(Scripted::Text(CLEAN), 4));
     let blank = || {
         let what = "not reviewed: unreadable";
         ScriptedRound::Findings(vec![Finding::new(Severity::Low, "one.txt", 0, what, "")])
@@ -271,6 +274,10 @@ fn a_local_reviewer_that_reviewed_nothing_twice_is_skipped() {
         "mine reviewed nothing twice"
     );
     assert_eq!(third["pass"]["answered"], "other");
+
+    // It sat that pass out, and is tried again at the next.
+    push_and_read(&rig, &runner, "four.txt");
+    assert_eq!(asked(&rig).last().unwrap(), "mine");
 }
 
 #[test]
@@ -415,4 +422,31 @@ fn a_reviewer_session_that_fails_is_tried_three_times_then_passed_over() {
     assert_eq!(haiku(&rig).len(), 3);
     assert_eq!(asked(&rig), ["mine"]);
     assert_eq!(held["pass"]["answered"], "mine");
+}
+
+#[test]
+fn a_pass_cut_off_by_the_ceiling_still_counts_what_it_spent() {
+    let (rig, runner) = listing(&["haiku", "mine"]);
+    let hold = Hold::default();
+    rig.claude.script([
+        Scripted::Text(CLEAN),
+        Scripted::Billed("no verdict", Cost(5 * Cost::PER_CENT)),
+        Scripted::Hold(hold.clone()),
+    ]);
+    contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    for _ in 0..10 {
+        if hold.entered(std::time::Duration::from_millis(50)) {
+            break;
+        }
+        rig.next_look();
+        advance(&runner).unwrap();
+    }
+    assert!(hold.entered(CALL_PATIENCE), "the pass never began");
+
+    rig.clock.advance(16 * 60);
+    advance(&runner).unwrap();
+    settle(&runner);
+
+    let held = contribution(&rig, &runner);
+    assert_eq!(held["spend"], 5 * Cost::PER_CENT);
 }
