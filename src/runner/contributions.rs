@@ -85,7 +85,7 @@ impl Runner {
                 return Ok(());
             }
             let mut next = self.state.clone();
-            next.contributions.clear();
+            next.follow(Vec::new());
             ruling::withdraw(&mut next);
             return self.save(next);
         }
@@ -108,7 +108,8 @@ impl Runner {
                 // A new head is unread, and the last head that passed stays the
                 // one it is read since. The push is heard.
                 Some(known) => known.pushed(pr.commit.clone(), now),
-                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now),
+                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
+                    .with_spent(self.state.spent_by(pr.number)),
             });
         }
         // Oldest first: the ones already followed keep their places
@@ -120,7 +121,7 @@ impl Runner {
         followed.sort_by_key(place);
         if followed != self.state.contributions {
             let mut next = self.state.clone();
-            next.contributions = followed;
+            next.follow(followed);
             ruling::withdraw(&mut next);
             self.save(next)?;
         }

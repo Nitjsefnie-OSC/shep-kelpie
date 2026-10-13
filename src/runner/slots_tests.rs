@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::board::Skip;
 use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::contributions::security_tests::{contribute, contribution, reviews};
-use crate::runner::contributions::tests::picking;
+use crate::runner::contributions::tests::{picking, poll};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -438,4 +438,32 @@ fn a_contribution_waits_for_a_free_slot_under_active_items_1() {
 
     // With the slot given back, #8 opens.
     assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+}
+
+#[test]
+fn a_contribution_is_read_while_parked_rulings_close_the_board() {
+    let (rig, runner) = picking("all");
+    rig.claude.script([
+        Scripted::Say(ASKS),
+        Scripted::Say(ASKS),
+        Scripted::Text(CLEAN),
+    ]);
+    rig.ask(&runner, "add", Some("7"));
+    assert_eq!(issue_of(step(&runner).unwrap()), 7, "#7's first turn");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 7 }));
+    rig.forge.list_ready(8, false);
+    assert_eq!(dispatched(step(&runner).unwrap()), (8, vec![]));
+    assert_eq!(issue_of(step(&runner).unwrap()), 8, "#8's first turn");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 8 }));
+    assert!(!runner.lock().unwrap().board_open(), "two rulings wait");
+
+    // The board stays shut, and the free slot reads the new head.
+    contribute(&rig, 30, |h| {
+        std::fs::write(h.join("one.txt"), "one\n").unwrap();
+    });
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 1, "the review ran");
+    let head = contribution(&rig, &runner);
+    assert_eq!(head["passed"], head["head"]);
+    assert_eq!(slots(&rig, &runner), [json!([]), json!([]), json!([7, 8])]);
 }

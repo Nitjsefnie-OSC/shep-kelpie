@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::RulingKind;
+use super::{ProjectState, RulingKind};
 use crate::ports::{Cost, Finding, Timestamp};
 use crate::settings::PerItemUsd;
 
@@ -71,6 +71,22 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+/// What the calls on a pull request that is not followed any more cost, kept
+/// for when it is followed again
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Spent {
+    /// The pull request
+    pub pull_request: u64,
+    /// What its calls cost, as [`Contribution::spend`]
+    #[serde(default, skip_serializing_if = "Cost::is_free")]
+    pub spend: Cost,
+    /// How many times its cap was doubled, as [`Contribution::budget_raises`]
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub budget_raises: u32,
+}
+
 /// How many of what was said a contribution keeps, in each list
 pub const KEPT: usize = 50;
 
@@ -112,6 +128,17 @@ impl Contribution {
         self.budget_raises = self.budget_raises.saturating_add(1);
         while self.over_budget(per_item).is_some() {
             self.budget_raises = self.budget_raises.saturating_add(1);
+        }
+    }
+
+    /// This contribution with what the pull request spent while it was not
+    /// followed, if it spent any
+    #[must_use]
+    pub fn with_spent(self, spent: Option<&Spent>) -> Self {
+        Self {
+            spend: spent.map_or(self.spend, |s| s.spend),
+            budget_raises: spent.map_or(self.budget_raises, |s| s.budget_raises),
+            ..self
         }
     }
 
@@ -298,5 +325,36 @@ impl RulingKind {
     /// stranger must not reach a vote.
     pub fn is_contribution(&self) -> bool {
         matches!(self, Self::Contribution(_))
+    }
+}
+
+impl ProjectState {
+    /// Follows `followed` from now on, keeping what the calls on the pull
+    /// requests it drops cost, and giving up what the ones it takes back had
+    pub fn follow(&mut self, followed: Vec<Contribution>) {
+        let is_followed = |n: u64| followed.iter().any(|c| c.pull_request == n);
+        let dropped: Vec<Spent> = (self.contributions.iter())
+            .filter(|c| {
+                !is_followed(c.pull_request) && !(c.spend.is_free() && c.budget_raises == 0)
+            })
+            .map(|c| Spent {
+                pull_request: c.pull_request,
+                spend: c.spend,
+                budget_raises: c.budget_raises,
+            })
+            .collect();
+        self.spent.retain(|s| {
+            !is_followed(s.pull_request)
+                && !dropped.iter().any(|d| d.pull_request == s.pull_request)
+        });
+        self.spent.extend(dropped);
+        let surplus = self.spent.len().saturating_sub(KEPT);
+        self.spent.drain(..surplus);
+        self.contributions = followed;
+    }
+
+    /// What the pull request `n` spent while it was not followed
+    pub fn spent_by(&self, n: u64) -> Option<&Spent> {
+        self.spent.iter().find(|s| s.pull_request == n)
     }
 }

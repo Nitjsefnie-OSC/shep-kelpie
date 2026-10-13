@@ -95,6 +95,9 @@ pub(super) enum Slot {
     /// `concurrency.pending_rulings` items are parked on rulings other than a follow-up.
     /// 0 counts as 1: the board opens nothing while any such ruling waits.
     Board,
+    /// The contributions' calls, while a slot is free and the board is closed
+    /// (by parked rulings, or by finishing), so they still start
+    Contributions,
 }
 
 impl Runner {
@@ -149,6 +152,10 @@ impl Runner {
                     self.focus = None;
                     self.looks.reading_board(now);
                     self.dispatch()?
+                }
+                Slot::Contributions => {
+                    self.focus = None;
+                    self.security_due()?.unwrap_or(Begin::Idle)
                 }
             };
             let held = self.forge_hold.until(now);
@@ -205,7 +212,8 @@ impl Runner {
 
     // The open work items with no call in flight, none attached and none
     // waiting for a slot, oldest first, then the board while it may open
-    // one, from the one after the last to act, so one that keeps acting
+    // one, then the contributions' calls while the board is closed and a slot
+    // is free, from the one after the last to act, so one that keeps acting
     // cannot starve the rest
     pub(super) fn rotation(&self) -> Vec<Slot> {
         let items = (self.state.work_items.iter())
@@ -214,7 +222,9 @@ impl Runner {
             })
             .map(|i| Slot::Item(i.issue));
         let board = self.board_open().then_some(Slot::Board);
-        let mut slots: Vec<Slot> = items.chain(board).collect();
+        let contributions = (board.is_none() && self.slot_free() && self.contribution_unread())
+            .then_some(Slot::Contributions);
+        let mut slots: Vec<Slot> = items.chain(board).chain(contributions).collect();
         if let Some(at) = slots.iter().position(|&s| Some(s) == self.last_acted) {
             slots.rotate_left(at + 1);
         }

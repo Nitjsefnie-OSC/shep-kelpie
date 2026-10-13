@@ -4,11 +4,12 @@
 //! The cap is checked before a call starts, so a call already running is never
 //! interrupted. Once the spend is past `budget.per_item_usd` no further call starts: a
 //! `contribution` ruling for `over-budget` asks the maintainer, and an answer
-//! doubles the cap, as for a work item.
+//! doubles the cap, as for a work item. The ruling holds the calls until it is
+//! answered, whatever `budget.per_item_usd` becomes.
 
 use super::ruling;
 use crate::runner::Runner;
-use crate::state::StateError;
+use crate::state::{Held, RulingKind, StateError};
 
 impl Runner {
     // Whether the contribution for `pull_request` has spent more than its cap,
@@ -19,6 +20,15 @@ impl Runner {
         let over = (self.state.contributions.iter())
             .find(|c| c.pull_request == pull_request)
             .and_then(|c| c.over_budget(per_item));
+        // The ruling holds the calls until it is answered, even when a larger
+        // `budget.per_item_usd` has put the spend under the cap since.
+        let asked = (self.state.rulings.iter()).any(|r| {
+            r.id == pull_request
+                && matches!(r.kind, RulingKind::Contribution(Held::OverBudget { .. }))
+        });
+        if asked {
+            return Ok(true);
+        }
         let Some(cap) = over else {
             return Ok(false);
         };

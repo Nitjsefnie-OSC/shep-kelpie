@@ -242,3 +242,57 @@ fn a_no_without_a_note_does_not_raise_the_cap() {
     poll(&rig, &runner);
     assert_eq!(reviews(&rig).len(), 1);
 }
+
+#[test]
+fn a_contribution_taken_off_the_board_and_back_keeps_its_spend_and_its_cap() {
+    let (rig, runner) = over_its_cap();
+
+    // A draft is not a contribution, and the pull request is dropped.
+    rig.forge.set_draft(30, true);
+    poll(&rig, &runner);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["contributions"], Value::Null);
+    assert_eq!(rulings(&rig, &runner).len(), 0);
+
+    // Marked ready again, it is over its cap still, and asks again.
+    rig.forge.set_draft(30, false);
+    poll(&rig, &runner);
+    assert_eq!(contribution(&rig, &runner)["spend"], dollars(1).0 + 1);
+    assert_eq!(reviews(&rig).len(), 1, "the new head is not read");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
+    let [ruling] = rulings(&rig, &runner).try_into().unwrap();
+    assert_eq!(ruling["kind"]["reason"], "over-budget");
+    assert_eq!(ruling["kind"]["cap"], dollars(1).0);
+
+    // An answer's doubling of the cap is kept the same way.
+    rig.claude.script([Scripted::Billed(CLEAN, dollars(0))]);
+    rig.ask(&runner, "rule", Some("30 yes"));
+    rig.forge.set_draft(30, true);
+    poll(&rig, &runner);
+    rig.forge.set_draft(30, false);
+    poll(&rig, &runner);
+    assert_eq!(contribution(&rig, &runner)["budget_raises"], 1);
+    assert_eq!(reviews(&rig).len(), 2, "read under the doubled cap");
+}
+
+#[test]
+fn an_over_budget_ruling_holds_the_calls_until_it_is_answered() {
+    let (rig, runner) = over_its_cap();
+
+    // A larger cap alone does not lift it.
+    rig.edit_settings(|s| s.replace("per_item_usd = 1", "per_item_usd = 5"));
+    runner
+        .lock()
+        .unwrap()
+        .reread(rig.settings(), rig.kelpie_settings())
+        .unwrap();
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 1, "the ruling still holds the review");
+    assert_eq!(rulings(&rig, &runner).len(), 1);
+
+    // The answer lifts it, doubling the cap for the head that waits.
+    rig.claude.script([Scripted::Billed(CLEAN, dollars(1))]);
+    rig.ask(&runner, "rule", Some("30 yes"));
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 2);
+}

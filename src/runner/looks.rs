@@ -123,7 +123,7 @@ impl Looks {
         let waited = (self.retries.get(&slot)).is_none_or(|&(_, at)| now >= at);
         let looked = match slot {
             Slot::Board => self.board_moved || self.board_due_at().is_none_or(|at| now >= at),
-            Slot::Item(_) => true,
+            Slot::Item(_) | Slot::Contributions => true,
         };
         waited && looked
     }
@@ -196,7 +196,7 @@ impl Looks {
         let due_at = |slot: &Slot| {
             let retry = self.retries.get(slot).map(|&(_, at)| at);
             match slot {
-                Slot::Item(_) => retry,
+                Slot::Item(_) | Slot::Contributions => retry,
                 Slot::Board => {
                     let read = match self.board_due_at() {
                         Some(at) if !self.board_moved => at,

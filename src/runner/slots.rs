@@ -149,6 +149,11 @@ impl Runner {
         self.picks() && self.slot_free() && !self.parked_full()
     }
 
+    // Whether a contribution waits for its head to be read
+    pub(super) fn contribution_unread(&self) -> bool {
+        (self.state.contributions.iter()).any(|c| !c.is_read())
+    }
+
     // Gives a slot freed outside a save, as by a larger `concurrency.active_items`, to an
     // item waiting for one.
     pub(super) fn seat_waiting(&mut self) -> Result<(), StateError> {
