@@ -1116,6 +1116,12 @@ Not built and not decided: where the maintainer wants kelpie to go after the MVP
 
 The measured facts are in `docs/facts/`, one file per topic, listed in `docs/facts/README.md`. "(Facts)" in this log points there.
 
+What differs on Linux (shep-pm/shep-kelpie#488), where `srt` 0.0.77 runs on bubblewrap:
+
+- It skips every glob in `denyWrite`. The fence lists the harness folders already below the worktree as paths when a call starts, found by a bounded walk, and a folder a worker makes during the call is caught by the check against `main` after it.
+- It turns every Unix socket off whatever `allowUnixSockets` lists, so a worker cannot reach the dog's door and `cargo-test` runs unleased. `allowAllUnixSockets` stays off, since it would also open shep's control socket.
+- `shep kelpie doctor` names both under `sandbox: limits`.
+
 ## Test series
 
 In order: transport, model calibration, work split, then code. Each series gets its own spec when it starts.
