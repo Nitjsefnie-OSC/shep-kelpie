@@ -143,4 +143,10 @@ fn a_head_red_while_the_review_waits_for_it_is_rerun_and_the_review_waits_on_the
     rig.clock.advance(CHECKS_SETTLE);
     assert!(step(&runner).unwrap().is_some(), "the review goes on");
     assert_eq!(rig.forge.reruns().len(), 1);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["work_item"].get("rerunning"),
+        None,
+        "a rerun that passed is no longer running"
+    );
 }
