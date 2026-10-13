@@ -168,7 +168,9 @@ fn a_resumed_lease_the_gateway_lost_in_between_ends_the_call() {
 fn an_id_that_cannot_go_in_a_path_is_not_resumed() {
     let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
     let err = Lease::resume(&gateway(&server), "L1/../x", &Ending::default(), QUICK);
-    assert!(err.unwrap_err().contains("cannot go in a header"));
+    let err = err.unwrap_err();
+    assert!(err.contains("carried lease id"), "{err}");
+    assert!(!err.contains("POST"), "no take was made: {err}");
     assert!(server.seen().is_empty());
 }
 

@@ -112,21 +112,25 @@ impl PiCli {
             Ok(served) => served,
             Err(why) => return self.unserved(adopted, ending, why),
         };
-        let output = match (&kept.lease, &host) {
+        let waited = match (&kept.lease, &host) {
             (Some(id), ModelHost::Gateway(name)) => {
-                let port = self.gateways.port_named(name).map_err(AgentError::Setup)?;
-                port.around_resumed(&upstream, id, ending, wait)
-                    .map_err(|unheld| match unheld {
-                        Unheld::GaveUp => AgentError::TimedOut(PI),
-                        Unheld::Refused(why) => AgentError::Setup(format!(
-                            "cannot resume the lease {id} on gateway {name}: {why}"
-                        )),
-                        Unheld::Lost(why) => AgentError::Failed(PI, why),
-                    })?
+                let port = match self.gateways.port_named(name) {
+                    Ok(port) => port,
+                    Err(why) => return self.unserved(adopted, ending, why),
+                };
+                match port.around_resumed(&upstream, id, ending, wait) {
+                    Ok(waited) => waited,
+                    Err(Unheld::Refused(why)) => {
+                        let why = format!("cannot resume the lease {id} on gateway {name}: {why}");
+                        return self.unserved(adopted, ending, why);
+                    }
+                    Err(Unheld::GaveUp) => return Err(AgentError::TimedOut(PI)),
+                    Err(Unheld::Lost(why)) => return Err(AgentError::Failed(PI, why)),
+                }
             }
             _ => wait(),
-        }
-        .map_err(|e| match e {
+        };
+        let output = waited.map_err(|e| match e {
             RunError::Io(e) => AgentError::Failed(PI, e.to_string()),
             RunError::Stopped => AgentError::Stopped,
             RunError::TimedOut => AgentError::TimedOut(PI),

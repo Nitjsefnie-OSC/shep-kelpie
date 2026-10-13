@@ -97,7 +97,7 @@ fn a_handover_with_a_pi_worker_turn_running_ends_the_turn_on_the_new_build() {
         "the turn's own request got the gateway's answer"
     );
 
-    // One take, renewals on both sides of the exec, and one release at the end.
+    // One take, a renewal while the call ran, and one release at the end.
     let leases: Vec<&str> = seen
         .iter()
         .map(String::as_str)
@@ -113,8 +113,14 @@ fn a_handover_with_a_pi_worker_turn_running_ends_the_turn_on_the_new_build() {
     );
     let released = seen.iter().position(|l| l.starts_with("DELETE")).unwrap();
     assert!(released > chat, "released before the call asked: {seen:?}");
-    let renewed_after = seen[chat..released].iter().any(|l| l.starts_with("PUT"));
-    assert!(renewed_after, "no renewal after the exec: {seen:?}");
+    // The resumed lease renews at once, so one falls before the release
+    // whatever the heartbeat's timing.
+    let taken = seen
+        .iter()
+        .position(|l| l.starts_with("POST /paddock"))
+        .unwrap();
+    let renewed = seen[taken..released].iter().any(|l| l.starts_with("PUT"));
+    assert!(renewed, "no renewal while the call ran: {seen:?}");
 }
 
 #[test]

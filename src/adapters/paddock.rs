@@ -278,7 +278,12 @@ impl Lease {
                 "`POST /paddock/leases` answered HTTP {status}, {error}{why}"
             ));
         };
-        granted_id(id)?;
+        if !fits_header(id) {
+            return Err(format!(
+                "`POST /paddock/leases` granted the id {id:?}, which cannot go in a \
+                 header, so the take is refused"
+            ));
+        }
         Ok(Some(Self::renewed(gateway, id, ending, timing, false)))
     }
 
@@ -297,7 +302,11 @@ impl Lease {
         ending: &Ending,
         timing: Timing,
     ) -> Result<Self, String> {
-        granted_id(id)?;
+        if !fits_header(id) {
+            return Err(format!(
+                "the carried lease id {id:?} cannot go in a header, so it is not resumed"
+            ));
+        }
         Ok(Self::renewed(gateway, id, ending, timing, true))
     }
 
@@ -400,14 +409,8 @@ impl Drop for Lease {
 }
 
 // The id goes in a header and a path, so it is held to what paddock writes.
-fn granted_id(id: &str) -> Result<(), String> {
-    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
-        return Err(format!(
-            "`POST /paddock/leases` granted the id {id:?}, which cannot go in a \
-             header, so the take is refused"
-        ));
-    }
-    Ok(())
+fn fits_header(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 // What a busy answer says paddock turned the take away for.
