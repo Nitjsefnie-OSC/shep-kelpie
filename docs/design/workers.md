@@ -20,7 +20,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Worker asks with a `<kelpie-question>` block ending its message; parks on `question` ruling with optional `- ` choices. #13
 - `shep kelpie attach <issue>` hands a Claude Code worker's session to maintainer without `bypassPermissions`; held by pid + start time (reused pid holds nothing). #325
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, text in the instructions, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
-- Out-of-scope finds named in final message; deferred review findings in deferred findings file; PR stays on its issue. `src/runner/follow_up.rs`
+- Out-of-scope finds named in final message; deferred review findings in deferred findings file, whose path the instructions name from the first turn; PR stays on its issue. #649, `src/runner/follow_up.rs`
 
 ## Fence
 
