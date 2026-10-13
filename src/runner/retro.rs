@@ -7,7 +7,9 @@
 //! builds what it reads in code (see [`digest`]) from records it keeps, and
 //! the call's tools read and search and change nothing ([`crate::ports::Tools::Retro`]).
 //! Its reply is the report, which the runner saves under `retro-reports/unverified`
-//! in kelpie's home. Kelpie never acts on a report: the maintainer reads
+//! in kelpie's home. The prompt names the kelpie build and the open known gaps
+//! ([`gaps`]) and asks for new findings only; the digest counts what only shows
+//! across items, and [`flakes`] feeds the CI fix turns. Kelpie never acts on a report: the maintainer reads
 //! them, consolidates them and fixes what is worth fixing.
 //!
 //! A retro that fails, times out, comes back empty or is cut short by a stop
@@ -22,10 +24,13 @@ use super::{Runner, StepReport, panel};
 use crate::ports::{AgentCall, AgentError, AgentReply, Session, Timestamp};
 use crate::skills::Step;
 use crate::state::Finished;
+use crate::upgrade::build::Build;
 use crate::usage;
 use crate::work_item::new_session_id;
 
 mod digest;
+pub(super) mod flakes;
+mod gaps;
 pub(super) mod journal;
 
 /// How long a retro gets, in seconds
@@ -46,24 +51,49 @@ pub(super) struct Book {
 
 // The part of the prompt that asks. It stands alone, for a step set to run
 // kelpie's own prompt, and follows the skill's command otherwise.
-fn prompt(project: &str, issues: &[u64], digest: &str) -> String {
+fn prompt(project: &str, issues: &[u64], build: &Build, gaps: &[String], digest: &str) -> String {
     let named: Vec<String> = issues.iter().map(|n| format!("#{n}")).collect();
+    let known = match gaps.is_empty() {
+        true => "No earlier finding of yours is still open.".to_owned(),
+        false => format!(
+            "These findings of earlier retros are still open (the known gaps):\n{}\n\
+             Report none of them again. Where the batch hit one, count it in the report's \
+             `Known gaps seen again` section as `- <theme>: <number of work items>`, with no \
+             description. The digest's across-the-batch section shows which work items name \
+             each.",
+            gaps.iter()
+                .map(|g| format!("- {g}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    };
     format!(
         "{} work items of {project} finished since the last retro: {}. Below is a digest \
-         kelpie built from its records: one section for each, then the batch's totals.\n\n\
-         Run a retrospective on how the batch went. Your reply is the report, in markdown, \
-         in this order:\n\
+         kelpie built from its records: one section for each, then the batch's totals. \
+         Kelpie's build for this batch: {} (made with shep {}).\n\n\
+         {known}\n\n\
+         Run a retrospective on how the batch went, reporting new items only. Your reply is \
+         the report, in markdown, in this order:\n\
          1. Patterns across the batch: project manager wakes that repeat for one cause, \
          rulings that waited, review findings that were stale or wrong, steps that cost more \
-         than the work they did.\n\
+         than the work they did, the files the work items conflicted on most, and review \
+         findings that only a late round found. For a late finding, say its cause where you \
+         can tell (stale base, wording, lifecycle, security).\n\
          2. Problems in a single work item.\n\
-         3. If nothing is worth the maintainer's time, say so in a sentence and write nothing else.\n\n\
+         3. If nothing is worth the maintainer's time, say so in a sentence and write nothing else.\n\
+         4. A `## {}` section, last, with one bullet for each new problem, \
+         `- <theme>: <one line>`, where the theme is a few words that name the gap. A \
+         later retro is told these themes as the known gaps until the maintainer clears \
+         the report.\n\n\
          For each problem, suggest the change that would remove it (a setting, a prompt, a \
          check, a steering file). Where a digest line is not enough, you may read the code \
          and the records in your folders. Edit no file and run no command; nothing in the \
          report is applied, and the maintainer reads it later.\n\n---\n\n{digest}",
         issues.len(),
-        named.join(", ")
+        named.join(", "),
+        build.kelpie,
+        build.shep,
+        gaps::HEADING,
     )
 }
 
@@ -195,6 +225,7 @@ impl Runner {
         let journal = journal::read(&self.paths.journal);
         let rulings = panel::records(&self.paths.rulings);
         let ledger = usage::read(self.ledger.path()).unwrap_or_default();
+        let gaps = gaps::open(&self.paths.retro_reports, self.project.as_str());
         let digest = digest::build(&digest::Records {
             project: self.project.as_str(),
             batch,
@@ -202,9 +233,11 @@ impl Runner {
             rulings: &rulings,
             ledger: &ledger,
             since,
+            gaps: &gaps,
         });
         let issues: Vec<u64> = batch.iter().map(|f| f.issue).collect();
-        let ask = prompt(self.project.as_str(), &issues, &digest);
+        let build = Build::this();
+        let ask = prompt(self.project.as_str(), &issues, &build, &gaps, &digest);
         let ask = self.skills.invoke(Step::Retro, &ask);
         let id = new_session_id().map_err(|e| format!("cannot draw a session id: {e}"))?;
         self.pm_retro_call(agent, Session::New(id), ask)

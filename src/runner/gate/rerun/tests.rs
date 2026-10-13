@@ -2,7 +2,8 @@ use serde_json::json;
 
 use super::super::CHECKS_SETTLE;
 use super::super::tests::ruling_report;
-use crate::ports::Checks;
+use crate::ports::{Checks, Timestamp};
+use crate::runner::retro::journal::{Entry, append};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -149,4 +150,63 @@ fn a_head_red_while_the_review_waits_for_it_is_rerun_and_the_review_waits_on_the
         None,
         "a rerun that passed is no longer running"
     );
+}
+
+// A red run on work item 3, journaled as the rerun would, a day before the rig's clock
+fn flaked_on_three(rig: &Rig, test: &str) {
+    let journal = rig.paths().journal;
+    std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
+    let entry = Entry::CiOutsideDiff {
+        issue: 3,
+        tests: vec![test.to_owned()],
+    };
+    append(&journal, Timestamp(Rig::EPOCH - 86_400), entry).unwrap();
+}
+
+#[test]
+fn a_test_failing_outside_two_items_diffs_is_carried_into_the_fix_turns_prompt() {
+    let (rig, runner, head) = Rig::with_pull_request("koji");
+    flaked_on_three(&rig, "sheep::tests::reconnects");
+    red(&rig, &runner, &head, OTHER_FILE_PANIC);
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    let prompt = fix_prompt(&rig, &runner);
+
+    assert!(
+        prompt.contains("Known flakes:") && prompt.contains("sheep::tests::reconnects"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn a_test_that_failed_outside_one_items_diff_alone_is_no_known_flake() {
+    let (rig, runner, head) = Rig::with_pull_request("koji");
+    flaked_on_three(&rig, "another::test");
+    red(&rig, &runner, &head, OTHER_FILE_PANIC);
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    let prompt = fix_prompt(&rig, &runner);
+
+    assert!(!prompt.contains("Known flakes"), "{prompt}");
+}
+
+#[test]
+fn a_flake_not_seen_for_a_week_is_let_go() {
+    let (rig, runner, head) = Rig::with_pull_request("koji");
+    let journal = rig.paths().journal;
+    std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
+    let old = Entry::CiOutsideDiff {
+        issue: 3,
+        tests: vec!["sheep::tests::reconnects".to_owned()],
+    };
+    append(&journal, Timestamp(Rig::EPOCH - 8 * 86_400), old).unwrap();
+    red(&rig, &runner, &head, OTHER_FILE_PANIC);
+    rig.clock.advance(CHECKS_SETTLE);
+    step(&runner).unwrap();
+
+    let prompt = fix_prompt(&rig, &runner);
+
+    assert!(!prompt.contains("Known flakes"), "{prompt}");
 }
