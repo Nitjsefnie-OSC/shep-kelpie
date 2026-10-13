@@ -13,6 +13,7 @@ mod rate_limit;
 mod review;
 pub(crate) mod review_bot;
 mod runs;
+mod talk;
 mod thread;
 
 pub use app::GhApps;
@@ -26,7 +27,8 @@ use serde::Deserialize;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility,
+    PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
+    Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -135,6 +137,10 @@ impl Forge for Gh {
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
         review::reviewed(None, repo, number)
+    }
+
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        talk::talk(repo, number)
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {

@@ -11,8 +11,8 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
-    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment,
-    Timestamp, Visibility,
+    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
+    ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -676,6 +676,12 @@ impl Forge for FakeForge {
             Some(error) => Err(error.clone()),
             None => Ok(VIEWER.to_owned()),
         }
+    }
+
+    fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        Ok(self.coderabbit.talk_of(number))
     }
 
     fn comments_since(

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::ports::{ForgeError, Timestamp};
+use crate::ports::{ForgeError, Remark, Standing, Talk, TalkThread, Timestamp};
 use crate::review_bot::{Activity, Comment, Review, Status, Thread};
 
 /// Labels on pull requests, each bot's activity on them by its login, and
@@ -22,6 +22,9 @@ pub(crate) struct FakeCodeRabbit {
     resolve_down: Arc<AtomicBool>,
     reply_down: Arc<AtomicBool>,
     gh_writes: Arc<AtomicUsize>,
+    // What people wrote on each pull request, and the ids the next remark gets
+    talk: Arc<Mutex<HashMap<u64, Talk>>>,
+    remark_ids: Arc<AtomicUsize>,
 }
 
 // CodeRabbit's own store on pull request `number`.
@@ -235,6 +238,98 @@ impl FakeCodeRabbit {
         Ok(activity.get(&key).cloned().unwrap_or_default())
     }
 
+    /// `author` writes `body` on pull request `number`'s conversation, and the comment's id
+    pub(crate) fn person_says(
+        &self,
+        number: u64,
+        author: &str,
+        standing: Standing,
+        body: &str,
+    ) -> u64 {
+        let remark = self.remark(author, standing, body);
+        let id = remark.id;
+        self.talk
+            .lock()
+            .unwrap()
+            .entry(number)
+            .or_default()
+            .comments
+            .push(remark);
+        id
+    }
+
+    /// `author` opens a review thread on `path` of pull request `number`, and its id
+    pub(crate) fn person_opens(
+        &self,
+        number: u64,
+        path: &str,
+        author: &str,
+        standing: Standing,
+        body: &str,
+    ) -> String {
+        let remark = self.remark(author, standing, body);
+        let id = format!("PRRT_person_{}", remark.id);
+        self.talk
+            .lock()
+            .unwrap()
+            .entry(number)
+            .or_default()
+            .threads
+            .push(TalkThread {
+                id: id.clone(),
+                path: path.to_owned(),
+                line: Some(3),
+                resolved: false,
+                remarks: vec![remark],
+            });
+        id
+    }
+
+    /// `author` adds `body` to a review thread of pull request `number`, and the comment's id
+    pub(crate) fn person_adds(
+        &self,
+        thread: &str,
+        author: &str,
+        standing: Standing,
+        body: &str,
+    ) -> u64 {
+        let remark = self.remark(author, standing, body);
+        let id = remark.id;
+        let mut talk = self.talk.lock().unwrap();
+        let found = talk.values_mut().flat_map(|t| &mut t.threads);
+        for found in found.filter(|t| t.id == thread) {
+            found.remarks.push(remark.clone());
+        }
+        id
+    }
+
+    fn remark(&self, author: &str, standing: Standing, body: &str) -> Remark {
+        Remark {
+            id: 7000 + self.remark_ids.fetch_add(1, Ordering::SeqCst) as u64,
+            author: author.to_owned(),
+            standing,
+            body: body.to_owned(),
+        }
+    }
+
+    pub(super) fn talk_of(&self, number: u64) -> Talk {
+        let talk = self.talk.lock().unwrap();
+        talk.get(&number).cloned().unwrap_or_default()
+    }
+
+    // Whether `id` is a thread a person opened, which a resolve closes.
+    fn person_thread(&self, id: &str, resolve: bool) -> bool {
+        let mut talk = self.talk.lock().unwrap();
+        let mut known = false;
+        for thread in talk.values_mut().flat_map(|t| &mut t.threads) {
+            if thread.id == id {
+                thread.resolved |= resolve;
+                known = true;
+            }
+        }
+        known
+    }
+
     /// Makes resolving a thread fail, or work again
     pub(crate) fn set_resolve_down(&self, down: bool) {
         self.resolve_down.store(down, Ordering::SeqCst);
@@ -252,7 +347,8 @@ impl FakeCodeRabbit {
             .flat_map(|a| &a.threads)
             .any(|t| t.id == id);
         drop(activity);
-        if !known {
+        let theirs = self.person_thread(id, true);
+        if !known && !theirs {
             return Ok(());
         }
         self.settle(id);
@@ -280,7 +376,7 @@ impl FakeCodeRabbit {
             .flat_map(|a| &a.threads)
             .any(|t| t.id == id);
         drop(activity);
-        if known {
+        if known || self.person_thread(id, false) {
             let reply = (id.to_owned(), body.to_owned());
             self.replies.lock().unwrap().push(reply);
         }
