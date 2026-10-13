@@ -33,7 +33,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ports::{Checks, Finding, Session, Severity};
+    use crate::ports::{CLEAN, Checks, Finding, Session, Severity};
     use crate::profile::INSTRUCTIONS;
     use crate::runner::{Runner, StepReport, step};
     use crate::test::{Rig, Scripted, ScriptedRound};
@@ -252,7 +252,7 @@ mod tests {
         rig.ask(&runner, "rule", Some("1 answer --dry-run"));
         rig.claude.script([
             Scripted::Push("rename.txt", "renamed\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ]);
         step(&runner).unwrap(); // the answered turn: pushes, enters round 1
         assert_eq!(
@@ -333,7 +333,7 @@ mod tests {
         rig.ask(&runner, "rule", Some(&format!("{id} answer use --dry-run")));
         rig.claude.script([
             Scripted::Push("fixed.txt", "fixed\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ]);
         step(&runner).unwrap(); // the answered fix turn: pushes
         step(&runner).unwrap(); // the head moved, so round 1 ends

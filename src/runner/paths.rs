@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::state::STATE_FILE;
 use crate::tools::Tools;
 
 /// A project's name, which is also its sheep's name
@@ -129,7 +130,7 @@ impl ProjectPaths {
             totp: kelpie_home.join("totp"),
             agents: kelpie_home.join(crate::agents::FOLDER),
             folder: folder.clone(),
-            state: folder.join("state.json"),
+            state: folder.join(STATE_FILE),
             board: folder.join("board.md"),
             answers: folder.join("answers"),
             pm: folder.join("pm"),

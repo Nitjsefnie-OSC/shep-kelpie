@@ -2,17 +2,14 @@
 //! what `status` shows
 
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
-use crate::ports::{Cost, Role, Usage};
+use crate::ports::{CLEAN, Cost, Role, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::{Pass, Runner, advance, step};
-use crate::test::{Hold, Rig, Scripted};
-
-// Real threads on real time, so every wait has this ceiling.
-const PATIENCE: Duration = Duration::from_secs(30);
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // A running project with issue 7 open and its first turn due
 fn seven_due(project: &str) -> (Rig, Mutex<Runner>) {
@@ -54,7 +51,7 @@ fn drain_answers_the_calls_still_running_until_they_end() {
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     assert_eq!(
         rig.ask(&runner, "drain", None)["draining"]["calls"],
         json!([{ "issue": 7, "role": "worker" }])
@@ -62,7 +59,7 @@ fn drain_answers_the_calls_still_running_until_they_end() {
     assert!(!hold.returned(), "draining ended the call");
 
     hold.release();
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Instant::now() + CALL_PATIENCE;
     while draining(&rig, &runner)["calls"] != json!([]) {
         assert!(
             Instant::now() < deadline,
@@ -92,10 +89,8 @@ fn a_restart_ends_draining() {
 fn a_drained_runner_starts_no_review_call() {
     let (rig, runner) = seven_due("shep");
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     rig.ask(&runner, "drain", None);
     assert_eq!(step(&runner).unwrap(), None);

@@ -4,11 +4,11 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use super::{PATIENCE, parked_with, seen, state_of};
-use crate::ports::{Checks, Role};
+use super::{parked_with, seen, state_of};
+use crate::ports::{CLEAN, Checks, Role};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::{Decide, Merging, RulingName};
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Rig, Scripted};
 
 mod measures;
 mod reopening;
@@ -76,7 +76,7 @@ fn ruling(project: &str, title: &str, merging: Merging, rulings: &str) -> (Rig, 
 
 /// Steps until `done` holds of the state file, or the wait runs out
 fn until(rig: &Rig, runner: &Mutex<Runner>, done: impl Fn(&serde_json::Value) -> bool) {
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Instant::now() + CALL_PATIENCE;
     while Instant::now() < deadline {
         step(runner).unwrap();
         if done(&state_of(rig)) {
@@ -89,7 +89,7 @@ fn until(rig: &Rig, runner: &Mutex<Runner>, done: impl Fn(&serde_json::Value) ->
 
 /// Steps until the panel has voted on ruling 1, whether it decided or not
 fn voted(rig: &Rig, runner: &Mutex<Runner>) {
-    let (rig_ref, deadline) = (rig, Instant::now() + PATIENCE);
+    let (rig_ref, deadline) = (rig, Instant::now() + CALL_PATIENCE);
     while Instant::now() < deadline {
         step(runner).unwrap();
         let state = state_of(rig_ref);
@@ -322,10 +322,8 @@ fn alone(project: &str, title: &str) -> (Rig, Mutex<Runner>) {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker\'s first turn: opens the pull request
     step(&runner).unwrap(); // review round 1
     step(&runner).unwrap(); // review round 2

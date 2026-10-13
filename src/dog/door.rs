@@ -22,13 +22,10 @@ use tokio::sync::oneshot;
 use super::e2e::Remote;
 use super::{Kept, lock_desk};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
-use crate::lease::door::{Answer, Ask, E2E};
+use crate::lease::door::{Answer, Ask, E2E, LONGEST_LINE};
 
 /// How long a connection has to send its ask before the dog hangs up
 const ASK_WITHIN: Duration = Duration::from_secs(10);
-
-/// The longest ask the dog reads; a command line past this is cut short
-const LONGEST_ASK: u64 = 64 * 1024;
 
 /// How long the door rests after a failed accept, such as out of files
 const ACCEPT_REST: Duration = Duration::from_millis(500);
@@ -159,7 +156,7 @@ async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::In
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     let mut first = Vec::new();
-    let mut limited = (&mut reader).take(LONGEST_ASK);
+    let mut limited = (&mut reader).take(LONGEST_LINE);
     let asked = limited.read_until(b'\n', &mut first);
     let Ok(Ok(1..)) = tokio::time::timeout(ASK_WITHIN, asked).await else {
         return;

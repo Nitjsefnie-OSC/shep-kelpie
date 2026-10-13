@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 
 use super::LocalReviewer;
 use crate::adapters::process::RunError;
-use crate::ports::{Finding, ReviewerError, read_review};
+use crate::ports::{CLEAN, Finding, ReviewerError, read_review};
 use crate::settings::{Endpoint, Route};
 use crate::worktree::Linked;
 
@@ -54,8 +54,6 @@ for a nit.
 - path is the file's path exactly as its `### ` line gives it.
 - line is the number at the start of the line the finding is about.
 - Neither part may contain a `|`.
-
-If you find nothing, write the single word CLEAN.
 ";
 
 /// Unchanged lines kept around each change
@@ -157,7 +155,7 @@ impl LocalReviewer {
             let url = route.base.as_str();
             findings.extend(read_review(&answer).map_err(|reply| {
                 ReviewerError::Failed(format!(
-                    "{url}'s reply is neither findings nor CLEAN: {}",
+                    "{url}'s reply is neither findings nor {CLEAN}: {}",
                     quote(&reply)
                 ))
             })?);
@@ -250,9 +248,10 @@ impl LocalReviewer {
 // paragraph on it. A chunk is one part of the diff, so the issue only says
 // what the change is for.
 fn system_prompt(body: Option<&str>, criteria: &str) -> String {
+    let nothing = format!("If you find nothing, write the single word {CLEAN}.\n");
     let prompt = match body {
-        Some(body) => format!("{body}\n\n{DIFF_FORMAT}\n{ANSWER_FORMAT}"),
-        None => format!("{OPENING}\n{DIFF_FORMAT}\n{WHAT_TO_REPORT}\n{ANSWER_FORMAT}"),
+        Some(body) => format!("{body}\n\n{DIFF_FORMAT}\n{ANSWER_FORMAT}\n{nothing}"),
+        None => format!("{OPENING}\n{DIFF_FORMAT}\n{WHAT_TO_REPORT}\n{ANSWER_FORMAT}\n{nothing}"),
     };
     match criteria.trim() {
         "" => prompt,

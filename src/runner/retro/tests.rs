@@ -4,7 +4,6 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde_json::Value;
 
@@ -13,12 +12,9 @@ use crate::runner::flight::advance;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::state::{Finished, ProjectState, StateStore};
-use crate::test::{Hold, NO_RETRO, Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Hold, NO_RETRO, Rig, Scripted, Seen};
 use crate::usage::{FILE, read};
 use crate::work_item::Seconds;
-
-// Real threads on real time, so a held call's wait has this ceiling.
-const PATIENCE: Duration = Duration::from_secs(30);
 
 const REPORT: &str = "## Waits\n\nThe same conflict woke the project manager four times.\n";
 
@@ -365,7 +361,7 @@ fn a_retro_cut_short_by_a_stop_is_not_asked_for_again_after_a_restart() {
             }
             reports
         });
-        let began = hold.entered(PATIENCE);
+        let began = hold.entered(CALL_PATIENCE);
         rig.claude.stop();
         assert!(began, "the retro never began");
         looking.join().unwrap();
@@ -420,7 +416,7 @@ fn a_retro_in_flight_holds_no_slot_so_the_next_issue_opens() {
             }
             reports
         });
-        let began = hold.entered(PATIENCE);
+        let began = hold.entered(CALL_PATIENCE);
         rig.forge.list_ready(8, false);
         rig.next_look();
         let passes: Vec<String> = (0..4)
@@ -455,7 +451,7 @@ fn a_drain_waits_on_a_retro_already_running_for_its_own_ceiling() {
             }
             reports
         });
-        let began = hold.entered(PATIENCE);
+        let began = hold.entered(CALL_PATIENCE);
         let status = rig.ask(&runner, "drain", None);
         hold.release();
         looking.join().unwrap();
@@ -548,7 +544,7 @@ fn a_drain_that_starts_during_a_retro_asks_for_the_work_items_finished_meanwhile
                 step(&runner).unwrap();
             }
         });
-        let began = hold.entered(PATIENCE);
+        let began = hold.entered(CALL_PATIENCE);
         assert!(began, "the retro never began");
         rig.clock.advance(60);
         {
@@ -583,7 +579,7 @@ fn the_drain_starts_its_retro_itself_so_its_status_lists_it() {
     rig.claude
         .script_for(Role::Pm, [Scripted::Hold(hold.clone())]);
     let status = rig.ask(&runner, "drain", None);
-    let began = hold.entered(PATIENCE);
+    let began = hold.entered(CALL_PATIENCE);
     hold.release();
 
     assert!(began, "the retro never began");

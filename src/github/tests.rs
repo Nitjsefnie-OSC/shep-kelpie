@@ -13,10 +13,8 @@ use super::tokens::{Jwt, base64url, signing_input};
 use super::*;
 use crate::ports::{Cost, Timestamp, Usage};
 use crate::runner::step;
-use crate::test::{Asked, FakeClock, FakeGithub, FakeSigner, PEM, Rig, Scripted};
+use crate::test::{Asked, CALL_PATIENCE, FakeClock, FakeGithub, FakeSigner, PEM, Rig, Scripted};
 
-// Bounds every wait on the local page, so a hang fails by name.
-const PATIENCE: Duration = Duration::from_secs(10);
 const STATE: &str = "0123456789abcdef0123456789abcdef";
 
 // What a token of kelpie's own for koji is asked for with
@@ -39,7 +37,7 @@ fn get(port: u16, target: &str) -> (u16, String) {
 // One GET of `target` on the local page at `port`, for `host`.
 fn get_as(port: u16, target: &str, host: &str) -> (u16, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    stream.set_read_timeout(Some(PATIENCE)).unwrap();
+    stream.set_read_timeout(Some(CALL_PATIENCE)).unwrap();
     write!(stream, "GET {target} HTTP/1.1\r\nHost: {host}\r\n\r\n").unwrap();
     let mut answer = String::new();
     stream.read_to_string(&mut answer).unwrap();
@@ -108,7 +106,7 @@ fn a_callback_with_another_state_or_host_is_refused_and_the_right_one_keeps_the_
         body.contains("https://github.com/apps/kelpie-maintainer/installations/new"),
         "{body}"
     );
-    let app = ended.recv_timeout(PATIENCE).unwrap().unwrap();
+    let app = ended.recv_timeout(CALL_PATIENCE).unwrap().unwrap();
     assert_eq!(github.asked(), [Asked::Convert("abc123".to_owned())]);
 
     let owner = Owner::try_from("maintainer").unwrap();
@@ -154,7 +152,7 @@ fn a_failed_conversion_or_another_owners_app_keeps_nothing_and_the_flow_waits_on
     assert!(!home.path().join("github/maintainer").exists());
 
     assert_eq!(get(port, &right).0, 200);
-    let app = ended.recv_timeout(PATIENCE).unwrap().unwrap();
+    let app = ended.recv_timeout(CALL_PATIENCE).unwrap().unwrap();
     assert_eq!(app.owner, "maintainer");
     assert_eq!(github.asked().len(), 3);
 }
@@ -857,7 +855,7 @@ impl GithubApi for Stalled {
     fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError> {
         if repo.as_str() == self.repo {
             self.inside.send(()).unwrap();
-            let _ = self.release.lock().unwrap().recv_timeout(PATIENCE);
+            let _ = self.release.lock().unwrap().recv_timeout(CALL_PATIENCE);
         }
         self.inner.installation(jwt, repo)
     }
@@ -901,7 +899,7 @@ fn a_slow_answer_for_one_repo_stalls_no_other_repo_s_token() {
         let tokens = Arc::clone(&tokens);
         std::thread::spawn(move || tokens.token(&slug("shep-pm/slow")))
     };
-    entered.recv_timeout(PATIENCE).unwrap();
+    entered.recv_timeout(CALL_PATIENCE).unwrap();
 
     let (done, minted) = mpsc::channel();
     let quick = {

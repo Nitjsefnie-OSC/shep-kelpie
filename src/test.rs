@@ -15,8 +15,8 @@ use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    Checks, Clock, Cost, Meter, MeterError, Ports, Role, SessionId, Timestamp, Usage, Utilization,
-    Window,
+    CLEAN, Checks, Clock, Cost, Meter, MeterError, Ports, Role, SessionId, Timestamp, Usage,
+    Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{
@@ -308,9 +308,16 @@ pub(crate) struct Rig {
     pub(crate) github: FakeGithub,
 }
 
+/// How long a test waits on a call, a socket or a thread that runs on real
+/// time before it fails by name
+pub(crate) const CALL_PATIENCE: Duration = Duration::from_secs(60);
+
+/// Where every fake clock starts, in seconds since the Unix epoch
+pub(crate) const EPOCH: u64 = 1_790_000_000;
+
 impl Rig {
     /// Where every rig's clock starts
-    pub(crate) const EPOCH: u64 = 1_790_000_000;
+    pub(crate) const EPOCH: u64 = EPOCH;
 
     /// One day, in seconds
     pub(crate) const DAY: u64 = 86_400;
@@ -802,10 +809,8 @@ impl Rig {
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-        rig.claude.script([
-            Scripted::Push("work.txt", "work\n"),
-            Scripted::Text("CLEAN"),
-        ]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn: opens the pull request
         step(&runner).unwrap(); // review round 1, qwen: clean by default
         step(&runner).unwrap(); // review round 2, claude: scripted clean above

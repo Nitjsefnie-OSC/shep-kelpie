@@ -4,6 +4,7 @@ use serde_json::json;
 
 use super::*;
 use crate::board::READY;
+use crate::ports::CLEAN;
 use crate::runner::report::ReworkBy;
 use crate::runner::rework::HUMAN;
 
@@ -267,10 +268,8 @@ fn a_second_ask_while_a_rework_is_in_flight_changes_nothing() {
     rig.forge.label_pull_request(71, READY);
     let runner = running(&rig);
     step(&runner).unwrap(); // the rework starts
-    rig.claude.script([
-        Scripted::Push("fix.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("fix.txt", "fixed\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // its turn
     rig.forge.label_pull_request(71, READY);
     rig.forge.review(71, requesting_changes());
@@ -291,10 +290,8 @@ fn ready_for_human_goes_on_at_the_merge_ruling_and_comes_off_with_a_no() {
     reviewed_71(&rig);
     let runner = running(&rig);
     rig.ask(&runner, "rework", Some("71"));
-    rig.claude.script([
-        Scripted::Push("fix.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("fix.txt", "fixed\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // its turn
     rig.forge.label_pull_request(71, READY);
     step(&runner).unwrap(); // review round 1

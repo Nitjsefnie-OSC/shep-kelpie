@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use super::two_bots::{listing, summons_by_comment};
 use crate::coderabbit::FULL_REVIEW;
 use crate::lease::LeaseKind;
+use crate::ports::CLEAN;
 use crate::review_bot::Bot;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
@@ -98,7 +99,7 @@ fn a_bot_skipped_while_owed_keeps_its_debt_and_lifts_no_other_bots_rounds() {
     rig.ask(&runner, "rule", Some("1 rework once more"));
     rig.claude.script([
         Scripted::Push("again.txt", "again\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
     step(&runner).unwrap(); // round 1, qwen

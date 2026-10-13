@@ -3,7 +3,7 @@
 use super::ledger::Ledger;
 use super::{IssueRules, ONLY, PLAIN, heredoc_body, is_heredoc, plain};
 use crate::board::AGENT_LABEL;
-use crate::guard::{Home, WRITE};
+use crate::guard::{Home, SHOWN_CHARS, WRITE};
 use crate::hooks::Role;
 use crate::issues::has_criteria;
 
@@ -87,7 +87,7 @@ fn flags(args: &[String], known: &[(&'static str, Option<&str>, bool)]) -> Resul
             .iter()
             .find(|(long, short, _)| *long == name || *short == Some(name));
         let Some(&(long, _, takes)) = found else {
-            let shown: String = arg.chars().take(40).collect();
+            let shown: String = arg.chars().take(SHOWN_CHARS).collect();
             return Err(format!(
                 "the issue writer's gh does not take `{shown}`. {ONLY}."
             ));

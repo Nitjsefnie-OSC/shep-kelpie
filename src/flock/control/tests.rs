@@ -7,13 +7,10 @@ use shep_client::shep_core::values::UpDuration;
 use super::*;
 use crate::flock::Launch;
 use crate::shepherd;
-use crate::test::FakeShepherd;
+use crate::test::{CALL_PATIENCE, FakeShepherd};
 
 mod finish;
 mod pause;
-
-// Bounds every call against a fake shepherd, so a hang fails by name.
-const PATIENCE: Duration = Duration::from_secs(40);
 
 // A pause's waits, short so a test of one running out ends soon
 const FAST: Patience = Patience {
@@ -45,7 +42,7 @@ async fn client(shepherd: &FakeShepherd) -> Client {
 
 // Every call against the fake shepherd, bounded so a hang fails by name.
 async fn in_time<T>(call: impl Future<Output = T>) -> T {
-    tokio::time::timeout(PATIENCE, call)
+    tokio::time::timeout(CALL_PATIENCE, call)
         .await
         .expect("the call neither ended nor failed in time")
 }

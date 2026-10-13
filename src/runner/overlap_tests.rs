@@ -4,7 +4,7 @@
 use std::sync::Mutex;
 
 use crate::board::Skip;
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::slots_tests::{dispatched, issue_of, running};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, git};
@@ -17,7 +17,7 @@ fn seven_parked_on_src_seven(project: &str) -> (Rig, Mutex<Runner>) {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::Push("src/seven.rs", "seven\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
         assert_eq!(

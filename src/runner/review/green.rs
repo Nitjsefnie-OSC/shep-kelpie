@@ -3,7 +3,7 @@
 use std::sync::Mutex;
 
 use crate::lease::LeaseKind;
-use crate::ports::{Checks, Finding, Severity};
+use crate::ports::{CLEAN, Checks, Finding, Severity};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -192,7 +192,7 @@ fn a_fix_turns_head_waits_for_green_before_the_next_reviewer() {
     assert_eq!(step(&runner).unwrap(), None, "the fix's run is pending");
     assert_eq!(reads(&rig), 1, "the next reviewer waits");
 
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     rig.forge.set_checks(&fixed, Checks::Passed);
     step(&runner).unwrap();
     assert_eq!(reads(&rig), 2, "and then reads it");
@@ -223,7 +223,7 @@ fn a_nit_only_fix_waits_for_green_before_the_pass_goes_on() {
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(reads(&rig), 1, "claude waits for the run");
 
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     rig.forge.set_checks(&fixed, Checks::Passed);
     step(&runner).unwrap();
     assert_eq!(reads(&rig), 2);
@@ -234,7 +234,7 @@ fn a_head_green_for_one_reviewer_is_not_waited_on_again_for_the_next() {
     let (rig, runner, head) = pushed();
     rig.forge.set_checks(&head, Checks::Passed);
     rig.verdict(&runner); // round 1, qwen: clean
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
 
     step(&runner).unwrap(); // round 2, claude: the same head, already green
     assert_eq!(state(&rig, &runner), "ci");

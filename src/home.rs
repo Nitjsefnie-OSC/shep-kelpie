@@ -14,6 +14,9 @@ use crate::runner::ProjectName;
 /// The variable that names kelpie's home in place of the shepherd's
 pub const KELPIE_VAR: &str = "KELPIE_HOME";
 
+/// The shepherd's control socket, under its home
+pub const SHEP_SOCKET: &str = "run/shep.sock";
+
 /// Kelpie's folder under the shepherd's home
 const UNDER_SHEP: &str = "kelpie";
 
@@ -395,7 +398,7 @@ mod tests {
 
     #[test]
     fn a_shepherds_home_on_the_old_folder_is_not_an_unmoved_kelpie_home() {
-        for marker in ["flock.json", "shep.toml", "run/shep.sock"] {
+        for marker in ["flock.json", "shep.toml", SHEP_SOCKET] {
             let root = tempfile::tempdir().unwrap();
             let (old, home) = (root.path().join(".kelpie"), root.path().join("new"));
             write(&old.join("settings.toml"));

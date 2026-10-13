@@ -10,6 +10,7 @@ use crate::profile::CREDENTIALS;
 use crate::runner::pm::call::SECRET_SHAPED;
 use crate::runner::{Runner, StepReport};
 use crate::settings::Harness;
+use crate::state::STATE_FILE;
 use crate::test::{Rig, Scripted, Seen, assert_reads, assert_refuses, git, write_in};
 
 const NOTHING: &str = "{\"pick\": null}";
@@ -58,7 +59,7 @@ fn it_reads_the_worktrees_and_checkout_and_none_of_kelpies_secrets() {
         "key.pem",
         "-----BEGIN PRIVATE KEY-----\n",
     );
-    write_in(&home.join("other"), "state.json", "{}\n");
+    write_in(&home.join("other"), STATE_FILE, "{}\n");
     write_in(&rig.repo(), "notes.txt", "the checkout\n");
     let seen = wake(&rig, &runner);
 

@@ -4,10 +4,10 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use super::{PATIENCE, assert_sums, held_while, read_while_held, secs, timings};
-use crate::ports::Checks;
+use super::{assert_sums, held_while, read_while_held, secs, timings};
+use crate::ports::{CLEAN, Checks};
 use crate::runner::{Runner, StepReport, step};
-use crate::test::{Hold, Rig, Scripted, ScriptedRound};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
 use crate::work_item::TimingPhase;
 
 // One work item's clock runs through a held worker turn and a held local
@@ -60,17 +60,17 @@ fn a_merged_work_items_phases_sum_to_its_wall_time_at_every_stop() {
     }]);
     std::thread::scope(|scope| {
         let round = scope.spawn(|| step(&runner));
-        assert!(queued.entered(PATIENCE), "the round never queued");
+        assert!(queued.entered(CALL_PATIENCE), "the round never queued");
         rig.clock.advance(20);
         stops.push(timings(&rig, &runner));
         queued.release();
-        assert!(running.entered(PATIENCE), "the round never ran");
+        assert!(running.entered(CALL_PATIENCE), "the round never ran");
         rig.clock.advance(30);
         stops.push(timings(&rig, &runner));
         running.release();
         round.join().unwrap().unwrap();
     });
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 2, Claude: clean
 
     rig.clock.advance(300);
@@ -142,7 +142,7 @@ fn a_gpu_wait_and_the_round_both_count_as_review() {
     }]);
     std::thread::scope(|scope| {
         let round = scope.spawn(|| step(&runner));
-        assert!(queued.entered(PATIENCE), "the round never queued");
+        assert!(queued.entered(CALL_PATIENCE), "the round never queued");
         rig.clock.advance(120);
         let t = timings(&rig, &runner);
         assert_eq!(t["phase"], "review");
@@ -150,7 +150,7 @@ fn a_gpu_wait_and_the_round_both_count_as_review() {
         assert_sums(&t);
 
         queued.release();
-        assert!(running.entered(PATIENCE), "the round never ran");
+        assert!(running.entered(CALL_PATIENCE), "the round never ran");
         rig.clock.advance(45);
         let t = timings(&rig, &runner);
         assert_eq!(t["phase"], "review");
@@ -209,7 +209,7 @@ fn a_second_look_in_flight_is_a_reviewers_session() {
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, local: clean by default
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 2, defect-hunter's first look
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
@@ -226,10 +226,8 @@ fn coderabbit_is_the_window_until_the_summon_and_the_review_after() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, local: clean by default
     step(&runner).unwrap(); // round 2, Claude: clean

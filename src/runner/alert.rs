@@ -216,7 +216,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ports::{Checks, Clock};
+    use crate::ports::{CLEAN, Checks, Clock};
     use crate::runner::step;
     use crate::test::{Rig, Scripted};
 
@@ -316,7 +316,7 @@ mod tests {
         rig.claude.script([
             Scripted::Say("<kelpie-question>Which name?</kelpie-question>"),
             Scripted::Push("work.txt", "work\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ]);
         let mut seen = Vec::new();
         let mut log = |report: Option<StepReport>| {

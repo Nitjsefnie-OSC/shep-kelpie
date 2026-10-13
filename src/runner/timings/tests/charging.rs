@@ -5,11 +5,11 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
-use super::{PATIENCE, assert_sums, held_while, read_while_held, secs, timings};
+use super::{assert_sums, held_while, read_while_held, secs, timings};
 use crate::ports::{AgentError, Checks, SessionId};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 #[test]
 fn a_work_item_in_a_paused_project_spends_its_time_as_other() {
@@ -54,7 +54,7 @@ fn a_turn_in_flight_is_the_workers_time_even_before_it_ends() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     std::thread::scope(|scope| {
         let turn = scope.spawn(|| step(&runner));
-        assert!(hold.entered(PATIENCE), "the turn never began");
+        assert!(hold.entered(CALL_PATIENCE), "the turn never began");
         rig.clock.advance(100);
         let t = timings(&rig, &runner);
         assert_eq!(
@@ -110,7 +110,7 @@ fn cut_short_by_a_stop() -> (Rig, Mutex<Runner>) {
         .script([Scripted::HoldThenFail(hold.clone(), AgentError::Stopped)]);
     std::thread::scope(|scope| {
         let turn = scope.spawn(|| step(&runner));
-        assert!(hold.entered(PATIENCE), "the turn never began");
+        assert!(hold.entered(CALL_PATIENCE), "the turn never began");
         rig.clock.advance(50);
         hold.release();
         assert_eq!(turn.join().unwrap().unwrap(), None);

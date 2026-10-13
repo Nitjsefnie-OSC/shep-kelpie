@@ -50,7 +50,7 @@ use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, Ending, Finding, Reviewer, ReviewerError,
+    AgentCall, AgentError, AgentReply, Agents, CLEAN, Ending, Finding, Reviewer, ReviewerError,
     RoundStage, Timestamp, read_review,
 };
 use crate::settings::{AgentName, ListedReviewer};
@@ -871,7 +871,7 @@ pub(super) fn run_review_call(
                         |reply| {
                             read_review(&reply.text).map_err(|text| {
                                 format!(
-                                    "the reviewer's reply is neither findings nor CLEAN: {text}"
+                                    "the reviewer's reply is neither findings nor {CLEAN}: {text}"
                                 )
                             })
                         },

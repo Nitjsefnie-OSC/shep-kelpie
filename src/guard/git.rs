@@ -17,7 +17,7 @@ use std::path::Path;
 
 use super::shell::Quoting;
 use super::wrap::Reach;
-use super::{Checkout, Home, REWRITE, WRITE, files, moved, values};
+use super::{Checkout, Home, REWRITE, SHOWN_CHARS, WRITE, files, moved, values};
 use crate::worktree::{self, BASE, WorktreeError};
 use front::{BUILTINS, front};
 pub(super) use runs::{bisect_run, makes_repo, scripts};
@@ -130,7 +130,7 @@ pub(super) fn judge(
         out.push(format!(
             "kelpie cannot check git run with the config `{}`, which can name a program git \
              runs: run it without.",
-            key.chars().take(40).collect::<String>()
+            key.chars().take(SHOWN_CHARS).collect::<String>()
         ));
     }
     // An alias or an external command could be anything, and no alias
@@ -141,7 +141,7 @@ pub(super) fn judge(
             out.push(format!(
                 "kelpie runs only the git commands it knows, and `{}` is not one: run the plain \
                  git command you need, or the one an alias stands for.",
-                sub.chars().take(40).collect::<String>()
+                sub.chars().take(SHOWN_CHARS).collect::<String>()
             ));
         }
         return out;
@@ -158,7 +158,7 @@ pub(super) fn judge(
             "kelpie cannot check git once its config names a program for it to run, and \
              `{}` can: set only keys that run nothing, such as `color.*`, `user.*` or \
              `core.quotepath`.",
-            key.chars().take(40).collect::<String>()
+            key.chars().take(SHOWN_CHARS).collect::<String>()
         ));
     }
     // Where a push goes is judged wherever it runs from.
@@ -359,7 +359,7 @@ fn refspecs(args: &[String]) -> Result<Vec<Refspec>, String> {
         Err(format!(
             "kelpie checks a push only in the forms it knows, and not with `{}`: push HEAD \
              to a branch, with no more than `-u`.",
-            word.chars().take(40).collect::<String>()
+            word.chars().take(SHOWN_CHARS).collect::<String>()
         ))
     };
     let mut positional = Vec::new();

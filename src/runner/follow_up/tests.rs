@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use crate::board::{READY, TRIAGE};
-use crate::ports::{Checks, Finding, Severity};
+use crate::ports::{CLEAN, Checks, Finding, Severity};
 use crate::runner::coderabbit::tests::{fixed, hold_a_finding, summoned};
 use crate::runner::thread_replies::Settler;
 use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
@@ -62,7 +62,7 @@ fn reviewed_pushing(
     rig.claude.script([
         Scripted::Push("work.txt", work),
         Scripted::Push("fixed.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..20 {
         step(&runner).unwrap();
@@ -355,7 +355,7 @@ fn a_nit_the_worker_deferred_files_nothing() {
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
         Scripted::Text("Left the nit as out of scope."),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's first turn
     step(&runner).unwrap(); // round 1, qwen: one nit

@@ -1,6 +1,6 @@
 //! A project that lists the `spec` reviewer, through the runner and its stand-ins
 
-use crate::ports::Role;
+use crate::ports::{CLEAN, Role};
 use crate::runner::step;
 use crate::test::{Rig, Scripted};
 
@@ -13,7 +13,7 @@ fn a_listed_spec_reviewer_gets_the_issue_s_criteria_after_its_body() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     step(&runner).unwrap(); // the worker's first turn
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // round 1, spec: clean
 
     let seen = rig.claude.all_seen();

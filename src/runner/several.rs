@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::board::Skip;
 use crate::lease::LeaseKind;
-use crate::ports::{Checks, Cost, Usage};
+use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::coderabbit::HEARD_WAIT;
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, Told};
@@ -45,8 +45,8 @@ fn both_parked(project: &str) -> (Rig, Mutex<Runner>) {
     rig.claude.script([
         Scripted::Push("seven.txt", "seven\n"),
         Scripted::Push("eight.txt", "eight\n"),
-        Scripted::Text("CLEAN"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
+        Scripted::Text(CLEAN),
     ]);
     let acted: Vec<u64> = (0..6).map(|_| issue_of(step(&runner).unwrap())).collect();
     assert_eq!(acted, [7, 8, 7, 8, 7, 8], "the items take turns");
@@ -112,7 +112,7 @@ fn seven_waits_on_the_lease(project: &str) -> (Rig, Mutex<Runner>, String) {
     rig.ask(&runner, "add", Some("7"));
     rig.claude.script([
         Scripted::Push("seven.txt", "seven\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
         assert_eq!(issue_of(step(&runner).unwrap()), 7);
@@ -155,7 +155,7 @@ fn a_restart_leaves_no_resend_under_a_grant_another_item_took() {
     rig.ask(&runner, "add", Some("8"));
     rig.claude.script([
         Scripted::Push("eight.txt", "eight\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
         assert_eq!(issue_of(step(&runner).unwrap()), 8);
@@ -188,7 +188,7 @@ fn an_item_waiting_on_coderabbit_yields_to_one_implementing_and_reviewing() {
     rig.ask(&runner, "add", Some("8"));
     rig.claude.script([
         Scripted::Push("eight.txt", "eight\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..3 {
         assert_eq!(issue_of(step(&runner).unwrap()), 8);

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::ports::{Checks, Cost, PullRequestState, Usage};
+use crate::ports::{CLEAN, Checks, Cost, PullRequestState, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Hold, Rig, Scripted, ScriptedRound, git};
 
@@ -60,10 +60,7 @@ fn kind(rig: &Rig, runner: &Mutex<Runner>) -> Value {
 fn a_worktree_left_dirty_gets_one_turn_to_push_before_the_round_reads_the_pushed_head() {
     let (rig, runner) = pushed_once(
         "shep",
-        vec![
-            Scripted::Push("late.txt", "late\n"),
-            Scripted::Text("CLEAN"),
-        ],
+        vec![Scripted::Push("late.txt", "late\n"), Scripted::Text(CLEAN)],
     );
     left_behind(&rig, "late.txt");
     let (head, _) = head_of(&rig);
@@ -115,7 +112,7 @@ fn a_turn_to_push_that_commits_without_pushing_starts_no_review_round() {
         vec![
             Scripted::Commit("late.txt", "late\n"),
             Scripted::Push("more.txt", "more\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ],
     );
     left_behind(&rig, "late.txt");
@@ -436,7 +433,7 @@ fn a_worktree_hiding_a_pushed_path_is_brought_to_the_pushed_head_before_the_revi
     rig.claude.script([
         Scripted::Push("src/lib.rs", "pub fn f() {}\n"),
         Scripted::Say("pulled"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's first turn pushes src/lib.rs
     let worktree = rig.worktree_7();

@@ -219,9 +219,9 @@ fn tenth(pct: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::EPOCH;
 
-    const WEEK_START: u64 = 1_790_000_000;
-    const RESETS: u64 = WEEK_START + 7 * DAY_SECS;
+    const RESETS: u64 = EPOCH + 7 * DAY_SECS;
 
     fn eight() -> KickoffHours {
         KickoffHours::try_from(8).unwrap()
@@ -231,7 +231,7 @@ mod tests {
         Utilization {
             session: Window {
                 used_pct: session,
-                resets_at: Timestamp(WEEK_START + 3 * 3600),
+                resets_at: Timestamp(EPOCH + 3 * 3600),
             },
             week: Window {
                 used_pct: week,
@@ -241,7 +241,7 @@ mod tests {
     }
 
     fn at(day: u64, hour: u64) -> Timestamp {
-        Timestamp(WEEK_START + day * DAY_SECS + hour * 3600)
+        Timestamp(EPOCH + day * DAY_SECS + hour * 3600)
     }
 
     #[test]

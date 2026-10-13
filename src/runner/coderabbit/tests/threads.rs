@@ -2,7 +2,7 @@
 //! the head
 
 use super::{hold_a_finding, now, phase, summoned};
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::{StepReport, step};
 use crate::test::Scripted;
 
@@ -51,7 +51,7 @@ fn a_forge_that_keeps_refusing_to_resolve_lets_the_pass_go_on_after_three_steps(
     rig.ask(&runner, "rule", Some("1 rework guard it too"));
     rig.claude.script([
         Scripted::Push("guard.txt", "guarded\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the noted turn: pushes, and a pass begins
     step(&runner).unwrap(); // round 1, qwen: clean by default

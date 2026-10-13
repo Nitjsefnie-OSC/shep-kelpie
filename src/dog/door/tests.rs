@@ -10,7 +10,7 @@ use crate::lease::door::{NO_E2E_HOST, Visit};
 use crate::lease::gpu::GpuLock;
 use crate::lease::saved::BookFile;
 use crate::review_bot::Reviewers;
-use crate::test::FakeClock;
+use crate::test::{EPOCH, FakeClock};
 
 // A `Visit` made here can be inherited by a child another test forks at
 // that moment, which delays the dog hearing it close until that child
@@ -22,7 +22,7 @@ fn kept(dir: &Path, capacity: u32) -> Arc<Mutex<Kept>> {
     let file = BookFile::new(dir.join("book.json"));
     let mut kept = open_book(
         file,
-        Box::new(FakeClock::at(1_790_000_000)),
+        Box::new(FakeClock::at(EPOCH)),
         GpuLock::under(dir),
         Reviewers::default(),
     );

@@ -9,7 +9,7 @@ use serde_json::json;
 use super::super::{DONE_SETTLE, FAR, FULL_REVIEW, HEARD_WAIT, LABEL, REVIEW_WAIT};
 use super::{coderabbit, cr, fixed, hold_a_finding, labels, now, off, on, reviewed, summoned};
 use crate::lease::wire::WindowFact;
-use crate::ports::{Checks, Timestamp};
+use crate::ports::{CLEAN, Checks, Timestamp};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted, Told};
 
@@ -239,10 +239,8 @@ fn noted_after_a_catch_up(rig: &Rig, runner: &Mutex<Runner>, head: &str) -> Stri
         Some(StepReport::Ruling { id: 1, .. })
     ));
     rig.ask(runner, "rule", Some("1 rework name the flag"));
-    rig.claude.script([
-        Scripted::Push("flag.txt", "named\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("flag.txt", "named\n"), Scripted::Text(CLEAN)]);
     step(runner).unwrap(); // the noted turn: pushes, and a pass begins
     step(runner).unwrap(); // round 1, qwen: clean by default
     step(runner).unwrap(); // round 2, claude: scripted clean above

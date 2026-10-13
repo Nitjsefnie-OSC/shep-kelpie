@@ -4,6 +4,8 @@
 //! would then read as the command, so it is refused. So is a command that is
 //! not one of git's own, since an alias could run anything.
 
+use crate::guard::SHOWN_CHARS;
+
 // Git's own options, in front of its command.
 #[derive(Debug, Default)]
 pub(super) struct Front<'a> {
@@ -90,7 +92,7 @@ const GIT_FLAGS: [&str; 12] = [
 fn unknown_option(option: &str) -> String {
     format!(
         "kelpie cannot read the git option `{}`: run git without it.",
-        option.chars().take(40).collect::<String>()
+        option.chars().take(SHOWN_CHARS).collect::<String>()
     )
 }
 

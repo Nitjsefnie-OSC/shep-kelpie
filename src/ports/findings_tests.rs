@@ -29,8 +29,10 @@ fn well_formed_lines_parse_in_order() {
 
 #[test]
 fn blank_and_malformed_lines_are_skipped() {
-    let text = "\nCLEAN\nnot a finding at all\nMEDIUM|only|two|fields|extra\nMEDIUM|a.rs:no-number|what|why";
-    assert_eq!(parse_findings(text), vec![]);
+    let text = format!(
+        "\n{CLEAN}\nnot a finding at all\nMEDIUM|only|two|fields|extra\nMEDIUM|a.rs:no-number|what|why"
+    );
+    assert_eq!(parse_findings(&text), vec![]);
 }
 
 #[test]

@@ -5,12 +5,12 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use super::{PATIENCE, answered, pm_on, step_until, with_pm};
+use super::{answered, pm_on, step_until, with_pm};
 use crate::ports::AgentError;
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 const CHOICES: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
                        - `--check`\n</kelpie-question>\n";
@@ -400,7 +400,7 @@ fn a_question_waits_at_most_one_wake_for_its_answer() {
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the wake never began");
+    assert!(hold.entered(CALL_PATIENCE), "the wake never began");
     assert!(rig.alerts.posts().is_empty(), "the maintainer waits for it");
 
     rig.clock.advance(10 * 60);

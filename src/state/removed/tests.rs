@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::ports::Timestamp;
-use crate::state::{Finished, ProjectState, StateError, StateStore};
+use crate::state::{Finished, ProjectState, STATE_FILE, StateError, StateStore};
 use crate::test::a_work_item;
 use crate::work_item::{CallKind, Seconds, TimingPhase};
 
@@ -19,7 +19,7 @@ mod timings;
 mod worker;
 
 fn store_in(dir: &Path) -> StateStore {
-    StateStore::new(dir.join("state.json"))
+    StateStore::new(dir.join(STATE_FILE))
 }
 
 // One open work item and one finished, as this build saves them in a
@@ -41,7 +41,7 @@ fn saved_with(dir: &Path, old: impl FnOnce(&mut Value)) -> StateStore {
     let mut value = serde_json::to_value(&state).unwrap();
     value["version"] = json!(2);
     old(&mut value);
-    fs::write(dir.join("state.json"), value.to_string()).unwrap();
+    fs::write(dir.join(STATE_FILE), value.to_string()).unwrap();
     store_in(dir)
 }
 
@@ -136,7 +136,7 @@ fn a_file_with_all_of_them_loads_and_saves_without_them() {
     });
     let state = store.load().unwrap().unwrap();
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     assert!(
         !saved.contains("audit"),
         "the check was saved again: {saved}"
@@ -157,7 +157,7 @@ fn a_pending_whole_issue_check_ruling_is_refused() {
     assert_eq!(
         store.load(),
         Err(StateError::RemovedRuling {
-            path: dir.path().join("state.json"),
+            path: dir.path().join(STATE_FILE),
             id: 4,
             kind: "audit".into(),
         })
@@ -175,12 +175,12 @@ fn a_state_saved_while_the_relay_existed_loads_and_saves_without_its_fields() {
         "rulings":[{"id":1,"question":"q","pull_request":3,"kind":{"kind":"closed"},
                     "alerted":true,"relayed":true,"resend":true}],
         "leases":[]}"#;
-    fs::write(dir.path().join("state.json"), old).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
     let state = store.load().unwrap().unwrap();
     assert!(state.rulings[0].alerted);
 
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     for gone in ["relay_clears", "relayed", "resend"] {
         assert!(!saved.contains(gone), "{gone} was saved again: {saved}");
     }
@@ -195,12 +195,12 @@ fn a_state_saved_with_plans_loads_and_saves_without_them() {
         "plans":[{"issue":5,"stage":{"kind":"closing","failures":1}}],
         "rulings":[{"id":1,"question":"q","pull_request":3,"kind":{"kind":"closed"}}],
         "leases":[]}"#;
-    fs::write(dir.path().join("state.json"), old).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
     let state = store.load().unwrap().unwrap();
     assert_eq!(state.rulings.len(), 1);
 
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     assert!(!saved.contains("plans"), "plans were saved again: {saved}");
 }
 
@@ -220,14 +220,14 @@ fn a_pending_ruling_of_a_removed_kind_is_refused_by_id_and_kind() {
                        {{"id":4,"issue":5,"question":"q","pull_request":null,"kind":{kind}}}],
             "leases":[]}}"#
         );
-        fs::write(dir.path().join("state.json"), old).unwrap();
+        fs::write(dir.path().join(STATE_FILE), old).unwrap();
         let err = store.load().unwrap_err();
         assert_eq!(
             err.to_string(),
             format!(
                 "state file {} holds ruling 4 of kind `{name}`, which this kelpie no longer \
                  has: answer or drop it on the old build first",
-                dir.path().join("state.json").display()
+                dir.path().join(STATE_FILE).display()
             )
         );
     }
@@ -241,7 +241,7 @@ fn other_unknown_fields_are_still_refused() {
         "rulings":[{"id":1,"question":"q","pull_request":3,"kind":{"kind":"closed"},
                     "relayed":false,"pigeon":true}],
         "leases":[]}"#;
-    fs::write(dir.path().join("state.json"), old).unwrap();
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
     let err = store.load().unwrap_err();
     assert!(err.to_string().contains("pigeon"), "{err}");
 }

@@ -1,6 +1,5 @@
 use super::*;
-
-const NOW: u64 = 1_790_000_000;
+use crate::test::EPOCH;
 
 fn files(names: &[&str]) -> Vec<String> {
     names.iter().map(|&n| n.to_owned()).collect()
@@ -13,7 +12,7 @@ fn item(issue: u64, session: Session, files: Files) -> Item {
         title: format!("Issue {issue}"),
         phase: "implementing".into(),
         pull_request: None,
-        opened: Some(Timestamp(NOW - 3 * 3600 - 5 * 60)),
+        opened: Some(Timestamp(EPOCH - 3 * 3600 - 5 * 60)),
         agent: "sonnet-high".into(),
         branch: format!("kelpie/{issue}"),
         session,
@@ -28,13 +27,13 @@ fn item(issue: u64, session: Session, files: Files) -> Item {
 fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
     let events = [BoardEvent {
         id: 41,
-        at: Timestamp(NOW - 60),
+        at: Timestamp(EPOCH - 60),
         what: "ruling 3 on #13 raised: Merge PR #31?".into(),
     }];
     let mut twelve = item(
         12,
         Session::Review {
-            since: Timestamp(NOW - 120),
+            since: Timestamp(EPOCH - 120),
         },
         Files::Diff(files(&["src/a.rs", "src/b.rs"])),
     );
@@ -50,7 +49,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
     thirteen.phase = "parked on ruling 3".into();
     let board = Briefing {
         project: "acme",
-        now: Timestamp(NOW),
+        now: Timestamp(EPOCH),
         active_items: 2,
         pending_rulings: 2,
         held: 2,
@@ -61,8 +60,8 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
             item(
                 11,
                 Session::Turn {
-                    since: Timestamp(NOW - 3600),
-                    last: CallActivity::At(Timestamp(NOW - 50 * 60)),
+                    since: Timestamp(EPOCH - 3600),
+                    last: CallActivity::At(Timestamp(EPOCH - 50 * 60)),
                 },
                 Files::Named(files(&["src/b.rs"])),
             ),
@@ -76,7 +75,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
             question: "Merge PR #31?".into(),
         }],
         ready: Some(Ready {
-            read: Timestamp(NOW - 90),
+            read: Timestamp(EPOCH - 90),
             issues: Vec::new(),
         }),
         events: events.to_vec(),
@@ -184,7 +183,7 @@ fn quoting(body: &str) -> String {
     );
     let board = Briefing {
         project: "acme",
-        now: Timestamp(NOW),
+        now: Timestamp(EPOCH),
         active_items: 2,
         pending_rulings: 2,
         held: 2,
@@ -194,7 +193,7 @@ fn quoting(body: &str) -> String {
         items: vec![seven, eight],
         rulings: Vec::new(),
         ready: Some(Ready {
-            read: Timestamp(NOW),
+            read: Timestamp(EPOCH),
             issues: vec![ReadyLine {
                 number: 9,
                 title: "Nine".into(),

@@ -3,7 +3,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use serde_json::json;
 
@@ -11,10 +10,7 @@ use super::*;
 use crate::lease::gpu::{Attempt, Claim, GpuLock};
 use crate::ports::{Cost, Session, Usage};
 use crate::runner::step;
-use crate::test::{Hold, Rig, Scripted};
-
-// Real threads on real time, so every wait has this ceiling.
-pub(super) const PATIENCE: Duration = Duration::from_secs(30);
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // One hour, the rig's `turn_timeout`
 pub(super) const CEILING: u64 = 3600;
@@ -50,7 +46,7 @@ impl<'a> Driven<'a> {
                 Some(news) => return hear(self.runner, news).unwrap(),
                 None => self
                     .woken
-                    .recv_timeout(PATIENCE)
+                    .recv_timeout(CALL_PATIENCE)
                     .expect("no call in flight had news"),
             }
         }
@@ -67,7 +63,7 @@ impl<'a> Driven<'a> {
                 }
                 None => self
                     .woken
-                    .recv_timeout(PATIENCE)
+                    .recv_timeout(CALL_PATIENCE)
                     .expect("no call in flight ended"),
             }
         }
@@ -154,8 +150,11 @@ fn two_work_items_calls_run_at_once_and_end_in_their_own_order() {
     let driven = Driven::new(&runner);
     driven.started();
     driven.started();
-    assert!(seven.entered(PATIENCE), "#7's turn never began");
-    assert!(eight.entered(PATIENCE), "#8's turn never began beside #7's");
+    assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+    assert!(
+        eight.entered(CALL_PATIENCE),
+        "#8's turn never began beside #7's"
+    );
     assert!(matches!(driven.pass(), Pass::Idle), "a third call started");
     assert_eq!(
         turns(&rig, &runner),
@@ -180,7 +179,7 @@ fn triggers_are_answered_while_calls_run() {
     let driven = Driven::new(&runner);
     driven.started();
     driven.started();
-    assert!(seven.entered(PATIENCE) && eight.entered(PATIENCE));
+    assert!(seven.entered(CALL_PATIENCE) && eight.entered(CALL_PATIENCE));
 
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_items"].as_array().unwrap().len(), 2);
@@ -207,7 +206,7 @@ fn the_pacer_reads_usage_at_each_calls_start() {
     rig.claude.script([Scripted::Hold(seven.clone())]);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(seven.entered(PATIENCE));
+    assert!(seven.entered(CALL_PATIENCE));
 
     // The 5-hour window passes half while #7's turn runs.
     rig.meter.set(Rig::utilization(0, 60));
@@ -228,14 +227,17 @@ fn a_turn_past_its_ceiling_is_ended_and_parked() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE));
+    assert!(hold.entered(CALL_PATIENCE));
 
     rig.clock.advance(CEILING - 1);
     assert!(matches!(driven.pass(), Pass::Idle));
     assert!(!hold.returned(), "the turn was ended before its ceiling");
     rig.clock.advance(1);
     assert!(matches!(driven.pass(), Pass::Idle));
-    assert!(hold.answered(PATIENCE), "the turn ran on past its ceiling");
+    assert!(
+        hold.answered(CALL_PATIENCE),
+        "the turn ran on past its ceiling"
+    );
     let Some(StepReport::TimedOut { issue: 7, id, .. }) = driven.landed() else {
         panic!("a turn past its ceiling raised no ruling");
     };
@@ -259,7 +261,7 @@ fn a_retried_turn_gets_a_whole_ceiling_however_long_the_ruling_waited() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE));
+    assert!(hold.entered(CALL_PATIENCE));
 
     rig.clock.advance(CEILING - 1);
     driven.pass();
@@ -285,14 +287,14 @@ fn a_restart_before_the_ceiling_passes_resumes_with_only_the_time_left() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE));
+    assert!(hold.entered(CALL_PATIENCE));
     rig.clock.advance(CEILING - 2000 - 1);
     driven.pass();
     assert!(!hold.returned(), "ended before the ceiling");
     rig.clock.advance(1);
     driven.pass();
     assert!(
-        hold.answered(PATIENCE),
+        hold.answered(CALL_PATIENCE),
         "the restart reset the ceiling to a fresh hour"
     );
     assert!(matches!(
@@ -310,7 +312,7 @@ fn a_restart_with_calls_in_flight_resumes_each_work_item_from_its_session() {
     let driven = Driven::new(&runner);
     driven.started();
     driven.started();
-    assert!(seven.entered(PATIENCE) && eight.entered(PATIENCE));
+    assert!(seven.entered(CALL_PATIENCE) && eight.entered(CALL_PATIENCE));
     // The runner goes with both calls in flight, as a killed one would.
     drop(driven);
     drop(runner);
@@ -357,7 +359,7 @@ fn a_turn_queued_for_its_lease_gets_its_whole_ceiling_from_the_grant() {
 
     lock.release(round.pid).unwrap();
     assert_eq!(driven.heard(), None, "the grant is not a report");
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(CEILING - 1);
     driven.pass();
     assert!(

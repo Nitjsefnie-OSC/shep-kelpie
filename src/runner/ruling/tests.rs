@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Checks, Cost, Session, Usage};
+use crate::ports::{CLEAN, Checks, Cost, Session, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -195,7 +195,7 @@ fn a_rework_sends_the_note_to_the_worker_and_it_goes_through_review_before_the_n
     );
     rig.claude.script([
         Scripted::Push("rename.txt", "renamed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the noted turn: pushes, enters round 1
     let [first, noted] = rig.claude.calls().try_into().unwrap();
@@ -265,7 +265,7 @@ fn ruling_ids_are_never_given_twice() {
     rig.forge.open_pull_request(72, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::Push("again.txt", "again\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     let head = rig.forge.head_of("kelpie/7").unwrap();
@@ -299,7 +299,7 @@ fn a_no_on_a_commit_pushed_by_hand_has_the_worker_build_on_it_without_force() {
     // A plain push from the worktree: the stand-in panics if it is refused.
     rig.claude.script([
         Scripted::Push("revert.txt", "reverted\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap();
     let noted = rig.claude.calls().pop().unwrap();

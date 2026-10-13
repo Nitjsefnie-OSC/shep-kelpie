@@ -130,6 +130,7 @@ fn pass_on(pid: Option<u32>, signal: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test::CALL_PATIENCE;
 
     #[test]
     fn a_command_crosses_to_the_terminal_whole() {
@@ -213,8 +214,6 @@ mod tests {
         use std::io::{BufRead, BufReader};
         use std::process::Stdio;
 
-        // A session that never ends unless it is told to.
-        const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
         let dir = tempfile::tempdir().unwrap();
         let script = dir.path().join("claude");
         crate::test::write_script(
@@ -243,7 +242,7 @@ mod tests {
         });
         let next = |want: &str| loop {
             let line = lines
-                .recv_timeout(PATIENCE)
+                .recv_timeout(CALL_PATIENCE)
                 .expect("the session went quiet");
             if line.contains(want) {
                 return line;

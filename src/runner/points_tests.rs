@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -412,10 +412,8 @@ fn a_reviewer_s_prompt_the_turn_start_hook_refuses_is_not_sent() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
 
     step(&runner).unwrap(); // the worker's turn
     step(&runner).unwrap(); // review round 1, qwen: clean by default
@@ -446,10 +444,8 @@ fn a_reviewer_skipped_after_the_turn_start_hook_refused_it_names_the_hook_in_the
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
 
     step(&runner).unwrap(); // the worker's turn
     step(&runner).unwrap(); // review round 1, qwen: clean by default
