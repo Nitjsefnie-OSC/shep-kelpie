@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::saved_with;
 use crate::ports::Timestamp;
-use crate::state::{Notice, RulingKind, STATE_FILE};
+use crate::state::{MergeNotice, Notice, RulingKind, STATE_FILE};
 use crate::test::a_work_item_from_before_comments;
 use crate::work_item::{CallKind, ReviewCallState, TimingPhase};
 
@@ -145,11 +145,11 @@ fn a_merge_ruling_and_a_notice_lose_whether_the_shots_failed() {
     );
     assert_eq!(
         state.notices,
-        [Notice {
+        [Notice::Merged(MergeNotice {
             issue: 9,
             pull_request: 91,
             head: "beef".into(),
-        }]
+        })]
     );
 }
 

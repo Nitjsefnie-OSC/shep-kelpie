@@ -61,6 +61,9 @@ pub struct Expert {
     pub votes: u32,
     /// Times it abstained
     pub abstained: u32,
+    /// Times it was ended because the maintainer answered before its vote,
+    /// which `abstained` leaves out
+    pub overtaken: u32,
     /// Votes that were the maintainer's answer
     pub agreed: u32,
     /// Times it was the only one whose vote was the maintainer's answer
@@ -196,6 +199,7 @@ fn count(stand: &mut Standing, record: &Record) {
             .kind
             .map(|kind| expert.by_kind.entry(kind.as_str().to_owned()));
         match &ballot.vote {
+            None if record.overtaken.contains(&ballot.voter) => expert.overtaken += 1,
             None => expert.abstained += 1,
             Some(vote) => {
                 expert.votes += 1;

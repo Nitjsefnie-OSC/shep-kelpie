@@ -36,7 +36,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// The state file's format version. 45 added a red workflow's `reran` and `noticed` and the main-workflow notice, 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
@@ -51,7 +51,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 44;
+pub(crate) const VERSION: u32 = 45;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -465,20 +465,51 @@ pub struct LastRead {
     pub time: Timestamp,
 }
 
-/// A merge kelpie made under `auto`, told to the maintainer after it lands
+/// Something kelpie tells the maintainer after it happens
 ///
 /// Not a ruling: it has no id and takes no answer. It goes once the
-/// webhook post lands.
+/// webhook post lands. The two kinds have no field in common, so a file
+/// from before the second reads as the first.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Notice {
+    /// A merge kelpie made under `auto`
+    Merged(MergeNotice),
+    /// A workflow on `main` that stayed red after a rerun, or went green again
+    Main(MainNotice),
+}
+
+/// A merge kelpie made under `auto`
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Notice {
+pub struct MergeNotice {
     /// The work item's issue
     pub issue: u64,
     /// The pull request merged
     pub pull_request: u64,
     /// The head it merged at
     pub head: String,
+}
+
+/// A workflow on `main` that is red for good or green again
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MainNotice {
+    /// The workflow's name
+    pub workflow: String,
+    /// The run it names: the red one that stayed red, or the green one
+    pub run: u64,
+    /// How long the workflow was red when this was written, in seconds
+    pub red_for: u64,
+    /// The end of the red run's failed log, or none where it could not be
+    /// read, and none for a green notice
+    pub log: String,
+    /// Whether the workflow went green
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub green: bool,
 }
 
 /// What raised a ruling. A no's note, or an answer, always goes to the worker.
