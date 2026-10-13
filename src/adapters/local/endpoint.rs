@@ -320,18 +320,18 @@ impl LocalReviewer {
         let value: Value =
             serde_json::from_str(&body).map_err(|_| ReviewerError::Unreadable(quote(&body)))?;
         let choice = &value["choices"][0];
-        if choice["finish_reason"] == "length"
-            && choice["message"]["content"]
-                .as_str()
-                .is_none_or(str::is_empty)
-        {
+        if choice["finish_reason"] == "length" {
+            let held = match choice["message"]["content"].as_str() {
+                Some(content) if !content.is_empty() => "left its answer unfinished",
+                _ => "held no answer",
+            };
             let tokens = |kind: &str| match value["usage"][kind].as_u64() {
                 Some(n) => n.to_string(),
                 None => "an unknown number of".to_owned(),
             };
             return Err(ReviewerError::Failed(format!(
                 "{}'s reply was cut off (finish_reason \"length\") after {} completion tokens \
-                 of the {asked} asked for, with {} in the prompt, and held no answer",
+                 of the {asked} asked for, with {} in the prompt, and {held}",
                 route.base.as_str(),
                 tokens("completion_tokens"),
                 tokens("prompt_tokens"),

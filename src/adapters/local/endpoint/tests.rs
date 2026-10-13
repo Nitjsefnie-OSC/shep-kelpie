@@ -438,6 +438,35 @@ fn a_reply_cut_off_by_length_says_so() {
 }
 
 #[test]
+fn a_reply_cut_off_by_length_partway_through_its_answer_is_not_taken_as_complete() {
+    let dir = tempfile::tempdir().unwrap();
+    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([Answer::RunsOutSaying(
+        "MEDIUM|src/lib.rs:2|b is new|it matters\nHIGH|src/lib.rs:",
+    )]);
+    let out = dir.path().join("out");
+    let err = LocalReviewer::default()
+        .round(
+            &local(server.url(), 8192),
+            linked(&worktree),
+            "origin/main",
+            &out,
+            1,
+            "",
+        )
+        .unwrap_err();
+    let url = server.url();
+    assert_eq!(
+        err,
+        ReviewerError::Failed(format!(
+            "{url}'s reply was cut off (finish_reason \"length\") after 2048 completion \
+             tokens of the 2048 asked for, with 700 in the prompt, and left its answer unfinished"
+        ))
+    );
+    assert!(!out.join("round-1.txt.done").exists());
+}
+
+#[test]
 fn a_reply_with_no_findings_that_is_not_clean_fails_the_round() {
     let dir = tempfile::tempdir().unwrap();
     let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");

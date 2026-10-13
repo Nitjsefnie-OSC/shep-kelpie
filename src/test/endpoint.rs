@@ -56,6 +56,8 @@ pub(crate) enum Answer {
     /// A reply that spent this many tokens thinking and ran out of them: `finish_reason`
     /// `length`, a null `content` and a `reasoning_content`
     CutOff(u32),
+    /// A reply that ran out of tokens partway through writing this, with `finish_reason` `length`
+    RunsOutSaying(&'static str),
 }
 
 #[derive(Debug, Default)]
@@ -338,6 +340,19 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 .to_string(),
             ),
             Answer::Status(status, body) => (status, body.to_owned()),
+            Answer::RunsOutSaying(content) => (
+                200,
+                json!({
+                    "object": "chat.completion",
+                    "choices": [{
+                        "index": 0,
+                        "message": { "role": "assistant", "content": content },
+                        "finish_reason": "length",
+                    }],
+                    "usage": { "prompt_tokens": 700, "completion_tokens": 2048 },
+                })
+                .to_string(),
+            ),
             Answer::CutOff(tokens) => (
                 200,
                 json!({
