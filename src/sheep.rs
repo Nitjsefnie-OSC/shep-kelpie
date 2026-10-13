@@ -20,7 +20,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, DoorPace, Gh, GpuCurl, LocalReviewer, LoginToken, Openssl,
+    ClaudeCli, Curl, CurlGithub, DoorPace, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken, Openssl,
     ShepLeases, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
@@ -178,6 +178,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         Box::new(Openssl),
         Box::new(SystemClock),
     ));
+    let app_reads = GhApps::new(app_tokens.clone(), &kelpie_home.join("reads"));
     let flock = shepherd::block_on(async {
         let client = shepherd::connect(&shep_home)
             .await
@@ -191,6 +192,7 @@ fn serve(project: &str) -> Result<(), Exit> {
             Arc::new(claude.codex(codex_home.clone())),
         )),
         forge: Arc::new(Gh),
+        app_reads: Some(Arc::new(app_reads)),
         voice: Arc::new(AppVoice::new(app_tokens, Box::new(CurlGithub))),
         meter: Box::new(claude.meter()),
         codex_meter: Box::new(claude.codex_meter(codex_home)),

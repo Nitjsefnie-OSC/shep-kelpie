@@ -40,6 +40,69 @@ pub(super) fn app(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> 
     (line(subject, repo, minted), covered)
 }
 
+/// What each read permission is called in an App's settings
+const READ_PERMISSIONS: [(&str, &str); 4] = [
+    ("issues", "Issues"),
+    ("pull_requests", "Pull requests"),
+    ("checks", "Checks"),
+    ("statuses", "Commit statuses"),
+];
+
+/// The line for who reads `repo`: kelpie's App, which has a rate budget of
+/// its own, where it covers the repo and holds the read permissions, and the
+/// maintainer's own `gh` login for whatever it does not
+pub(super) fn reads(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> Line {
+    let slug = repo.as_str();
+    match github.reader(repo) {
+        Ok(issued) => {
+            let lacking: Vec<&str> = (READ_PERMISSIONS.iter())
+                .filter(|(name, _)| !issued.permissions.contains_key(*name))
+                .map(|(_, shown)| *shown)
+                .collect();
+            if lacking.is_empty() {
+                return Line::ok(
+                    subject,
+                    format!(
+                        "the board, pull request, review and check reads of {slug} go through \
+                         kelpie's App, which has a rate budget of its own"
+                    ),
+                );
+            }
+            let lacking = lacking.join(" and ");
+            Line::unsure(
+                subject,
+                format!(
+                    "the reads of {slug} go through kelpie's App except those that need \
+                     {lacking}, which go through your own gh login"
+                ),
+                format!(
+                    "in the App's settings on GitHub, set Repository permissions, {lacking}, to \
+                     Read-only, then accept the new permission on the installation"
+                ),
+            )
+        }
+        // Not covered: the reads run as the maintainer, as before the App.
+        Err(TokenError::Owner(_) | TokenError::NoApp(_) | TokenError::NotInstalled { .. }) => {
+            Line::ok(
+                subject,
+                format!(
+                    "kelpie's App does not cover {slug}, so every read goes through your own gh login"
+                ),
+            )
+        }
+        Err(TokenError::Api(e)) if e.passes() => {
+            Line::unsure(subject, e.to_string(), "run doctor again")
+        }
+        Err(e) => Line::unsure(
+            subject,
+            format!(
+                "every read of {slug} goes through your own gh login: no reading token mints: {e}"
+            ),
+            "put right what the github app line names",
+        ),
+    }
+}
+
 /// The line for what a worker on `repo` holds: a token that pushes its branch
 /// where the App covers the repo, else the maintainer's own login
 pub(super) fn workers(subject: String, repo: &ForgeSlug, github: &dyn GithubApp) -> Line {

@@ -980,6 +980,7 @@ impl Forge for FakeForge {
     }
 }
 
+mod app;
 mod down;
 mod handed;
 mod issues;

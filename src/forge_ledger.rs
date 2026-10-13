@@ -20,7 +20,7 @@ use crate::ports::Timestamp;
 mod kind;
 mod report;
 
-pub use kind::{Api, Kind};
+pub use kind::{Api, Identity, Kind};
 pub use report::report;
 
 #[cfg(test)]
@@ -56,6 +56,10 @@ pub struct Line {
     pub kind: Kind,
     /// Which API it spent from
     pub api: Api,
+    /// Whose rate budget it spent: the maintainer's login or kelpie's App.
+    /// Lines written before the field was added read as the login's.
+    #[serde(default)]
+    pub by: Identity,
     /// How long it took, in milliseconds; none for a held call
     pub millis: u64,
     /// How it ended
@@ -81,15 +85,21 @@ impl Ledger {
         }
     }
 
-    /// Appends a call of `kind` that ended `ended` after `millis` at `at`. A
-    /// failure is told on stderr, once until an append works again, and goes
-    /// no further: no forge call fails on it.
+    /// Appends a call of the maintainer's login, as [`Ledger::record_by`]
     pub fn record(&self, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
+        self.record_by(Identity::Login, at, kind, millis, ended);
+    }
+
+    /// Appends a call of `kind` made as `by` that ended `ended` after
+    /// `millis` at `at`. A failure is told on stderr, once until an append
+    /// works again, and goes no further: no forge call fails on it.
+    pub fn record_by(&self, by: Identity, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
         let line = Line {
             at,
             project: self.project.clone(),
             kind,
             api: kind.api(),
+            by,
             millis,
             ended,
         };
