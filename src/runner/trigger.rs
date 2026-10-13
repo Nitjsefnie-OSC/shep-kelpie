@@ -192,6 +192,9 @@ pub struct WorkItemStatus<'a> {
     pub phase: &'a Phase,
     /// The worker's draft pull request, once kelpie has seen it
     pub pull_request: Option<u64>,
+    /// The head whose failed CI jobs kelpie reran, while the rerun runs
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerunning: Option<&'a str>,
     /// The reads each review bot has made of its pull request
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub bot_reads: &'a BTreeMap<Bot, u32>,
@@ -255,6 +258,7 @@ impl<'a> WorkItemStatus<'a> {
             turn: &item.turn,
             phase: &item.phase,
             pull_request: item.pull_request,
+            rerunning: item.rerunning(),
             bot_reads: &item.bot_reads,
             bots_skipped: &item.bots_skipped,
             calls: item.calls.len(),

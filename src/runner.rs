@@ -741,6 +741,7 @@ impl Runner {
             pull_request: None,
             phase: Phase::Implement,
             red_head: None,
+            reran: None,
             conflict: None,
             resume: None,
             review_call: ReviewCallState::default(),

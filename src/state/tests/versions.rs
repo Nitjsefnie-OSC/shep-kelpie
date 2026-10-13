@@ -412,3 +412,32 @@ fn a_state_file_without_test_checks_still_loads() {
     );
     assert_eq!(store.load().unwrap(), Some(checked));
 }
+
+// A version 35 file has no `reran`: it loads with none, a work item that reran
+// a head keeps it through a save, and one that did not saves no key.
+#[test]
+fn a_state_file_without_reran_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let state_with = |reran: Option<&str>| {
+        let mut item = a_work_item();
+        item.reran = reran.map(str::to_owned);
+        let mut state = ProjectState::new();
+        state.work_items.push(item);
+        state
+    };
+
+    let mut old = serde_json::to_value(state_with(None)).unwrap();
+    old["version"] = 35.into();
+    assert!(old["work_items"][0].get("reran").is_none(), "{old}");
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state_with(None)));
+
+    let reran = state_with(Some("c0ffee"));
+    store.save(&reran).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["work_items"][0]["reran"], "c0ffee");
+    assert_eq!(store.load().unwrap(), Some(reran));
+}

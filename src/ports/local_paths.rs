@@ -273,6 +273,10 @@ impl Forge for Guarded {
         self.forge.failed_run_logs(repo, head, merge_group)
     }
 
+    fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {
+        self.forge.rerun_failed(repo, head)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.mark_ready(repo, number)
     }

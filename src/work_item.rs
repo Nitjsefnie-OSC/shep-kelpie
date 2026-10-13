@@ -122,6 +122,10 @@ pub struct WorkItem {
     /// The head whose red CI run last went to the worker
     #[serde(default)]
     pub red_head: Option<String>,
+    /// The head whose failed CI jobs kelpie reran, because their logs named no
+    /// file the branch changed. A head is rerun once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reran: Option<String>,
     /// The conflict with `main` that last went to the worker
     #[serde(default)]
     pub conflict: Option<Conflict>,

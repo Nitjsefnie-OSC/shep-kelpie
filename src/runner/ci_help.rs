@@ -84,7 +84,7 @@ mod tests {
     fn on_a_covered_repo_the_prompt_carries_the_failed_logs_instead_of_commands_that_fail() {
         let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::with_app);
         rig.forge
-            .set_ci_log("--- run 9\nerror[E0308]: mismatched types");
+            .set_ci_log("--- run 9\nerror[E0308]: mismatched types\n --> work.txt:1:1");
 
         let prompt = red_prompt(&rig, &runner, &head);
 
@@ -111,7 +111,7 @@ mod tests {
 
         // Covered by the App: kelpie carries the logs.
         let (rig, runner, head) = Rig::with_pull_request_set("koji", Rig::with_app);
-        rig.forge.set_ci_log("--- run 9\nerror[E0308]");
+        rig.forge.set_ci_log("--- run 9\nerror[E0308] work.txt");
         let prompt = red_prompt(&rig, &runner, &head);
         assert!(!prompt.contains("lease e2e"), "{prompt}");
 
@@ -119,7 +119,7 @@ mod tests {
             rig.with_app();
             rig.e2e_on();
         });
-        rig.forge.set_ci_log("--- run 9\nerror[E0308]");
+        rig.forge.set_ci_log("--- run 9\nerror[E0308] work.txt");
         let prompt = red_prompt(&rig, &runner, &head);
         assert!(prompt.contains("error[E0308]"), "{prompt}");
         assert!(prompt.contains(E2E), "{prompt}");
