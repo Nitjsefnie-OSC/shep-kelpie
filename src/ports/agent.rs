@@ -140,6 +140,11 @@ pub struct Reach {
     /// The code graph server it is given, where the project turns it on and
     /// the call is a worker's or a reviewer's on Claude Code
     pub code_graph: Option<CodeGraph>,
+    /// The MCP servers of the repo's plugins and of its `.mcp.json`, by the
+    /// name their tools are allowed under, each as Claude Code's `mcpServers`
+    /// entry. They run inside the call's sandbox, so the hosts they reach
+    /// still need the call's allowed domains.
+    pub mcp_servers: BTreeMap<String, serde_json::Value>,
 }
 
 /// The code graph of a worktree, served to a session over MCP

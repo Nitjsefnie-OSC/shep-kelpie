@@ -16,6 +16,7 @@ use serde::Deserialize;
 use super::local::EndpointUrl;
 use super::reviewers::lowercase_name;
 use super::{AgentName, SettingsError};
+use crate::adapters::openai_gateway::OpenAi;
 use crate::adapters::paddock::{Paddock, Timing};
 use crate::agents::Agents;
 use crate::forwarder::Upstream;
@@ -58,6 +59,10 @@ pub enum GatewayKind {
     /// Paddock, a shep dog, which checks keys and leases models by its own routes
     #[default]
     Paddock,
+    /// Any OpenAI-compatible gateway, such as LiteLLM, OpenRouter or a bare
+    /// llama.cpp server: it knows nothing of paddock's routes, so it offers no
+    /// lease and a model it runs a turn on may be evicted
+    Openai,
 }
 
 /// One gateway in kelpie's own settings
@@ -219,6 +224,7 @@ impl Gateways {
             GatewayKind::Paddock => Box::new(Paddock {
                 timing: self.paddock,
             }),
+            GatewayKind::Openai => Box::new(OpenAi),
         }
     }
 

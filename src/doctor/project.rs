@@ -121,6 +121,7 @@ pub(super) fn checks(
         lines.push(code_graph(at("code graph"), &paths));
     }
     lines.extend(repo_plugins(at("repo plugins"), &settings, here));
+    lines.extend(super::mcp::hosts(at("repo mcp servers"), &settings, here));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
     lines.push(line);
     // The forge lines need the repo, and the checkout line says why when it is unknown.

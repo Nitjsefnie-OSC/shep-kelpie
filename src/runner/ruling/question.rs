@@ -83,6 +83,7 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 head,
                 checks,
                 fix_turns: None,
+                ..
             } => format!(
                 "CI failed again on {about} at {}, and the worker pushed \
                  no fix: {}. {yes} has kelpie look again",
@@ -93,6 +94,7 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 head,
                 checks,
                 fix_turns: Some(turns),
+                ..
             } => format!(
                 "CI failed on {about} at {}: {}. {}, and the cap `ci.fix_attempts` sets is \
                  reached. {yes} has kelpie look again",

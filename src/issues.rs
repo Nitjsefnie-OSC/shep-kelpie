@@ -20,6 +20,7 @@
 //! time the issue writer needs it, since the forge refuses a label the repo
 //! lacks.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -272,6 +273,7 @@ fn reach(
         fence: Some(Box::new(fence)),
         block_keychain: false,
         code_graph: None,
+        mcp_servers: BTreeMap::new(),
     })
 }
 
@@ -307,8 +309,9 @@ pub fn headless(
     // Not through the runner, so its plugins are loaded here, into a folder of
     // the run's own that the runner's `skills/repo` never shares.
     let skills = folder.join(format!("{}.skills", session.0));
-    let plugins = repo_plugins(project, writer, &skills, git, &checkout);
-    let call = call(project, writer, request, &session, &checkout, &plugins)?;
+    let (plugins, servers) = repo_plugins(project, writer, &skills, git, &checkout);
+    let mut call = call(project, writer, request, &session, &checkout, &plugins)?;
+    call.reach.mcp_servers = servers;
     let started = SystemClock.now();
     let ran = agents
         .prepare(&call)
@@ -375,17 +378,18 @@ fn record(
 
 // The plugins the repo turns on and the project adds, written under `skills`,
 // when `repo_setup.roles` gives the issue writer them. One that cannot load is
-// told and let go, as the runner logs it.
+// told and let go, as the runner logs it. Their MCP servers come with them, for a harness that
+// takes an MCP config.
 fn repo_plugins(
     project: &Project<'_>,
     writer: &Writer,
     skills: &Path,
     git: &dyn ports::Git,
     view: &Path,
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, skills::Servers) {
     let setup = &project.settings.repo_setup;
     if !setup.reaches(ports::Role::IssueWriter) {
-        return Vec::new();
+        return (Vec::new(), skills::Servers::new());
     }
     let paths = project.paths;
     let checkout = &project.settings.git.checkout;
@@ -397,7 +401,14 @@ fn repo_plugins(
     // repo's own files from. Codex and pi do not, so they get the plugin.
     let own_loaded =
         writer.model.harness.reads_claude_files() && crate::fence::matches_main(checkout, view);
-    loaded.dirs(own_loaded).map(Path::to_owned).collect()
+    let servers = match writer.model.harness.reads_claude_files() {
+        true => loaded.mcp_servers(),
+        false => skills::Servers::new(),
+    };
+    (
+        loaded.dirs(own_loaded).map(Path::to_owned).collect(),
+        servers,
+    )
 }
 
 // The headless session's call: fresh, in `checkout`, prompted with the request.

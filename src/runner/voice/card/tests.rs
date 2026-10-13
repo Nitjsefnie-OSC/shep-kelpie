@@ -164,6 +164,7 @@ fn a_stuck_ruling_takes_a_yes_or_a_no_and_carries_the_project_managers_words() {
         head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
         checks: vec!["test".into(), "clippy".into()],
         fix_turns: Some(2),
+        review: None,
     });
     let words = "The failure is a flaky network test, so one rerun should clear it.";
 

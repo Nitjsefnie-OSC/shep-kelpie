@@ -6,7 +6,8 @@
 //! through `curl`, and each reply is read in the findings format. The agent
 //! file's body, if it has one, replaces what the prompt asks to report.
 //! A gateway's key reaches `curl` on its stdin, never in its arguments, and
-//! a round behind one holds the gateway's lease on its model across every chunk.
+//! a round behind one holds the gateway's lease on its model across every chunk
+//! and asks for batch priority on each chunk's request.
 //! Requests and replies are kept under the round's folder, beside the
 //! `round-N.txt` and its completion marker a command would write.
 
@@ -261,6 +262,7 @@ impl LocalReviewer {
             .arg(&url);
         let config = match &route.key {
             Some(key) => {
+                command.args(["-H", "X-Paddock-Priority: batch"]);
                 command.args(["--config", "-"]);
                 let header = format!("Authorization: Bearer {}", key.expose());
                 crate::adapters::curl::render(&[("header", header)])

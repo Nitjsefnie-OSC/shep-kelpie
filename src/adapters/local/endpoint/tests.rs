@@ -538,6 +538,59 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease() {
 }
 
 #[test]
+fn a_round_behind_a_gateway_asks_for_batch_on_its_chat_call_alone_and_a_plain_url_sends_none() {
+    use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
+    let dir = tempfile::tempdir().unwrap();
+    let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)]).like_paddock("pk-r", &[]);
+    let name = GatewayName::try_from("paddock".to_owned()).unwrap();
+    let gateway = Gateway {
+        kind: GatewayKind::Paddock,
+        url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    let table = std::collections::BTreeMap::from([(name.clone(), gateway)]);
+    let reviewer =
+        LocalReviewer::default().with_gateways(Gateways::reading(table, |_| Some("pk-r".into())));
+    let LocalRound::Endpoint(mut endpoint) = local("http://unused/v1", 8192) else {
+        unreachable!()
+    };
+    endpoint.host = ModelHost::Gateway(name);
+    let round = LocalRound::Endpoint(endpoint);
+    reviewer.check(&round).unwrap();
+    let out = dir.path().join("out");
+    let findings = reviewer.round(&round, linked(&checkout), "origin/main", &out, 1, "");
+    assert_eq!(findings, Ok(Vec::new()));
+    let seen = server.seen();
+    let chat = seen
+        .iter()
+        .position(|l| l.contains("/chat/completions"))
+        .unwrap();
+    let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
+    for (at, headers) in server.paddock_headers().into_iter().enumerate() {
+        let expected = if at == chat {
+            batch.clone()
+        } else {
+            Vec::new()
+        };
+        assert_eq!(headers, expected, "{}", seen[at]);
+    }
+
+    let plain = StandInEndpoint::start([Answer::Says(CLEAN)]);
+    let reviewer = LocalReviewer::default();
+    let findings = reviewer.round(
+        &local(plain.url(), 8192),
+        linked(&checkout),
+        "origin/main",
+        &out,
+        1,
+        "",
+    );
+    assert_eq!(findings, Ok(Vec::new()));
+    assert_eq!(plain.paddock_headers(), [Vec::<(String, String)>::new()]);
+}
+
+#[test]
 fn a_round_waiting_for_its_turn_behind_a_gateway_queues_until_it_is_granted() {
     use crate::adapters::paddock::Timing;
     use crate::ports::RoundStage;

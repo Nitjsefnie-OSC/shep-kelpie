@@ -173,6 +173,7 @@ impl Runner {
             })),
             block_keychain: false,
             code_graph: None,
+            mcp_servers: BTreeMap::new(),
         }
     }
 }
