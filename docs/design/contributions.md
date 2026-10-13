@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), and runs nothing of theirs. #617, #618, #619
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), and runs nothing of theirs. #617, #618, #619, #625
 
 ## Settings
 

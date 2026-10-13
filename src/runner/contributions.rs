@@ -23,6 +23,7 @@
 //! ([`budget`]).
 
 mod budget;
+mod heard;
 mod ruling;
 mod security;
 
@@ -105,14 +106,9 @@ impl Runner {
             followed.push(match known {
                 Some(known) if known.head == pr.commit => known.clone(),
                 // A new head is unread, and the last head that passed stays the
-                // one it is read since.
-                // What it has spent is the contribution's, not the head's.
-                _ => Contribution {
-                    passed: known.and_then(|k| k.passed.clone()),
-                    spend: known.map(|k| k.spend).unwrap_or_default(),
-                    budget_raises: known.map_or(0, |k| k.budget_raises),
-                    ..Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
-                },
+                // one it is read since. The push is heard.
+                Some(known) => known.pushed(pr.commit.clone(), now),
+                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now),
             });
         }
         // Oldest first: the ones already followed keep their places
@@ -134,6 +130,8 @@ impl Runner {
 
 #[cfg(test)]
 mod budget_tests;
+#[cfg(test)]
+mod heard_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

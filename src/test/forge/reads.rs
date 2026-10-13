@@ -29,6 +29,32 @@ impl FakeForge {
         prs.get_mut(&number).expect("an opened pull request").draft = draft;
     }
 
+    /// Whether pull request `number` is a draft
+    pub(crate) fn draft(&self, number: u64) -> bool {
+        let prs = self.pull_requests.lock().unwrap();
+        prs.get(&number).expect("an opened pull request").draft
+    }
+
+    /// Marks pull request `number` ready, as someone other than kelpie would
+    pub(crate) fn ready_pull_request(&self, number: u64) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        prs.get_mut(&number).expect("an opened pull request").draft = false;
+    }
+
+    /// Makes pull request `number` merge into `base` rather than `main`
+    pub(crate) fn set_base(&self, number: u64, base: &str) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        prs.get_mut(&number).expect("an opened pull request").base = base.to_owned();
+    }
+
+    /// Makes pull request `number` come from a fork's branch
+    pub(crate) fn set_from_fork(&self, number: u64) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        prs.get_mut(&number)
+            .expect("an opened pull request")
+            .from_fork = true;
+    }
+
     pub(super) fn count_review(&self, number: u64) {
         let mut counts = self.review_counts.lock().unwrap();
         *counts.entry(number).or_default() += 1;

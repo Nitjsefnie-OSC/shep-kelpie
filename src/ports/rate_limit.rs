@@ -351,6 +351,17 @@ impl Forge for RateHeld {
         self.call(Kind::CommentsSince, |f| f.comments_since(repo, since))
     }
 
+    fn thread_replies_since(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.call(Kind::ThreadReplies, |f| {
+            f.thread_replies_since(repo, number, since)
+        })
+    }
+
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.call(Kind::CanWrite, |f| f.can_write(repo, login))
     }

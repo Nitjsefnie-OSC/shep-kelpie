@@ -1,0 +1,8 @@
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+{"comments":{"nodes":[
+{"databaseId":3000,"body":"_Potential issue_ | _Minor_\n\nThis loses the trailing newline.","createdAt":"2026-10-10T05:25:00Z","author":{"login":"coderabbitai","__typename":"Bot"}},
+{"databaseId":3001,"body":"Fixed in 2a8f1e6.","createdAt":"2026-10-10T05:31:54Z","author":{"login":"newcomer","__typename":"User"}},
+{"databaseId":3002,"body":"Thanks, one more look.","createdAt":"2026-10-10T05:33:20Z","author":{"login":"Boss","__typename":"User"}}]}},
+{"comments":{"nodes":[
+{"databaseId":3003,"body":"nit: rename this","createdAt":"2026-10-10T05:35:00Z","author":{"login":"coderabbitai","__typename":"Bot"}},
+{"databaseId":3004,"body":null,"createdAt":"2026-10-10T05:36:40Z","author":null}]}}]}}}}}
