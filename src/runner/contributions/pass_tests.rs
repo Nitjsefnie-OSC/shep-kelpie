@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::budget_tests::settle;
 use super::security_tests::{commit_on, contribute, contribution};
@@ -425,7 +425,7 @@ fn a_reviewer_session_that_fails_is_tried_three_times_then_passed_over() {
 }
 
 #[test]
-fn a_pass_cut_off_by_the_ceiling_still_counts_what_it_spent() {
+fn a_pass_past_its_ceiling_ends_unread_and_counts_what_it_spent() {
     let (rig, runner) = listing(&["haiku", "mine"]);
     let hold = Hold::default();
     rig.claude.script([
@@ -449,4 +449,12 @@ fn a_pass_cut_off_by_the_ceiling_still_counts_what_it_spent() {
 
     let held = contribution(&rig, &runner);
     assert_eq!(held["spend"], 5 * Cost::PER_CENT);
+    let why = held["pass"]["unread"].as_str().unwrap();
+    assert!(why.contains("haiku") && why.contains("ceiling"), "{why}");
+    assert_eq!(held["pass"]["ran"], json!(["haiku"]));
+    assert_eq!(
+        asked(&rig),
+        Vec::<String>::new(),
+        "no reviewer gets another turn"
+    );
 }

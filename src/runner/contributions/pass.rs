@@ -82,6 +82,8 @@ enum Turn {
     Failed(String),
     // The runner stopped the call
     Stopped,
+    // The pass ran past its ceiling, and the call was ended
+    TimedOut,
 }
 
 impl Runner {
@@ -288,6 +290,11 @@ impl Job {
                     walked.nothing.push(r.name.clone());
                     missed.push(format!("{} reviewed no file", r.name));
                 }
+                // No time is left for another reviewer, so the pass ends unread.
+                Turn::TimedOut => {
+                    missed.push(format!("{} ran past the pass's ceiling", r.name));
+                    return self.ended(ran, None, missed, walked);
+                }
                 Turn::Failed(why) => {
                     missed.push(format!(
                         "{} was passed over after its calls kept failing: {why}",
@@ -348,9 +355,10 @@ impl Job {
             match asked {
                 Ok(turn) => return turn,
                 Err(Stop::Stopped) => return Turn::Stopped,
-                // Past its ceiling the call is ended, which a harness reports
-                // as a failure, and no other attempt or reviewer gets a turn.
-                Err(Stop::Failed(_)) if ending.asked() => return Turn::Stopped,
+                Err(Stop::TimedOut) => return Turn::TimedOut,
+                // Past its ceiling the call is ended, which a harness may
+                // report as a failure, and no other attempt gets a turn.
+                Err(Stop::Failed(_)) if ending.asked() => return Turn::TimedOut,
                 Err(Stop::Failed(reason)) => {
                     eprintln!(
                         "contribution #{}: {} failed: {reason}",
@@ -428,6 +436,7 @@ impl Job {
         let reply = match ran {
             Ok(reply) => reply,
             Err(AgentError::Stopped) => return Err(Stop::Stopped),
+            Err(AgentError::TimedOut(_)) => return Err(Stop::TimedOut),
             Err(e) => return Err(Stop::Failed(e.to_string())),
         };
         // A fresh session, so what it has cost is what this call did.
@@ -442,6 +451,7 @@ impl Job {
 // Why a call did not come to an answer
 enum Stop {
     Stopped,
+    TimedOut,
     Failed(String),
 }
 
