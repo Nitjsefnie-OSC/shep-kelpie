@@ -326,6 +326,9 @@ impl Agents for FakeClaude {
             record: call.settings.with_extension("call.json"),
             resumes: Some(call.session.id().clone()),
             flying: *flying,
+            harness: crate::settings::Harness::ClaudeCode,
+            kept: None,
+            session: None,
         })
     }
 

@@ -1,6 +1,6 @@
 # Workers
 
-Runner loop, worker turns, fences, skills, agents and harnesses.
+Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are in skills.md.
 
 ## Runner and turns
 
@@ -36,15 +36,6 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Guard refuses `claude`, `codex`, `pi` as programs (model endpoint open to process; nested session runs without hooks). `src/guard.rs`
 - Linux: srt skips `denyWrite` globs, so `fence::deny_write` also lists nested harness folders present at call start (bounded walk, `src/fence/nested.rs`); one made during a call is caught by the check against `main` after it. srt also refuses every Unix socket there, so no worker reaches the dog's door and `cargo-test` runs unleased; `doctor` says so. #488
 - Each harness declares run-code + login files; fence holds all, so one harness's call can't plant or read another's. #233
-
-## Skills
-
-- Every step runs a skill: mattpocock/skills vendored + pinned in `skills/`, kelpie prompts as fallback; `[skills]` overrides a step. #147, `src/skills.rs`
-- Skills byte-identical; kelpie headless rules win (decide and record, no sub-agents, kelpie reply format, no own `/code-review`). Skill that can't load runs kelpie prompt, logged (unknown slash command passes as text). #170, #147
-- Plugins enabled in `.claude/settings.json` on `origin/main` reach every agent (skills, agents, commands, hooks, MCP), never from a worker branch. Sources: plain git transports, no `-` or `::` addresses, no links or `..` (default branch settings aren't maintainer's alone). #569, #570
-- The repo's own `.claude/skills`, `agents`, `commands` and the `hooks` of `.claude/settings.json`, read from `origin/main`, are one more plugin, `kelpie-repo`, for every call; a Claude Code call in a worktree whose agent files equal `main`'s (`fence::matches_main`) loads them there and skips it. `repo_setup.own = false` leaves it out. #591, `src/skills/repo/own.rs`
-- A plugin's MCP servers and `.mcp.json` on `origin/main` join the call's `--mcp-config` and `permissions.allow` per `parts` and `roles`; not `Retro` calls. #573, `src/adapters/claude/mcp.rs`
-- `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any, `skip` drops `name@marketplace` ids, `parts` picks which of a plugin's parts load (a plugin's hooks stay in its own `hooks/hooks.json`, so they cannot replace kelpie's), `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. The CLI's headless issue writer isn't the runner, so it loads them itself into a per-run folder. #571
 
 ## Not built
 

@@ -65,6 +65,7 @@ impl Runner {
             .chain(replies.iter().map(|c| (Where::Review, c)))
             .collect();
         all.sort_by_key(|(_, c)| (c.created, c.id));
+        let now = self.ports.clock.now();
         let mut next = self.state.clone();
         for (place, comment) in all {
             let Some(contribution) =
@@ -89,7 +90,9 @@ impl Runner {
                 continue;
             }
             if comment.author.eq_ignore_ascii_case(&contribution.author) {
-                contribution.hear(said);
+                if contribution.hear(said) {
+                    contribution.restart_clock(at, now);
+                }
             } else if is(&maintainer, &comment.author) {
                 contribution.overhear(said);
             }

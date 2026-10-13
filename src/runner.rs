@@ -679,7 +679,7 @@ impl Runner {
             parked: self.parked_issues(),
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
-            contributions: &self.state.contributions,
+            contributions: self.followed_status(now),
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             red_workflows: self.red_status(now),

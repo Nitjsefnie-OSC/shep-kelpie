@@ -16,7 +16,7 @@ use crate::ports::{SessionId, Timestamp};
 use crate::review_bot::Bot;
 use crate::settings::{AgentName, Merging, PerItemUsd};
 use crate::skills::{RepoPlugin, StepSkill};
-use crate::state::{Contribution, Finished, LeaseHeld, Ruling, StateError, Waiting};
+use crate::state::{Finished, LeaseHeld, Ruling, StateError, Waiting};
 use crate::work_item::{
     Attached, BotSkipped, Phase, QwenTally, Spend, Split, TestCheck, Turn, WorkItem,
 };
@@ -82,8 +82,8 @@ pub struct Status<'a> {
     pub adopted: &'a [Waiting],
     /// The pull requests from other people the board follows, oldest first;
     /// left out when it follows none
-    #[serde(skip_serializing_if = "<[Contribution]>::is_empty")]
-    pub contributions: &'a [Contribution],
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub contributions: Vec<super::contributions::Followed<'a>>,
     /// The first issues in the order the board takes the ready ones, which
     /// holds those it would pass over too
     pub order: &'a [u64],

@@ -16,7 +16,7 @@ use crate::test::{OpenSandbox, write_script};
 const IMAGE: &str = "sheep::handover::tests::exec::an_image_of_the_runner";
 
 // Names the folder the images share, and so that one is the driver's to run.
-const FOLDER: &str = "KELPIE_HANDOVER_TEST_FOLDER";
+pub(super) const FOLDER: &str = "KELPIE_HANDOVER_TEST_FOLDER";
 
 const RESULT: &str = include_str!("../../../../fixtures/claude-p-result.json");
 
@@ -68,11 +68,11 @@ fn an_image_of_the_runner() {
     }
 }
 
-fn read(folder: &Path, name: &str) -> String {
+pub(super) fn read(folder: &Path, name: &str) -> String {
     std::fs::read_to_string(folder.join(name)).unwrap_or_default()
 }
 
-fn write(folder: &Path, name: &str, text: &str) {
+pub(super) fn write(folder: &Path, name: &str, text: &str) {
     std::fs::write(folder.join(name), text).unwrap();
 }
 
@@ -81,7 +81,10 @@ fn agents(rig: &Rig, folder: &Path) -> ClaudeCli {
         .sandboxed(Arc::new(OpenSandbox::default()), rig.home.path().to_owned())
 }
 
-fn worker_of(runner: &Arc<Mutex<Runner>>, handover: Arc<Handing>) -> (Worker, Sender<()>) {
+pub(super) fn worker_of(
+    runner: &Arc<Mutex<Runner>>,
+    handover: Arc<Handing>,
+) -> (Worker, Sender<()>) {
     let (wake, woken) = mpsc::channel();
     let (died, _) = mpsc::channel();
     let hooks = Hooks {

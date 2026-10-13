@@ -69,7 +69,7 @@ impl Carry {
 }
 
 impl State for Carry {
-    const FORMAT: u32 = 1;
+    const FORMAT: u32 = 3;
 }
 
 /// Replaces this image with the installed build carrying `carry`, and
@@ -228,21 +228,24 @@ fn exec_installed(carry: &Carry, check: bool) -> String {
     // this runner is the check's, since a build that fails after the exec
     // would leave the runner stopped with its calls running.
     let gate = |target: &Path| {
-        if crate::adapters::feeding() {
-            return Verdict::Refused("a child's stdin began to be written".into());
-        }
         let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-        match check
-            .then(|| starts(target, &args, CHECK_WITHIN))
-            .transpose()
-        {
-            Ok(_) => Verdict::Carryable,
-            Err(why) => Verdict::Refused(why),
-        }
+        fitness(target, &args, check, &crate::adapters::feeding)
     };
     match Handover::new(carry).exec(&gate) {
         Err(e) => e.to_string(),
         Ok(never) => match never {},
+    }
+}
+
+// Whether `target` may be exec'd. The feed is asked last, since the start
+// check takes seconds in which a child's stdin or a relayed reply may begin.
+fn fitness(target: &Path, args: &[OsString], check: bool, feeding: &dyn Fn() -> bool) -> Verdict {
+    if check && let Err(why) = starts(target, args, CHECK_WITHIN) {
+        return Verdict::Refused(why);
+    }
+    match feeding() {
+        true => Verdict::Refused("a child's stdin began to be written".into()),
+        false => Verdict::Carryable,
     }
 }
 

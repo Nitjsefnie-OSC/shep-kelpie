@@ -11,23 +11,36 @@ pub struct Routed {
     claude_code: Arc<dyn Agents>,
     pi: Arc<dyn Agents>,
     codex: Arc<dyn Agents>,
+    goose: Arc<dyn Agents>,
 }
 
 impl Routed {
-    /// Claude Code's calls to `claude_code`, pi's to `pi` and Codex's to `codex`
-    pub fn new(claude_code: Arc<dyn Agents>, pi: Arc<dyn Agents>, codex: Arc<dyn Agents>) -> Self {
+    /// Claude Code's calls to `claude_code`, pi's to `pi`, Codex's to `codex`
+    /// and goose's to `goose`
+    pub fn new(
+        claude_code: Arc<dyn Agents>,
+        pi: Arc<dyn Agents>,
+        codex: Arc<dyn Agents>,
+        goose: Arc<dyn Agents>,
+    ) -> Self {
         Self {
             claude_code,
             pi,
             codex,
+            goose,
         }
     }
 
     fn adapter(&self, call: &AgentCall) -> &dyn Agents {
-        match call.harness.harness() {
+        self.adapter_of(call.harness.harness())
+    }
+
+    fn adapter_of(&self, harness: Harness) -> &dyn Agents {
+        match harness {
             Harness::ClaudeCode => self.claude_code.as_ref(),
             Harness::Pi => self.pi.as_ref(),
             Harness::Codex => self.codex.as_ref(),
+            Harness::Goose => self.goose.as_ref(),
             #[cfg(test)]
             Harness::StandIn => self.claude_code.as_ref(),
         }
@@ -53,9 +66,8 @@ impl Agents for Routed {
         self.adapter(call).adoption(call)
     }
 
-    // Only Claude Code's calls are ever adopted.
     fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.claude_code.adopt(adopted, ending)
+        self.adapter_of(adopted.harness).adopt(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
@@ -121,8 +133,15 @@ mod tests {
             Arc::new(Named("claude")),
             Arc::new(Named("pi")),
             Arc::new(Named("codex")),
+            Arc::new(Named("goose")),
         );
         let pi = AgentHarness::Pi(ModelServer {
+            host: crate::settings::ModelHost::Url(
+                EndpointUrl::try_from("http://box:11434/v1".to_owned()).unwrap(),
+            ),
+            context: ContextSize::try_from(65_536).unwrap(),
+        });
+        let goose = AgentHarness::Goose(ModelServer {
             host: crate::settings::ModelHost::Url(
                 EndpointUrl::try_from("http://box:11434/v1".to_owned()).unwrap(),
             ),
@@ -132,6 +151,7 @@ mod tests {
             (AgentHarness::ClaudeCode, "claude"),
             (pi, "pi"),
             (AgentHarness::Codex, "codex"),
+            (goose, "goose"),
         ];
         for (harness, name) in harnesses {
             let call = call(harness);

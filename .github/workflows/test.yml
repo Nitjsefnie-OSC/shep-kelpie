@@ -70,7 +70,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
+      # The runner's own `TMPDIR` under /var/folders is too deep for a rig's
+      # pi forwarder socket, three folders below its home, to stay under
+      # macOS's 104 bytes. `runner.temp` is short, as a real `SHEP_HOME` is.
       - run: cargo test --locked
+        env:
+          TMPDIR: ${{ runner.temp }}
 
   # The tests `#[ignore]`d for needing a real shepherd. One of them is the
   # only test that sees shep answer `NotFound`, which the fake shepherd

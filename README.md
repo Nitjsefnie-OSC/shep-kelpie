@@ -50,7 +50,7 @@ You need these on your machine:
 - on Linux, `bwrap` and `socat`, which the sandbox needs. There the sandbox fences a nested `.claude` or `.codex` folder only if it exists when a call starts (a new one is caught after the call), and a worker cannot reach the dog's lease door, so its `cargo-test` runs unleased. `shep kelpie doctor` says so
 - `git`, and `gh` signed in to the account that opens the pull requests
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
-- `pi` or `codex`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))
+- `pi`, `codex` or `goose`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))
 - a GitHub repo whose default branch is `main`, and a checkout of it
 
 A runner is a sheep, so it gets the `PATH` your shepherd was started with, and it needs `claude`, `node`, `gh` and `git` on it. `shep kelpie doctor` runs in your shell, not the shepherd's, so it can pass while a runner fails to find one. Start the shepherd from a shell where `command -v claude node gh git` finds all four.

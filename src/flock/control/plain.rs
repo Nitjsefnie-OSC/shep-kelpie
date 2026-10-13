@@ -165,7 +165,26 @@ fn contributions(status: &Value, lines: &mut Vec<String>) {
             contribution["pull_request"],
             head.get(..7).unwrap_or(head),
         ));
+        if let Some(clock) = contribution.get("clock") {
+            lines.push(format!("      {}", waiting(clock)));
+        }
     }
+}
+
+// What a contribution's clock says: whose move it is and when the nudge is
+fn waiting(clock: &Value) -> String {
+    let days = |key: &str| clock[key].as_u64().unwrap_or(0);
+    let due = clock["due"].as_str();
+    let nudge = match due {
+        Some(_) => "nudge due".to_owned(),
+        None => format!("nudge in {}d", days("days_to_nudge")),
+    };
+    let quiet = match due {
+        Some("quiet") => "quiet".to_owned(),
+        _ => format!("quiet in {}d", days("days_to_quiet")),
+    };
+    let waited = days("waiting_for") / 86_400;
+    format!("waiting on the contributor for {waited}d, {nudge}, {quiet}")
 }
 
 fn pull_request(number: &Value) -> String {

@@ -4,6 +4,7 @@ use super::{CLAUDE, ClaudeCli, parse_result};
 use crate::adapters::process::record::{CallFiles, Record};
 use crate::adapters::process::{RunError, Sealed};
 use crate::ports::{Adopted, AgentCall, AgentError, AgentReply, Ending, Role, Session};
+use crate::settings::Harness;
 
 impl ClaudeCli {
     /// Stops this runner's calls from ending, so a handover can carry them,
@@ -14,7 +15,7 @@ impl ClaudeCli {
 
     /// What finishes `call` on another image, if it runs now as a worker's
     /// call that left a record, or why nothing does
-    pub(super) fn adoption_of(call: &AgentCall) -> Result<Adopted, String> {
+    pub(in crate::adapters) fn adoption_of(call: &AgentCall) -> Result<Adopted, String> {
         if call.role != Role::Worker {
             return Err("only a worker's call is carried".into());
         }
@@ -29,6 +30,9 @@ impl ClaudeCli {
                 Session::Resume(id) => Some(id.clone()),
                 Session::New(_) => None,
             },
+            harness: Harness::ClaudeCode,
+            kept: None,
+            session: None,
         })
     }
 

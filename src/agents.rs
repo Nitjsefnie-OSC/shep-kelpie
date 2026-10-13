@@ -205,6 +205,10 @@ impl Runs {
                 AgentHarness::Pi(ModelServer {
                     host: ModelHost::Gateway(name),
                     ..
+                })
+                | AgentHarness::Goose(ModelServer {
+                    host: ModelHost::Gateway(name),
+                    ..
                 }) => Some((name, model.model.as_str())),
                 _ => None,
             },

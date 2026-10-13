@@ -64,7 +64,7 @@ impl fmt::Display for AgentName {
 }
 
 /// The program that runs an agent's sessions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Harness {
     /// Claude Code, headless as `claude -p`
@@ -73,6 +73,8 @@ pub enum Harness {
     Pi,
     /// Codex, headless as `codex exec`, on the ChatGPT account it is logged in to
     Codex,
+    /// goose, headless as `goose run`, on a model an OpenAI-compatible server runs
+    Goose,
     /// The test rig's stand-in, which takes any `usage`, so the runner's
     /// pacing can be tested before a second harness exists
     #[cfg(test)]
@@ -87,6 +89,7 @@ impl Harness {
             Self::ClaudeCode => "claude-code",
             Self::Pi => "pi",
             Self::Codex => "codex",
+            Self::Goose => "goose",
             #[cfg(test)]
             Self::StandIn => "stand-in",
         }
@@ -98,6 +101,7 @@ impl Harness {
             Self::ClaudeCode => "claude",
             Self::Pi => "pi",
             Self::Codex => "codex",
+            Self::Goose => "goose",
             #[cfg(test)]
             Self::StandIn => "stand-in",
         }
@@ -114,6 +118,8 @@ pub enum AgentHarness {
     Pi(ModelServer),
     /// Codex, on the ChatGPT account
     Codex,
+    /// goose, on the model a server runs
+    Goose(ModelServer),
     /// The test rig's stand-in
     #[cfg(test)]
     StandIn,
@@ -124,7 +130,7 @@ impl AgentHarness {
     pub fn reads_claude_files(&self) -> bool {
         match self {
             Self::ClaudeCode => true,
-            Self::Pi(_) | Self::Codex => false,
+            Self::Pi(_) | Self::Codex | Self::Goose(_) => false,
             #[cfg(test)]
             Self::StandIn => true,
         }
@@ -136,6 +142,7 @@ impl AgentHarness {
             Self::ClaudeCode => Harness::ClaudeCode,
             Self::Pi(_) => Harness::Pi,
             Self::Codex => Harness::Codex,
+            Self::Goose(_) => Harness::Goose,
             #[cfg(test)]
             Self::StandIn => Harness::StandIn,
         }
@@ -457,7 +464,7 @@ impl Settings {
 
     /// Refuses a worker on `agent`, named `name`, where the worker's fence
     /// would not hold: only Claude Code runs the project's hooks, and a pi
-    /// worker must not be given its model server's host past the forwarder
+    /// or goose worker must not be given its model server's host past the forwarder
     ///
     /// # Errors
     ///
@@ -470,6 +477,7 @@ impl Settings {
         let other = match &agent.harness {
             AgentHarness::Pi(_) => Some("pi"),
             AgentHarness::Codex => Some("codex"),
+            AgentHarness::Goose(_) => Some("goose"),
             _ => None,
         };
         if let Some(harness) = other
@@ -485,7 +493,7 @@ impl Settings {
                 ),
             });
         }
-        if let AgentHarness::Pi(server) = &agent.harness
+        if let AgentHarness::Pi(server) | AgentHarness::Goose(server) = &agent.harness
             && let ModelHost::Url(url) = &server.host
             && let Ok(upstream) = Upstream::new(url)
             && let Some(domain) =
@@ -494,9 +502,10 @@ impl Settings {
             return Err(SettingsError::Invalid {
                 setting: "worker.allowed_domains",
                 reason: format!(
-                    "`{}` would give implementer {name}, on pi, the model server's host, \
+                    "`{}` would give implementer {name}, on {}, the model server's host, \
                      or every local port, past the forwarder: remove it",
-                    domain.as_str()
+                    domain.as_str(),
+                    agent.harness.harness().as_str()
                 ),
             });
         }

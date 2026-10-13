@@ -39,12 +39,14 @@ const END_GRACE: Duration = Duration::from_secs(3);
 // The stdin writes under way, across every `Processes`
 static FEEDING: AtomicUsize = AtomicUsize::new(0);
 
-/// Whether a child's stdin is being written, which a handover waits out
+/// Whether a child's stdin is being written, or a forwarder is serving a
+/// call's model traffic, which a handover waits out
 ///
-/// What is written is a secret or a prompt the child has not read yet, and
-/// the writer's thread does not cross an `execve`.
+/// What is written is a secret or a prompt the child has not read yet, and a
+/// reply being relayed would be cut off mid-stream. The thread doing either
+/// does not cross an `execve`.
 pub fn feeding() -> bool {
-    FEEDING.load(Ordering::SeqCst) > 0
+    FEEDING.load(Ordering::SeqCst) > 0 || super::forwarder::relaying()
 }
 
 /// Why a stoppable child did not run to its end

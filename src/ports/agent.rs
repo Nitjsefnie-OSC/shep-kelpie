@@ -237,7 +237,7 @@ pub struct AgentCall {
     pub instructions: Option<PathBuf>,
     /// The turn's prompt
     pub prompt: String,
-    /// The plugin folders its steps' skills are in
+    /// The plugin folders its steps' skills, and the repo's plugins, are in
     pub plugin_dirs: Vec<PathBuf>,
     /// The kinds of tool it may use
     pub tools: Tools,
@@ -397,6 +397,49 @@ pub struct Adopted {
     /// What the runner noted of the call when it started, which the record
     /// keeps
     pub flying: Option<Flying>,
+    /// The harness the call runs on, whose adapter finishes it
+    #[serde(default = "claude_code")]
+    pub harness: Harness,
+    /// What the old image's memory held for the call, which the `execve`
+    /// ends, for a harness whose calls have any
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<Kept>,
+    /// The session id kelpie gave the call, for a harness that keeps a record
+    /// of its own by it and cannot tell it from the output
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionId>,
+}
+
+fn claude_code() -> Harness {
+    Harness::ClaudeCode
+}
+
+/// What a call needs from the old image's memory to go on after a handover
+///
+/// The new image opens each again from this and from its own settings, and
+/// holds it until the adopted call ends. A gateway's key is never in it.
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kept {
+    /// The socket of the forwarder that passes the call's model traffic on,
+    /// which the new image opens again at that path
+    pub forwarder: PathBuf,
+    /// The model server the forwarder passes it to
+    pub server: KeptServer,
+    /// The session id the harness was given, which it answers in
+    pub session: SessionId,
+    /// The gateway lease the call holds, which the new image goes on renewing
+    /// and releases when the call ends, or none for a model with no lease
+    pub lease: Option<String>,
+}
+
+/// The model server a carried call's forwarder passes to
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeptServer {
+    /// An OpenAI-compatible server's base URL
+    Url(String),
+    /// A gateway, by its name in kelpie's settings
+    Gateway(String),
 }
 
 /// Runs agent sessions, one call at a time per session

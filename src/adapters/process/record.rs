@@ -25,10 +25,15 @@ pub(crate) struct CallFiles {
 
 impl CallFiles {
     pub(crate) fn of(call: &AgentCall) -> Self {
+        Self::at(&call.settings)
+    }
+
+    /// The files of the call whose settings are at `settings`
+    pub(crate) fn at(settings: &Path) -> Self {
         Self {
-            stdout: call.settings.with_extension("stdout.jsonl"),
-            stderr: call.settings.with_extension("stderr.log"),
-            record: call.settings.with_extension("call.json"),
+            stdout: settings.with_extension("stdout.jsonl"),
+            stderr: settings.with_extension("stderr.log"),
+            record: settings.with_extension("call.json"),
         }
     }
 }

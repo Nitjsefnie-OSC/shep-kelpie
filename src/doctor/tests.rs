@@ -28,6 +28,10 @@ struct FakeHost {
     token: bool,
     off_path: Vec<&'static str>,
     os: &'static str,
+    // What `pi --version` answers, `crate::adapters::PI_MINIMUM` when unset
+    pi_version: Option<Result<&'static str, &'static str>>,
+    // What `goose --version` prints, `crate::adapters::GOOSE_MINIMUM` when unset
+    goose_version: Option<Result<&'static str, &'static str>>,
 }
 
 impl Host for FakeHost {
@@ -49,6 +53,18 @@ impl Host for FakeHost {
 
     fn login_token(&self) -> bool {
         self.token
+    }
+
+    fn program_version(&self, program: &str) -> Result<String, String> {
+        let (said, minimum) = match program {
+            "goose" => (self.goose_version, crate::adapters::GOOSE_MINIMUM),
+            _ => (self.pi_version, crate::adapters::PI_MINIMUM),
+        };
+        match said {
+            // The real reader trims the line it takes, as `goose` needs.
+            Some(answer) => answer.map(|v| v.trim().to_owned()).map_err(str::to_owned),
+            None => Ok(minimum.to_owned()),
+        }
     }
 }
 
@@ -181,46 +197,6 @@ fn ok(report: &Report, subject: &str) -> String {
         Verdict::Ok(found) => found.clone(),
         other => panic!("`{subject}` is {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn a_project_that_spends_codex_checks_codex_answers_its_usage() {
-    let scene = Scene::new().await;
-    let codex = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
-                 effort: medium\nusage: codex\n---\n";
-    crate::test::write_in(&scene.kelpie_home.join("agents"), "codex.md", codex);
-    scene.runs("golbat", |t| {
-        t.insert(
-            "agents".into(),
-            json!({ "implementers": ["sonnet-high", "codex"] }),
-        );
-    });
-    let report = scene.report().await;
-    let found = ok(&report, "golbat: codex usage");
-    assert_eq!(found, "reads Codex usage: 5-hour window 0%, week 0%");
-    assert!(!subjects(&report).contains(&"koji: codex usage"));
-
-    let fixes = [
-        (
-            "cannot run codex: No such file or directory",
-            "install the Codex CLI",
-        ),
-        ("codex refused: 402 Payment Required", "codex login"),
-    ];
-    for (reason, fix) in fixes {
-        scene.codex_meter.fail(MeterError::Codex(reason.into()));
-        let (what, said) = missing(&scene.report().await, "golbat: codex usage");
-        assert_eq!(what, reason);
-        assert!(said.contains(fix), "{said}");
-    }
-    scene
-        .codex_meter
-        .fail(MeterError::Codex("codex did not answer in time".into()));
-    let report = scene.report().await;
-    assert!(matches!(
-        verdict(&report, "golbat: codex usage"),
-        Verdict::Unsure { .. }
-    ));
 }
 
 /// What is wrong and the fix, for a line that is missing
@@ -995,6 +971,7 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
 
 mod e2e;
 mod github;
+mod harnesses;
 mod plugins;
 mod sandbox;
 mod template;
