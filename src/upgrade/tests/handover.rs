@@ -173,7 +173,7 @@ async fn a_runner_stopped_while_it_hands_over_stays_stopped() {
 
 #[tokio::test]
 async fn a_runner_that_shows_no_build_is_said_to_show_none() {
-    let mut rig = Rig::new().await;
+    let rig = Rig::new().await;
     rig.shepherd
         .says("koji", &[IDLE, r#"{"work_items":[]}"#, DRAINED]);
     rig.shepherd.hands("koji", &[None]);
@@ -195,7 +195,7 @@ async fn a_runner_that_shows_no_build_is_said_to_show_none() {
 
 #[tokio::test]
 async fn a_runner_still_opening_is_not_taken_for_a_handover_in_progress() {
-    let mut rig = Rig::new().await;
+    let rig = Rig::new().await;
     // Neither `handover` nor `status` is taken yet, and never is.
     let opening = Some("unknown action: status");
     rig.shepherd.replies("koji", &[Some(IDLE), opening]);
