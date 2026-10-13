@@ -176,7 +176,7 @@ fn a_project_with_no_panel_reports_none() {
 
     let status = rig.ask(&runner, "status", None);
 
-    assert!(status.get("panel").is_none(), "{status}");
+    assert!(status.get("panel").is_none(), "{}", status["panel"]);
 }
 
 #[test]
