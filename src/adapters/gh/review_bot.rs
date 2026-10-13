@@ -1,9 +1,11 @@
 //! A review bot's comments, reviews, threads and head statuses on a pull
 //! request, and the label and thread changes the project manager makes
 
+use std::path::Path;
+
 use serde::Deserialize;
 
-use super::{gh, unreadable};
+use super::{gh, gh_as, unreadable};
 use crate::github::api::{REPLY_TO_THREAD, RESOLVE_THREAD};
 use crate::ports::{ForgeError, Timestamp};
 use crate::review_bot::{Activity, Comment, Login, Reaction, Review, Status, Thread};
@@ -23,67 +25,85 @@ const REACTIONS: &str = "query($owner: String!, $name: String!, $number: Int!) {
     reactions(last: 50) { nodes { content createdAt user { login } } } } } }";
 
 pub(super) fn activity(
+    config: Option<&Path>,
     repo: &ForgeSlug,
     number: u64,
     login: Login<'_>,
 ) -> Result<Activity, ForgeError> {
     let bot = login.rest;
-    let comments = gh(&[
-        "api",
-        "--paginate",
-        &format!(
-            "repos/{}/issues/{number}/comments?per_page=100",
-            repo.as_str()
-        ),
-        "--jq",
-        &format!(".[] | select(.user.login == \"{bot}\") | {{body, updated_at}}"),
-    ])?;
-    let reviews = gh(&[
-        "api",
-        "--paginate",
-        &format!(
-            "repos/{}/pulls/{number}/reviews?per_page=100",
-            repo.as_str()
-        ),
-        "--jq",
-        &format!(".[] | select(.user.login == \"{bot}\") | {{commit_id, body, submitted_at}}"),
-    ])?;
+    let comments = gh_as(
+        config,
+        &[
+            "api",
+            "--paginate",
+            &format!(
+                "repos/{}/issues/{number}/comments?per_page=100",
+                repo.as_str()
+            ),
+            "--jq",
+            &format!(".[] | select(.user.login == \"{bot}\") | {{body, updated_at}}"),
+        ],
+    )?;
+    let reviews = gh_as(
+        config,
+        &[
+            "api",
+            "--paginate",
+            &format!(
+                "repos/{}/pulls/{number}/reviews?per_page=100",
+                repo.as_str()
+            ),
+            "--jq",
+            &format!(".[] | select(.user.login == \"{bot}\") | {{commit_id, body, submitted_at}}"),
+        ],
+    )?;
     let (owner, name) = repo.as_str().split_once('/').unwrap_or_default();
-    let threads = gh(&[
-        "api",
-        "graphql",
-        "-f",
-        &format!("query={THREADS}"),
-        "-f",
-        &format!("owner={owner}"),
-        "-f",
-        &format!("name={name}"),
-        "-F",
-        &format!("number={number}"),
-    ])?;
-    let reactions = gh(&[
-        "api",
-        "graphql",
-        "-f",
-        &format!("query={REACTIONS}"),
-        "-f",
-        &format!("owner={owner}"),
-        "-f",
-        &format!("name={name}"),
-        "-F",
-        &format!("number={number}"),
-    ])?;
+    let threads = gh_as(
+        config,
+        &[
+            "api",
+            "graphql",
+            "-f",
+            &format!("query={THREADS}"),
+            "-f",
+            &format!("owner={owner}"),
+            "-f",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={number}"),
+        ],
+    )?;
+    let reactions = gh_as(
+        config,
+        &[
+            "api",
+            "graphql",
+            "-f",
+            &format!("query={REACTIONS}"),
+            "-f",
+            &format!("owner={owner}"),
+            "-f",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={number}"),
+        ],
+    )?;
     // The pull request's own ref, so the head needs no read of its own.
-    let statuses = gh(&[
-        "api",
-        "--paginate",
-        &format!(
-            "repos/{}/commits/refs/pull/{number}/head/statuses?per_page=100",
-            repo.as_str()
-        ),
-        "--jq",
-        &format!(".[] | select(.creator.login == \"{bot}\") | {{url, description, created_at}}"),
-    ])?;
+    let statuses = gh_as(
+        config,
+        &[
+            "api",
+            "--paginate",
+            &format!(
+                "repos/{}/commits/refs/pull/{number}/head/statuses?per_page=100",
+                repo.as_str()
+            ),
+            "--jq",
+            &format!(
+                ".[] | select(.creator.login == \"{bot}\") | {{url, description, created_at}}"
+            ),
+        ],
+    )?;
     Ok(Activity {
         comments: parse_comments(&comments)?,
         reviews: parse_reviews(&reviews)?,

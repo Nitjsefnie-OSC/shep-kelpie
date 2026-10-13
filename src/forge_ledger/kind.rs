@@ -177,3 +177,25 @@ pub enum Api {
     #[serde(rename = "graphql")]
     GraphQl,
 }
+
+impl Identity {
+    /// The name the ledger gives it: `login` or `app`
+    pub fn name(self) -> String {
+        super::wire_name(&self)
+    }
+}
+
+/// Whose rate budget a forge call spent
+///
+/// The maintainer's login and the App's installation token each have a
+/// budget of their own, so the ledger tells them apart.
+// wire format: changing this is a breaking change to the forge ledger
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Identity {
+    /// The maintainer's `gh` login
+    #[default]
+    Login,
+    /// Kelpie's GitHub App, on an installation token
+    App,
+}

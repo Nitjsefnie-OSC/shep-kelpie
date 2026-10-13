@@ -20,7 +20,7 @@ use crate::worker_folder;
 const USER: &str = "x-access-token";
 
 /// The folder `gh` reads its config from, in `build`
-pub(super) fn config_dir(build: &Path) -> PathBuf {
+pub fn config_dir(build: &Path) -> PathBuf {
     build.join(CONFIG_DIR)
 }
 

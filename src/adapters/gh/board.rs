@@ -1,9 +1,11 @@
 //! The board's two lists: the ready issues, with what blocks each, and the
 //! open pull requests, with the issues each closes
 
+use std::path::Path;
+
 use serde::Deserialize;
 
-use super::{Label, gh, unreadable};
+use super::{Label, gh_as, unreadable};
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::ForgeError;
 use crate::settings::ForgeSlug;
@@ -12,8 +14,11 @@ use crate::settings::ForgeSlug;
 // hide the oldest item. A list this long is not expected.
 const LIST_LIMIT: &str = "1000";
 
-pub(super) fn ready_issues(repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-    parse_ready_issues(&gh(&ready_args(repo))?)
+pub(super) fn ready_issues(
+    config: Option<&Path>,
+    repo: &ForgeSlug,
+) -> Result<Vec<ReadyIssue>, ForgeError> {
+    parse_ready_issues(&gh_as(config, &ready_args(repo))?)
 }
 
 // `gh issue list` lists issues only, so a pull request labelled
@@ -35,20 +40,26 @@ fn ready_args(repo: &ForgeSlug) -> [&str; 12] {
     ]
 }
 
-pub(super) fn open_pull_requests(repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
+pub(super) fn open_pull_requests(
+    config: Option<&Path>,
+    repo: &ForgeSlug,
+) -> Result<Vec<OpenPullRequest>, ForgeError> {
     parse_pull_requests(
-        &gh(&[
-            "pr",
-            "list",
-            "--repo",
-            repo.as_str(),
-            "--state",
-            "open",
-            "--limit",
-            LIST_LIMIT,
-            "--json",
-            "number,headRefName,closingIssuesReferences,labels",
-        ])?,
+        &gh_as(
+            config,
+            &[
+                "pr",
+                "list",
+                "--repo",
+                repo.as_str(),
+                "--state",
+                "open",
+                "--limit",
+                LIST_LIMIT,
+                "--json",
+                "number,headRefName,closingIssuesReferences,labels",
+            ],
+        )?,
         repo,
     )
 }
