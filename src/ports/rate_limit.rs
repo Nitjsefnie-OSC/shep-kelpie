@@ -33,9 +33,15 @@ const USED_UP: [&str; 4] = [
 
 /// Whether `error` is the forge saying its rate limit is used up
 fn used_up(error: &ForgeError) -> bool {
-    let ForgeError::Failed(stderr) = error else {
-        return false;
-    };
+    match error {
+        ForgeError::Limited { .. } => true,
+        ForgeError::Failed(stderr) => says_used_up(stderr),
+        _ => false,
+    }
+}
+
+/// Whether a failed gh call's `stderr` says a rate limit is used up
+pub fn says_used_up(stderr: &str) -> bool {
     let stderr = stderr.to_lowercase();
     USED_UP.iter().any(|said| stderr.contains(said))
 }
@@ -121,10 +127,7 @@ impl RateHeld {
         if let Err(error) = &result
             && ended == Ended::UsedUp
         {
-            let until = match self.reset() {
-                Ok(Some(reset)) if reset > now => reset,
-                _ => Timestamp(now.0.saturating_add(FALLBACK)),
-            };
+            let until = self.held_until(error, now);
             self.hold.hold(until);
             (self.say)(format!(
                 "the forge's rate limit is used up ({error}), so kelpie makes no forge call \
@@ -133,6 +136,20 @@ impl RateHeld {
             ));
         }
         result
+    }
+
+    // What the answer itself says of when to ask again comes first, then the
+    // forge's reset, then the fallback.
+    fn held_until(&self, error: &ForgeError, now: Timestamp) -> Timestamp {
+        let said = match error {
+            ForgeError::Limited { cooldown, .. } => cooldown.until(now),
+            _ => None,
+        };
+        said.or_else(|| match self.reset() {
+            Ok(Some(reset)) if reset > now => Some(reset),
+            _ => None,
+        })
+        .unwrap_or(Timestamp(now.0.saturating_add(FALLBACK)))
     }
 
     // The reset is a call to the forge too, so it is recorded like the rest.
@@ -396,6 +413,85 @@ mod tests {
         ];
         for error in other {
             assert!(!used_up(&error), "{error}");
+        }
+    }
+
+    mod cooldown {
+        use super::*;
+        use crate::ports::Cooldown;
+        use crate::test::{FakeClock, FakeForge};
+
+        fn repo() -> ForgeSlug {
+            ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap()
+        }
+
+        fn held_on(forge: &FakeForge, clock: &FakeClock) -> RateHeld {
+            RateHeld::new(
+                Arc::new(forge.clone()),
+                Arc::new(clock.clone()),
+                ForgeHold::default(),
+                Box::new(|_| {}),
+            )
+        }
+
+        #[test]
+        fn a_retry_after_holds_for_that_long_and_not_for_the_reset_or_the_fallback() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let clock = FakeClock::at(1_000);
+            let held = held_on(&forge, &clock);
+            // The reset would hold for an hour, the fallback for ten minutes.
+            forge.set_used_up(Some(Timestamp(4_600)));
+            forge.set_limited(Cooldown {
+                retry_after: Some(90),
+                reset: None,
+            });
+
+            held.visibility(&repo()).unwrap_err();
+
+            clock.advance(89);
+            let held_for = held.viewer().unwrap_err();
+            assert_eq!(held_for, ForgeError::Held(Timestamp(1_090)));
+            forge.set_unlimited();
+            forge.set_down(false);
+            clock.advance(1);
+            held.viewer().unwrap();
+        }
+
+        #[test]
+        fn a_reset_in_the_answer_holds_until_then_without_asking_the_forge_for_it() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let clock = FakeClock::at(1_000);
+            let held = held_on(&forge, &clock);
+            forge.set_limited(Cooldown {
+                retry_after: None,
+                reset: Some(Timestamp(1_500)),
+            });
+
+            held.visibility(&repo()).unwrap_err();
+
+            assert_eq!(forge.asked(), 1, "the reset was not asked for");
+            assert_eq!(
+                held.viewer().unwrap_err(),
+                ForgeError::Held(Timestamp(1_500))
+            );
+        }
+
+        #[test]
+        fn an_answer_that_says_nothing_of_when_holds_for_the_fallback() {
+            let home = tempfile::tempdir().unwrap();
+            let forge = FakeForge::new(home.path().join("origin"));
+            let clock = FakeClock::at(1_000);
+            let held = held_on(&forge, &clock);
+            forge.set_limited(Cooldown::default());
+
+            held.visibility(&repo()).unwrap_err();
+
+            assert_eq!(
+                held.viewer().unwrap_err(),
+                ForgeError::Held(Timestamp(1_000 + FALLBACK))
+            );
         }
     }
 

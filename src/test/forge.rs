@@ -86,6 +86,7 @@ pub(crate) struct FakeForge {
     board_reads: Arc<AtomicUsize>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
+    limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
@@ -171,6 +172,7 @@ impl FakeForge {
             asked: Arc::default(),
             board_reads: Arc::default(),
             down: Arc::default(),
+            limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
         }

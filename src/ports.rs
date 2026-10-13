@@ -40,14 +40,14 @@ pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Fence, Guard, PM_NOTES,
     Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-pub use forge_error::ForgeError;
+pub use forge_error::{Cooldown, ForgeError};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
-pub use rate_limit::{ForgeHold, RateHeld, Say};
+pub use rate_limit::{ForgeHold, RateHeld, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;

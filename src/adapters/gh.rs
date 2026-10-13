@@ -3,6 +3,7 @@
 mod access;
 mod board;
 mod contents;
+mod failed;
 mod issues;
 mod pulls;
 mod queue;
@@ -305,13 +306,12 @@ fn merge_args<'a>(repo: &'a ForgeSlug, number: &'a str, head: &'a str) -> [&'a s
 fn gh(args: &[&str]) -> Result<Vec<u8>, ForgeError> {
     let output = crate::spawn::command("gh")
         .args(args)
+        .env("GH_DEBUG", "api")
         .stdin(Stdio::null())
         .output()
         .map_err(|e| ForgeError::Spawn(e.to_string()))?;
     if !output.status.success() {
-        return Err(ForgeError::Failed(
-            String::from_utf8_lossy(&output.stderr).into(),
-        ));
+        return Err(failed::failure(&String::from_utf8_lossy(&output.stderr)));
     }
     Ok(output.stdout)
 }
