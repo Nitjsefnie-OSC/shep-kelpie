@@ -14,7 +14,7 @@ use super::Revalidated;
 use super::{
     BranchRun, Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel,
     OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
-    Timestamp, Visibility, pace,
+    Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -421,6 +421,10 @@ impl Forge for RateHeld {
 
     fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         self.call(Kind::BranchRuns, |f| f.branch_runs(repo, branch))
+    }
+
+    fn workflows(&self, repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError> {
+        self.call(Kind::Workflows, |f| f.workflows(repo))
     }
 
     fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {

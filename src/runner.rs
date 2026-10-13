@@ -79,6 +79,7 @@ mod limits_tests;
 mod lineup;
 mod login_refresh;
 mod looks;
+mod main_ci;
 mod merge;
 mod older_bots;
 #[cfg(test)]
@@ -139,7 +140,8 @@ pub use in_flight::Stopping;
 pub use ledger::count_stopped;
 pub use left::leave as leave_answer;
 pub use lineup::{Board, MoveError, Place};
-pub use looks::BOARD_POLL;
+pub use looks::{BOARD_POLL, MAIN_CI_POLL};
+pub use main_ci::RedStatus;
 pub use merge::DropError;
 pub use owner_template::{TemplateSource, source_of};
 pub use pace::PacerStatus;
@@ -674,6 +676,7 @@ impl Runner {
             contributions: &self.state.contributions,
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
+            red_workflows: self.red_status(now),
             rulings: (self.state.rulings.iter())
                 .map(trigger::RulingStatus)
                 .collect(),

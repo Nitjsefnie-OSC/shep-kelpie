@@ -13,13 +13,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
+mod catch_up;
 mod changed;
 mod contribution;
 mod ref_folders;
+mod remote;
 mod stale_lock;
 
+pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
 pub use contribution::{Change, Opaque, Touched, change as contribution_change};
+pub use remote::Remote;
 
 /// The branch every work item is cut from, on `origin`
 pub const BASE: &str = "main";
@@ -29,7 +33,7 @@ pub const BASE: &str = "main";
 pub enum Start {
     /// Cut from `origin/main`
     Main,
-    /// The branch as `origin` holds it, whoever pushed to it
+    /// The branch as its [`Remote`] holds it, whoever pushed to it
     Pushed,
 }
 
@@ -129,7 +133,8 @@ impl core::error::Error for WorktreeError {}
 /// Makes sure `worktree` is a worktree of `repo` on `branch`, and `build` exists
 ///
 /// A new worktree's branch starts where `start` says, just fetched, and does
-/// not track it.
+/// not track it. [`Start::Pushed`] reads the branch from `remote`, which is
+/// the fork's branch when `remote` is a [`Remote::Fork`].
 ///
 /// # Errors
 ///
@@ -139,6 +144,7 @@ pub fn prepare(
     worktree: &Path,
     branch: &str,
     start: Start,
+    remote: &Remote,
     build: &Path,
 ) -> Result<Worktree, WorktreeError> {
     let foreign = || WorktreeError::Foreign(worktree.to_owned());
@@ -156,18 +162,19 @@ pub fn prepare(
         if let Some(parent) = worktree.parent() {
             create(parent)?;
         }
-        let from = match start {
-            Start::Main => BASE,
-            Start::Pushed => branch,
+        let base = match start {
+            Start::Main => {
+                git(repo, ["fetch", "--quiet", "--", "origin", BASE])?;
+                format!("origin/{BASE}")
+            }
+            Start::Pushed => remote.fetch(repo, branch)?,
         };
-        git(repo, ["fetch", "--quiet", "origin", from])?;
-        let base = format!("origin/{from}");
         let wt = worktree.as_os_str();
         if let Some(local) = local {
             // A rework's branch left behind by an earlier attempt is reused
-            // when it is at the same commit as `origin`'s. One ahead holds
+            // when it is at the same commit as the remote's. One ahead holds
             // work that is not kelpie's to throw away, and one behind is
-            // not the pull request's branch as `origin` holds it.
+            // not the pull request's branch as the remote holds it.
             if git(repo, ["rev-parse", "--verify", "--quiet", &base])? != local {
                 return Err(WorktreeError::BranchTaken(branch.to_owned()));
             }
@@ -209,8 +216,9 @@ pub fn prepare(
 
 /// Removes a work item's worktree, its branch and its build folder
 ///
-/// `remote` also deletes the branch on `origin`. Whatever is already gone,
-/// a branch the forge deleted first included, is skipped, so a removal cut short can run again.
+/// `remote` also deletes the branch on that [`Remote`]. Whatever is already
+/// gone, a branch the forge deleted first included, is skipped, so a removal
+/// cut short can run again.
 ///
 /// # Errors
 ///
@@ -220,7 +228,7 @@ pub fn remove(
     worktree: &Path,
     branch: &str,
     build: &Path,
-    remote: bool,
+    remote: Option<&Remote>,
 ) -> Result<(), WorktreeError> {
     if worktree.exists() {
         let wt = worktree.as_os_str();
@@ -244,13 +252,12 @@ pub fn remove(
     // wait out the round trips to origin, or an error from them, for it.
     let common = common_dir(repo)?;
     ref_folders::ensure(&common, branch)?;
-    let on_origin_deleted = if remote {
-        delete_on_origin(repo, &full_ref)
-    } else {
-        Ok(())
+    let on_remote_deleted = match remote {
+        Some(remote) => delete_on_remote(repo, remote, branch),
+        None => Ok(()),
     };
     ref_folders::ensure(&common, branch)?;
-    on_origin_deleted?;
+    on_remote_deleted?;
     let removed = match std::fs::remove_dir_all(build) {
         // Go writes its module cache with read-only folders, which cannot
         // be emptied until they are made writable.
@@ -269,17 +276,22 @@ pub fn remove(
     }
 }
 
-/// Deletes `full_ref` on `origin` when it is there
-fn delete_on_origin(repo: &Path, full_ref: &str) -> Result<(), WorktreeError> {
-    if !on_origin(repo, full_ref)? {
+/// Deletes the work item's `branch` on `remote` when it is there
+fn delete_on_remote(repo: &Path, remote: &Remote, branch: &str) -> Result<(), WorktreeError> {
+    let full_ref = remote.branch_ref(branch);
+    if !on_remote(repo, remote, &full_ref)? {
         return Ok(());
     }
     // The forge deletes a merged head branch itself on some repos, and
     // may do it between the check above and this push. Git's error for
     // that varies by version and host, so a failed delete is judged by
     // whether the ref is still there.
-    match git(repo, ["push", "--quiet", "origin", "--delete", full_ref]) {
-        Err(e) if on_origin(repo, full_ref)? => Err(e),
+    let target = remote.target();
+    match git(
+        repo,
+        ["push", "--quiet", "--delete", "--", target, &full_ref],
+    ) {
+        Err(e) if on_remote(repo, remote, &full_ref)? => Err(e),
         _ => Ok(()),
     }
 }
@@ -401,31 +413,40 @@ fn has_ref(repo: &Path, full_ref: &str) -> Result<bool, WorktreeError> {
     }
 }
 
-/// Whether `full_ref` is a branch on `origin` right now, asked of the remote
-fn on_origin(repo: &Path, full_ref: &str) -> Result<bool, WorktreeError> {
-    Ok(!git(repo, ["ls-remote", "--heads", "origin", full_ref])?.is_empty())
+/// Whether `full_ref` is a branch on `remote` right now, asked of the remote
+fn on_remote(repo: &Path, remote: &Remote, full_ref: &str) -> Result<bool, WorktreeError> {
+    let asked = git(
+        repo,
+        ["ls-remote", "--heads", "--", remote.target(), full_ref],
+    )?;
+    Ok(!asked.is_empty())
 }
 
-/// Where a pull request's head stands against `origin`, just fetched
+/// Where a pull request's head stands against `origin/main`, just fetched
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Base {
-    /// The head is the branch on `origin`, and has the latest `main`
+    /// The head is the branch on its remote, and has the latest `main`
     Current,
-    /// The head is the branch on `origin`, and lacks the latest `main`
+    /// The head is the branch on its remote, and lacks the latest `main`
     Behind,
-    /// The branch on `origin` is not the head the forge reported, which
+    /// The branch on its remote is not the head the forge reported, which
     /// lags a push by a moment
     Lagging,
 }
 
-/// Fetches `origin`, and says where `head`, the forge's head of `branch`, stands
+/// Fetches `origin/main` and `remote`'s branch, and says where `head`, the
+/// forge's head of `branch`, stands
 ///
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed.
-pub fn base_of(repo: &Path, branch: &str, head: &str) -> Result<Base, WorktreeError> {
-    git(repo, ["fetch", "--quiet", "origin", BASE, branch])?;
-    let tracking = format!("refs/remotes/origin/{branch}");
+pub fn base_of(
+    repo: &Path,
+    branch: &str,
+    head: &str,
+    remote: &Remote,
+) -> Result<Base, WorktreeError> {
+    let tracking = remote.fetch_with_main(repo, branch)?;
     if git(repo, ["rev-parse", "--verify", "--quiet", &tracking])? != head {
         return Ok(Base::Lagging);
     }
@@ -447,16 +468,15 @@ pub fn base_of(repo: &Path, branch: &str, head: &str) -> Result<Base, WorktreeEr
     }
 }
 
-/// Fetches `branch` from `origin`, and returns its head there
+/// Fetches `branch` from `remote`, and returns its head there
 ///
 /// Ask git rather than the forge: the forge's head lags a push by a moment.
 ///
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed.
-pub fn origin_head(repo: &Path, branch: &str) -> Result<String, WorktreeError> {
-    git(repo, ["fetch", "--quiet", "origin", branch])?;
-    let tracking = format!("refs/remotes/origin/{branch}");
+pub fn origin_head(repo: &Path, branch: &str, remote: &Remote) -> Result<String, WorktreeError> {
+    let tracking = remote.fetch(repo, branch)?;
     git(repo, ["rev-parse", "--verify", "--quiet", &tracking])
 }
 
@@ -518,102 +538,9 @@ fn status_names(status: &str) -> Vec<String> {
     names
 }
 
-#[cfg(test)]
-mod tests {
-    use std::os::unix::fs::{PermissionsExt, symlink};
-    use std::path::Path;
-
-    use super::{git, has_ref, remove, status_names};
-
-    fn mode_of(path: &Path) -> u32 {
-        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-    }
-
-    fn set_mode(path: &Path, mode: u32) {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
-    }
-
-    // A repo with nothing to remove but the build folder
-    fn remove_build(repo: &Path, build: &Path) -> Result<(), super::WorktreeError> {
-        git(repo, ["init", "--quiet"]).unwrap();
-        remove(repo, &repo.join("none"), "kelpie/7", build, false)
-    }
-
-    #[test]
-    fn a_build_folder_holding_read_only_folders_is_removed() {
-        let dir = tempfile::tempdir().unwrap();
-        let build = dir.path().join("build");
-        let cache = build.join("gomod/cache/mod");
-        std::fs::create_dir_all(&cache).unwrap();
-        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
-        set_mode(&cache.join("go.mod"), 0o444);
-        set_mode(&cache, 0o555);
-        set_mode(&build.join("gomod"), 0o555);
-
-        remove_build(dir.path(), &build).unwrap();
-        assert!(!build.exists());
-    }
-
-    #[test]
-    fn a_build_folder_already_gone_is_removed() {
-        let dir = tempfile::tempdir().unwrap();
-        remove_build(dir.path(), &dir.path().join("build")).unwrap();
-    }
-
-    #[test]
-    fn a_link_in_the_build_folder_leaves_what_it_points_at_alone() {
-        let dir = tempfile::tempdir().unwrap();
-        let outside = dir.path().join("outside");
-        std::fs::create_dir(&outside).unwrap();
-        set_mode(&outside, 0o555);
-        let build = dir.path().join("build");
-        let cache = build.join("mod");
-        std::fs::create_dir_all(&cache).unwrap();
-        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
-        set_mode(&cache, 0o555);
-        symlink(&outside, build.join("link")).unwrap();
-
-        let removed = remove_build(dir.path(), &build);
-        let mode = mode_of(&outside);
-        set_mode(&outside, 0o755);
-        removed.unwrap();
-        assert!(!build.exists());
-        assert!(outside.exists());
-        assert_eq!(mode, 0o555);
-    }
-
-    #[test]
-    fn a_missing_ref_is_absent_but_a_folder_git_cannot_read_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(has_ref(dir.path(), "refs/heads/kelpie/7").is_err());
-        git(dir.path(), ["init", "--quiet"]).unwrap();
-        assert!(!has_ref(dir.path(), "refs/heads/kelpie/7").unwrap());
-    }
-
-    #[test]
-    fn a_status_names_every_changed_staged_renamed_and_new_path() {
-        let status = "1 .M N... 100644 100644 100644 aaaa bbbb src/a b.rs\0\
-                      1 AD N... 000000 100644 000000 0000 cccc staged.txt\0\
-                      2 R. N... 100644 100644 100644 dddd eeee R100 new.rs\0old.rs\0\
-                      u UU N... 100644 100644 100644 100644 ffff gggg hhhh clash.rs\0\
-                      ? left.txt\0";
-        assert_eq!(
-            status_names(status),
-            [
-                "src/a b.rs",
-                "staged.txt",
-                "old.rs",
-                "new.rs",
-                "clash.rs",
-                "left.txt"
-            ]
-        );
-    }
-}
-
 /// Moves the worktree's branch from `from`, the head kelpie knew, to `to`
 ///
-/// `to` is a head on `origin` the maintainer accepted. A worktree at neither,
+/// `to` is a head on `remote` the maintainer accepted. A worktree at neither,
 /// or with changes not committed, holds work of the worker's, and is refused.
 ///
 /// # Errors
@@ -626,6 +553,7 @@ pub fn adopt(
     branch: &str,
     from: &str,
     to: &str,
+    remote: &Remote,
 ) -> Result<(), WorktreeError> {
     let in_worktree = trusted(repo, worktree)?;
     let unsettled = || WorktreeError::Unsettled(worktree.to_owned());
@@ -644,142 +572,9 @@ pub fn adopt(
     if at != from {
         return Err(unsettled());
     }
-    git(repo, ["fetch", "--quiet", "origin", branch])?;
+    remote.fetch(repo, branch)?;
     in_worktree(&["reset", "--quiet", "--hard", to])?;
     Ok(())
-}
-
-/// What a rebase onto `origin/main` came to
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Rebase {
-    /// Rebased or merged, and pushed: the branch's new head
-    Pushed(String),
-    /// The branch conflicts with `main`, and the merge of it is left in
-    /// progress in the worktree for the worker to resolve: `main`'s other
-    /// files are written and staged
-    Conflicts {
-        /// The `origin/main` commit it conflicts with
-        main: String,
-        /// The files that conflict
-        files: Vec<String>,
-    },
-    /// Left as it was, for this reason, which only the maintainer can settle
-    Refused(String),
-}
-
-/// Catches the worktree's branch, at `head`, up with `origin/main` and pushes it
-///
-/// A branch with a merge commit in it (the worker's resolution of an earlier
-/// conflict), or one whose commits are not kelpie's to `rewrite`, is merged
-/// with `origin/main` and pushed without force. Any other is rebased, and the
-/// push is forced with a lease on `head`, so it fails rather than drop a
-/// commit pushed since. A rebase that conflicts is aborted and merged
-/// instead, since a merge may not conflict where replaying commits did. A
-/// merge that conflicts is left in progress, for the worker to finish: it
-/// would otherwise fail on any file of `main`'s the worker's sandbox refuses
-/// to write. A failed push puts the branch back at `head`. A worktree
-/// already in the middle of a merge is refused. Run [`base_of`] first, which
-/// fetches.
-///
-/// # Errors
-///
-/// [`WorktreeError`] naming the git command that failed.
-pub fn rebase(
-    repo: &Path,
-    worktree: &Path,
-    branch: &str,
-    head: &str,
-    rewrite: bool,
-) -> Result<Rebase, WorktreeError> {
-    let in_worktree = trusted(repo, worktree)?;
-    let full_ref = format!("refs/heads/{branch}");
-    let on_branch = in_worktree(&["symbolic-ref", "--quiet", "HEAD"])
-        .ok()
-        .as_deref()
-        == Some(&full_ref);
-    if !on_branch || in_worktree(&["rev-parse", "HEAD"])? != head {
-        let short = head.get(..7).unwrap_or(head);
-        return Ok(Rebase::Refused(format!(
-            "its worktree is not at the pull request's head {short}"
-        )));
-    }
-    if in_worktree(&["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).is_ok() {
-        return Ok(Rebase::Refused(
-            "its worktree is in the middle of a merge".into(),
-        ));
-    }
-    if !in_worktree(&["status", "--porcelain", "--untracked-files=no"])?.is_empty() {
-        return Ok(Rebase::Refused(
-            "its worktree has changes that are not committed".into(),
-        ));
-    }
-    // The rebased commits and the merge commit take the head's committer, the
-    // worker's one identity, so neither needs an identity of its own.
-    let name = format!(
-        "user.name={}",
-        in_worktree(&["log", "-1", "--format=%cn", head])?
-    );
-    let email = format!(
-        "user.email={}",
-        in_worktree(&["log", "-1", "--format=%ce", head])?
-    );
-    let caught_up = |verb: &[&str]| {
-        let mut args = vec!["-c", &name, "-c", &email];
-        args.extend_from_slice(verb);
-        in_worktree(&args)
-    };
-    let conflicted =
-        || in_worktree(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
-    let base = format!("origin/{BASE}");
-    // A rebase replays the branch's own commits and drops its merge commits,
-    // and with them the worker's hand resolution of an earlier conflict. A
-    // branch holding one is caught up by merging instead, and pushed plain.
-    let ahead = format!("{base}..HEAD");
-    let rebasing =
-        rewrite && in_worktree(&["rev-list", "--merges", "--max-count=1", &ahead])?.is_empty();
-    let mut rebased = false;
-    if rebasing && let Err(e) = caught_up(&["rebase", "--quiet", &base]) {
-        let conflicts = conflicted();
-        let aborted = in_worktree(&["rebase", "--abort"]);
-        if conflicts.is_empty() {
-            return Err(e);
-        }
-        aborted?;
-    } else {
-        rebased = rebasing;
-    }
-    if !rebased {
-        if let Err(e) = caught_up(&["merge", "--quiet", "--no-commit", "--no-ff", &base]) {
-            let conflicts = conflicted();
-            if conflicts.is_empty() {
-                let _ = in_worktree(&["merge", "--abort"]);
-                return Err(e);
-            }
-            return Ok(Rebase::Conflicts {
-                main: git(repo, ["rev-parse", &base])?,
-                files: conflicts.lines().map(str::to_owned).collect(),
-            });
-        }
-        if let Err(e) = caught_up(&["commit", "--quiet", "--no-edit"]) {
-            // Best effort: a merge left in progress is refused on the next look.
-            let _ = in_worktree(&["merge", "--abort"]);
-            return Err(e);
-        }
-    }
-    let caught = in_worktree(&["rev-parse", "HEAD"])?;
-    let lease = format!("--force-with-lease={full_ref}:{head}");
-    let target = format!("HEAD:{full_ref}");
-    let pushed = if rebased {
-        in_worktree(&["push", "--quiet", &lease, "origin", &target])
-    } else {
-        in_worktree(&["push", "--quiet", "origin", &target])
-    };
-    if let Err(e) = pushed {
-        // Best effort: a branch left off the head is refused on the next look.
-        let _ = in_worktree(&["reset", "--quiet", "--hard", head]);
-        return Err(e);
-    }
-    Ok(Rebase::Pushed(caught))
 }
 
 /// The range of a work item's own change for `git diff`: from the merge base
@@ -991,4 +786,97 @@ where
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::Path;
+
+    use super::{git, has_ref, remove, status_names};
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    fn set_mode(path: &Path, mode: u32) {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    // A repo with nothing to remove but the build folder
+    fn remove_build(repo: &Path, build: &Path) -> Result<(), super::WorktreeError> {
+        git(repo, ["init", "--quiet"]).unwrap();
+        remove(repo, &repo.join("none"), "kelpie/7", build, None)
+    }
+
+    #[test]
+    fn a_build_folder_holding_read_only_folders_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let cache = build.join("gomod/cache/mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache.join("go.mod"), 0o444);
+        set_mode(&cache, 0o555);
+        set_mode(&build.join("gomod"), 0o555);
+
+        remove_build(dir.path(), &build).unwrap();
+        assert!(!build.exists());
+    }
+
+    #[test]
+    fn a_build_folder_already_gone_is_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        remove_build(dir.path(), &dir.path().join("build")).unwrap();
+    }
+
+    #[test]
+    fn a_link_in_the_build_folder_leaves_what_it_points_at_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        set_mode(&outside, 0o555);
+        let build = dir.path().join("build");
+        let cache = build.join("mod");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("go.mod"), "module x\n").unwrap();
+        set_mode(&cache, 0o555);
+        symlink(&outside, build.join("link")).unwrap();
+
+        let removed = remove_build(dir.path(), &build);
+        let mode = mode_of(&outside);
+        set_mode(&outside, 0o755);
+        removed.unwrap();
+        assert!(!build.exists());
+        assert!(outside.exists());
+        assert_eq!(mode, 0o555);
+    }
+
+    #[test]
+    fn a_missing_ref_is_absent_but_a_folder_git_cannot_read_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(has_ref(dir.path(), "refs/heads/kelpie/7").is_err());
+        git(dir.path(), ["init", "--quiet"]).unwrap();
+        assert!(!has_ref(dir.path(), "refs/heads/kelpie/7").unwrap());
+    }
+
+    #[test]
+    fn a_status_names_every_changed_staged_renamed_and_new_path() {
+        let status = "1 .M N... 100644 100644 100644 aaaa bbbb src/a b.rs\0\
+                      1 AD N... 000000 100644 000000 0000 cccc staged.txt\0\
+                      2 R. N... 100644 100644 100644 dddd eeee R100 new.rs\0old.rs\0\
+                      u UU N... 100644 100644 100644 100644 ffff gggg hhhh clash.rs\0\
+                      ? left.txt\0";
+        assert_eq!(
+            status_names(status),
+            [
+                "src/a b.rs",
+                "staged.txt",
+                "old.rs",
+                "new.rs",
+                "clash.rs",
+                "left.txt"
+            ]
+        );
+    }
 }

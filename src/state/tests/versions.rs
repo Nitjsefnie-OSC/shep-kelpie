@@ -610,5 +610,33 @@ fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(saved["version"], VERSION);
     assert_eq!(saved["rulings"][0]["skipped"], "draining");
+}
+
+// A version 42 file has no `red`, so no workflow is red on `main` until the
+// runner reads it. A red workflow survives a save and a load.
+#[test]
+fn a_version_42_file_loads_with_no_red_workflow_and_red_ones_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 42.into();
+    assert!(old.get("red").is_none(), "{old}");
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    assert!(loaded.red.is_empty());
+
+    loaded.red = vec![RedWorkflow {
+        workflow: "test".into(),
+        first_run: 91,
+        run: 95,
+        head: "abc123".into(),
+        since: Timestamp(1_790_000_000),
+    }];
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["red"][0]["workflow"], "test");
     assert_eq!(store.load().unwrap(), Some(loaded));
 }

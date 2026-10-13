@@ -74,6 +74,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
             pull_request: Some(31),
             question: "Merge PR #31?".into(),
         }],
+        red: Vec::new(),
         ready: Some(Ready {
             read: Timestamp(EPOCH - 90),
             issues: Vec::new(),
@@ -192,6 +193,7 @@ fn quoting(body: &str) -> String {
         main: None,
         items: vec![seven, eight],
         rulings: Vec::new(),
+        red: Vec::new(),
         ready: Some(Ready {
             read: Timestamp(EPOCH),
             issues: vec![ReadyLine {
