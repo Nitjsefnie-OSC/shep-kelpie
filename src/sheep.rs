@@ -231,8 +231,7 @@ fn serve(project: &str) -> Result<(), Exit> {
     if !shepherd.is_active() {
         return Err("no shepherd channel: run it under shep with `channel = true`".into());
     }
-    let status = serde_json::to_string(&runner.status()).expect("status serializes to JSON");
-    println!("up: {status}");
+    println!("{}", runner.up_line());
 
     let stopping = runner.stopping();
     let runner = Arc::new(Mutex::new(runner));
@@ -473,7 +472,9 @@ fn work(
         log_started(runner);
         match advanced {
             Ok(Pass::Report(report)) => {
-                let line = serde_json::to_string(&report).expect("a report serializes to JSON");
+                let line = (runner.lock())
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .log_step(&report);
                 println!("{line}");
                 if !report.waits() {
                     continue;
@@ -498,13 +499,9 @@ fn work(
 // Logs the `session-started` step of each call started since the last time,
 // as soon as it starts and before any wait, for `shep kelpie watch`.
 fn log_started(runner: &Mutex<Runner>) {
-    let started = runner
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .take_started();
-    for report in started {
-        let line = serde_json::to_string(&report).expect("a report serializes to JSON");
-        println!("{line}");
+    let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
+    for report in runner.take_started() {
+        println!("{}", runner.log_step(&report));
     }
 }
 

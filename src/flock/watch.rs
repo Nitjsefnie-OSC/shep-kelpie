@@ -1,11 +1,12 @@
 //! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: a project's
 //! runner steps and session transcripts, followed live
 //!
-//! It reads the runner's log and the transcripts it names from disk, so it
-//! needs the shepherd only to find the project from the folder it runs in.
+//! It reads the runner's `steps.jsonl` and the transcripts it names from
+//! disk, so it needs the shepherd only to find the project from the folder
+//! it runs in.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use crate::runner::ProjectName;
@@ -61,24 +62,19 @@ pub(super) fn read_args(args: &[&str]) -> Result<Ask, String> {
     Ok(ask)
 }
 
-/// The runner's log under the shepherd's home, as shep keeps it
-fn log_of(shep_home: &Path, project: &ProjectName) -> PathBuf {
-    let name = format!("{}-0-out.log", project.as_str());
-    shep_home.join("logs").join(name)
-}
-
 /// Follows `project` until interrupted, printing what the stream shows
 ///
 /// # Errors
 ///
-/// A message when the project has no log yet, or the output cannot be written.
-pub(super) fn follow(shep_home: &Path, project: &ProjectName, ask: Ask) -> Result<(), String> {
-    let log = log_of(shep_home, project);
-    if !log.is_file() {
+/// A message when the project has no steps file yet, or the output cannot be written.
+pub(super) fn follow(kelpie_home: &Path, project: &ProjectName, ask: Ask) -> Result<(), String> {
+    let folder = kelpie_home.join(project.as_str());
+    let steps = folder.join(crate::runner::STEPS_FILE);
+    if !steps.is_file() {
         return Err(format!(
-            "{} has no log at {}: `shep kelpie start` runs it",
+            "{} has no steps file at {}: `shep kelpie start` runs it",
             project,
-            log.display()
+            steps.display()
         ));
     }
     let options = Options {
@@ -87,7 +83,7 @@ pub(super) fn follow(shep_home: &Path, project: &ProjectName, ask: Ask) -> Resul
         full: ask.full,
         zone: jiff::tz::TimeZone::system(),
     };
-    let (mut watch, first) = Watch::start(log, options);
+    let (mut watch, first) = Watch::start(folder, options);
     let mut out = std::io::stdout().lock();
     let mut show = |lines: Vec<crate::watch::Line>| -> Result<(), String> {
         for line in lines {

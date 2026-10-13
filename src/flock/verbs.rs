@@ -65,7 +65,7 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          transcripts live, from the end or n lines back
        shep kelpie usage [<project>] [--since <date>]
                                          units and dollars per merged pull request
-       shep kelpie usage <project> --import <log file>
+       shep kelpie usage <project> --import <steps file>
                                          adds a runner's logged calls to its ledger
        shep kelpie usage --forge [--since <date>]
                                          GitHub calls per minute, the busiest minutes and
@@ -139,7 +139,7 @@ async fn run(
                 control::project_here(&client, &here, &home).await?
             }
         };
-        watch::follow(shep_home, &project, ask)?;
+        watch::follow(&kelpie_home, &project, ask)?;
         return Ok(Vec::new());
     }
     let here = std::env::current_dir().map_err(|e| format!("cannot read this folder: {e}"))?;

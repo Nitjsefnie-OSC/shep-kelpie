@@ -1,9 +1,9 @@
-//! Reading the calls a runner logged before the ledger into it
+//! Reading the calls a runner logged in its steps file into the ledger
 //!
 //! A runner logs each worker turn that ends as an `ended` step, or `asked`
-//! when the turn ended on a question, behind the time shep stamps the line
-//! with. Those are the only calls it logged with their usage. Each becomes a
-//! call line marked `imported`, unless the ledger already has the same
+//! when the turn ended on a question, in `steps.jsonl` with the time it was
+//! logged. Those are the only calls it logged with their usage. Each becomes
+//! a call line marked `imported`, unless the ledger already has the same
 //! session ending within a few seconds of it.
 
 use std::path::Path;
@@ -31,6 +31,7 @@ pub struct Imported {
 // `cost_usd` and `pull_request`, and some usage fields, so all may be missing.
 #[derive(Deserialize)]
 struct Step {
+    at: String,
     step: String,
     issue: Option<u64>,
     session: Option<String>,
@@ -56,13 +57,12 @@ struct LoggedUsage {
     output: u64,
 }
 
-/// The call a runner's log line records, if it records one
+/// The call a line of the steps file records, if it records one
 ///
-/// The line is shep's time stamp, RFC 3339, then the step's JSON object.
+/// The line is the step's JSON object, with its `at` time, RFC 3339.
 fn call_of(line: &str) -> Option<CallLine> {
-    let (stamp, json) = line.split_once(' ')?;
-    let at: jiff::Timestamp = stamp.parse().ok()?;
-    let step: Step = serde_json::from_str(json.trim()).ok()?;
+    let step: Step = serde_json::from_str(line.trim()).ok()?;
+    let at: jiff::Timestamp = step.at.parse().ok()?;
     if !matches!(step.step.as_str(), "ended" | "asked") {
         return None;
     }
@@ -99,7 +99,7 @@ fn call_of(line: &str) -> Option<CallLine> {
     })
 }
 
-/// Adds each call `log`'s lines record to the ledger at `ledger`, oldest
+/// Adds each call the lines of the steps file `log` record to the ledger at `ledger`, oldest
 /// first, but those it already holds
 ///
 /// # Errors
@@ -149,13 +149,14 @@ mod tests {
     use super::*;
 
     // Two runners' `ended` lines, the second an older shape with no cost
-    // or pull request, and lines that record no call.
-    const LOG: &str = r#"2026-10-01T16:53:32.105-04:00 {"step":"ended","issue":135,"session":"15eb335f","usage":{"input":196,"cache_write":135548,"cache_read":10214685,"output":40225},"cost_usd":2.987771,"work_item_cost_usd":2.987771,"pull_request":271}
-2026-10-01T17:00:00.000-04:00 {"step":"held","kind":"window","reason":"the turn ended","until":1}
-2026-10-01T17:05:10.000-04:00 {"step":"ended","issue":136,"session":"9f3ec502","usage":{"input":10,"cache_write":20,"cache_read":30,"output":40}}
-2026-10-01T17:06:00.000-04:00 {"step":"asked","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4},"cost_usd":0.5,"work_item_cost_usd":0.5,"pull_request":null,"id":3,"question":"q","comment_failed":null}
+    // or pull request, and lines that record no call, one with no time.
+    const LOG: &str = r#"{"at":"2026-10-01T16:53:32.105-04:00","step":"ended","issue":135,"session":"15eb335f","usage":{"input":196,"cache_write":135548,"cache_read":10214685,"output":40225},"cost_usd":2.987771,"work_item_cost_usd":2.987771,"pull_request":271}
+{"at":"2026-10-01T17:00:00.000-04:00","step":"held","kind":"window","reason":"the turn ended","until":1}
+{"at":"2026-10-01T17:05:10.000-04:00","step":"ended","issue":136,"session":"9f3ec502","usage":{"input":10,"cache_write":20,"cache_read":30,"output":40}}
+{"at":"2026-10-01T17:06:00.000-04:00","step":"asked","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4},"cost_usd":0.5,"work_item_cost_usd":0.5,"pull_request":null,"id":3,"question":"q","comment_failed":null}
 not a step at all
-2026-10-01T17:07:00.000-04:00 {"step":"ended","issue":13"#;
+{"step":"ended","issue":137,"session":"c0ffee","usage":{"input":1,"cache_write":1,"cache_read":1,"output":1}}
+{"at":"2026-10-01T17:07:00.000-04:00","step":"ended","issue":13"#;
 
     #[test]
     fn each_logged_call_is_added_once_whatever_its_shape() {
@@ -203,9 +204,9 @@ not a step at all
 
     #[test]
     fn two_turns_of_one_session_seconds_apart_both_import_and_once_only() {
-        let log = r#"2026-10-01T17:05:10.000-04:00 {"step":"ended","issue":136,"session":"9f3ec502","usage":{"input":10,"cache_write":20,"cache_read":30,"output":40}}
-2026-10-01T17:05:15.000-04:00 {"step":"ended","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4}}
-2026-10-01T17:05:15.000-04:00 {"step":"ended","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4}}"#;
+        let log = r#"{"at":"2026-10-01T17:05:10.000-04:00","step":"ended","issue":136,"session":"9f3ec502","usage":{"input":10,"cache_write":20,"cache_read":30,"output":40}}
+{"at":"2026-10-01T17:05:15.000-04:00","step":"ended","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4}}
+{"at":"2026-10-01T17:05:15.000-04:00","step":"ended","issue":136,"session":"9f3ec502","usage":{"input":1,"cache_write":2,"cache_read":3,"output":4}}"#;
         let dir = tempfile::tempdir().unwrap();
         let ledger = dir.path().join("usage.jsonl");
         assert_eq!(
@@ -235,7 +236,7 @@ not a step at all
 
     #[test]
     fn a_five_minute_cache_write_imports_at_its_own_weight() {
-        let log = r#"2026-10-01T17:05:10.000-04:00 {"step":"ended","issue":136,"session":"9f3ec502","usage":{"input":0,"cache_write":1000,"cache_write_5m":400,"cache_read":0,"output":0}}"#;
+        let log = r#"{"at":"2026-10-01T17:05:10.000-04:00","step":"ended","issue":136,"session":"9f3ec502","usage":{"input":0,"cache_write":1000,"cache_write_5m":400,"cache_read":0,"output":0}}"#;
         let dir = tempfile::tempdir().unwrap();
         let ledger = dir.path().join("usage.jsonl");
         import(log, &ledger).unwrap();
