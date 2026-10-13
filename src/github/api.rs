@@ -430,6 +430,35 @@ pub enum Grant {
     /// written, though its documentation does not say so. It is minted for
     /// that call alone, because it can push, which kelpie's posts cannot.
     Threads,
+    /// Kelpie's reads of the board, pull requests, reviews and checks: issues,
+    /// pull requests, checks and commit statuses, read. Nothing is written.
+    Reader,
+    /// What [`Grant::Reader`] asks for less the checks and statuses, for an App
+    /// registered before it asked for them: GitHub answers 422 to a request
+    /// for a permission the App was never given
+    ReaderCore,
+}
+
+impl Grant {
+    /// What the token is kept for until it nears its end, or none when it is
+    /// minted for one call. The posting token and the reading one are kept
+    /// apart.
+    pub(crate) fn kept_for(self) -> Option<Purpose> {
+        match self {
+            Self::Kelpie => Some(Purpose::Posts),
+            Self::Reader | Self::ReaderCore => Some(Purpose::Reads),
+            Self::Worker { .. } | Self::Threads => None,
+        }
+    }
+}
+
+/// What a kept token is for
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Purpose {
+    /// Kelpie's posts
+    Posts,
+    /// Kelpie's reads
+    Reads,
 }
 
 /// The body of an access token's request, which limits the token to `repo`
@@ -442,6 +471,13 @@ pub fn token_request(repo: &ForgeSlug, grant: Grant) -> String {
             serde_json::json!({ "contents": "write", "workflows": "write" })
         }
         Grant::Threads => serde_json::json!({ "contents": "write", "pull_requests": "write" }),
+        Grant::Reader => serde_json::json!({
+            "issues": "read",
+            "pull_requests": "read",
+            "checks": "read",
+            "statuses": "read",
+        }),
+        Grant::ReaderCore => serde_json::json!({ "issues": "read", "pull_requests": "read" }),
     };
     serde_json::json!({ "permissions": permissions, "repositories": [repo.name()] }).to_string()
 }

@@ -49,6 +49,8 @@ struct Hub {
     workers_refused: Option<ApiError>,
     // A permission GitHub grants a worker's token beyond the one asked for
     extra_grant: Option<(String, String)>,
+    // Permissions the App was never given: a token asking for one is refused
+    ungiven: Vec<String>,
     // The review threads a GraphQL write lands on
     threads: Option<FakeCodeRabbit>,
 }
@@ -122,6 +124,13 @@ impl FakeGithub {
     pub(crate) fn grants_too(&self, permission: &str, level: &str) {
         let grant = (permission.to_owned(), level.to_owned());
         self.hub.lock().unwrap().extra_grant = Some(grant);
+    }
+
+    /// Makes `permissions` ones the App was never given: GitHub answers 422 to
+    /// a token that asks for one
+    pub(crate) fn never_given(&self, permissions: &[&str]) {
+        let ungiven = permissions.iter().map(|&p| p.to_owned());
+        self.hub.lock().unwrap().ungiven.extend(ungiven);
     }
 
     /// Makes the App's GraphQL writes on review threads land in `threads`
@@ -268,7 +277,8 @@ impl GithubApi for FakeGithub {
     ) -> Result<IssuedToken, ApiError> {
         let mut hub = self.hub.lock().unwrap();
         let body = crate::github::api::token_request(repo, grant);
-        hub.asked.push(Asked::AccessToken(installation, body));
+        hub.asked
+            .push(Asked::AccessToken(installation, body.clone()));
         hub.jwts.push(jwt.expose().to_owned());
         if let Some(error) = hub.failures.pop_front() {
             return Err(error);
@@ -279,6 +289,13 @@ impl GithubApi for FakeGithub {
             .filter(|_| matches!(grant, Grant::Worker { .. }))
         {
             return Err(error);
+        }
+        let asks_ungiven = hub
+            .ungiven
+            .iter()
+            .any(|p| body.contains(&format!("\"{p}\":")));
+        if asks_ungiven {
+            return Err(ApiError::Refused(422));
         }
         hub.minted += 1;
         let ask = |pairs: &[(&str, &str)]| {
@@ -304,6 +321,18 @@ impl GithubApi for FakeGithub {
                 ("contents", "write"),
                 ("metadata", "read"),
                 ("pull_requests", "write"),
+            ]),
+            Grant::Reader => ask(&[
+                ("checks", "read"),
+                ("issues", "read"),
+                ("metadata", "read"),
+                ("pull_requests", "read"),
+                ("statuses", "read"),
+            ]),
+            Grant::ReaderCore => ask(&[
+                ("issues", "read"),
+                ("metadata", "read"),
+                ("pull_requests", "read"),
             ]),
         };
         let extra = (hub.extra_grant.clone()).filter(|_| matches!(grant, Grant::Worker { .. }));

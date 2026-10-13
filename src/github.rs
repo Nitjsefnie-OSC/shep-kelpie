@@ -256,3 +256,6 @@ fn put(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reader_tests;
