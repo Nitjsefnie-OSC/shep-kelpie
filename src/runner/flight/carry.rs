@@ -18,7 +18,6 @@ use super::super::briefing::Watched;
 use super::super::in_flight::Open;
 use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
-use crate::settings::Harness;
 
 /// A worker's turn as it crosses a handover
 // wire format: changing this is a change to the handover's state format
@@ -110,6 +109,7 @@ impl Runner {
             started,
             open,
         } = turn;
+        let harness = adopted.harness;
         let ending = Ending::default();
         ending.carry(flying);
         let tell = Tell {
@@ -134,7 +134,7 @@ impl Runner {
             .name(format!("#{issue} worker"))
             .spawn(run);
         if let Err(e) = began {
-            let end = unstarted(Some(Harness::ClaudeCode), &e);
+            let end = unstarted(Some(harness), &e);
             let _ = self.flights.send.send(News::Ended { issue, end });
         }
         self.flights.flying.insert(

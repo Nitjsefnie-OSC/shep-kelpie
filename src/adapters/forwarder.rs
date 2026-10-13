@@ -15,7 +15,7 @@ use std::io::{self, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -64,6 +64,33 @@ impl Default for Limits {
             connections: MAX_CONNECTIONS,
             wait: REQUEST_WAIT,
         }
+    }
+}
+
+// The connections being served, across every forwarder
+static RELAYING: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a forwarder is serving a connection, which a handover waits out
+///
+/// A reply being relayed is copied by a thread that does not cross an
+/// `execve`, so the model would be cut off mid-stream.
+pub(crate) fn relaying() -> bool {
+    RELAYING.load(Ordering::SeqCst) > 0
+}
+
+// Counts one connection in `count` while it lives
+struct Serving(&'static AtomicUsize);
+
+impl Serving {
+    fn begin(count: &'static AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -120,6 +147,36 @@ impl Forwarder {
             folder,
             (*STARTED).min(settled.unwrap_or(SystemTime::UNIX_EPOCH)),
         );
+        Self::bind(socket, upstream, limits, &RELAYING)
+    }
+
+    /// Opens `socket` again, the path a forwarder of an earlier image of the
+    /// runner served on, which that image's `execve` left bound to nothing
+    ///
+    /// # Errors
+    ///
+    /// The reason, when `socket` is not one a forwarder opens or cannot be
+    /// bound.
+    pub(crate) fn reopen(socket: &Path, upstream: Upstream) -> Result<Self, String> {
+        if !is_forwarders(socket) {
+            return Err(format!("{} is not a forwarder's socket", socket.display()));
+        }
+        match std::fs::remove_file(socket) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                return Err(format!("cannot clear {}: {e}", socket.display()));
+            }
+            _ => {}
+        }
+        Self::bind(socket.to_owned(), upstream, Limits::default(), &RELAYING)
+    }
+
+    // Serves `upstream` on `socket`, counting each connection in `count`.
+    fn bind(
+        socket: PathBuf,
+        upstream: Upstream,
+        limits: Limits,
+        count: &'static AtomicUsize,
+    ) -> Result<Self, String> {
         let listener = UnixListener::bind(&socket)
             .map_err(|e| format!("cannot open {}: {e}", socket.display()))?;
         let stopping = Arc::new(AtomicBool::new(false));
@@ -127,7 +184,7 @@ impl Forwarder {
         let (stop, held) = (Arc::clone(&stopping), Arc::clone(&open));
         let thread = thread::Builder::new()
             .name("forwarder".into())
-            .spawn(move || accept(&listener, &upstream, limits, &stop, &held))
+            .spawn(move || accept(&listener, &upstream, limits, count, &stop, &held))
             .map_err(|e| format!("cannot start the forwarder: {e}"))?;
         Ok(Self {
             socket,
@@ -135,6 +192,18 @@ impl Forwarder {
             open,
             thread: Some(thread),
         })
+    }
+
+    /// [`Forwarder::open_with`], counting its connections in `count`, which a
+    /// test owns to read alone
+    #[cfg(test)]
+    pub(crate) fn open_counted(
+        folder: &Path,
+        upstream: Upstream,
+        count: &'static AtomicUsize,
+    ) -> Result<Self, String> {
+        let socket = folder.join(format!("{}.sock", unguessable()?));
+        Self::bind(socket, upstream, Limits::default(), count)
     }
 }
 
@@ -145,6 +214,14 @@ const SWEEP_AGE: Duration = Duration::from_secs(60);
 // earlier kelpie's. One this process made may be bound and not yet listening.
 static STARTED: LazyLock<SystemTime> = LazyLock::new(SystemTime::now);
 
+// Whether `path` is named as a forwarder names its socket.
+fn is_forwarders(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_suffix(".sock"))
+        .is_some_and(|n| n.len() == 32 && n.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
 // Removes the sockets an earlier kelpie left in `folder` when it was killed
 // before it could, those last changed before `before` that nothing answers on.
 fn sweep(folder: &Path, before: SystemTime) {
@@ -152,11 +229,7 @@ fn sweep(folder: &Path, before: SystemTime) {
         return;
     };
     for path in entries.filter_map(Result::ok).map(|e| e.path()) {
-        let ours = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|n| n.strip_suffix(".sock"))
-            .is_some_and(|n| n.len() == 32 && n.bytes().all(|b| b.is_ascii_hexdigit()));
+        let ours = is_forwarders(&path);
         let old = path
             .metadata()
             .and_then(|m| m.modified())
@@ -197,6 +270,7 @@ fn accept(
     listener: &UnixListener,
     upstream: &Upstream,
     limits: Limits,
+    count: &'static AtomicUsize,
     stopping: &Arc<AtomicBool>,
     open: &Open,
 ) {
@@ -229,9 +303,11 @@ fn accept(
             );
         }
         let (upstream, open, stopping) = (upstream.clone(), Arc::clone(open), Arc::clone(stopping));
+        let serving_now = Serving::begin(count);
         let spawned = thread::Builder::new().name("forwarding".into()).spawn({
             let open = Arc::clone(&open);
             move || {
+                let _serving = serving_now;
                 serve(client, &upstream, limits, &stopping, &open, id);
                 open.lock().unwrap().remove(&id);
             }

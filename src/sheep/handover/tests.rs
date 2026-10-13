@@ -268,3 +268,4 @@ fn a_build_that_does_not_finish_its_check_is_stopped() {
 }
 
 mod exec;
+mod pi;

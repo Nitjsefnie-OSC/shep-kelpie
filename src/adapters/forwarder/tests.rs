@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 
 use super::*;
@@ -550,4 +551,68 @@ fn a_client_that_stays_connected_keeps_the_upstream_open_while_it_is_silent() {
     stream.read_to_end(&mut got).unwrap();
     let reply = String::from_utf8_lossy(&got);
     assert!(reply.contains("data: one\n\ndata: two\n\n"), "{reply}");
+}
+
+static COUNTED: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn a_connection_is_counted_from_its_accept_to_the_end_of_its_reply() {
+    let (url, go) = two_part_server();
+    let dir = crate::test::short_tempdir();
+    let folder = dir.path().canonicalize().unwrap();
+    let forwarder = Forwarder::open_counted(&folder, upstream(&url), &COUNTED).unwrap();
+    assert_eq!(COUNTED.load(Ordering::SeqCst), 0, "an idle forwarder");
+
+    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream.write_all(&chat("{}")).unwrap();
+    let mut got = Vec::new();
+    let mut buf = [0u8; 256];
+    while !String::from_utf8_lossy(&got).contains("data: one") {
+        let n = stream.read(&mut buf).unwrap();
+        assert!(n > 0, "ended early: {:?}", String::from_utf8_lossy(&got));
+        got.extend(&buf[..n]);
+    }
+    assert_eq!(COUNTED.load(Ordering::SeqCst), 1, "a reply being relayed");
+
+    go.send(()).unwrap();
+    stream.read_to_end(&mut got).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while COUNTED.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(COUNTED.load(Ordering::SeqCst), 0, "the reply ended");
+}
+
+#[test]
+fn a_socket_an_exec_left_bound_to_nothing_is_served_again_at_the_same_path() {
+    let server = StandInEndpoint::start([Answer::Says("after the exec")]);
+    let dir = crate::test::short_tempdir();
+    let folder = dir.path().canonicalize().unwrap();
+    let socket = folder.join("0123456789abcdef0123456789abcdef.sock");
+    drop(UnixListener::bind(&socket).unwrap());
+    assert!(UnixStream::connect(&socket).is_err(), "nothing answers");
+
+    let forwarder = Forwarder::reopen(&socket, upstream(server.url())).unwrap();
+
+    assert_eq!(forwarder.socket, socket);
+    let reply = send(&forwarder, &chat("{}"));
+    assert!(reply.contains("after the exec"), "{reply}");
+    drop(forwarder);
+    assert!(!socket.exists(), "dropped, it removes the socket");
+}
+
+#[test]
+fn only_a_forwarders_own_socket_is_opened_again() {
+    let dir = crate::test::short_tempdir();
+    let folder = dir.path().canonicalize().unwrap();
+    let other = folder.join("settings.json");
+    std::fs::write(&other, "{}").unwrap();
+
+    let err = Forwarder::reopen(&other, upstream("http://192.0.2.9:11434/v1")).unwrap_err();
+
+    assert!(err.contains("not a forwarder's socket"), "{err}");
+    assert!(other.exists(), "nothing was removed");
 }

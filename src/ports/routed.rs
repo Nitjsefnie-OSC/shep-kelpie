@@ -24,7 +24,11 @@ impl Routed {
     }
 
     fn adapter(&self, call: &AgentCall) -> &dyn Agents {
-        match call.harness.harness() {
+        self.adapter_of(call.harness.harness())
+    }
+
+    fn adapter_of(&self, harness: Harness) -> &dyn Agents {
+        match harness {
             Harness::ClaudeCode => self.claude_code.as_ref(),
             Harness::Pi => self.pi.as_ref(),
             Harness::Codex => self.codex.as_ref(),
@@ -53,9 +57,8 @@ impl Agents for Routed {
         self.adapter(call).adoption(call)
     }
 
-    // Only Claude Code's calls are ever adopted.
     fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
-        self.claude_code.adopt(adopted, ending)
+        self.adapter_of(adopted.harness).adopt(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {

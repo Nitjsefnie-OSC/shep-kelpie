@@ -12,7 +12,7 @@ mod codex;
 mod codex_usage;
 mod curl;
 mod door_pace;
-mod forwarder;
+pub(crate) mod forwarder;
 pub(crate) mod gh;
 mod git;
 mod github;

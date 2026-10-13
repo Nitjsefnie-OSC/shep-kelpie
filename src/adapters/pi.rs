@@ -21,6 +21,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::json;
 
+use self::adopt::{Carried, kept_server};
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
@@ -30,11 +31,17 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
-    Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage, Wait, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Kept,
+    Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage,
+    Wait, written_at,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
+
+mod adopt;
+
+#[cfg(test)]
+mod adopt_tests;
 
 #[cfg(test)]
 mod tests;
@@ -84,6 +91,8 @@ pub struct PiCli {
     // What a call with no fence may not read: the shepherd's home
     unfenced_no_read: Vec<String>,
     gateways: Gateways,
+    // What each running call keeps in memory that a handover must carry
+    carried: Carried,
 }
 
 impl ClaudeCli {
@@ -97,6 +106,7 @@ impl ClaudeCli {
             sandbox: Arc::clone(&self.sandbox),
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
+            carried: Carried::default(),
         }
     }
 }
@@ -166,7 +176,16 @@ impl Agents for PiCli {
         };
         let output = self.leased(call, ending, |lease| {
             // The forwarder stays until the call has ended.
-            let (mut command, _forwarder) = self.sandboxed_command(call, lease)?;
+            let (mut command, forwarder) = self.sandboxed_command(call, lease)?;
+            let _noted = self.carried.note(
+                call,
+                Kept {
+                    forwarder: forwarder.socket.clone(),
+                    server: kept_server(&server(call)?.host),
+                    session: call.session.id().clone(),
+                    lease: lease.map(str::to_owned),
+                },
+            );
             (self.processes)
                 .output_of_call(&mut command, call, ending, &spawned)
                 .map_err(|e| match e {
@@ -176,6 +195,14 @@ impl Agents for PiCli {
                 })
         })??;
         parse_result(&output, call.session.id())
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        self.adoption_of(call)
+    }
+
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.adopt_call(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {

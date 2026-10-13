@@ -64,7 +64,7 @@ impl fmt::Display for AgentName {
 }
 
 /// The program that runs an agent's sessions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Harness {
     /// Claude Code, headless as `claude -p`
