@@ -110,11 +110,6 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                  item and keeps its branch on the forge",
                 capitalized(&about)
             ),
-            Stuck::LocalModelSpilled { review, why } => format!(
-                "Round {} of the review on {about} did not run: {why}. \
-                 Once the model is back on the GPU, {yes} runs the round again",
-                review.round
-            ),
             Stuck::Unpushed {
                 files,
                 head,

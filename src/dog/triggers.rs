@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::desk::{Delivery, Desk, deliveries};
 use crate::lease::book::Asked;
-use crate::lease::{GPU, Holder, LeaseKind};
+use crate::lease::{Holder, LeaseKind};
 
 /// The triggers the dog answers for the maintainer
 pub const ACTIONS: [&str; 3] = ["status", "take", "return"];
@@ -12,7 +12,7 @@ pub const ACTIONS: [&str; 3] = ["status", "take", "return"];
 impl Desk {
     /// Answers one of the maintainer's triggers with a JSON body
     ///
-    /// `status` lists every lease, the GPU's read from its lock. `take`
+    /// `status` lists every lease. `take`
     /// and `return` name a book lease and act for the maintainer. Asking
     /// with `take` again is how a waiting maintainer learns of the grant.
     pub fn answer(&mut self, action: &str, params: Option<&str>) -> (String, Vec<Delivery>) {
@@ -21,11 +21,6 @@ impl Desk {
         let kind = match (action, params) {
             ("status", None) => return (self.status().to_string(), Vec::new()),
             ("status", Some(_)) => return error("`status` takes no params".into()),
-            ("take" | "return", Some(GPU)) => {
-                return error(format!(
-                    "the GPU lease is the qwen scripts' lock: run `shep kelpie lease {action} gpu`"
-                ));
-            }
             ("take" | "return", Some(kind)) => match LeaseKind::try_from(kind) {
                 Ok(kind) => kind,
                 Err(e) => return error(e.to_string()),
@@ -47,14 +42,7 @@ impl Desk {
     }
 
     fn status(&self) -> serde_json::Value {
-        let holder = self.gpu.holder();
-        let gpu = json!({
-            "kind": GPU,
-            "lock": self.gpu.path(),
-            "since": holder.as_ref().and_then(|h| h.since),
-            "holder": holder,
-        });
-        let mut leases = vec![gpu, json!(self.tests.status())];
+        let mut leases = vec![json!(self.tests.status())];
         leases.extend(self.e2e.values().map(|l| json!(l.status())));
         leases.extend(self.book.status().iter().map(|l| json!(l)));
         json!({ "leases": leases })
@@ -96,17 +84,11 @@ mod tests {
     }
 
     #[test]
-    fn status_reads_the_gpu_from_its_lock() {
+    fn status_lists_cargo_test_and_the_coderabbit_window() {
         let mut w = world();
-        let lock = w.desk.gpu.clone();
         assert_eq!(
             w.ask("status", None).0,
             json!({ "leases": [{
-                "kind": "gpu",
-                "lock": lock.path(),
-                "since": null,
-                "holder": null,
-            }, {
                 "kind": "cargo-test",
                 "capacity": 3,
                 "holders": [],
@@ -119,24 +101,6 @@ mod tests {
                 "window": { "quota": 1, "summons": [], "opens": null },
             }] })
         );
-        let me = std::process::id();
-        let claim = crate::lease::gpu::Claim {
-            pid: me,
-            what: "round 1 in /tmp/hunks".into(),
-        };
-        lock.try_take(&claim).unwrap();
-        let gpu = &w.ask("status", None).0["leases"][0];
-        assert_eq!(
-            gpu["holder"],
-            json!({
-                "pid": me,
-                "live": true,
-                "what": "round 1 in /tmp/hunks",
-                "session": std::env::var("CLAUDE_CODE_MESSAGING_SOCKET").unwrap_or_default(),
-                "since": gpu["since"],
-            })
-        );
-        assert!(gpu["since"].as_u64().is_some(), "{gpu}");
     }
 
     #[test]
@@ -168,17 +132,14 @@ mod tests {
     }
 
     #[test]
-    fn the_maintainer_is_sent_to_the_lock_for_the_gpu() {
+    fn the_gpu_is_no_lease_to_take_or_return() {
         let mut w = world();
         for action in ["take", "return"] {
             let (body, _) = w.ask(action, Some("gpu"));
-            assert_eq!(
-                body["error"],
-                format!(
-                    "the GPU lease is the qwen scripts' lock: run `shep kelpie lease {action} gpu`"
-                )
-            );
+            let error = body["error"].as_str().unwrap();
+            assert!(error.contains("shep paddock run"), "{action}: {error}");
         }
+        assert_eq!(w.ask("status", None).0["leases"][0]["kind"], "cargo-test");
     }
 
     #[test]

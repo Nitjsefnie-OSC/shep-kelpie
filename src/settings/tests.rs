@@ -627,8 +627,8 @@ fn the_review_settings_reviewer_files_replace_are_refused_saying_what_replaces_e
             "review.local",
             table("review.local", "kind = \"command\"\ncommand = \"~/q.sh\""),
             "write the round as an agent file with `role: reviewer`, its `kind` as \
-             `harness` and `gpu_lease = true` as `lease: gpu`, and list it in \
-             `agents.reviewers`; `kind = \"off\"` is `agents.reviewers = [\"defect-hunter\"]`",
+             `harness`, and list it in `agents.reviewers`; `kind = \"off\"` is \
+             `agents.reviewers = [\"defect-hunter\"]`",
         ),
         ("review", table("review", ""), "delete it"),
     ];

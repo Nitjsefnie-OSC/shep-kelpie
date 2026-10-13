@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::Timestamp;
 use crate::guard::IssueRules;
 use crate::hooks::Hooks;
-use crate::settings::{AgentHarness, Effort, GuardHook, Harness, LeaseName};
+use crate::settings::{AgentHarness, Effort, GuardHook, Harness};
 
 /// Which role an agent call is made for
 // wire format: changing this is a breaking change to the state file
@@ -240,8 +240,6 @@ pub struct AgentCall {
     /// place of what a worker's or a reviewer's own kind starts with. A
     /// retro, the project manager and the issue writer keep their own.
     pub agent_tools: Option<String>,
-    /// The lease the call holds from start to end, for a local agent
-    pub lease: Option<LeaseName>,
     /// What it may reach
     pub reach: Reach,
     /// Tokens of context at which the harness compacts the session in the
@@ -421,7 +419,7 @@ pub fn written_at(path: &std::path::Path) -> CallActivity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Wait {
-    /// A lease on its model, from a gateway or kelpie's dog
+    /// A lease on its model, from a gateway
     Lease,
     /// Its gateway answered busy, HTTP 503, and is asked again
     Busy,

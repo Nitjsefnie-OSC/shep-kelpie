@@ -46,7 +46,6 @@ use super::Runner;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
 use super::retro::journal::{Entry, Held};
 use super::review_bot::Answered;
-use super::ruling::park;
 use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
@@ -215,14 +214,7 @@ impl Runner {
             ask.as_ref()
                 .map(|(command, folder)| (*command, folder.as_path())),
         );
-        let call = calls::reviewer_call(
-            issue,
-            &worktree,
-            &self.paths.worker,
-            (model, limit),
-            prompt,
-            tests,
-        );
+        let call = calls::reviewer_call(issue, &worktree, &self.paths.worker, model, prompt, tests);
         match call.and_then(|call| self.prepared(call)) {
             Ok(call) => {
                 match first {
@@ -620,28 +612,8 @@ impl Runner {
             .expect("review runs once a pull request is known");
         let round = review.round;
 
-        // Not a failed gate to wait out: the maintainer moves the model, so
-        // the round is parked on a ruling, which alerts.
-        if let ReviewResult::Spilled(reason) = &result {
-            let reason = reason.clone();
-            let kind = Stuck::LocalModelSpilled {
-                review,
-                why: reason,
-            }
-            .into();
-            let (id, question) = park(self.names(), &mut next, issue, Some(number), kind);
-            self.save(next)?;
-            let comment_failed = self.post_ruling(Some(number), id);
-            return Ok(Some(StepReport::Ruling {
-                issue,
-                pull_request: number,
-                id,
-                question,
-                comment_failed,
-            }));
-        }
         let ReviewResult::Findings(result) = result else {
-            unreachable!("a stopped call and a spilled model return above")
+            unreachable!("a stopped call returns above")
         };
         if result.is_ok() && matches!(review.stage, ReviewStage::Round) {
             item.counts.review_rounds = item.counts.review_rounds.saturating_add(1);
@@ -859,10 +831,6 @@ pub(super) fn run_review_call(
             };
             match reviewer.round_watched(&local, worktree, &base, &out, round, &criteria, watch) {
                 Err(ReviewerError::Stopped) => stopped(),
-                Err(ReviewerError::Spilled(reason)) => Reviewed {
-                    result: ReviewResult::Spilled(reason),
-                    spent: None,
-                },
                 result => Reviewed {
                     result: ReviewResult::Findings(result.map_err(|e| e.to_string())),
                     spent: Some(Spent::Local),

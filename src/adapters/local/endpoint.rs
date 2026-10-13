@@ -145,7 +145,7 @@ impl LocalReviewer {
         let port = (self.gateways.port_named(name)).map_err(ReviewerError::Failed)?;
         let place = worktree.worktree.file_name().unwrap_or_default();
         let note = format!("kelpie local round {round} in {}", place.to_string_lossy());
-        // The wait for a turn is the round's queue, as the GPU lock's was.
+        // The wait for a turn is the round's queue.
         let queued = std::cell::Cell::new(false);
         let tell = |stand| match stand {
             Stand::Turn if !queued.replace(true) => watch(RoundStage::Queued),

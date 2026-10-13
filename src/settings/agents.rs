@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::gateway::ModelHost;
 use super::local::ContextSize;
-use super::reviewers::{LeaseName, lowercase_name};
+use super::reviewers::lowercase_name;
 use super::{RoleModel, Settings, SettingsError};
 use crate::agents::{Agent, Agents, FOLDER, Role, Runs};
 use crate::forwarder::Upstream;
@@ -200,21 +200,12 @@ impl Account {
 pub enum Limit {
     /// Its account's windows, which the pacer reads
     Account(Account),
-    /// A lease it holds for the whole of each call. It is never paced.
-    Lease(LeaseName),
+    /// A model server reached by `url`, which nothing of kelpie's queues. It
+    /// is never paced.
+    Unqueued,
     /// A gateway, which queues its calls: each holds a lease the gateway
-    /// grants, no lock of kelpie's, and none is paced
+    /// grants, and none is paced
     Gateway,
-}
-
-impl Limit {
-    /// The lease a call holds, for an agent limited by one
-    pub fn lease(&self) -> Option<&LeaseName> {
-        match self {
-            Self::Account(_) | Self::Gateway => None,
-            Self::Lease(lease) => Some(lease),
-        }
-    }
 }
 
 impl Default for Limit {
@@ -301,7 +292,7 @@ pub struct Implementer {
 }
 
 impl Implementer {
-    /// Whether it runs on a local model, held by a lease or a gateway and never paced
+    /// Whether it runs on a local model, behind a gateway or not, and never paced
     pub fn is_local(&self) -> bool {
         !matches!(self.limit, Limit::Account(_))
     }

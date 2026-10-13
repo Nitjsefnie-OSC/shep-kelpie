@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use crate::lease::book::{Asked, Grant, LeaseBook};
 use crate::lease::counted::{CARGO_TEST_CAPACITY, CountedLease, Taken, Taker, Ticket};
-use crate::lease::gpu::GpuLock;
 use crate::lease::saved::{SavedBook, SavedRun, SavedRunId, SavedTotals};
 use crate::lease::wire::{MetricName, Total, Totals, WindowFact, WindowMetric};
 use crate::lease::{Epoch, Holder, LeaseKind};
@@ -70,7 +69,6 @@ impl Retired {
 #[derive(Debug)]
 pub struct Desk {
     pub(super) book: LeaseBook,
-    pub(super) gpu: GpuLock,
     pub(super) tests: CountedLease,
     // One lease per e2e host, made at its first ask.
     pub(super) e2e: BTreeMap<String, CountedLease>,
@@ -79,28 +77,21 @@ pub struct Desk {
 }
 
 impl Desk {
-    /// A desk with an empty book, reading the GPU lock at `gpu`, with a
-    /// window for each reviewer in `reviewers`
-    pub fn new(clock: Box<dyn Clock>, gpu: GpuLock, reviewers: Reviewers) -> Self {
+    /// A desk with an empty book, with a window for each reviewer in `reviewers`
+    pub fn new(clock: Box<dyn Clock>, reviewers: Reviewers) -> Self {
         Self::restore(
             clock,
-            gpu,
             SavedBook::new(Vec::new(), Vec::new(), Vec::new()),
             reviewers,
         )
     }
 
-    /// A desk holding what [`Desk::saved`] kept, reading the GPU lock at `gpu`,
-    /// with each window in `reviewers` as it defines it
+    /// A desk holding what [`Desk::saved`] kept, with each window in
+    /// `reviewers` as it defines it
     ///
     /// Its runners are as they were when it was saved: a [`Desk::resync`]
     /// against the live flock reclaims from those since gone or restarted.
-    pub fn restore(
-        clock: Box<dyn Clock>,
-        gpu: GpuLock,
-        saved: SavedBook,
-        reviewers: Reviewers,
-    ) -> Self {
+    pub fn restore(clock: Box<dyn Clock>, saved: SavedBook, reviewers: Reviewers) -> Self {
         let mut book = LeaseBook::restore(clock, saved.leases);
         book.set_reviewers(reviewers);
         let runs = saved
@@ -127,7 +118,6 @@ impl Desk {
         }
         Self {
             book,
-            gpu,
             tests: CountedLease::cargo_test(CARGO_TEST_CAPACITY),
             e2e: BTreeMap::new(),
             runs,
@@ -348,8 +338,7 @@ pub(super) mod tests {
     pub(crate) fn world_with(reviewers: Reviewers) -> World {
         let _temp = tempfile::tempdir().unwrap();
         let clock = FakeClock::at(EPOCH);
-        let gpu = GpuLock::under(_temp.path());
-        let desk = Desk::new(Box::new(clock.clone()), gpu, reviewers.clone());
+        let desk = Desk::new(Box::new(clock.clone()), reviewers.clone());
         World {
             desk,
             clock,
@@ -386,13 +375,7 @@ pub(super) mod tests {
             let file = BookFile::new(self._temp.path().join("book.json"));
             file.save(&self.desk.saved()).unwrap();
             let saved = file.load().unwrap().expect("a saved book");
-            let gpu = GpuLock::under(self._temp.path());
-            self.desk = Desk::restore(
-                Box::new(self.clock.clone()),
-                gpu,
-                saved,
-                self.reviewers.clone(),
-            );
+            self.desk = Desk::restore(Box::new(self.clock.clone()), saved, self.reviewers.clone());
         }
 
         pub(crate) fn book_line(&mut self) -> Value {
@@ -586,8 +569,8 @@ pub(super) mod tests {
         let leases = &w.ask("status", None).0["leases"];
         assert_eq!(
             leases.as_array().unwrap().len(),
-            3,
-            "the GPU, cargo-test and the CodeRabbit window alone: {leases}"
+            2,
+            "cargo-test and the CodeRabbit window alone: {leases}"
         );
     }
 

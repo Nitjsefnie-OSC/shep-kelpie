@@ -359,11 +359,6 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "Drops the work item and keeps its branch on the forge",
             Some(SENDS_BACK),
         ),
-        Stuck::LocalModelSpilled { .. } => (
-            "A review round did not run. Run it again?",
-            "Runs the round again, once the model is back on the GPU",
-            Some(SENDS_BACK),
-        ),
         Stuck::FixNotPushed { .. } => (
             "A fix ended without a push. Send the findings again?",
             "Sends the worker the findings again",

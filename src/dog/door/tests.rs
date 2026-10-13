@@ -7,7 +7,6 @@ use super::*;
 use crate::dog::open as open_book;
 use crate::lease::cli::counted_run;
 use crate::lease::door::{NO_E2E_HOST, Visit};
-use crate::lease::gpu::GpuLock;
 use crate::lease::saved::BookFile;
 use crate::review_bot::Reviewers;
 use crate::test::{EPOCH, FakeClock};
@@ -20,12 +19,7 @@ const BOUND: Duration = Duration::from_secs(10);
 // A dog's desk in `dir`, with `capacity` places in cargo-test.
 fn kept(dir: &Path, capacity: u32) -> Arc<Mutex<Kept>> {
     let file = BookFile::new(dir.join("book.json"));
-    let mut kept = open_book(
-        file,
-        Box::new(FakeClock::at(EPOCH)),
-        GpuLock::under(dir),
-        Reviewers::default(),
-    );
+    let mut kept = open_book(file, Box::new(FakeClock::at(EPOCH)), Reviewers::default());
     kept.desk
         .set_test_capacity(NonZeroU32::new(capacity).unwrap());
     Arc::new(Mutex::new(kept))

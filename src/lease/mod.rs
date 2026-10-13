@@ -1,17 +1,14 @@
 //! Leases on the shared resources every project uses
 //!
-//! Three kinds of lease. The GPU lease is the lock the maintainer's qwen
-//! scripts already take, which [`gpu`] reads and takes in their format,
-//! and the dog stays out of it. A [`counted`] lease, `cargo-test`, is held
-//! by a few commands at once, each asking at the dog's [`door`]. Every
-//! other lease lives in the dog's [`book`], asked for and granted through
-//! shep as [`wire`] lays out.
+//! Two kinds of lease. A [`counted`] lease, `cargo-test`, is held by a few
+//! commands at once, each asking at the dog's [`door`]. Every other lease
+//! lives in the dog's [`book`], asked for and granted through shep as
+//! [`wire`] lays out. There is no GPU lease: paddock queues the GPU.
 
 pub mod book;
 pub mod cli;
 pub mod counted;
 pub mod door;
-pub mod gpu;
 pub mod saved;
 pub mod window;
 pub mod wire;
@@ -22,8 +19,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::runner::ProjectName;
 
-/// The GPU lease's name on the command line
+/// The name the GPU lease had, which is refused now
 pub const GPU: &str = "gpu";
+
+/// Why `gpu` is not a lease kind, and where its holders go now
+pub const GPU_GONE: &str = "there is no GPU lease: paddock queues the GPU, so hold a model with \
+     `shep paddock run --model <model> -- <command>`";
 
 /// The CodeRabbit lease's name: one review window for the whole account
 pub const CODERABBIT: &str = "coderabbit";
@@ -84,7 +85,7 @@ impl fmt::Display for LeaseKind {
 pub enum LeaseKindError {
     /// Not lowercase letters, digits and `-`, carrying the name
     Name(String),
-    /// `gpu`, which is the qwen scripts' lock and never the dog's
+    /// `gpu`, a lease kelpie no longer holds
     Gpu,
     /// `cargo-test`, which is held for one command at the dog's door
     Counted,
@@ -97,7 +98,7 @@ impl fmt::Display for LeaseKindError {
                 f,
                 "{name:?} is not a lease kind: use lowercase letters, digits and -"
             ),
-            Self::Gpu => f.write_str("the GPU lease is the qwen scripts' lock, not the dog's"),
+            Self::Gpu => f.write_str(GPU_GONE),
             Self::Counted => f.write_str(
                 "cargo-test is held for one command: run `shep kelpie lease run cargo-test -- <command>`",
             ),

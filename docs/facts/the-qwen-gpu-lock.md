@@ -1,5 +1,7 @@
 # The qwen GPU lock
 
+Kelpie no longer holds or takes this lock (#502): paddock queues the GPU. What follows is what was measured while it did, and it still describes the qwen scripts.
+
 - `qwen-review.sh` builds its GPU lock from `${TMPDIR:-/tmp}/qwen-review/gpu.lock`, so the lock's path depends on `TMPDIR`. An interactive Claude session gets the per-user temp folder as `TMPDIR` (`getconf DARWIN_USER_TEMP_DIR`). A runner under shep gets none, so it locked `/tmp` and its rounds ran on the GPU beside the sessions' rounds. Another session's model calls hit the 1800s timeout, seen on the playground on 2026-09-28.
 - Killing a qwen round takes 20 to 70 seconds and throws the partial round away, so a running round is never preempted.
 - `kelpie lease run gpu` used to lose an interrupt that landed between taking the lock and spawning the command: the terminal's interrupt reached kelpie but no child, and the handler had nothing to forward it to, so the run went on and only a second Ctrl-C ended it.

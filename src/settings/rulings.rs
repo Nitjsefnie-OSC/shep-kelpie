@@ -63,8 +63,6 @@ pub enum RulingName {
     MergeRefused,
     /// The pull request was closed
     Closed,
-    /// The local model spilled off the GPU
-    LocalModelSpilled,
     /// A fix turn ended without a push
     FixNotPushed,
     /// Work in the worktree is not pushed
@@ -93,7 +91,6 @@ impl RulingName {
                 Stuck::StillRed { .. } => Self::StillRed,
                 Stuck::MergeRefused { .. } => Self::MergeRefused,
                 Stuck::Closed => Self::Closed,
-                Stuck::LocalModelSpilled { .. } => Self::LocalModelSpilled,
                 Stuck::FixNotPushed { .. } => Self::FixNotPushed,
                 Stuck::Unpushed { .. } => Self::Unpushed,
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
@@ -116,7 +113,6 @@ impl RulingName {
             Self::StillRed => "still-red",
             Self::MergeRefused => "merge-refused",
             Self::Closed => "closed",
-            Self::LocalModelSpilled => "local-model-spilled",
             Self::FixNotPushed => "fix-not-pushed",
             Self::Unpushed => "unpushed",
             Self::TurnTimeout => "turn-timeout",

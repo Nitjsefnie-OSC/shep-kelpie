@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use super::{FakeMeter, git, write_in};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Usage, Utilization,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Usage,
+    Utilization, Wait,
 };
 
 /// How often a held call looks whether it was ended, as the real adapters
@@ -88,6 +89,9 @@ pub(crate) enum Scripted {
     Hold(Hold),
     /// Blocks until the test releases it, then fails with this error
     HoldThenFail(Hold, AgentError),
+    /// Waits for a lease on its model until the test releases the hold, as a
+    /// call queued at a gateway does, then goes on as the second does
+    Queued(Hold, Box<Scripted>),
 }
 
 /// What is queued for one role's calls
@@ -292,6 +296,21 @@ impl Agents for FakeClaude {
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
+        let own = {
+            let mut kept = self.by_role.lock().unwrap();
+            let queue = kept.iter_mut().find(|(r, _)| *r == call.role);
+            queue.and_then(|(_, queue)| queue.pop_front())
+        };
+        let next = own.or_else(|| self.script.lock().unwrap().pop_front());
+        let next = match next {
+            Some(Scripted::Queued(queue, then)) => {
+                ending.wait(Wait::Lease);
+                self.hold(&queue, call, ending)?;
+                ending.begin();
+                Some(*then)
+            }
+            other => other,
+        };
         let settings: serde_json::Value = std::fs::read_to_string(&call.settings)
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
@@ -311,12 +330,6 @@ impl Agents for FakeClaude {
             sandbox,
             build_existed,
         });
-        let own = {
-            let mut kept = self.by_role.lock().unwrap();
-            let queue = kept.iter_mut().find(|(r, _)| *r == call.role);
-            queue.and_then(|(_, queue)| queue.pop_front())
-        };
-        let next = own.or_else(|| self.script.lock().unwrap().pop_front());
         let next = match next {
             Some(Scripted::Spend(account, usage, cost)) => {
                 if let Some(meter) = &self.meter {
@@ -357,6 +370,7 @@ impl Agents for FakeClaude {
                 self.hold(&hold, call, ending)?;
                 Ok(said("done"))
             }
+            Some(Scripted::Queued(..)) => unreachable!("turned into its second above"),
             Some(Scripted::HoldThenFail(hold, error)) => {
                 hold.block();
                 Err(error)

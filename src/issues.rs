@@ -440,7 +440,6 @@ fn call(
         tools: Tools::Issues,
         agent_tools: None,
         reach,
-        lease: None,
         compact_window: None,
     })
 }

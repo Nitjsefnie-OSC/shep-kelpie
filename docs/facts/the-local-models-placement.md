@@ -1,5 +1,7 @@
 # The local model's placement
 
+Kelpie no longer reads `/api/ps` or parks on a spilled model (#502): paddock decides where a model loads. What follows is what was measured while it did.
+
 Built in shep-pm/shep-kelpie#145, after a model loaded on the CPU instead of the GPU ran review-sized prompts at a twentieth of normal speed on 2026-09-29 and nothing noticed for 14 minutes.
 
 - Ollama's `GET /api/ps` lists each loaded model with its `size` and `size_vram` in bytes, its `context_length` and its `expires_at`. A model is on the GPU when `size_vram` equals `size`, and `size_vram / size` is the share on it. Recorded shape: `fixtures/ollama-ps.json`, written by hand from Ollama's documented response, since the maintainer's host did not answer from the worker's sandbox.

@@ -164,6 +164,26 @@ fn a_pending_whole_issue_check_ruling_is_refused() {
     );
 }
 
+#[test]
+fn a_pending_local_model_spilled_ruling_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = saved_with(dir.path(), |value| {
+        value["last_ruling"] = json!(5);
+        value["rulings"] = json!([{
+            "id": 5, "issue": 42, "question": "q", "pull_request": 51,
+            "kind": { "kind": "local-model-spilled", "review": {}, "reason": "qwen at 60%" },
+        }]);
+    });
+    assert_eq!(
+        store.load(),
+        Err(StateError::RemovedRuling {
+            path: dir.path().join(STATE_FILE),
+            id: 5,
+            kind: "local-model-spilled".into(),
+        })
+    );
+}
+
 // A file saved while the relay existed, with its count of clears and each
 // ruling's relayed and resend fields.
 #[test]
