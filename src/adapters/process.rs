@@ -10,7 +10,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, ExitStatus, Output, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -21,7 +21,11 @@ use rustix::fs::{OFlags, fcntl_setfl};
 use self::record::{CallFiles, Recorded};
 use crate::ports::{AgentCall, Ending};
 
+mod adopt;
 pub(super) mod record;
+
+use self::adopt::Finishing;
+pub use self::adopt::Sealed;
 
 /// How often a running child is checked for its exit
 const POLL: Duration = Duration::from_millis(50);
@@ -31,6 +35,17 @@ const WRITE_POLL: Duration = Duration::from_millis(10);
 
 // Time for an ended call's group to exit on SIGTERM before it gets SIGKILL.
 const END_GRACE: Duration = Duration::from_secs(3);
+
+// The stdin writes under way, across every `Processes`
+static FEEDING: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether a child's stdin is being written, which a handover waits out
+///
+/// What is written is a secret or a prompt the child has not read yet, and
+/// the writer's thread does not cross an `execve`.
+pub fn feeding() -> bool {
+    FEEDING.load(Ordering::SeqCst) > 0
+}
 
 /// Why a stoppable child did not run to its end
 #[derive(Debug)]
@@ -52,6 +67,13 @@ struct Running {
     stopping: bool,
     next: u64,
     children: Vec<(u64, Child)>,
+    // The process groups of calls another image started, which are not
+    // `Child` values here
+    adopted: Vec<u32>,
+    // Set while a handover is under way, when no child is reaped
+    sealed: bool,
+    // The calls whose child is reaped and whose output is not yet read
+    finishing: usize,
 }
 
 impl Processes {
@@ -175,6 +197,8 @@ impl Processes {
         files: Option<Files<'_>>,
         input: &[u8],
     ) -> Result<Output, RunError> {
+        // Held until the call is read and its record gone, so a seal sees none half done.
+        let mut finishing = Finishing::new(self);
         // Whatever way the call ends, its files go with it.
         let _scrap = files.as_ref().map(|files| Scrap(files.outputs));
         let (out, err) = match &files {
@@ -232,7 +256,7 @@ impl Processes {
             recorded.write();
         }
         spawned(pid);
-        let status = self.wait(id, until, recorded.as_mut())?;
+        let status = self.wait(id, until, recorded.as_mut(), &mut finishing)?;
         // A stopped child's own children may hold its pipes open, so its
         // output is left unread.
         if self.lock().stopping {
@@ -376,6 +400,9 @@ impl Processes {
         for (_, child) in &running.children {
             signal_group(child.id(), "TERM");
         }
+        for pgid in &running.adopted {
+            signal_group(*pgid, "TERM");
+        }
     }
 
     fn wait(
@@ -383,10 +410,16 @@ impl Processes {
         id: u64,
         until: Until<'_>,
         mut recorded: Option<&mut Recorded>,
+        finishing: &mut Finishing,
     ) -> Result<ExitStatus, RunError> {
         loop {
             let passed = {
                 let mut running = self.lock();
+                if running.sealed {
+                    drop(running);
+                    thread::sleep(POLL);
+                    continue;
+                }
                 let at = running
                     .children
                     .iter()
@@ -397,6 +430,8 @@ impl Processes {
                 // as timed out, however close the two were.
                 if let Some(status) = running.children[at].1.try_wait().map_err(RunError::Io)? {
                     running.children.remove(at);
+                    running.finishing += 1;
+                    finishing.counted = true;
                     return Ok(status);
                 }
                 until.passed()
@@ -512,7 +547,9 @@ impl Feeder {
         let _ = fcntl_setfl(&stdin, OFlags::NONBLOCK);
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&cancel);
+        FEEDING.fetch_add(1, Ordering::SeqCst);
         let writer = thread::spawn(move || {
+            let _feeding = Feeding;
             let mut left = input.as_slice();
             while !left.is_empty() && !stop.load(Ordering::Relaxed) {
                 match stdin.write(left) {
@@ -530,6 +567,15 @@ impl Feeder {
             cancel,
             writer: Some(writer),
         }
+    }
+}
+
+// Counts one write as over when its thread ends, however it ends
+struct Feeding;
+
+impl Drop for Feeding {
+    fn drop(&mut self) {
+        FEEDING.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -729,6 +775,38 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         assert!(ended.is_ok(), "the writer thread was left blocked");
+    }
+
+    // Real time. Other tests feed too, so only that it is true is asserted.
+    #[test]
+    fn a_stdin_being_written_is_fed_until_the_writer_ends() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let feeder = Feeder::start(child.stdin.take().unwrap(), vec![b'x'; 4 * 1024 * 1024]);
+        thread::sleep(Duration::from_millis(100));
+        let while_stuck = feeding();
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(feeder);
+        assert!(while_stuck, "a write the child never reads is not a feed");
+    }
+
+    #[test]
+    fn a_seal_is_refused_while_one_stands_or_a_call_is_being_read() {
+        let processes = Processes::default();
+        let sealed = processes.seal().expect("nothing is sealed yet");
+        assert!(processes.seal().is_none(), "sealed twice");
+        drop(sealed);
+
+        let mut counting = Finishing::new(&processes);
+        processes.lock().finishing += 1;
+        counting.counted = true;
+        assert!(processes.seal().is_none(), "sealed with a call being read");
+        drop(counting);
+        assert!(processes.seal().is_some());
     }
 
     // Real time: models a worker whose build or test process outlives it.

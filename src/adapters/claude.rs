@@ -11,8 +11,8 @@ use serde::Deserialize;
 use super::process::{Processes, RunError};
 use super::srt::SandboxRuntime;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox, Session,
-    SessionId, Transcript, Unreadable, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox,
+    Session, SessionId, Transcript, Unreadable, Usage, written_at,
 };
 use crate::settings::Harness;
 use crate::tools::Tools;
@@ -20,6 +20,7 @@ use crate::tools::Tools;
 /// This adapter's harness, as its errors name it
 const CLAUDE: Harness = Harness::ClaudeCode;
 
+mod adopt;
 #[cfg(test)]
 mod calls;
 #[cfg(test)]
@@ -228,6 +229,14 @@ impl Agents for ClaudeCli {
             RunError::TimedOut => AgentError::TimedOut(CLAUDE),
         })?;
         parse_result(&output, &call.session)
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Option<Adopted> {
+        Self::adoption_of(call)
+    }
+
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.adopt_call(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
