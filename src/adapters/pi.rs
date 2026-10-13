@@ -55,6 +55,9 @@ mod gateway_tests;
 #[cfg(test)]
 mod unreachable_tests;
 
+#[cfg(test)]
+mod review_tests;
+
 /// This adapter's harness, as its errors and the fence name it
 const PI: Harness = Harness::Pi;
 
@@ -65,9 +68,12 @@ const PROVIDER: &str = "kelpie";
 const GUARD: &str = include_str!("pi/guard.ts");
 
 /// pi's tools for each kind, by its own names
-fn tool_names(tools: Tools, reads: bool) -> Option<&'static str> {
+///
+/// A reviewer that may write has `write` alone, as Claude's has `Write` alone.
+fn tool_names(tools: Tools, reads: bool, writes: bool) -> Option<&'static str> {
     match tools {
         Tools::Work => Some("read,bash,edit,write,grep,find,ls"),
+        Tools::Review if writes => Some("read,grep,find,ls,write"),
         // The issue writer runs on Claude Code alone, whose hook is its guard.
         // pi has no web tool, so a researcher on it reads what kelpie wrote it and no more.
         Tools::Review | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => {
@@ -462,7 +468,12 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         "--session-id".into(),
         call.session.id().0.as_str().into(),
     ];
-    match tool_names(call.tools, !call.reach.read.is_empty()) {
+    let writes = call
+        .reach
+        .fence
+        .as_ref()
+        .is_some_and(|f| !f.write.is_empty());
+    match tool_names(call.tools, !call.reach.read.is_empty(), writes) {
         Some(names) => argv.extend(["--tools".into(), names.into()]),
         None => argv.push("--no-tools".into()),
     }

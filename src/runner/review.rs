@@ -207,8 +207,10 @@ impl Runner {
             Ok(tests) => tests,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
+        let tool = attached::writing_tool(model.harness.harness());
         let ask = (tests.as_ref().and(self.test_command_for(model)))
-            .map(|command| (command.as_str(), attached::tests_folder(&build)));
+            .zip(tool)
+            .map(|(command, tool)| (command.as_str(), attached::tests_folder(&build), tool));
         let prompt = prompts::reviewer_prompt(
             body,
             &base,
@@ -216,7 +218,7 @@ impl Runner {
             &criteria,
             first.as_deref(),
             ask.as_ref()
-                .map(|(command, folder)| (*command, folder.as_path())),
+                .map(|(command, folder, tool)| (*command, folder.as_path(), *tool)),
         );
         let call = calls::reviewer_call(issue, &worktree, &self.paths.worker, model, prompt, tests);
         match call.and_then(|call| self.prepared(call)) {

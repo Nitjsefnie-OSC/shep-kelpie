@@ -1,6 +1,6 @@
 //! A failing test a reviewer attaches to a finding
 //!
-//! With `ci.test_command` set, a reviewer on Claude Code may write a failing
+//! With `ci.test_command` set, a reviewer on Claude Code or pi may write a failing
 //! test for a finding into `<build>/review-tests`, at the path the test should
 //! have in the repo, and name that path as the finding's fifth field. The
 //! reviewer can write nowhere else. When the round's findings are taken, each
@@ -20,6 +20,18 @@ use crate::worker_folder;
 /// The folder in the build folder where a reviewer writes its tests
 pub(in crate::runner) const TESTS_FOLDER: &str = "review-tests";
 
+/// The tool a reviewer on `harness` writes its test with, or `None` when the
+/// fence cannot hold that harness's writes to a folder
+pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> {
+    match harness {
+        Harness::ClaudeCode => Some("Write"),
+        Harness::Pi => Some("write"),
+        Harness::Codex => None,
+        #[cfg(test)]
+        Harness::StandIn => None,
+    }
+}
+
 /// Where a reviewer writes the tests for a work item whose build folder is `build`
 pub(in crate::runner) fn tests_folder(build: &Path) -> PathBuf {
     build.join(TESTS_FOLDER)
@@ -33,10 +45,10 @@ pub(in crate::runner) fn kept_folder(worker: &Path, issue: u64) -> PathBuf {
 
 impl Runner {
     /// The project's test command, when a reviewer on `model` is asked for tests:
-    /// only a Claude Code session, whose writes the fence can hold to a folder
+    /// a session on a harness whose writes the fence can hold to a folder
     pub(super) fn test_command_for(&self, model: &RoleModel) -> Option<&TestCommand> {
         let command = self.settings.ci.test_command.as_ref();
-        command.filter(|_| model.harness.harness() == Harness::ClaudeCode)
+        command.filter(|_| writing_tool(model.harness.harness()).is_some())
     }
 
     /// Readies the folders for a session round, and gives a reviewer asked for
@@ -151,4 +163,53 @@ fn keep(written: &Path, kept: &Path, worktree: &Path, test: &str) -> Result<bool
     }
     worker_folder::write(kept, rel, &text).map_err(|e| format!("cannot keep a copy: {e}"))?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{AgentHarness, ContextSize, Effort, EndpointUrl, ModelHost, ModelServer};
+    use crate::test::Rig;
+
+    fn on(harness: AgentHarness) -> RoleModel {
+        RoleModel {
+            model: "m".to_owned().try_into().unwrap(),
+            effort: Effort::Low,
+            harness,
+            tools: None,
+        }
+    }
+
+    fn pi() -> AgentHarness {
+        AgentHarness::Pi(ModelServer {
+            host: ModelHost::Url(EndpointUrl::try_from("http://box:11434/v1".to_owned()).unwrap()),
+            context: ContextSize::try_from(65_536).unwrap(),
+        })
+    }
+
+    #[test]
+    fn a_reviewer_is_asked_for_tests_on_claude_code_and_pi_and_not_on_codex() {
+        let harnesses = || [AgentHarness::ClaudeCode, pi(), AgentHarness::Codex];
+
+        let plain = Rig::new("shep");
+        let runner = plain.open().unwrap();
+        let runner = runner.lock().unwrap();
+        for harness in harnesses() {
+            assert_eq!(
+                runner.test_command_for(&on(harness.clone())),
+                None,
+                "{harness:?}"
+            );
+        }
+
+        let rig = Rig::new("shep");
+        rig.test_command("cargo test --test {name}");
+        let runner = rig.open().unwrap();
+        let runner = runner.lock().unwrap();
+        let asked: Vec<bool> = harnesses()
+            .into_iter()
+            .map(|h| runner.test_command_for(&on(h)).is_some())
+            .collect();
+        assert_eq!(asked, [true, true, false]);
+    }
 }
