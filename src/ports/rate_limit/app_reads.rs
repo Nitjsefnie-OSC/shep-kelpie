@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use super::{RateHeld, fallback_from, said_until, time_of, used_up};
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind};
-use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, SubIssue, Timestamp};
+use crate::ports::{Forge, ForgeError, Issue, PullRequest, Reviewed, Timestamp};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
@@ -22,9 +22,6 @@ use crate::settings::ForgeSlug;
 pub trait AppReads: Send + Sync + fmt::Debug {
     /// As [`Forge::issue`]
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
-
-    /// As [`Forge::sub_issues`]
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
 
     /// As [`Forge::ready_issues`]
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError>;
@@ -71,7 +68,6 @@ pub trait AppForges: Send + Sync {
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Read {
     Issue,
-    SubIssues,
     ReadyIssues,
     OpenPullRequests,
     PullRequest,
@@ -83,7 +79,6 @@ impl Read {
     fn kind(self) -> Kind {
         match self {
             Self::Issue => Kind::Issue,
-            Self::SubIssues => Kind::SubIssues,
             Self::ReadyIssues => Kind::ReadyIssues,
             Self::OpenPullRequests => Kind::OpenPullRequests,
             Self::PullRequest => Kind::PullRequest,
@@ -95,7 +90,7 @@ impl Read {
     /// The permissions, each to read, the read's calls need
     pub(super) fn needs(self) -> &'static [&'static str] {
         match self {
-            Self::Issue | Self::SubIssues | Self::ReadyIssues => &["issues"],
+            Self::Issue | Self::ReadyIssues => &["issues"],
             Self::OpenPullRequests | Self::Reviewed => &["pull_requests"],
             Self::PullRequest => &["pull_requests", "checks", "statuses"],
             Self::ReviewBot => &["pull_requests", "issues", "statuses"],

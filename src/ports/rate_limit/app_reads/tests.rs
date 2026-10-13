@@ -135,8 +135,11 @@ fn what_the_app_does_not_read_stays_on_the_login() {
     rig.held.viewer().unwrap();
     rig.held.can_push(&repo()).unwrap();
     rig.held.set_label(&repo(), 7, "ready", true).unwrap();
+    // The App's token reaches one repo, and a parent's sub-issues can sit in
+    // another, so the list is the login's.
+    rig.held.sub_issues(&repo(), 7).unwrap();
 
-    assert_eq!((rig.app.asked(), rig.login.asked()), (0, 3));
+    assert_eq!((rig.app.asked(), rig.login.asked()), (0, 4));
 }
 
 #[test]

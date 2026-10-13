@@ -281,12 +281,9 @@ impl Forge for RateHeld {
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        self.read(
-            repo,
-            Read::SubIssues,
-            |a| a.sub_issues(repo, parent),
-            |f| f.sub_issues(repo, parent),
-        )
+        // Stays on the login: the App's token reaches one repo, and a parent's
+        // sub-issues may sit in another, so a list from the App could be short.
+        self.call(Kind::SubIssues, |f| f.sub_issues(repo, parent))
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

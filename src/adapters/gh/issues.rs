@@ -1,11 +1,9 @@
 //! Issues kelpie files: the open ones it checks first, a new one, and a
 //! parent it closes
 
-use std::path::Path;
-
 use serde::Deserialize;
 
-use super::{gh, gh_as, unreadable};
+use super::{gh, unreadable};
 use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
 use crate::settings::ForgeSlug;
 
@@ -95,16 +93,12 @@ pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeErro
 }
 
 // GitHub allows a parent 100 sub-issues, so one page lists them all.
-pub(super) fn sub_issues(
-    config: Option<&Path>,
-    repo: &ForgeSlug,
-    parent: u64,
-) -> Result<Vec<SubIssue>, ForgeError> {
+pub(super) fn sub_issues(repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
     let path = format!(
         "repos/{}/issues/{parent}/sub_issues?per_page=100",
         repo.as_str()
     );
-    parse_sub_issues(&gh_as(config, &["api", &path])?)
+    parse_sub_issues(&gh(&["api", &path])?)
 }
 
 fn parse_sub_issues(stdout: &[u8]) -> Result<Vec<SubIssue>, ForgeError> {

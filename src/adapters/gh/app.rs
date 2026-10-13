@@ -9,12 +9,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::{board, issue, issues, pull_request, review, review_bot};
+use super::{board, issue, pull_request, review, review_bot};
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::{GithubApp, InstallationToken};
-use crate::ports::{
-    AppForges, AppReads, ForgeError, Issue, PullRequest, Reading, Reviewed, SubIssue,
-};
+use crate::ports::{AppForges, AppReads, ForgeError, Issue, PullRequest, Reading, Reviewed};
 use crate::profile::{login_dir, write_login};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -28,10 +26,6 @@ pub struct GhAppReads {
 impl AppReads for GhAppReads {
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
         issue(Some(&self.config), repo, number)
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        issues::sub_issues(Some(&self.config), repo, parent)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

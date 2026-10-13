@@ -104,7 +104,7 @@ impl Forge for Gh {
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        issues::sub_issues(None, repo, parent)
+        issues::sub_issues(repo, parent)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

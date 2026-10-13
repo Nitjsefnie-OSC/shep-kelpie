@@ -2,7 +2,7 @@
 
 use super::FakeForge;
 use crate::board::{OpenPullRequest, ReadyIssue};
-use crate::ports::{AppReads, Forge, ForgeError, Issue, PullRequest, Reviewed, SubIssue};
+use crate::ports::{AppReads, Forge, ForgeError, Issue, PullRequest, Reviewed};
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
@@ -11,10 +11,6 @@ use crate::settings::ForgeSlug;
 impl AppReads for FakeForge {
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
         Forge::issue(self, repo, number)
-    }
-
-    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
-        Forge::sub_issues(self, repo, parent)
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
