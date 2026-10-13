@@ -61,7 +61,7 @@ impl Runner {
         if !self.settings.ci.block {
             return None;
         }
-        let pr = self.ports.forge.pull_request(&self.remote, number?).ok()?;
+        let pr = self.pull_request_view(number?).ok()?;
         match pr.checks {
             Checks::Passed => Some("CI passed.".to_owned()),
             Checks::Skipped => Some("No CI check ran.".to_owned()),

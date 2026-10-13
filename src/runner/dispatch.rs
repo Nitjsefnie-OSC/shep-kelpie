@@ -19,11 +19,9 @@ impl Runner {
     // The step runs this only while the board may open a work item, and it
     // opens at most one, so nothing here checks `concurrency.active_items` again.
     pub(super) fn dispatch(&mut self) -> Result<Begin, StateError> {
-        let forge = &self.ports.forge;
-        let repo = &self.remote;
-        let listed = forge
-            .ready_issues(repo)
-            .and_then(|ready| forge.open_pull_requests(repo).map(|open| (ready, open)));
+        let listed = (self.ports.forge)
+            .ready_issues(&self.remote)
+            .and_then(|ready| self.open_listed().map(|open| (ready, open)));
         let (mut ready, open) = match listed {
             Ok(listed) => listed,
             Err(e) => {
