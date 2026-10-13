@@ -5,6 +5,7 @@
 //! call ends, however it ends, so a record found later describes a call that
 //! was still running.
 
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -53,6 +54,14 @@ pub(crate) struct Record {
     pub flying: Option<Flying>,
 }
 
+impl Record {
+    /// The record at `path`
+    pub(crate) fn read(path: &Path) -> io::Result<Self> {
+        let text = std::fs::read(path)?;
+        serde_json::from_slice(&text).map_err(io::Error::other)
+    }
+}
+
 /// A call's record to be kept for as long as its process runs
 pub(super) struct Recorded {
     path: PathBuf,
@@ -79,6 +88,14 @@ impl Recorded {
             ending: ending.asked(),
             flying: ending.carried(),
         };
+        Self {
+            path: path.to_path_buf(),
+            record,
+        }
+    }
+
+    /// The record a call's earlier image wrote, kept until the call ends
+    pub(super) fn adopted(path: &Path, record: Record) -> Self {
         Self {
             path: path.to_path_buf(),
             record,

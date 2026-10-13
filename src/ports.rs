@@ -45,9 +45,9 @@ mod thread;
 mod voice;
 
 pub use agent::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence,
-    Flying, Guard, PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait,
-    written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending,
+    Fence, Flying, Guard, PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage,
+    Wait, written_at,
 };
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
 pub use forge_error::{Cooldown, ForgeError};

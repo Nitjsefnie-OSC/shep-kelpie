@@ -267,6 +267,25 @@ fn a_slow_notice_does_not_keep_the_runner_waiting_and_notices_run_in_order() {
 }
 
 #[test]
+fn a_notice_is_running_from_the_time_it_is_told_until_its_hook_ends() {
+    use crate::hooks::Role;
+    use crate::settings::HookPoint;
+    let rig = Rig::new("koji");
+    let file = rig.home.path().join("told");
+    let script = format!("read line; sleep 1; echo \"$line\" >> {}", file.display());
+    rig.hook("slow.sh", &["done"], &script);
+    let runner = rig.open().unwrap();
+    let runner = runner.lock().unwrap();
+    assert!(!runner.notices_running(), "nothing told yet");
+
+    runner.tell_hooks(HookPoint::Done, Role::Kelpie, serde_json::json!({ "n": 1 }));
+    assert!(runner.notices_running(), "told and not yet ended");
+
+    runner.settle_notices();
+    assert!(!runner.notices_running(), "ended");
+}
+
+#[test]
 fn the_ci_hook_is_told_a_head_that_settled_green_with_no_failed_checks() {
     let (rig, runner, head) = parked_recording(&["ci"]);
 

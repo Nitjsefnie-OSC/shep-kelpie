@@ -3,7 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use super::{AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript};
+use super::{Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript};
 use crate::settings::Harness;
 
 /// One adapter per harness, each taking the calls that name it
@@ -47,6 +47,15 @@ impl Agents for Routed {
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
         self.adapter(call).run(call, ending)
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        self.adapter(call).adoption(call)
+    }
+
+    // Only Claude Code's calls are ever adopted.
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.claude_code.adopt(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {

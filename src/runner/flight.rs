@@ -987,6 +987,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     }
 }
 
+mod carry;
 pub(super) mod label;
 pub(super) mod panel;
 pub(super) mod retro;
@@ -995,4 +996,5 @@ pub(super) mod security;
 mod tests;
 mod waiting;
 
+pub use carry::CarriedTurn;
 pub(super) use waiting::Waiting;
