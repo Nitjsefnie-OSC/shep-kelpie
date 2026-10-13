@@ -274,6 +274,8 @@ compact_window = 200000
 # `advisor` and `researcher`, all of them when absent. `parts` lists which
 # parts load, from `skills`, `agents`, `commands`, `hooks` and `mcp`, all of
 # them when absent: a hook runs beside kelpie's own and cannot replace them.
+# `mcp` adds the MCP servers of a plugin and of the repo's `.mcp.json` on its
+# default branch to those calls; the hosts they reach need `allowed_domains`.
 # `skip` lists plugins, as `name@marketplace`, left out though the repo turns
 # them on. `extra` lists plugins the repo does not turn on, each as
 # `name@marketplace` with its marketplace's source as one string:
