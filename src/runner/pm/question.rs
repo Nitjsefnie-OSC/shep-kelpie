@@ -404,8 +404,9 @@ fn recommended(asked: &str, passed: &Passed<'_>) -> String {
 }
 
 // Adds `candidates` to `list`, the `- ` lines a question lists, when it lists
-// fewer than two, up to [`MOST_OPTIONS`] and none that repeats a line. Says
-// whether it added any.
+// fewer than two, up to [`MOST_OPTIONS`] and none that repeats a line. A full
+// list gives its last candidate up for `Ask the maintainer`. Says whether it
+// added any.
 fn draft(list: &mut Vec<String>, candidates: &[String]) -> bool {
     let before = list.len();
     if before >= 2 {
@@ -417,8 +418,15 @@ fn draft(list: &mut Vec<String>, candidates: &[String]) -> bool {
             false => candidate,
         };
         let seen = list.iter().any(|l| plain_choice(l) == plain_choice(text));
-        if list.len() < MOST_OPTIONS && !seen {
+        if seen {
+            continue;
+        }
+        if list.len() < MOST_OPTIONS {
             list.push(format!("- {text}"));
+        } else if text == ASK_THE_MAINTAINER {
+            // A full list still leaves the product call to the maintainer, in
+            // the place of the last candidate drafted.
+            list[MOST_OPTIONS - 1] = format!("- {text}");
         }
     }
     list.len() > before

@@ -210,3 +210,26 @@ fn a_panel_that_votes_to_ask_the_maintainer_leaves_the_question_to_them() {
         "{notes}"
     );
 }
+
+const ONE_OPTION: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
+                          </kelpie-question>\n";
+
+#[test]
+fn a_full_list_still_offers_asking_the_maintainer_in_place_of_the_last_candidate() {
+    let (rig, runner) = asking("cand-full", ONE_OPTION, SHADOW);
+    rig.claude.script_for(
+        Role::Pm,
+        [Scripted::Say(drafts(
+            "[\"Use A\", \"Use B\", \"Ask the maintainer\"]",
+        ))],
+    );
+    script(&rig, ["A", "A", "B", "A"]);
+
+    voted(&rig, &runner);
+
+    let comment = question_comment(&rig).expect("the maintainer is asked");
+    for kept in ["`--dry-run`", "Use A", "Ask the maintainer"] {
+        assert!(comment.contains(kept), "{kept}: {comment}");
+    }
+    assert!(!comment.contains("Use B"), "{comment}");
+}
