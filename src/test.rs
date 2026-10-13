@@ -284,6 +284,10 @@ impl Clock for FakeClock {
     fn now(&self) -> Timestamp {
         Timestamp(self.0.load(Ordering::SeqCst))
     }
+
+    fn wait(&self, seconds: u64) {
+        self.advance(seconds);
+    }
 }
 
 /// One project's world: kelpie's home, the maintainer's home, and the

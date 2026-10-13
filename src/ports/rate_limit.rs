@@ -7,12 +7,12 @@
 //! each hold is said once, as it begins, through [`RateHeld`]'s [`Say`].
 
 use std::fmt;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::{
-    Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
-    QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility,
+    Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel, OpenIssue,
+    Pace, PullRequest, QueueStanding, Reviewed, ThreadComment, Timestamp, Visibility, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Kind, Ledger};
@@ -20,7 +20,7 @@ use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
 
 /// How long a hold lasts when the forge cannot say when its limit resets
-const FALLBACK: u64 = 10 * 60;
+pub(super) const FALLBACK: u64 = 10 * 60;
 
 /// What gh says when a limit is used up, lowercased: the REST and GraphQL
 /// primary limits, the secondary limit, and an HTTP 429 answer
@@ -54,22 +54,37 @@ pub(super) fn time_of(at: Timestamp) -> String {
         .map_or_else(|| at.0.to_string(), |at| at.to_string())
 }
 
-/// Until when the forge is held, shared by [`RateHeld`] and its runner
-#[derive(Debug, Clone, Default)]
-pub struct ForgeHold(Arc<Mutex<Option<Timestamp>>>);
+/// Until when the forge is held, shared by [`RateHeld`] and its runner, and
+/// with every runner on the login when its [`Pace`] is the dog's
+#[derive(Debug, Clone)]
+pub struct ForgeHold(Arc<dyn Pace>);
+
+impl Default for ForgeHold {
+    /// A hold kept in this process alone
+    fn default() -> Self {
+        Self(Arc::new(LocalPace::new()))
+    }
+}
 
 impl ForgeHold {
-    /// Until when every forge call is held, while that is after `now`
-    pub fn until(&self, now: Timestamp) -> Option<Timestamp> {
-        let mut until = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if until.is_some_and(|until| until <= now) {
-            *until = None;
-        }
-        *until
+    /// The hold and pacer of `pace`
+    pub fn shared(pace: Arc<dyn Pace>) -> Self {
+        Self(pace)
     }
 
-    fn hold(&self, until: Timestamp) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(until);
+    /// Until when every forge call is held, while that is after `now`
+    pub fn until(&self, now: Timestamp) -> Option<Timestamp> {
+        self.0.held(now)
+    }
+
+    pub(super) fn hold(&self, until: Timestamp) {
+        self.0.hold(until);
+    }
+
+    /// Waits on `clock` until a call of `project`'s may go, or says until
+    /// when the forge is held
+    pub(super) fn admit(&self, clock: &dyn Clock, project: &str) -> Result<(), Timestamp> {
+        pace::admit(self.0.as_ref(), clock, project)
     }
 }
 
@@ -83,6 +98,8 @@ pub struct RateHeld {
     hold: ForgeHold,
     say: Say,
     ledger: Option<Arc<Ledger>>,
+    // The project whose calls these are, when they are spaced by the hold's pace
+    project: Option<String>,
 }
 
 impl RateHeld {
@@ -95,7 +112,16 @@ impl RateHeld {
             hold,
             say,
             ledger: None,
+            project: None,
         }
+    }
+
+    /// Spaces each call as the hold's pace does for `project`: a call over
+    /// the pace waits its turn on the clock
+    #[must_use]
+    pub fn paced_for(mut self, project: &str) -> Self {
+        self.project = Some(project.to_owned());
+        self
     }
 
     /// Records each call in `ledger`, held ones included
@@ -110,8 +136,12 @@ impl RateHeld {
         kind: Kind,
         call: impl FnOnce(&dyn Forge) -> Result<T, ForgeError>,
     ) -> Result<T, ForgeError> {
+        let held = match &self.project {
+            Some(project) => self.hold.admit(self.clock.as_ref(), project).err(),
+            None => self.hold.until(self.clock.now()),
+        };
         let now = self.clock.now();
-        if let Some(until) = self.hold.until(now) {
+        if let Some(until) = held {
             self.record(now, kind, 0, Ended::Held);
             return Err(ForgeError::Held(until));
         }
@@ -383,6 +413,9 @@ impl Forge for RateHeld {
         self.reset()
     }
 }
+
+#[cfg(test)]
+mod shared_tests;
 
 #[cfg(test)]
 mod tests {

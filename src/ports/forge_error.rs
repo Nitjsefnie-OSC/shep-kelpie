@@ -41,7 +41,9 @@ impl Cooldown {
             return Some(Timestamp(now.0.saturating_add(wait.clamp(1, LONGEST_WAIT))));
         }
         let longest = Timestamp(now.0.saturating_add(LONGEST_WAIT));
-        self.reset.filter(|reset| *reset > now).map(|reset| reset.min(longest))
+        self.reset
+            .filter(|reset| *reset > now)
+            .map(|reset| reset.min(longest))
     }
 }
 
@@ -132,8 +134,16 @@ mod tests {
         let now = Timestamp(1_000);
         let at = |retry_after, reset| Cooldown { retry_after, reset }.until(now);
         assert_eq!(at(Some(90), Some(Timestamp(5_000))), Some(Timestamp(1_090)));
-        assert_eq!(at(Some(0), None), Some(Timestamp(1_001)), "at least a second");
-        assert_eq!(at(Some(86_400), None), Some(Timestamp(4_600)), "at most an hour");
+        assert_eq!(
+            at(Some(0), None),
+            Some(Timestamp(1_001)),
+            "at least a second"
+        );
+        assert_eq!(
+            at(Some(86_400), None),
+            Some(Timestamp(4_600)),
+            "at most an hour"
+        );
         assert_eq!(at(None, Some(Timestamp(1_500))), Some(Timestamp(1_500)));
         assert_eq!(at(None, Some(Timestamp(900))), None, "a reset gone by");
         assert_eq!(at(None, Some(Timestamp(99_999))), Some(Timestamp(4_600)));

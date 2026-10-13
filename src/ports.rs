@@ -27,6 +27,8 @@ mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
+mod pace;
+mod paced_voice;
 mod rate_limit;
 mod recorded_voice;
 mod reviewer;
@@ -47,6 +49,8 @@ pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
+pub use pace::{AT_ONCE, LocalPace, PER_MINUTE, Pace, Pacer, Pass};
+pub use paced_voice::PacedVoice;
 pub use rate_limit::{ForgeHold, RateHeld, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
@@ -66,6 +70,11 @@ pub struct Timestamp(pub u64);
 pub trait Clock: Send + Sync {
     /// The current time
     fn now(&self) -> Timestamp;
+
+    /// Lets `seconds` pass
+    fn wait(&self, seconds: u64) {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+    }
 }
 
 /// Who a repo is visible to on the forge

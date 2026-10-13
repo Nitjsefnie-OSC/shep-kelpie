@@ -13,7 +13,8 @@ const TRAFFIC: [&str; 3] = ["* ", "> ", "< "];
 /// The error for a call that exited unsuccessfully with `stderr`
 pub(super) fn failure(stderr: &str) -> ForgeError {
     let lines: Vec<&str> = stderr.lines().collect();
-    let is_traffic = |line: &&str| TRAFFIC.iter().any(|mark| line.starts_with(mark)) || *line == "<";
+    let is_traffic =
+        |line: &&str| TRAFFIC.iter().any(|mark| line.starts_with(mark)) || *line == "<";
     if !lines.iter().any(is_traffic) {
         return limited_or(stderr, stderr, Cooldown::default());
     }
@@ -22,7 +23,11 @@ pub(super) fn failure(stderr: &str) -> ForgeError {
     let errors: Vec<&str> = lines.iter().copied().filter(own).collect();
     // What gh adds after the exchange is its own line; the body is not.
     let said: Vec<&str> = match errors.iter().any(|line| line.starts_with("gh: ")) {
-        true => errors.iter().copied().filter(|l| l.starts_with("gh: ")).collect(),
+        true => errors
+            .iter()
+            .copied()
+            .filter(|l| l.starts_with("gh: "))
+            .collect(),
         false => errors
             .iter()
             .copied()
@@ -108,7 +113,9 @@ gh: You have exceeded a secondary rate limit. Please wait a few minutes before y
         let plain = "gh: Not Found (HTTP 404)\n";
         assert_eq!(failure(plain), ForgeError::Failed(plain.into()));
         let limited = failure("gh: API rate limit exceeded for user ID 1. (HTTP 403)\n");
-        assert!(matches!(limited, ForgeError::Limited { cooldown, .. } if cooldown == Cooldown::default()));
+        assert!(
+            matches!(limited, ForgeError::Limited { cooldown, .. } if cooldown == Cooldown::default())
+        );
     }
 
     #[test]
