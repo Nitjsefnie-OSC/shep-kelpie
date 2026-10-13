@@ -23,15 +23,27 @@ fn forwarder_with(url: &str, limits: Limits) -> (tempfile::TempDir, Forwarder) {
     (dir, forwarder)
 }
 
-// Sends `bytes` the way the sandbox's proxy does, and reads the reply to its end.
+// Sends `bytes` the way the sandbox's proxy does, and reads the reply to its
+// end. The client stays connected until then, as a closed end is a hang-up.
 fn send(forwarder: &Forwarder, bytes: &[u8]) -> String {
+    exchange_with(forwarder, bytes, false)
+}
+
+// [`send`], then ends the client's side, for a request that is cut short.
+fn send_and_end(forwarder: &Forwarder, bytes: &[u8]) -> String {
+    exchange_with(forwarder, bytes, true)
+}
+
+fn exchange_with(forwarder: &Forwarder, bytes: &[u8], end: bool) -> String {
     let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     // A refusal may come, and the connection close, before all is written.
     let _ = stream.write_all(bytes);
-    let _ = stream.shutdown(Shutdown::Write);
+    if end {
+        let _ = stream.shutdown(Shutdown::Write);
+    }
     let mut reply = Vec::new();
     // A refusal may close before the body is read, which resets the read.
     let _ = stream.read_to_end(&mut reply);
@@ -166,7 +178,7 @@ fn a_chat_call_with_two_ways_to_say_its_length_is_refused() {
         let reply = send(&forwarder, request.as_bytes());
         assert!(status(&reply).contains(code), "{reply}");
     }
-    let short = send(
+    let short = send_and_end(
         &forwarder,
         format!("{CHAT}content-length: 50\r\n\r\n{{}}").as_bytes(),
     );
@@ -415,4 +427,69 @@ fn a_key_with_a_line_break_is_refused_and_no_request_is_sent() {
         assert!(!reply.contains("pk-1"), "{reply}");
         assert_eq!(server.seen(), Vec::<String>::new(), "{key:?}");
     }
+}
+
+// A model server that takes a chat call and then sends nothing. It reports on
+// the channel when the forwarder closes its connection.
+fn silent_server() -> (String, std::sync::mpsc::Receiver<io::Result<usize>>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let (closed, seen) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut sent = Vec::new();
+        let mut byte = [0u8; 1];
+        while !sent.ends_with(b"\r\n\r\n{}") {
+            stream.read_exact(&mut byte).unwrap();
+            sent.push(byte[0]);
+        }
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let _ = closed.send(stream.read(&mut byte));
+    });
+    (url, seen)
+}
+
+#[test]
+fn a_client_that_hangs_up_while_the_model_server_is_silent_closes_the_upstream_call() {
+    let (url, closed) = silent_server();
+    let (_dir, forwarder) = forwarder(&url);
+    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    stream.write_all(&chat("{}")).unwrap();
+    assert!(
+        closed.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the upstream closed before the client left"
+    );
+    let hung_up = Instant::now();
+    drop(stream);
+    let read = closed
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the stand-in never saw the forwarder close");
+    assert!(hung_up.elapsed() < Duration::from_secs(1));
+    assert!(ended_or_reset(&read), "{read:?}");
+}
+
+#[test]
+fn a_client_that_stays_connected_keeps_the_upstream_open_while_it_is_silent() {
+    let (url, go) = two_part_server();
+    let (_dir, forwarder) = forwarder(&url);
+    let mut stream = UnixStream::connect(&forwarder.socket).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream.write_all(&chat("{}")).unwrap();
+    let mut got = Vec::new();
+    let mut buf = [0u8; 256];
+    while !String::from_utf8_lossy(&got).contains("data: one") {
+        let n = stream.read(&mut buf).unwrap();
+        assert!(n > 0, "ended early: {:?}", String::from_utf8_lossy(&got));
+        got.extend(&buf[..n]);
+    }
+    // Several of the forwarder's looks at the client go by in silence.
+    thread::sleep(WATCH_EVERY * 5);
+    go.send(()).unwrap();
+    stream.read_to_end(&mut got).unwrap();
+    let reply = String::from_utf8_lossy(&got);
+    assert!(reply.contains("data: one\n\ndata: two\n\n"), "{reply}");
 }

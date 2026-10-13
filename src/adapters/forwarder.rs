@@ -37,6 +37,9 @@ const REQUEST_WAIT: Duration = Duration::from_secs(30);
 /// How long a client may leave a reply unread before the forwarder drops it
 const REPLY_STALL: Duration = Duration::from_secs(60);
 
+/// How often the forwarder looks to see whether the reply it is relaying is done
+const WATCH_EVERY: Duration = Duration::from_millis(100);
+
 /// How many connections are served at once. pi's calls come one at a time.
 const MAX_CONNECTIONS: usize = 8;
 
@@ -323,8 +326,50 @@ fn exchange(
         .write_all(&sent)
         .and_then(|()| server.write_all(&body))
         .map_err(unsent)?;
-    io::copy(&mut server, client).map_err(unsent)?;
+    let (watched, upstream_end) = (client.try_clone(), server.try_clone());
+    let (Ok(watched), Ok(upstream_end)) = (watched, upstream_end) else {
+        return Err(Reply::new(502, "kelpie could not watch the client"));
+    };
+    let done = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let watcher = thread::Builder::new()
+            .name("watching".into())
+            .spawn_scoped(scope, || hang_up_ends(&watched, &upstream_end, &done));
+        let copied = io::copy(&mut server, client);
+        done.store(true, Ordering::SeqCst);
+        watcher
+            .map_err(|e| e.kind())
+            .and(copied.map_err(|e| e.kind()))
+    })
+    .map_err(|kind| Reply::new(502, format!("kelpie lost the model server: {kind}")))?;
     Ok(())
+}
+
+// Reads what the client sends after its request, which a chat call has no use
+// for, until it hangs up or the reply is done. A hang-up shuts the model
+// server's stream, as the copy would not notice it until the next reply byte.
+fn hang_up_ends(mut client: &UnixStream, server: &TcpStream, done: &AtomicBool) {
+    let mut unused = [0u8; 512];
+    if client.set_read_timeout(Some(WATCH_EVERY)).is_err() {
+        return;
+    }
+    while !done.load(Ordering::SeqCst) {
+        match client.read(&mut unused) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(_) => break,
+        }
+    }
+    if !done.load(Ordering::SeqCst) {
+        let _ = server.shutdown(Shutdown::Both);
+    }
 }
 
 fn connect(upstream: &Upstream) -> io::Result<TcpStream> {
