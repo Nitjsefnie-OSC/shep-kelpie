@@ -58,7 +58,9 @@ impl CodexCli {
 }
 
 // The settings path a call's record sits beside, which every other file of
-// the call is named from.
+// the call is named from: `<stem>.call.json` for the settings `<stem>.json`.
 pub(super) fn settings_of(record: &Path) -> PathBuf {
-    record.with_extension("").with_extension("json")
+    let name = record.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let stem = name.strip_suffix(".call.json").unwrap_or(name);
+    record.with_file_name(format!("{stem}.json"))
 }

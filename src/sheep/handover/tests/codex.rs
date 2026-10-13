@@ -43,9 +43,6 @@ fn a_handover_with_a_codex_worker_turn_running_ends_the_turn_on_the_new_build() 
         String::from_utf8_lossy(&ran.stdout),
         String::from_utf8_lossy(&ran.stderr)
     );
-    let home = read(folder.path(), "home");
-    let _ = std::fs::remove_dir_all(home.trim());
-
     assert!(ran.status.success(), "the images failed:\n{said}");
     let (before, after) = (
         read(folder.path(), "pid.before"),
@@ -64,6 +61,7 @@ fn a_handover_with_a_codex_worker_turn_running_ends_the_turn_on_the_new_build() 
     let thread: serde_json::Value = serde_json::from_str(&read(folder.path(), "thread")).unwrap();
     assert_eq!(thread["id"], THREAD, "{thread}");
     assert_eq!(thread["spent"]["output_tokens"], 44, "{thread}");
+    let _ = std::fs::remove_dir_all(read(folder.path(), "home").trim());
 }
 
 #[test]

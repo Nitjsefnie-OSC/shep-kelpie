@@ -85,6 +85,7 @@ fn the_files_of_a_carried_call_are_found_again_from_its_record() {
     let w = World::new();
     let call = w.call(Role::Worker, Session::New(id(WORKER_ID)));
     let record = CallFiles::of(&call).record;
+    assert_eq!(settings_of(&record), call.settings);
     let (found, made) = (Files::at(&settings_of(&record)), Files::of(&call));
     assert_eq!(found.threads, made.threads);
     assert_eq!(found.home, made.home);
