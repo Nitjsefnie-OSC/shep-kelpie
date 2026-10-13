@@ -6,6 +6,7 @@
 //! issue and closes it if the forge still shows it open.
 
 use super::Runner;
+use crate::ports::{SubIssue, SubIssueState};
 
 /// Closes the forge may refuse, one in each step, before the step gives up on an issue
 const TRIES: u32 = 3;
@@ -14,6 +15,14 @@ const TRIES: u32 = 3;
 /// without closing it
 fn merged_without_closing(pull_request: u64) -> String {
     format!("Pull request #{pull_request} merged without closing this issue, so kelpie closes it.")
+}
+
+/// What kelpie says on a parent it closes after the pull request that closed
+/// its last open sub-issue merged
+fn last_sub_issue_merged(pull_request: u64) -> String {
+    format!(
+        "Pull request #{pull_request} closed the last open sub-issue of this issue, so kelpie closes it too."
+    )
 }
 
 impl Runner {
@@ -65,5 +74,70 @@ impl Runner {
         self.close_refused.remove(&issue);
         self.notes.push(format!("{reason}, refused {TRIES} times"));
         None
+    }
+}
+
+impl Runner {
+    /// Closes the parent of `issue` if `pull_request`'s merge left every one of
+    /// its sub-issues closed and at least one of them built, never holding the
+    /// work item
+    ///
+    /// `issue` and each issue the pull request names count as completed while
+    /// the forge still reads them open, since it closes them a moment after the
+    /// merge. Only the parent is closed: a grandparent waits
+    /// for its own next merge. A read or a close that fails is told in the log.
+    pub(super) fn close_done_parent_of(&mut self, issue: u64, pull_request: u64) {
+        let parent = match (self.ports.forge).issue(&self.remote, issue) {
+            Ok(read) => read.parent,
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot read the parent of issue #{issue} after merging #{pull_request}: {e}"
+                ));
+                return;
+            }
+        };
+        let Some(parent) = parent else { return };
+        match (self.ports.forge).issue(&self.remote, parent) {
+            Ok(read) if !read.open => return,
+            Ok(_) => {}
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot read the parent #{parent} of issue #{issue} after merging #{pull_request}: {e}"
+                ));
+                return;
+            }
+        }
+        let subs = match (self.ports.forge).sub_issues(&self.remote, parent) {
+            Ok(subs) => subs,
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot read the sub-issues of #{parent} after merging #{pull_request}: {e}"
+                ));
+                return;
+            }
+        };
+        // A read that fails leaves only `issue` to count, so the parent may stay
+        // open until a later merge under it.
+        let named = (self.ports.forge).reviewed(&self.remote, pull_request);
+        let named = named.map(|pr| pr.closes).unwrap_or_default();
+        let state = |s: &SubIssue| match (s.number == issue || named.contains(&s.number), s.state) {
+            (true, SubIssueState::Open) => SubIssueState::Completed,
+            _ => s.state,
+        };
+        let done = subs.iter().all(|s| state(s) != SubIssueState::Open);
+        let built = subs.iter().any(|s| state(s) == SubIssueState::Completed);
+        if !(done && built) {
+            return;
+        }
+        if let Err(e) = self.comment_on_issue(parent, &last_sub_issue_merged(pull_request)) {
+            self.notes.push(format!(
+                "cannot comment on issue #{parent} before closing it: {e}"
+            ));
+        }
+        if let Err(e) = (self.ports.forge).close_issue(&self.remote, parent) {
+            self.notes.push(format!(
+                "cannot close issue #{parent} after merging #{pull_request}: {e}"
+            ));
+        }
     }
 }
