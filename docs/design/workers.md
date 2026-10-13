@@ -15,7 +15,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Failed turn parks `stuck` `turn-failed`. #57
 - First turn ending with no PR or question resumed once, then parks; uncommitted work with no push sent back once to commit. #140, #275
 - Item whose issue closed with no work ends with no ruling; parked item's issue read at most every 5 min. #385
-- Retro moved from the worker to the PM: a batch retro after every 10 finished items and at a drain with any finished since the last, one off call with the PM's agent (`Tools::Retro`, new session, not the standing PM session), over a digest kelpie builds from its records (`journal.jsonl`, `rulings.jsonl`, the usage ledger, the state history). The worker never saw triage, PM holds and wakes, conflicts, rulings, maintainer answers, review rounds or the merge, which is most of what happens to an item, and its retro was costly: overnight, 30 retros were ~14% of the project's spend, each writing a median ~94k-token cache write (the worker's cache had expired) for ~3k tokens of report, and the reports piled up unread. The worker keeps a voice at no call: an optional `Friction` section in its PR body, read when the item ends. Off unless `skills.retro`; no slot, never retried, saved unread as `retro-reports/unverified/<project>-batch-<time>.md` (agents acting on retros loop); ledger kind `retro`, role `pm`, on its own line in `usage`. #361, #566, `src/runner/retro.rs`
+- Retro moved from worker to PM: batch after every 10 finished items and at a drain, one call with the PM's agent over a digest kelpie builds (`journal.jsonl`, rulings, ledger). The worker never saw PM wakes, rulings or merges, and overnight 30 retros were ~14% of spend (~94k-token cache write for ~3k of report). Worker keeps a PR-body `Friction` section. Off unless `skills.retro`; no slot, never retried, saved unread (agents acting on retros loop). #361, #566, `src/runner/retro.rs`
 - Worker asks with a `<kelpie-question>` block ending its message; parks on `question` ruling with optional `- ` choices. #13
 - `shep kelpie attach <issue>` hands a Claude Code worker's session to maintainer without `bypassPermissions`; held by pid + start time (reused pid holds nothing). #325
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, text in the instructions, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
@@ -40,24 +40,6 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Skills byte-identical; kelpie headless rules win (decide and record, no sub-agents, kelpie reply format, no own `/code-review`). Skill that can't load runs kelpie prompt, logged (unknown slash command passes as text). #170, #147
 - Plugins enabled in `.claude/settings.json` on `origin/main` reach every agent (skills only for now), never from a worker branch. Sources: plain git transports, no `-` or `::` addresses, no links or `..` (default branch settings aren't maintainer's alone). #569, #570
 - `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any (applied in `Runner::prepared`), `skip` drops `name@marketplace` ids, `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. The CLI's headless issue writer isn't the runner, so it loads them itself into a per-run folder. #571
-
-## Agents
-
-- Agent = `<name>.md`, YAML frontmatter tagged `role` + Markdown body; bad file stops runner naming file + line. serde-saphyr (serde_yaml archived). ADR 0006, #313
-- Embedded from `agents/`; home file overrides, `add` writes missing, reread each wake (edits land live). Item keeps its agent, runs the file as it is now. #313
-- `extends` merges frontmatter keys as text before parsing (every check applies); parameters on a reference refused (each a new label + ledger key). #386, `src/agents/extends.rs`
-- `agents.implementers` (default `["sonnet-high"]`, first is default), `reviewers`, `pm`, `issue_writer`; missing or wrong-role file stops runner. `src/settings/agents.rs`
-- One agent interface for every role, harness details in adapters; harness that can't fence can't be worker. ADR 0006
-- pi: second harness; kelpie extension runs `confine` + `guard`; forwarder passes only chat completions. No Claude Code hooks, so `worker.guard_hooks` naming pi or Codex stops at load. #130, #235, `src/settings/agents.rs`
-- Codex: third harness (ChatGPT plan windows beside Claude's, each paced on own); session ids map to Codex threads. Own login in `codex_home`, fresh `CODEX_HOME` per call (`~/.codex` copied maintainer's history). #233, `src/adapters/codex.rs`
-- Codex writes only an allow-list of its home (`.env`, `AGENTS.override.md` could disable guards); only Codex workers get a shell (reviewed PR could steer it); output to files (shared pipe killed it on large output). `src/adapters/codex.rs`
-- `e2e.host` ssh alias, must be disposable (workers edit the script); worker asks only `take: "e2e"`; dog runs one per host under 30 min. #415, #521, `src/dog/e2e.rs`
-- Local implementer (`usage: none`) can be default; without a gateway keep `active_items` 1. #381
-- Turn awaiting its model marked `waiting` in memory; with `agents.fallback_after`, waiting first turn moves to next free implementer; later or pinned turns never (lose session). #381, `src/runner/flight/waiting.rs`
-- Unreachable pi host retried 30s to 5 min for 30 min before parking. #457, `src/runner/turn/unreachable.rs`
-- `usage` (`claude`, `codex`, `none`) must match harness; `none` never paced, limited by `lease` (`gpu`) or gateway. #129
-- Gateway (`url`, `key_env`) queues and places models: agents unpaced, lockless; key unset in every call + child; worker turn holds heartbeat lease; a lease paddock refuses to renew, or leaves unanswered past its ttl, fails the turn, and a drop releases at once. #352, #497, `src/spawn.rs`
-- Spend = tokens per role, dollars only where reported; unpriced calls counted (zero never reads as free). #129
 
 ## Not built
 

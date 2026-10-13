@@ -22,7 +22,8 @@ Rules live in Rust code; a model is called only for work and judgement.
 | file | covers | read when you touch |
 |---|---|---|
 | work.md | projects, board, slots, issue writer, PM | `src/board.rs`, `src/issues.rs`, `src/runner/slots.rs`, `src/runner/pm.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
-| workers.md | runner loop, turns, fence, skills, agents, harnesses | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/skills.rs`, `src/agents/`, `src/adapters/`, `src/hooks.rs` |
+| workers.md | runner loop, turns, fence, skills | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/skills.rs`, `src/hooks.rs` |
+| agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
 | review.md | review, bots, CI, merge, rulings | `src/runner/review/`, `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
