@@ -11,7 +11,7 @@ const SKILLS_FOLDER: &str = "skills";
 /// Links each skill of the call's plugins into the call's Codex home, and
 /// removes the links the last call left
 ///
-/// A worker's shell opens a `SKILL.md`, so only a `Tools::Work` call gets
+/// A call's shell opens a `SKILL.md`, so only a call with one (`has_shell`) gets
 /// them; every other call has its step's skill in its prompt. The first
 /// plugin to hold a skill's name wins it. The call cannot write this folder,
 /// so it cannot plant a skill (`WRITTEN`).
@@ -32,7 +32,7 @@ pub(super) fn link_skills(call: &AgentCall, home: &Path) -> Result<(), AgentErro
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(setup(&folder, e)),
     }
-    if call.tools != Tools::Work {
+    if !has_shell(call) {
         return Ok(());
     }
     std::fs::create_dir_all(&folder).map_err(|e| setup(&folder, e))?;
@@ -133,24 +133,33 @@ mod tests {
         );
     }
 
+    // A call has links exactly when Codex is given a shell, whatever
+    // `agent_tools` says, since Claude Code alone reads that.
     #[test]
     fn a_call_with_no_shell_gets_no_skill_links() {
         let w = World::new();
         let plugin = plugin(&w, "plugin", &["tdd"]);
         for tools in [
+            Tools::Work,
             Tools::Review,
             Tools::Answer,
+            Tools::Issues,
+            Tools::Pm,
             Tools::Retro,
             Tools::Advise,
             Tools::Research,
         ] {
             let call = AgentCall {
                 tools,
+                agent_tools: Some("Bash,Read,Skill".into()),
                 plugin_dirs: vec![plugin.clone()],
                 ..w.call(Role::Reviewer, Session::New(id(WORKER_ID)))
             };
             cli(&w).prepare(&call).unwrap();
-            assert_eq!(linked(&w), [], "{tools:?}");
+            let argv = argv(&call, &Files::of(&call).home, None, None).unwrap();
+            let shell = !argv.windows(2).any(|w| w == ["--disable", "shell_tool"]);
+            assert_eq!(!linked(&w).is_empty(), shell, "{tools:?}");
+            assert_eq!(shell, tools == Tools::Work, "{tools:?}");
         }
     }
 
