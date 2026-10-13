@@ -6,9 +6,12 @@
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process_group};
+use tokio::signal::unix::{SignalKind, signal};
 
 /// The repo a release or a ref comes from, unless `KELPIE_SOURCE` names another
 pub const REPO: &str = "https://github.com/shep-pm/shep-kelpie.git";
@@ -37,29 +40,91 @@ impl Default for Limits {
 /// How long a command that talks to the network gets
 const NETWORK: Duration = Duration::from_secs(5 * 60);
 
+// The process group of the command `run` is waiting on, or 0 between commands
+static RUNNING: AtomicI32 = AtomicI32::new(0);
+
+// Ends the group at `group` and everything in it.
+fn end_group(group: i32) -> bool {
+    Pid::from_raw(group).is_some_and(|group| kill_process_group(group, Signal::KILL).is_ok())
+}
+
+// A command's own group is not the terminal's foreground group, so Ctrl-C
+// reaches only kelpie. This thread, started once, ends the running command's
+// group before kelpie follows the signal out.
+fn end_with_kelpie() {
+    static WATCHER: OnceLock<()> = OnceLock::new();
+    WATCHER.get_or_init(|| {
+        let (ready, registered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            runtime.block_on(async {
+                let kinds = [
+                    (SignalKind::interrupt(), 130),
+                    (SignalKind::terminate(), 143),
+                    (SignalKind::hangup(), 129),
+                ];
+                let mut streams = Vec::new();
+                for (kind, code) in kinds {
+                    let Ok(mut stream) = signal(kind) else {
+                        continue;
+                    };
+                    streams.push(tokio::spawn(async move {
+                        stream.recv().await;
+                        end_group(RUNNING.load(Ordering::SeqCst));
+                        std::process::exit(code);
+                    }));
+                }
+                let _ = ready.send(());
+                for stream in streams {
+                    let _ = stream.await;
+                }
+            });
+        });
+        let _ = registered.recv();
+    });
+}
+
+// Marks a group as the one a signal to kelpie ends, until dropped.
+struct Running;
+
+impl Running {
+    fn group(group: i32) -> Self {
+        RUNNING.store(group, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING.store(0, Ordering::SeqCst);
+    }
+}
+
 // Runs `command` to its end with its output going to ours, so a build's
 // progress shows, and says which command failed. A command still running at
 // `limit` is ended with everything it started, which its own process group holds.
 fn run(command: &mut Command, limit: Duration) -> Result<(), String> {
     let what = format!("{command:?}");
+    end_with_kelpie();
     let mut child = command
         .stdin(Stdio::null())
         .process_group(0)
         .spawn()
         .map_err(|e| format!("cannot run {what}: {e}"))?;
+    let group = i32::try_from(child.id()).unwrap_or(0);
+    let _running = Running::group(group);
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if started.elapsed() >= limit => {
-                let group = i32::try_from(child.id()).ok().and_then(Pid::from_raw);
-                match group {
-                    Some(group) => {
-                        let _ = kill_process_group(group, Signal::KILL);
-                    }
-                    None => {
-                        let _ = child.kill();
-                    }
+                if !end_group(group) {
+                    let _ = child.kill();
                 }
                 let _ = child.wait();
                 return Err(format!("{what} did not end in {limit:?}"));
@@ -111,7 +176,10 @@ pub fn build_ref(
     std::fs::create_dir_all(work).map_err(|e| format!("cannot make {}: {e}", work.display()))?;
     let git = |args: &[&str]| {
         let mut git = crate::spawn::command("git");
-        git.arg("-C").arg(&clone).args(args);
+        git.env("GIT_TERMINAL_PROMPT", "0")
+            .arg("-C")
+            .arg(&clone)
+            .args(args);
         git
     };
     if clone.join(".git").exists() {
@@ -122,6 +190,7 @@ pub fn build_ref(
     } else {
         run(
             crate::spawn::command("git")
+                .env("GIT_TERMINAL_PROMPT", "0")
                 .args(["clone", "--quiet", "--", repo])
                 .arg(&clone),
             limits.git,
@@ -239,21 +308,23 @@ mod tests {
     fn a_command_that_outlasts_its_limit_is_ended_with_its_children() {
         let dir = tempfile::tempdir().unwrap();
         let pid_file = dir.path().join("pid");
-        let started = Instant::now();
-        let err = run(
-            Command::new("sh")
-                .args(["-c", "sleep 300 & echo $! > \"$0\"; wait"])
-                .arg(&pid_file),
-            Duration::from_millis(300),
-        )
-        .unwrap_err();
-        assert!(started.elapsed() < Duration::from_secs(30), "{err}");
-        assert!(err.contains("sleep 300") && err.contains("300ms"), "{err}");
-        let pid: u32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        // On a loaded machine the stand-in can be ended before it writes its pid.
+        let pid: u32 = (0..5)
+            .find_map(|_| {
+                let _ = std::fs::remove_file(&pid_file);
+                let started = Instant::now();
+                let err = run(
+                    Command::new("sh")
+                        .args(["-c", "sleep 300 & echo $! > \"$0\"; wait"])
+                        .arg(&pid_file),
+                    Duration::from_millis(300),
+                )
+                .unwrap_err();
+                assert!(started.elapsed() < Duration::from_secs(30), "{err}");
+                assert!(err.contains("sleep 300") && err.contains("300ms"), "{err}");
+                std::fs::read_to_string(&pid_file).ok()?.trim().parse().ok()
+            })
+            .expect("the stand-in wrote its pid before its limit");
         // The orphan is reaped by init a moment after the kill.
         let gone = (0..200).any(|_| {
             let gone = !crate::upgrade::lock::alive(pid);
