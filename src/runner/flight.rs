@@ -56,8 +56,7 @@ pub(super) struct Flights {
     // The security review of a contribution's head
     securing: Option<security::Securing>,
     // The contributions a security review started on since the last poll, which
-    // are not tried again before the next, so a head that cannot be read does
-    // not hold up the others or start a call on every pass
+    // are not tried again before the next
     security_tried: Vec<u64>,
     // The experts of one ruling, voting
     panel: Option<panel::Panelling>,
