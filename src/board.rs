@@ -3,7 +3,7 @@
 //! The board's input is the project's open issues labelled `ready-for-agent`.
 //! The board keeps them in an order and dispatches the first that is free. A
 //! newly ready issue joins it after the last issue of its priority: `priority: P0`,
-//! then `P1`, `P2`, `P3`, then an issue with no priority label, and within a
+//! then `P1`, `P2`, `P3`, `P4`, then an issue with no priority label, and within a
 //! priority the oldest first, by issue number. An issue whose priority label
 //! changes moves the same way. An issue that closes or loses the label leaves
 //! it. An issue that already
@@ -42,11 +42,12 @@ pub const PIN: char = '!';
 const OLD_WORKER_LABEL: &str = "worker:";
 
 // The priority labels, highest first. An issue with none ranks after them all.
-const PRIORITIES: [&str; 4] = [
+const PRIORITIES: [&str; 5] = [
     "priority: P0",
     "priority: P1",
     "priority: P2",
     "priority: P3",
+    "priority: P4",
 ];
 
 /// An open issue labelled [`READY`], as the forge lists it
@@ -336,7 +337,7 @@ pub fn pick(
     }
 }
 
-/// The priority an issue's labels give it, from `P0` to `P3`, or `None` with none
+/// The priority an issue's labels give it, from `P0` to `P4`, or `None` with none
 pub fn priority(labels: &[String]) -> Option<&'static str> {
     let label = PRIORITIES.get(priority_rank(labels))?;
     label.strip_prefix("priority: ")
@@ -406,7 +407,7 @@ fn order_key(order: &[u64], issue: &ReadyIssue) -> (usize, usize, u64) {
     )
 }
 
-// Where an issue's priority label puts it: 0 for P0 to 3 for P3, and 4 with
+// Where an issue's priority label puts it: 0 for P0 to 4 for P4, and 5 with
 // none. With several, the highest counts.
 fn priority_rank(labels: &[String]) -> usize {
     PRIORITIES
@@ -606,8 +607,9 @@ mod tests {
             prioritised(6, "priority: P2"),
             prioritised(7, "priority: P1"),
             prioritised(8, "priority: P0"),
+            prioritised(9, "priority: P4"),
         ];
-        assert_eq!(kept(&[], &issues), [5, 8, 3, 7, 6, 2, 1, 4]);
+        assert_eq!(kept(&[], &issues), [5, 8, 3, 7, 6, 2, 9, 1, 4]);
     }
 
     #[test]

@@ -32,4 +32,4 @@ Every issue you file has:
 - Exactly one `agent:<name>` label, naming the implementer that should build it, from the project's list below. The default, listed first, fits features and anything with state, persistence, timing or concurrency. A smaller one, where the list has one, fits mechanical work: docs, config, a rename, test-only changes, one module with no state. The strongest fits only where a bad first build is hard to undo: migrations, credentials, irreversible operations.
 - The status label kelpie names below, and no other status label.
 
-Never write a path on this machine, such as a home folder, into an issue: write a repo path from the repo's root. On a public repo, name only public repos: a worker copies issue text into its commits, and kelpie refuses any other repo's name there.
+Never write a path on this machine, such as a home folder, into an issue: write a repo path from the repo's root. On a public repo, name only public repos: a worker copies issue text into its commits, and kelpie refuses any other repo's name there. Where the repo's `docs/agents/triage-labels.md` sets priority rules, give each issue the one `priority:` label they call for.
