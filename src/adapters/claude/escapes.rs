@@ -192,6 +192,33 @@ fn claude_codes_own_files_are_refused_in_any_case_and_spelling() {
     }
 }
 
+// On Linux srt skips the globs of `denyWrite`, so the fence lists the folders
+// below the worktree when the call starts. `World::try_to` builds its policy
+// from the worktree as it stands, which is the call's start.
+#[test]
+#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+fn a_nested_claude_folder_that_existed_at_call_start_is_refused() {
+    let w = World::new();
+    std::fs::create_dir_all(w.path("wt/src/.claude")).unwrap();
+    std::fs::create_dir_all(w.path("wt/lib/.Codex")).unwrap();
+    for (script, written) in [
+        (
+            "echo {} > src/.claude/settings.local.json",
+            "wt/src/.claude/settings.local.json",
+        ),
+        (
+            "mkdir -p src/.claude/agents && echo x > src/.claude/agents/a.md",
+            "wt/src/.claude/agents",
+        ),
+        (
+            "echo x > lib/.Codex/config.toml",
+            "wt/lib/.Codex/config.toml",
+        ),
+    ] {
+        w.refused(script, written);
+    }
+}
+
 #[test]
 #[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
 fn codexs_own_files_are_refused_in_any_case() {
@@ -381,4 +408,28 @@ fn a_host_not_allowed_and_a_socket_not_listed_are_refused() {
         socket.display()
     ));
     assert_eq!(out.status.code(), Some(7), "a socket outside was reached");
+}
+
+// Measured on Linux: srt 0.0.77 turns every Unix socket off whatever
+// `allowUnixSockets` lists, so the dog's door in the policy is refused too.
+// On macOS the same policy reaches it.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "needs kelpie's tools: KELPIE_TOOLS=<dir> from `shep kelpie tools install`"]
+fn a_socket_the_policy_lists_is_still_refused_on_linux() {
+    let w = World::new();
+    let door = w.path("dog/lease.sock");
+    std::fs::create_dir_all(door.parent().unwrap()).unwrap();
+    let _listener = std::os::unix::net::UnixListener::bind(&door).unwrap();
+    let policy = policy(&w.call(), &w.path("home"), &[]).unwrap();
+    assert_eq!(
+        policy.sockets,
+        std::slice::from_ref(&door),
+        "the door is listed"
+    );
+    let out = w.try_to(&format!(
+        "perl -MIO::Socket::UNIX -e 'IO::Socket::UNIX->new(Peer => $ARGV[0]) or exit 7' {}",
+        door.display()
+    ));
+    assert_eq!(out.status.code(), Some(7), "the listed door was reached");
 }
