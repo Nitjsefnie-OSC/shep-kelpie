@@ -393,9 +393,9 @@ A plugin the repo turns on in its `.claude/settings.json` reaches every agent sh
 - Each `enabledPlugins` entry set to `true` is looked up in `extraKnownMarketplaces`. A `github` or `git` source is cloned, or fetched if already there, with the runner's own `git` into `<kelpie home>/marketplaces/<name>`. A `directory` source is a relative path to a folder inside the checkout, read as the default branch holds it (the checkout itself is never moved) and copied to `<kelpie home>/marketplaces/<name>`: an absolute path and a `..` are refused, and a link in the folder is left out.
 - The plugin's folder is found in the marketplace's `.claude-plugin/marketplace.json`. Its `skills/` and a trimmed manifest are copied into a plugin of the same name under `<project folder>/skills/repo/<name>`, rewritten at every start, so its skills keep their names.
 - Every call gets it as one more `--plugin-dir`: the worker's turns, the reviewers, the issue writer, the project manager, the advisor and the researcher. `[app.dogs.kelpie.repo_setup]` narrows that. `shep kelpie issue` is not the runner, so its headless issue writer loads the plugins itself, into a folder of its own that it removes when the session ends, and `shep kelpie issue --interactive` is your own `claude`, which loads none of them.
-- Only a plugin's skills load so far, copied as files and folders: a link inside a plugin is left out. A second plugin of a name an earlier one supplies, in the order the repo lists them, is skipped. A change to a plugin's files alone is copied over too. A `github` or `git` marketplace is fetched again only when one of those happens, not on a timer. Its hooks, commands, agents and MCP servers do not, and a plugin with no skills is skipped. A plugin whose marketplace entry points outside the marketplace is skipped too.
+- A plugin's `skills/`, `agents/`, `commands/` and `hooks/` are copied as files and folders, and `repo_setup.parts` narrows which: a link inside a plugin is left out. Hooks are read from `hooks/hooks.json`, so a script a hook runs must sit in `hooks/` too, and a hook command reaches it through `${CLAUDE_PLUGIN_ROOT}`. A plugin's hooks run beside the hooks in the call's settings file, inside the call's fence, and cannot replace or turn off kelpie's own. A plugin's MCP servers do not load yet. A second plugin of a name an earlier one supplies, in the order the repo lists them, is skipped. A change to a plugin's files alone is copied over too. A `github` or `git` marketplace is fetched again only when one of those happens, not on a timer. A plugin with none of the parts `parts` loads is skipped. A plugin whose marketplace entry points outside the marketplace is skipped too.
 
-A plugin that cannot load is skipped, the runner logs why and the run goes on: no `extraKnownMarketplaces` entry, a failed fetch with no copy yet, no such plugin in the marketplace, no skills, or a name shep-kelpie keeps for itself (`mattpocock`, `kelpie-<step>`). A failed fetch keeps the last good copy and `status` marks the plugin stale. `status` lists each plugin under `plugins` with its skills or why it was skipped, and `doctor` reports the same under `repo plugins` from the marketplaces already fetched, without fetching any.
+A plugin that cannot load is skipped, the runner logs why and the run goes on: no `extraKnownMarketplaces` entry, a failed fetch with no copy yet, no such plugin in the marketplace, none of the parts that load, or a name shep-kelpie keeps for itself (`mattpocock`, `kelpie-<step>`). A failed fetch keeps the last good copy and `status` marks the plugin stale. `status` lists each plugin under `plugins` with its skills or why it was skipped, and `doctor` reports the same under `repo plugins` from the marketplaces already fetched, without fetching any.
 
 ##### `repo_setup`
 
@@ -403,12 +403,14 @@ A project narrows what reaches each agent, and adds a plugin the repo does not n
 
 - `plugins`: `true` by default. `false` loads none of the plugins the repo turns on, and `extra` still loads.
 - `roles`: the calls that get plugins, from `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`. All of them by default. `roles = ["worker"]` keeps plugins from the reviewers, the issue writer, the project manager, the advisor and the researcher. It narrows `extra` as well.
+- `parts`: which parts of a plugin load, from `skills`, `agents`, `commands`, `hooks` and `mcp`. All of them by default. `parts = ["skills"]` copies only a plugin's skills, and leaves its agents, commands and hooks out. `mcp` is accepted and loads nothing yet.
 - `skip`: plugins, as `name@marketplace`, left out though the repo turns them on. A skipped plugin is not listed in `status`.
 - `extra`: plugins the repo does not turn on, each as `name@marketplace` with its marketplace's source as one string: `github:owner/name`, `git:<url>` or `directory:<folder inside the checkout>`, and `#<branch or tag>` after a `github` or `git` address. The kinds are those of the `source` in an `extraKnownMarketplaces` entry. A marketplace given here takes the place of the repo's of the same name, and two plugins of one marketplace must give the same source. An extra plugin that cannot load is skipped with its reason, as the repo's are.
 
 ```toml
 [app.dogs.kelpie.repo_setup]
 roles = ["worker", "reviewer"]
+parts = ["skills", "agents"]
 skip = ["noisy@house"]
 extra = { "style@lab" = "github:acme/lab#v2" }
 ```
@@ -1071,7 +1073,7 @@ A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]
 - `e2e.host`, `e2e.command` and `e2e.results`: an ssh host that runs the project's end-to-end tests, and the script and results folder in the repo. A runner reads them when it starts. See [End-to-end tests](#end-to-end-tests)
 - `skills.<step>`: see [Skills](#skills)
 - `code_graph.enabled`: whether the worker's and the reviewers' calls get a code graph of the worktree, off by default. See [Code graph](#code-graph)
-- `repo_setup.plugins`, `repo_setup.roles`, `repo_setup.skip` and `repo_setup.extra`: which of the repo's plugins reach which calls, and the plugins to add. See [Repo plugins](#repo-plugins)
+- `repo_setup.plugins`, `repo_setup.roles`, `repo_setup.parts`, `repo_setup.skip` and `repo_setup.extra`: which of the repo's plugins reach which calls, which of their parts load, and the plugins to add. See [Repo plugins](#repo-plugins)
 
 shep-kelpie's own settings, shared by every project, are the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Start from `kelpie-settings.example.toml`, and keep `dogs.toml` private: the webhook's URL is a credential.
 
