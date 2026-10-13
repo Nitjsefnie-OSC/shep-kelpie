@@ -40,7 +40,7 @@ mod measure;
 #[cfg(test)]
 mod tests;
 
-pub(super) use history::{Answerer, Record};
+pub(super) use history::{Answerer, Record, records};
 
 /// How long one expert's call may run before it is ended, in seconds
 pub(super) const CEILING: u64 = 15 * 60;

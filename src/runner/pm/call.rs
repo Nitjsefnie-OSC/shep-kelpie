@@ -43,6 +43,32 @@ impl Runner {
         prompt: String,
         reads: bool,
     ) -> Result<AgentCall, String> {
+        let call = self.pm_call_made(agent, session, prompt, reads)?;
+        self.prepared(call)
+    }
+
+    /// The batch retro's call: the project manager's agent in its folder, with
+    /// no standing instructions and tools that read and search only
+    pub(in crate::runner) fn pm_retro_call(
+        &mut self,
+        agent: &PmAgent,
+        session: Session,
+        prompt: String,
+    ) -> Result<AgentCall, String> {
+        let mut call = self.pm_call_made(agent, session, prompt, false)?;
+        call.tools = Tools::Retro;
+        call.instructions = None;
+        call.settings = self.paths.worker.join("pm-retro-settings.json");
+        self.prepared(call)
+    }
+
+    fn pm_call_made(
+        &mut self,
+        agent: &PmAgent,
+        session: Session,
+        prompt: String,
+        reads: bool,
+    ) -> Result<AgentCall, String> {
         let folder = self.paths.pm.clone();
         let failed = |what: &std::path::Path, e: std::io::Error| {
             format!("cannot write {}: {}", what.display(), e.kind())
@@ -66,7 +92,7 @@ impl Runner {
         let instructions = self.paths.worker.join("pm-instructions.md");
         let text = agent.prompt.as_deref().unwrap_or_default();
         crate::runner::turn::write(&self.paths.worker, &instructions, text)?;
-        self.prepared(AgentCall {
+        Ok(AgentCall {
             role: Role::Pm,
             harness: agent.model.harness.clone(),
             issue: 0,

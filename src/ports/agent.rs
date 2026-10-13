@@ -109,8 +109,8 @@ pub enum Tools {
     /// The project manager's: reading its working folder, and adding to
     /// the end of [`PM_NOTES`] there, which a hook holds it to
     Pm,
-    /// A finished worker's retro, or its vote on a ruling: reading and
-    /// searching its worktree, with no file written, no command and no
+    /// The project manager's batch retro, or a vote on a ruling: reading and
+    /// searching its folders, with no file written, no command and no
     /// crew. Its reply is the report, or the vote.
     Retro,
     /// The advisor's vote on a ruling: reading its folder, the worktrees and

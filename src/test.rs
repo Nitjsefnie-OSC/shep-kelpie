@@ -147,7 +147,6 @@ pub(crate) fn a_work_item() -> WorkItem {
         held: Vec::new(),
         test_checks: Vec::new(),
         follow_ups: None,
-        retro: false,
         summary: None,
         timings: Some(Timings {
             created: Timestamp(5),
@@ -390,7 +389,7 @@ impl Rig {
         let settings = example
             .replace(EXAMPLE_REPO, &rig.repo().display().to_string())
             .replace(EXAMPLE_REVIEWERS, RIG_REVIEWERS);
-        // A retro is one more call at every work item's end, so most tests
+        // A retro is one more call after every batch, so most tests
         // leave it off and a test of the retro turns it on with [`Rig::retro_on`].
         let settings = format!("{settings}{NO_RETRO}");
         // No reviewer reads a head before CI has passed on it, and a run has

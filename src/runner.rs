@@ -54,6 +54,7 @@ mod effects;
 mod finishing;
 mod flight;
 mod follow_up;
+mod friction;
 mod gate;
 mod gpu;
 #[cfg(test)]
@@ -335,6 +336,8 @@ pub struct Runner {
     pm: pm::Desk,
     // The panel's votes on the rulings, in memory only
     panel: panel::Desk,
+    // What the batch retro keeps between passes, in memory only
+    retro_book: retro::Book,
     // Whether `drain` holds back every new call, in memory only, so a
     // restart ends it
     draining: bool,
@@ -536,6 +539,7 @@ impl Runner {
             told_points: spoken,
             pm: pm::Desk::default(),
             panel: panel::Desk::default(),
+            retro_book: retro::Book::default(),
             draining: false,
             finish: finishing::Finish::default(),
             left: left::Seen::default(),
@@ -776,7 +780,6 @@ impl Runner {
             held: Vec::new(),
             test_checks: Vec::new(),
             follow_ups: None,
-            retro: false,
             summary: None,
             timings: Some(Timings::starting(self.ports.clock.now())),
             attached: None,

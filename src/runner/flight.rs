@@ -24,14 +24,13 @@ use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
-use super::retro;
 use super::review::run_review_call;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
 use crate::ports::{AgentCall, AgentError, AgentReply, Ending, RoundStage, Timestamp, Wait};
 use crate::settings::Harness;
 use crate::state::StateError;
-use crate::usage::{CallKind, Draft, Line};
+use crate::usage::{CallKind, Draft};
 
 /// What one pass of the runner's loop did
 #[derive(Debug)]
@@ -54,6 +53,8 @@ pub(super) struct Flights {
     labelling: Option<label::Labelling>,
     // The experts of one ruling, voting
     panel: Option<panel::Panelling>,
+    // The project manager's batch retro
+    retro: Option<retro::Retrospecting>,
     // Every call's line in the usage ledger, as it started
     ledger: InFlight,
     send: Sender<News>,
@@ -70,6 +71,7 @@ impl Default for Flights {
             pm: None,
             labelling: None,
             panel: None,
+            retro: None,
             ledger: InFlight::default(),
             send,
             news,
@@ -86,6 +88,7 @@ impl Flights {
             && self.pm.is_none()
             && self.labelling.is_none()
             && self.panel.is_none()
+            && self.retro.is_none()
     }
 
     /// The issue the issue writer is labelling, while it is
@@ -112,7 +115,7 @@ impl Flights {
     pub(super) fn runs_turn(&self, issue: u64) -> bool {
         self.flying
             .get(&issue)
-            .is_some_and(|f| f.deadline.is_some() && !f.retro)
+            .is_some_and(|f| f.deadline.is_some())
     }
 
     /// Forgets `issue`'s call in flight, once its end is heard
@@ -125,11 +128,7 @@ impl Flights {
     pub(super) fn turn_call(&self, issue: u64) -> Option<(AgentCall, bool, u64)> {
         let flight = self.flying.get(&issue)?;
         let call = flight.watched.call.clone()?;
-        (flight.deadline.is_some() && !flight.retro && !flight.compact).then_some((
-            call,
-            flight.first,
-            flight.left,
-        ))
+        (flight.deadline.is_some() && !flight.compact).then_some((call, flight.first, flight.left))
     }
 
     /// When `issue`'s call in flight started
@@ -147,14 +146,9 @@ impl Flights {
         self.panel.is_some()
     }
 
-    /// Whether any work item has its retro in flight
+    /// Whether the batch retro is in flight
     pub(super) fn retro_running(&self) -> bool {
-        self.flying.values().any(|f| f.retro)
-    }
-
-    /// Whether `issue`'s call in flight is its work item's retro
-    pub(super) fn runs_retro(&self, issue: u64) -> bool {
-        self.flying.get(&issue).is_some_and(|f| f.retro)
+        self.retro.is_some()
     }
 
     /// Ends `issue`'s call in flight, as its ceiling would
@@ -186,7 +180,13 @@ impl Flights {
             issue: None,
             role: CallRole::Panel,
         });
-        items.chain(pm).chain(labelling).chain(panel).collect()
+        let retro = self.retro.iter().map(|_| CallRunning {
+            issue: None,
+            role: CallRole::Retro,
+        });
+        (items.chain(pm).chain(labelling).chain(panel))
+            .chain(retro)
+            .collect()
     }
 
     /// The calls in flight as the usage ledger knows them
@@ -221,8 +221,6 @@ struct Flight {
     watched: Watched,
     // Whether a worker's turn is its work item's first, with no session to keep
     first: bool,
-    // Whether it is a finished work item's retro, not a turn of its worker
-    retro: bool,
     // Whether it is a `/compact` of the worker's session, sent before a turn
     compact: bool,
     // When the call began, past the lease it waited for
@@ -241,6 +239,8 @@ enum News {
     },
     // The project manager's call ended
     Pm(End),
+    // The batch retro's call ended
+    Retro(End),
     // The issue writer's call labelling an issue ended
     Labelled {
         issue: u64,
@@ -347,7 +347,6 @@ enum Launch {
         deadline: Timestamp,
         again: bool,
         first: bool,
-        retro: bool,
         compact: bool,
     },
     Review(ReviewCall),
@@ -373,10 +372,12 @@ impl Runner {
             .map(|(deadline, _)| *deadline);
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
         let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
+        let retro = (self.flights.retro.iter()).filter_map(retro::Retrospecting::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
             .chain(panel)
+            .chain(retro)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
             .min()
     }
@@ -400,6 +401,9 @@ impl Runner {
         }
         if let Some(panel) = &self.flights.panel {
             panel.end_overdue(now);
+        }
+        if let Some(retro) = &self.flights.retro {
+            retro.end_overdue(now);
         }
     }
 
@@ -471,20 +475,8 @@ impl Runner {
                 deadline,
                 again: start_over.is_some(),
                 first,
-                retro: false,
                 compact,
             },
-            Begin::Retro(call) => {
-                let now = self.ports.clock.now();
-                Launch::Turn {
-                    call,
-                    deadline: Timestamp(now.0.saturating_add(retro::CEILING)),
-                    again: false,
-                    first: false,
-                    retro: true,
-                    compact: false,
-                }
-            }
             Begin::Review(action) => Launch::Review(action),
             Begin::Label(issue) => {
                 let report = self.ask_writer(&issue)?;
@@ -529,7 +521,6 @@ impl Runner {
             ),
             Launch::Review(_) => (None, false, false, None),
         };
-        let retro = matches!(launch, Launch::Turn { retro: true, .. });
         let compact = matches!(launch, Launch::Turn { compact: true, .. });
         let role = harness.map_or("reviewer", |_| "worker");
         let now = self.ports.clock.now();
@@ -543,10 +534,9 @@ impl Runner {
         };
         let draft = match &launch {
             Launch::Turn { call, .. } => {
-                let kind = match (retro, compact) {
-                    (true, _) => CallKind::Retro,
-                    (false, true) => CallKind::Compact,
-                    (false, false) => CallKind::Turn,
+                let kind = match compact {
+                    true => CallKind::Compact,
+                    false => CallKind::Turn,
                 };
                 Draft::of(call, &self.ledger_worker(issue), kind, now)
             }
@@ -620,7 +610,6 @@ impl Runner {
             again,
             watched,
             first,
-            retro,
             compact,
             began_at: None,
             told: None,
@@ -717,6 +706,9 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 #[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     let pass = one_pass(runner);
+    if let Ok(Pass::Report(report)) = &pass {
+        lock(runner).journal_report(report);
+    }
     // After the pass, so a ruling it raised is told in the pass that raised it.
     lock(runner).tell_rulings();
     brief(runner);
@@ -727,7 +719,8 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
         Ok(Pass::Idle) => {
             let woke = lock(runner).wake_pm();
             let asked = lock(runner).panel_launched();
-            Ok(if woke || asked {
+            let looked = !woke && lock(runner).retro_launched();
+            Ok(if woke || asked || looked {
                 Pass::Started
             } else {
                 Pass::Idle
@@ -807,6 +800,10 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
         }
         News::Labelled { issue, end } => return runner.label_ended(issue, end),
         News::Paneled { id, ends } => return runner.panel_ended(id, ends),
+        News::Retro(end) => {
+            runner.retro_heard(end);
+            return Ok(None);
+        }
         News::Ended { issue, end } => (issue, end),
         News::Pm(end) => {
             runner.flights.pm = None;
@@ -833,22 +830,6 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
     // A call's line goes in only once its end is saved: one not saved runs
     // again, and its session's cost by then takes in this call's.
     match end {
-        End::Turn(result) if runner.flights.runs_retro(issue) => {
-            let line = open.and_then(|open| runner.turn_line(&open, &result));
-            runner.retro_ended(issue, result);
-            if let Some(line) = line {
-                runner.ledger.append(&Line::Call(line));
-            }
-            Ok(None)
-        }
-        // A panicking retro is skipped as a failed one is: it must not end the runner.
-        End::Panicked(_) if runner.flights.runs_retro(issue) => {
-            if let Some(open) = &open {
-                runner.panicked_line(open);
-            }
-            runner.retro_ended(issue, Err(AgentError::Setup("its call panicked".into())));
-            Ok(None)
-        }
         End::Turn(result) if runner.flights.runs_compact(issue) => {
             let line = open.and_then(|open| runner.turn_line(&open, &result));
             let unreported = result.is_err();
@@ -923,6 +904,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
         match news {
             Some(news) => {
                 if let Some(report) = hear(runner, news)? {
+                    lock(runner).journal_report(&report);
                     return Ok(Some(report));
                 }
             }
@@ -936,6 +918,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
 
 pub(super) mod label;
 pub(super) mod panel;
+pub(super) mod retro;
 #[cfg(test)]
 mod tests;
 mod waiting;

@@ -10,6 +10,7 @@ use crate::work_item::{CallKind, Seconds, TimingPhase};
 
 mod bot_rounds;
 mod deep_round;
+mod retro;
 mod review_loop;
 mod reviewers;
 mod ruling_kinds;

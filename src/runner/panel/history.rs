@@ -38,12 +38,15 @@ pub(in crate::runner) enum Answerer {
 // wire format: changing this is a breaking change to the rulings file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(in crate::runner) struct Record {
-    pub(super) id: u64,
-    pub(super) at: Timestamp,
-    issue: Option<u64>,
+    pub(in crate::runner) id: u64,
+    pub(in crate::runner) at: Timestamp,
+    // When it was raised, if the state file said
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::runner) raised: Option<Timestamp>,
+    pub(in crate::runner) issue: Option<u64>,
     pull_request: Option<u64>,
     asked: String,
-    answer: String,
+    pub(in crate::runner) answer: String,
     // Whether the project manager answered for the maintainer
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     by_pm: bool,
@@ -52,7 +55,7 @@ pub(in crate::runner) struct Record {
     pub(super) by_panel: bool,
     // The kind of ruling, as `rulings.pm_alone` names it
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) kind: Option<RulingName>,
+    pub(in crate::runner) kind: Option<RulingName>,
     // The option the answer is, when it is one of the ruling's
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) chose: Option<char>,
@@ -60,7 +63,7 @@ pub(in crate::runner) struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) verdict: Option<Verdict>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) ballots: Vec<Ballot>,
+    pub(in crate::runner) ballots: Vec<Ballot>,
 }
 
 impl Record {
@@ -85,6 +88,7 @@ impl Record {
         Self {
             id: ruling.id,
             at,
+            raised: ruling.raised,
             issue: ruling.issue,
             pull_request: ruling.pull_request,
             asked: crate::runner::panel::folders::clip(asked, QUESTION),
@@ -95,6 +99,15 @@ impl Record {
             chose,
             verdict: ruling.verdict.clone(),
             ballots: ruling.panel.clone().unwrap_or_default(),
+        }
+    }
+
+    /// Who answered it
+    pub(in crate::runner) fn by(&self) -> Answerer {
+        match (self.by_pm, self.by_panel) {
+            (true, _) => Answerer::Pm,
+            (_, true) => Answerer::Panel,
+            _ => Answerer::Maintainer,
         }
     }
 
@@ -121,7 +134,7 @@ impl Record {
 
 /// Every ruling answered in the file at `file`, oldest first; a line that
 /// does not read is skipped
-pub(super) fn records(file: &Path) -> Vec<Record> {
+pub(in crate::runner) fn records(file: &Path) -> Vec<Record> {
     let text = std::fs::read_to_string(file).unwrap_or_default();
     (text.lines())
         .filter_map(|line| serde_json::from_str(line).ok())

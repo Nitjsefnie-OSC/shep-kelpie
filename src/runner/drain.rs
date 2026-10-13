@@ -3,7 +3,9 @@
 //! `drain` holds back every call the runner would start next, a worker's
 //! turn, a reviewer's session or local round, and the project manager's
 //! wake, while the calls already in flight run to their end and the rest of
-//! each pass goes on, merges included. `status` then lists the calls still
+//! each pass goes on, merges included. A drain that starts with work items
+//! finished since the last retro starts the batch retro over them, the one
+//! call it starts. `status` then lists the calls still
 //! running, so `shep kelpie upgrade` can restart the runner once none is.
 //! Draining is kept in memory only: a restart ends it, as `undrain` does.
 
@@ -46,12 +48,19 @@ pub enum CallRole {
     IssueWriter,
     /// The panel's experts, voting on a ruling
     Panel,
+    /// The project manager's agent, running a batch retro
+    Retro,
 }
 
 impl Runner {
     /// Starts no new call from now until a restart or [`Runner::undrain`]
     pub(super) fn drain(&mut self) {
+        // The one call a drain starts: a retro over what finished since the
+        // last. It starts here, so the status this answers lists it. One that
+        // cannot start yet is asked for on a later pass.
+        self.retro_book.at_drain |= !self.draining;
         self.draining = true;
+        self.retro_launched();
     }
 
     /// Starts calls again

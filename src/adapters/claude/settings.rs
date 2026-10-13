@@ -63,9 +63,9 @@ const ISSUES_DENY: [&str; 13] = [
     "ExitWorktree",
 ];
 
-/// The tools a finished worker's retro never uses: commands, sub-agents, every
-/// file writer, the web, and the rest a worker is denied. It reads its
-/// worktree and replies with the report, which kelpie saves.
+/// The tools a batch retro never uses: commands, sub-agents, every file
+/// writer, the web, and the rest a worker is denied. It reads its folders
+/// and replies with the report, which kelpie saves.
 const RETRO_DENY: [&str; 14] = [
     "Agent",
     "Task",
@@ -97,8 +97,8 @@ pub(crate) const REVIEW_TOOLS: &str = "Read,Glob,Grep";
 /// The only tools the project manager's session has, as `--tools` takes them
 pub(crate) const PM_TOOLS: &str = "Read,Glob,Grep,Edit,Write";
 
-/// The only tools a finished worker's retro has, as `--tools` takes them: it
-/// reads its worktree and calls the skills the retro skill names
+/// The only tools a batch retro has, as `--tools` takes them: it reads its
+/// folders and calls the skills the retro skill names
 pub(crate) const RETRO_TOOLS: &str = "Read,Glob,Grep,Skill";
 
 /// What the project manager never uses, denied as well in case `--tools`

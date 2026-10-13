@@ -16,7 +16,7 @@ use crate::worker_folder;
 use crate::worktree::BASE;
 
 /// The file the worker writes its pull request in, in its build folder
-const FILE: &str = "pull-request.md";
+pub(super) const FILE: &str = "pull-request.md";
 
 /// A copy of the file as kelpie last put it on the pull request, so a turn
 /// that left it alone edits nothing

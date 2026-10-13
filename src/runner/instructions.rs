@@ -77,6 +77,9 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
         )),
         (None, None, None) => {}
     }
+    if !skills.off(Step::Retro) {
+        lines.push(FRICTION.to_owned());
+    }
     if let Some(e2e) = extra.e2e {
         lines.push(format!(
             "Your sandbox cannot run the project's end-to-end tests: run {} from your \
@@ -111,6 +114,12 @@ pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie
     }
     text
 }
+
+// Told while the retro runs, so the project manager's batch retro has the
+// worker's own account of what slowed it down
+const FRICTION: &str = "If something slowed you down, add a `## Friction` section to your pull \
+    request's body above the `Resolves #<issue>` line: a line or two on what cost you time or \
+    tokens. Leave the section out when nothing did. The project manager's batch retro reads it.\n";
 
 fn template_line(template: &Template) -> String {
     match template {
@@ -272,6 +281,24 @@ mod tests {
         let text = first_instructions(&handed_over, &runner);
         assert!(text.contains("pull-request.md"), "{text}");
         assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
+    }
+
+    #[test]
+    fn the_worker_is_told_of_the_friction_section_only_while_the_retro_runs() {
+        let off = Rig::new("koji");
+        let runner = off.open().unwrap();
+        let text = first_instructions(&off, &runner);
+        assert!(!text.contains("## Friction"), "{text}");
+
+        let on = Rig::new("koji");
+        on.retro_on();
+        let runner = on.open().unwrap();
+        let text = first_instructions(&on, &runner);
+        assert!(text.contains("add a `## Friction` section"), "{text}");
+        assert!(
+            text.contains("above the `Resolves #<issue>` line"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -676,7 +676,8 @@ impl Forge for FakeForge {
             state: pr.state,
             title: (self.titles.lock().unwrap().get(&number).cloned())
                 .unwrap_or_else(|| format!("Title of pull request #{number}")),
-            body: format!("Body of pull request #{number}.\n"),
+            body: (self.texts.lock().unwrap().get(&number).map(|t| t.1.clone()))
+                .unwrap_or_else(|| format!("Body of pull request #{number}.\n")),
             closes,
             base: pr.base,
             branch: pr.branch,

@@ -398,8 +398,8 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
 
 /// Whether `action` asks the runner's loop for a pass
 ///
-/// `status` and `timings` only ask, and `drain` only sets what the next
-/// pass reads, so none wakes the loop: a drain's wait asks `drain` and
+/// `status` and `timings` only ask, and `drain` starts its retro itself, so
+/// none wakes the loop: a drain's wait asks `drain` and
 /// `status` twice a second. `undrain` wakes it, to start the calls it lets go.
 pub fn wakes(action: &str) -> bool {
     !matches!(action, "status" | "timings" | "drain")

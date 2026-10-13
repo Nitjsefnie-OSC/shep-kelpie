@@ -729,8 +729,6 @@ pub(super) enum Begin {
         compact: bool,
     },
     Review(ReviewCall),
-    /// The retro turn of a work item that finished, before its worktree goes
-    Retro(AgentCall),
     /// The issue writer's call to label an issue the board would open with
     /// no `agent:` label
     Label(crate::board::ReadyIssue),

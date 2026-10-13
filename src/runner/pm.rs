@@ -203,6 +203,13 @@ pub(super) struct Desk {
     flying: Option<Flying>,
 }
 
+impl Desk {
+    /// Whether a call of its session is in flight
+    pub(super) fn waking(&self) -> bool {
+        self.flying.is_some()
+    }
+}
+
 impl Runner {
     /// Queues `wake` for the project manager's next call, once each
     pub(super) fn pm_due(&mut self, wake: Wake) {
@@ -286,7 +293,7 @@ impl Runner {
 
     // Set up, not held by the maintainer's terminal, not down, and within
     // its account's pace.
-    fn pm_available(&mut self) -> bool {
+    pub(super) fn pm_available(&mut self) -> bool {
         let Some(limit) = self.agents.pm.as_ref().map(|pm| pm.limit.clone()) else {
             return false;
         };

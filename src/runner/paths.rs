@@ -96,12 +96,15 @@ pub struct ProjectPaths {
     pub researcher: PathBuf,
     /// Every ruling answered, one JSON object a line, which the researcher reads
     pub rulings: PathBuf,
+    /// What happened to the work items, one JSON object a line, which the
+    /// project manager's batch retro reads
+    pub journal: PathBuf,
     /// The folder for the worker's settings file and instructions
     pub worker: PathBuf,
     /// The folder for the plugins that hold each step's skill
     pub skills: PathBuf,
-    /// Where the retros workers wrote when their work items finished are
-    /// kept unread, one file each, which every project shares
+    /// Where the project manager's batch retros are kept unread, one file
+    /// each, which every project shares
     pub retro_reports: PathBuf,
     /// Kelpie's own tools for showing a work item's UI, which every project shares
     pub tools: Tools,
@@ -134,6 +137,7 @@ impl ProjectPaths {
             advisor: folder.join("advisor"),
             researcher: folder.join("researcher"),
             rulings: folder.join("rulings.jsonl"),
+            journal: folder.join("journal.jsonl"),
             worker: folder.join("worker"),
             skills: folder.join("skills"),
             retro_reports: kelpie_home.join("retro-reports/unverified"),

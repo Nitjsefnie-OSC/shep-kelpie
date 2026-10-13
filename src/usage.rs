@@ -79,7 +79,8 @@ pub enum CallKind {
     Compact,
     /// The issue writer's run
     Issues,
-    /// The worker's retro turn, once its work item has finished
+    /// The project manager's batch retro, over the work items finished since
+    /// the last one
     Retro,
     /// An expert's vote on a ruling: the worker's resumed session, the
     /// advisor's or the researcher's

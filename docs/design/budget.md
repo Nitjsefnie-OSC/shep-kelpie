@@ -47,7 +47,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `src/settings/agents.rs`
 - `rulings`: `decide` (`shadow`), `pm_alone`, `full_panel_paths`. `src/settings/rulings.rs`
 - `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000). `src/runner/turn.rs`
-- `skills`: per-step overrides; `retro` off; `triage`, `spec`, `reset` driven by no step yet. `src/skills.rs`
+- `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `src/skills.rs`
 - `hooks`, `e2e`. ADR 0009, `src/settings/hooks.rs`, `src/settings/e2e.rs`
 - `[kelpie]`: `webhook`, `gpu_metrics_url`, `codex_home`, `gateways`, `leases.cargo-test` (3). `src/webhook.rs`
 

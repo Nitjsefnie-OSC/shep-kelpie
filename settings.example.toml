@@ -251,7 +251,7 @@ compact_window = 200000
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
 # lists each step and its default. `retro` is the exception: it is off
-# unless named. `path` is a skill folder of your own, `plugin` a skill in a
+# unless named, and then it is the project manager's batch retro. `path` is a skill folder of your own, `plugin` a skill in a
 # Claude Code plugin's folder, `kelpie` the step's default from kelpie's copy,
 # and `none` runs kelpie's own prompt, or no retro at all. A skill that cannot load runs kelpie's prompt too, and the log
 # and `status` say why. Kelpie rewrites `$SHEP_HOME/kelpie/<project>/skills/`

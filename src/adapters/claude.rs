@@ -297,8 +297,7 @@ fn argv(call: &AgentCall) -> Vec<OsString> {
     let mut argv: Vec<OsString> = vec!["-p".into(), call.prompt.as_str().into()];
     argv.extend(profile(call));
     argv.extend(["--output-format".into(), "json".into()]);
-    // A retro is a worker's session that may change nothing, so it is asked
-    // like any call whose edits nothing allows.
+    // Only a worker's working call is let edit; a retro changes nothing.
     if call.role == Role::Worker && call.tools == crate::ports::Tools::Work {
         argv.extend(["--permission-mode".into(), "bypassPermissions".into()]);
     }
@@ -335,8 +334,8 @@ fn profile(call: &AgentCall) -> Vec<OsString> {
     use crate::ports::Tools as Kind;
     let own = call.agent_tools.as_deref();
     let tools = match (call.role, call.tools) {
-        (Role::Pm, _) => Some(settings::PM_TOOLS),
         (_, Kind::Retro) => Some(settings::RETRO_TOOLS),
+        (Role::Pm, _) => Some(settings::PM_TOOLS),
         (_, Kind::Advise) => Some(settings::ADVISE_TOOLS),
         (_, Kind::Research) => Some(settings::RESEARCH_TOOLS),
         (_, Kind::Work) => Some(own.unwrap_or(settings::WORK_TOOLS)),
@@ -629,12 +628,14 @@ mod tests {
 
     #[test]
     fn a_retro_runs_on_an_allow_list_of_tools_and_no_mcp_server() {
-        let mut retro = call(Role::Worker, resume("abc"));
-        retro.tools = crate::ports::Tools::Retro;
-        let argv = strings(&retro);
-        let at = argv.iter().position(|a| a == "--tools").unwrap();
-        assert_eq!(argv[at + 1], "Read,Glob,Grep,Skill");
-        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+        for role in [Role::Worker, Role::Pm] {
+            let mut retro = call(role, fresh());
+            retro.tools = crate::ports::Tools::Retro;
+            let argv = strings(&retro);
+            let at = argv.iter().position(|a| a == "--tools").unwrap();
+            assert_eq!(argv[at + 1], "Read,Glob,Grep,Skill", "{role:?}");
+            assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+        }
     }
 
     #[test]
@@ -793,7 +794,7 @@ mod tests {
         review.tools = Tools::Review;
         review.agent_tools = Some("Read,Glob,Grep,Skill".into());
         assert_eq!(tools_of(&review).as_deref(), Some("Read,Glob,Grep,Skill"));
-        // A retro resumes the worker's session, and stays read-only.
+        // A retro stays read-only.
         worker.tools = Tools::Retro;
         assert_eq!(tools_of(&worker).as_deref(), Some("Read,Glob,Grep,Skill"));
     }
