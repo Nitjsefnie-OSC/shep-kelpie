@@ -338,6 +338,26 @@ pub struct AgentReply {
     pub context: Option<u64>,
 }
 
+/// A call a runner's earlier image started, which still runs as the process's
+/// child
+///
+/// An image that hands over to a new build carries one for each call in flight,
+/// and the new build finishes the call from it.
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Adopted {
+    /// The process the call runs as
+    pub pid: u32,
+    /// The call's record on disk, which says where its output goes
+    pub record: PathBuf,
+    /// The session the call resumes, told apart from a failure when the
+    /// harness has none by that id
+    pub resumes: Option<SessionId>,
+    /// What the runner noted of the call when it started, which the record
+    /// keeps
+    pub flying: Option<Flying>,
+}
+
 /// Runs agent sessions, one call at a time per session
 pub trait Agents: Send + Sync {
     /// Writes what the harness needs on disk for `call`, before it is due
@@ -354,6 +374,33 @@ pub trait Agents: Send + Sync {
     /// [`AgentError`] when the call cannot run or does not succeed, and
     /// [`AgentError::TimedOut`] when `ending` ended it.
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError>;
+
+    /// What a runner that did not start `call` needs to finish it, while it
+    /// runs
+    ///
+    /// # Errors
+    ///
+    /// Why the call cannot be finished that way: its harness cannot be, or its
+    /// record is missing or unreadable.
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        let _ = call;
+        Err("this harness cannot hand a call to another image of the runner".into())
+    }
+
+    /// Finishes a call a runner's earlier image started, as [`Agents::run`]
+    /// would have: waits for its process, which is this process's child, and
+    /// reads its output
+    ///
+    /// # Errors
+    ///
+    /// As [`Agents::run`], and [`AgentError::Failed`] when the call's end was
+    /// missed, so its status is lost.
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        let _ = (adopted, ending);
+        Err(AgentError::Setup(
+            "this harness cannot finish a call another image of the runner started".into(),
+        ))
+    }
 
     /// Where `call`'s session writes its transcript, for `shep kelpie watch`
     /// to follow, or `None` for a harness that keeps none kelpie can read

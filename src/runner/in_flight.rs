@@ -11,11 +11,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use serde::{Deserialize, Serialize};
+
 use crate::ports::{Cost, Role, Timestamp};
 use crate::usage::{CallLine, Draft, Ended, Line, PacerLine, append_to};
 
 /// One call in flight
-#[derive(Debug, Clone)]
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Open {
     /// Its line as it started
     pub draft: Draft,
@@ -80,6 +83,19 @@ impl InFlight {
                 ran_from: None,
                 no_model: false,
             };
+            calls.open.insert(key, open);
+        }
+    }
+
+    /// `key`'s call as it stands, left in flight
+    pub fn peek(&self, key: Option<u64>) -> Option<Open> {
+        self.calls().open.get(&key).cloned()
+    }
+
+    /// Puts back `key`'s call, as [`Self::peek`] left it, in a runner that did not launch it
+    pub fn restore(&self, key: Option<u64>, open: Open) {
+        let mut calls = self.calls();
+        if !calls.closed {
             calls.open.insert(key, open);
         }
     }

@@ -1,0 +1,247 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+use super::super::{Hooks, JOIN_BOUND, Worker};
+use super::*;
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
+
+// What a handover that did not happen leaves to look at
+struct Tried {
+    execs: Arc<AtomicUsize>,
+    carried: Arc<Mutex<Vec<u64>>>,
+}
+
+// A handing whose exec refuses with `why` and notes what it was to carry,
+// while `feeding` says whether a child's stdin is being written.
+fn refusing(why: &'static str, feeding: &Arc<AtomicBool>) -> (Arc<Handing>, Tried) {
+    let tried = Tried {
+        execs: Arc::default(),
+        carried: Arc::default(),
+    };
+    let (execs, carried) = (Arc::clone(&tried.execs), Arc::clone(&tried.carried));
+    let feeding = Arc::clone(feeding);
+    let handing = Handing::with(
+        Box::new(move |carry| {
+            execs.fetch_add(1, Ordering::SeqCst);
+            *carried.lock().unwrap() = carry.turns.iter().map(|t| t.issue()).collect();
+            why.to_owned()
+        }),
+        Box::new(|| Some(Box::new(()))),
+        Box::new(move || feeding.load(Ordering::SeqCst)),
+    );
+    (handing, tried)
+}
+
+// A worker whose first turn on issue 7 is held open by `hold`.
+fn in_a_turn(
+    rig: &Rig,
+    hold: &Hold,
+    handover: Arc<Handing>,
+) -> (Arc<Mutex<Runner>>, Worker, Sender<()>) {
+    let runner = Arc::new(rig.open().unwrap());
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover,
+    };
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake.clone(), woken, died);
+    assert!(hold.entered(CALL_PATIENCE), "the worker's turn never began");
+    (runner, worker, wake)
+}
+
+fn turn_of_7(rig: &Rig, runner: &Mutex<Runner>) -> String {
+    let status = rig.ask(runner, "status", None);
+    let item = &status["work_items"][0];
+    assert_eq!(item["issue"], 7);
+    item["turn"]["state"].as_str().unwrap().to_owned()
+}
+
+fn eventually(what: &str, done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + CALL_PATIENCE;
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "never saw {what}");
+        std::thread::yield_now();
+    }
+}
+
+#[test]
+fn a_refused_handover_leaves_the_runner_and_its_calls_as_they_were() {
+    let rig = Rig::new("shep");
+    let hold = Hold::default();
+    let (handing, tried) = refusing("the build reads another state format", &Arc::default());
+    let (runner, worker, wake) = in_a_turn(&rig, &hold, Arc::clone(&handing));
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(
+        answer["error"],
+        "handover refused: the build reads another state format"
+    );
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 1);
+    assert_eq!(*tried.carried.lock().unwrap(), [7], "the turn was carried");
+    assert!(!handing.pending(), "the refused request stays queued");
+    assert_eq!(turn_of_7(&rig, &runner), "running");
+    assert!(!hold.returned(), "the call was ended");
+    hold.release();
+    eventually("the turn's end", || turn_of_7(&rig, &runner) == "ended");
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_handover_with_nothing_in_flight_carries_nothing() {
+    let rig = Rig::new("shep");
+    let runner = Arc::new(rig.open().unwrap());
+    let (handing, tried) = refusing("unused", &Arc::default());
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover: Arc::clone(&handing),
+    };
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake.clone(), woken, died);
+
+    // No call is in flight, so the carry is empty and the exec is tried.
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(answer["error"], "handover refused: unused");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 1);
+    assert!(tried.carried.lock().unwrap().is_empty());
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_handover_waits_out_a_call_whose_stdin_is_being_fed() {
+    let rig = Rig::new("shep");
+    let hold = Hold::default();
+    let feeding = Arc::new(AtomicBool::new(true));
+    let (handing, tried) = refusing("stand-in", &feeding);
+    let (_runner, worker, wake) = in_a_turn(&rig, &hold, Arc::clone(&handing));
+
+    // The loop comes by its quiet point many times in the time the trigger
+    // waits, and is held each time.
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(answer["handover"], "waiting for the runner's quiet point");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it did not wait");
+    assert!(handing.pending());
+    feeding.store(false, Ordering::SeqCst);
+    eventually("the handover once the feed ended", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    assert!(!handing.pending());
+    hold.release();
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_handover_waits_out_a_notice_hook_that_is_running() {
+    use crate::hooks::Role;
+    use crate::settings::HookPoint;
+    let rig = Rig::new("shep");
+    let flag = rig.home.path().join("go");
+    let script = format!(
+        "read line; while [ ! -e {0} ]; do sleep 0.02; done",
+        flag.display()
+    );
+    rig.hook("slow.sh", &["done"], &script);
+    let runner = Arc::new(rig.open().unwrap());
+    runner
+        .lock()
+        .unwrap()
+        .tell_hooks(HookPoint::Done, Role::Kelpie, serde_json::json!({ "n": 1 }));
+    let (handing, tried) = refusing("stand-in", &Arc::default());
+    let (wake, woken) = mpsc::channel();
+    let (died, _) = mpsc::channel();
+    let hooks = Hooks {
+        on_wake: Box::new(|_| {}),
+        finished: Box::new(|_| {}),
+        handover: Arc::clone(&handing),
+    };
+    let worker = Worker::spawn(Arc::clone(&runner), hooks, wake.clone(), woken, died);
+
+    let answer: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(answer["handover"], "waiting for the runner's quiet point");
+    assert_eq!(tried.execs.load(Ordering::SeqCst), 0, "it did not wait");
+    assert!(handing.pending());
+    std::fs::write(&flag, "").unwrap();
+    eventually("the handover once the hook ended", || {
+        tried.execs.load(Ordering::SeqCst) == 1
+    });
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+#[test]
+fn a_second_request_while_one_waits_is_refused() {
+    let rig = Rig::new("shep");
+    let hold = Hold::default();
+    let feeding = Arc::new(AtomicBool::new(true));
+    let (handing, _) = refusing("stand-in", &feeding);
+    let (_runner, worker, wake) = in_a_turn(&rig, &hold, Arc::clone(&handing));
+    let first = {
+        let (handing, wake) = (Arc::clone(&handing), wake.clone());
+        std::thread::spawn(move || handing.ask(&wake))
+    };
+    eventually("the first request", || handing.pending());
+
+    let second: serde_json::Value = serde_json::from_str(&handing.ask(&wake)).unwrap();
+
+    assert_eq!(
+        second["error"],
+        "a handover is already waiting for the runner's quiet point"
+    );
+    feeding.store(false, Ordering::SeqCst);
+    first.join().unwrap();
+    hold.release();
+    assert!(worker.stop(JOIN_BOUND, || {}));
+}
+
+// A build to start for the check: a script that runs `body`.
+fn build(rig: &Rig, body: &str) -> std::path::PathBuf {
+    let path = rig.home.path().join("build.sh");
+    crate::test::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
+    path
+}
+
+#[test]
+fn a_build_that_starts_as_the_runner_passes_the_check() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "[ -n \"$KELPIE_HANDOVER_CHECK\" ] && exit 0; exit 9");
+
+    assert_eq!(starts(&build, &[], Duration::from_secs(10)), Ok(()));
+}
+
+#[test]
+fn a_build_that_stops_on_the_settings_is_refused_with_what_it_said() {
+    let rig = Rig::new("shep");
+    let build = build(
+        &rig,
+        "echo 'kelpie runner koji: a setting is not valid' >&2; exit 1",
+    );
+
+    let why = starts(&build, &[], Duration::from_secs(10)).unwrap_err();
+
+    assert_eq!(
+        why,
+        "the installed build would not start as this runner: kelpie runner koji: a setting is not valid"
+    );
+}
+
+#[test]
+fn a_build_that_does_not_finish_its_check_is_stopped() {
+    let rig = Rig::new("shep");
+    let build = build(&rig, "exec sleep 30");
+
+    let why = starts(&build, &[], Duration::from_millis(200)).unwrap_err();
+
+    assert_eq!(
+        why,
+        "the installed build did not finish its start check in time"
+    );
+}
+
+mod exec;

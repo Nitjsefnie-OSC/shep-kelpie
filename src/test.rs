@@ -7,15 +7,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tempfile::TempDir;
-
 use crate::adapters::{GpuCurl, LocalReviewer};
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
     SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
@@ -37,6 +35,7 @@ mod endpoint;
 mod forge;
 mod git;
 mod github;
+mod home;
 mod leases;
 mod memory;
 mod reads;
@@ -54,6 +53,7 @@ pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
+pub(crate) use home::Home;
 pub(crate) use leases::{FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
@@ -306,7 +306,7 @@ impl Clock for FakeClock {
 /// project's repo cloned from a bare origin
 #[derive(Debug)]
 pub(crate) struct Rig {
-    pub(crate) home: TempDir,
+    pub(crate) home: Home,
     pub(crate) project: ProjectName,
     pub(crate) claude: FakeClaude,
     pub(crate) forge: FakeForge,
@@ -370,29 +370,8 @@ impl Rig {
 
     /// A project with the example settings, pointed at a fresh repo
     pub(crate) fn new(project: &str) -> Self {
-        let home = tempfile::tempdir().unwrap();
-        let meter = FakeMeter::idle();
-        let clock = FakeClock::at(Self::EPOCH);
-        let rig = Self {
-            project: ProjectName::try_from(project).unwrap(),
-            claude: FakeClaude::metered(meter.clone()),
-            forge: FakeForge::new(home.path().join("origin.git")),
-            git: FakeGit::default(),
-            meter,
-            codex_meter: FakeMeter::idle(),
-            reviewer: FakeReviewer::default(),
-            local_leases: LocalReviewer::default(),
-            alerts: FakeAlerts::on(clock.clone()),
-            leases: FakeLeases::default(),
-            tests: FakeTests::default(),
-            github: FakeGithub::new(clock.clone(), "shep-pm"),
-            pace: Arc::new(LocalPace::with(CallPacer::new(usize::MAX, usize::MAX))),
-            clock,
-            home,
-        };
+        let rig = Self::stand_ins(project, Home::made());
         rig.make_repo();
-        rig.forge.threads.use_clock(rig.clock.clone());
-        rig.github.use_threads(rig.forge.coderabbit.clone());
 
         let example = include_str!("../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
@@ -761,9 +740,24 @@ impl Rig {
         &self,
         review_bots: Vec<Arc<dyn Profile>>,
     ) -> Result<Mutex<Runner>, OpenError> {
+        self.open_with_agents(review_bots, Arc::new(self.claude.clone()))
+    }
+
+    /// Starts a runner whose calls go to `agents` rather than the stand-in Claude
+    pub(crate) fn open_agents(&self, agents: Arc<dyn Agents>) -> Result<Mutex<Runner>, OpenError> {
+        let bots: Vec<Arc<dyn Profile>> =
+            vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)];
+        self.open_with_agents(bots, agents)
+    }
+
+    fn open_with_agents(
+        &self,
+        review_bots: Vec<Arc<dyn Profile>>,
+        agents: Arc<dyn Agents>,
+    ) -> Result<Mutex<Runner>, OpenError> {
         let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
         let ports = Ports {
-            agents: Arc::new(self.claude.clone()),
+            agents,
             forge: Arc::new(self.forge.clone()),
             app_reads: None,
             revalidated: crate::ports::Revalidated::default(),
