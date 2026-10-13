@@ -442,3 +442,24 @@ fn a_state_file_without_reran_still_loads() {
     assert_eq!(saved["work_items"][0]["reran"], "c0ffee");
     assert_eq!(store.load().unwrap(), Some(reran));
 }
+
+// A version 37 file has no `talked` on its work items, so no comment is
+// handled and no round counted, and it saves with none.
+#[test]
+fn a_version_37_file_loads_with_no_comment_handled_and_saves_at_the_current_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 37.into();
+    let item = serde_json::to_value(a_work_item()).unwrap();
+    assert!(item.get("talked").is_none(), "{item}");
+    old["work_items"] = serde_json::json!([item]);
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert!(loaded.work_items[0].talked.is_empty());
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+}

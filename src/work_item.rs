@@ -19,6 +19,7 @@ mod local;
 mod review;
 mod seat;
 mod spend;
+mod talked;
 mod tally;
 mod threads;
 mod timings;
@@ -30,6 +31,7 @@ pub use local::LOCAL_FAILURES_DOWN;
 pub use review::{Awaited, Reading, Review, ReviewStage, TestCheck};
 pub use seat::Seat;
 pub use spend::{Priced, QwenTally, RoleSpend, Spend, raised_cap};
+pub use talked::{TALK_ROUNDS, Talked};
 pub use tally::{Counts, RoleTally, Tally};
 pub use threads::ThreadAnswer;
 pub use timings::{CallKind, Seconds, Split, TimingPhase, Timings};
@@ -196,6 +198,9 @@ pub struct WorkItem {
     /// another head no round read, says that head is the late round's fix.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub late_from: Option<String>,
+    /// Which of the people's comments on the pull request kelpie has handled
+    #[serde(default, skip_serializing_if = "Talked::is_empty")]
+    pub talked: Talked,
     /// The head at which the maintainer accepted a change to `.claude` or
     /// `.mcp.json`. Later heads that leave those files as this one has them
     /// pass the gate, and so does a worktree holding this head's copies.

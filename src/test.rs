@@ -121,6 +121,7 @@ pub(crate) fn a_work_item() -> WorkItem {
         nit_fix_heads: Vec::new(),
         noted_from: None,
         late_from: None,
+        talked: crate::work_item::Talked::default(),
         claude_files_accepted: None,
         qwen: crate::work_item::QwenTally::default(),
         budget_raises: 0,
