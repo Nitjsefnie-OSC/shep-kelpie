@@ -2,7 +2,7 @@
 //!
 //! It answers `GET …/models` with an empty list and each
 //! `POST …/chat/completions` with the next scripted reply (as server-sent events
-//! when the request streams), or `CLEAN` once the script runs out. It keeps
+//! when the request streams, or cut off while thinking), or `CLEAN` once the script runs out. It keeps
 //! every chat request's body, and the request line, `Authorization` and
 //! `x-paddock-*` headers of every request it got. Given a key, it answers paddock's own routes too:
 //! `/paddock/status` to that key alone, a lease's take with the next scripted
@@ -53,6 +53,9 @@ pub(crate) enum Answer {
     Says(&'static str),
     /// This HTTP status, with this body
     Status(u16, &'static str),
+    /// A reply that spent this many tokens thinking and ran out of them: `finish_reason`
+    /// `length`, a null `content` and a `reasoning_content`
+    CutOff(u32),
 }
 
 #[derive(Debug, Default)]
@@ -331,6 +334,27 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 .to_string(),
             ),
             Answer::Status(status, body) => (status, body.to_owned()),
+            Answer::CutOff(tokens) => (
+                200,
+                json!({
+                    "object": "chat.completion",
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": null,
+                            "reasoning_content": "Let me think about this change again",
+                        },
+                        "finish_reason": "length",
+                    }],
+                    "usage": {
+                        "prompt_tokens": 700,
+                        "completion_tokens": tokens,
+                        "total_tokens": u64::from(tokens) + 700,
+                    },
+                })
+                .to_string(),
+            ),
         }
     };
     let kind = if reply.starts_with("data: ") {
