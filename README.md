@@ -643,10 +643,10 @@ context: 65536
 
 For a model behind a gateway:
 
-- Kelpie takes no `gpu` lock and reads no `/api/ps`. The gateway queues each call and decides what stays loaded, so such an agent takes no `lease`.
+- Kelpie takes no `gpu` lock and reads no `/api/ps`. The gateway queues each call and decides what stays loaded, so such an agent takes no `lease`: kelpie takes the gateway's lease for each call itself.
 - The key never enters the sandbox. pi's provider file holds a placeholder, and the forwarder sends the gateway's key in its place. An endpoint's round sends it from kelpie's own `curl`, on its stdin. Every process kelpie starts, an agent call or not, has `key_env`'s variable unset, and a reviewer's session can't read the shepherd's home, where the runner's `env` keeps it.
 - A runner won't start while an agent it lists names a gateway its settings lack, or one whose key's variable is unset.
-- A worker's turn holds a lease on its model from its start to its end, so the gateway evicts nothing it runs on midway. The turn's ceiling counts from the grant, and a gateway too busy to grant it is asked again every 30 seconds until then. A turn that ends or fails releases it, and a runner that dies stops renewing it, so it runs out two minutes later. Only a worker's turn takes one.
+- Each call holds a lease on its model from its start to its end: a worker's turn, a reviewer's session, and an endpoint reviewer's round. The gateway evicts nothing it runs on midway. The ceiling counts from the grant, and a gateway too busy to grant it is asked again every 30 seconds until then. A call that ends or fails releases it, and a runner that dies stops renewing it, so it runs out two minutes later. A gateway that answers that the model is serving another call (`reason_kind: turn`) is a wait for a turn, shown as `waiting` for a worker and as a queued round for a local reviewer.
 - A pi call's tokens reach the usage ledger unpriced, as any pi call's do. The gateway doesn't say how long a request queued, so that wait is part of the call's seconds.
 - `shep kelpie doctor` checks each gateway: that it answers `GET /v1/models`, that it takes the key (unsure when the shell you run doctor from doesn't have the variable), and that it lists every agent's model.
 
