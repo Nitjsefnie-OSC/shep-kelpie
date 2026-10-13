@@ -4,8 +4,8 @@
 //! test gave it (a 404, as a server that is not Ollama answers, until then), and each
 //! `POST …/chat/completions` with the next scripted reply (as server-sent events
 //! when the request streams), or `CLEAN` once the script runs out. It keeps
-//! every chat request's body, and the request line and `Authorization` of
-//! every request it got. Given a key, it answers paddock's own routes too:
+//! every chat request's body, and the request line, `Authorization` and
+//! `x-paddock-*` headers of every request it got. Given a key, it answers paddock's own routes too:
 //! `/paddock/status` to that key alone, a lease's take with the next scripted
 //! [`Take`] or a grant, and a renewal or release with `204`, as paddock does,
 //! unless told to refuse or hang on renewals. Given [`like_openai`](StandInEndpoint::like_openai)
@@ -63,6 +63,7 @@ struct Shared {
     lines: Vec<String>,
     auths: Vec<Option<String>>,
     every_auth: Vec<Vec<String>>,
+    paddock: Vec<Vec<(String, String)>>,
     ps: Option<String>,
     metrics: Option<String>,
     models: Vec<String>,
@@ -173,6 +174,12 @@ impl StandInEndpoint {
         self.shared.lock().unwrap().every_auth.clone()
     }
 
+    /// Every `x-paddock-*` header each request carried, in order: the name in
+    /// lower case, then the value
+    pub(crate) fn paddock_headers(&self) -> Vec<Vec<(String, String)>> {
+        self.shared.lock().unwrap().paddock.clone()
+    }
+
     /// Has `/metrics` answer with this page, as a Prometheus exporter does
     pub(crate) fn with_metrics(self, page: &str) -> Self {
         self.shared.lock().unwrap().metrics = Some(page.to_owned());
@@ -221,7 +228,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         .unwrap()
         .lines
         .push(request_line.trim().to_owned());
-    let (mut length, mut auth, mut every) = (0, None, Vec::new());
+    let (mut length, mut auth, mut every, mut paddock) = (0, None, Vec::new(), Vec::new());
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
@@ -235,6 +242,9 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
                 every.push(value.trim().to_owned());
                 auth = Some(value.trim().to_owned());
             }
+            Some((name, value)) if name.trim().to_ascii_lowercase().starts_with("x-paddock-") => {
+                paddock.push((name.trim().to_ascii_lowercase(), value.trim().to_owned()));
+            }
             _ => {}
         }
     }
@@ -242,6 +252,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         // Under one lock, so the two records stay in the same order.
         let mut held = shared.lock().unwrap();
         held.every_auth.push(every);
+        held.paddock.push(paddock);
         held.auths.push(auth.clone());
     }
     let mut body = vec![0; length];
