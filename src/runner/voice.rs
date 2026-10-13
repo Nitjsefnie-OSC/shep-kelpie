@@ -337,6 +337,9 @@ pub(super) fn said(kind: &RulingKind) -> String {
         RulingKind::ForeignChange { description, .. } => {
             format!("This pull request was changed: {description}.")
         }
+        // Never posted on the pull request, so nothing here names the contributor
+        // or what the review found.
+        RulingKind::Contribution(_) => "This pull request waits on the maintainer.".to_owned(),
         RulingKind::FollowUp { findings, refused } => {
             let held = match findings.len() {
                 1 => "1 confirmed finding".to_owned(),
