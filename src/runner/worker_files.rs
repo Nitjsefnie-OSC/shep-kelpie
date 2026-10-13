@@ -12,11 +12,12 @@ use std::path::Path;
 const OLD_STEMS: [&str; 2] = ["settings", "review-settings"];
 
 /// What each harness kept beside a call's settings file, by extension
-const BESIDE: [&str; 9] = [
+const BESIDE: [&str; 10] = [
     "json",
     "codex",
     "threads",
     "pi",
+    "goose",
     "tmp",
     "sandbox.json",
     "stdout.jsonl",
