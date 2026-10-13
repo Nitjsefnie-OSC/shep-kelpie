@@ -13,6 +13,7 @@ use std::time::Duration;
 use super::handover::{Handover, Refused};
 use crate::ports::Timestamp;
 use crate::runner::closed::end_closed;
+use crate::runner::pull_request_file;
 use crate::runner::report::{Begin, StepReport};
 use crate::runner::ruling::park;
 use crate::runner::{Names, Runner};
@@ -27,6 +28,20 @@ const STOPPED_SHORT: &str = "Your last turn ended with no pull request for this 
                              request once the work is done. If only the maintainer \
                              can unblock you, end your reply with a \
                              <kelpie-question> block.";
+
+/// The prompt that sends back a worker whose credential opens no pull request
+/// and whose turn ended with none opened and no question
+fn hand_over_stopped_short() -> String {
+    format!(
+        "Your last turn ended with no pull request for this work item and no \
+         question. If a tool failed, try it again or find another way. Push the \
+         branch with `git push origin HEAD` and write the pull request's title and \
+         body in `{file}`: kelpie opens the draft from them when your turn ends. If \
+         only the maintainer can unblock you, end your reply with a \
+         <kelpie-question> block.",
+        file = pull_request_file::FILE
+    )
+}
 
 /// The prompt that sends back a worker whose rework or adoption turn pushed
 /// nothing and asked nothing
@@ -112,6 +127,12 @@ impl Runner {
             .find(|pr| pr.head == item.branch)
             .filter(|_| !pushed_nothing)
             .map(|pr| pr.number);
+        let (build, branch, pushed) = (
+            item.build.clone(),
+            item.branch.clone(),
+            item.known.head.is_some(),
+        );
+        let handed_over = self.app_covers();
         // A pull request on another branch that closes the issue is work too.
         let claimed = open.iter().any(|pr| pr.closes.contains(&issue));
         let closed = match found {
@@ -129,6 +150,25 @@ impl Runner {
             }
             Err(reason) => return Ok(Begin::Report(StepReport::GateFailed { issue, reason })),
         }
+        // A hand-over worker's branch pushed with its file written is opened
+        // from here, not sent back for a pull request it cannot open.
+        let mut refusal = None;
+        let found = match found {
+            None if handed_over && pushed && !pushed_nothing && !known => {
+                match self.open_handed_over(&build, &branch) {
+                    Ok(opened) => opened,
+                    Err(refused) => {
+                        refusal = Some(pull_request_file::told(&refused));
+                        self.started.push(StepReport::PullRequestNotOpened {
+                            issue,
+                            reason: refused.to_string(),
+                        });
+                        None
+                    }
+                }
+            }
+            found => found,
+        };
         let item = next.item_mut(issue).expect("the work item checked above");
         if let Some(number) = found {
             item.pull_request = Some(number);
@@ -166,7 +206,7 @@ impl Runner {
         }
         // A pull request file the forge refused is told to the worker, and to
         // the project manager if it parks.
-        let refused = item.pull_request_refused.take();
+        let refused = item.pull_request_refused.take().or(refusal);
         let (prompt, why) = match (pushed_nothing, refused) {
             (true, _) => (PUSHED_NOTHING.to_owned(), PUSHED_NOTHING_TWICE.to_owned()),
             (false, Some(refusal)) => (
@@ -178,6 +218,7 @@ impl Runner {
                 ),
                 format!("kelpie could not open its pull request from `pull-request.md`: {refusal}"),
             ),
+            (false, None) if handed_over => (hand_over_stopped_short(), STOPPED_TWICE.to_owned()),
             (false, None) => (STOPPED_SHORT.to_owned(), STOPPED_TWICE.to_owned()),
         };
         item.turn = Turn::Next { prompt };
