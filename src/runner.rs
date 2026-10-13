@@ -18,8 +18,8 @@ use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
 use crate::pacer::Assessment;
 use crate::ports::{
-    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, Ports, RateHeld,
-    RecordedVoice, Say, SessionId, Timestamp, Visibility,
+    Forge, ForgeError, ForgeHold, Guarded, GuardedVoice, KeychainBlocked, Leased, PacedVoice,
+    Ports, RateHeld, RecordedVoice, Say, SessionId, Timestamp, Visibility,
 };
 use crate::review_bot::{Bot, Profile};
 use crate::settings::{
@@ -394,7 +394,7 @@ impl Runner {
     ) -> Result<Self, OpenError> {
         let checkout = settings.git.checkout.as_path();
         let local = LocalPaths::new([home, paths.kelpie_home.as_path(), checkout]);
-        let forge_hold = ForgeHold::default();
+        let forge_hold = ForgeHold::shared(Arc::clone(&ports.pace));
         let told = claim::Notes::default();
         let leases = Arc::clone(&ports.local_leases);
         ports.agents = Arc::new(Leased::new(Arc::clone(&ports.agents), leases));
@@ -436,18 +436,31 @@ impl Runner {
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
         let clock = Arc::clone(&ports.clock);
-        let say: Say = {
+        let say_to = |told: &claim::Notes| -> Say {
             let told = told.clone();
             Box::new(move |line| told.push(line))
         };
         // The guard sits outside the hold, so its own questions to the forge are held too.
         let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
         let held: Arc<dyn Forge> = Arc::new(
-            RateHeld::new(ports.forge, Arc::clone(&clock), forge_hold.clone(), say)
-                .with_ledger(Arc::clone(&forge_ledger)),
+            RateHeld::new(
+                ports.forge,
+                Arc::clone(&clock),
+                forge_hold.clone(),
+                say_to(&told),
+            )
+            .with_ledger(Arc::clone(&forge_ledger))
+            .paced_for(project.as_str()),
         );
-        let recorded = RecordedVoice::new(ports.voice, clock, forge_ledger);
-        let voice = GuardedVoice::new(Arc::new(recorded), local.clone())
+        let recorded = RecordedVoice::new(ports.voice, Arc::clone(&clock), forge_ledger);
+        let paced = PacedVoice::new(
+            Arc::new(recorded),
+            clock,
+            forge_hold.clone(),
+            project.as_str(),
+            say_to(&told),
+        );
+        let voice = GuardedVoice::new(Arc::new(paced), local.clone())
             .with_flock(ports.flock.clone(), Arc::clone(&held))
             .with_hooks(hooks.clone());
         ports.voice = Arc::new(voice);

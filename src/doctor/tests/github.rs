@@ -1,5 +1,6 @@
 use super::*;
 use crate::github::ApiError;
+use crate::ports::Cooldown;
 
 #[tokio::test]
 async fn an_installed_app_that_mints_a_token_is_ok() {
@@ -150,7 +151,7 @@ async fn github_busy_or_out_of_reach_is_unsure_and_a_refused_app_is_missing() {
     let scene = Scene::new().await;
     for (error, said) in [
         (ApiError::Refused(502), "GitHub answered HTTP 502"),
-        (ApiError::RateLimited, "rate limit"),
+        (ApiError::RateLimited(Cooldown::default()), "rate limit"),
         (
             ApiError::Unreachable("curl exited 6".into()),
             "cannot reach GitHub",

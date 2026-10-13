@@ -106,6 +106,10 @@ pub const LONGEST_LINE: u64 = 64 * 1024;
 /// The lease an ask names to run a project's end-to-end tests on its host
 pub const E2E: &str = "e2e";
 
+/// What an ask names to reach the login's forge hold and pace, which no
+/// connection holds: the dog answers one line and closes
+pub const FORGE: &str = "forge";
+
 /// What the dog says, first, when the project that asked for [`E2E`] has no
 /// host to run it on
 pub const NO_E2E_HOST: &str = "this project has no e2e host";
@@ -136,6 +140,27 @@ pub struct Ask {
     /// settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<PathBuf>,
+    /// What a `forge` ask wants of the login's forge hold and pace
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge: Option<ForgeAsk>,
+}
+
+/// What a runner asks of the login's forge hold and pace, in a [`FORGE`] ask
+// wire format: changing this is a breaking change to the door
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ForgeAsk {
+    /// Whether a call of `project`'s may go: answered [`Answer::Go`] when it
+    /// may, which counts it, [`Answer::Wait`] or [`Answer::Held`]
+    Pass {
+        /// The project whose runner would make the call
+        project: String,
+    },
+    /// Until when the forge is held: [`Answer::Held`], or [`Answer::Go`] when it is not
+    Held,
+    /// The forge said its limit is used up until this time, in seconds since
+    /// the epoch: answered [`Answer::Held`] with the hold now standing
+    Hold(u64),
 }
 
 /// What the dog answers, one line each
@@ -147,6 +172,12 @@ pub enum Answer {
     Queued(usize),
     /// Held until the connection closes
     Granted,
+    /// A forge call may go, or no forge hold stands
+    Go,
+    /// A forge call waits this many seconds, then asks again
+    Wait(u64),
+    /// The forge is held until this time, in seconds since the epoch
+    Held(u64),
     /// A line of an e2e run's output, as it arrives
     Output(String),
     /// An e2e run is over, with the exit code of its command, and the dog
@@ -313,6 +344,7 @@ mod tests {
             what: "cargo test".into(),
             running: false,
             worktree: None,
+            forge: None,
         };
         assert_eq!(
             serde_json::to_value(&ask).unwrap(),
@@ -349,6 +381,9 @@ mod tests {
                 Answer::Error("no".into()),
                 Answer::Output("ok 1".into()),
                 Answer::Done(3),
+                Answer::Go,
+                Answer::Wait(4),
+                Answer::Held(1_790_000_600),
             ])
             .unwrap(),
             json!([
@@ -356,11 +391,29 @@ mod tests {
                 "granted",
                 { "error": "no" },
                 { "output": "ok 1" },
-                { "done": 3 }
+                { "done": 3 },
+                "go",
+                { "wait": 4 },
+                { "held": 1_790_000_600 }
             ])
         );
+        let forge = Ask {
+            take: FORGE.into(),
+            forge: Some(ForgeAsk::Pass {
+                project: "koji".into(),
+            }),
+            ..ask.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(&forge).unwrap()["forge"],
+            json!({ "pass": { "project": "koji" } })
+        );
+        assert_eq!(
+            serde_json::to_value([ForgeAsk::Held, ForgeAsk::Hold(7)]).unwrap(),
+            json!(["held", { "hold": 7 }])
+        );
         let read: Vec<Answer> = serde_json::from_str(
-            r#"[{"queued":2},"granted",{"error":"no"},{"output":"ok 1"},{"done":3}]"#,
+            r#"[{"queued":2},"granted",{"error":"no"},{"output":"ok 1"},{"done":3},"go",{"wait":4},{"held":1790000600}]"#,
         )
         .unwrap();
         assert_eq!(
@@ -371,6 +424,9 @@ mod tests {
                 Answer::Error("no".into()),
                 Answer::Output("ok 1".into()),
                 Answer::Done(3),
+                Answer::Go,
+                Answer::Wait(4),
+                Answer::Held(1_790_000_600),
             ]
         );
     }

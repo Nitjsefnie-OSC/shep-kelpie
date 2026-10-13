@@ -12,6 +12,7 @@
 pub mod desk;
 mod door;
 mod e2e;
+mod forge;
 pub mod left_over;
 mod link;
 pub mod triggers;
@@ -36,7 +37,7 @@ use crate::home;
 use crate::lease::gpu::{self, GpuLock};
 use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
-use crate::ports::Clock;
+use crate::ports::{Clock, LocalPace};
 use crate::review_bot::Reviewers;
 use crate::shep_home;
 use crate::webhook::KelpieSettings;
@@ -98,6 +99,8 @@ struct Kept {
     desk: Desk,
     file: BookFile,
     last: SavedBook,
+    // The login's forge hold and pace, in memory only: a restart starts it empty.
+    pace: Arc<LocalPace>,
 }
 
 impl Kept {
@@ -138,7 +141,12 @@ fn open(file: BookFile, clock: Box<dyn Clock>, gpu: GpuLock, reviewers: Reviewer
             desk.book.summoned(&bot.lease(), now);
         }
     }
-    Kept { desk, file, last }
+    Kept {
+        desk,
+        file,
+        last,
+        pace: Arc::new(LocalPace::new()),
+    }
 }
 
 // Each review bot's window, from its agent file in kelpie's home. Files
@@ -515,7 +523,12 @@ mod tests {
         let gpu = GpuLock::under(dir);
         let desk = Desk::new(Box::new(FakeClock::at(EPOCH)), gpu, Reviewers::default());
         let last = desk.saved();
-        Kept { desk, file, last }
+        Kept {
+            desk,
+            file,
+            last,
+            pace: Arc::new(LocalPace::new()),
+        }
     }
 
     fn take(desk: &mut Desk) {

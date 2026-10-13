@@ -15,8 +15,8 @@ use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    CLEAN, Checks, Clock, Cost, Meter, MeterError, Ports, Role, SessionId, Timestamp, Usage,
-    Utilization, Window,
+    CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
+    SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{
@@ -285,6 +285,10 @@ impl Clock for FakeClock {
     fn now(&self) -> Timestamp {
         Timestamp(self.0.load(Ordering::SeqCst))
     }
+
+    fn wait(&self, seconds: u64) {
+        self.advance(seconds);
+    }
 }
 
 /// One project's world: kelpie's home, the maintainer's home, and the
@@ -304,6 +308,9 @@ pub(crate) struct Rig {
     pub(crate) leases: FakeLeases,
     pub(crate) tests: FakeTests,
     pub(crate) clock: FakeClock,
+    /// The login's forge hold and pace, which no test's calls reach the cap of
+    /// until it swaps in a pacer with one
+    pub(crate) pace: Arc<dyn Pace>,
     /// GitHub as kelpie's App sees it: the rig has registered no App until
     /// [`Rig::with_app`]
     pub(crate) github: FakeGithub,
@@ -371,6 +378,7 @@ impl Rig {
             leases: FakeLeases::default(),
             tests: FakeTests::default(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
+            pace: Arc::new(LocalPace::with(CallPacer::new(usize::MAX, usize::MAX))),
             clock,
             home,
         };
@@ -761,6 +769,7 @@ impl Rig {
             leases: Arc::new(self.leases.clone()),
             test_runner: Arc::new(self.tests.clone()),
             clock: Arc::new(self.clock.clone()),
+            pace: Arc::clone(&self.pace),
             flock: Vec::new(),
         };
         let paths = self.paths();

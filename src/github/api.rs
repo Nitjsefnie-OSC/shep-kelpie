@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::tokens::{InstallationToken, Jwt};
-use crate::ports::{NewLabel, Timestamp};
+use crate::ports::{Cooldown, NewLabel, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// An App's private key in PEM, as the conversion hands it back
@@ -82,8 +82,9 @@ pub enum ApiError {
     Unreachable(String),
     /// GitHub answered with this HTTP status, not the one the call wants
     Refused(u16),
-    /// GitHub answered 429, or 403 saying a rate limit was passed
-    RateLimited,
+    /// GitHub answered 429, or 403 saying a rate limit was passed, with when
+    /// its headers say to ask again
+    RateLimited(Cooldown),
     /// GitHub answered 301: the repo was renamed or moved, and kelpie never
     /// follows a redirect with a JWT
     Moved,
@@ -95,7 +96,7 @@ impl ApiError {
     /// Whether asking again later may succeed with nothing changed
     pub fn passes(&self) -> bool {
         match self {
-            Self::Unreachable(_) | Self::RateLimited => true,
+            Self::Unreachable(_) | Self::RateLimited(_) => true,
             Self::Refused(status) => *status >= 500,
             Self::Moved | Self::Unreadable(_) => false,
         }
@@ -107,7 +108,7 @@ impl fmt::Display for ApiError {
         match self {
             Self::Unreachable(why) => write!(f, "cannot reach GitHub: {why}"),
             Self::Refused(status) => write!(f, "GitHub answered HTTP {status}"),
-            Self::RateLimited => f.write_str("GitHub's rate limit for the App is spent for now"),
+            Self::RateLimited(_) => f.write_str("GitHub's rate limit for the App is spent for now"),
             Self::Moved => f.write_str(
                 "GitHub says the repo moved: put its new `owner/name` in the project's `git.remote`",
             ),
@@ -396,12 +397,13 @@ pub trait Signer: Send + Sync {
 }
 
 /// The error for an answer of `status` that is not the call's success,
-/// telling a rate limit from a refusal by `body`
-pub fn refusal(status: u16, body: &str) -> ApiError {
+/// telling a rate limit from a refusal by `body`, and carrying what the
+/// answer's headers said of when to ask again as `cooldown`
+pub fn refusal(status: u16, body: &str, cooldown: Cooldown) -> ApiError {
     match status {
         301 => ApiError::Moved,
-        429 => ApiError::RateLimited,
-        403 if body.to_ascii_lowercase().contains("rate limit") => ApiError::RateLimited,
+        429 => ApiError::RateLimited(cooldown),
+        403 if body.to_ascii_lowercase().contains("rate limit") => ApiError::RateLimited(cooldown),
         status => ApiError::Refused(status),
     }
 }
