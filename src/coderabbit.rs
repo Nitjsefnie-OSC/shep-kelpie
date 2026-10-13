@@ -289,14 +289,13 @@ fn finding(thread: &Thread) -> Finding {
             String::new(),
         ),
     };
-    Finding {
+    Finding::new(
         severity,
-        file: thread.path.clone(),
-        line: thread.line.unwrap_or(0),
+        thread.path.clone(),
+        thread.line.unwrap_or(0),
         what,
         why,
-        test: None,
-    }
+    )
 }
 
 // The finding's prose, without the collapsed sections of scripts and fixes.

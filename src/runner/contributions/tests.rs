@@ -51,7 +51,7 @@ pub(super) fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, S
 
 // The App's writes to a pull request or issue, such as a comment. Setting up
 // the repo's labels is not one.
-fn posts(rig: &Rig) -> Vec<String> {
+pub(super) fn posts(rig: &Rig) -> Vec<String> {
     let writes = rig.github.writes();
     let on = |path: &&str| path.contains("/issues/") || path.contains("/pulls/");
     writes

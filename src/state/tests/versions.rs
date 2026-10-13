@@ -215,18 +215,10 @@ fn a_version_29_file_loads_with_no_verdicts_and_a_verdict_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        id: 1,
         issue: Some(7),
-        question: "q".into(),
         pull_request: Some(71),
-        kind: RulingKind::Stuck(Stuck::Closed),
         alerted: true,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(1, "q", RulingKind::Stuck(Stuck::Closed))
     });
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 29.into();
@@ -267,18 +259,10 @@ fn a_ruling_saved_without_raised_loads_and_a_raised_time_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        id: 1,
         issue: Some(7),
-        question: "q".into(),
         pull_request: Some(71),
-        kind: RulingKind::Stuck(Stuck::Closed),
         alerted: true,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(1, "q", RulingKind::Stuck(Stuck::Closed))
     });
     let old = serde_json::to_value(&state).unwrap();
     assert!(old["rulings"][0].get("raised").is_none());
@@ -334,12 +318,14 @@ fn a_state_file_without_a_test_still_loads() {
         item.phase = Phase::Review(Review {
             stage: ReviewStage::Found {
                 findings: vec![Finding {
-                    severity: Severity::High,
-                    file: "src/lib.rs".into(),
-                    line: 3,
-                    what: "it panics".into(),
-                    why: "a caller sees it".into(),
                     test: test.map(str::to_owned),
+                    ..Finding::new(
+                        Severity::High,
+                        "src/lib.rs",
+                        3,
+                        "it panics",
+                        "a caller sees it",
+                    )
                 }],
                 threads: Vec::new(),
             },
@@ -550,7 +536,7 @@ fn an_older_state_file_loads() {
         Timestamp(1_790_000_000),
     ));
     let mut old = serde_json::to_value(&state).unwrap();
-    old["version"] = 46.into();
+    old["version"] = 47.into();
     for key in ["heard", "context"] {
         assert_eq!(old["contributions"][0].get(key), None, "left out until set");
     }
@@ -694,18 +680,10 @@ fn a_version_41_file_loads_with_no_skips_and_a_skip_is_kept() {
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
     state.rulings.push(Ruling {
-        id: 71,
         issue: Some(7),
-        question: "q".into(),
         pull_request: Some(71),
-        kind: RulingKind::Stuck(Stuck::Closed),
-        alerted: false,
-        panel: None,
-        verdict: None,
         unposted: true,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(71, "q", RulingKind::Stuck(Stuck::Closed))
     });
     let mut old = serde_json::to_value(&state).unwrap();
     old["version"] = 41.into();
@@ -790,4 +768,50 @@ fn a_version_43_file_loads_its_red_workflow_and_merge_notice_and_main_notices_ro
         serde_json::json!({ "workflow": "test", "run": 95, "red_for": 900, "log": "error" })
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A version 46 file has no contribution rulings, and one raised since is kept
+// as the runner left it.
+#[test]
+fn an_older_state_file_loads_and_a_contribution_ruling_survives_a_save_and_a_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 46.into();
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.rulings, []);
+
+    let mut state = ProjectState::new();
+    state.rulings.push(Ruling {
+        id: 12,
+        issue: None,
+        question: "flagged".into(),
+        pull_request: Some(12),
+        kind: RulingKind::Contribution(Held::Security {
+            head: "2a8f1e6".into(),
+            lines: vec![Finding {
+                severity: crate::ports::Severity::High,
+                file: "build.rs".into(),
+                line: 3,
+                what: "runs a script".into(),
+                why: "at build time".into(),
+                test: None,
+            }],
+        }),
+        alerted: false,
+        panel: None,
+        verdict: None,
+        unposted: false,
+        skipped: None,
+        effects: Vec::new(),
+        raised: Some(Timestamp(1)),
+    });
+    store.save(&state).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(saved["rulings"][0]["kind"]["kind"], "contribution");
+    assert_eq!(saved["rulings"][0]["kind"]["reason"], "security");
+    assert_eq!(store.load().unwrap(), Some(state));
 }

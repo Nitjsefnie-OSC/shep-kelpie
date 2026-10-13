@@ -11,8 +11,8 @@ use serde::Deserialize;
 use super::process::{Processes, RunError};
 use super::srt::SandboxRuntime;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox, Session,
-    SessionId, Transcript, Unreadable, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Sandbox,
+    Session, SessionId, Transcript, Unreadable, Usage, written_at,
 };
 use crate::settings::Harness;
 use crate::tools::Tools;
@@ -20,6 +20,7 @@ use crate::tools::Tools;
 /// This adapter's harness, as its errors name it
 const CLAUDE: Harness = Harness::ClaudeCode;
 
+mod adopt;
 #[cfg(test)]
 mod calls;
 #[cfg(test)]
@@ -228,6 +229,14 @@ impl Agents for ClaudeCli {
             RunError::TimedOut => AgentError::TimedOut(CLAUDE),
         })?;
         parse_result(&output, &call.session)
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        Self::adoption_of(call)
+    }
+
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.adopt_call(adopted, ending)
     }
 
     fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
@@ -462,7 +471,7 @@ mod tests {
     use std::process::ExitStatus;
 
     use super::*;
-    use crate::ports::{Reach, Tools};
+    use crate::ports::Tools;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
 
@@ -566,21 +575,19 @@ mod tests {
 
     fn call(role: Role, session: Session) -> AgentCall {
         AgentCall {
-            harness: crate::settings::AgentHarness::ClaudeCode,
-            role,
             issue: 6,
-            model: "claude-sonnet-5".into(),
-            effort: Effort::Medium,
-            session,
-            cwd: PathBuf::from("/tmp"),
             settings: PathBuf::from("/k/worker/settings.json"),
             instructions: Some(PathBuf::from("/k/worker/instructions.md")),
-            prompt: "implement #6".into(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Work,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                role,
+                Tools::Work,
+                crate::settings::AgentHarness::ClaudeCode,
+                "claude-sonnet-5",
+                Effort::Medium,
+                session,
+                PathBuf::from("/tmp"),
+                "implement #6",
+            )
         }
     }
 

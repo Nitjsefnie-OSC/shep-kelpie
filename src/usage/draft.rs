@@ -2,12 +2,15 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::{CallKind, CallLine, Ended, PacerLine, units};
 use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Role, SessionId, Timestamp, Usage};
 use crate::settings::LocalRound;
 
 /// What a call's line says from its start: who made it, on what, and when
-#[derive(Debug, Clone, PartialEq, Eq)]
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Draft {
     /// The issue of the work item it is for, if any
     pub issue: Option<u64>,

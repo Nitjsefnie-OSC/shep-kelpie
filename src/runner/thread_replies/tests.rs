@@ -561,18 +561,10 @@ fn with_a_second_ruling_on(runner: &Mutex<Runner>, rig: &Rig, thread: u64) {
     let mut runner = runner.lock().unwrap();
     let mut next = runner.state.clone();
     next.rulings.push(Ruling {
-        id: 8,
         issue: Some(8),
-        question: "Is it closed?".into(),
         pull_request: Some(thread),
-        kind: RulingKind::from(Stuck::Closed),
         alerted: true,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(8, "Is it closed?", RulingKind::from(Stuck::Closed))
     });
     next.heard.insert(
         8,

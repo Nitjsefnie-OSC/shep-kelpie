@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::tests::{picking, poll};
 use crate::ports::{AgentError, CLEAN, Role};
-use crate::runner::{Pass, Runner, advance, step};
+use crate::runner::{Pass, Runner, StepReport, advance, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git};
 
@@ -21,7 +21,7 @@ fn write(folder: &Path, file: &str, text: &str) {
 // Commits what `edit` does to the contributor's clone on `branch`, which
 // starts from `base` there, pushes the branch (forced) and points
 // `refs/pull/<number>/head` at it the way the forge does. Returns the head.
-fn commit_on(rig: &Rig, number: u64, base: &str, edit: impl FnOnce(&Path)) -> String {
+pub(super) fn commit_on(rig: &Rig, number: u64, base: &str, edit: impl FnOnce(&Path)) -> String {
     let hand = hand(rig);
     if !hand.exists() {
         let origin = rig.home.path().join("origin.git");
@@ -46,7 +46,7 @@ fn commit_on(rig: &Rig, number: u64, base: &str, edit: impl FnOnce(&Path)) -> St
 
 // Opens pull request `number` by `newcomer` whose branch is `main` and one
 // commit that `edit` makes. Returns its head.
-fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> String {
+pub(super) fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> String {
     let head = commit_on(rig, number, "origin/main", edit);
     rig.forge
         .open_pull_request(number, &format!("topic/{number}"), &[]);
@@ -55,14 +55,14 @@ fn contribute(rig: &Rig, number: u64, edit: impl FnOnce(&Path)) -> String {
     head
 }
 
-fn reviews(rig: &Rig) -> Vec<Seen> {
+pub(super) fn reviews(rig: &Rig) -> Vec<Seen> {
     let all = rig.claude.all_seen();
     all.into_iter()
         .filter(|s| s.call.role == Role::Reviewer)
         .collect()
 }
 
-fn contribution(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+pub(super) fn contribution(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     rig.ask(runner, "status", None)["contributions"][0].clone()
 }
 
@@ -224,6 +224,8 @@ fn a_binary_a_symlink_a_submodule_or_an_oversize_diff_is_flagged_and_never_passe
         contribute(&rig, 30, edit);
 
         assert_eq!(step(&runner).unwrap(), None);
+        // A flagged head raises a ruling, which is alerted.
+        assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
         poll(&rig, &runner);
 
         let held = contribution(&rig, &runner);
@@ -354,6 +356,8 @@ fn a_head_already_read_is_not_read_again() {
 
     assert_eq!(step(&runner).unwrap(), None);
     let first = flagged(&rig);
+    // The ruling it raised is alerted once.
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 30 }));
     poll(&rig, &runner);
     poll(&rig, &runner);
 

@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 47);
+    assert_eq!(VERSION, 48);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -26,18 +26,9 @@ fn big_state(n: u64) -> ProjectState {
     state.finished = vec![n];
     state.rulings = (0..20_000)
         .map(|id| Ruling {
-            id,
             issue: Some(n),
-            question: format!("question {n}"),
             pull_request: Some(n),
-            kind: RulingKind::from(Stuck::Closed),
-            alerted: false,
-            panel: None,
-            verdict: None,
-            unposted: false,
-            skipped: None,
-            effects: Vec::new(),
-            raised: None,
+            ..Ruling::new(id, format!("question {n}"), RulingKind::from(Stuck::Closed))
         })
         .collect();
     state
@@ -61,27 +52,23 @@ fn a_saved_state_loads_back_whole() {
     let mut state = ProjectState::new();
     state.work_items = vec![a_work_item()];
     state.rulings.push(Ruling {
-        id: 1,
         issue: Some(7),
-        question: "merge #43?".into(),
         pull_request: Some(43),
-        kind: RulingKind::Merge {
-            head: "c0ffee".into(),
-            unreviewed: None,
-            open_threads: None,
-            held_by: Vec::new(),
-            unread_head: false,
-            note_fix: false,
-            late_fix: false,
-            nits: None,
-        },
         alerted: true,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(
+            1,
+            "merge #43?",
+            RulingKind::Merge {
+                head: "c0ffee".into(),
+                unreviewed: None,
+                open_threads: None,
+                held_by: Vec::new(),
+                unread_head: false,
+                note_fix: false,
+                late_fix: false,
+                nits: None,
+            },
+        )
     });
     state.leases.push(LeaseHeld {
         resource: Resource::Gpu,
@@ -160,19 +147,11 @@ fn the_file_format_is_pinned() {
         issue: Some(22),
         since: Timestamp(8),
     });
-    let ruling = |id, kind| Ruling {
-        id,
+    let ruling = |id: u64, kind| Ruling {
         issue: Some(22),
-        question: "q".into(),
         pull_request: Some(30),
-        kind,
         alerted: id.is_multiple_of(2),
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(id, "q", kind)
     };
     state.rulings = vec![
         ruling(

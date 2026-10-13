@@ -8,6 +8,7 @@
 
 use std::fmt;
 
+use super::contributions;
 use super::gate::short;
 use super::report::{Begin, StepReport};
 use super::review::pushed::push_prompt;
@@ -53,6 +54,11 @@ pub enum Answer {
     Rework(String),
     /// The answer to the worker's question
     Text(String),
+    /// On a contribution's ruling only: a yes that names the head it trusts,
+    /// as many characters of its hash as the maintainer read. A yes meant for
+    /// one head must not trust the next, and every ruling on a pull request
+    /// has the same number.
+    Trust(String),
     /// A ruling's option that names an action: kelpie carries it out, then
     /// the work item goes on as a yes would send it
     Do(Action),
@@ -98,6 +104,9 @@ pub enum RuleError {
     NotOffered(u64, Action),
     /// The action an option names could not be carried out
     Act(u64, String),
+    /// A yes does not fit this ruling's head: it names none or another, or the
+    /// ruling is not one that takes a head
+    Head(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -138,7 +147,7 @@ impl fmt::Display for RuleError {
             Self::NotOffered(id, action) => {
                 write!(f, "ruling {id} does not offer to {}", action.verb())
             }
-            Self::Act(id, why) => write!(f, "ruling {id}: {why}"),
+            Self::Act(id, why) | Self::Head(id, why) => write!(f, "ruling {id}: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -327,6 +336,7 @@ impl Runner {
             }
         }
         let worktree = parked.map(|item| item.worktree.clone());
+        contributions::trust(&mut next, &answer, &ruling)?;
         let moved = decide(id, answer, ruling, now, head_moved)?;
         let did = (act.as_ref())
             .map(|act| self.carry_out(id, act, worktree.as_deref()))
@@ -540,6 +550,10 @@ impl Runner {
     // where it is answered in its thread: the login it mentions, and the
     // comment's own id and time as GitHub gave them.
     pub(super) fn post_ruling(&mut self, number: Option<u64>, id: u64) -> Option<String> {
+        // A contribution's ruling stays off the contributor's pull request.
+        if (self.state.rulings.iter()).any(|r| r.id == id && r.kind.is_contribution()) {
+            return None;
+        }
         // A question the project manager may answer, or a ruling the panel has
         // yet to vote on, is not the maintainer's yet, so its comment waits
         // for the hold to end.
@@ -630,18 +644,10 @@ pub(super) fn park(
     item.counts.rulings = item.counts.rulings.saturating_add(1);
     let text = question(issue, pull_request, &kind);
     next.rulings.push(Ruling {
-        id,
         issue: Some(issue),
-        question: text.clone(),
         pull_request,
-        kind,
-        alerted: false,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
         raised: Some(names.now),
+        ..Ruling::new(id, text.clone(), kind)
     });
     (id, text)
 }
@@ -864,6 +870,12 @@ fn decide(
             merged: true,
             closed: false,
         },
+        // No work item is parked on it, so an answer only clears it.
+        (Answer::Trust(_) | Answer::No(_), RulingKind::Contribution(_)) => Phase::Implement,
+        // `trust` has refused these before `decide` is asked.
+        (Answer::Trust(_), _) | (Answer::Yes, RulingKind::Contribution(_)) => {
+            return Err(RuleError::Head(id, "takes no such yes".to_owned()));
+        }
         (Answer::Do(action), _) => return Err(RuleError::NotOffered(id, action)),
         // The test is ended: the note is the worker's turn, and the pass goes on.
         (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {

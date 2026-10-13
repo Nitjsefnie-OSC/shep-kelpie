@@ -242,6 +242,7 @@ fn words(answer: &Answer) -> String {
     };
     match answer {
         Answer::Yes => "yes".to_owned(),
+        Answer::Trust(head) => format!("yes {head}"),
         Answer::No(note) => with("no", note),
         Answer::Rework(note) => with("rework", note),
         Answer::Text(text) => text.clone(),

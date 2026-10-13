@@ -42,7 +42,8 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 
 ## Rulings
 
-- Six kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes). ADR 0006, #330, `src/runner/ruling.rs`
+- Seven kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes), `contribution` (with reason; `security` for a flagged head, see contributions.md). ADR 0006, #330, `src/runner/ruling.rs`
+- A `contribution` ruling has no work item and is never posted on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel, and `rulings.pm_alone` naming `security` is refused at load. #620
 - Ruling = log line + `status` entry + webhook post with one question; `no <note>` is worker's next turn. #89
 - A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The number is the ruling's only name: the counter ids are gone, and a state file saved under them is renamed when it loads (version 38). #508, #509
 - `rule <number> <answer>` (`rule 427`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507

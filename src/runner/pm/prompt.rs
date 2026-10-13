@@ -358,13 +358,14 @@ mod tests {
 
     #[test]
     fn a_wake_for_a_follow_up_names_its_findings_and_diff_and_says_how_to_decide_it() {
-        let finding = |line, what: &str| crate::ports::Finding {
-            severity: crate::ports::Severity::High,
-            file: "src/lib.rs".into(),
-            line,
-            what: what.into(),
-            why: "two threads write it".into(),
-            test: None,
+        let finding = |line, what: &str| {
+            crate::ports::Finding::new(
+                crate::ports::Severity::High,
+                "src/lib.rs",
+                line,
+                what,
+                "two threads write it",
+            )
         };
         let follow_up = Wake::FollowUp {
             issue: 7,

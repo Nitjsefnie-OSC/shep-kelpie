@@ -73,10 +73,20 @@ use shep_kelpie::tools::Tools;
 const REFUSE: u8 = 2;
 
 fn main() -> ExitCode {
+    // First, before anything opens a descriptor or starts a thread: a build a
+    // handover execs is asked here whether it reads the state, and takes it.
+    shep_handover::record_launch_path();
+    let arrival = match shep_handover::boot::<shep_kelpie::sheep::Carry>() {
+        Ok(arrival) => arrival,
+        Err(e) => {
+            eprintln!("kelpie cannot take over from the runner that handed over: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     shep_kelpie::schema::probe();
     let args = shep_kelpie::flock::verb_first(std::env::args().skip(1).collect());
     match args.as_slice() {
-        [role, project] if role == "runner" => shep_kelpie::sheep::run(project),
+        [role, project] if role == "runner" => shep_kelpie::sheep::run(project, arrival),
         [command, rest @ ..] if command == "lease" => shep_kelpie::lease::cli::main(rest),
         [role, git_common_dir, worktree, local @ ..] if role == "guard" => {
             let home = std::env::var_os("HOME").map(PathBuf::from);

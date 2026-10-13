@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::adapters::ClaudeCli;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, Ending, Flying, Reach, Role, Session, SessionId,
-    Timestamp, Tools,
+    AgentCall, AgentError, AgentReply, Agents, Ending, Flying, Role, Session, SessionId, Timestamp,
+    Tools,
 };
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
@@ -59,21 +59,18 @@ impl World {
 
     fn call(&self) -> AgentCall {
         AgentCall {
-            harness: crate::settings::AgentHarness::ClaudeCode,
-            role: Role::Worker,
             issue: 7,
-            model: "claude-sonnet-5".into(),
-            effort: Effort::Medium,
-            session: Session::New(SessionId("s".into())),
-            cwd: self.path("wt"),
             settings: self.path("worker/settings.json"),
-            instructions: None,
-            prompt: "go".into(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Answer,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                Role::Worker,
+                Tools::Answer,
+                crate::settings::AgentHarness::ClaudeCode,
+                "claude-sonnet-5",
+                Effort::Medium,
+                Session::New(SessionId("s".into())),
+                self.path("wt"),
+                "go",
+            )
         }
     }
 

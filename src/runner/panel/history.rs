@@ -91,6 +91,7 @@ impl Record {
             Answer::No(note) => format!("no: {note}"),
             Answer::Rework(note) => format!("rework: {note}"),
             Answer::Text(text) => text.clone(),
+            Answer::Trust(head) => format!("yes {head}"),
             Answer::Do(action) => action.word().to_owned(),
         };
         Self {
