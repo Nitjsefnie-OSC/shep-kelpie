@@ -55,6 +55,8 @@ pub(super) struct Looks {
     board_moved: bool,
     // When the labels of dropped issues were last read on their own
     dropped_read: Option<Timestamp>,
+    // When the contributions were last followed
+    contributions_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
     // How many writes of kelpie's the forge had taken when the last pass began
@@ -94,6 +96,26 @@ impl Looks {
             let at = Timestamp(now.0.saturating_add(wait)).max(held.unwrap_or(now));
             (failures + 1, at)
         });
+    }
+
+    /// Whether the contributions are due to be followed at `now`, which
+    /// records the read: at most one in each [`BOARD_POLL`]
+    pub(super) fn contributions_due(&mut self, now: Timestamp) -> bool {
+        if self.contributions_wait(now).is_some() {
+            return false;
+        }
+        self.contributions_read = Some(now);
+        true
+    }
+
+    /// How long until the contributions are next followed, or `None` when
+    /// they are due now
+    pub(super) fn contributions_wait(&self, now: Timestamp) -> Option<Duration> {
+        let at = self
+            .contributions_read?
+            .0
+            .saturating_add(BOARD_POLL.as_secs());
+        (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
     /// Whether `slot`'s step may run at `now`
@@ -214,7 +236,13 @@ impl Runner {
         let looks = self.looks.next_due(now, &self.rotation());
         let host = self.next_retry().map(|d| d.max(DUE_FLOOR));
         let wrote = (self.looks.written_since(self.forge_ledger.writes())).then_some(DUE_FLOOR);
-        [looks, host, wrote].into_iter().flatten().min()
+        let followed = (!self.settings.contributions.is_off()).then(|| {
+            self.looks
+                .contributions_wait(now)
+                .unwrap_or_default()
+                .max(DUE_FLOOR)
+        });
+        [looks, host, wrote, followed].into_iter().flatten().min()
     }
 }
 

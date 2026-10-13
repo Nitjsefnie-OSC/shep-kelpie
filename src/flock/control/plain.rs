@@ -16,6 +16,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     lines.push(format!("  run: {run}"));
     items(status, &mut lines);
     red_workflows(status, &mut lines);
+    contributions(status, &mut lines);
     rulings(status, &mut lines);
     pacer(status, &mut lines);
     lines
@@ -139,6 +140,30 @@ fn red_workflows(status: &Value, lines: &mut Vec<String>) {
             workflow["workflow"].as_str().unwrap_or("?"),
             crate::board::briefing::elapsed(workflow["red_for"].as_u64().unwrap_or(0)),
             workflow["url"].as_str().unwrap_or("no link"),
+        ));
+    }
+}
+
+// One line for each pull request from someone else the board follows, and
+// none when it follows none
+fn contributions(status: &Value, lines: &mut Vec<String>) {
+    let followed = status["contributions"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if followed.is_empty() {
+        return;
+    }
+    lines.push(format!("  contributions: {}", followed.len()));
+    for contribution in followed {
+        let author = match contribution["author"].as_str() {
+            Some("") | None => "a deleted account",
+            Some(login) => login,
+        };
+        let head = contribution["head"].as_str().unwrap_or_default();
+        lines.push(format!(
+            "    PR #{} by {author}, head {}",
+            contribution["pull_request"],
+            head.get(..7).unwrap_or(head),
         ));
     }
 }

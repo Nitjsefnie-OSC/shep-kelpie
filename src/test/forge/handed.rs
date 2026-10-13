@@ -16,6 +16,7 @@ pub(super) struct FakePullRequest {
     pub(super) draft: bool,
     pub(super) from_fork: bool,
     pub(super) author: String,
+    pub(super) author_is_bot: bool,
 }
 
 /// What the fake forge's failed CI runs say, and the reruns asked of them
