@@ -8,7 +8,7 @@
 use serde::Deserialize;
 
 use super::{gh, unreadable};
-use crate::ports::ForgeError;
+use crate::ports::{BranchRun, ForgeError, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// How many failed runs are read
@@ -28,14 +28,74 @@ pub(super) fn failed_run_logs(
         .into_iter()
         .take(RUNS)
     {
-        let id = id.to_string();
-        let log = gh(&["run", "view", &id, "--repo", repo.as_str(), "--log-failed"])?;
-        text.push_str(&format!(
-            "--- run {id}\n{}\n",
-            failure_tail(&String::from_utf8_lossy(&log), LOG_BYTES)
-        ));
+        text.push_str(&format!("--- run {id}\n{}\n", run_log_tail(repo, id)?));
     }
     Ok(text)
+}
+
+pub(super) fn run_log_tail(repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
+    let id = run.to_string();
+    let log = gh(&["run", "view", &id, "--repo", repo.as_str(), "--log-failed"])?;
+    Ok(failure_tail(&String::from_utf8_lossy(&log), LOG_BYTES))
+}
+
+/// The latest completed run of each workflow on `branch`
+pub(super) fn branch_runs(repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
+    let listed = gh(&[
+        "run",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--branch",
+        branch,
+        "--status",
+        "completed",
+        "--limit",
+        "50",
+        "--json",
+        "databaseId,workflowName,conclusion,headSha,event,createdAt",
+    ])?;
+    latest_runs(&listed)
+}
+
+// The newest run of each workflow in `listed`, in the order the workflows
+// first appear; of two runs created in the same second the one listed first stays
+fn latest_runs(listed: &[u8]) -> Result<Vec<BranchRun>, ForgeError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Run {
+        database_id: u64,
+        workflow_name: String,
+        conclusion: String,
+        head_sha: String,
+        event: String,
+        created_at: String,
+    }
+    let runs: Vec<Run> = serde_json::from_slice(listed).map_err(|_| unreadable(listed))?;
+    let mut latest: Vec<BranchRun> = Vec::new();
+    for run in runs {
+        let created = run
+            .created_at
+            .parse::<jiff::Timestamp>()
+            .ok()
+            .and_then(|at| u64::try_from(at.as_second()).ok())
+            .map(Timestamp)
+            .ok_or_else(|| unreadable(listed))?;
+        let run = BranchRun {
+            workflow: run.workflow_name,
+            id: run.database_id,
+            head: run.head_sha,
+            event: run.event,
+            conclusion: run.conclusion,
+            created,
+        };
+        match latest.iter_mut().find(|r| r.workflow == run.workflow) {
+            Some(kept) if kept.created < run.created => *kept = run,
+            Some(_) => {}
+            None => latest.push(run),
+        }
+    }
+    Ok(latest)
 }
 
 /// Reruns the failed jobs of the failed runs of `head`
@@ -250,6 +310,98 @@ mod tests {
     #[test]
     fn the_queues_failed_runs_are_those_of_the_merge_group_event() {
         assert_eq!(failed_runs(LISTED, "abc", true).unwrap(), [4]);
+    }
+
+    // `gh run list --branch main --status completed --limit 50 --json
+    // databaseId,workflowName,conclusion,headSha,event,createdAt` on
+    // shep-pm/shep with gh 2.96, its first fourteen runs: `file size`,
+    // `Release` and `Release PR` ran on several heads, `test` failed on one and
+    // passed on an older one, and `pages` was cancelled twice.
+    const RECORDED: &[u8] = br#"[
+        {"conclusion":"success","createdAt":"2026-10-13T10:58:41Z","databaseId":38387029879,"event":"push","headSha":"dc9b123d317baabe97afc3c22316f8a6723a9afe","workflowName":"file size"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:58:41Z","databaseId":38387029600,"event":"push","headSha":"dc9b123d317baabe97afc3c22316f8a6723a9afe","workflowName":"Release"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:57:51Z","databaseId":38386934120,"event":"push","headSha":"f0751a5563ba0a9c978af3330b05efa010e15172","workflowName":"file size"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:57:50Z","databaseId":38386933064,"event":"push","headSha":"f0751a5563ba0a9c978af3330b05efa010e15172","workflowName":"Release"},
+        {"conclusion":"failure","createdAt":"2026-10-13T10:57:50Z","databaseId":38386933110,"event":"push","headSha":"f0751a5563ba0a9c978af3330b05efa010e15172","workflowName":"Release PR"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:43:27Z","databaseId":38385312112,"event":"push","headSha":"16d445f3b0a1b8ec446c7692f290d460f7837590","workflowName":"file size"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:43:27Z","databaseId":38385311813,"event":"push","headSha":"16d445f3b0a1b8ec446c7692f290d460f7837590","workflowName":"Release"},
+        {"conclusion":"cancelled","createdAt":"2026-10-13T10:43:27Z","databaseId":38385311703,"event":"push","headSha":"16d445f3b0a1b8ec446c7692f290d460f7837590","workflowName":"pages"},
+        {"conclusion":"failure","createdAt":"2026-10-13T10:43:26Z","databaseId":38385311310,"event":"push","headSha":"16d445f3b0a1b8ec446c7692f290d460f7837590","workflowName":"Release PR"},
+        {"conclusion":"failure","createdAt":"2026-10-13T10:43:26Z","databaseId":38385311306,"event":"push","headSha":"16d445f3b0a1b8ec446c7692f290d460f7837590","workflowName":"test"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:28:04Z","databaseId":38383546750,"event":"push","headSha":"7665f5b080313743b4b569e4f93a6775328be708","workflowName":"file size"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:28:04Z","databaseId":38383546374,"event":"push","headSha":"7665f5b080313743b4b569e4f93a6775328be708","workflowName":"Release"},
+        {"conclusion":"failure","createdAt":"2026-10-13T10:28:04Z","databaseId":38383546391,"event":"push","headSha":"7665f5b080313743b4b569e4f93a6775328be708","workflowName":"Release PR"},
+        {"conclusion":"success","createdAt":"2026-10-13T10:28:04Z","databaseId":38383546340,"event":"push","headSha":"7665f5b080313743b4b569e4f93a6775328be708","workflowName":"test"},
+        {"conclusion":"cancelled","createdAt":"2026-10-13T10:28:04Z","databaseId":38383546385,"event":"push","headSha":"7665f5b080313743b4b569e4f93a6775328be708","workflowName":"pages"}
+    ]"#;
+
+    fn run_of<'a>(runs: &'a [BranchRun], workflow: &str) -> &'a BranchRun {
+        runs.iter().find(|r| r.workflow == workflow).unwrap()
+    }
+
+    #[test]
+    fn a_workflows_latest_run_is_the_only_one_kept() {
+        let runs = latest_runs(RECORDED).unwrap();
+
+        let mut workflows: Vec<_> = runs.iter().map(|r| r.workflow.as_str()).collect();
+        workflows.sort_unstable();
+        assert_eq!(
+            workflows,
+            ["Release", "Release PR", "file size", "pages", "test"]
+        );
+        assert_eq!(
+            run_of(&runs, "file size"),
+            &BranchRun {
+                workflow: "file size".to_owned(),
+                id: 38_387_029_879,
+                head: "dc9b123d317baabe97afc3c22316f8a6723a9afe".to_owned(),
+                event: "push".to_owned(),
+                conclusion: "success".to_owned(),
+                created: Timestamp(1_791_889_121),
+            }
+        );
+    }
+
+    #[test]
+    fn a_failed_run_is_kept_and_an_older_pass_of_its_workflow_is_not() {
+        let runs = latest_runs(RECORDED).unwrap();
+
+        let test = run_of(&runs, "test");
+        assert_eq!(
+            (test.id, test.conclusion.as_str()),
+            (38_385_311_306, "failure")
+        );
+    }
+
+    #[test]
+    fn a_cancelled_run_is_kept_with_its_conclusion() {
+        let runs = latest_runs(RECORDED).unwrap();
+
+        let pages = run_of(&runs, "pages");
+        assert_eq!(
+            (pages.id, pages.conclusion.as_str()),
+            (38_385_311_703, "cancelled")
+        );
+    }
+
+    #[test]
+    fn a_run_listed_before_a_newer_one_of_its_workflow_does_not_win_by_position() {
+        let listed = br#"[
+            {"conclusion":"failure","createdAt":"2026-10-13T10:00:00Z","databaseId":1,"event":"push","headSha":"a","workflowName":"test"},
+            {"conclusion":"success","createdAt":"2026-10-13T11:00:00Z","databaseId":2,"event":"push","headSha":"b","workflowName":"test"}
+        ]"#;
+
+        let runs = latest_runs(listed).unwrap();
+
+        assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), [2]);
+    }
+
+    #[test]
+    fn a_listing_gh_did_not_print_as_json_is_unreadable() {
+        assert!(matches!(
+            latest_runs(b"not json"),
+            Err(ForgeError::Unreadable(_))
+        ));
     }
 
     const STAMP: &str = "test\tBuild\t2026-10-13T10:00:00.0000000Z";

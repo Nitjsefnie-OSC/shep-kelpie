@@ -25,8 +25,9 @@ use serde::Deserialize;
 
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
-    Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PullRequest,
-    PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility,
+    BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
+    PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp,
+    Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -216,6 +217,14 @@ impl Forge for Gh {
         merge_group: bool,
     ) -> Result<String, ForgeError> {
         runs::failed_run_logs(repo, head, merge_group)
+    }
+
+    fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
+        runs::branch_runs(repo, branch)
+    }
+
+    fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
+        runs::run_log_tail(repo, run)
     }
 
     fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {

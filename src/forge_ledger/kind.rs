@@ -58,6 +58,10 @@ pub enum Kind {
     EditPullRequest,
     /// The logs of a head's failed CI runs
     FailedRunLogs,
+    /// The latest completed CI run of each workflow on a branch
+    BranchRuns,
+    /// The end of one CI run's failed log
+    RunLogTail,
     /// The failed jobs of a head's CI runs rerun
     RerunFailed,
     /// A pull request marked ready
@@ -130,6 +134,8 @@ impl Kind {
                 | Self::CommentMarks
                 | Self::OpenIssues
                 | Self::FailedRunLogs
+                | Self::BranchRuns
+                | Self::RunLogTail
                 | Self::ReviewBot
                 | Self::MergeQueue
                 | Self::RateLimitReset
@@ -178,6 +184,8 @@ impl Kind {
             | Self::CreatePullRequest
             | Self::EditPullRequest
             | Self::FailedRunLogs
+            | Self::BranchRuns
+            | Self::RunLogTail
             | Self::RerunFailed
             | Self::AppWorkerToken
             | Self::AppComment

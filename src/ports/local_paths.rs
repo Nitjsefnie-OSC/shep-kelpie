@@ -15,8 +15,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue, PostedComment,
-    PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility, Voice,
+    BranchRun, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
+    PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp,
+    Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -275,6 +276,14 @@ impl Forge for Guarded {
         merge_group: bool,
     ) -> Result<String, ForgeError> {
         self.forge.failed_run_logs(repo, head, merge_group)
+    }
+
+    fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
+        self.forge.branch_runs(repo, branch)
+    }
+
+    fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
+        self.forge.run_log_tail(repo, run)
     }
 
     fn rerun_failed(&self, repo: &ForgeSlug, head: &str) -> Result<(), ForgeError> {

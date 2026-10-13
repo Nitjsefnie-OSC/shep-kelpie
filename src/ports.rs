@@ -30,11 +30,13 @@ mod leased;
 mod local_paths;
 mod pace;
 mod paced_voice;
+mod pull_request;
 mod rate_limit;
 mod recorded_voice;
 mod revalidated;
 mod reviewer;
 mod routed;
+mod run;
 mod sandbox;
 mod test_runner;
 mod thread;
@@ -54,11 +56,15 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
+pub use pull_request::{
+    Checks, MaintainerReview, PullRequest, PullRequestState, ReviewComment, Reviewed,
+};
 pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
+pub use run::BranchRun;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
@@ -316,6 +322,21 @@ pub trait Forge: Send + Sync {
         merge_group: bool,
     ) -> Result<String, ForgeError>;
 
+    /// The latest completed CI run of each workflow on `branch`, newest
+    /// first by workflow, whatever its conclusion
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError>;
+
+    /// The end of the failed jobs' log of CI run `run`
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError>;
+
     /// Reruns the failed jobs of the CI runs that failed on `head`, as the
     /// login the forge acts as
     ///
@@ -447,102 +468,6 @@ pub struct QueueStanding {
     pub removals: u32,
     /// What the forge gave for the latest removal
     pub reason: Option<String>,
-}
-
-/// A pull request as the forge holds it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PullRequest {
-    /// Open, merged or closed
-    pub state: PullRequestState,
-    /// Whether it is still a draft
-    pub draft: bool,
-    /// Its head commit's hash
-    pub head: String,
-    /// Where CI stands on its head
-    pub checks: Checks,
-    /// Its labels' names
-    pub labels: Vec<String>,
-}
-
-/// A pull request as a rework or an adoption reads it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reviewed {
-    /// Open, merged or closed
-    pub state: PullRequestState,
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
-    /// The issues on the same repo that it closes when it merges
-    pub closes: Vec<u64>,
-    /// The branch it merges into
-    pub base: String,
-    /// The branch it merges from
-    pub branch: String,
-    /// Whether that branch is on a fork rather than the repo itself
-    pub from_fork: bool,
-    /// Its author's login, empty for a deleted account
-    pub author: String,
-    /// Whether it is still a draft
-    pub draft: bool,
-    /// Its labels' names
-    pub labels: Vec<String>,
-    /// The maintainer's latest review: the latest one a person left, since
-    /// kelpie's own reviewers post none and bots are left out
-    pub review: Option<MaintainerReview>,
-}
-
-/// One review the maintainer left, as written
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MaintainerReview {
-    /// The forge's id for it
-    pub id: String,
-    /// Whether it requests changes, which only a reviewer other than the
-    /// pull request's author can do
-    pub changes_requested: bool,
-    /// Its body, empty when it has none
-    pub body: String,
-    /// Its comments whose threads are still unresolved, in the forge's order
-    pub comments: Vec<ReviewComment>,
-}
-
-/// One comment on a line of a pull request's diff
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReviewComment {
-    /// The file it is on
-    pub file: String,
-    /// The line, when the forge still places it
-    pub line: Option<u32>,
-    /// What it says
-    pub body: String,
-}
-
-/// Whether a pull request is open, merged or closed without merging
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PullRequestState {
-    /// Open, draft or not
-    Open,
-    /// Merged
-    Merged,
-    /// Closed without merging
-    Closed,
-}
-
-/// Where CI stands on a pull request's head
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Checks {
-    /// No check has reported on the head
-    None,
-    /// At least one check is still running or queued
-    Pending,
-    /// Every check finished, and none failed
-    Passed,
-    /// Every check finished and was skipped, as a workflow whose jobs all
-    /// skip a draft leaves on one: nothing ran, and it counts as passed once
-    /// the pull request is ready
-    Skipped,
-    /// Every check finished, and these failed
-    Failed(Vec<String>),
 }
 
 /// A label kelpie makes on a project's repo
