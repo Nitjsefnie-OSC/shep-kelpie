@@ -176,6 +176,15 @@ pub(crate) fn policy(
             .read
             .push(super::settings::prompt_file(&call.settings));
     }
+    // The server runs inside the call's sandbox, and keeps its index in its own folder.
+    if let Some(graph) = &call.reach.code_graph {
+        policy.read.extend([
+            graph.binary.clone(),
+            graph.index.clone(),
+            super::graph::mcp_file(&call.settings),
+        ]);
+        policy.write.push(graph.index.clone());
+    }
     policy.hosts.push(MODEL_HOST.to_owned());
     Ok(policy)
 }

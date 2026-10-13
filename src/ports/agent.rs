@@ -137,6 +137,21 @@ pub struct Reach {
     /// Whether its sandbox keeps it from the maintainer's keychain, as it does
     /// on a repo kelpie's App covers, which the runner sets on each call
     pub block_keychain: bool,
+    /// The code graph server it is given, where the project turns it on and
+    /// the call is a worker's or a reviewer's on Claude Code
+    pub code_graph: Option<CodeGraph>,
+}
+
+/// The code graph of a worktree, served to a session over MCP
+///
+/// The server is `binary`, run inside the call's sandbox with `index` as its
+/// only store, so it reaches no host of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeGraph {
+    /// The server's executable, under kelpie's tools
+    pub binary: PathBuf,
+    /// The folder the worktree's index is kept in, under kelpie's home
+    pub index: PathBuf,
 }
 
 /// Where a session may write and connect, and what it may not run
