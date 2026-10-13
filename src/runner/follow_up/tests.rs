@@ -12,14 +12,13 @@ use crate::runner::{Answer, CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn finding(file: &str, what: &str) -> Finding {
-    Finding {
-        severity: Severity::High,
-        file: file.into(),
-        line: 9,
-        what: what.into(),
-        why: "two threads write the same field".into(),
-        test: None,
-    }
+    Finding::new(
+        Severity::High,
+        file,
+        9,
+        what,
+        "two threads write the same field",
+    )
 }
 
 pub(in crate::runner) fn racy() -> Finding {

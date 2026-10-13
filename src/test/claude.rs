@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use super::{FakeMeter, git, write_in};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Role, Usage,
-    Utilization, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Cost, Ending, Flying, Role,
+    SessionId, Usage, Utilization, Wait,
 };
 
 /// How often a held call looks whether it was ended, as the real adapters
@@ -95,6 +95,9 @@ pub(crate) enum Scripted {
     /// call queued at a gateway does, then goes on as the second does
     Queued(Hold, Box<Scripted>),
 }
+
+/// A held call's issue, and what the runner noted of it
+type Holding = (u64, Option<Flying>);
 
 /// What is queued for one role's calls
 type RoleScript = (Role, VecDeque<Scripted>);
@@ -193,6 +196,9 @@ pub(crate) struct FakeClaude {
     // What every call in flight last showed, as a transcript would say;
     // untracked until a test sets it
     active: Arc<Mutex<Option<CallActivity>>>,
+    // The held calls now in flight, by issue, with what the runner noted of
+    // each: the calls a handover could carry
+    holding: Arc<Mutex<Vec<Holding>>>,
 }
 
 impl FakeClaude {
@@ -258,7 +264,16 @@ impl FakeClaude {
     // Blocks on `hold` until it is released, or the call is ended first.
     fn hold(&self, hold: &Hold, call: &AgentCall, ending: &Ending) -> Result<(), AgentError> {
         let stopped = || self.stopped.load(Ordering::SeqCst);
-        if hold.block_unless(|| stopped() || ending.asked()) {
+        self.holding
+            .lock()
+            .unwrap()
+            .push((call.issue, ending.carried()));
+        let released = hold.block_unless(|| stopped() || ending.asked());
+        self.holding
+            .lock()
+            .unwrap()
+            .retain(|(issue, _)| *issue != call.issue);
+        if released {
             return Ok(());
         }
         Err(match stopped() {
@@ -299,6 +314,33 @@ impl Agents for FakeClaude {
             .lock()
             .unwrap()
             .unwrap_or(CallActivity::Untracked)
+    }
+
+    // A held call can be carried to a new image, as a real call's process can.
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        let holding = self.holding.lock().unwrap();
+        let (_, flying) = (holding.iter().find(|(issue, _)| *issue == call.issue))
+            .ok_or("the stand-in holds no such call")?;
+        Ok(Adopted {
+            pid: 1,
+            record: call.settings.with_extension("call.json"),
+            resumes: Some(call.session.id().clone()),
+            flying: *flying,
+        })
+    }
+
+    // The new image's end of a carried call: it answers at once.
+    fn adopt(&self, adopted: &Adopted, _ending: &Ending) -> Result<AgentReply, AgentError> {
+        Ok(AgentReply {
+            session_id: adopted
+                .resumes
+                .clone()
+                .unwrap_or(SessionId("adopted".into())),
+            text: "done".into(),
+            usage: Usage::default(),
+            session_cost: Some(Cost(0)),
+            context: None,
+        })
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {

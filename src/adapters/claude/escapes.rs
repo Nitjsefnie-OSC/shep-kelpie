@@ -54,21 +54,19 @@ impl World {
             token: None,
         };
         AgentCall {
-            harness: crate::settings::AgentHarness::ClaudeCode,
-            role: Role::Worker,
             issue: 7,
-            model: "claude-sonnet-5".into(),
-            effort: Effort::Medium,
-            session: Session::New(SessionId("s".into())),
-            cwd: wt.clone(),
             settings: self.path("worker/settings.json"),
-            instructions: None,
-            prompt: String::new(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Work,
-            agent_tools: None,
             reach: profile.reach(),
-            compact_window: None,
+            ..AgentCall::new(
+                Role::Worker,
+                Tools::Work,
+                crate::settings::AgentHarness::ClaudeCode,
+                "claude-sonnet-5",
+                Effort::Medium,
+                Session::New(SessionId("s".into())),
+                wt.clone(),
+                String::new(),
+            )
         }
     }
 
@@ -317,30 +315,28 @@ fn a_live_worker_turn_runs_inside_the_sandbox_and_resumes() {
     let cli = ClaudeCli::default().sandboxed(Arc::new(SandboxRuntime::new(tools)), home.clone());
     let id = crate::work_item::new_session_id().unwrap();
     let mut call = AgentCall {
-        harness: crate::settings::AgentHarness::ClaudeCode,
-        role: Role::Worker,
         issue: 7,
-        model: "haiku".into(),
-        effort: Effort::Low,
-        session: Session::New(id.clone()),
-        cwd: wt.clone(),
         settings: worker.join("settings.json"),
-        instructions: None,
-        prompt: format!(
-            "This is a sandbox test. Run each step with the tool named, one at a time, and \
+        reach: profile.reach(),
+        ..AgentCall::new(
+            Role::Worker,
+            Tools::Work,
+            crate::settings::AgentHarness::ClaudeCode,
+            "haiku",
+            Effort::Low,
+            Session::New(id.clone()),
+            wt.clone(),
+            format!(
+                "This is a sandbox test. Run each step with the tool named, one at a time, and \
              report each one's exact output or error, numbered: \
              (1) Bash: echo inside > a.txt && cat a.txt \
              (2) Write the file .claude/settings.local.json with the text {{}} \
              (3) Bash: mkdir other && mv other .codex \
              (4) Bash: echo x > {outside} \
              (5) Bash: curl -sS -m 10 https://example.com -o /dev/null",
-            outside = root.join("outside.txt").display()
-        ),
-        plugin_dirs: Vec::new(),
-        tools: Tools::Work,
-        agent_tools: None,
-        reach: profile.reach(),
-        compact_window: None,
+                outside = root.join("outside.txt").display()
+            ),
+        )
     };
     cli.prepare(&call).unwrap();
     // A live call has five minutes, as a worker's turn has its ceiling.

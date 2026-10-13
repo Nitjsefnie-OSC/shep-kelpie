@@ -221,22 +221,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("review-findings.md");
         let findings = [
-            Finding {
-                severity: Severity::High,
-                file: "src/lib.rs".into(),
-                line: 9,
-                what: "looks racy".into(),
-                why: "two threads write the same field".into(),
-                test: None,
-            },
-            Finding {
-                severity: Severity::Low,
-                file: "src/main.rs".into(),
-                line: 1,
-                what: "unused import".into(),
-                why: "dead code".into(),
-                test: None,
-            },
+            Finding::new(
+                Severity::High,
+                "src/lib.rs",
+                9,
+                "looks racy",
+                "two threads write the same field",
+            ),
+            Finding::new(
+                Severity::Low,
+                "src/main.rs",
+                1,
+                "unused import",
+                "dead code",
+            ),
         ];
         write_findings_file(dir.path(), &path, 3, &findings, false).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -265,10 +263,7 @@ mod tests {
     fn a_findings_test_is_its_fifth_field_and_the_header_says_where_to_read_it() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("review-findings.md");
-        let with = Finding {
-            test: Some("tests/flag.rs".into()),
-            ..bot_finding("first")
-        };
+        let with = bot_finding("first").with_test("tests/flag.rs");
         let without = bot_finding("second");
 
         write_findings_file(
@@ -303,14 +298,7 @@ mod tests {
     }
 
     fn bot_finding(what: &str) -> Finding {
-        Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: what.into(),
-            why: "it matters".into(),
-            test: None,
-        }
+        Finding::new(Severity::Medium, "src/lib.rs", 3, what, "it matters")
     }
 
     // A bot's findings are its threads, which the worker names by number: each
@@ -380,14 +368,7 @@ mod tests {
         perms.set_mode(0o555);
         std::fs::set_permissions(&folder, perms).unwrap();
 
-        let finding = Finding {
-            severity: Severity::Low,
-            file: "a.rs".into(),
-            line: 1,
-            what: "nit".into(),
-            why: "style".into(),
-            test: None,
-        };
+        let finding = Finding::new(Severity::Low, "a.rs", 1, "nit", "style");
         let err = write_findings_file(
             &folder,
             &folder.join("review-findings.md"),
@@ -411,14 +392,7 @@ mod tests {
         std::fs::create_dir(&build).unwrap();
         std::fs::write(&hook, "#!/bin/sh\n").unwrap();
         std::os::unix::fs::symlink(&hook, findings_path(&build)).unwrap();
-        let finding = Finding {
-            severity: Severity::Low,
-            file: "a.rs".into(),
-            line: 1,
-            what: "nit".into(),
-            why: "style".into(),
-            test: None,
-        };
+        let finding = Finding::new(Severity::Low, "a.rs", 1, "nit", "style");
 
         write_findings_file(&build, &findings_path(&build), 1, &[finding], false).unwrap();
 
@@ -474,14 +448,14 @@ mod tests {
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
         rig.claude.script([Scripted::Push("work.txt", "work\n")]);
         step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
-        rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: "the flag is misnamed".into(),
-            why: "it reads as its opposite".into(),
-            test: None,
-        }])]);
+        rig.reviewer
+            .script([ScriptedRound::Findings(vec![Finding::new(
+                Severity::Medium,
+                "src/lib.rs",
+                3,
+                "the flag is misnamed",
+                "it reads as its opposite",
+            )])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next
         (rig, runner)
@@ -677,14 +651,14 @@ mod tests {
         // The same line, deferred before this round's findings are sent.
         let line = "MEDIUM|src/lib.rs:3|the flag is misnamed|it reads as its opposite\n";
         std::fs::write(rig.build_7().join("deferred-findings.md"), line).unwrap();
-        rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: "the flag is misnamed".into(),
-            why: "it reads as its opposite".into(),
-            test: None,
-        }])]);
+        rig.reviewer
+            .script([ScriptedRound::Findings(vec![Finding::new(
+                Severity::Medium,
+                "src/lib.rs",
+                3,
+                "the flag is misnamed",
+                "it reads as its opposite",
+            )])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the findings go out: the fix turn is next
         rig.claude.script([Scripted::Say("Already deferred.")]);

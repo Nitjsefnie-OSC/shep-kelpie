@@ -7,15 +7,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tempfile::TempDir;
-
 use crate::adapters::{GpuCurl, LocalReviewer};
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
     SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
@@ -37,6 +35,7 @@ mod endpoint;
 mod forge;
 mod git;
 mod github;
+mod home;
 mod leases;
 mod memory;
 mod reads;
@@ -54,6 +53,7 @@ pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
+pub(crate) use home::Home;
 pub(crate) use leases::{FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
@@ -88,17 +88,7 @@ pub(crate) fn a_work_item_from_before_comments() -> WorkItem {
 /// A work item with one call, so every field of its format shows
 pub(crate) fn a_work_item() -> WorkItem {
     WorkItem {
-        issue: 42,
-        title: "Add a thing".into(),
-        branch: "kelpie/42".into(),
-        rework: false,
-        adopted: false,
-        arrived: None,
-        worktree: "/k/wt/shep/42".into(),
-        build: "/k/targets/shep/42".into(),
-        agent: "opus-high".to_owned().try_into().unwrap(),
         pinned: true,
-        session: SessionId("5e55".into()),
         turn: Turn::Running {
             since: Timestamp(9),
             prompt: None,
@@ -109,57 +99,16 @@ pub(crate) fn a_work_item() -> WorkItem {
             since: Timestamp(11),
         },
         red_head: Some("bad".into()),
-        reran: None,
         conflict: Some(crate::work_item::Conflict {
             head: "c0ffee".into(),
             main: "a11ce".into(),
             turns: 1,
         }),
-        resume: None,
-        review_call: crate::work_item::ReviewCallState::Idle,
-        bot_reads: Default::default(),
-        bots_skipped: Vec::new(),
         known: Known {
             labels: vec!["review please".into()],
             ready: false,
             head: None,
         },
-        reviewed_heads: Vec::new(),
-        sent_unread: Vec::new(),
-        nit_fix_heads: Vec::new(),
-        noted_from: None,
-        late_from: None,
-        talked: crate::work_item::Talked::default(),
-        claude_files_accepted: None,
-        qwen: crate::work_item::QwenTally::default(),
-        budget_raises: 0,
-        merge_refused: false,
-        sent_back: false,
-        asked_to_commit: false,
-        handed_over: None,
-        handover_refused: false,
-        pull_request_refused: None,
-        context: None,
-        merge_tried: None,
-        merge_queued: None,
-        summon_owed: false,
-        summons_owed: Default::default(),
-        bots_after_ci: false,
-        seat: crate::work_item::Seat::Held,
-        threads_sent: Vec::new(),
-        thread_answers: Vec::new(),
-        resolve_failures: 0,
-        threads_accepted: Vec::new(),
-        reviewers_skipped: Vec::new(),
-        unreviewed: None,
-        local_failures: Default::default(),
-        local_unreviewed: Vec::new(),
-        local_unreviewed_by: None,
-        rebased: false,
-        held: Vec::new(),
-        test_checks: Vec::new(),
-        follow_ups: None,
-        summary: None,
         timings: Some(Timings {
             created: Timestamp(5),
             since: Timestamp(12),
@@ -167,7 +116,6 @@ pub(crate) fn a_work_item() -> WorkItem {
             call: None,
             queued: false,
         }),
-        attached: None,
         counts: crate::work_item::Counts {
             review_rounds: 2,
             fix_turns: 1,
@@ -191,6 +139,15 @@ pub(crate) fn a_work_item() -> WorkItem {
             session_cost: Cost(6),
             unpriced: false,
         }],
+        ..WorkItem::new(
+            42,
+            "Add a thing",
+            "kelpie/42",
+            "/k/wt/shep/42".into(),
+            "/k/targets/shep/42".into(),
+            "opus-high".to_owned().try_into().unwrap(),
+            SessionId("5e55".into()),
+        )
     }
 }
 
@@ -306,7 +263,7 @@ impl Clock for FakeClock {
 /// project's repo cloned from a bare origin
 #[derive(Debug)]
 pub(crate) struct Rig {
-    pub(crate) home: TempDir,
+    pub(crate) home: Home,
     pub(crate) project: ProjectName,
     pub(crate) claude: FakeClaude,
     pub(crate) forge: FakeForge,
@@ -370,29 +327,8 @@ impl Rig {
 
     /// A project with the example settings, pointed at a fresh repo
     pub(crate) fn new(project: &str) -> Self {
-        let home = tempfile::tempdir().unwrap();
-        let meter = FakeMeter::idle();
-        let clock = FakeClock::at(Self::EPOCH);
-        let rig = Self {
-            project: ProjectName::try_from(project).unwrap(),
-            claude: FakeClaude::metered(meter.clone()),
-            forge: FakeForge::new(home.path().join("origin.git")),
-            git: FakeGit::default(),
-            meter,
-            codex_meter: FakeMeter::idle(),
-            reviewer: FakeReviewer::default(),
-            local_leases: LocalReviewer::default(),
-            alerts: FakeAlerts::on(clock.clone()),
-            leases: FakeLeases::default(),
-            tests: FakeTests::default(),
-            github: FakeGithub::new(clock.clone(), "shep-pm"),
-            pace: Arc::new(LocalPace::with(CallPacer::new(usize::MAX, usize::MAX))),
-            clock,
-            home,
-        };
+        let rig = Self::stand_ins(project, Home::made());
         rig.make_repo();
-        rig.forge.threads.use_clock(rig.clock.clone());
-        rig.github.use_threads(rig.forge.coderabbit.clone());
 
         let example = include_str!("../settings.example.toml");
         assert!(example.contains(EXAMPLE_REPO), "the example's repo moved");
@@ -761,9 +697,24 @@ impl Rig {
         &self,
         review_bots: Vec<Arc<dyn Profile>>,
     ) -> Result<Mutex<Runner>, OpenError> {
+        self.open_with_agents(review_bots, Arc::new(self.claude.clone()))
+    }
+
+    /// Starts a runner whose calls go to `agents` rather than the stand-in Claude
+    pub(crate) fn open_agents(&self, agents: Arc<dyn Agents>) -> Result<Mutex<Runner>, OpenError> {
+        let bots: Vec<Arc<dyn Profile>> =
+            vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)];
+        self.open_with_agents(bots, agents)
+    }
+
+    fn open_with_agents(
+        &self,
+        review_bots: Vec<Arc<dyn Profile>>,
+        agents: Arc<dyn Agents>,
+    ) -> Result<Mutex<Runner>, OpenError> {
         let tokens = Arc::new(self.github.tokens(&self.paths().kelpie_home));
         let ports = Ports {
-            agents: Arc::new(self.claude.clone()),
+            agents,
             forge: Arc::new(self.forge.clone()),
             app_reads: None,
             revalidated: crate::ports::Revalidated::default(),

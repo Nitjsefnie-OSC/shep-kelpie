@@ -145,6 +145,22 @@ pub struct Ask {
     pub forge: Option<ForgeAsk>,
 }
 
+impl Ask {
+    /// An ask for the counted lease `take` from process `pid`, running
+    /// `what`, with no folder and no forge ask, from a command not yet under
+    /// a grant
+    pub fn new(take: impl Into<String>, pid: u32, what: impl Into<String>) -> Self {
+        Self {
+            take: take.into(),
+            pid,
+            what: what.into(),
+            running: false,
+            worktree: None,
+            forge: None,
+        }
+    }
+}
+
 /// What a runner asks of the login's forge hold and pace, in a [`FORGE`] ask
 // wire format: changing this is a breaking change to the door
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,14 +354,7 @@ mod tests {
 
     #[test]
     fn the_wire_format_is_pinned() {
-        let ask = Ask {
-            take: "cargo-test".into(),
-            pid: 42,
-            what: "cargo test".into(),
-            running: false,
-            worktree: None,
-            forge: None,
-        };
+        let ask = Ask::new("cargo-test", 42, "cargo test");
         assert_eq!(
             serde_json::to_value(&ask).unwrap(),
             json!({ "take": "cargo-test", "pid": 42, "what": "cargo test" })

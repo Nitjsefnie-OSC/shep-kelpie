@@ -27,14 +27,14 @@ fn name_agents(rig: &Rig, names: &str) {
 fn whole_work_item(rig: &Rig, runner: &Mutex<Runner>) {
     rig.ask(runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-        severity: Severity::Medium,
-        file: "work.txt".into(),
-        line: 1,
-        what: "a typo".into(),
-        why: "it reads wrong".into(),
-        test: None,
-    }])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "work.txt",
+            1,
+            "a typo",
+            "it reads wrong",
+        )])]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
         Scripted::Push("work.txt", "fixed\n"),

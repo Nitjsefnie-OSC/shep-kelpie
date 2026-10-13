@@ -9,18 +9,13 @@ use crate::state::{ProjectState, Resume, RulingKind, STATE_FILE, StateStore, Stu
 // A ruling on issue `id`, which is its number.
 fn yes_or_no(id: u64) -> Ruling {
     Ruling {
-        id,
         issue: Some(id),
-        question: format!("Merge pull request #{id}? `shep kelpie rule {id} yes` merges it"),
-        pull_request: None,
-        kind: RulingKind::from(Stuck::Closed),
         alerted: true,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(
+            id,
+            format!("Merge pull request #{id}? `shep kelpie rule {id} yes` merges it"),
+            RulingKind::from(Stuck::Closed),
+        )
     }
 }
 

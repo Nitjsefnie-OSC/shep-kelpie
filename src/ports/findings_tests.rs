@@ -7,22 +7,20 @@ fn well_formed_lines_parse_in_order() {
     assert_eq!(
         parse_findings(text),
         vec![
-            Finding {
-                severity: Severity::High,
-                file: "src/lib.rs".into(),
-                line: 42,
-                what: "does the bad thing".into(),
-                why: "breaks prod".into(),
-                test: None,
-            },
-            Finding {
-                severity: Severity::Low,
-                file: "src/main.rs".into(),
-                line: 0,
-                what: "not reviewed: 900 lines exceeds the chunk limit".into(),
-                why: "split the file or review it by hand".into(),
-                test: None,
-            },
+            Finding::new(
+                Severity::High,
+                "src/lib.rs",
+                42,
+                "does the bad thing",
+                "breaks prod"
+            ),
+            Finding::new(
+                Severity::Low,
+                "src/main.rs",
+                0,
+                "not reviewed: 900 lines exceeds the chunk limit",
+                "split the file or review it by hand"
+            ),
         ]
     );
 }
@@ -58,13 +56,8 @@ fn a_recorded_findings_file_parses() {
 
 #[test]
 fn a_finding_is_the_same_by_its_file_line_and_what_and_not_its_why_or_severity() {
-    let finding = |severity, why: &str| Finding {
-        severity,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "the flag is read first".into(),
-        why: why.into(),
-        test: None,
+    let finding = |severity, why: &str| {
+        Finding::new(severity, "src/lib.rs", 3, "the flag is read first", why)
     };
     let one = finding(Severity::High, "a caller sees nothing");
     assert!(one.is_same_as(&finding(Severity::Low, "worded again")));

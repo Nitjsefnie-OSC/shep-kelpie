@@ -489,21 +489,23 @@ impl Runner {
         let compact_window =
             NonZeroU32::new(self.settings.worker.compact_window).filter(|_| prompt != COMPACT);
         Ok(AgentCall {
-            role: Role::Worker,
-            harness,
             issue: item.issue,
-            model,
-            effort,
-            session,
-            cwd: item.worktree.clone(),
             settings,
             instructions: Some(instructions),
-            prompt,
             plugin_dirs: self.skills.plugin_dirs().to_vec(),
-            tools: Tools::Work,
             agent_tools,
             reach,
             compact_window,
+            ..AgentCall::new(
+                Role::Worker,
+                Tools::Work,
+                harness,
+                model,
+                effort,
+                session,
+                item.worktree.clone(),
+                prompt,
+            )
         })
     }
 

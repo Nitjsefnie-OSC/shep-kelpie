@@ -8,18 +8,9 @@ use crate::work_item::{Known, Phase};
 // A ruling on pull request 71, whose question is the one kelpie words for it
 fn ruling(id: u64, kind: RulingKind) -> Ruling {
     Ruling {
-        id,
         issue: Some(7),
-        question: question(7, Some(71), &kind),
         pull_request: Some(71),
-        kind,
-        alerted: false,
-        panel: None,
-        verdict: None,
-        unposted: false,
-        skipped: None,
-        effects: Vec::new(),
-        raised: None,
+        ..Ruling::new(id, question(7, Some(71), &kind), kind)
     }
 }
 
@@ -284,14 +275,8 @@ fn a_foreign_change_ruling_says_what_changed() {
 
 #[test]
 fn a_follow_up_ruling_counts_the_findings_it_would_file() {
-    let finding = |file: &str| Finding {
-        severity: Severity::Medium,
-        file: file.into(),
-        line: 3,
-        what: "unused variable".into(),
-        why: "dead code".into(),
-        test: None,
-    };
+    let finding =
+        |file: &str| Finding::new(Severity::Medium, file, 3, "unused variable", "dead code");
     let kind = RulingKind::FollowUp {
         findings: vec![finding("src/lib.rs"), finding("src/main.rs")],
         refused: None,
