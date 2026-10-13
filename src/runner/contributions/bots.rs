@@ -144,17 +144,18 @@ impl Runner {
         head: String,
     ) -> Result<Step, StateError> {
         let Some(activity) = self.bot_activity(number, bot.bot) else {
-            return Ok(Step::Waiting);
+            return self.bot_unreadable(number, reviewer, bot.bot, started);
         };
         let profile = self.profile(bot.bot);
         let now = self.ports.clock.now();
         if profile.covers(&activity, &head) {
-            self.release_bot(bot.bot)?;
+            self.release_bot(number, bot.bot)?;
+            self.label_off(number, bot.bot);
             return self.start_settling(number, reviewer, bot.bot, &activity);
         }
         let opens = self.ports.leases.opens(&profile.lease(), bot.window, now);
         if let Some(opens) = opens.filter(|opens| opens.0 > now.0.saturating_add(FAR)) {
-            self.release_bot(bot.bot)?;
+            self.release_bot(number, bot.bot)?;
             let skipped = BotSkipped::Window {
                 reviewer: reviewer.clone(),
                 opens,
@@ -162,7 +163,7 @@ impl Runner {
             return Ok(Step::Skipped(skipped.why()));
         }
         if now.0.saturating_sub(started.0) >= REVIEW_WAIT {
-            self.release_bot(bot.bot)?;
+            self.release_bot(number, bot.bot)?;
             let since = started;
             let reviewer = reviewer.clone();
             return Ok(Step::Skipped(BotSkipped::Waited { reviewer, since }.why()));
@@ -173,7 +174,7 @@ impl Runner {
         match self.shut_out(bot.bot) {
             Ok(false) => {}
             Ok(true) => {
-                self.release_bot(bot.bot)?;
+                self.release_bot(number, bot.bot)?;
                 let reviewer = reviewer.clone();
                 return Ok(Step::Skipped(BotSkipped::NotPublic { reviewer }.why()));
             }
@@ -215,7 +216,7 @@ impl Runner {
             .and_then(|()| self.put_label(bot, number, true));
         if let Err(reason) = labelled {
             eprintln!("contribution #{number}: {reason}");
-            self.release_bot(bot)?;
+            self.release_bot(number, bot)?;
             return Ok(Step::Waiting);
         }
         self.save_stage(number, reviewer, summoned)?;
@@ -235,7 +236,7 @@ impl Runner {
                 full: false,
             };
             self.save_stage(number, reviewer, waiting)?;
-            self.release_bot(bot)?;
+            self.release_bot(number, bot)?;
         }
         Ok(Step::Waiting)
     }
@@ -251,7 +252,7 @@ impl Runner {
         at: Timestamp,
     ) -> Result<Step, StateError> {
         let Some(activity) = self.bot_activity(number, bot.bot) else {
-            return Ok(Step::Waiting);
+            return self.bot_unreadable(number, reviewer, bot.bot, started);
         };
         let profile = self.profile(bot.bot);
         let now = self.ports.clock.now().0;
@@ -260,7 +261,7 @@ impl Runner {
         match profile.read(&activity, &head, at) {
             Reading::Reviewed => self.bot_answered_at(number, reviewer, bot.bot, &activity, at),
             Reading::Completed { at: done } if now.saturating_sub(done.0) < DONE_SETTLE => {
-                self.accepted_bot(bot.bot, at)?;
+                self.accepted_bot(number, bot.bot, at)?;
                 Ok(Step::Waiting)
             }
             // The bot marked the head done with nothing posted: it found
@@ -273,7 +274,7 @@ impl Runner {
                 let opens = opens.unwrap_or(Timestamp(now.saturating_add(window)));
                 let kind = profile.lease();
                 self.ports.leases.window(&kind, WindowFact::Opens, opens.0);
-                self.release_bot(bot.bot)?;
+                self.release_bot(number, bot.bot)?;
                 self.label_off(number, bot.bot);
                 if opens.0 > now.saturating_add(FAR) {
                     let skipped = BotSkipped::Window {
@@ -293,7 +294,7 @@ impl Runner {
                 Ok(Step::Waiting)
             }
             Reading::Declined { status } => {
-                self.release_bot(bot.bot)?;
+                self.release_bot(number, bot.bot)?;
                 self.label_off(number, bot.bot);
                 let status = status.to_owned();
                 let skipped = BotSkipped::Declined {
@@ -303,7 +304,7 @@ impl Runner {
                 Ok(Step::Skipped(skipped.why()))
             }
             Reading::Silent | Reading::Processing | Reading::Failed if waited >= REVIEW_WAIT => {
-                self.accepted_bot(bot.bot, at)?;
+                self.accepted_bot(number, bot.bot, at)?;
                 self.label_off(number, bot.bot);
                 let skipped = BotSkipped::Silent {
                     reviewer: reviewer_name,
@@ -312,13 +313,13 @@ impl Runner {
                 Ok(Step::Skipped(skipped.why()))
             }
             Reading::Processing | Reading::Failed => {
-                self.accepted_bot(bot.bot, at)?;
+                self.accepted_bot(number, bot.bot, at)?;
                 Ok(Step::Waiting)
             }
             // A summon neither taken up nor refused is counted as spent, so
             // the lease goes back.
             Reading::Silent if waited >= ANSWER_WAIT => {
-                self.accepted_bot(bot.bot, at)?;
+                self.accepted_bot(number, bot.bot, at)?;
                 Ok(Step::Waiting)
             }
             Reading::Silent => Ok(Step::Waiting),
@@ -335,11 +336,8 @@ impl Runner {
         activity: &Activity,
         at: Timestamp,
     ) -> Result<Step, StateError> {
-        self.accepted_bot(bot, at)?;
-        if let Err(reason) = self.put_label(bot, number, false) {
-            eprintln!("contribution #{number}: {reason}");
-            return Ok(Step::Waiting);
-        }
+        self.accepted_bot(number, bot, at)?;
+        self.label_off(number, bot);
         self.start_settling(number, reviewer, bot, activity)
     }
 
@@ -376,7 +374,7 @@ impl Runner {
             return Ok(Step::Waiting);
         }
         let Some(activity) = self.bot_activity(number, bot) else {
-            return Ok(Step::Waiting);
+            return self.bot_unreadable(number, reviewer, bot, since);
         };
         let threads = open_ids(&activity);
         if !lands(now, since, open, &threads) {
@@ -389,6 +387,7 @@ impl Runner {
             self.save_stage(number, reviewer, settling)?;
             return Ok(Step::Waiting);
         }
+        self.label_off(number, bot);
         let profile = self.profile(bot);
         let read = read_threads(profile.as_ref(), activity.open_threads());
         let apart = |threads: Vec<(String, Finding)>| threads.into_iter().map(|(_, f)| f).collect();
@@ -396,6 +395,26 @@ impl Runner {
             findings: apart(read.above),
             nits: apart(read.nits),
         })
+    }
+
+    // A turn whose bot cannot be read waits, until two hours since `since`
+    // have passed, and then goes on without the bot, so a forge that stays
+    // down cannot hold the pass.
+    fn bot_unreadable(
+        &mut self,
+        number: u64,
+        reviewer: &AgentName,
+        bot: Bot,
+        since: Timestamp,
+    ) -> Result<Step, StateError> {
+        let now = self.ports.clock.now();
+        if now.0.saturating_sub(since.0) < REVIEW_WAIT {
+            return Ok(Step::Waiting);
+        }
+        self.release_bot(number, bot)?;
+        self.label_off(number, bot);
+        let reviewer = reviewer.clone();
+        Ok(Step::Skipped(BotSkipped::Waited { reviewer, since }.why()))
     }
 
     // Reads `bot`'s activity on `number`, or logs why it cannot and leaves the
@@ -562,17 +581,30 @@ impl Runner {
     }
 
     // What a summon's answer tells the dog: the window runs from `at`.
-    fn accepted_bot(&mut self, bot: Bot, at: Timestamp) -> Result<(), StateError> {
+    fn accepted_bot(&mut self, number: u64, bot: Bot, at: Timestamp) -> Result<(), StateError> {
         let kind = self.profile(bot).lease();
         self.ports.leases.window(&kind, WindowFact::Summoned, at.0);
-        self.release_bot(bot)
+        self.release_bot(number, bot)
     }
 
-    // Gives `bot`'s lease back when a turn holds it, or when no work item
-    // holds it or waits for it. The ask and the grant are the project's, so
-    // giving them back for a turn that never took the lease would cancel
-    // another round's place in the dog's queue.
-    fn release_bot(&mut self, bot: Bot) -> Result<(), StateError> {
+    // Gives `bot`'s lease back for the turn on `number`: when the turn holds
+    // it, or when no work item holds it or waits for it. Another contribution
+    // whose turn is summoned on the bot holds the lease row, so it is left
+    // alone: its row has no issue, as this turn's would not.
+    fn release_bot(&mut self, number: u64, bot: Bot) -> Result<(), StateError> {
+        let theirs = (self.state.contributions.iter())
+            .any(|c| c.pull_request != number && summoned_on(c) == Some(bot));
+        if theirs {
+            return Ok(());
+        }
+        self.give_back_bot(bot)
+    }
+
+    // Gives the lease back, as `release_bot` does once it is no other turn's.
+    // The ask and the grant are the project's, so giving them back for a turn
+    // that never took the lease would cancel another round's place in the
+    // dog's queue.
+    fn give_back_bot(&mut self, bot: Bot) -> Result<(), StateError> {
         let mine = |l: &LeaseHeld| l.resource == bot.resource() && l.issue.is_none();
         let held = self.state.leases.iter().any(mine);
         if !held && self.bot_held_or_wanted_by_an_item(bot) {
@@ -602,7 +634,7 @@ impl Runner {
             .filter(|bot| (self.state.contributions.iter()).all(|c| summoned_on(c) != Some(*bot)))
             .collect();
         for bot in idle {
-            self.release_bot(bot)?;
+            self.give_back_bot(bot)?;
         }
         Ok(())
     }
@@ -613,7 +645,7 @@ impl Runner {
     // bot outside its lease.
     pub(super) fn abandon_turns(&self, followed: &[Contribution]) {
         for held in &self.state.contributions {
-            let Some(bot) = summoned_on(held) else {
+            let Some(bot) = labelled_on(held) else {
                 continue;
             };
             let moved = followed
@@ -623,6 +655,16 @@ impl Runner {
                 self.label_off(held.pull_request, bot);
             }
         }
+    }
+}
+
+// The bot `contribution`'s walk has summoned and has not yet landed the
+// review of, so its label may still be on
+fn labelled_on(contribution: &Contribution) -> Option<Bot> {
+    let turn = contribution.walking_head()?.bot.as_ref()?;
+    match turn.stage {
+        ReviewStage::Summoned { bot, .. } | ReviewStage::Settling { bot, .. } => Some(bot),
+        _ => None,
     }
 }
 

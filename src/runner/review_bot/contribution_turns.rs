@@ -246,3 +246,67 @@ fn a_push_while_a_bot_is_summoned_takes_its_label_off_and_returns_its_lease() {
     assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), false)));
     assert!(!rig.leases.held(&coderabbit()));
 }
+
+// Polls until `kind` is held for pull request 30's turn
+fn until_held(rig: &Rig, runner: &Mutex<Runner>, kind: &LeaseKind) {
+    for _ in 0..10 {
+        if rig.leases.held(kind) {
+            return;
+        }
+        poll(rig, runner);
+    }
+    panic!("{kind:?} was never taken: {}", contribution(rig, runner));
+}
+
+#[test]
+fn a_contribution_passing_a_bot_over_leaves_the_lease_another_contributions_turn_holds() {
+    let (rig, runner, _head) = contributed(&["cubic", "mine"]);
+    rig.claude
+        .script(std::iter::repeat_n(Scripted::Text(CLEAN), 2));
+    contribute(&rig, 31, |h| write(h, "other.txt", "other\n"));
+    until_summoned(&rig, &runner);
+    rig.leases
+        .opens_at(&cubic(), Timestamp(now(&rig) + 2 * 3600 + 600));
+
+    for _ in 0..6 {
+        poll(&rig, &runner);
+    }
+
+    assert_eq!(
+        asked(&rig),
+        ["mine"],
+        "the other contribution's turn was passed over"
+    );
+    assert!(rig.leases.held(&cubic()), "the first turn still holds it");
+    assert_eq!(want_count(&rig, &cubic()), 1);
+}
+
+#[test]
+fn a_bot_that_cannot_be_read_for_two_hours_is_passed_over() {
+    let (rig, runner, head) = contributed(&["coderabbit", "mine"]);
+    until_held(&rig, &runner, &coderabbit());
+    rig.forge.coderabbit.set_down(true);
+    poll(&rig, &runner);
+    assert_eq!(asked(&rig), Vec::<String>::new(), "it is still waited on");
+
+    rig.clock.advance(REVIEW_WAIT);
+    let held = read_through(&rig, &runner, &head);
+
+    assert_eq!(asked(&rig), ["mine"]);
+    assert_eq!(held["pass"]["answered"], "mine");
+    assert!(!rig.leases.held(&coderabbit()));
+    assert_eq!(labels(&rig).last(), Some(&(30, LABEL.to_owned(), false)));
+}
+
+#[test]
+fn a_label_that_will_not_come_off_does_not_hold_the_pass() {
+    let (rig, runner, head) = contributed(&["coderabbit", "mine"]);
+    until_held(&rig, &runner, &coderabbit());
+    rig.forge.set_labels_down(true);
+    rig.forge.coderabbit.review(30, &head, now(&rig) + 30, &[]);
+
+    let held = read_through(&rig, &runner, &head);
+
+    assert_eq!(held["pass"]["answered"], "coderabbit");
+    assert_eq!(asked(&rig), Vec::<String>::new());
+}
