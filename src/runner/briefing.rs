@@ -12,6 +12,7 @@ use std::sync::Mutex;
 
 use super::Runner;
 use super::trigger::lock;
+use super::turn::held_up::HeldUp;
 use crate::board::briefing::{
     self, Briefing, Files, IDLE_AFTER, Item, Merge, Ready, ReadyLine, RulingLine, Session, age,
     quiet_for,
@@ -343,7 +344,10 @@ impl Runner {
                 last: self.ports.agents.last_active(call),
             },
             Some(Watched { started, .. }) => Session::Review { since: *started },
-            None => Session::Still(still(&item.turn, now, &|text| self.shown(text))),
+            None => {
+                let held = self.held_up.of(item.issue);
+                Session::Still(still(&item.turn, now, held, &|text| self.shown(text)))
+            }
         };
         Item {
             waiting: self.model_wait(item.issue).map(|w| (w.since, w.why)),
@@ -479,14 +483,28 @@ fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) 
 }
 
 // Where a work item with no call in flight stands, in words
-fn still(turn: &Turn, now: Timestamp, shown: &dyn Fn(String) -> String) -> String {
+fn still(
+    turn: &Turn,
+    now: Timestamp,
+    held: Option<HeldUp>,
+    shown: &dyn Fn(String) -> String,
+) -> String {
+    // A due turn that has not started says what it waits on.
+    let due = |which: &str| match &held {
+        Some(held) => format!(
+            "no call in flight; {which} turn has waited {}: {}",
+            age(now, held.since),
+            held.because
+        ),
+        None => format!("no call in flight; {which} turn is due"),
+    };
     match turn {
-        Turn::Due => "no call in flight; its first turn is due".into(),
+        Turn::Due => due("its first"),
         Turn::Running { since, .. } => format!(
             "no call in flight; a turn saved as running {} ago resumes on the next pass",
             age(now, *since)
         ),
-        Turn::Next { .. } => "no call in flight; its next turn is due".into(),
+        Turn::Next { .. } => due("its next"),
         Turn::Ended { at } => format!(
             "no call in flight; the worker's last turn ended {} ago",
             age(now, *at)
