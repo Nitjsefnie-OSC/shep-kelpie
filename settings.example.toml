@@ -248,6 +248,22 @@ compact_window = 200000
 # pm_alone = ["turn-timeout", "still-red"]
 # full_panel_paths = ["src/guard/**", ".github/workflows/**"]
 
+# Whether kelpie picks up other people's pull requests. `pick` is `off` (its
+# own pull requests only), `label` (those the maintainer labels for it) or
+# `all`. Anything but `off` needs the GitHub App to cover the repo, or the
+# runner refuses to start: the representative would post as the maintainer.
+# `reviewers` lists agent files, review bots welcome, in the order they run;
+# the project's `agents.reviewers` when absent. `security_reviewer` is the
+# reviewer agent that reads a contribution for security. `quiet_days` and
+# `nudge_days` are whole days above 0, and `nudge_days` is below `quiet_days`.
+# The agent files are checked only when `pick` is not `off`.
+# [app.dogs.kelpie.contributions]
+# pick = "off"
+# reviewers = ["defect-hunter"]
+# security_reviewer = "security-reviewer"
+# quiet_days = 7
+# nudge_days = 3
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing; the README
 # lists each step and its default. `retro` is the exception: it is off

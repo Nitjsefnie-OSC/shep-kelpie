@@ -1,5 +1,6 @@
 use super::*;
 
+mod contributions;
 mod gateway_kind;
 mod repo_setup;
 mod rulings;
@@ -874,17 +875,6 @@ fn a_ruling_kind_or_a_mode_that_does_not_exist_is_refused_by_name() {
         "{EXAMPLE}\n[app.dogs.kelpie.rulings]\ndecide = \"always\"\n"
     ));
     assert!(mode.contains("rulings.decide"), "{mode}");
-}
-
-#[test]
-fn only_a_merge_kind_makes_the_list_refuse() {
-    let merge = parse(&format!(
-        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"merge\"]\n"
-    ))
-    .unwrap()
-    .rulings;
-    assert!(merge.refusal().is_some_and(|r| r.contains("merge")));
-    assert_eq!(parse(EXAMPLE).unwrap().rulings.refusal(), None);
 }
 
 // The example settings, with its budget table taken out and `table` put in its place

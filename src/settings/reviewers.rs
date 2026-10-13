@@ -16,6 +16,9 @@ use crate::review_bot::BotReviewer;
 /// Where a project lists its reviewers, as a refusal names it
 const SETTING: &str = "agents.reviewers";
 
+/// Where a project lists its contributions' reviewers, as a refusal names it
+const CONTRIBUTION_SETTING: &str = "contributions.reviewers";
+
 pub(super) fn lowercase_name(value: &str) -> bool {
     let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';
     !value.is_empty() && value.chars().all(allowed)
@@ -68,34 +71,64 @@ impl Settings {
             Some(names) => names.clone(),
             None => default_reviewers(home),
         };
-        let mut lineup: Vec<ListedReviewer> = Vec::new();
-        for name in names {
-            if lineup.iter().any(|r| r.name == name) {
-                continue;
-            }
-            let agent = find(agents, &name, SETTING, "agents", Role::Reviewer)?;
-            let mut runs = agent.runs.clone();
-            if let Runs::Command(command) = &mut runs
-                && let Ok(rest) = command.command.strip_prefix("~")
-            {
-                command.command = home.join(rest);
-            }
-            lineup.push(ListedReviewer {
-                name,
-                runs,
-                prompt: agent.prompt.clone(),
-                paths: agent.paths.clone(),
-                second_look: agent.second_look,
-            });
-        }
-        on_ready_first(&lineup)?;
-        Ok(lineup)
+        listed(names, agents, home, SETTING)
     }
+
+    /// The reviewers a contribution gets, in order, each once
+    ///
+    /// The project's `agents.reviewers` when `contributions.reviewers` is
+    /// absent. Otherwise as [`Settings::lineup`], with its refusals naming
+    /// `contributions.reviewers`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Settings::lineup`].
+    pub fn contribution_lineup(
+        &self,
+        agents: &Agents,
+        home: &Path,
+    ) -> Result<Vec<ListedReviewer>, SettingsError> {
+        match &self.contributions.reviewers {
+            Some(names) => listed(names.clone(), agents, home, CONTRIBUTION_SETTING),
+            None => self.lineup(agents, home),
+        }
+    }
+}
+
+// The reviewers `names` lists, each once, as `setting` names the list.
+fn listed(
+    names: Vec<AgentName>,
+    agents: &Agents,
+    home: &Path,
+    setting: &'static str,
+) -> Result<Vec<ListedReviewer>, SettingsError> {
+    let mut lineup: Vec<ListedReviewer> = Vec::new();
+    for name in names {
+        if lineup.iter().any(|r| r.name == name) {
+            continue;
+        }
+        let agent = find(agents, &name, setting, "agents", Role::Reviewer)?;
+        let mut runs = agent.runs.clone();
+        if let Runs::Command(command) = &mut runs
+            && let Ok(rest) = command.command.strip_prefix("~")
+        {
+            command.command = home.join(rest);
+        }
+        lineup.push(ListedReviewer {
+            name,
+            runs,
+            prompt: agent.prompt.clone(),
+            paths: agent.paths.clone(),
+            second_look: agent.second_look,
+        });
+    }
+    on_ready_first(&lineup, setting)?;
+    Ok(lineup)
 }
 
 // A bot listed earlier marks the draft ready for its own summon, which
 // draws the review of a bot that reviews on ready outside that bot's lease.
-fn on_ready_first(lineup: &[ListedReviewer]) -> Result<(), SettingsError> {
+fn on_ready_first(lineup: &[ListedReviewer], setting: &'static str) -> Result<(), SettingsError> {
     let bots = lineup.iter().filter(|r| r.bot().is_some());
     let mut before: Option<&AgentName> = None;
     for reviewer in bots {
@@ -103,7 +136,7 @@ fn on_ready_first(lineup: &[ListedReviewer]) -> Result<(), SettingsError> {
             && bot.reviews_on_ready
         {
             return Err(SettingsError::Invalid {
-                setting: SETTING,
+                setting,
                 reason: format!(
                     "{} reviews a pull request when it leaves draft, so list it before \
                      {first}: a bot listed before it marks the draft ready, which draws \

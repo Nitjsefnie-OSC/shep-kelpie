@@ -41,6 +41,10 @@ pub const DEFECT_HUNTER: &str = "defect-hunter";
 /// The reviewer that runs the maintainer's qwen-review script
 pub const QWEN: &str = "qwen";
 
+/// The reviewer that reads a contribution for security, which a project runs
+/// with `contributions.security_reviewer`
+pub const SECURITY_REVIEWER: &str = "security-reviewer";
+
 /// The agent `shep kelpie issue` runs
 pub const ISSUE_WRITER: &str = "issue-writer";
 

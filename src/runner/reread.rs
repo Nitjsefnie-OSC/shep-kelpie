@@ -56,6 +56,13 @@ impl Runner {
             waiting.push("hooks");
             settings.hooks.clone_from(&self.settings.hooks);
         }
+        // The start checks cover the App and the agent files against `pick`.
+        if settings.contributions != self.settings.contributions {
+            waiting.push("contributions");
+            settings
+                .contributions
+                .clone_from(&self.settings.contributions);
+        }
         // The adapters were built with the gateways at start.
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
             waiting.push("gateways");
@@ -233,7 +240,8 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         worker: old_worker,
         researcher: old_researcher,
         rulings: old_rulings,
-        hooks: _, // waits for the next start, so `reread` keeps the old
+        contributions: _, // waits for the next start, when the runner checks it
+        hooks: _,         // waits for the next start, so `reread` keeps the old
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
@@ -249,6 +257,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         worker: new_worker,
         researcher: new_researcher,
         rulings: new_rulings,
+        contributions: _,
         hooks: _,
         skills: new_skills,
         repo_setup: new_repo_setup,
@@ -490,6 +499,33 @@ mod tests {
         let restarted = restarted.lock().unwrap();
         assert_eq!(restarted.settings().hooks.len(), 1);
         assert!(restarted.hooks.has(HookPoint::Publish));
+    }
+
+    #[test]
+    fn a_changed_contributions_table_waits_for_the_next_start_whatever_else_changes() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        // The App does not cover the repo, so a start would refuse `label`.
+        rig.edit_settings(|s| {
+            format!("{}\n[app.dogs.kelpie.contributions]\npick = \"label\"\n", s)
+                .replace("per_item_usd = 10", "per_item_usd = 20")
+        });
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some(
+                "settings changed: budget now in effect; contributions from the runner's next start"
+            )
+        );
+        assert!(
+            runner.settings().contributions.is_off(),
+            "the old pick stays"
+        );
+        drop(runner);
+
+        let err = rig.open().unwrap_err().to_string();
+        assert!(err.contains("contributions.pick"), "{err}");
     }
 
     fn paddock_at(rig: &Rig, url: &str) {
