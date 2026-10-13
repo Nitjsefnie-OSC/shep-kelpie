@@ -19,3 +19,9 @@ fn an_unknown_gateway_kind_is_refused_naming_it() {
         .to_string();
     assert!(err.contains("litellm"), "{err}");
 }
+
+#[test]
+fn an_openai_gateway_kind_is_read_by_its_name() {
+    let gateway: Gateway = toml::from_str(&format!("kind = \"openai\"\n{BASE}")).unwrap();
+    assert_eq!(gateway.kind, GatewayKind::Openai);
+}

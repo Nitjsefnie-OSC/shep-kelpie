@@ -15,9 +15,9 @@ use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 const KEY: &str = "pk-not-for-workers";
 
-fn gateways(host: &str) -> Gateways {
+fn gateways(host: &str, kind: GatewayKind) -> Gateways {
     let gateway = Gateway {
-        kind: GatewayKind::Paddock,
+        kind,
         url: EndpointUrl::try_from(host.to_owned()).unwrap(),
         key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
     };
@@ -27,6 +27,16 @@ fn gateways(host: &str) -> Gateways {
 
 // pi as a script that prints `stdout` and exits with `code`.
 fn pi_on(world: &World, server: &StandInEndpoint, stdout: &str, code: u8) -> PiCli {
+    pi_of_kind(world, server, GatewayKind::Paddock, stdout, code)
+}
+
+fn pi_of_kind(
+    world: &World,
+    server: &StandInEndpoint,
+    kind: GatewayKind,
+    stdout: &str,
+    code: u8,
+) -> PiCli {
     let (out, program) = (
         world.path(&format!("out-{code}")),
         world.path(&format!("pi-{code}")),
@@ -38,7 +48,7 @@ fn pi_on(world: &World, server: &StandInEndpoint, stdout: &str, code: u8) -> PiC
         .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
         .pi()
         .with_program(program)
-        .with_gateways(gateways(server.host()))
+        .with_gateways(gateways(server.host(), kind))
 }
 
 fn on_gateway(world: &World, role: Role) -> AgentCall {
@@ -99,6 +109,33 @@ fn a_workers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
         lease_calls(&server),
         [held, held, held].concat(),
         "a reviewer's session holds one too"
+    );
+}
+
+#[test]
+fn a_worker_turn_on_an_openai_gateway_starts_at_once_and_asks_no_paddock_route() {
+    let server = StandInEndpoint::start([]).like_openai(KEY, &["qwen3.8:27b"]);
+    let w = World::new();
+    let worker = on_gateway(&w, Role::Worker);
+    let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (began, waited) = (Arc::clone(&told), Arc::clone(&told));
+    let ending = Ending::telling(
+        move || began.lock().unwrap().push("began".to_owned()),
+        move |wait| waited.lock().unwrap().push(format!("{wait:?}")),
+    );
+    let pi = pi_of_kind(&w, &server, GatewayKind::Openai, FRESH, 0);
+    pi.prepare(&worker).unwrap();
+    let reply = pi.run(&worker, &ending).unwrap();
+    assert!(reply.usage.input > 0, "{reply:?}");
+    assert_eq!(
+        *told.lock().unwrap(),
+        Vec::<String>::new(),
+        "no lease to wait for or to begin from"
+    );
+    assert_eq!(
+        server.seen(),
+        Vec::<String>::new(),
+        "only the forwarder talks to it"
     );
 }
 
