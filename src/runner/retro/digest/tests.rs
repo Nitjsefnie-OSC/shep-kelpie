@@ -3,9 +3,9 @@
 use serde_json::{Value, json};
 
 use super::{Records, build, span};
-use crate::ports::Timestamp;
+use crate::ports::{Severity, Timestamp};
 use crate::runner::panel::Record;
-use crate::runner::retro::journal::{Entry, Stamped};
+use crate::runner::retro::journal::{Entry, Held, Stamped};
 use crate::state::Finished;
 use crate::usage::Line;
 use crate::work_item::Seconds;
@@ -155,6 +155,7 @@ fn digest() -> String {
         rulings: &rulings,
         ledger: &ledger,
         since: 1000,
+        gaps: &[],
     })
 }
 
@@ -254,7 +255,7 @@ fn an_item_carries_its_review_rounds_ci_fixes_merges_and_friction() {
     let digest = digest();
     let item = section(&digest, "## #11:");
     for expected in [
-        "- Review rounds reported: 1",
+        "- Review rounds reported: 1, the latest numbered 1",
         "  - #11 round 1 by claude: 3 findings, 2 sent to the worker",
         "- Fix turns after a failed check: 1",
         "  - failed: test",
@@ -301,4 +302,196 @@ fn a_span_reads_in_the_largest_units() {
     assert_eq!(span(42), "42s");
     assert_eq!(span(310), "5m10s");
     assert_eq!(span(3900), "1h05m");
+}
+
+fn conflicted(issue: u64, files: &[&str]) -> Entry {
+    Entry::Conflicted {
+        issue,
+        files: files.iter().map(|f| (*f).to_owned()).collect(),
+    }
+}
+
+fn outside(issue: u64, tests: &[&str]) -> Entry {
+    Entry::CiOutsideDiff {
+        issue,
+        tests: tests.iter().map(|t| (*t).to_owned()).collect(),
+    }
+}
+
+fn round(issue: u64, round: u32, findings: usize) -> Entry {
+    Entry::Round {
+        issue,
+        round,
+        reviewer: "claude".into(),
+        findings,
+    }
+}
+
+fn held(severity: Severity, file: &str, line: u32, what: &str) -> Held {
+    Held {
+        severity,
+        file: file.to_owned(),
+        line,
+        what: what.to_owned(),
+    }
+}
+
+// Three merged work items, all finished after the last retro
+fn across(journal: &[Stamped], gaps: &[String]) -> String {
+    let batch = [
+        finished(11, "fix(a): one", Some(71), 2000, 60),
+        finished(12, "fix(b): two", Some(72), 2100, 60),
+        finished(13, "fix(c): three", Some(73), 2200, 60),
+    ];
+    build(&Records {
+        project: "koji",
+        batch: &batch,
+        journal,
+        rulings: &[],
+        ledger: &[],
+        since: 1000,
+        gaps,
+    })
+}
+
+#[test]
+fn the_conflicts_per_file_match_the_hand_count_of_a_recorded_batch() {
+    // By hand: design-log.md conflicted four times, on #11, #12 and #13;
+    // src/settings.rs once, on #11, and src/state.rs once, on #13. #99 is
+    // not in the batch.
+    let journal = [
+        stamped(
+            1100,
+            conflicted(11, &["docs/design-log.md", "src/settings.rs"]),
+        ),
+        stamped(1200, conflicted(12, &["docs/design-log.md"])),
+        stamped(
+            1300,
+            conflicted(13, &["docs/design-log.md", "src/state.rs"]),
+        ),
+        stamped(1400, conflicted(13, &["docs/design-log.md"])),
+        stamped(1500, conflicted(99, &["src/settings.rs", "src/state.rs"])),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let table = section(&digest, "## Across the batch");
+    let expected = "- Merge conflicts per file, most first:\n  \
+        - docs/design-log.md: 4 conflicts on #11, #12, #13\n  \
+        - src/settings.rs: 1 conflicts on #11\n  \
+        - src/state.rs: 1 conflicts on #13\n";
+    assert!(table.contains(expected), "{table}");
+}
+
+#[test]
+fn a_batch_with_no_conflict_says_so() {
+    let digest = across(&[], &[]);
+    let table = section(&digest, "## Across the batch");
+    assert!(
+        table.contains("- Merge conflicts per file: none\n"),
+        "{table}"
+    );
+}
+
+#[test]
+fn rounds_per_item_and_each_findings_round_are_given() {
+    let journal = [
+        stamped(1100, round(11, 1, 2)),
+        stamped(
+            1101,
+            Entry::Findings {
+                issue: 11,
+                round: 1,
+                findings: vec![
+                    held(Severity::Low, "src/a.rs", 4, "a nit"),
+                    held(Severity::Medium, "src/b.rs", 0, "wrong wording"),
+                ],
+            },
+        ),
+        stamped(1200, round(11, 2, 0)),
+        stamped(1300, round(13, 1, 1)),
+        stamped(1400, round(13, 2, 1)),
+        stamped(1500, round(13, 3, 1)),
+        stamped(
+            1501,
+            Entry::Findings {
+                issue: 13,
+                round: 3,
+                findings: vec![held(Severity::High, "src/gate.rs", 88, "the design leaks")],
+            },
+        ),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let table = section(&digest, "## Across the batch");
+    let expected = "- Review rounds per work item:\n  - #11: 2\n  - #12: 0\n  - #13: 3\n";
+    assert!(table.contains(expected), "{expected}: {table}");
+    let item = section(&digest, "## #11:");
+    for expected in [
+        "- Review rounds reported: 2, the latest numbered 2",
+        "- Findings sent to the worker:\n  \
+         - round 1 by claude, low, src/a.rs:4: a nit\n  \
+         - round 1 by claude, medium, src/b.rs: wrong wording\n",
+    ] {
+        assert!(item.contains(expected), "{expected}: {item}");
+    }
+    let late = section(&digest, "## #13:");
+    assert!(
+        late.contains("  - round 3 (late) by claude, high, src/gate.rs:88: the design leaks"),
+        "{late}"
+    );
+}
+
+#[test]
+fn a_test_failing_outside_two_items_diffs_is_a_known_flake_and_one_item_is_not() {
+    let journal = [
+        stamped(
+            1100,
+            outside(11, &["sheep::tests::reconnects", "only::here"]),
+        ),
+        stamped(1200, outside(12, &["sheep::tests::reconnects"])),
+        stamped(1300, outside(12, &["sheep::tests::reconnects"])),
+        stamped(1400, outside(99, &["only::here"])),
+    ];
+
+    let digest = across(&journal, &[]);
+
+    let table = section(&digest, "## Across the batch");
+    assert!(
+        table.contains("- Known flakes:\n  - sheep::tests::reconnects: #11, #12\n"),
+        "{table}"
+    );
+    assert!(!table.contains("only::here"), "{table}");
+}
+
+#[test]
+fn a_known_gap_is_counted_by_the_items_that_name_it_and_not_described_again() {
+    let gaps = vec![
+        "sandbox cannot bind a socket".to_owned(),
+        "stale lockfile".to_owned(),
+    ];
+    let journal = [
+        stamped(
+            1100,
+            Entry::Friction {
+                issue: 11,
+                text: "The Sandbox cannot bind a socket, so tests only ran in CI".into(),
+            },
+        ),
+        stamped(1200, wake("#12 sandbox cannot bind a socket", &[])),
+        stamped(1300, wake("#13 something else", &[])),
+    ];
+
+    let digest = across(&journal, &gaps);
+
+    let table = section(&digest, "## Across the batch");
+    assert!(
+        table.contains(
+            "- Known gaps named again in this batch:\n  \
+             - sandbox cannot bind a socket: #11, #12\n"
+        ),
+        "{table}"
+    );
+    assert!(!table.contains("stale lockfile"), "{table}");
 }

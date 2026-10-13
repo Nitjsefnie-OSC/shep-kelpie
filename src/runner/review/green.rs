@@ -368,3 +368,24 @@ fn a_green_head_is_summoned_to_a_review_bot() {
         "{report:?}"
     );
 }
+
+#[test]
+fn the_findings_sent_to_the_worker_are_journaled_with_their_round_for_the_retro() {
+    let (rig, runner, head) = pushed();
+    fixed(&rig, &runner, &head, Severity::High);
+
+    let journal = crate::runner::retro::journal::read(&rig.paths().journal);
+
+    let sent: Vec<_> = (journal.iter())
+        .filter_map(|s| serde_json::to_value(s).ok())
+        .map(|s| s["entry"].clone())
+        .filter(|e| e["entry"] == "findings")
+        .collect();
+    assert_eq!(
+        sent,
+        [serde_json::json!({
+            "entry": "findings", "issue": 7, "round": 1,
+            "findings": [{"severity": "high", "file": "src/lib.rs", "line": 3, "what": "unused variable"}],
+        })]
+    );
+}

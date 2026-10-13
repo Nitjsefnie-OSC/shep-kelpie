@@ -12,7 +12,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ports::Timestamp;
+use crate::ports::{Finding, Severity, Timestamp};
 use crate::runner::StepReport;
 
 /// One thing that happened
@@ -29,6 +29,9 @@ pub(in crate::runner) enum Entry {
     },
     /// CI failed on a work item's pull request
     CiFailed { issue: u64, checks: Vec<String> },
+    /// CI failed on a work item's pull request with a log that named no file
+    /// the branch changed, and these are the tests the log shows failing
+    CiOutsideDiff { issue: u64, tests: Vec<String> },
     /// A work item's branch was rebased onto `main`
     Rebased { issue: u64 },
     /// A work item's branch conflicted with `main`
@@ -42,10 +45,41 @@ pub(in crate::runner) enum Entry {
     },
     /// A round's findings went to the worker's fix turn
     FindingsSent { issue: u64, round: u32, held: usize },
+    /// The findings a round sent to the worker, as the worker was sent them
+    Findings {
+        issue: u64,
+        round: u32,
+        findings: Vec<Held>,
+    },
     /// What slowed a work item's worker down, from its pull request's body
     Friction { issue: u64, text: String },
     /// A batch retro started over the work items finished until now
     Retro { issues: Vec<u64> },
+}
+
+/// A finding as the journal keeps it: where it is and what is wrong, no more
+// wire format: changing this is a breaking change to the journal
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::runner) struct Held {
+    pub(super) severity: Severity,
+    pub(super) file: String,
+    pub(super) line: u32,
+    pub(super) what: String,
+}
+
+/// The most characters of a finding's `what` the journal keeps
+const WHAT_KEPT: usize = 160;
+
+impl Held {
+    /// What the journal keeps of `finding`
+    pub(in crate::runner) fn of(finding: &Finding) -> Self {
+        Self {
+            severity: finding.severity,
+            file: finding.file.clone(),
+            line: finding.line,
+            what: finding.what.chars().take(WHAT_KEPT).collect(),
+        }
+    }
 }
 
 impl Entry {
@@ -124,6 +158,8 @@ impl Entry {
             Self::CiFailed { issue: n, .. }
             | Self::Rebased { issue: n }
             | Self::Conflicted { issue: n, .. }
+            | Self::CiOutsideDiff { issue: n, .. }
+            | Self::Findings { issue: n, .. }
             | Self::Round { issue: n, .. }
             | Self::FindingsSent { issue: n, .. }
             | Self::Friction { issue: n, .. } => *n == issue,
