@@ -221,7 +221,7 @@ A self-hosted ntfy, and a topic you mark `trusted`, take more keys in `[kelpie.w
 shep kelpie pause
 ```
 
-`pause` stops the runner once its calls end, and `shep kelpie start` runs it again. A runner's log is `shep bleats <project>`, and the dog's is `shep bleats kelpie`. [Pausing and finishing](docs/guide/commands.md#pausing-and-finishing) has the rest.
+The runner starts no new call, the calls already running finish and a merge found in flight lands, then shep stops it, so `shep ls` shows it `stopped`. It says what it waits on meanwhile. A session you attached keeps running in your terminal. A ruling still waiting can be answered with `shep kelpie rule` while it is stopped, and the runner acts on the answer when it starts. `shep kelpie start` runs it again. A merge a ruling starts in the moment between that check and the stop can still be cut short, and its work item resumes when the runner starts. If a wait runs out, you interrupt it or shep refuses the stop, the runner keeps running. A runner's log is `shep bleats <project>`, and the dog's is `shep bleats kelpie`.
 
 To wind a project down without watching it, finish it instead:
 
