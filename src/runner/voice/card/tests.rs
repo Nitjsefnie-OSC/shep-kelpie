@@ -150,6 +150,43 @@ fn ticked_answer(kind: &RulingKind, body: &str) -> Option<Answer> {
 }
 
 #[test]
+fn a_candidate_that_asks_the_maintainer_is_no_answer_to_send_the_worker() {
+    let asked = "Which flag?\n- Use `--check`\n- ask the maintainer.";
+    let kind = asking(asked);
+    let comment = rendered(&ruling(1, kind.clone()));
+    let ticked = comment.replace("- [ ] B", "- [x] B");
+
+    assert!(
+        comment.contains("the maintainer answers in their own words"),
+        "{comment}"
+    );
+    assert_eq!(
+        answer_for(&kind, 'A', ""),
+        Some(Answer::Text("Use `--check`".into()))
+    );
+    assert_eq!(answer_for(&kind, 'B', ""), None);
+    assert_eq!(ticked_answer(&kind, &ticked), None);
+}
+
+#[test]
+fn an_option_ending_on_code_keeps_its_backticks_and_one_wrapped_whole_loses_them() {
+    let kind = asking("Which?\n- Use `--check`\n- `--dry-run`\n- `a` or `b`");
+
+    assert_eq!(
+        answer_for(&kind, 'A', ""),
+        Some(Answer::Text("Use `--check`".into()))
+    );
+    assert_eq!(
+        answer_for(&kind, 'B', ""),
+        Some(Answer::Text("--dry-run".into()))
+    );
+    assert_eq!(
+        answer_for(&kind, 'C', ""),
+        Some(Answer::Text("`a` or `b`".into()))
+    );
+}
+
+#[test]
 fn a_question_that_lists_no_options_is_answered_by_reply_alone() {
     let asked = "Which name should the flag have?";
 
@@ -166,12 +203,52 @@ fn a_stuck_ruling_takes_a_yes_or_a_no_and_carries_the_project_managers_words() {
         checks: vec!["test".into(), "clippy".into()],
         fix_turns: Some(2),
         review: None,
+        rerun: false,
     });
     let words = "The failure is a flaky network test, so one rerun should clear it.";
 
     assert_eq!(
         rendered(&said_by_the_pm(ruling(1, kind), words)),
         expected!("stuck-still-red.md")
+    );
+}
+
+#[test]
+fn a_still_red_ruling_offers_a_rerun_only_when_it_was_raised_with_one() {
+    let still_red = |rerun| {
+        RulingKind::Stuck(Stuck::StillRed {
+            head: "6b0606e9b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6".into(),
+            checks: vec!["test".into()],
+            fix_turns: None,
+            review: None,
+            rerun,
+        })
+    };
+
+    let offered = rendered(&ruling(1, still_red(true)));
+    let withheld = rendered(&ruling(1, still_red(false)));
+
+    assert!(
+        offered.contains("Reruns the failed jobs of 6b0606e once more"),
+        "{offered}"
+    );
+    assert!(!withheld.contains("Rerun"), "{withheld}");
+}
+
+#[test]
+fn a_failed_turn_offers_a_restore_naming_the_files_it_puts_back() {
+    let kind = RulingKind::Stuck(Stuck::TurnFailed {
+        why: "agents' own files differ".into(),
+        phase: Phase::Implement,
+        retry: crate::work_item::Turn::Due,
+        restore: vec![".claude/settings.json".into()],
+    });
+
+    let card = rendered(&ruling(1, kind));
+
+    assert!(
+        card.contains("Restores the uncommitted change to .claude/settings.json"),
+        "{card}"
     );
 }
 

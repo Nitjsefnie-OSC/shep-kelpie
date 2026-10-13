@@ -73,6 +73,7 @@ fn a_still_red_ruling_is_stuck_on_a_red_run() {
             checks: vec!["lint".into()],
             fix_turns: None,
             review: None,
+            rerun: false,
         },
     );
 }
@@ -132,6 +133,7 @@ fn a_turn_failed_ruling_is_stuck_on_the_failure() {
             why: "no worktree".into(),
             phase: Phase::Implement,
             retry: Turn::Due,
+            restore: Vec::new(),
         },
     );
 }

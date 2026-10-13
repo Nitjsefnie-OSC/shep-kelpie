@@ -210,3 +210,81 @@ fn a_flake_not_seen_for_a_week_is_let_go() {
 
     assert!(!prompt.contains("Known flakes"), "{prompt}");
 }
+
+// Kelpie's one rerun of `head` failed again, and no fix turn is allowed, so
+// the second red run is the maintainer's ruling.
+fn still_red_after_the_rerun(log: &str) -> (Rig, std::sync::Mutex<Runner>, String, String) {
+    let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| rig.fix_attempts(0));
+    let report = match red(&rig, &runner, &head, log) {
+        StepReport::CiRerun { .. } => {
+            rig.clock.advance(CHECKS_SETTLE);
+            step(&runner).unwrap()
+        }
+        ruling => Some(ruling),
+    };
+    let (_, question) = ruling_report(report);
+    (rig, runner, head, question)
+}
+
+#[test]
+fn choosing_rerun_on_a_still_red_ruling_reruns_the_failed_jobs_once_more() {
+    let (rig, runner, head, question) = still_red_after_the_rerun(OTHER_FILE_PANIC);
+    assert!(
+        question.contains("`shep kelpie rule 71 rerun` reruns"),
+        "{question}"
+    );
+    assert_eq!(
+        rig.forge.reruns().len(),
+        1,
+        "only kelpie's own rerun so far"
+    );
+
+    let reply = rig.ask(&runner, "rule", Some("71 rerun"));
+
+    assert_eq!(reply.get("error"), None, "{reply}");
+    assert_eq!(rig.forge.reruns(), [head.clone(), head.clone()]);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ci");
+    assert_eq!(status["rulings"], json!([]));
+    let events = runner.lock().unwrap().state.events.clone();
+    let shown = format!(
+        "#7: ruling 71 option C (Rerun) chosen by the maintainer: reran the failed jobs of {}",
+        &head[..7]
+    );
+    assert!(events.iter().any(|e| e.what == shown), "{events:?}");
+
+    // The rerun's checks read red for a moment, then green: the merge ruling.
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+    rig.forge.set_checks(&head, Checks::Passed);
+    let (_, question) = ruling_report(step(&runner).unwrap());
+    assert!(question.starts_with("Merge pull request #71"), "{question}");
+}
+
+#[test]
+fn rerun_is_not_offered_when_the_failed_log_names_a_changed_file() {
+    let log = "--- run 9\nerror[E0308]: mismatched types\n --> work.txt:3:9";
+    let (rig, runner, _, question) = still_red_after_the_rerun(log);
+    assert!(!question.contains("rerun"), "{question}");
+
+    let reply = rig.ask(&runner, "rule", Some("71 rerun"));
+
+    let error = reply["error"].as_str().expect("the rerun was refused");
+    assert!(error.contains("does not offer"), "{error}");
+    assert_eq!(rig.forge.reruns(), Vec::<String>::new());
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ruling");
+}
+
+#[test]
+fn a_rerun_the_forge_refuses_leaves_the_ruling_waiting() {
+    let (rig, runner, _, _) = still_red_after_the_rerun(OTHER_FILE_PANIC);
+    rig.forge.set_rerun_error("gh failed: no admin rights");
+
+    let reply = rig.ask(&runner, "rule", Some("71 rerun"));
+
+    let error = reply["error"].as_str().expect("the rerun was refused");
+    assert!(error.contains("no admin rights"), "{error}");
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ruling");
+}
