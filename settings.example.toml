@@ -210,7 +210,7 @@ compact_window = 200000
 # and `done`. The command gets a JSON
 # payload on stdin. At a gate, exit 0 passes, 2 refuses with its stderr as the
 # reason, and anything else is a hook that failed, which also refuses. A
-# notice that exits non-zero is logged by name and kelpie goes on. A hook that
+# notice that exits non-zero or hangs is logged by name and kelpie goes on. A hook that
 # runs past 30 seconds has failed. Each command must resolve when the runner
 # starts, as a guard hook's must, and a runner reads `hooks` only then, so a
 # change waits for its next start. A point that is not one of these stops the

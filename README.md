@@ -199,7 +199,7 @@ shep kelpie start
 
 It starts the project's runner, and the project runs while it does: `shep start scratch` and lookout's start do the same, and `shep ls` shows it `online`. The runner reads the board from its first pass.
 
-Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have the issue writer write it (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Once CI passes on it, the review runs, each listed reviewer once. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
+Put `ready-for-agent` on an issue that says what done looks like, with acceptance criteria, or have the issue writer write it (see [Writing issues](docs/guide/issues.md#writing-issues)). The runner gives it to a worker, which opens a draft pull request. Then the review runs, each listed reviewer once, and each reads a head only after CI has passed on it. CI runs again on the last fix. Last, you get a ruling before the merge. `shep kelpie status` shows every project. [The board](docs/guide/board.md#the-board) says what decides whether, and when, an issue starts.
 
 ### 9. Answer a ruling
 
