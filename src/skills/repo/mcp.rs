@@ -185,6 +185,25 @@ mod tests {
     }
 
     #[test]
+    fn a_marketplaces_git_folder_does_not_change_the_plugins_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".mcp.json"), r#"{"a":{"command":"a"}}"#).unwrap();
+        let found = super::super::Found {
+            id: "p@m".to_owned(),
+            name: "p".to_owned(),
+            folder: dir.path().to_owned(),
+            stale: None,
+            parts: vec![crate::settings::Part::Mcp],
+        };
+        let before = super::super::fingerprint(&found);
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".git/FETCH_HEAD"), "abc\n").unwrap();
+        assert_eq!(super::super::fingerprint(&found), before);
+        fs::write(dir.path().join(".mcp.json"), r#"{"b":{"command":"b"}}"#).unwrap();
+        assert_ne!(super::super::fingerprint(&found), before);
+    }
+
+    #[test]
     fn the_host_of_a_server_is_its_urls_and_none_for_a_command() {
         let host = |url: &str| host_of(&json!({ "type": "http", "url": url }));
         assert_eq!(

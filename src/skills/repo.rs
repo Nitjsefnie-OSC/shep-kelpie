@@ -615,6 +615,10 @@ fn fingerprint(found: &Found) -> u64 {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
+            // A fetch rewrites files here, and `copy_plain` leaves it out.
+            if entry.file_name() == ".git" {
+                continue;
+            }
             entry.file_name().hash(hasher);
             if kind.is_dir() {
                 walk(&entry.path(), hasher);
