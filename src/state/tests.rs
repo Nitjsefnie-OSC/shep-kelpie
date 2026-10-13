@@ -67,6 +67,7 @@ fn a_saved_state_loads_back_whole() {
                 note_fix: false,
                 late_fix: false,
                 nits: None,
+                disputes: None,
             },
         )
     });
@@ -165,6 +166,7 @@ fn the_file_format_is_pinned() {
                 note_fix: false,
                 late_fix: true,
                 nits: Some("2 nits left open (cubic)".into()),
+                disputes: None,
             },
         ),
         ruling(

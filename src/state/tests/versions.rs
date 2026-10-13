@@ -118,6 +118,7 @@ fn a_version_14_file_loads_with_no_late_fix_and_saves_at_the_current_version() {
             note_fix: true,
             late_fix: false,
             nits: None,
+            disputes: None,
         }
     );
     store.save(&loaded).unwrap();

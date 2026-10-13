@@ -149,6 +149,7 @@ impl Runner {
         if let Some(begin) = self.talk_turn(&At::Ci(head.clone()))? {
             return Ok(begin);
         }
+        let disputes = self.post_disputes(number)?;
         let unreviewed = self.current().and_then(|item| item.unreviewed.clone());
         let unread_head = self.current().is_some_and(|item| !item.vouches_for(&head));
         let open = match self.threads_open(number) {
@@ -197,6 +198,7 @@ impl Runner {
             note_fix,
             late_fix,
             nits: open.nits,
+            disputes,
         };
         self.late_read_now();
         self.raise(number, kind)
