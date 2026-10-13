@@ -192,7 +192,8 @@ fn a_compact_call_of_any_role_gets_the_extension_and_another_call_of_that_role_n
 #[test]
 fn a_worker_call_gets_the_compact_extension_beside_the_guard() {
     let w = World::new();
-    let call = w.call(URL, Role::Worker, Session::New(id(WORKER_ID)));
+    let mut call = w.call(URL, Role::Worker, Session::New(id(WORKER_ID)));
+    call.compact_window = std::num::NonZeroU32::new(200_000);
     stand_in(&w, COMPACTION).prepare(&call).unwrap();
     let extension = std::fs::read_to_string(w.path("settings.compact.ts")).unwrap();
     assert!(extension.contains("kelpie-compact"), "{extension}");
@@ -300,7 +301,7 @@ console.log(JSON.stringify({ name: command.name, log }));
 
 fn commanded(ending: &str) -> serde_json::Value {
     let w = World::new();
-    std::fs::write(w.path("compact.mts"), super::compact::EXTENSION).unwrap();
+    std::fs::write(w.path("compact.mts"), super::compact::extension(None)).unwrap();
     std::fs::write(w.path("run.mjs"), COMMAND_RUNNER).unwrap();
     let out = std::process::Command::new("node")
         .arg(w.path("run.mjs"))

@@ -54,7 +54,7 @@ Pacing, leases, forge limits, time, usage, settings.
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `src/settings/budget.rs`
 - `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `src/settings/agents.rs`
 - `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused), `pm_alone`, `full_panel_paths`. `src/settings/rulings.rs`
-- `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000). `src/runner/turn.rs`
+- `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; on Claude Code `autoCompactWindow`, on pi the reserve `context - compact_window`, see workers.md). `src/runner/turn.rs`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `src/skills.rs`
 - `hooks`, `e2e`. ADR 0009, `src/settings/hooks.rs`, `src/settings/e2e.rs`
 - `[kelpie]`: `webhook`, `gpu_metrics_url`, `codex_home`, `gateways`, `leases.cargo-test` (3). `src/webhook.rs`

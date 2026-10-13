@@ -410,6 +410,9 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     let policy = policy(&call, &files, &upstream, &socket, &[]);
     let home = w.path("settings.pi");
     assert!(policy.write.contains(&home.join("sessions")));
+    assert!(policy.write.contains(&home.join("settings.json.lock")));
+    assert!(!policy.write.contains(&home.join("settings.json")));
+    assert!(!policy.write.contains(&w.path("settings.prompt.md")));
     assert!(!policy.write.contains(&home));
     assert!(policy.write.contains(&w.path("wt")));
     assert!(policy.read.contains(&home));
@@ -417,6 +420,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
     assert!(policy.read.contains(&w.path("settings.compact.ts")));
     assert!(policy.read.contains(&w.path("settings.stdout.jsonl")));
     assert!(policy.read.contains(&w.path("settings.stderr.log")));
+    assert!(!policy.read.contains(&w.path("settings.prompt.md")));
     assert!(
         !policy.hosts.iter().any(|h| h.contains("192.0.2.9")),
         "{:?}",
@@ -449,6 +453,7 @@ fn the_sandbox_lets_pi_write_only_its_sessions_and_reach_only_the_forwarder() {
             w.path("settings.tmp"),
             home.join("auth.json.lock"),
             home.join("models-store.json.lock"),
+            home.join("settings.json.lock"),
         ]
     );
     assert!(policy.hosts.is_empty(), "{:?}", policy.hosts);
