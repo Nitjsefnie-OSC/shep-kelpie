@@ -79,7 +79,13 @@ const LOCAL: &str = "local";
 pub(super) fn removed_ruling(value: &Value) -> Option<(u64, String)> {
     let rulings = value.get("rulings")?.as_array()?;
     rulings.iter().find_map(|ruling| {
-        let kind = ruling.get("kind")?.get("kind")?.as_str()?;
+        let shape = ruling.get("kind")?;
+        let kind = shape.get("kind")?.as_str()?;
+        // A removed kind that was folded into `stuck` is its reason.
+        let kind = match kind {
+            "stuck" => shape.get("reason")?.as_str()?,
+            kind => kind,
+        };
         let id = ruling.get("id")?.as_u64()?;
         RULINGS.contains(&kind).then(|| (id, kind.to_owned()))
     })

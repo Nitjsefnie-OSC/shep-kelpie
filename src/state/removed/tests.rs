@@ -184,6 +184,31 @@ fn a_pending_local_model_spilled_ruling_is_refused() {
     );
 }
 
+// The folded shape the previous build saved: a `stuck` ruling with the kind
+// as its reason.
+#[test]
+fn a_pending_stuck_ruling_for_a_spilled_model_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = saved_with(dir.path(), |value| {
+        value["last_ruling"] = json!(6);
+        value["rulings"] = json!([{
+            "id": 6, "issue": 42, "question": "q", "pull_request": 51,
+            "kind": {
+                "kind": "stuck", "reason": "local-model-spilled",
+                "review": {}, "why": "qwen at 60%",
+            },
+        }]);
+    });
+    assert_eq!(
+        store.load(),
+        Err(StateError::RemovedRuling {
+            path: dir.path().join(STATE_FILE),
+            id: 6,
+            kind: "local-model-spilled".into(),
+        })
+    );
+}
+
 // A file saved while the relay existed, with its count of clears and each
 // ruling's relayed and resend fields.
 #[test]

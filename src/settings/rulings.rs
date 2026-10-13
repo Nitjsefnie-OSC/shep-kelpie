@@ -75,6 +75,10 @@ pub enum RulingName {
     Unlabelled,
     /// A work item is over its budget
     OverBudget,
+    /// The local model sat on the CPU. No ruling is raised for it now, and
+    /// the name stays so ledger and history lines written before it went
+    /// still read; `pm_alone` refuses it.
+    LocalModelSpilled,
 }
 
 impl RulingName {
@@ -119,6 +123,7 @@ impl RulingName {
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
             Self::OverBudget => "over-budget",
+            Self::LocalModelSpilled => "local-model-spilled",
         }
     }
 }
@@ -130,12 +135,22 @@ impl Rulings {
     }
 
     /// Why `pm_alone` is refused, if it is: a merge ruling is never decided
-    /// by the project manager alone
+    /// by the project manager alone, and a kind of ruling that is gone is
+    /// not one to list
     pub fn refusal(&self) -> Option<String> {
-        self.pm_alone.contains(&RulingName::Merge).then(|| {
-            "a merge ruling is never decided by the project manager alone: take `merge` \
-             out of the list"
-                .to_owned()
-        })
+        if self.pm_alone.contains(&RulingName::Merge) {
+            return Some(
+                "a merge ruling is never decided by the project manager alone: take `merge` \
+                 out of the list"
+                    .to_owned(),
+            );
+        }
+        self.pm_alone
+            .contains(&RulingName::LocalModelSpilled)
+            .then(|| {
+                "`local-model-spilled` is no longer a kind of ruling, since kelpie no longer \
+                 checks where a local model sits: take it out of the list"
+                    .to_owned()
+            })
     }
 }

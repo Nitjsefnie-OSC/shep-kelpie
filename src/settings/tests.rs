@@ -2,6 +2,7 @@ use super::*;
 
 mod gateway_kind;
 mod repo_setup;
+mod rulings;
 mod test_command;
 
 const EXAMPLE: &str = include_str!("../../settings.example.toml");

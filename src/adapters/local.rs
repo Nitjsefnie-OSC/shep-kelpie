@@ -9,8 +9,10 @@
 mod command;
 mod endpoint;
 
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 use super::paddock;
 #[cfg(test)]
@@ -24,14 +26,69 @@ use crate::worktree::Linked;
 /// Runs each local round, of whichever kind the settings choose
 ///
 /// Clones share their rounds in flight, so one clone can stop them all.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct LocalReviewer {
+    temp_dir: PathBuf,
     pub(super) processes: Processes,
     // Where an endpoint behind a gateway sends its rounds, with the gateway's key
     pub(super) gateways: Gateways,
 }
 
+impl Default for LocalReviewer {
+    fn default() -> Self {
+        Self {
+            temp_dir: temp_dir(),
+            processes: Processes::default(),
+            gateways: Gateways::default(),
+        }
+    }
+}
+
+/// The temporary folder the maintainer's qwen scripts use
+///
+/// The scripts build their own GPU lock under `${TMPDIR:-/tmp}`. A sheep runs
+/// without `TMPDIR`, while the maintainer's shell has macOS's per-user
+/// temporary folder, so an unset or empty `TMPDIR` falls back to that folder
+/// before `/tmp`.
+fn temp_dir() -> PathBuf {
+    temp_dir_from(std::env::var_os("TMPDIR"), darwin_user_temp_dir)
+}
+
+fn temp_dir_from(tmpdir: Option<OsString>, darwin: impl FnOnce() -> Option<PathBuf>) -> PathBuf {
+    match tmpdir {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => darwin().unwrap_or_else(|| PathBuf::from("/tmp")),
+    }
+}
+
+// `getconf` reads the same confstr macOS sets TMPDIR from at login.
+fn darwin_user_temp_dir() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let output = crate::spawn::command("getconf")
+        .arg("DARWIN_USER_TEMP_DIR")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let dir = String::from_utf8(output.stdout).ok()?;
+    let dir = dir.trim_end_matches('\n');
+    (output.status.success() && !dir.is_empty()).then(|| PathBuf::from(dir))
+}
+
 impl LocalReviewer {
+    /// Runs every command round with `TMPDIR` set to `temp_dir`
+    ///
+    /// A reviewer starts with the folder the maintainer's qwen scripts lock
+    /// under. Without it the runner's rounds would lock `/tmp` while every
+    /// interactive session locks the per-user temp folder, and the two
+    /// queues would run the GPU at once.
+    pub fn with_temp_dir(mut self, temp_dir: PathBuf) -> Self {
+        self.temp_dir = temp_dir;
+        self
+    }
+
     /// Sends an endpoint's rounds behind a gateway through `gateways`
     pub fn with_gateways(mut self, gateways: Gateways) -> Self {
         self.gateways = gateways;
@@ -174,5 +231,28 @@ mod tests {
         let script = dir.path().join("review");
         write_script(&script, "#!/bin/sh\nexit 0\n");
         assert_eq!(reviewer.check(&command(&script)), Ok(()));
+    }
+
+    #[test]
+    fn tmpdir_wins_when_set_and_not_empty() {
+        let never = || panic!("asked macOS with TMPDIR set");
+        assert_eq!(
+            temp_dir_from(Some("/var/folders/x/T/".into()), never),
+            PathBuf::from("/var/folders/x/T/")
+        );
+    }
+
+    #[test]
+    fn no_tmpdir_falls_back_to_the_users_temp_folder_then_tmp() {
+        let user = || Some(PathBuf::from("/var/folders/x/T/"));
+        assert_eq!(
+            temp_dir_from(None, user),
+            PathBuf::from("/var/folders/x/T/")
+        );
+        assert_eq!(
+            temp_dir_from(Some("".into()), user),
+            PathBuf::from("/var/folders/x/T/")
+        );
+        assert_eq!(temp_dir_from(None, || None), PathBuf::from("/tmp"));
     }
 }

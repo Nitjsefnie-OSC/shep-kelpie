@@ -101,7 +101,8 @@ impl LocalReviewer {
             .arg("--round")
             .arg(round.to_string())
             .env("QWEN_REVIEW_OUT", out)
-            .env("KELPIE_REVIEW_HEAD", at.head);
+            .env("KELPIE_REVIEW_HEAD", at.head)
+            .env("TMPDIR", &self.temp_dir);
         if let Some(criteria) = at.criteria {
             command.env("KELPIE_REVIEW_CRITERIA", criteria);
         }
@@ -253,6 +254,33 @@ mod tests {
             .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
             .unwrap();
         assert_eq!(findings[0].file, head);
+    }
+
+    // A stand-in that records the `TMPDIR` it was started with, as the real
+    // script builds its own GPU lock from it.
+    #[test]
+    fn a_round_runs_with_the_given_temp_folder() {
+        let home = tempfile::tempdir().unwrap();
+        let script_dir = home.path().join(".claude/scripts");
+        std::fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("qwen-review.sh");
+        write_script(
+            &script,
+            "#!/bin/sh\nmkdir -p \"$QWEN_REVIEW_OUT\"\n\
+             printf 'LOW|%s:1|seen|seen\\n' \"$TMPDIR\" > \"$QWEN_REVIEW_OUT/round-1.txt\"\n\
+             : > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+
+        let wt = crate::test::linked_worktree(home.path());
+        let out = home.path().join("out");
+        let reviewer =
+            LocalReviewer::default().with_temp_dir(PathBuf::from("/var/folders/xx/yy/T/"));
+
+        let findings = reviewer
+            .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
+            .unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].file, "/var/folders/xx/yy/T/");
     }
 
     // A script that exits 0 but never wrote the marker: a round killed
