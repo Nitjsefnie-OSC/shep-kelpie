@@ -141,6 +141,7 @@ pub use paths::{ProjectName, ProjectNameError, ProjectPaths};
 pub use pm::{PmAttaching, PmError, PmStatus};
 pub use replies::READ_EVERY;
 pub use report::StepReport;
+pub(crate) use reread::check_gateways;
 pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Answer, RuleError};
 pub use timings::{Totals, settle};

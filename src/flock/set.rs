@@ -13,18 +13,20 @@ use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::Response;
 
+use super::add::share_none;
 use super::send;
-use crate::runner::ProjectName;
-use crate::settings::Settings;
-use crate::shepherd::{self, DOG};
+use crate::agents::Agents;
+use crate::runner::{ProjectName, ProjectPaths, check_gateways};
+use crate::settings::{Settings, SettingsError, source};
+use crate::shepherd::{self, DOG, Tables};
 
-/// Where a project's relative paths and `~/` start, as the runner reads its settings
+/// What `set` reads a project's settings against, as its runner does
 #[derive(Debug, Clone, Copy)]
 pub struct Place<'a> {
-    /// The maintainer's home
+    /// The maintainer's home, for `~/` in settings
     pub home: &'a Path,
-    /// The project's own folder under kelpie's home
-    pub folder: &'a Path,
+    /// The project's own folders under kelpie's home
+    pub paths: &'a ProjectPaths,
 }
 
 /// The project's table, or one dotted key's value, as TOML lines
@@ -55,8 +57,10 @@ pub async fn get(
 ///
 /// A message when the shepherd cannot be read or written, the project has no
 /// table (it points at `add`), `key` runs through a value that is not a
-/// table, or the changed table is not settings the runner would read: the
-/// message is the reason it gives, and nothing is written.
+/// table, or the changed table is settings the runner would refuse to start
+/// or reread on: the message is its reason, and nothing is written. Moving
+/// `git.checkout` or `git.remote` onto a checkout or repo another project
+/// runs is refused as `add` refuses it.
 pub async fn set(
     client: &Client,
     name: &ProjectName,
@@ -64,24 +68,66 @@ pub async fn set(
     key: &str,
     value: &str,
 ) -> Result<Vec<String>, String> {
-    let mut table = table_of_project(client, name).await?;
+    let read = shepherd::read_tables_with(client, name.as_str()).await?;
+    let before = read.project.clone().ok_or_else(|| no_table(name))?;
+    let mut table = before.clone();
     let value = read_value(value);
     let shown = render_value(&value)?;
     insert(&mut table, key, value)?;
-    Settings::from_table(&table, name.as_str(), place.home, place.folder)
-        .map_err(|e| e.to_string())?;
+    let git_moved = ["git.checkout", "git.remote"]
+        .iter()
+        .any(|moved| lookup(&before, moved) != lookup(&table, moved));
+    let changed = Tables {
+        project: Some(table),
+        kelpie: read.kelpie,
+    };
+    let settings = runnable(&changed, name, place)?;
+    if git_moved {
+        let remote = crate::runner::check_checkout(&settings).map_err(|e| e.to_string())?;
+        let (rows, others) = (super::flock(client).await?, super::tables(client).await?);
+        let root = &settings.git.checkout;
+        share_none(&rows, &others, name, place.home, root, remote.as_str())?;
+    }
     let request = Request::SetSheepDogSettings {
         name: name.as_str().to_owned(),
         dog: DOG.to_owned(),
-        table: Some(DogTable::from(table)),
+        table: changed.project.map(DogTable::from),
     };
     send(client, request, |r| {
         matches!(r, Response::SheepDogSettingsSet { .. })
     })
     .await?;
-    Ok(vec![format!(
-        "project {name}: {key} = {shown}; a running runner takes it at its next wake"
-    )])
+    let reaches = match waits_for_start(key) {
+        true => "a running runner takes it when it next starts",
+        false => "a running runner takes it at its next wake",
+    };
+    Ok(vec![format!("project {name}: {key} = {shown}; {reaches}")])
+}
+
+// Whether a runner keeps the value it started with: its reread leaves these until a start.
+fn waits_for_start(key: &str) -> bool {
+    matches!(key, "git" | "git.checkout" | "git.remote" | "hooks") || key.starts_with("hooks.")
+}
+
+// The settings in `tables`, when they pass the checks a runner makes of them as it
+// starts and rereads that need only the files: its agents, reviewers, rulings,
+// gateways, skills and instructions.
+fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Settings, String> {
+    let paths = place.paths;
+    let invalid = |e: SettingsError| e.to_string();
+    let loaded = source::load(tables, name.as_str(), place.home, &paths.folder).map_err(invalid)?;
+    let settings = loaded.settings;
+    let book = Agents::load(&paths.agents).map_err(|e| e.to_string())?;
+    let agents = settings.role_agents(&book).map_err(invalid)?;
+    let lineup = settings.lineup(&book, place.home).map_err(invalid)?;
+    if let Some(reason) = settings.rulings.refusal() {
+        let setting = "rulings.pm_alone";
+        return Err(invalid(SettingsError::Invalid { setting, reason }));
+    }
+    check_gateways(&loaded.kelpie.gateways(), &book, &agents, &lineup).map_err(invalid)?;
+    crate::skills::check(&settings.skills, &paths.skills).map_err(invalid)?;
+    crate::runner::check_instructions(&settings).map_err(invalid)?;
+    Ok(settings)
 }
 
 async fn table_of_project(
@@ -89,9 +135,11 @@ async fn table_of_project(
     name: &ProjectName,
 ) -> Result<Map<String, Value>, String> {
     let tables = shepherd::read_tables_with(client, name.as_str()).await?;
-    tables.project.ok_or_else(|| {
-        format!("project {name} has no settings: `shep kelpie add {name}` registers it")
-    })
+    tables.project.ok_or_else(|| no_table(name))
+}
+
+fn no_table(name: &ProjectName) -> String {
+    format!("project {name} has no settings: `shep kelpie add {name}` registers it")
 }
 
 // `text` as a TOML value, or as a string where it is not one. A date is text too.

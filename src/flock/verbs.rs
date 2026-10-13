@@ -256,10 +256,10 @@ async fn run(shep_home: &Path, command: &str, args: &[String]) -> Result<Vec<Str
         ("get", [] | [_]) => set::get(&client, &project().await?, args.first().copied()).await,
         ("set", [key, value]) => {
             let name = project().await?;
-            let folder = ProjectPaths::under(&kelpie_home, shep_home, &name).folder;
+            let paths = ProjectPaths::under(&kelpie_home, shep_home, &name);
             let place = set::Place {
                 home: &home,
-                folder: &folder,
+                paths: &paths,
             };
             set::set(&client, &name, place, key, value).await
         }

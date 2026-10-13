@@ -1,13 +1,17 @@
+use std::path::PathBuf;
+
 use shep_client::shep_core::config::{AppConfig, DogTable};
 
 use super::*;
+use crate::runner::ProjectPaths;
 use crate::settings::table_of;
 use crate::shepherd;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
 
 const TABLE: &str = r#"
 [git]
-checkout = "/work/koji"
+checkout = "CHECKOUT"
+remote = "REMOTE"
 merging = "ask"
 issues = "ask"
 
@@ -24,7 +28,7 @@ per_item_usd = 10
 
 [agents]
 implementers = ["sonnet-high"]
-reviewers = ["qwen"]
+reviewers = ["standards"]
 
 [pacing]
 enabled = true
@@ -37,34 +41,64 @@ guard_hooks = []
 turn_timeout = 60
 "#;
 
-/// A flock holding the runner `koji` with `TABLE`, and `rotom` with none
+/// A flock holding the runners `koji` and `eevee`, each with `TABLE` and a git
+/// checkout of its own, and `rotom` with no table
 struct Scene {
     shepherd: FakeShepherd,
-    name: ProjectName,
+    checkouts: [PathBuf; 2],
+}
+
+// A git checkout under `shepherd`'s scratch home whose `origin` is `remote` on GitHub.
+fn checkout(shepherd: &FakeShepherd, folder: &str, remote: &str) -> PathBuf {
+    let root = shepherd.scratch(folder);
+    let url = format!("https://github.com/{remote}.git");
+    for args in [
+        vec!["init", "-q"],
+        vec!["remote", "add", "origin", url.as_str()],
+    ] {
+        let status = crate::flock::git_in(&root).args(args).status().unwrap();
+        assert!(status.success());
+    }
+    root
 }
 
 impl Scene {
     async fn new() -> Self {
         let shepherd = FakeShepherd::new().await;
-        let mut koji = AppConfig::minimal("koji", "/opt/kelpie");
-        koji.dogs
-            .insert(DOG.to_owned(), DogTable::from(table_of(TABLE).unwrap()));
-        shepherd.holds(koji, false);
+        let checkouts = [
+            checkout(&shepherd, "koji-checkout", "shep-pm/koji"),
+            checkout(&shepherd, "eevee-checkout", "shep-pm/eevee"),
+        ];
+        for (name, root) in ["koji", "eevee"].into_iter().zip(&checkouts) {
+            let text = TABLE
+                .replace("CHECKOUT", &root.display().to_string())
+                .replace("REMOTE", &format!("shep-pm/{name}"));
+            let mut runner = AppConfig::minimal(name, "/opt/kelpie");
+            let table = DogTable::from(table_of(&text).unwrap());
+            runner.dogs.insert(DOG.to_owned(), table);
+            shepherd.holds(runner, false);
+        }
         shepherd.holds(AppConfig::minimal("rotom", "/opt/kelpie"), false);
         Self {
             shepherd,
-            name: ProjectName::try_from("koji").unwrap(),
+            checkouts,
         }
     }
 
     async fn set(&self, key: &str, value: &str) -> Result<Vec<String>, String> {
+        self.set_on("koji", key, value).await
+    }
+
+    async fn set_on(&self, name: &str, key: &str, value: &str) -> Result<Vec<String>, String> {
         let client = shepherd::connect(self.shepherd.home()).await.unwrap();
         let home = self.shepherd.scratch("home");
+        let name = ProjectName::try_from(name).unwrap();
+        let paths = ProjectPaths::under(&home.join("kelpie"), self.shepherd.home(), &name);
         let place = Place {
             home: &home,
-            folder: &home,
+            paths: &paths,
         };
-        let done = set(&client, &self.name, place, key, value);
+        let done = set(&client, &name, place, key, value);
         tokio::time::timeout(CALL_PATIENCE, done)
             .await
             .expect("set neither ended nor failed in time")
@@ -195,14 +229,8 @@ async fn get_of_a_key_the_table_does_not_set_is_refused_naming_it() {
 #[tokio::test]
 async fn a_project_with_no_table_is_refused_pointing_at_add() {
     let mut scene = Scene::new().await;
-    let home = scene.shepherd.scratch("home");
-    let rotom = ProjectName::try_from("rotom").unwrap();
-    let client = shepherd::connect(scene.shepherd.home()).await.unwrap();
-    let place = Place {
-        home: &home,
-        folder: &home,
-    };
-    let refused = set(&client, &rotom, place, "git.merging", "auto")
+    let refused = scene
+        .set_on("rotom", "git.merging", "auto")
         .await
         .unwrap_err();
     assert!(refused.contains("shep kelpie add rotom"), "{refused}");
@@ -211,4 +239,66 @@ async fn a_project_with_no_table_is_refused_pointing_at_add() {
     let refused = scene.get("absent", None).await.unwrap_err();
     assert!(refused.contains("shep kelpie add absent"), "{refused}");
     assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn a_table_the_runner_would_refuse_to_run_is_refused_and_nothing_is_written() {
+    let mut scene = Scene::new().await;
+    let before = scene.table();
+    for (key, value, reason) in [
+        ("rulings.pm_alone", r#"["merge"]"#, "pm_alone"),
+        ("agents.reviewers", r#"["no-such-agent"]"#, "no-such-agent"),
+        ("agents.implementers", "[]", "implementers"),
+    ] {
+        let refused = scene.set(key, value).await.unwrap_err();
+        assert!(refused.contains(reason), "{key}: {refused}");
+    }
+    assert_eq!(scene.shepherd.writes(), []);
+    assert_eq!(scene.table(), before);
+}
+
+#[tokio::test]
+async fn a_checkout_or_repo_another_project_runs_is_refused_and_nothing_is_written() {
+    let mut scene = Scene::new().await;
+    let koji = scene.checkouts[0].display().to_string();
+    for (key, value) in [
+        ("git.checkout", koji.as_str()),
+        ("git.remote", "shep-pm/koji"),
+    ] {
+        let refused = scene.set_on("eevee", key, value).await.unwrap_err();
+        assert!(
+            refused.contains("project `koji` already runs"),
+            "{key}: {refused}"
+        );
+    }
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn a_checkout_that_is_not_a_git_work_tree_is_refused() {
+    let mut scene = Scene::new().await;
+    let nowhere = scene.shepherd.home().join("nowhere");
+    let refused = scene
+        .set("git.checkout", &nowhere.display().to_string())
+        .await
+        .unwrap_err();
+    assert!(refused.contains("is not a folder"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+}
+
+#[tokio::test]
+async fn a_checkout_moved_to_one_no_other_project_runs_is_written_and_waits_for_a_start() {
+    let scene = Scene::new().await;
+    let spare = checkout(&scene.shepherd, "spare", "shep-pm/spare");
+    let said = scene
+        .set("git.checkout", &spare.display().to_string())
+        .await
+        .unwrap();
+    assert!(said[0].ends_with("when it next starts"), "{said:?}");
+    assert_eq!(
+        scene.table()["git"]["checkout"],
+        spare.display().to_string()
+    );
+    let said = scene.set("git.merging", "auto").await.unwrap();
+    assert!(said[0].ends_with("at its next wake"), "{said:?}");
 }
