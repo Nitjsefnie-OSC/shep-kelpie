@@ -168,18 +168,25 @@ impl Runner {
     /// Who holds each lease the project's local agents take, for `status`
     ///
     /// A lock a lease names is shown by its name. A model behind a gateway is
-    /// shown by its own name, with the holder of the gateway's lease on it.
+    /// shown by its own name, with the holder of the gateway's lease on it,
+    /// or as `model@gateway` when that name is a lock's or another
+    /// gateway's model's, so no holder hides another.
     pub(super) fn local_leases(&self) -> BTreeMap<String, Option<LeaseHolder>> {
         let locks = self.spent_limits().filter_map(Limit::lease).map(|lease| {
             let holder = self.ports.local_leases.holder(lease);
             (lease.as_str().to_owned(), holder.map(LeaseHolder::Lock))
         });
-        let leases = self.gateway_models().into_iter().map(|(gateway, model)| {
-            let holder = self.gateways.upstream(&ModelHost::Gateway(gateway)).ok();
-            let holder = holder.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
-            (model, holder.map(LeaseHolder::Paddock))
-        });
-        locks.chain(leases).collect()
+        let mut shown: BTreeMap<String, Option<LeaseHolder>> = locks.collect();
+        for (gateway, model) in self.gateway_models() {
+            let name = match shown.contains_key(&model) {
+                true => format!("{model}@{gateway}"),
+                false => model.clone(),
+            };
+            let up = self.gateways.upstream(&ModelHost::Gateway(gateway)).ok();
+            let holder = up.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
+            shown.insert(name, holder.map(LeaseHolder::Paddock));
+        }
+        shown
     }
 
     // Each model the project's local agents call behind a gateway, once.

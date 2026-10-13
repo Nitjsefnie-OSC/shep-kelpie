@@ -261,6 +261,19 @@ fn take_holds_the_lease_past_its_own_exit_until_return() {
         text(&again.stdout)
     );
 
+    let other = s
+        .kelpie(&["lease", "take", "gpu", "--model", "llama"])
+        .output()
+        .unwrap();
+    assert_eq!(other.status.code(), Some(1));
+    assert!(
+        text(&other.stderr).contains("held for you by pid")
+            && text(&other.stderr).contains("qwen3"),
+        "{}",
+        text(&other.stderr)
+    );
+    assert_eq!(s.take_record(), Some((holder, "qwen3".into())));
+
     let back = s.kelpie(&["lease", "return", "gpu"]).output().unwrap();
     assert!(back.status.success(), "{}", text(&back.stderr));
     assert!(!alive(holder), "return left the holder running");

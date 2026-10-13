@@ -328,6 +328,26 @@ fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
     );
 }
 
+#[test]
+fn a_gateway_model_named_like_a_lock_is_shown_beside_it_not_over_it() {
+    let rig = Rig::new("rotom");
+    rig.write_agent("mine", BEHIND_PADDOCK);
+    rig.write_agent(
+        "locked",
+        &QWEN.replace("usage: none\n", "usage: none\nlease: coder\n"),
+    );
+    rig.implementers(&["sonnet-high", "mine", "locked"]);
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway =
+        "[gateways.paddock]\nurl = \"http://127.0.0.1:9\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    let shown: Vec<_> = status["local_leases"].as_object().unwrap().keys().collect();
+    assert_eq!(shown, ["coder", "coder@paddock"]);
+}
+
 // The runner for `named`'s rig, reopened once `change` has been made.
 fn reopened(rig: &Rig, runner: Mutex<Runner>, change: impl FnOnce()) -> Mutex<Runner> {
     drop(runner);

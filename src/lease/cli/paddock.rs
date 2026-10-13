@@ -79,6 +79,13 @@ fn read_record() -> Option<Taken> {
 /// Holds `model` for the maintainer until `return`, and says so
 pub(super) fn take(shep: &str, model: &str) -> Result<(), String> {
     if let Some(taken) = read_record().filter(|t| gpu::alive(t.pid)) {
+        if taken.model != model {
+            return Err(format!(
+                "the GPU lease on {} is held for you by pid {}, not {model}: \
+                 `shep kelpie lease return gpu` first",
+                taken.model, taken.pid
+            ));
+        }
         println!(
             "shep kelpie lease: the GPU lease on {} is already held for you by pid {}",
             taken.model, taken.pid
