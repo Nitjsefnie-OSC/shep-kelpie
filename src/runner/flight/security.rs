@@ -39,6 +39,18 @@ impl Securing {
     }
 }
 
+impl super::Flights {
+    /// Whether a contribution's head is being read for security
+    pub(in crate::runner) fn securing(&self) -> bool {
+        self.securing.is_some()
+    }
+
+    /// The number of the contribution a security review was last started on
+    pub(in crate::runner) fn security_cursor(&self) -> u64 {
+        self.security_cursor
+    }
+}
+
 impl Runner {
     /// Starts reading `job`'s head on a thread of its own, ended past its
     /// ceiling, whose verdict comes back as news

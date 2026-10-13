@@ -109,21 +109,6 @@ impl Flights {
         self.labelling.as_ref().map(|l| l.issue)
     }
 
-    /// Whether a contribution's head is being read for security
-    pub(super) fn securing(&self) -> bool {
-        self.securing.is_some()
-    }
-
-    /// The number of the contribution a security review was last started on
-    pub(super) fn security_cursor(&self) -> u64 {
-        self.security_cursor
-    }
-
-    /// Whether a security review is in flight, for the drain's ceiling
-    pub(super) fn security_running(&self) -> bool {
-        self.securing.is_some()
-    }
-
     /// Whether `issue`'s work item has a call in flight
     /// A worker's vote on a ruling counts, since it runs in the work item's session
     pub(super) fn flying(&self, issue: u64) -> bool {

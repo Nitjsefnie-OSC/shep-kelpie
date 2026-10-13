@@ -77,8 +77,7 @@ impl Runner {
         }
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
         let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
-        let securing =
-            (self.flights.security_running()).then_some(super::flight::security::CEILING);
+        let securing = (self.flights.securing()).then_some(super::flight::security::CEILING);
         let retro = self
             .flights
             .retro_running()
