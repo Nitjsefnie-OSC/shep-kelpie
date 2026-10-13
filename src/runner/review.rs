@@ -357,6 +357,9 @@ impl Runner {
                 }
                 // A fix that moved the head answers the bot threads it was sent, by what the worker said.
                 Ok(now) => {
+                    if let Some(reason) = self.record_pushed_disputes(&review, sent)? {
+                        return Ok(self.gate_failed(reason));
+                    }
                     match self.answer_sent(number, true)? {
                         Answered::Done => {}
                         Answered::Retry(reason) => return Ok(self.gate_failed(reason)),

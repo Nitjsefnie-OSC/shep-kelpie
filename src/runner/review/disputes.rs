@@ -176,6 +176,38 @@ pub(in crate::runner) fn mark_shown(item: &mut WorkItem) {
 }
 
 impl Runner {
+    // What a fix turn that moved the head disputed, kept for the next reader
+    // as one that pushed nothing keeps it. A bot's thread is answered by the
+    // worker's lines then, so none is recorded here.
+    pub(super) fn record_pushed_disputes(
+        &mut self,
+        review: &Review,
+        sent: Sent<'_>,
+    ) -> Result<Option<String>, StateError> {
+        let item = self.current().expect("a fix is a work item's");
+        let (build, round) = (item.build.clone(), review.round);
+        let already = item.disputes.clone();
+        let answers = match answers(&build, sent, round, &already) {
+            Ok(answers) => answers,
+            Err(reason) => return Ok(Some(reason)),
+        };
+        let settled = Settled {
+            deferred: 0,
+            disputed: answers.disputed,
+        };
+        if settled.disputed.is_empty() {
+            return Ok(None);
+        }
+        let Unfixed::Disputed { mut disputes, .. } = self.disputed_by(review, sent, settled) else {
+            unreachable!("disputes are what `disputed_by` makes");
+        };
+        for raised in &mut disputes {
+            raised.thread = None;
+        }
+        self.update(|item| record(item, &disputes))?;
+        Ok(None)
+    }
+
     // What `settled` found, as the fix turn's outcome: each dispute with who
     // raised it and, for a bot's finding, its thread, which `threads_sent`
     // lists in the order the findings were sent.
@@ -205,7 +237,8 @@ impl Runner {
 impl Runner {
     /// Posts the disputes no reviewer was shown on pull request `number` as
     /// one comment, as the App where one covers the repo, and says where they
-    /// are for the merge ruling; none when the worker disputed nothing
+    /// are for the merge ruling; none when the worker disputed nothing, and
+    /// why not when the comment could not be posted, for the step to try again
     ///
     /// # Errors
     ///
@@ -213,11 +246,11 @@ impl Runner {
     pub(in crate::runner) fn post_disputes(
         &mut self,
         number: u64,
-    ) -> Result<Option<String>, StateError> {
+    ) -> Result<Result<Option<String>, String>, StateError> {
         let item = self.current().expect("a dispute is a work item's");
         let unshown: Vec<&Dispute> = item.disputes.iter().filter(|d| !d.shown).collect();
         if unshown.is_empty() {
-            return Ok((item.disputes_comment).map(|id| told(None, number, id)));
+            return Ok(Ok((item.disputes_comment).map(|id| told(None, number, id))));
         }
         let body = comment(&unshown);
         let count = unshown.len();
@@ -231,18 +264,12 @@ impl Runner {
                     mark_shown(item);
                     item.disputes_comment = Some(id);
                 })?;
-                Ok(Some(told(Some(count), number, id)))
+                Ok(Ok(Some(told(Some(count), number, id))))
             }
-            Err(e) => {
-                self.notes.push(format!(
-                    "cannot post the worker's disputes on #{number}: {e}"
-                ));
-                Ok(Some(format!(
-                    "The worker disputed {}, and kelpie could not post them on #{number}, so \
-                     they are in the state file only.",
-                    findings_of(count)
-                )))
-            }
+            Err(e) => Ok(Err(format!(
+                "cannot post the worker's {} disputes on #{number}: {e}",
+                findings_of(count)
+            ))),
         }
     }
 }
@@ -292,6 +319,8 @@ use std::sync::Mutex;
 #[cfg(test)]
 use serde_json::json;
 
+#[cfg(test)]
+use crate::github::ApiError;
 #[cfg(test)]
 use crate::ports::{AgentError, Checks, Severity};
 #[cfg(test)]
@@ -734,4 +763,82 @@ fn a_finding_disputed_a_second_time_and_deferred_still_parks_on_fix_not_pushed()
     );
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["rulings"][0]["kind"]["reason"], "fix-not-pushed");
+}
+
+// Round 1 found `found()`; the worker's fix turn pushes and disputes it too, as the
+// instructions let it; round 2's reader is about to read the head it pushed.
+#[cfg(test)]
+fn disputed_in_a_fix_that_pushed() -> (Rig, Mutex<Runner>) {
+    let (rig, runner) = findings_sent();
+    dispute(&rig, &format!("{FOUND_LINE}{REASON}"));
+    rig.claude.script([Scripted::Push("fixed.txt", "fixed\n")]);
+    step(&runner).unwrap(); // the fix turn pushes
+    step(&runner).unwrap(); // the fix turn ends: round 2 is next
+    (rig, runner)
+}
+
+#[test]
+fn a_dispute_made_in_a_fix_that_pushed_is_shown_to_the_next_reviewer() {
+    let (rig, runner) = disputed_in_a_fix_that_pushed();
+
+    rig.claude.script([Scripted::Text(crate::ports::CLEAN)]);
+    step(&runner).unwrap(); // round 2, claude
+    let prompt = rig.claude.all_calls().pop().unwrap().prompt;
+
+    assert!(
+        prompt.contains(REASON.trim()),
+        "the worker's reason: {prompt}"
+    );
+}
+
+#[test]
+fn a_dispute_a_pushing_fix_made_is_not_an_answer_to_the_next_round() {
+    let (rig, runner) = disputed_in_a_fix_that_pushed();
+    rig.claude.script([Scripted::Text(FOUND_LINE)]);
+    step(&runner).unwrap(); // round 2, claude raises it again
+    step(&runner).unwrap(); // the finding goes to the worker again
+    rig.claude.script([Scripted::Say("Nothing to add.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed, the files untouched
+
+    let report = step(&runner).unwrap();
+
+    assert!(
+        matches!(report, Some(StepReport::Ruling { .. })),
+        "{report:?}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"][0]["kind"]["reason"], "fix-not-pushed");
+}
+
+#[test]
+fn disputes_that_cannot_be_posted_hold_an_auto_merge() {
+    let rig = Rig::new("shep");
+    rig.with_app();
+    rig.merge_auto();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    rig.claude.script([Scripted::Text(FOUND_LINE)]);
+    step(&runner).unwrap(); // round 2, claude, the last reviewer, finds it
+    step(&runner).unwrap(); // the finding goes to the worker
+    dispute(&rig, &format!("{FOUND_LINE}{REASON}"));
+    rig.claude.script([Scripted::Say("The finding is wrong.")]);
+    step(&runner).unwrap(); // the fix turn ends with nothing pushed
+    step(&runner).unwrap(); // the dispute is taken: no reviewer is left
+    rig.github.refuse_comments(ApiError::Refused(502));
+
+    rig.ci_on_now(&runner);
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    let report = rig.verdict(&runner);
+
+    assert!(
+        matches!(report, Some(StepReport::GateFailed { .. })),
+        "{report:?}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"]["state"], "ci");
 }

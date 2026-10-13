@@ -149,7 +149,10 @@ impl Runner {
         if let Some(begin) = self.talk_turn(&At::Ci(head.clone()))? {
             return Ok(begin);
         }
-        let disputes = self.post_disputes(number)?;
+        let disputes = match self.post_disputes(number)? {
+            Ok(disputes) => disputes,
+            Err(reason) => return Ok(self.gate_failed(reason)),
+        };
         let unreviewed = self.current().and_then(|item| item.unreviewed.clone());
         let unread_head = self.current().is_some_and(|item| !item.vouches_for(&head));
         let open = match self.threads_open(number) {

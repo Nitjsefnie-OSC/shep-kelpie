@@ -184,7 +184,9 @@ pub(in crate::runner) fn write_findings_file(
             f.why
         ));
     }
-    turn::write(folder, path, &text)
+    turn::write(folder, path, &text)?;
+    // Lines an earlier round's worker left there answer nothing in this one.
+    turn::write(folder, &disputed, "")
 }
 
 // What the worker is asked to end its reply with when the findings are a
