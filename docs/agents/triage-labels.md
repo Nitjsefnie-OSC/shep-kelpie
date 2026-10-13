@@ -13,3 +13,17 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+## Priority
+
+Every issue gets one `priority:` label. The board takes `P0` first and `P4` last, then an issue with none.
+
+| Label          | Meaning                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `priority: P0` | An emergency that jumps the line: a runner is down, or kelpie is doing damage. Normally empty                                              |
+| `priority: P1` | Keeps kelpie running without the maintainer stepping in: stalls, a turn or wake that never comes, rate-limit stalls, parents left open     |
+| `priority: P2` | Performance: the same result for fewer tokens, less wall-clock, fewer GitHub requests or fewer CI rounds                                   |
+| `priority: P3` | Bugs and docs                                                                                                                              |
+| `priority: P4` | Features                                                                                                                                   |
+
+A parent takes the priority of its most urgent open slice. When an issue fits two rows, it takes the higher one.
