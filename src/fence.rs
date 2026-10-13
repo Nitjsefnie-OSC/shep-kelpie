@@ -205,6 +205,49 @@ pub fn differ(
     accepted: Option<&str>,
 ) -> Result<Vec<String>, WorktreeError> {
     let disk = on_disk(worktree)?;
+    let hashes = hashed(repo, &disk)?;
+    let main = format!("origin/{BASE}");
+    let head = worktree::head(repo, worktree)?;
+    let base = git(repo, ["merge-base", &head, &main])?;
+    let mut first = None;
+    for commit in [Some(main.as_str()), Some(base.as_str()), accepted]
+        .into_iter()
+        .flatten()
+    {
+        let trusted = in_commit(repo, commit)?;
+        let differing = compare(repo, &disk, &hashes, &trusted)?;
+        if differing.is_empty() {
+            return Ok(differing);
+        }
+        first.get_or_insert(differing);
+    }
+    Ok(first.unwrap_or_default())
+}
+
+/// Whether the harnesses' own files in `worktree` are exactly `origin/main`'s
+///
+/// Unlike [`differ`], a commit the branch left `main` at or a head the
+/// maintainer accepted does not count: a call in such a worktree loads
+/// `main`'s own files and nothing else. A folder that is no worktree matches
+/// when `main` holds no such files. Any error counts as a mismatch.
+pub fn matches_main(repo: &Path, worktree: &Path) -> bool {
+    let Ok(disk) = on_disk(worktree) else {
+        return false;
+    };
+    let Ok(hashes) = hashed(repo, &disk) else {
+        return false;
+    };
+    let main = format!("origin/{BASE}");
+    in_commit(repo, &main)
+        .and_then(|trusted| compare(repo, &disk, &hashes, &trusted))
+        .is_ok_and(|differing| differing.is_empty())
+}
+
+// The blob id git gives each file on disk, byte for byte as it is.
+fn hashed(
+    repo: &Path,
+    disk: &BTreeMap<String, Disk>,
+) -> Result<BTreeMap<PathBuf, String>, WorktreeError> {
     let files: Vec<&PathBuf> = disk
         .values()
         .filter_map(|entry| match entry {
@@ -224,22 +267,7 @@ pub fn differ(
                 .zip(ids.lines().map(str::to_owned)),
         );
     }
-    let main = format!("origin/{BASE}");
-    let head = worktree::head(repo, worktree)?;
-    let base = git(repo, ["merge-base", &head, &main])?;
-    let mut first = None;
-    for commit in [Some(main.as_str()), Some(base.as_str()), accepted]
-        .into_iter()
-        .flatten()
-    {
-        let trusted = in_commit(repo, commit)?;
-        let differing = compare(repo, &disk, &hashes, &trusted)?;
-        if differing.is_empty() {
-            return Ok(differing);
-        }
-        first.get_or_insert(differing);
-    }
-    Ok(first.unwrap_or_default())
+    Ok(hashes)
 }
 
 // A fenced entry in the worktree, never followed if it is a link.
@@ -661,6 +689,27 @@ mod tests {
         git(&w.repo(), &["push", "--quiet", "origin", "main"]);
         git(&w.repo(), &["fetch", "--quiet", "origin"]);
         assert_eq!(w.differ(None), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_worktree_matches_main_only_when_its_files_are_origin_mains_now() {
+        let w = World::new();
+        assert!(matches_main(&w.repo(), &w.wt()));
+
+        // Cut before main changed its settings: it passes the check, but is not main's.
+        w.commit(&w.repo(), SETTINGS, "{\"model\":\"x\"}\n");
+        git(&w.repo(), &["push", "--quiet", "origin", "main"]);
+        git(&w.repo(), &["fetch", "--quiet", "origin"]);
+        assert!(!matches_main(&w.repo(), &w.wt()));
+
+        let w = World::new();
+        w.write(".claude/agents/a.md", "hi\n");
+        assert!(!matches_main(&w.repo(), &w.wt()));
+
+        // A folder with none of the files differs from a main that holds some.
+        let bare = w.root.join("bare");
+        fs::create_dir(&bare).unwrap();
+        assert!(!matches_main(&w.repo(), &bare));
     }
 
     #[test]

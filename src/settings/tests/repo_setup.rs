@@ -11,7 +11,7 @@ fn with(keys: &str) -> String {
 #[test]
 fn left_out_the_repos_plugins_reach_every_call() {
     let setup = parse(EXAMPLE).unwrap().repo_setup;
-    assert!(setup.plugins);
+    assert!(setup.plugins && setup.own);
     for role in [
         Role::Worker,
         Role::Reviewer,
@@ -128,4 +128,11 @@ fn a_part_a_plugin_lacks_is_refused() {
         err.contains("skills, agents, commands, hooks or mcp"),
         "{err}"
     );
+}
+
+#[test]
+fn own_false_leaves_the_repos_own_files_out() {
+    let setup = parse(&with("own = false")).unwrap().repo_setup;
+    assert!(!setup.own);
+    assert!(setup.plugins);
 }
