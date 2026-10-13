@@ -843,6 +843,12 @@ impl Forge for FakeForge {
             .map_err(ForgeError::Failed)
     }
 
+    fn rerun_run(&self, _repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+        self.ask()?;
+        let mut ci = self.ci.lock().unwrap();
+        ci.rerun_of_run(run).map_err(ForgeError::Failed)
+    }
+
     fn mark_ready(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.ask()?;
         self.opened(number)?;

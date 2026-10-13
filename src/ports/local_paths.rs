@@ -298,6 +298,10 @@ impl Forge for Guarded {
         self.forge.rerun_failed(repo, head)
     }
 
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+        self.forge.rerun_run(repo, run)
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.mark_ready(repo, number)
     }

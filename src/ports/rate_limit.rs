@@ -435,6 +435,10 @@ impl Forge for RateHeld {
         self.call(Kind::RerunFailed, |f| f.rerun_failed(repo, head))
     }
 
+    fn rerun_run(&self, repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+        self.call(Kind::RerunRun, |f| f.rerun_run(repo, run))
+    }
+
     fn mark_ready(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(Kind::MarkReady, |f| f.mark_ready(repo, number))
     }
