@@ -162,6 +162,7 @@ impl Runner {
                 }
             }
         }
+        self.read_main_ci()?;
         Ok(waiting.map_or(Begin::Idle, Begin::Report))
     }
 

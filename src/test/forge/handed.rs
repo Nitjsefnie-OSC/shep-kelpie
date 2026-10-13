@@ -29,6 +29,8 @@ pub(super) struct CiRuns {
     branch_runs: HashMap<String, Vec<BranchRun>>,
     // Why listing a branch's runs fails
     branch_runs_error: Option<String>,
+    // How many times a branch's runs were listed
+    branch_runs_reads: usize,
     // The end of each run's failed log, by run id
     run_logs: HashMap<u64, String>,
 }
@@ -90,6 +92,11 @@ impl FakeForge {
         self.ci.lock().unwrap().branch_runs_error = Some(error.to_owned());
     }
 
+    /// How many times a branch's runs were listed, failed lists included
+    pub(crate) fn branch_runs_reads(&self) -> usize {
+        self.ci.lock().unwrap().branch_runs_reads
+    }
+
     /// Makes the failed log of run `run` end in `tail`
     pub(crate) fn set_run_log_tail(&self, run: u64, tail: &str) {
         self.ci
@@ -101,7 +108,8 @@ impl FakeForge {
 
     /// The runs `branch` lists: none for a branch no test scripted
     pub(super) fn branch_runs_of(&self, branch: &str) -> Result<Vec<BranchRun>, String> {
-        let ci = self.ci.lock().unwrap();
+        let mut ci = self.ci.lock().unwrap();
+        ci.branch_runs_reads += 1;
         match &ci.branch_runs_error {
             Some(error) => Err(error.clone()),
             None => Ok(ci.branch_runs.get(branch).cloned().unwrap_or_default()),

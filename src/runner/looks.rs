@@ -30,6 +30,13 @@ use crate::state::ProjectState;
 /// instead of asking for each pull request.
 pub const BOARD_POLL: Duration = Duration::from_secs(60);
 
+/// How often the latest runs of `main`'s workflows are read, however often the
+/// loop wakes
+///
+/// A read is one `gh` call, four an hour, and a red `main` does not change
+/// faster than a CI run takes.
+pub const MAIN_CI_POLL: Duration = Duration::from_secs(15 * 60);
+
 /// Seconds a failed step waits before it runs again
 const RETRY_FIRST: u64 = 15;
 
@@ -52,6 +59,8 @@ pub(super) struct Looks {
     retries: BTreeMap<Slot, (u32, Timestamp)>,
     // How many writes of kelpie's the forge had taken when the last pass began
     writes_seen: u64,
+    // When the workflows on `main` are read next, and the reads that failed in a row
+    main_ci: Option<(u32, Timestamp)>,
 }
 
 impl Looks {
@@ -66,6 +75,25 @@ impl Looks {
         }
         self.dropped_read = Some(now);
         true
+    }
+
+    /// Whether `main`'s workflows are due a read at `now`
+    pub(super) fn main_ci_due(&self, now: Timestamp) -> bool {
+        self.main_ci.is_none_or(|(_, at)| now >= at)
+    }
+
+    /// Records that `main`'s workflows were read at `now`, which `read` says
+    /// went well or not, with the forge held until `held`: the next read is
+    /// a [`MAIN_CI_POLL`] on, or after a failure the wait any failed step has
+    pub(super) fn main_ci_read(&mut self, now: Timestamp, read: bool, held: Option<Timestamp>) {
+        let failures = self.main_ci.map_or(0, |(n, _)| n);
+        self.main_ci = Some(if read {
+            (0, Timestamp(now.0.saturating_add(MAIN_CI_POLL.as_secs())))
+        } else {
+            let wait = backoff(RETRY_FIRST, failures + 1, RETRY_MAX);
+            let at = Timestamp(now.0.saturating_add(wait)).max(held.unwrap_or(now));
+            (failures + 1, at)
+        });
     }
 
     /// Whether `slot`'s step may run at `now`

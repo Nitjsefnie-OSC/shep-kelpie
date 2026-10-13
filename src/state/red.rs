@@ -1,0 +1,22 @@
+//! A workflow that is red on `main`
+
+use serde::{Deserialize, Serialize};
+
+use crate::ports::Timestamp;
+
+/// A workflow whose latest completed run on `main` failed
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedWorkflow {
+    /// The workflow's name
+    pub workflow: String,
+    /// The forge's id for the first red run since the workflow last was green
+    pub first_run: u64,
+    /// The forge's id for its latest red run
+    pub run: u64,
+    /// The commit the latest red run ran on
+    pub head: String,
+    /// When the first red run was created, so how long it has been red
+    pub since: Timestamp,
+}
