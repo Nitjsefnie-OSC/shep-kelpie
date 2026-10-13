@@ -17,9 +17,11 @@ fn kelpies_issue_writer_is_opus_at_medium_with_its_rules_as_its_prompt() {
     assert_eq!(super::limit(writer), &Limit::Account(Account::Claude));
     let prompt = writer.prompt.as_deref().unwrap();
     for rule in [
-        "split only where each piece works, tests and ships on its own",
-        "Never cut a piece short to keep it small",
-        "Most requests stay whole",
+        "One issue is one pull request that works, tests and ships on its own",
+        "Split a request into the smallest such pieces",
+        "Never cut a piece short to look small",
+        "`Touches:` line",
+        "only after its links are in",
         "## Acceptance criteria",
         "Exactly one `agent:<name>` label",
     ] {

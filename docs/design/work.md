@@ -14,7 +14,7 @@ Projects, the board, work items, slots, issue writer, project manager.
 ## Board and items
 
 - Tracker: GitHub Issues + `ready-for-agent`; board of work items lives in kelpie (maintainer triages where they already work). `src/board.rs`
-- Issue writer: `role: issue-writer`, Claude Code only, Opus 5.5 at medium. Scopes or splits each request to one PR, labels `agent:<name>`; body asks for self-contained pieces + acceptance criteria, never mentions cost. No planning call (plans no better, shared plans spread bugs). ADR 0006, #324, `agents/issue-writer.md`
+- Issue writer: `role: issue-writer`, Claude Code only, Opus 5.5 at medium. Splits each request into the smallest pieces that ship alone (default since 2026-10-12), labels `agent:<name>` and priority; each piece has `Touches:`, concrete files, named tests, status label after its links, never mentions cost. No planning call (plans no better, shared plans spread bugs). ADR 0006, #324, `agents/issue-writer.md`
 - `shep kelpie issue "<request>"`: headless, fresh `origin/main`, files `ready-for-human`; fails on issue missing criteria or labels; no lamb, unpaced (command waits on it). `src/issues.rs`
 - `--interactive`: `claude` with no `allow` rule (maintainer approves each command outsider issue text could steer), files `ready-for-agent`. `src/issues.rs`
 - Issue-writer guard: allow-list of `gh issue` reads, creates, label/link edits on issues it filed; no shell syntax, no git (git options too wide for deny-list). `src/guard/issues.rs`

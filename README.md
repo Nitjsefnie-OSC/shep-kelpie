@@ -290,7 +290,7 @@ shep kelpie finish
 
 ### Writing issues
 
-The issue writer turns a request into issues an agent can build from. It reads the repo, scopes the request to one pull request's worth, or splits it where each piece works, tests and ships on its own (most requests stay whole), writes acceptance criteria into every issue, and labels each `agent:<name>` with one of the project's implementers.
+The issue writer turns a request into issues an agent can build from. It reads the repo, scopes the request to one pull request's worth, or splits it into the smallest pieces that each work, test and ship on its own, writes acceptance criteria into every issue, and labels each `agent:<name>` with one of the project's implementers.
 
 ```sh
 shep kelpie issue "let a project be paused from lookout"
