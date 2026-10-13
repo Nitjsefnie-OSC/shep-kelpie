@@ -235,10 +235,11 @@ impl Runner {
     }
 
     // Whether `ruling` needs a panel that has not been taken up: it has no
-    // votes, lists two options or more, no hold of the project manager's is
-    // still on it, and its comment is still to be posted, since one posted
-    // without the votes is not edited to hold them and a restart must not
-    // ask the experts again for a vote nobody would see.
+    // votes, lists two options or more, the project manager has not been asked
+    // it within its last wake (a drain does not undo that), and its comment is
+    // still to be posted, since one posted without the votes is not edited to
+    // hold them and a restart must not ask the experts again for a vote nobody
+    // would see.
     fn panel_wants(&self, ruling: &Ruling) -> bool {
         let posted = ruling.alerted || self.state.heard.contains_key(&ruling.id);
         ruling.panel.is_none()
@@ -246,7 +247,7 @@ impl Runner {
             && ruling.unposted
             && !posted
             && !self.panel.open.contains_key(&ruling.id)
-            && !self.pm_holds_ruling(ruling.id)
+            && !self.pm_has_asked(ruling.id)
             && super::voice::brief(ruling).1 >= 2
     }
 

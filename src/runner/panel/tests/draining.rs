@@ -8,7 +8,10 @@ use super::{name_panel, ruling_comment, script_all, seen, settle, state_of};
 use crate::ports::{Checks, Role};
 use crate::runner::panel::HOLD;
 use crate::runner::{Runner, StepReport, step};
-use crate::test::Rig;
+use crate::test::{Rig, Scripted};
+
+const QUESTION: &str = "Done so far.\n\n<kelpie-question>\nWhich flag?\n- `--dry-run`\n\
+                        - `--check`\n</kelpie-question>\n";
 
 /// A merge ruling raised on pull request 71 by a runner that drains
 fn raised_in_a_drain(project: &str) -> (Rig, Mutex<Runner>) {
@@ -129,4 +132,39 @@ fn a_ruling_whose_alert_went_out_before_the_panel_took_it_up_is_posted_and_says_
         notes.contains("ruling 71: the panel skips it, since its comment had gone out"),
         "{notes}"
     );
+}
+
+#[test]
+fn a_question_put_to_the_project_manager_in_a_drain_is_left_to_it_and_not_taken_up_by_the_panel() {
+    let rig = Rig::new("snorlax");
+    rig.with_app();
+    rig.maintainer("octocat");
+    name_panel(&rig, true);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Say(QUESTION)]);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Asked { id: 71, .. })
+    ));
+    script_all(&rig, true);
+
+    rig.ask(&runner, "drain", None);
+    for _ in 0..4 {
+        step(&runner).unwrap();
+    }
+    rig.ask(&runner, "undrain", None);
+    for _ in 0..8 {
+        step(&runner).unwrap();
+        std::thread::yield_now();
+    }
+
+    assert!(seen(&rig, Role::Advisor).is_empty(), "the panel was asked");
+    assert!(
+        seen(&rig, Role::Researcher).is_empty(),
+        "the panel was asked"
+    );
+    let ruling = &state_of(&rig)["rulings"][0];
+    assert_eq!(ruling.get("panel"), None, "{ruling}");
 }
