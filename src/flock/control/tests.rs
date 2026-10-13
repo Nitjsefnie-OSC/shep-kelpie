@@ -63,8 +63,6 @@ fn asked(writes: &[Request]) -> Vec<String> {
         .collect()
 }
 
-// Real sockets under a real clock: a paused one would time out the
-// handshake while the fake's socket is merely waiting.
 #[tokio::test]
 async fn start_brings_up_the_runner_then_reaches_it() {
     let mut shepherd = FakeShepherd::new();

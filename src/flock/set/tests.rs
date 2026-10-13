@@ -119,8 +119,6 @@ impl Scene {
     }
 }
 
-// Real sockets under a real clock: a paused one would time out the
-// handshake while the fake's socket is merely waiting.
 #[tokio::test]
 async fn set_writes_a_word_and_a_list_and_get_shows_both() {
     let mut scene = Scene::new().await;
