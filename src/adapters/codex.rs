@@ -37,6 +37,7 @@ use crate::ports::{
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
+mod skills;
 
 #[cfg(test)]
 mod adopt_tests;
@@ -173,7 +174,8 @@ impl Agents for CodexCli {
                 AgentError::Setup(format!("cannot make {}: {}", folder.display(), e.kind()))
             })?;
         }
-        link_login(&self.login, &files.home)
+        link_login(&self.login, &files.home)?;
+        skills::link_skills(call, &files.home)
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
