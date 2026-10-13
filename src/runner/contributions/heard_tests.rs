@@ -288,18 +288,21 @@ fn the_record_keeps_the_last_fifty_things_said() {
 }
 
 #[test]
-fn a_comment_that_dropped_off_the_record_is_not_heard_again_within_the_slack() {
+fn a_reply_that_dropped_off_the_record_is_not_heard_again_within_the_slack() {
     let (rig, runner, _) = followed_30();
     let ids: Vec<u64> = (0..51)
         .map(|n| {
             rig.clock.advance(1);
-            rig.writes_on(30, "newcomer", &format!("comment {n}"))
+            let at = rig.clock.now();
+            (rig.forge.threads).writes_in_review(30, "newcomer", &format!("reply {n}"), at)
         })
         .collect();
     poll(&rig, &runner);
     let second = rig.push_by_hand("topic/30", "more.txt");
 
-    // The slack still reaches back to the first comments
+    // Review threads are read again from the slack behind the last read, so
+    // the first replies are asked for once more after the push is heard
+    poll(&rig, &runner);
     poll(&rig, &runner);
 
     let heard = listed(&rig, &runner, "heard");
