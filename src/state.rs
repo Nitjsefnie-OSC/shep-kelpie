@@ -6,11 +6,13 @@
 //! to a temporary file that is synced and then renamed over the old one, so
 //! a runner killed mid-write leaves the previous state whole.
 
+mod contributions;
 mod events;
 mod numbered;
 mod projects;
 mod removed;
 
+pub use contributions::Contribution;
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use projects::Projects;
 pub use removed::OldWorker;
@@ -32,7 +34,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 40 added a test check's `sent_back` and the `test-still-fails` stuck reason, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// The state file's format version. 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
@@ -47,7 +49,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 40;
+pub(crate) const VERSION: u32 = 41;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -120,6 +122,9 @@ pub struct ProjectState {
     /// Pull requests adopted and waiting for a free slot, oldest first
     #[serde(default)]
     pub adopted: Vec<Waiting>,
+    /// The pull requests from other people the board follows, oldest first
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contributions: Vec<Contribution>,
     /// Leases this project holds
     pub leases: Vec<LeaseHeld>,
     /// What the Claude account's week had spent when today began, once
@@ -219,6 +224,7 @@ impl ProjectState {
             history: Vec::new(),
             reworked: Vec::new(),
             adopted: Vec::new(),
+            contributions: Vec::new(),
             leases: Vec::new(),
             pacing: None,
             codex_pacing: None,
