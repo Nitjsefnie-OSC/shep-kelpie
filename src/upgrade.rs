@@ -368,7 +368,9 @@ fn fetch_source(scene: &Scene<'_>, source: &Source) -> Result<PathBuf, String> {
             }
             Ok(path.clone())
         }
-        Source::Ref(reference) => fetch::build_ref(&work, scene.repo, reference),
+        Source::Ref(reference) => {
+            fetch::build_ref(&work, scene.repo, reference, fetch::Limits::default())
+        }
         Source::Release(version) => fetch::download_release(&work, version),
     }
 }
