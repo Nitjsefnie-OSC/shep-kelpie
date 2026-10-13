@@ -2,8 +2,9 @@
 //!
 //! Every step kelpie drives an agent through names a skill, by default one
 //! from kelpie's vendored copy of mattpocock/skills. Each reaches Claude
-//! Code as a plugin folder passed with `--plugin-dir`, so an override is
-//! just another folder. A step whose skill cannot load runs kelpie's own
+//! Code as a plugin folder passed with `--plugin-dir`, and pi as that
+//! folder's `skills/` passed with `--skill`, so an override is just another
+//! folder. A step whose skill cannot load runs kelpie's own
 //! prompt instead, and the runner's log and `status` say why.
 //!
 //! Most steps start their prompt with the skill's slash command. `tests`

@@ -1,6 +1,6 @@
 # Agents
 
-Agent files, harnesses, gateways and spend by role. The runner loop, fence and skills are in workers.md.
+Agent files, harnesses, gateways and spend by role. The runner loop and fence are in workers.md, skills in skills.md.
 
 - Agent = `<name>.md`, YAML frontmatter tagged `role` + Markdown body; bad file stops runner naming file + line. serde-saphyr (serde_yaml archived). ADR 0006, #313
 - Embedded from `agents/`; home file overrides, `add` writes missing, reread each wake (edits land live). Item keeps its agent, runs the file as it is now. #313
