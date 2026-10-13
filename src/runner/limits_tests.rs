@@ -8,7 +8,7 @@ use crate::pacer::{HoldKind, RECHECK_SECS};
 use crate::ports::{CLEAN, Cost, MeterError, Role, Timestamp, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentHarness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{Hold, Rig, Scripted, StandInEndpoint};
 
 const CODEX: &str = "---\nrole: implementer\nharness: stand-in\nmodel: gpt-5-codex\n\
                      effort: medium\nusage: codex\n---\n";
@@ -289,6 +289,63 @@ fn a_local_turn_waits_while_a_review_round_holds_the_gpu() {
         turn.join().unwrap();
     });
     assert_eq!(rig.claude.calls().len(), 1);
+}
+
+// The gateway's key is read from `CARGO_PKG_NAME`, which `cargo test` sets for its tests.
+const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\neffort: low\n\
+                              gateway: paddock\ncontext: 65536\n---\n";
+
+#[test]
+fn status_shows_who_holds_the_paddock_lease_on_a_gateway_model() {
+    let server = StandInEndpoint::start([])
+        .like_paddock(env!("CARGO_PKG_NAME"), &["coder"])
+        .with_paddock_status(
+            r#"{"leases":[
+                {"id":"L3","client":"batch","model":"other","since":"2026-10-13T08:00:00Z","note":"not ours","revoked":null},
+                {"id":"L4","client":"maintainer","model":"coder","since":"2026-10-13T09:30:00Z","note":"shep kelpie lease run: cargo build","revoked":null}
+            ],"waiters":[]}"#,
+        );
+    let rig = Rig::new("rotom");
+    rig.write_agent("mine", BEHIND_PADDOCK);
+    rig.implementers(&["sonnet-high", "mine"]);
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway = format!(
+        "[gateways.paddock]\nurl = \"{}\"\nkey_env = \"CARGO_PKG_NAME\"\n",
+        server.host()
+    );
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["local_leases"],
+        json!({ "coder": {
+            "lease": "L4",
+            "client": "maintainer",
+            "what": "shep kelpie lease run: cargo build",
+            "since": "2026-10-13T09:30:00Z",
+        } })
+    );
+}
+
+#[test]
+fn a_gateway_model_named_like_a_lock_is_shown_beside_it_not_over_it() {
+    let rig = Rig::new("rotom");
+    rig.write_agent("mine", BEHIND_PADDOCK);
+    rig.write_agent(
+        "locked",
+        &QWEN.replace("usage: none\n", "usage: none\nlease: coder\n"),
+    );
+    rig.implementers(&["sonnet-high", "mine", "locked"]);
+    let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+    let gateway =
+        "[gateways.paddock]\nurl = \"http://127.0.0.1:9\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+    rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+    let runner = rig.open().unwrap();
+
+    let status = rig.ask(&runner, "status", None);
+    let shown: Vec<_> = status["local_leases"].as_object().unwrap().keys().collect();
+    assert_eq!(shown, ["coder", "coder@paddock"]);
 }
 
 // The runner for `named`'s rig, reopened once `change` has been made.
