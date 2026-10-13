@@ -6,18 +6,16 @@
 //! through `curl`, and each reply is read in the findings format. The agent
 //! file's body, if it has one, replaces what the prompt asks to report.
 //! A gateway's key reaches `curl` on its stdin, never in its arguments, and
-//! a round behind one holds the gateway's lease on its model across every chunk
-//! and asks for batch priority on each chunk's request.
-//! A server that answers busy is asked again until the call's deadline, and a
-//! reply cut off by its length limit while thinking is asked again as two
-//! halves of its chunk, so less is thought about at a time.
+//! a round behind one holds the gateway's lease on its model across every chunk.
+//! Each chunk's request asks for batch priority, names that lease so it takes
+//! the lease's own turn, and allows the wait the request's timeout allows.
 //! Requests and replies are kept under the round's folder, beside the
 //! `round-N.txt` and its completion marker a command would write.
 
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Stdio;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -80,15 +78,12 @@ const REPLY_SHARE: usize = 4;
 // the qwen-review script's own per-call timeout.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
 
-// How often a wait for a busy server looks for the runner stopping.
-const WAIT_STEP: Duration = Duration::from_millis(100);
-
-/// How many times a chunk whose reply was cut off is halved before the round fails
-const MAX_HALVINGS: u32 = 3;
-
 /// Seconds `curl` gets to connect, and to finish the start check
 pub(super) const CONNECT_TIMEOUT: &str = "10";
 pub(super) const CHECK_TIMEOUT: &str = "15";
+
+/// The seconds a gateway may hold a request for its turn: the request's own timeout
+const MAX_WAIT: &str = "1800";
 
 /// How much of a reply an error quotes
 const QUOTE: usize = 300;
@@ -137,7 +132,7 @@ impl LocalReviewer {
     ) -> Result<Vec<Finding>, ReviewerError> {
         let route = (self.gateways.route(&endpoint.host)).map_err(ReviewerError::Failed)?;
         let ending = Ending::default();
-        let chunked = || {
+        let chunked = |lease: Option<&str>| {
             self.chunked_round(
                 &route,
                 endpoint,
@@ -145,11 +140,11 @@ impl LocalReviewer {
                 base,
                 (out, round),
                 criteria,
-                &ending,
+                (&ending, lease),
             )
         };
         let ModelHost::Gateway(name) = &endpoint.host else {
-            return chunked();
+            return chunked(None);
         };
         let upstream = (self.gateways.upstream(&endpoint.host)).map_err(ReviewerError::Failed)?;
         let port = (self.gateways.port_named(name)).map_err(ReviewerError::Failed)?;
@@ -169,7 +164,7 @@ impl LocalReviewer {
             tell: &tell,
             ending: &ending,
         };
-        port.around(&upstream, &taking, chunked)
+        port.around_leased(&upstream, &taking, chunked)
             .map_err(|unheld| match unheld {
                 Unheld::GaveUp => ReviewerError::Stopped,
                 Unheld::Refused(why) => ReviewerError::Failed(format!(
@@ -192,7 +187,7 @@ impl LocalReviewer {
         base: &str,
         (out, round): (&Path, u32),
         criteria: &str,
-        ending: &Ending,
+        (ending, lease): (&Ending, Option<&str>),
     ) -> Result<Vec<Finding>, ReviewerError> {
         let diff = diff(worktree, base)?;
         let system = system_prompt(endpoint.prompt.as_deref(), criteria);
@@ -205,17 +200,36 @@ impl LocalReviewer {
         super::clear_round(out, round)?;
         let mut text = String::new();
         let mut findings = Vec::new();
-        let asking = Asking {
-            route,
-            model: endpoint.model.as_str(),
-            system: &system,
-            reply,
-            folder: &folder,
-            ending,
-        };
         for (index, chunk) in chunks(&parse(&diff), budget).iter().enumerate() {
-            let label = index.to_string();
-            findings.extend(self.review_chunk(&asking, &label, chunk, 0, &mut text)?);
+            let body = json!({
+                "model": endpoint.model.as_str(),
+                "temperature": 0,
+                "stream": false,
+                "max_tokens": reply,
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": chunk },
+                ],
+            });
+            let request = folder.join(format!("request-{index}.json"));
+            std::fs::write(&request, body.to_string())
+                .map_err(|e| failed(&request, "write", &e))?;
+            let answer = self.ask(
+                route,
+                &request,
+                &folder.join(format!("reply-{index}.json")),
+                (ending, lease),
+                reply,
+            )?;
+            text.push_str(answer.trim());
+            text.push('\n');
+            let url = route.base.as_str();
+            findings.extend(read_review(&answer).map_err(|reply| {
+                ReviewerError::Failed(format!(
+                    "{url}'s reply is neither findings nor {CLEAN}: {}",
+                    quote(&reply)
+                ))
+            })?);
         }
         let report = out.join(format!("round-{round}.txt"));
         std::fs::write(&report, &text).map_err(|e| failed(&report, "write", &e))?;
@@ -224,124 +238,16 @@ impl LocalReviewer {
         Ok(findings)
     }
 
-    // One chunk's findings. A reply cut off while thinking is asked again as
-    // the chunk's two halves, up to `MAX_HALVINGS` deep.
-    fn review_chunk(
-        &self,
-        asking: &Asking<'_>,
-        label: &str,
-        chunk: &str,
-        halvings: u32,
-        text: &mut String,
-    ) -> Result<Vec<Finding>, ReviewerError> {
-        let body = json!({
-            "model": asking.model,
-            "temperature": 0,
-            "stream": false,
-            "max_tokens": asking.reply,
-            "messages": [
-                { "role": "system", "content": asking.system },
-                { "role": "user", "content": chunk },
-            ],
-        });
-        let request = asking.folder.join(format!("request-{label}.json"));
-        std::fs::write(&request, body.to_string()).map_err(|e| failed(&request, "write", &e))?;
-        let url = asking.route.base.as_str();
-        let reply = asking.folder.join(format!("reply-{label}.json"));
-        let answer = match self.ask(asking.route, &request, &reply, asking.ending)? {
-            Reply::Words(answer) => answer,
-            Reply::CutOff(cut) => {
-                let halves = (halvings < MAX_HALVINGS).then(|| halves(chunk)).flatten();
-                let Some((first, second)) = halves else {
-                    return Err(ReviewerError::Failed(cut.said(url, asking.reply)));
-                };
-                let mut findings =
-                    self.review_chunk(asking, &format!("{label}-0"), &first, halvings + 1, text)?;
-                findings.extend(self.review_chunk(
-                    asking,
-                    &format!("{label}-1"),
-                    &second,
-                    halvings + 1,
-                    text,
-                )?);
-                return Ok(findings);
-            }
-        };
-        text.push_str(answer.trim());
-        text.push('\n');
-        read_review(&answer).map_err(|reply| {
-            ReviewerError::Failed(format!(
-                "{url}'s reply is neither findings nor {CLEAN}: {}",
-                quote(&reply)
-            ))
-        })
-    }
-
-    // One chunk's request, asked again while the server is busy.
+    // One chunk's request, answered with the model's words and no thinking.
     fn ask(
         &self,
         route: &Route,
         request: &Path,
         reply: &Path,
-        ending: &Ending,
-    ) -> Result<Reply, ReviewerError> {
+        (ending, lease): (&Ending, Option<&str>),
+        asked: usize,
+    ) -> Result<String, ReviewerError> {
         let url = format!("{}/chat/completions", route.base.as_str());
-        let deadline = Instant::now() + REQUEST_TIMEOUT;
-        let (status, body) = loop {
-            let left = deadline.saturating_duration_since(Instant::now());
-            let (status, body) = self.post(route, &url, (request, reply), left, ending)?;
-            if !is_busy(&status, &body) {
-                break (status, body);
-            }
-            self.pause(ending)?;
-            if Instant::now() >= deadline {
-                return Err(ReviewerError::Failed(format!(
-                    "{url} stayed busy for {}s: {}",
-                    REQUEST_TIMEOUT.as_secs(),
-                    quote(&body)
-                )));
-            }
-        };
-        if !status.starts_with('2') {
-            return Err(ReviewerError::Failed(format!(
-                "{url} answered HTTP {status}: {}",
-                quote(&body)
-            )));
-        }
-        let value: Value =
-            serde_json::from_str(&body).map_err(|_| ReviewerError::Unreadable(quote(&body)))?;
-        let choice = &value["choices"][0];
-        let content = match choice["message"]["content"].as_str() {
-            Some(content) if !content.is_empty() => content,
-            _ if choice["finish_reason"] == "length" => {
-                return Ok(Reply::CutOff(Cut {
-                    prompt: value["usage"]["prompt_tokens"].as_u64(),
-                    completion: value["usage"]["completion_tokens"].as_u64(),
-                }));
-            }
-            Some(content) => content,
-            None => return Err(ReviewerError::Unreadable(quote(&body))),
-        };
-        // A thinking model's reasoning comes first, and may quote finding-shaped
-        // lines. One cut off inside it reviewed nothing, which is not clean.
-        match content.rsplit_once("</think>") {
-            Some((_, answer)) => Ok(Reply::Words(answer.to_owned())),
-            None if content.contains("<think>") => Err(ReviewerError::Failed(format!(
-                "{url}'s reply ended inside its thinking, so nothing was reviewed"
-            ))),
-            None => Ok(Reply::Words(content.to_owned())),
-        }
-    }
-
-    // One POST of the chunk's request, giving its HTTP status and body.
-    fn post(
-        &self,
-        route: &Route,
-        url: &str,
-        (request, reply): (&Path, &Path),
-        within: Duration,
-        ending: &Ending,
-    ) -> Result<(String, String), ReviewerError> {
         // curl leaves the file alone on a reply with no body, and a retried
         // round reuses the name.
         std::fs::remove_file(reply)
@@ -359,10 +265,16 @@ impl LocalReviewer {
             .arg(format!("@{}", request.display()))
             .arg("-o")
             .arg(reply)
-            .arg(url);
+            .arg(&url);
         let config = match &route.key {
             Some(key) => {
                 command.args(["-H", "X-Paddock-Priority: batch"]);
+                // Without it the gateway gives the request any free turn of this
+                // client's leases, which can be another round's.
+                if let Some(lease) = lease {
+                    command.args(["-H", &format!("X-Paddock-Lease: {lease}")]);
+                }
+                command.args(["-H", &format!("X-Paddock-Max-Wait: {MAX_WAIT}")]);
                 command.args(["--config", "-"]);
                 let header = format!("Authorization: Bearer {}", key.expose());
                 crate::adapters::curl::render(&[("header", header)])
@@ -371,7 +283,12 @@ impl LocalReviewer {
         };
         let output = self
             .processes
-            .output_within_fed(&mut command, within, config.as_bytes(), Some(ending))
+            .output_within_fed(
+                &mut command,
+                REQUEST_TIMEOUT,
+                config.as_bytes(),
+                Some(ending),
+            )
             .map_err(|e| match e {
                 RunError::Io(e) => ReviewerError::Spawn(format!("curl: {e}")),
                 RunError::Stopped => ReviewerError::Stopped,
@@ -392,98 +309,47 @@ impl LocalReviewer {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(failed(reply, "read", &e)),
         };
-        let status = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        Ok((status, body))
-    }
-
-    // Waits out `busy_pause`, and gives up if the runner is stopping or the call is ended.
-    fn pause(&self, ending: &Ending) -> Result<(), ReviewerError> {
-        let until = Instant::now() + self.busy_pause;
-        loop {
-            if self.processes.stopping() || ending.asked() {
-                return Err(ReviewerError::Stopped);
-            }
-            let left = until.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Ok(());
-            }
-            std::thread::sleep(WAIT_STEP.min(left));
+        let status = String::from_utf8_lossy(&output.stdout);
+        if !status.trim().starts_with('2') {
+            return Err(ReviewerError::Failed(format!(
+                "{url} answered HTTP {}: {}",
+                status.trim(),
+                quote(&body)
+            )));
+        }
+        let value: Value =
+            serde_json::from_str(&body).map_err(|_| ReviewerError::Unreadable(quote(&body)))?;
+        let choice = &value["choices"][0];
+        if choice["finish_reason"] == "length"
+            && choice["message"]["content"]
+                .as_str()
+                .is_none_or(str::is_empty)
+        {
+            let tokens = |kind: &str| match value["usage"][kind].as_u64() {
+                Some(n) => n.to_string(),
+                None => "an unknown number of".to_owned(),
+            };
+            return Err(ReviewerError::Failed(format!(
+                "{}'s reply was cut off (finish_reason \"length\") after {} completion tokens \
+                 of the {asked} asked for, with {} in the prompt, and held no answer",
+                route.base.as_str(),
+                tokens("completion_tokens"),
+                tokens("prompt_tokens"),
+            )));
+        }
+        let content = choice["message"]["content"]
+            .as_str()
+            .ok_or_else(|| ReviewerError::Unreadable(quote(&body)))?;
+        // A thinking model's reasoning comes first, and may quote finding-shaped
+        // lines. One cut off inside it reviewed nothing, which is not clean.
+        match content.rsplit_once("</think>") {
+            Some((_, answer)) => Ok(answer.to_owned()),
+            None if content.contains("<think>") => Err(ReviewerError::Failed(format!(
+                "{url}'s reply ended inside its thinking, so nothing was reviewed"
+            ))),
+            None => Ok(content.to_owned()),
         }
     }
-}
-
-/// What the server made of one chunk's request
-enum Reply {
-    /// The model's words after its thinking
-    Words(String),
-    /// It ran out of tokens before any answer
-    CutOff(Cut),
-}
-
-/// A reply with `finish_reason` `length` and no content, and the tokens it spent
-struct Cut {
-    prompt: Option<u64>,
-    completion: Option<u64>,
-}
-
-impl Cut {
-    fn said(&self, url: &str, asked: usize) -> String {
-        let count = |tokens: Option<u64>| {
-            tokens.map_or("an unknown number of".to_owned(), |n| n.to_string())
-        };
-        format!(
-            "{url}'s reply was cut off (finish_reason \"length\") after {} completion tokens \
-             of the {asked} asked for, with {} in the prompt, and held no answer: \
-             it spent them thinking",
-            count(self.completion),
-            count(self.prompt),
-        )
-    }
-}
-
-/// What one chunk's requests share
-struct Asking<'a> {
-    route: &'a Route,
-    model: &'a str,
-    system: &'a str,
-    reply: usize,
-    folder: &'a Path,
-    ending: &'a Ending,
-}
-
-// Paddock's 503 `busy`: another turn is being served and this one is next in line.
-fn is_busy(status: &str, body: &str) -> bool {
-    status == "503" && serde_json::from_str::<Value>(body).is_ok_and(|read| read["error"] == "busy")
-}
-
-// A chunk cut at a line near its middle, the second half under its file's name again.
-// `None` when it is too short to cut into two that each hold a line of the diff.
-fn halves(chunk: &str) -> Option<(String, String)> {
-    let lines: Vec<&str> = chunk.split_inclusive('\n').collect();
-    if lines.len() < 4 {
-        return None;
-    }
-    let mut seen = 0;
-    let middle = lines
-        .iter()
-        .position(|line| {
-            seen += line.len();
-            seen * 2 >= chunk.len()
-        })
-        .map_or(lines.len() - 1, |at| at + 1);
-    let at = middle.clamp(3, lines.len() - 1);
-    let (first, second) = lines.split_at(at);
-    let heading = (!second[0].starts_with("### ")).then(|| {
-        first
-            .iter()
-            .rfind(|line| line.starts_with("### "))
-            .copied()
-            .unwrap_or_default()
-    });
-    Some((
-        first.concat(),
-        format!("{}{}", heading.unwrap_or_default(), second.concat()),
-    ))
 }
 
 // What to report is the reviewer's body, or kelpie's own opening and

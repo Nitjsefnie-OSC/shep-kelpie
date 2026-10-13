@@ -19,7 +19,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - A maintainer's yes to a merge ruling vouches for its head, so kelpie's catch-up with `main` before the merge carries the vouching and raises no second ruling; a no or a rework vouches for nothing. #668
 - Fix turn counts only if it moves `origin` head, unless it deferred all or got only nits; else parks `fix-not-pushed`. #40, #354
 - Clean reply is exactly `CLEAN`. #314
-- Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`, waits out a busy 503, halves a chunk whose reply was cut off by length; `command` keeps qwen script contract. #107
+- Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`; `command` keeps qwen script contract. #107
 - Local reviewer holds no lock (`lease` refused, no `/api/ps` check, no `local-model-spilled`); running round never preempted (kill wastes the work). #145, #502
 - One finding shape for every reviewer kind; bots are one provider with a tested profile each. #123
 - With `ci.test_command`, reviewer's attached failing test runs before/after fix, recorded, blocks nothing until trusted. #517, #518

@@ -13,7 +13,6 @@ use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
 
 use super::paddock;
 #[cfg(test)]
@@ -24,9 +23,6 @@ use crate::ports::{Finding, LocalLeases, PaddockHolder, Reviewer, ReviewerError,
 use crate::settings::{Gateways, LocalRound};
 use crate::worktree::Linked;
 
-/// How long a round waits to ask a busy server again, as long as paddock's own retry for a take
-const BUSY_PAUSE: Duration = Duration::from_secs(30);
-
 /// Runs each local round, of whichever kind the settings choose
 ///
 /// Clones share their rounds in flight, so one clone can stop them all.
@@ -36,8 +32,6 @@ pub struct LocalReviewer {
     pub(super) processes: Processes,
     // Where an endpoint behind a gateway sends its rounds, with the gateway's key
     pub(super) gateways: Gateways,
-    // How long an endpoint round waits to ask again after a busy answer
-    pub(super) busy_pause: Duration,
 }
 
 impl Default for LocalReviewer {
@@ -46,7 +40,6 @@ impl Default for LocalReviewer {
             temp_dir: temp_dir(),
             processes: Processes::default(),
             gateways: Gateways::default(),
-            busy_pause: BUSY_PAUSE,
         }
     }
 }
@@ -106,13 +99,6 @@ impl LocalReviewer {
     #[cfg(test)]
     pub(crate) fn with_paddock_timing(mut self, paddock: Timing) -> Self {
         self.gateways = self.gateways.with_paddock_timing(paddock);
-        self
-    }
-
-    /// Waits `pause` before asking a busy server again
-    #[cfg(test)]
-    pub(crate) fn with_busy_pause(mut self, pause: Duration) -> Self {
-        self.busy_pause = pause;
         self
     }
 

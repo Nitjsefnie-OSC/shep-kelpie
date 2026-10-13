@@ -18,7 +18,6 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [The keychain in a sandboxed call](the-keychain-in-a-sandboxed-call.md)
 - [The qwen GPU lock](the-qwen-gpu-lock.md)
 - [A local round that reviewed nothing](a-local-round-that-reviewed-nothing.md)
-- [A local reply cut off while thinking, and a busy paddock](a-local-reply-cut-off-while-thinking.md)
 - [The machine's load](the-machines-load.md)
 - [The local model's placement](the-local-models-placement.md)
 - [The GPU's metrics](the-gpus-metrics.md)

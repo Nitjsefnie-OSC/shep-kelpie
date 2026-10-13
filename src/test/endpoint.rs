@@ -75,6 +75,8 @@ struct Shared {
     takes: VecDeque<Take>,
     openai: bool,
     models_status: Option<u16>,
+    distinct_leases: bool,
+    granted: u32,
 }
 
 /// A server on a free local port, until the test ends
@@ -121,6 +123,12 @@ impl StandInEndpoint {
         let this = self.like_paddock(key, models);
         this.shared.lock().unwrap().openai = true;
         this
+    }
+
+    /// Grants `L1`, `L2` and so on to each lease's take, not `L1` to every one
+    pub(crate) fn granting_distinct_leases(self) -> Self {
+        self.shared.lock().unwrap().distinct_leases = true;
+        self
     }
 
     /// Has `/models` answer this HTTP status, whatever key it gets
@@ -218,11 +226,6 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
     if reader.read_line(&mut request_line).is_err() {
         return;
     }
-    shared
-        .lock()
-        .unwrap()
-        .lines
-        .push(request_line.trim().to_owned());
     let (mut length, mut auth, mut every, mut paddock) = (0, None, Vec::new(), Vec::new());
     loop {
         let mut header = String::new();
@@ -246,6 +249,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
     {
         // Under one lock, so the two records stay in the same order.
         let mut held = shared.lock().unwrap();
+        held.lines.push(request_line.trim().to_owned());
         held.every_auth.push(every);
         held.paddock.push(paddock);
         held.auths.push(auth.clone());
@@ -296,10 +300,10 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             }
             (true, true, Some(Take::Held(hold))) => {
                 hold.block();
-                (200, json!({ "id": "L1", "ttl": "120s" }).to_string())
+                (200, grant(shared))
             }
             (true, true, Some(Take::Status(status, body))) => (status, body.to_owned()),
-            (true, true, None) => (200, json!({ "id": "L1", "ttl": "120s" }).to_string()),
+            (true, true, None) => (200, grant(shared)),
             (true, false, _) if request_line.starts_with("GET ") => (200, listing),
             (true, false, _) if request_line.starts_with("PUT ") => match renewals {
                 Renewals::Granted => (204, String::new()),
@@ -369,6 +373,18 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
          Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
         reply.len()
     );
+}
+
+// A lease's grant, with the next id when the stand-in hands out distinct ones.
+fn grant(shared: &Mutex<Shared>) -> String {
+    let mut held = shared.lock().unwrap();
+    let id = if held.distinct_leases {
+        held.granted += 1;
+        format!("L{}", held.granted)
+    } else {
+        "L1".to_owned()
+    };
+    json!({ "id": id, "ttl": "120s" }).to_string()
 }
 
 // What a streaming chat request is answered with: the words in one chunk, the

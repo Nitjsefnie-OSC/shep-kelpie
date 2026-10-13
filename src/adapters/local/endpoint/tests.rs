@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use super::*;
 use crate::ports::{CLEAN, Reviewer, Severity};
@@ -99,18 +98,6 @@ fn a_new_start_line_is_read_from_the_hunk_header() {
     assert_eq!(new_start("@@ -12,7 +14,9 @@ fn name"), 14);
     assert_eq!(new_start("@@ -1 +1 @@"), 1);
     assert_eq!(new_start("@@ -1,1 +0,0 @@"), 0);
-}
-
-#[test]
-fn a_chunk_is_halved_between_lines_with_the_second_half_under_its_file() {
-    let chunk = "### a\n@@ -1 +1 @@\n     1 +one\n     2 +two\n     3 +three\n     4 +four\n";
-    let (first, second) = halves(chunk).unwrap();
-    assert_eq!(first, "### a\n@@ -1 +1 @@\n     1 +one\n     2 +two\n");
-    assert_eq!(second, "### a\n     3 +three\n     4 +four\n");
-    assert_eq!(halves("### a\n@@ -1 +1 @@\n     1 +one\n"), None);
-    let two = "### a\n@@ -1 +1 @@\n     1 +one\n     2 +two\n### b\n     1 +x\n     2 +y\n";
-    let (_, second) = halves(two).unwrap();
-    assert!(second.starts_with("### b\n"), "{second}");
 }
 
 // A repo with `origin/main` at its first commit and one commit on top.
@@ -423,45 +410,11 @@ fn a_reply_cut_off_while_thinking_fails_the_round() {
     );
 }
 
-const BUSY: &str = r#"{"error":"busy","reason":"iq3_xxs is serving a turn, you are next in line","reason_kind":"turn"}"#;
-
-#[test]
-fn a_busy_paddock_is_waited_on_not_failed() {
-    let dir = tempfile::tempdir().unwrap();
-    let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
-    let server = StandInEndpoint::start([
-        Answer::Status(503, BUSY),
-        Answer::Status(503, BUSY),
-        Answer::Says("MEDIUM|src/lib.rs:2|b is new|it matters"),
-    ]);
-    let out = dir.path().join("out");
-    let findings = LocalReviewer::default()
-        .with_busy_pause(Duration::from_millis(10))
-        .round(
-            &local(server.url(), 8192),
-            linked(&worktree),
-            "origin/main",
-            &out,
-            1,
-            "",
-        )
-        .unwrap();
-    assert_eq!(findings.len(), 1);
-    let asked = server.requests();
-    assert_eq!(
-        asked.len(),
-        3,
-        "the same chunk, asked again after each busy"
-    );
-    assert_eq!(asked[0], asked[2]);
-    assert!(out.join("round-1.txt.done").is_file());
-}
-
 #[test]
 fn a_reply_cut_off_by_length_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let worktree = repo(dir.path(), "fn a() {}\nfn b() {}\n");
-    let server = StandInEndpoint::start(std::iter::repeat_n(Answer::CutOff(9216), 8));
+    let server = StandInEndpoint::start([Answer::CutOff(9216)]);
     let out = dir.path().join("out");
     let err = LocalReviewer::default()
         .round(
@@ -477,53 +430,11 @@ fn a_reply_cut_off_by_length_says_so() {
     assert_eq!(
         err,
         ReviewerError::Failed(format!(
-            "{url}'s reply was cut off (finish_reason \"length\") after 9216 completion tokens \
-             of the 2048 asked for, with 700 in the prompt, and held no answer: \
-             it spent them thinking"
+            "{url}'s reply was cut off (finish_reason \"length\") after 9216 completion \
+             tokens of the 2048 asked for, with 700 in the prompt, and held no answer"
         ))
     );
     assert!(!out.join("round-1.txt.done").exists());
-}
-
-#[test]
-fn a_chunk_whose_reply_is_cut_off_is_asked_again_in_halves() {
-    let dir = tempfile::tempdir().unwrap();
-    let worktree = repo(
-        dir.path(),
-        "fn a() {}\nfn b() {}\nfn c() {}\nfn d() {}\nfn e() {}\n",
-    );
-    let server = StandInEndpoint::start([
-        Answer::CutOff(9216),
-        Answer::Says("MEDIUM|src/lib.rs:2|b is new|it matters"),
-        Answer::Says("HIGH|src/lib.rs:5|e is new|it breaks"),
-    ]);
-    let out = dir.path().join("out");
-    let findings = LocalReviewer::default()
-        .round(
-            &local(server.url(), 8192),
-            linked(&worktree),
-            "origin/main",
-            &out,
-            1,
-            "",
-        )
-        .unwrap();
-    let lines: Vec<_> = findings.iter().map(|f| f.line).collect();
-    assert_eq!(lines, [2, 5], "the findings of both halves, in order");
-    let sent: Vec<_> = server
-        .requests()
-        .iter()
-        .map(|r| r["messages"][1]["content"].as_str().unwrap().to_owned())
-        .collect();
-    assert_eq!(sent.len(), 3);
-    for half in &sent[1..] {
-        assert!(half.starts_with("### src/lib.rs\n"), "{half}");
-        assert!(half.len() < sent[0].len(), "{half}");
-    }
-    assert!(sent[1].contains("     2 +fn b() {}\n"), "{}", sent[1]);
-    assert!(!sent[1].contains("     5 +fn e() {}\n"), "{}", sent[1]);
-    assert!(sent[2].contains("     5 +fn e() {}\n"), "{}", sent[2]);
-    assert!(!sent[2].contains("     2 +fn b() {}\n"), "{}", sent[2]);
 }
 
 #[test]
@@ -653,8 +564,83 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_a_lease() {
     assert_eq!(server.authorizations()[2].as_deref(), Some("Bearer pk-r"));
 }
 
+// A reviewer sending its rounds to a paddock gateway at `server`, and the round that names it
+fn behind_paddock(server: &StandInEndpoint) -> (LocalReviewer, LocalRound) {
+    use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
+    let name = GatewayName::try_from("paddock".to_owned()).unwrap();
+    let gateway = Gateway {
+        kind: GatewayKind::Paddock,
+        url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),
+        key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+    };
+    let table = std::collections::BTreeMap::from([(name.clone(), gateway)]);
+    let reviewer =
+        LocalReviewer::default().with_gateways(Gateways::reading(table, |_| Some("pk-r".into())));
+    let LocalRound::Endpoint(mut endpoint) = local("http://unused/v1", 8192) else {
+        unreachable!()
+    };
+    endpoint.host = ModelHost::Gateway(name);
+    (reviewer, LocalRound::Endpoint(endpoint))
+}
+
+// The lease each chat request named, in the order the requests arrived.
+fn leases_named_on_chat(server: &StandInEndpoint) -> Vec<String> {
+    let named = server.paddock_headers();
+    (server.seen().iter().zip(named))
+        .filter(|(line, _)| line.contains("/chat/completions"))
+        .flat_map(|(_, headers)| headers)
+        .filter(|(name, _)| name == "x-paddock-lease")
+        .map(|(_, id)| id)
+        .collect()
+}
+
 #[test]
-fn a_round_behind_a_gateway_asks_for_batch_on_its_chat_call_alone_and_a_plain_url_sends_none() {
+fn a_round_s_requests_name_its_own_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let big: String = (0..2000).map(|i| format!("fn f{i}() {{}}\n")).collect();
+    let checkout = repo(dir.path(), &big);
+    let server = StandInEndpoint::start([]).like_paddock("pk-r", &[]);
+    let (reviewer, round) = behind_paddock(&server);
+    let out = dir.path().join("out");
+    let findings = reviewer.round(&round, linked(&checkout), "origin/main", &out, 1, "");
+    assert_eq!(findings, Ok(Vec::new()));
+    let named = leases_named_on_chat(&server);
+    assert!(named.len() > 1, "{} chunks", named.len());
+    assert!(
+        named.iter().all(|id| id == "L1"),
+        "every chunk's request names the lease the round took: {named:?}"
+    );
+}
+
+#[test]
+fn two_rounds_holding_leases_each_get_their_own_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+    let checkouts = [
+        repo(&first, "fn a() {}\nfn b() {}\n"),
+        repo(&second, "fn a() {}\nfn c() {}\n"),
+    ];
+    let server = StandInEndpoint::start([])
+        .like_paddock("pk-r", &[])
+        .granting_distinct_leases();
+    let (reviewer, round) = behind_paddock(&server);
+    std::thread::scope(|scope| {
+        for (at, checkout) in checkouts.iter().enumerate() {
+            let (reviewer, round, out) = (&reviewer, &round, dir.path().join(format!("out{at}")));
+            scope.spawn(move || {
+                let findings = reviewer.round(round, linked(checkout), "origin/main", &out, 1, "");
+                assert_eq!(findings, Ok(Vec::new()));
+            });
+        }
+    });
+    let mut named = leases_named_on_chat(&server);
+    named.sort();
+    assert_eq!(named, ["L1", "L2"], "each round names a lease of its own");
+}
+
+#[test]
+fn a_round_behind_a_gateway_asks_for_batch_its_lease_and_its_wait_on_its_chat_call_alone_and_a_plain_url_sends_none()
+ {
     use crate::settings::{Gateway, GatewayKind, GatewayName, Gateways, KeyVar};
     let dir = tempfile::tempdir().unwrap();
     let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
@@ -682,10 +668,14 @@ fn a_round_behind_a_gateway_asks_for_batch_on_its_chat_call_alone_and_a_plain_ur
         .iter()
         .position(|l| l.contains("/chat/completions"))
         .unwrap();
-    let batch = vec![("x-paddock-priority".to_owned(), "batch".to_owned())];
+    let on_chat = vec![
+        ("x-paddock-priority".to_owned(), "batch".to_owned()),
+        ("x-paddock-lease".to_owned(), "L1".to_owned()),
+        ("x-paddock-max-wait".to_owned(), "1800".to_owned()),
+    ];
     for (at, headers) in server.paddock_headers().into_iter().enumerate() {
         let expected = if at == chat {
-            batch.clone()
+            on_chat.clone()
         } else {
             Vec::new()
         };
