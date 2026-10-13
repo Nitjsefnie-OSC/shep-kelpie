@@ -23,15 +23,15 @@ fn filled(body: &str, base: &str, diff: &str) -> String {
 
 /// What a reviewer's session is asked: its `body` over `diff`, which is
 /// against `base`, the issue's `criteria`, on a project with a test command
-/// the `tests` it may write, as that command and the folder, and on a second
-/// look what the first found
+/// the `tests` it may write, as that command, the folder and the name of the
+/// tool it writes with, and on a second look what the first found
 pub(in crate::runner) fn reviewer_prompt(
     body: &str,
     base: &str,
     diff: &str,
     criteria: &str,
     first: Option<&[Finding]>,
-    tests: Option<(&str, &Path)>,
+    tests: Option<(&str, &Path, &str)>,
 ) -> String {
     let mut prompt = filled(body, base, diff);
     if !criteria.trim().is_empty() {
@@ -41,11 +41,11 @@ pub(in crate::runner) fn reviewer_prompt(
              in the same format.\n\n{criteria}"
         ));
     }
-    if let Some((command, folder)) = tests {
+    if let Some((command, folder, tool)) = tests {
         let folder = folder.display();
         prompt.push_str(&format!(
             "\n\nWhere a finding's trigger can be written as a test, also write one failing \
-             test per finding with the Write tool. Write it into {folder}, which is the only \
+             test per finding with the {tool} tool. Write it into {folder}, which is the only \
              place you may write, at the path the test should have in the repo: a test for \
              tests/flag.rs is written to {folder}/tests/flag.rs. Name that path as a fifth \
              field on the finding's line, SEVERITY|file:line|what|why|tests/flag.rs, and leave \
@@ -180,7 +180,7 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
             "D",
             "#7 the issue",
             None,
-            Some(("cargo test --test {name}", folder)),
+            Some(("cargo test --test {name}", folder, "Write")),
         );
 
         assert!(!plain.contains("review-tests"), "{plain}");
@@ -197,11 +197,26 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
             paragraph.contains("one failing test per finding"),
             "{paragraph}"
         );
+        assert!(paragraph.contains("with the Write tool"), "{paragraph}");
         assert!(paragraph.contains("fifth field"), "{paragraph}");
         assert!(
             paragraph.contains("`cargo test --test {name}`"),
             "{paragraph}"
         );
+    }
+
+    #[test]
+    fn the_prompt_names_the_tool_the_reviewers_harness_writes_with() {
+        let folder = Path::new("/k/targets/shep/7/review-tests");
+        let ask = |tool| {
+            let tests = Some(("cargo test --test {name}", folder, tool));
+            reviewer_prompt(&defect_hunter(), "origin/main", "D", "", None, tests)
+        };
+
+        let pi = ask("write");
+        assert!(pi.contains("per finding with the write tool."), "{pi}");
+        assert!(!pi.contains("Write tool"), "{pi}");
+        assert!(ask("Write").contains("per finding with the Write tool."));
     }
 
     #[test]
