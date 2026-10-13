@@ -11,8 +11,8 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
 use crate::ports::{
     Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview, NewLabel,
-    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, ThreadComment, Timestamp,
-    Visibility,
+    OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, ThreadComment,
+    Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -31,6 +31,10 @@ pub(crate) struct FakeForge {
     closed: Arc<Mutex<HashSet<u64>>>,
     // Each parent's sub-issues, in the order they were linked
     sub_issues: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
+    // The closed issues that were closed as not planned
+    not_planned: Arc<Mutex<HashSet<u64>>>,
+    // Whether listing a parent's sub-issues fails
+    sub_issues_down: Arc<AtomicBool>,
     // The issues kelpie closed
     closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing an issue is refused
@@ -129,6 +133,8 @@ impl FakeForge {
             blockers: Arc::default(),
             closed: Arc::default(),
             sub_issues: Arc::default(),
+            not_planned: Arc::default(),
+            sub_issues_down: Arc::default(),
             closings: Arc::default(),
             closes_down: Arc::default(),
             closes_refused: Arc::default(),
@@ -231,18 +237,6 @@ impl FakeForge {
         let mut ready = self.ready.lock().unwrap();
         let issue = ready.iter_mut().find(|i| i.number == number).unwrap();
         issue.body = body.to_owned();
-    }
-
-    /// Makes issue `child` a sub-issue of issue `parent`, as someone else would
-    pub(crate) fn link_sub_issue(&self, parent: u64, child: u64) {
-        let mut links = self.sub_issues.lock().unwrap();
-        links.entry(parent).or_default().push(child);
-    }
-
-    /// Issue `parent`'s sub-issues, in the order they were linked
-    pub(crate) fn sub_issues_of(&self, parent: u64) -> Vec<u64> {
-        let links = self.sub_issues.lock().unwrap();
-        links.get(&parent).cloned().unwrap_or_default()
     }
 
     /// The issues issue `number` is blocked by, open or closed
@@ -588,6 +582,10 @@ impl Forge for FakeForge {
             parent: self.parent_of(number),
             blocked_by: self.blockers(number),
         })
+    }
+
+    fn sub_issues(&self, _repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
+        self.read_sub_issues(parent)
     }
 
     fn ready_issues(&self, _repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {

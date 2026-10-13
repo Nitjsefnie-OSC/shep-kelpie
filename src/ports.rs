@@ -23,6 +23,7 @@ mod agent;
 mod forge_error;
 mod git;
 mod gpu;
+mod issue;
 mod keychain;
 mod leased;
 mod local_paths;
@@ -45,6 +46,7 @@ pub use agent::{
 pub use forge_error::{Cooldown, ForgeError};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use issue::{Issue, OpenIssue, SubIssue, SubIssueState};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
@@ -155,6 +157,13 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked, has no such issue, or
     /// its answer cannot be read.
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError>;
+
+    /// The sub-issues of issue `parent` on `repo`, with how each stands
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
+    fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError>;
 
     /// The open issues on `repo` labelled [`READY`]
     ///
@@ -543,34 +552,6 @@ pub struct NewLabel<'a> {
     pub color: &'a str,
     /// What it means, shown beside it on the forge
     pub description: &'a str,
-}
-
-/// An issue as the forge holds it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Issue {
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
-    /// Its labels' names
-    pub labels: Vec<String>,
-    /// Whether it is still open
-    pub open: bool,
-    /// The issue it is a sub-issue of, if any
-    pub parent: Option<u64>,
-    /// The issues it is blocked by, as far as the forge lists them
-    pub blocked_by: Vec<u64>,
-}
-
-/// An open issue, as the follow-up check reads it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenIssue {
-    /// Its number
-    pub number: u64,
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
 }
 
 /// How much of one usage window the account has spent
