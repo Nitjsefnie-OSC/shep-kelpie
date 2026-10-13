@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::{board, issue, pull_request, review, review_bot};
+use super::{Etags, board, issue, pull_request, review, review_bot};
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::{GithubApp, InstallationToken};
 use crate::ports::{AppForges, AppReads, ForgeError, Issue, PullRequest, Reading, Reviewed};
@@ -21,6 +21,7 @@ use crate::settings::ForgeSlug;
 #[derive(Debug)]
 pub struct GhAppReads {
     config: PathBuf,
+    etags: Etags,
 }
 
 impl AppReads for GhAppReads {
@@ -50,7 +51,7 @@ impl AppReads for GhAppReads {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
-        review_bot::activity(Some(&self.config), repo, number, login)
+        review_bot::activity(&self.etags, Some(&self.config), repo, number, login)
     }
 }
 
@@ -61,6 +62,8 @@ pub struct GhApps {
     folders: PathBuf,
     // The token each folder holds, so a token kept is not written again
     written: Mutex<BTreeMap<PathBuf, InstallationToken>>,
+    // The answers its reads keep, forgotten with the token they were read on
+    etags: Etags,
 }
 
 impl GhApps {
@@ -70,7 +73,15 @@ impl GhApps {
             tokens,
             folders: folders.to_owned(),
             written: Mutex::new(BTreeMap::new()),
+            etags: Etags::default(),
         }
+    }
+
+    /// Keeps the answers of its repeated reads in `etags`
+    #[must_use]
+    pub fn with_etags(mut self, etags: Etags) -> Self {
+        self.etags = etags;
+        self
     }
 
     // One folder for a repo: the slug's one slash is the only thing that
@@ -103,6 +114,7 @@ impl AppForges for GhApps {
                 return Reading::Login;
             }
             written.insert(build.clone(), issued.token.clone());
+            self.etags.forget(&login_dir(&build));
         }
         let holds: BTreeSet<String> = (issued.permissions.into_iter())
             .filter(|(_, level)| matches!(level.as_str(), "read" | "write"))
@@ -111,6 +123,7 @@ impl AppForges for GhApps {
         Reading::App {
             reads: Arc::new(GhAppReads {
                 config: login_dir(&build),
+                etags: self.etags.clone(),
             }),
             holds,
         }
