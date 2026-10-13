@@ -182,29 +182,22 @@ impl Runner {
         open: &[OpenPullRequest],
     ) -> Result<(Option<Begin>, Vec<Skip>), StateError> {
         let mut skipped = Vec::new();
-        let mut labelled: Vec<u64> = open
-            .iter()
-            .filter(|pr| pr.labels.iter().any(|l| l == READY))
-            .filter(|pr| {
-                let kelpies = pr.head.strip_prefix("kelpie/").and_then(trigger::number);
-                kelpies.is_none()
-            })
-            .map(|pr| pr.number)
-            .collect();
-        labelled.sort_unstable();
-        let mut next = self.state.clone();
-        next.adopted
-            .retain(|w| !w.by_label || labelled.contains(&w.pull_request));
-        for number in labelled {
-            if !next.adopted.iter().any(|w| w.pull_request == number) {
-                next.adopted.push(Waiting {
-                    pull_request: number,
-                    by_label: true,
-                });
+        if let Some(mut labelled) = self.labelled_for_adoption(open) {
+            labelled.sort_unstable();
+            let mut next = self.state.clone();
+            next.adopted
+                .retain(|w| !w.by_label || labelled.contains(&w.pull_request));
+            for number in labelled {
+                if !next.adopted.iter().any(|w| w.pull_request == number) {
+                    next.adopted.push(Waiting {
+                        pull_request: number,
+                        by_label: true,
+                    });
+                }
             }
-        }
-        if next.adopted != self.state.adopted {
-            self.save(next)?;
+            if next.adopted != self.state.adopted {
+                self.save(next)?;
+            }
         }
         let waiting: Vec<u64> = self.state.adopted.iter().map(|w| w.pull_request).collect();
         for number in waiting {
@@ -245,6 +238,32 @@ impl Runner {
             return Ok((Some(begin), skipped));
         }
         Ok((None, skipped))
+    }
+
+    // The labelled pull requests whose branch isn't `kelpie/N` that adoption
+    // queues. A labelled contribution is left to the contributions, and when
+    // the logins that tell one cannot be read there is no answer, so the
+    // queue stays as it is.
+    fn labelled_for_adoption(&mut self, open: &[OpenPullRequest]) -> Option<Vec<u64>> {
+        let own = match self.settings.contributions.is_off() {
+            true => None,
+            false => Some(self.own_logins().ok()?),
+        };
+        let contribution = |pr: &OpenPullRequest| {
+            own.as_ref()
+                .is_some_and(|own| self.is_contribution(pr, own))
+        };
+        let labelled = open
+            .iter()
+            .filter(|pr| pr.labels.iter().any(|l| l == READY))
+            .filter(|pr| {
+                let kelpies = pr.head.strip_prefix("kelpie/").and_then(trigger::number);
+                kelpies.is_none()
+            })
+            .filter(|pr| !contribution(pr))
+            .map(|pr| pr.number)
+            .collect();
+        Some(labelled)
     }
 
     // The outer error is a save that failed; the inner, a label that would

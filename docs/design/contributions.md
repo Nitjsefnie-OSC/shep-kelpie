@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; these settings come first, and nothing reads them yet. #617
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below) and does nothing else with them yet. #617, #618
 
 ## Settings
 
@@ -20,3 +20,13 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 ## Rereads
 
 - `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `src/runner/reread.rs`
+
+## Detection
+
+- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot. Logins compare ignoring case. `Runner::is_contribution`, `src/runner/contributions.rs`
+- Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
+- The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `src/adapters/gh/board.rs`
+- `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 39. `src/state/contributions.rs`
+- `Runner::follow_contributions` runs once a `BOARD_POLL` before the rotation, so it runs with every slot held. It reads the pass's listing, which the board then shares. A new head updates the record; a pull request closed, merged, a draft again, or unlabelled under `label` drops it, with no post. A listing or login that cannot be read changes nothing.
+- `adopt_waiting` leaves a labelled contribution alone when `pick` is not `off`. With `off` a labelled fork is refused as before. `rework_asked` still refuses a fork.
+- `status` lists the records under `contributions`, left out when empty.

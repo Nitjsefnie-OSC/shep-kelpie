@@ -28,7 +28,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | merge.md | CI, catching up, merge, after the merge | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
-| contributions.md | other people's pull requests: `contributions` settings | `src/settings/contributions.rs`, `src/settings/reviewers.rs` |
+| contributions.md | other people's pull requests: `contributions` settings, detection | `src/settings/contributions.rs`, `src/settings/reviewers.rs`, `src/runner/contributions.rs`, `src/state/contributions.rs` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB, and a changed decision updates its bullet in the same PR. An area past 8 KB splits in two, with a new row here. `scripts/design-size.sh` checks both, in CI too.

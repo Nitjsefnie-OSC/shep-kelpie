@@ -337,6 +337,15 @@ On a pull request kelpie opened, `ready-for-agent` or a review requesting change
 
 The runner reads the board from GitHub at most once a minute, however often something wakes it, and at once after something that changes what the board would see, such as a work item ending, a ruling answered, an `add` or an `adopt`. `status` and `drain` answer without making it read anything, so `upgrade` and `pause` can ask them twice a second while they wait. A work item's step or a board read that fails is tried again after 15 seconds, then twice as long each time up to 10 minutes. When GitHub says the account's rate limit is used up, the runner makes no GitHub call until the limit resets, says so once in its log, and `status` shows when under `forge_held_until`.
 
+### Contributions
+
+A pull request from someone else is a contribution. The runner sees one before it does anything with it, and so far only sees and lists: it posts nothing and runs nothing for a contribution.
+
+- A contribution is open, not a draft, and not opened by the maintainer (`git.maintainer`, else the login `gh` acts as), by the account kelpie acts as, or by a bot. Logins compare ignoring case. The author decides, never the branch: a fork's branch named `kelpie/5` is still a contribution
+- `contributions.pick` sets which ones. `"label"` takes those labelled `ready-for-agent`, `"all"` every one, and `"off"`, the default, none
+- Once a minute, whether or not a slot is free, the runner records each contribution with its author and head, and drops the record of one that is closed, merged, a draft again, or, under `"label"`, no longer labelled. A new head updates the record. `status` lists them under `contributions`, and the plain `status` prints a line each
+- Under `pick = "label"` or `"all"`, `ready-for-agent` on a contribution does not adopt it, so a fork's pull request is not refused as one. Under `"off"` it is refused as before. A rework request on a fork's pull request is still refused
+
 ### Building
 
 A worker builds its work item inline, in a worktree of its own cut from `origin/main`, on the agent its issue's `agent:` label names or the project's default implementer. It commits, pushes, opens a draft pull request that ends `Resolves #<issue>`, and ends its turn. When the repo has a pull request template, or its owner's public `.github` repository has one for repos that have none, it fills that. A project's `worker.instructions_file` adds rules the repo's own docs don't carry.
