@@ -42,6 +42,7 @@ Kelpie works this repo too, so these hold for a kelpie worker as for anyone:
 - Tests follow #5's testing decisions: the runner's work-item loop through its stand-ins, the dog's lease book with a fake clock, and adapter parsing against real recorded output. Tests assert only what the outside world sees.
 - One cargo command shape for the session, and one cargo command at a time.
 - A worker's sandbox binds no socket or port, so some tests fail there and pass in CI. `docs/agents/sandbox-red-tests.md` lists them with the reasons. Run what can run, and say in the pull request which tests only CI ran.
+- Kelpie runs workers on three harnesses: Claude Code, pi and Codex. A change to one adapter (`src/adapters/claude*`, `pi*`, `codex*`) or to code that branches on `AgentHarness` reaches pi in the same pull request, or the pull request names the open pi issue that does. Codex may follow pi in its own issue. `CODING_STANDARDS.md` has the rule.
 - New measured facts go in their topic's file under `docs/facts/`, or a new one listed in its README, in the same pull request. A changed decision updates its file in `docs/design/` too.
 - Done when every acceptance criterion in the issue is met, with the evidence in the pull request's body, which ends `Resolves #<n>`.
 
