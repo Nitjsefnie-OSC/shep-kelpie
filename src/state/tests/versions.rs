@@ -542,12 +542,35 @@ fn a_followed_contribution_survives_a_save_and_a_load() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
-    state.contributions.push(Contribution {
-        pull_request: 12,
-        author: "newcomer".into(),
+    state.contributions.push(Contribution::new(
+        12,
+        "newcomer".into(),
+        "2a8f1e6".into(),
+        Timestamp(1_790_000_000),
+    ));
+    store.save(&state).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state));
+}
+
+#[test]
+fn a_contributions_security_review_survives_a_save_and_a_load_and_is_left_out_until_made() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    let mut read = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    state.contributions.push(read.clone());
+    store.save(&state).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["contributions"][0].get("security"), None);
+    assert_eq!(saved["contributions"][0].get("passed"), None);
+
+    read.passed = Some("2a8f1e6".into());
+    read.security = Some(Security {
         head: "2a8f1e6".into(),
-        seen: Timestamp(1_790_000_000),
+        verdict: SecurityVerdict::Passed,
     });
+    state.contributions = vec![read];
     store.save(&state).unwrap();
     assert_eq!(store.load().unwrap(), Some(state));
 }

@@ -14,10 +14,12 @@ use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 mod changed;
+mod contribution;
 mod ref_folders;
 mod stale_lock;
 
 pub use changed::changed_files;
+pub use contribution::{Change, Opaque, Touched, change as contribution_change};
 
 /// The branch every work item is cut from, on `origin`
 pub const BASE: &str = "main";

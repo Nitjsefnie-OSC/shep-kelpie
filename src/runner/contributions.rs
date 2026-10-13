@@ -10,8 +10,12 @@
 //! Once a [`BOARD_POLL`](super::BOARD_POLL), whether or not a slot is free,
 //! the runner records each contribution it sees, with its head, and drops
 //! the record of one that was closed, merged, made a draft again, or, under
-//! `"label"`, lost the label. A new head updates the record. Nothing is
-//! posted and nothing runs for a contribution here.
+//! `"label"`, lost the label. A new head updates the record, and each head no
+//! security review has read is read ([`security`]) before anything of the
+//! contributor's can run. Nothing is posted and nothing runs for a
+//! contribution here.
+
+mod security;
 
 use super::Runner;
 use crate::board::{OpenPullRequest, READY};
@@ -86,11 +90,11 @@ impl Runner {
             let known = (self.state.contributions.iter()).find(|c| c.pull_request == pr.number);
             followed.push(match known {
                 Some(known) if known.head == pr.commit => known.clone(),
+                // A new head is unread, and the last head that passed stays the
+                // one it is read since.
                 _ => Contribution {
-                    pull_request: pr.number,
-                    author: pr.author.clone(),
-                    head: pr.commit.clone(),
-                    seen: now,
+                    passed: known.and_then(|k| k.passed.clone()),
+                    ..Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
                 },
             });
         }
@@ -101,14 +105,16 @@ impl Runner {
             (held.unwrap_or(usize::MAX), c.pull_request)
         };
         followed.sort_by_key(place);
-        if followed == self.state.contributions {
-            return Ok(());
+        if followed != self.state.contributions {
+            let mut next = self.state.clone();
+            next.contributions = followed;
+            self.save(next)?;
         }
-        let mut next = self.state.clone();
-        next.contributions = followed;
-        self.save(next)
+        self.read_securities()
     }
 }
 
+#[cfg(test)]
+mod security_tests;
 #[cfg(test)]
 mod tests;
