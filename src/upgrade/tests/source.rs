@@ -20,7 +20,7 @@ fn a_ref_is_built_where_it_stands_in_the_repo() {
     );
     let main = |version: &str| {
         format!(
-            "fn main() {{ println!(\"{{{{\\\"kelpie\\\":\\\"{version}\\\",\\\"shep\\\":\\\"0.11.0\\\"}}}}\"); }}\n"
+            "fn main() {{ println!(\"{{{{\\\"kelpie\\\":\\\"{version}\\\",\\\"shep\\\":\\\"0.12.0\\\"}}}}\"); }}\n"
         )
     };
     let git = |args: &[&str]| {
