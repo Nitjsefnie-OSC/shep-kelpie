@@ -231,3 +231,19 @@ fn the_report_splits_calls_between_the_login_and_the_app() {
         "{out:#?}"
     );
 }
+
+#[test]
+fn only_a_write_that_went_through_counts_as_one_made() {
+    let home = tempfile::tempdir().unwrap();
+    let ledger = Ledger::in_home(home.path(), "koji");
+    let at = Timestamp(START);
+
+    ledger.record(at, Kind::PullRequest, 80, Ended::Ok);
+    ledger.record(at, Kind::Comment, 0, Ended::Held);
+    ledger.record(at, Kind::Merge, 90, Ended::Failed);
+    assert_eq!(ledger.writes(), 0);
+
+    ledger.record(at, Kind::Comment, 80, Ended::Ok);
+    ledger.record_by(Identity::App, at, Kind::AppSetIssueLabel, 80, Ended::Ok);
+    assert_eq!(ledger.writes(), 2);
+}

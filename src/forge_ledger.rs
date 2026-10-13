@@ -11,7 +11,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +73,8 @@ pub struct Ledger {
     project: String,
     // Whether the last append failed, so a run of failures is told once
     failing: AtomicBool,
+    // The writes that went through since this runner began, in memory only
+    writes: AtomicU64,
 }
 
 impl Ledger {
@@ -82,7 +84,14 @@ impl Ledger {
             path: kelpie_home.join(FILE),
             project: project.to_owned(),
             failing: AtomicBool::new(false),
+            writes: AtomicU64::new(0),
         }
+    }
+
+    /// How many writes to the forge have gone through since this ledger was
+    /// opened, which rises with each one so a reader can tell one was made
+    pub fn writes(&self) -> u64 {
+        self.writes.load(Ordering::Relaxed)
     }
 
     /// Appends a call of the maintainer's login, as [`Ledger::record_by`]
@@ -94,6 +103,9 @@ impl Ledger {
     /// `millis` at `at`. A failure is told on stderr, once until an append
     /// works again, and goes no further: no forge call fails on it.
     pub fn record_by(&self, by: Identity, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
+        if kind.writes() && ended == Ended::Ok {
+            self.writes.fetch_add(1, Ordering::Relaxed);
+        }
         let line = Line {
             at,
             project: self.project.clone(),
