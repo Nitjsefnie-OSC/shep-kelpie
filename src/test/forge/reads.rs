@@ -67,6 +67,7 @@ impl FakeForge {
                 checks: view.map_or(Checks::None, |v| v.checks),
                 from_fork: fake.from_fork,
                 author: fake.author,
+                author_is_bot: fake.author_is_bot,
                 marks: ReviewMarks {
                     reviews: reviews.unwrap_or_default(),
                     threads: 0,

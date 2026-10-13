@@ -111,6 +111,7 @@ struct FakePullRequest {
     draft: bool,
     from_fork: bool,
     author: String,
+    author_is_bot: bool,
 }
 
 /// An issue kelpie opened on the fake forge
@@ -273,6 +274,7 @@ impl FakeForge {
             checks: Checks::None,
             from_fork: false,
             author: VIEWER.to_owned(),
+            author_is_bot: false,
             marks: ReviewMarks::default(),
         });
         let pr = FakePullRequest {
@@ -282,6 +284,7 @@ impl FakeForge {
             draft: true,
             from_fork: false,
             author: VIEWER.to_owned(),
+            author_is_bot: false,
         };
         self.pull_requests.lock().unwrap().insert(number, pr);
     }
@@ -290,6 +293,14 @@ impl FakeForge {
     pub(crate) fn set_author(&self, number: u64, login: &str) {
         let mut prs = self.pull_requests.lock().unwrap();
         prs.get_mut(&number).expect("an opened pull request").author = login.to_owned();
+    }
+
+    /// Makes pull request `number` one a bot account opened
+    pub(crate) fn set_author_bot(&self, number: u64) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        prs.get_mut(&number)
+            .expect("an opened pull request")
+            .author_is_bot = true;
     }
 
     /// How many times the account kelpie acts as was asked
