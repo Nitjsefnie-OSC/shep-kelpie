@@ -19,4 +19,4 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 
 ## Rereads
 
-- `reread` leaves `contributions` to the next start, like `git.*`: the checks above run when the runner opens. `src/runner/reread.rs`
+- `reread` keeps the running `contributions` and logs it as waiting for the next start, like `git.*`, whatever else changed: the checks above run only when the runner opens. `src/runner/reread.rs`
