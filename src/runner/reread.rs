@@ -203,7 +203,7 @@ impl Runner {
 }
 
 // Whether `gateways` route every listed agent that names one.
-fn check_gateways(
+pub(crate) fn check_gateways(
     gateways: &Gateways,
     book: &Agents,
     agents: &RoleAgents,
