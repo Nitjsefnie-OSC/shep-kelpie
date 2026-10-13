@@ -195,15 +195,24 @@ impl Agents for PiCli {
             std::fs::write(&compact, compact::extension(again.as_deref()))
                 .map_err(|e| setup(&compact, e))?;
         }
-        if let Some(window) = call.compact_window {
-            if let Some(settings) = compact::settings(server.context.get(), window) {
-                let path = files.settings();
+        if call.compact_window.is_some() {
+            let prompt = files.prompt();
+            std::fs::write(&prompt, compact::handed_back(call)).map_err(|e| setup(&prompt, e))?;
+        }
+        // The home outlives the call, so an earlier call's reserve goes with its window.
+        let path = files.settings();
+        match call
+            .compact_window
+            .and_then(|w| compact::settings(server.context.get(), w))
+        {
+            Some(settings) => {
                 let text = serde_json::to_string_pretty(&settings).expect("settings are JSON");
                 std::fs::write(&path, text).map_err(|e| setup(&path, e))?;
             }
-            let prompt = files.prompt();
-            std::fs::write(&prompt, compact::handed_back(&call.prompt))
-                .map_err(|e| setup(&prompt, e))?;
+            None => match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(setup(&path, e)),
+                _ => {}
+            },
         }
         Ok(())
     }

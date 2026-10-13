@@ -14,8 +14,8 @@ use std::process::Output;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{PI, failed, tail};
-use crate::ports::{AgentError, AgentReply, SessionId, Usage};
+use super::{PI, StepSkill, failed, step_skill, tail};
+use crate::ports::{AgentCall, AgentError, AgentReply, SessionId, Usage};
 
 /// What a compact call sends in place of `COMPACT`
 pub(super) const COMMAND: &str = "/kelpie-compact";
@@ -47,11 +47,38 @@ pub(super) fn settings(context: u32, window: NonZeroU32) -> Option<Value> {
 }
 
 /// What a compaction pi starts itself hands back: the turn's prompt again
-pub(super) fn handed_back(prompt: &str) -> String {
+///
+/// A step's prompt is the text of its skill, as pi expands the command
+/// `argv` gives it, since pi expands no command inside a message.
+pub(super) fn handed_back(call: &AgentCall) -> String {
+    let prompt = match step_skill(call) {
+        Some(step) => skill_text(&step),
+        None => call.prompt.clone(),
+    };
     format!(
         "pi compacted your session partway through this turn, so what came before is \
          a summary, and the prompt may have been cut from it. This is the prompt again:\n\n\
          {prompt}\n"
+    )
+}
+
+// The step's skill without its front matter, then the rest of the prompt.
+fn skill_text(step: &StepSkill) -> String {
+    let file = step.dir.join("SKILL.md");
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let body = match text
+        .strip_prefix("---\n")
+        .and_then(|t| t.split_once("\n---\n"))
+    {
+        Some((_, body)) => body,
+        None => &text,
+    };
+    format!(
+        "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>\n\n{}",
+        step.name,
+        file.display(),
+        body.trim(),
+        step.rest
     )
 }
 

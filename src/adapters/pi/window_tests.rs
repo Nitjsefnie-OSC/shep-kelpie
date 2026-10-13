@@ -145,3 +145,48 @@ fn the_extension_hands_the_prompt_back_after_a_threshold_or_overflow_compaction_
     assert_eq!(sent["overflow"], again);
     assert_eq!(sent["manual"], json!([]));
 }
+
+// A stale `settings.json` from an earlier call on the item would keep its
+// reserve, so a call that needs none removes it.
+#[test]
+fn a_call_that_needs_no_reserve_removes_the_one_an_earlier_call_left() {
+    let w = World::new();
+    let pi = stand_in(&w, FRESH);
+    pi.prepare(&windowed(&w, 262_144, Some(200_000))).unwrap();
+    assert!(settings_written(&w).is_some());
+    for call in [
+        windowed(&w, 64_000, Some(200_000)),
+        windowed(&w, 262_144, None),
+    ] {
+        pi.prepare(&windowed(&w, 262_144, Some(200_000))).unwrap();
+        pi.prepare(&call).unwrap();
+        assert_eq!(settings_written(&w), None);
+    }
+}
+
+#[test]
+fn a_step_s_prompt_is_handed_back_as_the_skill_text_pi_ran_and_not_the_command() {
+    let w = World::new();
+    let plugin = w.path("plugins/shep");
+    std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+    std::fs::create_dir_all(plugin.join("skills/implement")).unwrap();
+    std::fs::write(
+        plugin.join(".claude-plugin/plugin.json"),
+        r#"{"name":"shep"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("skills/implement/SKILL.md"),
+        "---\nname: implement\ndescription: d\n---\nBuild it test first.\n",
+    )
+    .unwrap();
+    let mut call = windowed(&w, 262_144, Some(200_000));
+    call.plugin_dirs = vec![plugin];
+    call.prompt = "/shep:implement Implement issue #7".into();
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+    let prompt = std::fs::read_to_string(w.path("settings.prompt.md")).unwrap();
+    assert!(prompt.contains("Build it test first."), "{prompt}");
+    assert!(!prompt.contains("description: d"), "{prompt}");
+    assert!(!prompt.contains("/shep:implement"), "{prompt}");
+    assert!(prompt.ends_with("Implement issue #7\n"), "{prompt}");
+}
