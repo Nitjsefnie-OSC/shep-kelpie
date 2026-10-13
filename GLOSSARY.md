@@ -150,6 +150,16 @@ its review at the start of each round, at green CI, and while the merge
 ruling waits, which that review withdraws. After the pass, a late round's
 fix goes to CI and back to the merge ruling with no new pass. No bot is listed unless the project lists it.
 
+**Comment round**:
+A resumed turn that sends the worker what people with write access wrote on
+its pull request since kelpie last looked: new comments and review threads,
+numbered as requests. Kelpie reads at the start of a review round, at green
+CI and while a merge ruling waits; a comment landing under a merge ruling
+withdraws it and is handled as its `no <note>`. A work item gets three before
+a `question` ruling takes over. Apps and people without write access are
+ignored and logged.
+_Avoid_: comment fix, auto-fix
+
 ## In shep's terms
 
 Kelpie is a **dog**: it watches its projects rather than being one. The
