@@ -27,6 +27,7 @@ struct FakeHost {
     keychain: bool,
     token: bool,
     off_path: Vec<&'static str>,
+    os: &'static str,
 }
 
 impl Host for FakeHost {
@@ -40,6 +41,10 @@ impl Host for FakeHost {
 
     fn has_keychain(&self) -> bool {
         self.keychain
+    }
+
+    fn os(&self) -> &'static str {
+        self.os
     }
 
     fn login_token(&self) -> bool {
@@ -262,6 +267,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "golbat: coderabbit",
             "golbat: github app",
             "golbat: workers",
+            "golbat: reads",
             "golbat: maintainer",
             "golbat: reviewers",
             "golbat: rulings",
@@ -272,6 +278,7 @@ async fn a_machine_with_everything_in_place_passes_and_changes_nothing() {
             "koji: pull request template",
             "koji: github app",
             "koji: workers",
+            "koji: reads",
             "koji: maintainer",
             "koji: reviewers",
             "koji: rulings",
@@ -985,4 +992,5 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
 mod e2e;
 mod github;
 mod plugins;
+mod sandbox;
 mod template;

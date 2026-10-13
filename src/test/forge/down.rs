@@ -39,6 +39,11 @@ impl FakeForge {
         *self.limited.lock().unwrap() = None;
     }
 
+    /// Makes every call fail with `said`, as gh prints it
+    pub(crate) fn set_failing(&self, said: &str) {
+        *self.down.lock().unwrap() = Some((said.to_owned(), None));
+    }
+
     /// Makes every call fail as gh does with no network, or lets every call through again
     pub(crate) fn set_down(&self, down: bool) {
         let said = "error connecting to api.github.com";

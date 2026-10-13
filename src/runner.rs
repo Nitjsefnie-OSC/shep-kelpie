@@ -442,16 +442,18 @@ impl Runner {
         };
         // The guard sits outside the hold, so its own questions to the forge are held too.
         let forge_ledger = Arc::new(ForgeLedger::in_home(&paths.kelpie_home, project.as_str()));
-        let held: Arc<dyn Forge> = Arc::new(
-            RateHeld::new(
-                ports.forge,
-                Arc::clone(&clock),
-                forge_hold.clone(),
-                say_to(&told),
-            )
-            .with_ledger(Arc::clone(&forge_ledger))
-            .paced_for(project.as_str()),
-        );
+        let mut rate_held = RateHeld::new(
+            ports.forge,
+            Arc::clone(&clock),
+            forge_hold.clone(),
+            say_to(&told),
+        )
+        .with_ledger(Arc::clone(&forge_ledger))
+        .paced_for(project.as_str());
+        if let Some(app_reads) = ports.app_reads.take() {
+            rate_held = rate_held.with_app_reads(app_reads);
+        }
+        let held: Arc<dyn Forge> = Arc::new(rate_held);
         let recorded = RecordedVoice::new(ports.voice, Arc::clone(&clock), forge_ledger);
         let paced = PacedVoice::new(
             Arc::new(recorded),

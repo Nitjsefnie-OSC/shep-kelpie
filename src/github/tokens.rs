@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::api::{ApiError, GithubApi, Grant, IssuedToken, Signer};
+use super::api::{ApiError, GithubApi, Grant, IssuedToken, Purpose, Signer};
 use super::{App, Apps, Owner, StoreError};
 use crate::ports::{Clock, Timestamp};
 use crate::settings::ForgeSlug;
@@ -172,6 +172,18 @@ pub trait GithubApp: Send + Sync {
     ///
     /// As [`GithubApp::token`].
     fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError>;
+
+    /// A token to read `repo` with, kept until it nears its end like
+    /// [`GithubApp::token`] but apart from it: it holds what the App has been
+    /// given of the read permissions kelpie's reads use, and writes nothing
+    ///
+    /// The token's `permissions` say which of them the App holds, since an App
+    /// registered before kelpie read through it lacks some.
+    ///
+    /// # Errors
+    ///
+    /// As [`GithubApp::token`].
+    fn reader(&self, repo: &ForgeSlug) -> Result<IssuedToken, TokenError>;
 }
 
 /// A worker's token and what it lets the worker change beyond its branch
@@ -193,7 +205,7 @@ type RepoKey = (u64, String);
 #[derive(Debug, Default)]
 struct Kept {
     installations: BTreeMap<(u64, String), u64>,
-    tokens: BTreeMap<(u64, String, u64), IssuedToken>,
+    tokens: BTreeMap<(u64, String, u64, Purpose), IssuedToken>,
     // Until when an App is believed not installed on a repo
     not_installed: BTreeMap<RepoKey, Timestamp>,
 }
@@ -252,6 +264,14 @@ impl GithubApp for AppTokens {
 
     fn thread_token(&self, repo: &ForgeSlug) -> Result<InstallationToken, TokenError> {
         self.mint(repo, Grant::Threads).map(|issued| issued.token)
+    }
+
+    fn reader(&self, repo: &ForgeSlug) -> Result<IssuedToken, TokenError> {
+        match self.mint(repo, Grant::Reader) {
+            // GitHub answers 422 to a request for a permission the App lacks.
+            Err(TokenError::Api(ApiError::Refused(422))) => self.mint(repo, Grant::ReaderCore),
+            minted => minted,
+        }
     }
 
     fn worker(&self, repo: &ForgeSlug) -> Result<WorkerToken, TokenError> {
@@ -318,13 +338,15 @@ impl AppTokens {
         };
         let _flight = flight.lock().unwrap_or_else(PoisonError::into_inner);
         let now = self.clock.now();
-        let token_key = |id: u64| (key.0, key.1.clone(), id);
+        let kept_for = grant.kept_for();
+        let token_key = |id: u64, purpose: Purpose| (key.0, key.1.clone(), id, purpose);
         let installation = {
             let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
             let installation = kept.installations.get(&key).copied();
-            let issued = installation.and_then(|id| kept.tokens.get(&token_key(id)));
+            let issued = installation
+                .zip(kept_for)
+                .and_then(|(id, purpose)| kept.tokens.get(&token_key(id, purpose)));
             if let Some(issued) = issued
-                && grant == Grant::Kelpie
                 && now.0.saturating_add(REMINT_BEFORE) < issued.expires_at.0
             {
                 return Ok(issued.clone());
@@ -369,7 +391,8 @@ impl AppTokens {
             // The App was taken off the repo, or its installation is gone.
             Err(e @ ApiError::Refused(401 | 404)) => {
                 let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-                kept.tokens.remove(&token_key(id));
+                kept.tokens
+                    .retain(|k, _| (k.0, &k.1, k.2) != (key.0, &key.1, id));
                 kept.installations.remove(&key);
                 return Err(e.into());
             }
@@ -377,8 +400,8 @@ impl AppTokens {
         };
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.not_installed.remove(&key);
-        if grant == Grant::Kelpie {
-            kept.tokens.insert(token_key(id), issued.clone());
+        if let Some(purpose) = kept_for {
+            kept.tokens.insert(token_key(id, purpose), issued.clone());
         }
         kept.installations.insert(key, id);
         Ok(issued)

@@ -36,6 +36,7 @@ fn a_ledger_holds_a_line_for_each_call_and_reads_back_as_written() {
             project: "shep".to_owned(),
             kind: Kind::PullRequest,
             api: Api::GraphQl,
+            by: Identity::Login,
             millis: 80,
             ended: Ended::Ok,
         }
@@ -43,9 +44,11 @@ fn a_ledger_holds_a_line_for_each_call_and_reads_back_as_written() {
     let text = std::fs::read_to_string(home.path().join(FILE)).unwrap();
     assert_eq!(
         text.lines().nth(3).unwrap(),
-        r#"{"at":1791000020,"project":"shep","kind":"pull_request","api":"graphql","millis":80,"ended":"ok"}"#
+        r#"{"at":1791000020,"project":"shep","kind":"pull_request","api":"graphql","by":"login","millis":80,"ended":"ok"}"#
     );
-    assert!(text.contains(r#""kind":"viewer","api":"rest","millis":0,"ended":"held""#));
+    assert!(
+        text.contains(r#""kind":"viewer","api":"rest","by":"login","millis":0,"ended":"held""#)
+    );
     assert!(text.contains(r#""ended":"used-up""#));
 }
 
@@ -82,6 +85,8 @@ fn the_report_counts_calls_made_in_each_minute_and_leaves_held_ones_out() {
             "by project (calls, minutes with a call, a minute, busiest minute):",
             "  koji: 10, 3, 3.3, 6",
             "  shep: 1, 1, 1.0, 1",
+            "by identity (calls, minutes with a call, a minute, busiest minute):",
+            "  login: 11, 3, 3.7, 6",
             "by kind (calls, minutes with a call, a minute, busiest minute):",
             "  reviewed graphql: 8, 3, 2.7, 4",
             "  open_pull_requests graphql: 2, 1, 2.0, 2",
@@ -171,4 +176,58 @@ fn a_minute_names_every_project_and_kind_in_it() {
     for kind in kinds {
         assert!(minute.contains(&format!("{} 1", kind.name())), "{minute}");
     }
+}
+
+#[test]
+fn a_line_written_before_the_identity_was_recorded_reads_as_the_logins() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join(FILE);
+    std::fs::write(
+        &path,
+        "{\"at\":1791000020,\"project\":\"shep\",\"kind\":\"pull_request\",\"api\":\"graphql\",\"millis\":80,\"ended\":\"ok\"}\n",
+    )
+    .unwrap();
+
+    assert_eq!(read(&path).unwrap()[0].by, Identity::Login);
+}
+
+#[test]
+fn the_report_splits_calls_between_the_login_and_the_app() {
+    let home = tempfile::tempdir().unwrap();
+    let koji = Ledger::in_home(home.path(), "koji");
+    let at = |seconds: u64| Timestamp(START + seconds);
+    koji.record(at(5), Kind::Reviewed, 5, Ended::Ok);
+    for seconds in [10, 15, 20] {
+        koji.record_by(
+            Identity::App,
+            at(seconds),
+            Kind::OpenPullRequests,
+            5,
+            Ended::Ok,
+        );
+    }
+    koji.record_by(Identity::App, at(70), Kind::Reviewed, 5, Ended::UsedUp);
+    let lines = read(&home.path().join(FILE)).unwrap();
+    assert_eq!(lines[1].by, Identity::App);
+
+    let out = report(&lines, None);
+
+    assert!(
+        out.contains(
+            &"by identity (calls, minutes with a call, a minute, busiest minute):".to_owned()
+        ),
+        "{out:#?}"
+    );
+    assert!(out.contains(&"  app: 4, 2, 2.0, 3".to_owned()), "{out:#?}");
+    assert!(
+        out.contains(&"  login: 1, 1, 1.0, 1".to_owned()),
+        "{out:#?}"
+    );
+    // A used-up answer says whose budget it was
+    assert!(
+        out.last()
+            .unwrap()
+            .starts_with("  2026-10-03T04:01:10Z koji reviewed (graphql, app);"),
+        "{out:#?}"
+    );
 }
