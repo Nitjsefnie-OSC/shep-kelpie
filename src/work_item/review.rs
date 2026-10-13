@@ -140,6 +140,10 @@ pub struct TestCheck {
     /// The run at the fix's head. None while the fix has not moved the head.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<TestOutcome>,
+    /// Whether the worker was sent back to a run after the fix that failed.
+    /// Set once, so a finding goes back once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sent_back: bool,
 }
 
 /// What the two runs of a finding's test say, none of which holds the pass

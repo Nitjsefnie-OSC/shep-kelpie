@@ -132,6 +132,11 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                     review.round
                 )
             }
+            Stuck::TestStillFails {
+                fix, head, tests, ..
+            } => {
+                return super::test_fails::question(&about, (&yes, &no), fix, head, tests);
+            }
             Stuck::TurnTimeout { .. } => {
                 return format!(
                     "The worker on {about} has been running past its turn's ceiling, \

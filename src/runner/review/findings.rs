@@ -6,6 +6,7 @@ use super::attached::tests_folder;
 use super::calls::severity_tag;
 use crate::ports::{Finding, parse_findings};
 use crate::runner::turn;
+use crate::state::FailingTest;
 use crate::worker_folder;
 
 /// Where a round's findings are written for the worker's next turn
@@ -170,6 +171,37 @@ pub(in crate::runner) fn again_prompt(
         path.display(),
         turn::KEEP_BODY_TRUE
     )
+}
+
+// The second fix turn for a reviewer's test the first fix left failing. The
+// tests are the reviewer's, so the worker reads them and changes the code.
+pub(in crate::runner) fn still_failing_prompt(
+    number: u64,
+    round: u32,
+    build: &Path,
+    failing: &[FailingTest],
+) -> String {
+    let mut prompt = format!(
+        "Your fix for round {round} of the review on pull request #{number} left \
+         {} of the reviewer's failing tests still failing. Change the code so each \
+         passes, and leave the test alone: it is the reviewer's, and an edit to it \
+         is not run.",
+        failing.len()
+    );
+    for failed in failing {
+        prompt.push_str(&format!(
+            "\n\nThe test {} is kept at {}/{}. Its output ended:\n{}",
+            failed.test,
+            tests_folder(build).display(),
+            failed.test,
+            failed.output.trim_end()
+        ));
+    }
+    prompt.push_str(&format!(
+        "\n\nCommit and push with `git push origin HEAD`. {}",
+        turn::KEEP_BODY_TRUE
+    ));
+    prompt
 }
 
 #[cfg(test)]
