@@ -35,25 +35,24 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
         let listed = match port.models(&upstream) {
             Ok(listed) => listed,
             Err(why) => {
-                lines.push(Line::missing(&subject, why, fix));
-                // A gateway that lists to a key alone shows a refused one here.
-                if found.is_ok() && port.key(&upstream) == KeyCheck::Refused {
-                    lines.push(key_line(&subject, gateway, &KeyCheck::Refused));
+                lines.push(Line::missing(&subject, &why, fix));
+                // A gateway that lists to a key alone shows a refused key here,
+                // or one this shell lacks.
+                match &found {
+                    Ok(_) if port.key(&upstream) == KeyCheck::Refused => {
+                        lines.push(key_line(&subject, gateway, &KeyCheck::Refused));
+                    }
+                    Err(unset) if answered_no_key(&why) => {
+                        lines.push(unset_key_line(&subject, gateway, unset));
+                    }
+                    _ => {}
                 }
                 continue;
             }
         };
         lines.push(Line::ok(&subject, format!("lists {} models", listed.len())));
         lines.push(match found {
-            Err(why) => {
-                let var = gateway.key_env.as_str();
-                let next = format!(
-                    "the runner reads it from its sheep's `env`. To check the key, give \
-                     doctor it for one run: ` {var}=<key> shep kelpie doctor`, the leading \
-                     space keeping it out of the shell's history"
-                );
-                Line::unsure(format!("{subject}: key"), why, next)
-            }
+            Err(why) => unset_key_line(&subject, gateway, &why),
             Ok(_) => key_line(&subject, gateway, &port.key(&upstream)),
         });
         for (agent, model) in on(agents, name.as_str()) {
@@ -80,6 +79,22 @@ pub(super) fn checks(gateways: &Gateways, agents: &Agents) -> Vec<Line> {
         }
     }
     lines
+}
+
+// The line for a key this shell does not have, which may not be the runner's.
+fn unset_key_line(subject: &str, gateway: &Gateway, why: &str) -> Line {
+    let var = gateway.key_env.as_str();
+    let next = format!(
+        "the runner reads it from its sheep's `env`. To check the key, give \
+         doctor it for one run: ` {var}=<key> shep kelpie doctor`, the leading \
+         space keeping it out of the shell's history"
+    );
+    Line::unsure(format!("{subject}: key"), why, next)
+}
+
+// Whether a failed list was the gateway turning the request away for want of a key.
+fn answered_no_key(why: &str) -> bool {
+    why.ends_with("HTTP 401") || why.ends_with("HTTP 403")
 }
 
 // The line for `gateway`'s answer to its key.
@@ -255,5 +270,20 @@ mod tests {
         );
         let shown: String = lines.iter().map(ToString::to_string).collect();
         assert!(!shown.contains("sk-wrong"), "{shown}");
+    }
+
+    #[test]
+    fn an_openai_gateway_that_lists_to_a_key_alone_is_unsure_of_a_key_this_shell_lacks() {
+        let server = StandInEndpoint::start([]).like_openai("sk-right", &[]);
+        let lines = checks(&openai(server.host(), |_| None), &agents(&[]));
+        let kinds = verdicts(&lines);
+        assert_eq!(
+            kinds,
+            [
+                ("gateway paddock".to_owned(), "missing"),
+                ("gateway paddock: key".to_owned(), "unsure"),
+            ]
+        );
+        assert!(lines[1].to_string().contains("PADDOCK_KEY"), "{}", lines[1]);
     }
 }
