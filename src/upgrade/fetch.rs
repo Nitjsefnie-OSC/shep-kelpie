@@ -74,7 +74,8 @@ fn run(command: &mut Command, limit: Duration) -> Result<(), String> {
         .ok_or_else(|| format!("{what} exited {status}"))
 }
 
-// A command's trimmed standard output, or none when it ran and refused.
+// A command's trimmed standard output, or none when it ran and refused. It
+// has no limit: its one use reads local refs, which wait on no network.
 fn ask(command: &mut Command) -> Result<Option<String>, String> {
     let what = format!("{command:?}");
     let output = command
