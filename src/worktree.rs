@@ -15,12 +15,14 @@ use std::time::SystemTime;
 
 mod catch_up;
 mod changed;
+mod contribution;
 mod ref_folders;
 mod remote;
 mod stale_lock;
 
 pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
+pub use contribution::{Change, Opaque, Touched, change as contribution_change};
 pub use remote::Remote;
 
 /// The branch every work item is cut from, on `origin`

@@ -269,6 +269,22 @@ fn a_harness_missing_a_key_it_needs_is_refused_naming_the_key() {
 }
 
 #[test]
+fn the_embedded_security_reviewer_file_parses_as_a_reviewer() {
+    let agents = Agents::embedded();
+    let reviewer = agents.get(&name("security-reviewer")).unwrap();
+    assert_eq!(reviewer.role, Role::Reviewer);
+    assert_eq!(model(reviewer).harness, AgentHarness::ClaudeCode);
+    assert!(!reviewer.second_look, "it reads once");
+    let prompt = reviewer.prompt.as_deref().unwrap();
+    assert!(
+        prompt.contains("{{DIFF}}"),
+        "the diff goes in where the file says"
+    );
+    assert!(prompt.contains("CLEAN"));
+    assert!(prompt.contains("SEVERITY|file:line|"));
+}
+
+#[test]
 fn defaults_are_written_where_missing_and_never_over_a_file() {
     let dir = tempfile::tempdir().unwrap();
     let agents = dir.path().join("agents");
@@ -281,6 +297,7 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "defect-hunter",
             "standards",
             "spec",
+            "security-reviewer",
             "coderabbit",
             "cubic",
             "codex",
