@@ -10,6 +10,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::Revalidated;
 use super::{
     Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel, OpenIssue,
     Pace, PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp, Visibility,
@@ -107,6 +108,8 @@ pub struct RateHeld {
     project: Option<String>,
     // Who reads a repo, where the App can
     app: Option<AppReader>,
+    // The reads the adapters sent a validator with and GitHub answered 304
+    revalidated: Revalidated,
 }
 
 impl RateHeld {
@@ -121,6 +124,7 @@ impl RateHeld {
             ledger: None,
             project: None,
             app: None,
+            revalidated: Revalidated::default(),
         }
     }
 
@@ -136,6 +140,14 @@ impl RateHeld {
     #[must_use]
     pub fn with_ledger(mut self, ledger: Arc<Ledger>) -> Self {
         self.ledger = Some(ledger);
+        self
+    }
+
+    /// Puts each call's reads that came back 304 in the ledger, as `revalidated`
+    /// counts them
+    #[must_use]
+    pub fn counting(mut self, revalidated: Revalidated) -> Self {
+        self.revalidated = revalidated;
         self
     }
 
@@ -213,7 +225,8 @@ impl RateHeld {
 
     fn record_by(&self, by: Identity, at: Timestamp, kind: Kind, millis: u64, ended: Ended) {
         if let Some(ledger) = &self.ledger {
-            ledger.record_by(by, at, kind, millis, ended);
+            let not_modified = self.revalidated.take();
+            ledger.record_with(by, at, kind, millis, ended, not_modified);
         }
     }
 }
@@ -659,6 +672,23 @@ mod tests {
                     (1_060, "koji", Kind::RepoLabels, Api::GraphQl, Ended::Failed),
                 ]
             );
+        }
+
+        #[test]
+        fn the_reads_that_came_back_304_are_put_on_the_line_of_the_call_they_were_made_in() {
+            let revalidated = Revalidated::default();
+            let rig = Rig::new();
+            let held = rig.held.counting(revalidated.clone());
+
+            held.viewer().unwrap();
+            revalidated.note();
+            revalidated.note();
+            held.visibility(&repo()).unwrap();
+            held.default_branch(&repo()).unwrap();
+
+            let lines = forge_ledger::read(&rig.home.path().join(forge_ledger::FILE)).unwrap();
+            let counts: Vec<_> = lines.iter().map(|l| l.not_modified).collect();
+            assert_eq!(counts, [0, 2, 0]);
         }
 
         #[test]

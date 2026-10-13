@@ -52,6 +52,23 @@ pub fn report(ledger: &[Line], since: Option<Timestamp>) -> Vec<String> {
         format!("{} {}", l.kind.name(), l.api.name())
     }));
 
+    let mut revalidated: BTreeMap<String, usize> = BTreeMap::new();
+    for line in &made {
+        if line.not_modified > 0 {
+            *revalidated.entry(line.kind.name()).or_default() += line.not_modified as usize;
+        }
+    }
+    if !revalidated.is_empty() {
+        out.push("answered 304 Not Modified (requests, by kind):".to_owned());
+        let mut by_count: Vec<_> = revalidated.into_iter().collect();
+        by_count.sort_by_key(|(name, n)| (std::cmp::Reverse(*n), name.clone()));
+        out.extend(
+            by_count
+                .into_iter()
+                .map(|(name, n)| format!("  {name}: {n}")),
+        );
+    }
+
     out.push("busiest minutes:".to_owned());
     let mut minutes: BTreeMap<u64, Vec<&Line>> = BTreeMap::new();
     for line in &made {

@@ -322,7 +322,7 @@ pub fn main(args: &[String]) -> ExitCode {
         let probes = Probes {
             meter: &meter,
             codex_meter: &codex_meter,
-            forge: &Gh,
+            forge: &Gh::default(),
             github: &github,
             reviewer: &LocalReviewer::default(),
             review_bot: &CodeRabbit,

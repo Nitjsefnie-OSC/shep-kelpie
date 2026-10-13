@@ -104,6 +104,7 @@ impl Runner {
     // same turn again.
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         self.snapshot.begin_pass();
+        self.looks.pass_began(self.forge_ledger.writes());
         let begin = self.step_rotation(start_over);
         self.snapshot.end_pass();
         begin

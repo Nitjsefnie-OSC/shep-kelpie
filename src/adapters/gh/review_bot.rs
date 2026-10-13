@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use super::conditional::{Etags, GhApi};
 use super::{gh, gh_as, unreadable};
 use crate::github::api::{REPLY_TO_THREAD, RESOLVE_THREAD};
 use crate::ports::{ForgeError, Timestamp};
@@ -25,37 +26,28 @@ const REACTIONS: &str = "query($owner: String!, $name: String!, $number: Int!) {
     reactions(last: 50) { nodes { content createdAt user { login } } } } } }";
 
 pub(super) fn activity(
+    etags: &Etags,
     config: Option<&Path>,
     repo: &ForgeSlug,
     number: u64,
     login: Login<'_>,
 ) -> Result<Activity, ForgeError> {
     let bot = login.rest;
-    let comments = gh_as(
-        config,
-        &[
-            "api",
-            "--paginate",
-            &format!(
-                "repos/{}/issues/{number}/comments?per_page=100",
-                repo.as_str()
-            ),
-            "--jq",
-            &format!(".[] | select(.user.login == \"{bot}\") | {{body, updated_at}}"),
-        ],
+    let slug = repo.as_str();
+    let list = |path: String| etags.pages(&GhApi, config, &path);
+    let comments = made_by(
+        &list(format!(
+            "repos/{slug}/issues/{number}/comments?per_page=100"
+        ))?,
+        "user",
+        bot,
+        &["body", "updated_at"],
     )?;
-    let reviews = gh_as(
-        config,
-        &[
-            "api",
-            "--paginate",
-            &format!(
-                "repos/{}/pulls/{number}/reviews?per_page=100",
-                repo.as_str()
-            ),
-            "--jq",
-            &format!(".[] | select(.user.login == \"{bot}\") | {{commit_id, body, submitted_at}}"),
-        ],
+    let reviews = made_by(
+        &list(format!("repos/{slug}/pulls/{number}/reviews?per_page=100"))?,
+        "user",
+        bot,
+        &["commit_id", "body", "submitted_at"],
     )?;
     let (owner, name) = repo.as_str().split_once('/').unwrap_or_default();
     let threads = gh_as(
@@ -89,20 +81,13 @@ pub(super) fn activity(
         ],
     )?;
     // The pull request's own ref, so the head needs no read of its own.
-    let statuses = gh_as(
-        config,
-        &[
-            "api",
-            "--paginate",
-            &format!(
-                "repos/{}/commits/refs/pull/{number}/head/statuses?per_page=100",
-                repo.as_str()
-            ),
-            "--jq",
-            &format!(
-                ".[] | select(.creator.login == \"{bot}\") | {{url, description, created_at}}"
-            ),
-        ],
+    let statuses = made_by(
+        &list(format!(
+            "repos/{slug}/commits/refs/pull/{number}/head/statuses?per_page=100"
+        ))?,
+        "creator",
+        bot,
+        &["url", "description", "created_at"],
     )?;
     Ok(Activity {
         comments: parse_comments(&comments)?,
@@ -194,7 +179,28 @@ fn time(text: &str, stdout: &[u8]) -> Result<Timestamp, ForgeError> {
     Ok(Timestamp(seconds))
 }
 
-// `--jq` prints one JSON object a line, across every page.
+// The `fields` of each item `who` made, as `by` names it, one JSON object a
+// line across the pages
+fn made_by(pages: &[Vec<u8>], by: &str, who: &str, fields: &[&str]) -> Result<Vec<u8>, ForgeError> {
+    let mut out = Vec::new();
+    for page in pages {
+        let items: Vec<serde_json::Value> =
+            serde_json::from_slice(page).map_err(|_| unreadable(page))?;
+        for item in items {
+            if item[by]["login"].as_str() != Some(who) {
+                continue;
+            }
+            let kept: serde_json::Map<_, _> = (fields.iter())
+                .map(|f| ((*f).to_owned(), item[*f].clone()))
+                .collect();
+            serde_json::to_writer(&mut out, &kept).map_err(|_| unreadable(page))?;
+            out.push(b'\n');
+        }
+    }
+    Ok(out)
+}
+
+// One JSON object a line, across every page.
 fn lines<T: for<'de> Deserialize<'de>>(stdout: &[u8]) -> Result<Vec<T>, ForgeError> {
     stdout
         .split(|b| *b == b'\n')
@@ -392,6 +398,48 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn only_what_the_bot_made_is_kept_across_pages_and_read_as_the_jq_lines_were() {
+        let pages = [
+            br#"[{"id":1,"user":{"login":"coderabbitai[bot]"},"body":"a","updated_at":"2026-10-10T05:31:54Z"},
+                 {"id":2,"user":{"login":"octocat"},"body":"b","updated_at":"2026-10-10T05:31:55Z"}]"#
+                .to_vec(),
+            br#"[{"id":3,"user":null,"body":"c","updated_at":"2026-10-10T05:31:56Z"},
+                 {"id":4,"user":{"login":"coderabbitai[bot]"},"body":"d","updated_at":"2026-10-10T05:31:57Z"}]"#
+                .to_vec(),
+        ];
+
+        let kept = made_by(&pages, "user", "coderabbitai[bot]", &["body", "updated_at"]).unwrap();
+
+        let comments = parse_comments(&kept).unwrap();
+        let bodies: Vec<_> = comments.iter().map(|c| c.body.as_str()).collect();
+        assert_eq!(bodies, ["a", "d"]);
+    }
+
+    #[test]
+    fn a_status_is_kept_by_its_creator_not_its_user() {
+        let page = br#"[{"url":"https://api.github.com/repos/o/r/statuses/abc123","description":"d","created_at":"2026-10-10T05:31:54Z",
+                         "creator":{"login":"cubic-dev-ai[bot]"}}]"#
+            .to_vec();
+
+        let kept = made_by(
+            &[page],
+            "creator",
+            "cubic-dev-ai[bot]",
+            &["url", "description", "created_at"],
+        )
+        .unwrap();
+
+        assert_eq!(parse_statuses(&kept).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_page_that_is_not_a_list_is_unreadable() {
+        let kept = made_by(&[b"{}".to_vec()], "user", "bot", &["body"]);
+
+        assert!(matches!(kept, Err(ForgeError::Unreadable(_))));
+    }
 
     #[test]
     fn a_page_of_nothing_is_no_comments() {
