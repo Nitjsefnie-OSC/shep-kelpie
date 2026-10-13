@@ -245,6 +245,7 @@ fn words(answer: &Answer) -> String {
         Answer::No(note) => with("no", note),
         Answer::Rework(note) => with("rework", note),
         Answer::Text(text) => text.clone(),
+        Answer::Do(action) => action.word().to_owned(),
     }
 }
 

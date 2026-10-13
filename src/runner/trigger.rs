@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use super::gpu::GpuStatus;
 use super::pace::PacerStatus;
-use super::{Answer, Runner};
+use super::{Action, Answer, Runner};
 use crate::board::Skip;
 use crate::ports::PaddockHolder;
 use crate::ports::{SessionId, Timestamp};
@@ -501,6 +501,8 @@ pub(super) fn read_rule(params: &str) -> Option<(u64, Answer)> {
     let rest = rest.trim_start();
     let answer = match rest.split_once(char::is_whitespace) {
         None if rest == "yes" => Answer::Yes,
+        None if rest == "rerun" => Answer::Do(Action::Rerun),
+        None if rest == "restore" => Answer::Do(Action::Restore),
         Some(("no", note)) if !note.trim().is_empty() => Answer::No(note.trim().to_owned()),
         Some(("rework", note)) if !note.trim().is_empty() => Answer::Rework(note.trim().to_owned()),
         Some(("answer", text)) if !text.trim().is_empty() => Answer::Text(text.trim().to_owned()),

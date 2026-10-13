@@ -163,6 +163,7 @@ fn a_version_15_file_loads_and_saves_at_the_current_version() {
             checks: vec!["lint".into()],
             fix_turns: None,
             review: None,
+            rerun: false,
         })
     );
     store.save(&loaded).unwrap();

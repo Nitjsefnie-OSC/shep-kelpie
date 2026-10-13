@@ -379,6 +379,13 @@ access to the repo: a bare `yes` answers nothing, and a ruling that mentions
 no one is answered at the terminal only. The first answer, from the thread or
 the terminal, wins.
 
+A ruling's option can name an **action** kelpie carries out in code when the
+option is chosen, by the maintainer or the panel: `rerun` on a `still-red`
+ruling, which reruns the head's failed jobs, and `restore` on a `turn-failed`
+one, which puts an uncommitted agent file back before the turn resumes. The
+option's text says what kelpie will do, and the board's events name the option
+that asked for it.
+
 **Panel**:
 The four experts who vote on a ruling, each blind to the others: the work
 item's own **worker**, resumed once with the ruling (it abstains when the

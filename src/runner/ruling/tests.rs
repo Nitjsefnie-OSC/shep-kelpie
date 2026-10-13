@@ -29,6 +29,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
             checks: vec!["test".into(), "lint".into()],
             fix_turns: None,
             review: None,
+            rerun: false,
         }),
         RulingKind::from(Stuck::Closed),
         RulingKind::from(Stuck::FixNotPushed {
@@ -50,6 +51,7 @@ fn a_ruling_on_the_pull_request_names_no_command_and_a_merge_says_nothing() {
             why: "boom".into(),
             phase: Phase::Implement,
             retry: Turn::Next { prompt: "x".into() },
+            restore: Vec::new(),
         }),
         RulingKind::ForeignChange {
             description: "the `bug` label was added".into(),

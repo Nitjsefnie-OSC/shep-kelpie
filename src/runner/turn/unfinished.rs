@@ -181,8 +181,14 @@ impl Runner {
                     let refused = Refused::branch(&why);
                     if item.handover_refused {
                         let now = self.ports.clock.now();
-                        let mut report =
-                            failed(self.names(), &mut next, issue, now, refused.parked);
+                        let mut report = failed(
+                            self.names(),
+                            &mut next,
+                            issue,
+                            now,
+                            refused.parked,
+                            Vec::new(),
+                        );
                         self.save(next)?;
                         self.fill_comment_failed(&mut report);
                         return Ok(Begin::Report(report));
@@ -230,7 +236,7 @@ impl Runner {
             return self.begin_item(false);
         }
         let now = self.ports.clock.now();
-        let mut report = failed(self.names(), &mut next, issue, now, why);
+        let mut report = failed(self.names(), &mut next, issue, now, why, Vec::new());
         self.save(next)?;
         self.fill_comment_failed(&mut report);
         Ok(Begin::Report(report))
@@ -286,6 +292,7 @@ pub(in crate::runner) fn failed(
     issue: u64,
     at: Timestamp,
     reason: String,
+    restore: Vec<String>,
 ) -> StepReport {
     let item = next
         .item_mut(issue)
@@ -300,6 +307,7 @@ pub(in crate::runner) fn failed(
         why: reason,
         phase: item.phase.clone(),
         retry,
+        restore,
     }
     .into();
     let (id, question) = park(names, next, issue, pull_request, kind);
