@@ -635,7 +635,7 @@ fn policy(
 
 // Whatever `allowed_domains` says, the sandbox never reaches the model server
 // or this machine's loopback by name or by the address the server resolves to.
-fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
+pub(super) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
     let bracketed = |host: &str| match host.contains(':') {
         true => format!("[{host}]"),
         false => host.to_owned(),
@@ -686,7 +686,7 @@ fn reaches_no_host(detail: &str) -> bool {
 
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
 // megabytes and an error reaches a ruling, the state file and the webhook.
-fn tail(text: &str) -> &str {
+pub(super) fn tail(text: &str) -> &str {
     let mut start = text.len().saturating_sub(ERROR_TAIL);
     while !text.is_char_boundary(start) {
         start += 1;

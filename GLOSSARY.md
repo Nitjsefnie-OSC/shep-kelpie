@@ -74,6 +74,7 @@ _Avoid_: team (Claude's agent teams are one kind of crew)
 **Session**:
 One agent conversation, identified by its session id. Claude's word, kept
 as Claude uses it. A Codex session is a thread kelpie maps to its own id.
+A goose session is named by kelpie's id.
 _Avoid_: shift
 
 **Agent**:
