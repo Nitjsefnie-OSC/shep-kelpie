@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use super::{saved_with, store_in};
 use crate::state::STATE_FILE;
-use crate::test::a_work_item;
+use crate::test::{a_work_item, a_work_item_from_before_comments};
 
 // The work item as saved before agent files, its worker as `worker` held it.
 fn with_worker(worker: Value) -> impl FnOnce(&mut Value) {
@@ -70,7 +70,7 @@ fn the_file_saves_again_with_the_agent_and_without_the_worker() {
     let worker = json!({ "model": "claude-opus-5-5", "effort": "high" });
     let store = saved_with(dir.path(), with_worker(worker));
     let state = store.load().unwrap().unwrap();
-    assert_eq!(state.work_items, [a_work_item()]);
+    assert_eq!(state.work_items, [a_work_item_from_before_comments()]);
     store.save(&state).unwrap();
     let saved: Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join(STATE_FILE)).unwrap()).unwrap();

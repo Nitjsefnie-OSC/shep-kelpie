@@ -138,6 +138,30 @@ fn a_bare_yes_answers_nothing_so_a_conversational_yes_never_merges() {
     assert_eq!(replies_on_71(&rig), [told]);
 }
 
+// Only a merge ruling's thread has a worker to read a plain comment, so on
+// any other ruling it is told how to reply, as before.
+#[test]
+fn a_plain_comment_under_a_ruling_other_than_a_merge_is_told_how_to_reply() {
+    let (rig, runner, _) = a_merge_ruling_on_71();
+    {
+        let mut runner = runner.lock().unwrap();
+        let mut next = runner.state.clone();
+        next.rulings[0].kind = RulingKind::from(Stuck::Closed);
+        runner.save(next).unwrap();
+    }
+    rig.writes_on(71, "octocat", "go ahead and retry");
+
+    rig.next_look();
+    step(&runner).unwrap();
+
+    let [told] = replies_on_71(&rig).try_into().unwrap();
+    assert!(
+        told.starts_with("@octocat Ruling #71 was not answered: start your reply with its number"),
+        "{told}"
+    );
+    assert_eq!(pending(&rig, &runner), [71]);
+}
+
 #[test]
 fn a_reply_from_a_login_the_ruling_does_not_mention_changes_nothing_whatever_it_may_write() {
     let (rig, runner, _) = a_merge_ruling_on_71();

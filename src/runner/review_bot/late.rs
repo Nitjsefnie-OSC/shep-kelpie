@@ -13,6 +13,7 @@
 use super::super::Runner;
 use super::super::report::Begin;
 use super::super::rework::HUMAN;
+use super::super::talk::At;
 use super::settle::open_ids;
 use crate::settings::AgentName;
 use crate::state::{RulingKind, StateError};
@@ -133,7 +134,7 @@ impl Runner {
             .rulings
             .iter()
             .any(|r| r.id == id && merge(&r.kind));
-        if !on_merge || self.item().bots_skipped.is_empty() {
+        if !on_merge {
             return Ok(Begin::Idle);
         }
         let (issue, now) = (self.item().issue, self.ports.clock.now());
@@ -142,7 +143,10 @@ impl Runner {
             return Ok(Begin::Idle);
         }
         self.late_reads.insert(issue, now);
-        Ok(self.late_review()?.unwrap_or(Begin::Idle))
+        if let Some(begin) = self.late_review()? {
+            return Ok(begin);
+        }
+        Ok(self.talk_turn(&At::Parked(id))?.unwrap_or(Begin::Idle))
     }
 
     /// Notes that the work item's merge ruling, about to be raised, last
@@ -152,9 +156,6 @@ impl Runner {
             return;
         };
         let issue = item.issue;
-        match item.bots_skipped.is_empty() {
-            true => self.late_reads.remove(&issue),
-            false => self.late_reads.insert(issue, self.ports.clock.now()),
-        };
+        self.late_reads.insert(issue, self.ports.clock.now());
     }
 }

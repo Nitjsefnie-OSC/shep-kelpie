@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::*;
-use crate::test::a_work_item;
+use crate::test::{a_work_item, a_work_item_from_before_comments};
 use crate::work_item::TimingPhase;
 
 const WRITER_DIR: &str = "KELPIE_TEST_WRITER_DIR";
@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 38);
+    assert_eq!(VERSION, 39);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -543,7 +543,7 @@ fn a_version_10_file_with_the_ledger_and_a_run_state_loads_and_saves_at_the_curr
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut state = ProjectState::new();
-    state.work_items.push(a_work_item());
+    state.work_items.push(a_work_item_from_before_comments());
     state.work_items[0].counts.review_rounds = 2;
     state.record_finished(Finished {
         issue: 3,

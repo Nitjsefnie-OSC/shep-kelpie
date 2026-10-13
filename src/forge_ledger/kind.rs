@@ -36,6 +36,8 @@ pub enum Kind {
     PullRequest,
     /// Whether the maintainer has reviewed a pull request
     Reviewed,
+    /// What people wrote on a pull request
+    Talk,
     /// The login gh acts as
     Viewer,
     /// The comments made since a time
@@ -124,6 +126,7 @@ impl Kind {
                 | Self::OpenPullRequests
                 | Self::PullRequest
                 | Self::Reviewed
+                | Self::Talk
                 | Self::Viewer
                 | Self::CommentsSince
                 | Self::CanWrite
@@ -150,6 +153,7 @@ impl Kind {
             | Self::OpenPullRequests
             | Self::PullRequest
             | Self::Reviewed
+            | Self::Talk
             | Self::CommentMarks
             | Self::OpenIssues
             | Self::CreateIssue
