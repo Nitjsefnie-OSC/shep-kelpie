@@ -136,7 +136,15 @@ async fn a_handover_that_never_shows_the_new_build_is_drained_and_named() {
     let (ran, said) = rig.upgrade_within(action, patience).await;
     ran.unwrap();
 
-    assert_eq!(restarted(&rig.shepherd.writes()), ["kelpie", "koji"]);
+    let writes = rig.shepherd.writes();
+    assert_eq!(restarted(&writes), ["kelpie", "koji"]);
+    let koji = triggers(&writes, "koji");
+    let withdrawn = koji.iter().position(|a| a == "withdraw_handover");
+    let drained = koji.iter().position(|a| a == "drain");
+    assert!(
+        withdrawn.is_some() && withdrawn < drained,
+        "the queued handover is withdrawn before the drain: {koji:?}"
+    );
     assert!(
         said.iter().any(|l| l
             == "`koji` still showed the old build within 30ms of its handover, so it is drained \

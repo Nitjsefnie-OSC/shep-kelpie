@@ -388,6 +388,10 @@ fn answer(flock: &mut Vec<Sheep>, section: &str, request: &Request) -> Response 
                 ActionOutcome::Replied {
                     body: format!("unknown action: {action}"),
                 }
+            } else if action == crate::sheep::WITHDRAW {
+                ActionOutcome::Replied {
+                    body: serde_json::json!({ "handover": "withdrawn" }).to_string(),
+                }
             } else if action == "handover" {
                 match scripted(&mut sheep.hands) {
                     Some(Some(body)) => ActionOutcome::Replied { body },

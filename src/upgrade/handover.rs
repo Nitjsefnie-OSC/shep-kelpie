@@ -13,6 +13,7 @@ use super::drain::asked;
 use super::restart::{Patience, running};
 use crate::flock::control::{Answered, trigger};
 use crate::flock::flock;
+use crate::sheep::WITHDRAW;
 use crate::shepherd::Connection;
 
 /// How a runner took its handover
@@ -71,8 +72,55 @@ pub async fn hand_over(
             }
         }
     }
-    let waited = Instant::now();
     let mut told = false;
+    let mut late = match wait_for(client, name, build, patience, &mut told, say).await? {
+        Waited::Landed => return landed(name, say),
+        Waited::Stopped => return stopped(name, say),
+        Waited::Late(seen) => seen,
+    };
+    // The handover is still queued in the old image, and would land in the
+    // middle of the drain, so it is withdrawn.
+    let after = match trigger(client, name, WITHDRAW, None).await? {
+        Answered::Runner(body) if withdrawn(&body) => String::new(),
+        // Taken just now, or a runner whose loop has it in hand: look again.
+        Answered::Runner(_) | Answered::TimedOut => {
+            match wait_for(client, name, build, patience, &mut told, say).await? {
+                Waited::Landed => return landed(name, say),
+                Waited::Stopped => return stopped(name, say),
+                Waited::Late(seen) => late = seen,
+            }
+            String::new()
+        }
+        Answered::Starting => {
+            ", and this build cannot withdraw it, so it may still hand over during the drain"
+                .to_owned()
+        }
+        Answered::Down => return stopped(name, say),
+    };
+    stays(format!(
+        "`{name}` {late} within {:?} of its handover{after}",
+        patience.start
+    ))
+}
+
+// How a wait for the new build ended.
+enum Waited {
+    Landed,
+    Stopped,
+    // The runner stayed on the old build, and what its `status` showed.
+    Late(&'static str),
+}
+
+// Asks `status` until it shows `build`, for `patience.start`.
+async fn wait_for(
+    client: &dyn Connection,
+    name: &str,
+    build: &str,
+    patience: Patience,
+    told: &mut bool,
+    say: &mut dyn FnMut(String),
+) -> Result<Waited, String> {
+    let waited = Instant::now();
     // What the last `status` showed of the build, for the failure to say.
     let mut shown = None;
     loop {
@@ -80,31 +128,36 @@ pub async fn hand_over(
             Answered::Runner(body) => {
                 let status = serde_json::from_str::<Value>(&body).unwrap_or_default();
                 if status["build"].as_str() == Some(build) {
-                    say(format!("`{name}` handed over to the new build"));
-                    return Ok(Handed::Over);
+                    return Ok(Waited::Landed);
                 }
                 shown = Some(status["build"].as_str().is_some());
             }
-            Answered::Down if !runs(client, name).await? => return stopped(name, say),
+            Answered::Down if !runs(client, name).await? => return Ok(Waited::Stopped),
             _ => {}
         }
         if waited.elapsed() >= patience.start {
-            let seen = match shown {
+            return Ok(Waited::Late(match shown {
                 None => "answered no `status`",
                 Some(true) => "still showed the old build",
                 Some(false) => "showed no build in its `status`",
-            };
-            return stays(format!(
-                "`{name}` {seen} within {:?} of its handover",
-                patience.start
-            ));
+            }));
         }
-        if !told {
+        if !*told {
             say(format!("waiting: `{name}` is handing over"));
-            told = true;
+            *told = true;
         }
         tokio::time::sleep(patience.poll).await;
     }
+}
+
+// Whether a runner's answer to `withdraw_handover` says it dropped the request.
+fn withdrawn(body: &str) -> bool {
+    serde_json::from_str::<Value>(body).is_ok_and(|answer| answer["handover"] == "withdrawn")
+}
+
+fn landed(name: &str, say: &mut dyn FnMut(String)) -> Result<Handed, String> {
+    say(format!("`{name}` handed over to the new build"));
+    Ok(Handed::Over)
 }
 
 // A runner that is not running stays stopped: it starts on the new build.

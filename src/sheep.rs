@@ -55,8 +55,8 @@ const JOIN_BOUND: Duration = Duration::from_secs(1);
 mod handover;
 mod look;
 
-pub use handover::Carry;
 use handover::Handing;
+pub use handover::{Carry, WITHDRAW};
 use look::Look;
 
 /// Runs `project`'s runner until the shepherd stops it
@@ -268,6 +268,8 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let asked = wake.clone();
     let handing = Arc::clone(&handover);
     shepherd.on_action(handover::ACTION, move |_, _| handing.ask(&asked));
+    let handing = Arc::clone(&handover);
+    shepherd.on_action(handover::WITHDRAW, move |_, _| handing.withdraw());
     for action in ACTIONS {
         let runner = Arc::clone(&runner);
         let wake = wake.clone();
