@@ -5,8 +5,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use super::{Label, gh_as, unreadable};
-use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, SubIssues};
+use super::{Check, Label, checks, gh_as, unreadable};
+use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::ForgeError;
 use crate::settings::ForgeSlug;
 
@@ -40,28 +40,50 @@ fn ready_args(repo: &ForgeSlug) -> [&str; 12] {
     ]
 }
 
+// One query lists every open pull request with what the board, rework, gate
+// and merge steps read of it. Reviews and threads come as counts only, for
+// telling whether any arrived: `reviewed` reads their words, for one pull
+// request, when they did. A page holds 100, so a repo with more open pull
+// requests costs one more query for each 100.
+const OPEN_QUERY: &str = "query($owner: String!, $name: String!, $after: String) { \
+    repository(owner: $owner, name: $name) { \
+    pullRequests(states: OPEN, first: 100, after: $after, \
+    orderBy: {field: CREATED_AT, direction: DESC}) { \
+    pageInfo { hasNextPage endCursor } nodes { \
+    number headRefName headRefOid isDraft isCrossRepository author { login } \
+    closingIssuesReferences(first: 50) { nodes { number repository { name owner { login } } } } \
+    labels(first: 100) { nodes { name } } \
+    reviews(first: 1) { totalCount } reviewThreads(first: 1) { totalCount } \
+    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { \
+    __typename ... on CheckRun { name status conclusion } \
+    ... on StatusContext { context state } } } } } } } } } } }";
+
+// As many pages as hold `LIST_LIMIT` pull requests
+const OPEN_PAGES: usize = 10;
+
 pub(super) fn open_pull_requests(
     config: Option<&Path>,
     repo: &ForgeSlug,
 ) -> Result<Vec<OpenPullRequest>, ForgeError> {
-    parse_pull_requests(
-        &gh_as(
-            config,
-            &[
-                "pr",
-                "list",
-                "--repo",
-                repo.as_str(),
-                "--state",
-                "open",
-                "--limit",
-                LIST_LIMIT,
-                "--json",
-                "number,headRefName,closingIssuesReferences,labels",
-            ],
-        )?,
-        repo,
-    )
+    let (owner, name) = repo.as_str().split_once('/').unwrap_or_default();
+    let mut open = Vec::new();
+    let mut after: Option<String> = None;
+    for _ in 0..OPEN_PAGES {
+        let query = format!("query={OPEN_QUERY}");
+        let (owner, name) = (format!("owner={owner}"), format!("name={name}"));
+        let mut args = vec!["api", "graphql", "-f", &query, "-f", &owner, "-f", &name];
+        let cursor = after.as_ref().map(|c| format!("after={c}"));
+        if let Some(cursor) = &cursor {
+            args.extend(["-f", cursor]);
+        }
+        let page = parse_pull_requests(&gh_as(config, &args)?, repo)?;
+        open.extend(page.pull_requests);
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    Ok(open)
 }
 
 // `gh` lists an issue's first 50 blockers and counts them all.
@@ -141,28 +163,115 @@ fn parse_ready_issues(stdout: &[u8]) -> Result<Vec<ReadyIssue>, ForgeError> {
         .collect())
 }
 
-fn parse_pull_requests(
-    stdout: &[u8],
-    repo: &ForgeSlug,
-) -> Result<Vec<OpenPullRequest>, ForgeError> {
+// One page of the listing, and the cursor of the next when there is one
+struct Page {
+    pull_requests: Vec<OpenPullRequest>,
+    next: Option<String>,
+}
+
+fn parse_pull_requests(stdout: &[u8], repo: &ForgeSlug) -> Result<Page, ForgeError> {
+    #[derive(Deserialize)]
+    struct Reply {
+        data: Data,
+    }
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Repository,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Repository {
+        pull_requests: Connection,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Connection {
+        page_info: PageInfo,
+        nodes: Vec<Listed>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PageInfo {
+        has_next_page: bool,
+        end_cursor: Option<String>,
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Listed {
         number: u64,
         head_ref_name: String,
-        closing_issues_references: Vec<Closes>,
-        labels: Vec<Label>,
+        head_ref_oid: String,
+        is_draft: bool,
+        is_cross_repository: bool,
+        author: Option<Login>,
+        closing_issues_references: Nodes<Closes>,
+        labels: Nodes<Label>,
+        reviews: Count,
+        review_threads: Count,
+        commits: Nodes<Tip>,
     }
-    let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
-    Ok(listed
+    #[derive(Deserialize)]
+    struct Login {
+        login: String,
+    }
+    #[derive(Deserialize)]
+    struct Nodes<T> {
+        nodes: Vec<T>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Count {
+        total_count: u64,
+    }
+    #[derive(Deserialize)]
+    struct Tip {
+        commit: Commit,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Commit {
+        status_check_rollup: Option<Rollup>,
+    }
+    #[derive(Deserialize)]
+    struct Rollup {
+        contexts: Nodes<Check>,
+    }
+    let reply: Reply = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    let listed = reply.data.repository.pull_requests;
+    let next = listed
+        .page_info
+        .has_next_page
+        .then_some(listed.page_info.end_cursor)
+        .flatten();
+    let pull_requests = listed
+        .nodes
         .into_iter()
-        .map(|pr| OpenPullRequest {
-            number: pr.number,
-            head: pr.head_ref_name,
-            closes: closed_here(pr.closing_issues_references, repo),
-            labels: pr.labels.into_iter().map(|l| l.name).collect(),
+        .map(|pr| {
+            let rollup = (pr.commits.nodes.into_iter().next())
+                .and_then(|tip| tip.commit.status_check_rollup)
+                .map(|rollup| rollup.contexts.nodes)
+                .unwrap_or_default();
+            OpenPullRequest {
+                number: pr.number,
+                head: pr.head_ref_name,
+                closes: closed_here(pr.closing_issues_references.nodes, repo),
+                labels: pr.labels.nodes.into_iter().map(|l| l.name).collect(),
+                draft: pr.is_draft,
+                commit: pr.head_ref_oid,
+                checks: checks(&rollup),
+                from_fork: pr.is_cross_repository,
+                author: pr.author.map(|a| a.login).unwrap_or_default(),
+                marks: ReviewMarks {
+                    reviews: pr.reviews.total_count,
+                    threads: pr.review_threads.total_count,
+                },
+            }
         })
-        .collect())
+        .collect();
+    Ok(Page {
+        pull_requests,
+        next,
+    })
 }
 
 /// An issue a pull request closes, on whichever repo it is
@@ -199,6 +308,7 @@ pub(super) fn closed_here(closes: Vec<Closes>, repo: &ForgeSlug) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Checks;
 
     // Recorded from gh 2.96 on this repo with the `ready_issues` arguments.
     const READY_LIST: &str = include_str!("../../../fixtures/gh-issue-list.json");
@@ -215,8 +325,9 @@ mod tests {
         );
     }
 
-    // Recorded from gh 2.96 on this repo with the `open_pull_requests` arguments.
-    const PR_LIST: &str = include_str!("../../../fixtures/gh-pr-list.json");
+    // The shape `OPEN_QUERY` asks for, written from GitHub's schema: `gh api`
+    // is not one a worker's sandbox runs, so it is not a recording.
+    const OPEN_LIST: &str = include_str!("../../../fixtures/gh-graphql-open-pull-requests.json");
 
     fn blocker(number: u64, open: bool) -> Blocker {
         Blocker { number, open }
@@ -308,43 +419,81 @@ mod tests {
         ));
     }
 
+    fn kelpie() -> ForgeSlug {
+        ForgeSlug::try_from("shep-pm/shep-kelpie".to_owned()).unwrap()
+    }
+
     #[test]
-    fn open_pull_requests_are_read_with_the_issues_they_close() {
-        let slug = ForgeSlug::try_from("shep-pm/shep-kelpie".to_owned()).unwrap();
-        let prs = parse_pull_requests(PR_LIST.as_bytes(), &slug).unwrap();
+    fn the_one_listing_reads_what_the_steps_after_the_board_read() {
+        let page = parse_pull_requests(OPEN_LIST.as_bytes(), &kelpie()).unwrap();
+        assert_eq!(page.next, None);
         assert_eq!(
-            prs,
+            page.pull_requests,
             [
                 OpenPullRequest {
                     number: 81,
                     head: "worktree-kelpie-79".into(),
                     closes: vec![79],
                     labels: vec![],
+                    draft: true,
+                    commit: "edc85265d286c48bd84dd729764c5043c7dd5625".into(),
+                    checks: Checks::Failed(vec!["lint".into()]),
+                    from_fork: false,
+                    author: "the-maintainer".into(),
+                    marks: ReviewMarks::default(),
                 },
                 OpenPullRequest {
                     number: 55,
                     head: "feat/54-see-the-ui".into(),
-                    closes: vec![54],
-                    labels: vec![],
+                    closes: vec![],
+                    labels: vec![READY.into()],
+                    draft: false,
+                    commit: "7a1c0f3b9d2e4a58c6b1d0e9f8a7b6c5d4e3f201".into(),
+                    checks: Checks::None,
+                    from_fork: true,
+                    author: String::new(),
+                    marks: ReviewMarks {
+                        reviews: 3,
+                        threads: 2
+                    },
                 },
             ]
         );
     }
 
-    // The recording carries no labels, and gh writes them as it does on an issue.
     #[test]
-    fn an_open_pull_requests_labels_are_read_by_name() {
-        let slug = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
-        let listed = br#"[{"closingIssuesReferences":[],"headRefName":"fix/x","number":614,
-            "labels":[{"id":"LA_1","name":"ready-for-agent","description":"","color":"0e8a16"}]}]"#;
-        let prs = parse_pull_requests(listed, &slug).unwrap();
-        assert_eq!(prs[0].labels, [READY]);
+    fn a_page_with_more_after_it_names_where_the_next_begins() {
+        let more = br#"{"data":{"repository":{"pullRequests":{
+            "pageInfo":{"hasNextPage":true,"endCursor":"abc"},"nodes":[]}}}}"#;
+        assert_eq!(
+            parse_pull_requests(more, &kelpie())
+                .unwrap()
+                .next
+                .as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn the_listing_is_one_query_that_reads_counts_of_reviews_and_threads_not_their_words() {
+        for field in ["states: OPEN", "statusCheckRollup", "headRefOid", "isDraft"] {
+            assert!(OPEN_QUERY.contains(field), "{field}");
+        }
+        assert!(OPEN_QUERY.contains("reviews(first: 1) { totalCount }"));
+        assert!(OPEN_QUERY.contains("reviewThreads(first: 1) { totalCount }"));
+        assert!(!OPEN_QUERY.contains("comments("));
+    }
+
+    #[test]
+    #[ignore = "asks the real GitHub about shep-pm/shep-kelpie through gh, about 1 s"]
+    fn the_real_gh_answers_the_listing_in_the_shape_parsed() {
+        open_pull_requests(None, &kelpie()).unwrap();
     }
 
     #[test]
     fn an_issue_closed_on_another_repo_is_not_this_boards() {
-        let slug = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
-        let prs = parse_pull_requests(PR_LIST.as_bytes(), &slug).unwrap();
-        assert!(prs[0].closes.is_empty());
+        let page = parse_pull_requests(OPEN_LIST.as_bytes(), &kelpie()).unwrap();
+        assert_eq!(page.pull_requests[0].closes, [79]);
+        assert!(page.pull_requests[1].closes.is_empty());
     }
 }

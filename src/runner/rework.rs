@@ -169,7 +169,23 @@ impl Runner {
             pull_request,
             error: error.to_string(),
         };
+        self.snapshot.keep_only(open);
         for (number, issue) in ours {
+            let listed = open
+                .iter()
+                .find(|pr| pr.number == number)
+                .expect("a pull request in `ours` is in `open`");
+            // A fork's branch, or a collaborator's, can take kelpie's name,
+            // and is none of its business.
+            if listed.from_fork {
+                continue;
+            }
+            // The listing holds the label and counts the reviews and threads,
+            // so the full read waits for the label or for a count to change.
+            let labelled = listed.labels.iter().any(|l| l == READY);
+            if !labelled && self.snapshot.nothing_new(listed) {
+                continue;
+            }
             let pr = match self.ports.forge.reviewed(&self.remote, number) {
                 Ok(pr) => pr,
                 Err(e) => {
@@ -177,12 +193,6 @@ impl Runner {
                     continue;
                 }
             };
-            // A fork's branch, or a collaborator's, can take kelpie's name,
-            // and is none of its business.
-            if pr.from_fork {
-                continue;
-            }
-            let labelled = pr.labels.iter().any(|l| l == READY);
             let asked =
                 |r: &MaintainerReview| r.changes_requested && !self.state.reworked.contains(&r.id);
             let by = if labelled {
@@ -190,11 +200,15 @@ impl Runner {
             } else if pr.review.as_ref().is_some_and(asked) {
                 ReworkBy::Review
             } else {
+                self.snapshot.settle(listed);
                 continue;
             };
             match self.viewer() {
                 Ok(me) if pr.author == me => {}
-                Ok(_) => continue,
+                Ok(_) => {
+                    self.snapshot.settle(listed);
+                    continue;
+                }
                 Err(e) => {
                     skipped.push(skip(issue, number, ReworkError::Viewer(e)));
                     continue;
