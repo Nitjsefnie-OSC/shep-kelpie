@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use shep_client::Client;
+use crate::shepherd::Connection;
 
 use super::control;
 use crate::runner::{Attaching, ProjectName};
@@ -27,7 +27,7 @@ const ASK_AGAIN: Duration = Duration::from_secs(5);
 /// A message naming why the work item cannot be attached, with what to do
 /// instead, or why its session could not run or be let go.
 pub(super) async fn attach(
-    client: &Client,
+    client: &dyn Connection,
     project: &ProjectName,
     issue: u64,
 ) -> Result<Vec<String>, String> {

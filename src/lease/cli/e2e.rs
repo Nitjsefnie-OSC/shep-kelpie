@@ -30,19 +30,23 @@ pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
 
 // `run`, printing the command's lines to `out`.
 async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> u8 {
-    let ask = Ask {
+    let visit = match Visit::knock(socket, &ask(worktree)).await {
+        Ok(visit) => visit,
+        Err(why) => return failed(&unreached(&why), NO_LEASE),
+    };
+    follow(visit, out).await
+}
+
+// What the dog is asked: to run the e2e tests for the project holding `worktree`.
+fn ask(worktree: PathBuf) -> Ask {
+    Ask {
         take: E2E.into(),
         pid: std::process::id(),
         what: "shep-kelpie lease e2e".into(),
         running: false,
         worktree: Some(worktree),
         forge: None,
-    };
-    let visit = match Visit::knock(socket, &ask).await {
-        Ok(visit) => visit,
-        Err(why) => return failed(&unreached(&why), NO_LEASE),
-    };
-    follow(visit, out).await
+    }
 }
 
 // The dog's answers to an ask, printed and turned into a code.
@@ -105,54 +109,59 @@ fn failed(message: &str, code: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::UnixListener;
+    use tokio::net::UnixStream;
 
     use super::*;
 
-    // A door that reads one ask and answers it with `answer`, handing back
-    // the ask it read.
-    fn dog_answering(socket: &Path, answer: &'static str) -> tokio::task::JoinHandle<Option<Ask>> {
-        let listener = UnixListener::bind(socket).unwrap();
-        tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.ok()?;
-            let (read, mut write) = stream.into_split();
+    // A visit to a dog on the other end of a connected pair of streams, which
+    // reads one ask and answers it with `answer`, handing back the ask it read.
+    async fn dog_answering(
+        worktree: &Path,
+        answer: &'static str,
+    ) -> (Visit, tokio::task::JoinHandle<Option<Ask>>) {
+        let (visitor, dog) = UnixStream::pair().unwrap();
+        let visit = Visit::over(visitor, &ask(worktree.to_owned()))
+            .await
+            .unwrap();
+        let dog = tokio::spawn(async move {
+            let (read, mut write) = dog.into_split();
             let line = BufReader::new(read).lines().next_line().await.ok()??;
             write
                 .write_all(format!("{answer}\n").as_bytes())
                 .await
                 .ok()?;
             serde_json::from_str(&line).ok()
-        })
+        });
+        (visit, dog)
     }
 
     #[tokio::test]
     async fn lease_e2e_exits_78_when_the_dog_says_it_is_not_configured() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("lease.sock");
-        let dog = dog_answering(
-            &socket,
+        let worktree = Path::new("/work/tree");
+        let (visit, dog) = dog_answering(
+            worktree,
             r#"{"error":"this project has no e2e host: [app.dogs.kelpie.e2e]"}"#,
-        );
+        )
+        .await;
 
-        let code = run(&socket, dir.path().join("worktree")).await;
+        let code = follow(visit, &mut Vec::new()).await;
 
         assert_eq!(code, 78);
         let heard = dog.await.unwrap().expect("the dog read an ask");
         assert_eq!(heard.take, "e2e");
-        assert_eq!(heard.worktree, Some(dir.path().join("worktree")));
+        assert_eq!(heard.worktree, Some(worktree.to_owned()));
     }
 
     #[tokio::test]
     async fn lease_e2e_prints_the_output_and_exits_with_the_runs_code() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("lease.sock");
-        let _dog = dog_answering(
-            &socket,
+        let (visit, _dog) = dog_answering(
+            Path::new("/work/tree"),
             "{\"queued\":1}\n\"granted\"\n{\"output\":\"ok 1\"}\n{\"output\":\"not ok 2\"}\n{\"done\":3}",
-        );
+        )
+        .await;
         let mut printed = Vec::new();
 
-        let code = run_printing(&socket, dir.path().to_owned(), &mut printed).await;
+        let code = follow(visit, &mut printed).await;
 
         assert_eq!(code, 3);
         assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\nnot ok 2\n");
@@ -160,12 +169,14 @@ mod tests {
 
     #[tokio::test]
     async fn lease_e2e_exits_75_when_the_dog_goes_away_mid_run() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("lease.sock");
-        let _dog = dog_answering(&socket, "\"granted\"\n{\"output\":\"ok 1\"}");
+        let (visit, _dog) = dog_answering(
+            Path::new("/work/tree"),
+            "\"granted\"\n{\"output\":\"ok 1\"}",
+        )
+        .await;
         let mut printed = Vec::new();
 
-        let code = run_printing(&socket, dir.path().to_owned(), &mut printed).await;
+        let code = follow(visit, &mut printed).await;
 
         assert_eq!(code, 75);
         assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\n");
@@ -173,14 +184,13 @@ mod tests {
 
     #[tokio::test]
     async fn lease_e2e_exits_1_when_the_dog_refuses_for_any_other_reason() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("lease.sock");
-        let _dog = dog_answering(
-            &socket,
+        let (visit, _dog) = dog_answering(
+            Path::new("/work/tree"),
             r#"{"error":"a results folder in the worktree is a link"}"#,
-        );
+        )
+        .await;
 
-        assert_eq!(run(&socket, dir.path().to_owned()).await, 1);
+        assert_eq!(follow(visit, &mut Vec::new()).await, 1);
     }
 
     #[tokio::test]

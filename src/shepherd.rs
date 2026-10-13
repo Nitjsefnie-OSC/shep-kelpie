@@ -1,6 +1,7 @@
-//! Kelpie's shepherd, reached over its socket
+//! Kelpie's shepherd, reached over a [`Connection`] a [`Dial`] opens
 //!
-//! Always through the shep client kelpie is built with, never a `shep` on
+//! The dial a runner and the commands use is [`Socket`], shep's control
+//! socket, always through the shep client kelpie is built with, never a `shep` on
 //! `PATH`, which can be another version. A shepherd on another shep major
 //! or minor is refused, since the requests kelpie sends may not mean the
 //! same there. On the pinned line, the pinned patch or a later one is
@@ -10,11 +11,13 @@
 use std::path::Path;
 
 use serde_json::{Map, Value};
+use shep_client::RequestError;
 use shep_client::shep_core::protocol::request::Response;
 use shep_client::shep_core::protocol::{Request, RpcErrorCode};
-use shep_client::{Client, ConnectError, RequestError};
 
-use crate::home::SHEP_SOCKET;
+mod connection;
+
+pub use connection::{Answer, Connection, Dial, Opened, Socket};
 
 /// The shep version kelpie is built with, pinned in the workspace manifest
 pub const SHEP_VERSION: &str = "0.12.4";
@@ -79,11 +82,14 @@ impl ConnectRefused {
 /// # Errors
 ///
 /// [`ConnectRefused`] when nothing answers or kelpie does not take the version.
-pub async fn connect(shep_home: &Path) -> Result<Client, ConnectRefused> {
-    let client = connect_any(shep_home).await?;
-    let running = client.daemon().daemon_version.as_str();
-    if !takes(SHEP_VERSION, running) {
-        return Err(ConnectRefused::Skew(Some(running.to_owned())));
+pub async fn connect(
+    dial: &dyn Dial,
+    shep_home: &Path,
+) -> Result<Box<dyn Connection>, ConnectRefused> {
+    let client = connect_any(dial, shep_home).await?;
+    let running = client.daemon().daemon_version;
+    if !takes(SHEP_VERSION, &running) {
+        return Err(ConnectRefused::Skew(Some(running)));
     }
     Ok(client)
 }
@@ -98,15 +104,11 @@ pub async fn connect(shep_home: &Path) -> Result<Client, ConnectRefused> {
 /// [`ConnectRefused::Unreachable`] when nothing answers, and
 /// [`ConnectRefused::Skew`] when the shep client speaks a protocol the
 /// shepherd does not.
-pub async fn connect_any(shep_home: &Path) -> Result<Client, ConnectRefused> {
-    Client::connect(&shep_home.join(SHEP_SOCKET))
-        .await
-        .map_err(|e| match e {
-            ConnectError::ProtocolMismatch { daemon_version, .. } => {
-                ConnectRefused::Skew(daemon_version)
-            }
-            other => ConnectRefused::Unreachable(other.to_string()),
-        })
+pub async fn connect_any(
+    dial: &dyn Dial,
+    shep_home: &Path,
+) -> Result<Box<dyn Connection>, ConnectRefused> {
+    dial.open(shep_home).await
 }
 
 /// Whether `error` is shep's answer to a request naming no sheep it has
@@ -180,8 +182,8 @@ impl core::fmt::Debug for Tables {
 ///
 /// A message naming the shepherd when it cannot be reached, runs another
 /// minor, or does not answer with the tables.
-pub async fn read_tables(shep_home: &Path, sheep: &str) -> Result<Tables, String> {
-    let client = connect(shep_home)
+pub async fn read_tables(dial: &dyn Dial, shep_home: &Path, sheep: &str) -> Result<Tables, String> {
+    let client = connect(dial, shep_home)
         .await
         .map_err(|e| e.describe(shep_home))?;
     read_tables_with(&client, sheep).await
@@ -192,7 +194,7 @@ pub async fn read_tables(shep_home: &Path, sheep: &str) -> Result<Tables, String
 /// # Errors
 ///
 /// A message naming what the shepherd did not answer with.
-pub async fn read_tables_with(client: &Client, sheep: &str) -> Result<Tables, String> {
+pub async fn read_tables_with(client: &dyn Connection, sheep: &str) -> Result<Tables, String> {
     let asked = |what: &str, e: &dyn core::fmt::Display| {
         format!("kelpie's shepherd did not answer with {what}: {e}")
     };
@@ -215,7 +217,7 @@ pub async fn read_tables_with(client: &Client, sheep: &str) -> Result<Tables, St
 /// # Errors
 ///
 /// A message naming what the shepherd did not answer with.
-pub async fn read_section(client: &Client) -> Result<String, String> {
+pub async fn read_section(client: &dyn Connection) -> Result<String, String> {
     let asked = |e: &dyn core::fmt::Display| {
         format!("kelpie's shepherd did not answer with kelpie's section: {e}")
     };
@@ -234,18 +236,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use shep_client::shep_core::config::DogTable;
-    use shep_client::shep_core::protocol::{Envelope, HelloAck};
-    use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use super::*;
-    use crate::test::CALL_PATIENCE;
-
-    fn ack(version: &str) -> HelloAck {
-        let mut ack = sample_ack();
-        ack.daemon_version = version.into();
-        ack
-    }
+    use crate::test::{CALL_PATIENCE, Memory};
 
     fn table(forge: &str) -> Map<String, Value> {
         let mut table = Map::new();
@@ -255,11 +249,9 @@ mod tests {
 
     // A shepherd on `version` holding kelpie tables for two sheep, and a
     // `[kelpie]` section. It answers while its requests are held.
-    async fn shepherd(version: &str) -> (tempfile::TempDir, UnboundedReceiver<Envelope>) {
+    fn shepherd(version: &str) -> (tempfile::TempDir, Memory, UnboundedReceiver<Request>) {
         let home = tempfile::tempdir().unwrap();
-        std::fs::create_dir(home.path().join("run")).unwrap();
-        let socket = home.path().join(SHEP_SOCKET);
-        let sent = fake_daemon_answering_with_ack(&socket, ack(version), |request| match request {
+        let (dial, sent) = Memory::answering(home.path(), version, |request| match request {
             Request::DogSheepSettings { dog } if dog == DOG => Response::DogSheepSettings {
                 tables: BTreeMap::from([
                     ("shep".to_owned(), DogTable::from(table("shep-pm/shep"))),
@@ -270,38 +262,36 @@ mod tests {
                 toml: "[webhook]\nkind = \"ntfy\"\n".to_owned().into(),
             },
             other => panic!("kelpie asked {other:?}"),
-        })
-        .await;
-        (home, sent)
+        });
+        (home, dial, sent)
     }
 
-    async fn read_in_time(home: &Path, sheep: &str) -> Result<Tables, String> {
-        tokio::time::timeout(CALL_PATIENCE, read_tables(home, sheep))
+    async fn read_in_time(dial: &Memory, home: &Path, sheep: &str) -> Result<Tables, String> {
+        tokio::time::timeout(CALL_PATIENCE, read_tables(dial, home, sheep))
             .await
             .expect("the tables neither came nor failed in time")
     }
 
-    // Real sockets under a real clock: a paused one would time out the
-    // handshake while the fake's socket is merely waiting.
     #[tokio::test]
     async fn a_runner_reads_its_own_sheep_s_table_and_kelpie_s_section() {
-        let (home, _sent) = shepherd("0.12.7").await;
-        let tables = read_in_time(home.path(), "koji").await.unwrap();
+        let (home, dial, _sent) = shepherd("0.12.7");
+        let tables = read_in_time(&dial, home.path(), "koji").await.unwrap();
         assert_eq!(tables.project, Some(table("shep-pm/koji")));
         assert_eq!(tables.kelpie, "[webhook]\nkind = \"ntfy\"\n");
     }
 
     #[tokio::test]
     async fn a_sheep_with_no_table_reads_none() {
-        let (home, _sent) = shepherd(SHEP_VERSION).await;
-        let tables = read_in_time(home.path(), "webapp").await.unwrap();
+        let (home, dial, _sent) = shepherd(SHEP_VERSION);
+        let tables = read_in_time(&dial, home.path(), "webapp").await.unwrap();
         assert_eq!(tables.project, None);
     }
 
     #[tokio::test]
     async fn no_shepherd_is_named_by_its_home() {
+        let (_listening, dial, _sent) = shepherd(SHEP_VERSION);
         let home = tempfile::tempdir().unwrap();
-        let err = read_in_time(home.path(), "shep").await.unwrap_err();
+        let err = read_in_time(&dial, home.path(), "shep").await.unwrap_err();
         let expected = format!(
             "cannot reach kelpie's shepherd at {}: ",
             home.path().display()
@@ -318,8 +308,8 @@ mod tests {
     #[tokio::test]
     async fn a_shepherd_on_another_minor_is_refused_by_name() {
         for version in ["0.11.0", "0.13.0"] {
-            let (home, mut sent) = shepherd(version).await;
-            let err = read_in_time(home.path(), "shep").await.unwrap_err();
+            let (home, dial, mut sent) = shepherd(version);
+            let err = read_in_time(&dial, home.path(), "shep").await.unwrap_err();
             assert!(err.contains(&format!("runs shep {version}")), "{err}");
             assert!(err.contains("takes only a 0.12.x shepherd"), "{err}");
             assert!(sent.try_recv().is_err(), "{version} was asked for a table");
@@ -330,8 +320,8 @@ mod tests {
     #[tokio::test]
     async fn a_shepherd_from_before_the_lamb_sweep_is_refused_naming_the_one_needed() {
         for version in ["0.12.0", "0.12.3", "0.12.4-rc.1"] {
-            let (home, mut sent) = shepherd(version).await;
-            let err = read_in_time(home.path(), "shep").await.unwrap_err();
+            let (home, dial, mut sent) = shepherd(version);
+            let err = read_in_time(&dial, home.path(), "shep").await.unwrap_err();
             assert!(err.contains(&format!("runs shep {version}")), "{err}");
             assert!(err.contains("0.12.x shepherd from 0.12.4 on"), "{err}");
             assert!(sent.try_recv().is_err(), "{version} was asked for a table");

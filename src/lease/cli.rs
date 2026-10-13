@@ -12,7 +12,6 @@ use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::Duration;
 
 use serde_json::Value;
-use shep_client::Client;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::{ActionOutcome, Response, SelectorSpec};
 use tokio::signal::unix::{Signal, SignalKind, signal};
@@ -21,7 +20,7 @@ use super::counted::CARGO_TEST;
 use super::door;
 use super::gpu::{self, Claim, GpuLock, Waiting};
 use super::{GPU, LeaseKind};
-use crate::{dog, shepherd};
+use crate::{dog, home, shepherd};
 
 pub(crate) mod counted_run;
 mod e2e;
@@ -352,10 +351,10 @@ async fn status() -> Result<ExitCode, String> {
 
 // Sends a trigger to the dog and returns its JSON reply, or its error.
 async fn ask_dog(action: &str, params: &str) -> Result<Value, String> {
-    let socket = dog::shepherd_socket()?;
-    let client = Client::connect(&socket)
+    let shep_home = home::shep_home()?;
+    let client = shepherd::connect_any(&shepherd::Socket, &shep_home)
         .await
-        .map_err(|e| format!("cannot reach the shepherd at {}: {e}", socket.display()))?;
+        .map_err(|e| e.describe(&shep_home))?;
     let asked = client.request(Request::Trigger {
         selector: SelectorSpec::Name(dog::NAME.into()),
         action: action.into(),

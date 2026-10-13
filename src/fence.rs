@@ -15,6 +15,8 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::worktree::{self, BASE, WorktreeError, git};
 
+mod nested;
+
 /// The files in a worktree that one harness loads and may run code from, and
 /// the files in the home folder that hold its login
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +87,16 @@ fn root_names() -> impl Iterator<Item = &'static str> {
 }
 
 /// The sandbox's `denyWrite` paths that fence these files in `worktree`
+///
+/// srt skips every glob in `denyWrite` on Linux, so there the harness folders
+/// already below the worktree are listed as paths too. One made during the
+/// call is caught by [`differ`] after it.
 pub fn deny_write(worktree: &Path) -> Vec<PathBuf> {
+    deny_write_on(worktree, cfg!(target_os = "linux"))
+}
+
+// The same, as on Linux or not, which a test runs on either.
+fn deny_write_on(worktree: &Path, linux: bool) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for own in &HARNESSES {
         for folder in own.folders {
@@ -93,6 +104,13 @@ pub fn deny_write(worktree: &Path) -> Vec<PathBuf> {
             paths.push(worktree.join("**").join(folder));
         }
         paths.extend(own.root_files.iter().map(|file| worktree.join(file)));
+    }
+    if linux {
+        for path in nested::existing(worktree) {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
     }
     paths
 }
@@ -525,6 +543,61 @@ mod tests {
                 "/k/wt/7/**/.pi",
             ]
         );
+    }
+
+    #[test]
+    fn deny_write_lists_existing_nested_harness_folders_on_linux() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path();
+        for folder in [
+            ".claude/agents",
+            "src/.claude/skills",
+            "lib/deep/.Claude",
+            "docs/.CODEX",
+            "docs/.agents",
+            "tools/.pi/extensions",
+            "src/plain",
+            "src/claude",
+        ] {
+            fs::create_dir_all(wt.join(folder)).unwrap();
+        }
+        // A link is listed and never followed.
+        symlink("/etc", wt.join("lib/.codex")).unwrap();
+        let listed = |linux| -> Vec<String> {
+            deny_write_on(wt, linux)
+                .iter()
+                .map(|p| p.strip_prefix(wt).unwrap().display().to_string())
+                .collect()
+        };
+
+        let linux = listed(true);
+        assert_eq!(linux[..9], listed(false)[..]);
+        assert_eq!(
+            linux[9..],
+            [
+                "docs/.CODEX",
+                "docs/.agents",
+                "lib/.codex",
+                "lib/deep/.Claude",
+                "src/.claude",
+                "tools/.pi",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_nested_harness_folder_past_the_walks_bounds_is_left_to_the_check_after_the_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path();
+        let mut deep = PathBuf::new();
+        for level in 0..12 {
+            deep.push(format!("d{level}"));
+        }
+        fs::create_dir_all(wt.join(&deep).join(".claude")).unwrap();
+        fs::create_dir_all(wt.join(".git/.claude")).unwrap();
+        fs::create_dir_all(wt.join("near/.claude")).unwrap();
+        let listed = deny_write_on(wt, true);
+        assert_eq!(listed[9..], [wt.join("near/.claude")]);
     }
 
     #[test]

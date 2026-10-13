@@ -9,12 +9,14 @@ A worker's sandbox binds no port by design (`a_worker_binds_no_port` in `src/pro
 
 ## What fails, and why
 
-Measured with `cargo test --lib` in a worker: 335 of 3027 tests fail, 2675 pass, 17 are ignored. A module's name covers its child modules.
+The doctor, flock, dog (`left_over`), `lease::cli`, sheep, shepherd and upgrade tests run in a worker: they dial `FakeShepherd`, which answers in memory through the `Dial` port, and `lease::cli::e2e` reads the dog's answers off a connected pair of streams. What is listed below binds on purpose or for a reason of its own.
+
+Measured with `cargo test --lib` in a worker: 144 of 3225 tests fail, 3064 pass, 17 are ignored. A module's name covers its child modules.
 
 | Reason | Modules |
 |---|---|
-| Unix socket bind refused (`Operation not permitted`) | `dog::door` (and `::e2e`), `lease::cli::e2e`, `adapters::test_runner`, `adapters::forwarder` (the forwarder's own socket), `adapters::pi::tests` (3 tests that open a forwarder) |
-| Unix socket bind in shep-client's fake shepherd (`shep-client/src/testing/shared.rs`) | `doctor` (and `::github`, `::plugins`, `::e2e`), `flock::add`, `flock::set`, `flock::control` (and `::pause`, `::finish`), `flock::verbs`, `upgrade` (`::sheep`, `::refusals`, `::files`, `::drain`), `sheep` (and `::look`), `shepherd`, `dog::left_over`, `dog::link` |
+| Unix socket bind refused (`Operation not permitted`) | `dog::door` (and `::e2e`), `adapters::test_runner`, `adapters::forwarder` (the forwarder's own socket), `adapters::pi::tests` (3 tests that open a forwarder) |
+| Unix socket bind in shep-client's fake shepherd (`shep-client/src/testing/shared.rs`), kept to prove a real socket | `dog::link` (4 tests), `shepherd::connection` (2 tests: the `Socket` dial reaching a shepherd, and its protocol-mismatch refusal), `tests/upgrade.rs` (the binary against a shepherd on a real socket) |
 | Loopback TCP bind refused | `adapters::local::endpoint`, `adapters::forwarder` (the stand-in model server in `src/test/endpoint.rs`), `adapters::gpu`, `adapters::paddock`, `adapters::curl`, `adapters::pi::gateway_tests`, `doctor::gateways`, `runner::gpu_tests`, `runner::review::local`, `github` (2 tests) |
 | `ps` cannot say whether a process runs | `runner::attach`, `runner::pm::tests::attach`, `runner::slots_tests`, `runner::turn::tests::held` (the 2 tests that attach) |
 | Process groups: a group check or signal the sandbox does not allow | `adapters::process` (3 tests), `adapters::local::queue` (2), `adapters::local::watched` (1) |

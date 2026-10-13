@@ -20,7 +20,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Worker asks with a `<kelpie-question>` block ending its message; parks on `question` ruling with optional `- ` choices. #13
 - `shep kelpie attach <issue>` hands a Claude Code worker's session to maintainer without `bypassPermissions`; held by pid + start time (reused pid holds nothing). #325
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, text in the instructions, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
-- Out-of-scope finds named in final message; deferred review findings in deferred findings file; PR stays on its issue. `src/runner/follow_up.rs`
+- Out-of-scope finds named in final message; deferred review findings in deferred findings file, whose path the instructions name; PR stays on its issue. #649, `src/runner/follow_up.rs`
 
 ## Fence
 
@@ -34,6 +34,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Every call runs whole inside kelpie's OS sandbox (`Sandbox` port, `srt` 0.0.77), hooks and MCP included; Claude Code's own sandbox off (macOS can't nest). #128
 - `[app.dogs.kelpie.code_graph] enabled` (off) gives the worker's `Work` turns and Claude Code reviewers codebase-memory-mcp: `tools install` fetches a release pinned by SHA-256, `Runner::prepared` names the server in the call's reach and the call's own thread (lock let go, a stop ends it) indexes the worktree into `<project>/code-graphs/<issue>` before each call, the adapter writes a per-call `--mcp-config` (`--strict-mcp-config` stays) and allows `mcp__codebase-memory-mcp`, and the sandbox lets the server write only its index. Missing binary or failed index: a logged skip and a `doctor` line, never a crash. The tool's own `install` is never run. #599, `src/runner/code_graph.rs`, `src/adapters/claude/graph.rs`
 - Guard refuses `claude`, `codex`, `pi` as programs (model endpoint open to process; nested session runs without hooks). `src/guard.rs`
+- Linux: srt skips `denyWrite` globs, so `fence::deny_write` also lists nested harness folders present at call start (bounded walk, `src/fence/nested.rs`); one made during a call is caught by the check against `main` after it. srt also refuses every Unix socket there, so no worker reaches the dog's door and `cargo-test` runs unleased; `doctor` says so. #488
 - Each harness declares run-code + login files; fence holds all, so one harness's call can't plant or read another's. #233
 
 ## Skills

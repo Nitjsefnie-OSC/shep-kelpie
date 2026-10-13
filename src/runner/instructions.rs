@@ -55,12 +55,18 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 
 /// The instructions file for one worker turn
 ///
-/// Kelpie's own, naming the `kelpie` binary, then the skills the worker
+/// Kelpie's own, naming the `kelpie` binary and the deferred findings file, then the skills the worker
 /// writes tests and its pull request's body with, then the agent's
 /// instructions, then the project's. A pull request template in the
 /// worktree stands in for the body's skill.
-pub(super) fn compose(extra: Extra<'_>, worktree: &Path, skills: &Skills, kelpie: &Path) -> String {
-    let mut text = profile::instructions(kelpie, extra.pull_request_file);
+pub(super) fn compose(
+    extra: Extra<'_>,
+    worktree: &Path,
+    skills: &Skills,
+    kelpie: &Path,
+    deferred_file: &Path,
+) -> String {
+    let mut text = profile::instructions(kelpie, extra.pull_request_file, deferred_file);
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -208,8 +214,9 @@ mod tests {
     const EXTRA: &str = "Never use an em dash in public writing.\n";
 
     // Kelpie's own instructions, naming the binary the rig says kelpie is
-    fn kelpies() -> String {
-        profile::instructions(Path::new(Rig::KELPIE), None)
+    fn kelpies(rig: &Rig) -> String {
+        let deferred = rig.build_7().join("deferred-findings.md");
+        profile::instructions(Path::new(Rig::KELPIE), None, &deferred)
     }
 
     // The instructions file the worker's first turn was started with
@@ -234,7 +241,7 @@ mod tests {
         let rig = Rig::new("koji");
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
-        let lines = text.strip_prefix(&kelpies()).expect(&text);
+        let lines = text.strip_prefix(&kelpies(&rig)).expect(&text);
         let (named, rules) = lines.split_once("\n\n").expect(lines);
         assert_eq!(
             named,
@@ -248,6 +255,16 @@ mod tests {
         );
         assert!(rules.contains("Run no /code-review"), "{rules}");
         assert!(rules.contains("leave it to CI"), "{rules}");
+    }
+
+    #[test]
+    fn the_first_turn_names_the_deferred_findings_file_kelpie_reads_at_merge() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        let text = first_instructions(&rig, &runner);
+        let path = rig.build_7().join("deferred-findings.md");
+        assert!(text.contains(&format!("`{}`", path.display())), "{text}");
+        assert!(!text.contains("{deferred}"), "{text}");
     }
 
     #[test]
@@ -307,7 +324,7 @@ mod tests {
         rig.land_on_origin("PULL_REQUEST_TEMPLATE.md");
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
-        assert!(text.starts_with(&kelpies()), "{text}");
+        assert!(text.starts_with(&kelpies(&rig)), "{text}");
         assert!(
             text.contains("pull request template, `PULL_REQUEST_TEMPLATE.md`"),
             "{text}"
@@ -328,7 +345,7 @@ mod tests {
         rig.edit_settings(|s| s.replace("build_env = {}\n", &line));
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
-        assert!(text.starts_with(&kelpies()), "{text}");
+        assert!(text.starts_with(&kelpies(&rig)), "{text}");
         assert!(text.ends_with(EXTRA), "{text}");
     }
 
@@ -338,6 +355,7 @@ mod tests {
         let runner = rig.open().unwrap();
         let without = first_instructions(&rig, &runner);
         assert!(!without.contains("lease e2e"), "{without}");
+        let first_build = rig.build_7().display().to_string();
 
         let rig = Rig::new("koji");
         rig.e2e_on();
@@ -349,8 +367,10 @@ mod tests {
                     your worktree. If it exits without results, such as an exit of 75 or 78, \
                     say so in your final message and report no e2e result.\n";
         assert!(with.contains(line), "{with}");
-        // Only that line differs, and it comes after the skills' lines.
-        assert_eq!(with.replace(line, ""), without);
+        // Only that line and the rig's build folder differ, and the line comes
+        // after the skills' lines.
+        let same_build = with.replace(&rig.build_7().display().to_string(), &first_build);
+        assert_eq!(same_build.replace(line, ""), without);
         assert!(with.find("/mattpocock:pr").unwrap() < with.find(line).unwrap());
     }
 
@@ -364,7 +384,13 @@ mod tests {
             project: Some(EXTRA),
             ..Extra::default()
         };
-        let text = compose(extra, dir.path(), &skills, Path::new(Rig::KELPIE));
+        let text = compose(
+            extra,
+            dir.path(),
+            &skills,
+            Path::new(Rig::KELPIE),
+            Path::new("deferred-findings.md"),
+        );
         let at = |needle: &str| text.find(needle).expect(needle);
         assert!(at("/mattpocock:tdd") < at("pull request template"));
         assert!(at("pull request template") < at("# This agent's instructions"));
@@ -380,12 +406,19 @@ mod tests {
             ..Extra::default()
         };
         let (blank, none) = (
-            compose(blank, dir.path(), &skills, Path::new(Rig::KELPIE)),
+            compose(
+                blank,
+                dir.path(),
+                &skills,
+                Path::new(Rig::KELPIE),
+                Path::new("deferred-findings.md"),
+            ),
             compose(
                 Extra::default(),
                 dir.path(),
                 &skills,
                 Path::new(Rig::KELPIE),
+                Path::new("deferred-findings.md"),
             ),
         );
         assert_eq!(blank, none);
@@ -401,7 +434,7 @@ mod tests {
         );
         let runner = rig.open().unwrap();
         let text = first_instructions(&rig, &runner);
-        assert!(text.starts_with(&kelpies()), "{text}");
+        assert!(text.starts_with(&kelpies(&rig)), "{text}");
         assert!(
             text.ends_with("\n# This agent's instructions\n\nKeep each commit small.\n"),
             "{text}"
