@@ -11,7 +11,7 @@ fn call() -> AgentCall {
     });
     AgentCall::new(
         Role::Researcher,
-        Tools::Work,
+        Tools::Research,
         goose,
         "qwen3.8:27b",
         Effort::Low,

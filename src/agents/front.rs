@@ -264,7 +264,8 @@ fn goose_opens_at(agent: &Agent, yaml: &str) -> Result<(), String> {
         Role::Implementer => ("an implementer", "#788"),
         Role::Reviewer => ("a reviewer", "#789"),
         Role::Advisor => ("an advisor", "#789"),
-        _ => return Ok(()),
+        // The issue writer and the project manager already refuse any harness but Claude Code.
+        Role::IssueWriter | Role::Pm | Role::Researcher => return Ok(()),
     };
     match on_goose {
         true => Err(at_key(

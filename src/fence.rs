@@ -64,9 +64,9 @@ pub const HARNESSES: [OwnFiles; 4] = [
         credentials: &["~/.pi/**"],
         program: "pi",
     },
-    // goose also loads `.goosehints` from the working folder, which the goose
-    // adapter keeps unread, so it is not listed here. Its config, secrets and
-    // session database sit in four places, by platform.
+    // goose also loads `.goosehints` from the working folder. It is not listed
+    // here: #788 sets `CONTEXT_FILE_NAMES` so goose never reads it. Its config,
+    // secrets and session database sit in four places, by platform.
     OwnFiles {
         harness: "goose",
         folders: &[".goose"],
