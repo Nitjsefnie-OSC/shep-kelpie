@@ -8,7 +8,6 @@
 use std::path::Path;
 
 use serde_json::{Map, Value};
-use shep_client::Client;
 use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::Response;
@@ -18,7 +17,7 @@ use super::send;
 use crate::agents::Agents;
 use crate::runner::{ProjectName, ProjectPaths, check_gateways};
 use crate::settings::{Settings, SettingsError, source};
-use crate::shepherd::{self, DOG, Tables};
+use crate::shepherd::{self, Connection, DOG, Tables};
 
 /// What `set` reads a project's settings against, as its runner does
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +35,7 @@ pub struct Place<'a> {
 /// A message when the shepherd cannot be read, the project has no table (it
 /// points at `add`), or `key` is not set in it.
 pub async fn get(
-    client: &Client,
+    client: &dyn Connection,
     name: &ProjectName,
     key: Option<&str>,
 ) -> Result<Vec<String>, String> {
@@ -62,7 +61,7 @@ pub async fn get(
 /// `git.checkout` or `git.remote` onto a checkout or repo another project
 /// runs is refused as `add` refuses it.
 pub async fn set(
-    client: &Client,
+    client: &dyn Connection,
     name: &ProjectName,
     place: Place<'_>,
     key: &str,
@@ -131,7 +130,7 @@ fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Set
 }
 
 async fn table_of_project(
-    client: &Client,
+    client: &dyn Connection,
     name: &ProjectName,
 ) -> Result<Map<String, Value>, String> {
     let tables = shepherd::read_tables_with(client, name.as_str()).await?;

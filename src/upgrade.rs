@@ -36,7 +36,7 @@ use lock::Lock;
 use restart::{Interrupt, Patience, Plan};
 
 use crate::shep_home;
-use crate::shepherd::{self, release_line};
+use crate::shepherd::{self, Dial, release_line};
 
 /// What the maintainer asked `upgrade` to do
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +107,7 @@ pub fn main(args: &[String]) -> ExitCode {
         let scene = Scene {
             kelpie_home: &crate::home::kelpie_home_of(&shep_home),
             shep_home: &shep_home,
+            shepherd: &shepherd::Socket,
             repo: &std::env::var("KELPIE_SOURCE").unwrap_or_else(|_| fetch::REPO.to_owned()),
             patience: Patience::default(),
             now,
@@ -131,6 +132,8 @@ pub struct Scene<'a> {
     pub kelpie_home: &'a Path,
     /// The shepherd the sheep are restarted in
     pub shep_home: &'a Path,
+    /// How the shepherd is reached
+    pub shepherd: &'a dyn Dial,
     /// The git repo `--ref` builds from
     pub repo: &'a str,
     /// How long it waits on the shepherd's sheep
@@ -329,8 +332,8 @@ pub async fn run(
     Ok(())
 }
 
-async fn connect(scene: &Scene<'_>) -> Result<shep_client::Client, String> {
-    shepherd::connect_any(scene.shep_home)
+async fn connect(scene: &Scene<'_>) -> Result<Box<dyn crate::shepherd::Connection>, String> {
+    shepherd::connect_any(scene.shepherd, scene.shep_home)
         .await
         .map_err(|e| e.describe(scene.shep_home))
 }

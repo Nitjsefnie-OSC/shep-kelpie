@@ -17,8 +17,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use shep_client::Client;
-
 use self::host::Host;
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, Gh, LocalReviewer, Openssl, SystemClock, SystemHost,
@@ -31,7 +29,7 @@ use crate::ports::{Alerts, Clock, Forge, Meter, Reviewer};
 use crate::review_bot::Profile;
 use crate::runner::ProjectName;
 use crate::shep_home;
-use crate::shepherd;
+use crate::shepherd::{self, Connection, Dial, Socket};
 use crate::tools::Tools;
 
 /// How one check came out
@@ -167,6 +165,8 @@ pub struct Probes<'a> {
     pub host: &'a dyn Host,
     /// The clock
     pub clock: &'a dyn Clock,
+    /// How the shepherd is reached
+    pub shepherd: &'a dyn Dial,
 }
 
 impl fmt::Debug for Probes<'_> {
@@ -206,7 +206,7 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
         machine::sandbox(probes.host, &Tools::under(here.kelpie_home)),
     ];
     lines.extend(machine::sandbox_limits(probes.host));
-    match shepherd::connect(shep_home).await {
+    match shepherd::connect(probes.shepherd, shep_home).await {
         Ok(client) => {
             lines.push(machine::shepherd(&client, shep_home));
             lines.push(match flock::flock(&client).await {
@@ -227,7 +227,12 @@ pub async fn check(shep_home: &Path, probes: Probes<'_>, here: Here<'_>, ask: As
     Report { lines }
 }
 
-async fn projects(client: &Client, probes: Probes<'_>, here: Here<'_>, ask: Ask<'_>) -> Vec<Line> {
+async fn projects(
+    client: &dyn Connection,
+    probes: Probes<'_>,
+    here: Here<'_>,
+    ask: Ask<'_>,
+) -> Vec<Line> {
     let read = async {
         let tables = flock::tables(client).await?;
         let section = shepherd::read_section(client).await?;
@@ -323,6 +328,7 @@ pub fn main(args: &[String]) -> ExitCode {
             alerts: &Curl,
             host: &SystemHost,
             clock: &SystemClock,
+            shepherd: &Socket,
         };
         shepherd::block_on(async { Ok(check(&shep_home, probes, here, ask).await) })
     })();

@@ -6,9 +6,10 @@
 
 use std::path::Path;
 
-use shep_client::ReconnectingClient;
 use shep_client::shep_core::protocol::request::Response;
 use shep_client::shep_core::protocol::{Request, SelectorSpec};
+
+use crate::shepherd::Connection;
 
 /// The sheep the dog ran as before it was the adopted dog
 pub const NAME: &str = "kelpie-dog";
@@ -24,7 +25,7 @@ pub const NAME: &str = "kelpie-dog";
 /// A message when the shepherd refuses a request, or the sheep's entry sets
 /// `KELPIE_HOME` or `HOME`, whose values shep withholds, so its book may
 /// not be `book`.
-pub async fn remove(client: &ReconnectingClient, book: &Path) -> Result<Option<String>, String> {
+pub async fn remove(client: &dyn Connection, book: &Path) -> Result<Option<String>, String> {
     let rows = match client.request(Request::ListFlock).await {
         Ok(Response::Flock(rows)) => rows,
         Ok(other) => return Err(format!("the flock listing came back as {other:?}")),
@@ -76,7 +77,6 @@ mod tests {
     use shep_client::shep_core::config::AppConfig;
 
     use super::*;
-    use crate::home::SHEP_SOCKET;
     use crate::test::{CALL_PATIENCE, FakeShepherd};
 
     fn sheep(name: &str, args: &[&str]) -> AppConfig {
@@ -86,19 +86,16 @@ mod tests {
     }
 
     async fn removed(shepherd: &FakeShepherd) -> Result<Option<String>, String> {
-        let socket = shepherd.home().join(SHEP_SOCKET);
-        let client = ReconnectingClient::connect(&socket).await.unwrap();
+        let client = shepherd.connect().await;
         let book = Path::new("/k/dog/book.json");
         tokio::time::timeout(CALL_PATIENCE, remove(&client, book))
             .await
             .expect("remove neither ended nor failed in time")
     }
 
-    // Real sockets under a real clock: a paused one would time out the
-    // handshake while the fake's socket is merely waiting.
     #[tokio::test]
     async fn a_left_over_dog_sheep_is_deleted_and_its_book_named() {
-        let mut shepherd = FakeShepherd::new().await;
+        let mut shepherd = FakeShepherd::new();
         shepherd.holds(sheep(NAME, &["dog"]), true);
         let said = removed(&shepherd).await.unwrap().unwrap();
         assert!(shepherd.sheep(NAME).is_none());
@@ -115,7 +112,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_left_over_changes_nothing() {
-        let mut shepherd = FakeShepherd::new().await;
+        let mut shepherd = FakeShepherd::new();
         shepherd.holds(sheep("koji", &["runner", "koji"]), true);
         assert_eq!(removed(&shepherd).await, Ok(None));
         assert_eq!(shepherd.writes(), []);
@@ -123,7 +120,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_dog_of_that_name_is_not_a_left_over() {
-        let mut shepherd = FakeShepherd::new().await;
+        let mut shepherd = FakeShepherd::new();
         shepherd.holds_dog(NAME, true);
         assert_eq!(removed(&shepherd).await, Ok(None));
         assert!(shepherd.sheep(NAME).is_some());
@@ -132,7 +129,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_sheep_of_that_name_that_is_not_kelpie_s_stays() {
-        let mut shepherd = FakeShepherd::new().await;
+        let mut shepherd = FakeShepherd::new();
         shepherd.holds(sheep(NAME, &["serve"]), true);
         assert_eq!(removed(&shepherd).await, Ok(None));
         assert!(shepherd.sheep(NAME).is_some());
@@ -142,7 +139,7 @@ mod tests {
     #[tokio::test]
     async fn a_left_over_with_its_own_kelpie_home_or_home_is_refused_and_kept() {
         for key in ["KELPIE_HOME", "HOME"] {
-            let mut shepherd = FakeShepherd::new().await;
+            let mut shepherd = FakeShepherd::new();
             let mut left_over = sheep(NAME, &["dog"]);
             left_over.env.insert(key.into(), "/elsewhere".into());
             shepherd.holds(left_over, true);

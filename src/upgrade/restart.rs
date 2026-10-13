@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
-use shep_client::Client;
 use shep_client::shep_core::protocol::request::DogSource;
 use shep_client::shep_core::status::ProcStatus;
 use tokio::signal::unix::{SignalKind, signal};
@@ -28,6 +27,7 @@ use super::drain::{self, Purpose};
 use crate::dog;
 use crate::flock::control::{Answered, trigger};
 use crate::flock::{flock, kelpie_sheep, resume, script, tables};
+use crate::shepherd::Connection;
 
 /// How long the upgrade waits, and how often it asks
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,7 +130,10 @@ impl Plan {
     /// A message when the flock has no adopted kelpie, or when a sheep that
     /// would be restarted runs another program than the dog does: a restart
     /// cannot move it onto the installed build.
-    pub async fn read(client: &Client, say: &mut dyn FnMut(String)) -> Result<Self, String> {
+    pub async fn read(
+        client: &dyn Connection,
+        say: &mut dyn FnMut(String),
+    ) -> Result<Self, String> {
         let rows = flock(client).await?;
         let dog = rows
             .iter()
@@ -208,7 +211,7 @@ impl Plan {
 /// sheep restarted before it are on the new build, and running the upgrade
 /// again finishes the rest.
 pub async fn restart_all(
-    client: &Client,
+    client: &dyn Connection,
     plan: &Plan,
     patience: Patience,
     drain: bool,
@@ -277,7 +280,7 @@ pub async fn restart_all(
 // before the wait, which can be long, and a sheep the maintainer stopped since
 // stays stopped.
 async fn bounce_if_running(
-    client: &Client,
+    client: &dyn Connection,
     name: &str,
     patience: Patience,
     say: &mut dyn FnMut(String),
@@ -297,7 +300,7 @@ async fn bounce_if_running(
 }
 
 async fn bounce(
-    client: &Client,
+    client: &dyn Connection,
     name: &str,
     patience: Patience,
     say: &mut dyn FnMut(String),
@@ -330,7 +333,7 @@ async fn bounce(
 /// `patience.merge`, and what was not done for `purpose`, or one from the
 /// shepherd.
 pub(crate) async fn wait_out_merges(
-    client: &Client,
+    client: &dyn Connection,
     names: &[&str],
     patience: Patience,
     purpose: Purpose,

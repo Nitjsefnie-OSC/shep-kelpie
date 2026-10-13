@@ -13,7 +13,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Map, Value};
-use shep_client::Client;
 use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::{ProcessInfo, Response};
@@ -25,7 +24,7 @@ use crate::dog;
 use crate::ports::{Forge, NewLabel};
 use crate::runner::{HUMAN, IN_PROGRESS, ProjectName, SUMMON_LABEL as SUMMON};
 use crate::settings::{Settings, table_of};
-use crate::shepherd::DOG;
+use crate::shepherd::{Connection, DOG};
 
 /// The labels kelpie reads and sets on a project's issues and pull requests
 pub const LABELS: [NewLabel<'static>; 4] = [
@@ -109,7 +108,7 @@ turn_timeout = 60
 /// `main`, a name another sheep holds, or a project already set up for
 /// another checkout.
 pub async fn add(
-    client: &Client,
+    client: &dyn Connection,
     forge: &dyn Forge,
     launch: &Launch,
     name: &ProjectName,

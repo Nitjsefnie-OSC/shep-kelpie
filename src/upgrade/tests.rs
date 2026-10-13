@@ -6,6 +6,7 @@
 //! restarts, and `refusals` what it stops before doing either.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Map, Value};
@@ -14,6 +15,7 @@ use shep_client::shep_core::protocol::request::{Request, SelectorSpec};
 use super::*;
 use crate::flock::Launch;
 use crate::runner::ProjectName;
+use crate::shepherd::Dial;
 use crate::test::{CALL_PATIENCE, FakeShepherd, write_script};
 
 mod drain;
@@ -36,6 +38,7 @@ const IDLE: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}]}
 /// kelpie, a kelpie home, and a folder of stand-in builds
 struct Rig {
     shepherd: FakeShepherd,
+    dial: Arc<dyn Dial>,
     home: PathBuf,
     builds: PathBuf,
     // The path the dog and the runners run
@@ -49,7 +52,7 @@ impl Rig {
 
     // `linked`: the installed path is a symlink to the file that holds the build.
     async fn on(shepherd_version: &str, linked: bool) -> Self {
-        let shepherd = FakeShepherd::on(shepherd_version).await;
+        let shepherd = FakeShepherd::on(shepherd_version);
         let home = shepherd.scratch("kelpie");
         let bin = shepherd.scratch("bin");
         let builds = shepherd.scratch("builds");
@@ -63,6 +66,7 @@ impl Rig {
         }
         shepherd.holds_dog_at("kelpie", &installed.display().to_string(), true);
         let rig = Self {
+            dial: shepherd.dial(),
             shepherd,
             home,
             builds,
@@ -108,6 +112,7 @@ impl Rig {
         Scene {
             kelpie_home: &self.home,
             shep_home: self.shepherd.home(),
+            shepherd: &*self.dial,
             repo: "/nowhere",
             patience,
             now: false,
