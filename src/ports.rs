@@ -44,8 +44,9 @@ mod thread;
 mod voice;
 
 pub use agent::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence, Guard,
-    PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence,
+    Flying, Guard, PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait,
+    written_at,
 };
 pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
@@ -63,7 +64,7 @@ pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
-pub use run::BranchRun;
+pub use run::{BranchRun, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
@@ -331,16 +332,25 @@ pub trait Forge: Send + Sync {
         merge_group: bool,
     ) -> Result<String, ForgeError>;
 
-    /// The latest completed CI run of each workflow among the 50 newest
-    /// completed runs on `branch`, whatever its conclusion
+    /// The latest completed CI run of each workflow and event among the 50
+    /// newest completed runs on `branch`, whatever its conclusion
     ///
     /// A workflow whose latest run is older than those 50 is absent, so an
-    /// absent workflow is not a green one.
+    /// absent workflow is not a green one. A branch named `main` on a fork
+    /// has its pull requests' runs listed here too, under their own event.
     ///
     /// # Errors
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError>;
+
+    /// Every workflow of the repo, whatever its state
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read, or
+    /// lists a state this port does not know.
+    fn workflows(&self, repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError>;
 
     /// The end of the failed jobs' log of CI run `run`
     ///

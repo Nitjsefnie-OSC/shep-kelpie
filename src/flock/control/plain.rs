@@ -15,6 +15,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     let run = status["run"].as_str().unwrap_or("running");
     lines.push(format!("  run: {run}"));
     items(status, &mut lines);
+    red_workflows(status, &mut lines);
     contributions(status, &mut lines);
     rulings(status, &mut lines);
     pacer(status, &mut lines);
@@ -121,6 +122,24 @@ fn items(status: &Value, lines: &mut Vec<String>) {
             item["phase"]["state"].as_str().unwrap_or("?"),
             item["turn"]["state"].as_str().unwrap_or("?"),
             pull_request(&item["pull_request"]),
+        ));
+    }
+}
+
+fn red_workflows(status: &Value, lines: &mut Vec<String>) {
+    let red = status["red_workflows"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if red.is_empty() {
+        return;
+    }
+    lines.push(format!("  red on main: {}", red.len()));
+    for workflow in red {
+        lines.push(format!(
+            "    {}: red for {}, {}",
+            workflow["workflow"].as_str().unwrap_or("?"),
+            crate::board::briefing::elapsed(workflow["red_for"].as_u64().unwrap_or(0)),
+            workflow["url"].as_str().unwrap_or("no link"),
         ));
     }
 }

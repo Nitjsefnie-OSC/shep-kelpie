@@ -28,7 +28,7 @@ use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
     PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
-    Timestamp, Visibility,
+    Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -226,6 +226,10 @@ impl Forge for Gh {
 
     fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         runs::branch_runs(repo, branch)
+    }
+
+    fn workflows(&self, repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError> {
+        runs::workflows(repo)
     }
 
     fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {

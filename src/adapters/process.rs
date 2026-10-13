@@ -18,7 +18,10 @@ use std::time::{Duration, Instant};
 
 use rustix::fs::{OFlags, fcntl_setfl};
 
-use crate::ports::Ending;
+use self::record::{CallFiles, Recorded};
+use crate::ports::{AgentCall, Ending};
+
+pub(super) mod record;
 
 /// How often a running child is checked for its exit
 const POLL: Duration = Duration::from_millis(50);
@@ -76,11 +79,7 @@ impl Processes {
     /// Like `output_telling`, with the child's stdout and stderr written to
     /// the files `outputs` names, emptied first, and read back and removed
     /// once it ends
-    ///
-    /// A pipe the child shares with a parent that makes it non-blocking, as
-    /// Node does with its own, fails a write once the pipe is full, and a
-    /// program that does not wait and write again dies of it. A file never
-    /// fills that way.
+    #[cfg(test)]
     pub(super) fn output_to_files(
         &self,
         command: &mut Command,
@@ -92,7 +91,37 @@ impl Processes {
             deadline: None,
             ending,
         };
-        self.run(command, until, spawned, Some(outputs), b"")
+        self.run(command, until, spawned, Some(Files::of(outputs)), b"")
+    }
+
+    /// Runs `call`'s `command` with its stdout and stderr written to the
+    /// files [`CallFiles`] names, emptied first and read back once it ends,
+    /// and a record of it kept beside them while it runs
+    ///
+    /// The record is removed when the call ends, by whatever means, and the
+    /// output files with it.
+    ///
+    /// A pipe the child shares with a parent that makes it non-blocking, as
+    /// Node does with its own, fails a write once the pipe is full, and a
+    /// program that does not wait and write again dies of it. A file never
+    /// fills that way.
+    pub(super) fn output_of_call(
+        &self,
+        command: &mut Command,
+        call: &AgentCall,
+        ending: &Ending,
+        spawned: &dyn Fn(u32),
+    ) -> Result<Output, RunError> {
+        let files = CallFiles::of(call);
+        let until = Until {
+            deadline: None,
+            ending: Some(ending),
+        };
+        let kept = Files {
+            outputs: [&files.stdout, &files.stderr],
+            record: Some((call, &files.record)),
+        };
+        self.run(command, until, spawned, Some(kept), b"")
     }
 
     /// Like `output`, and kills the child once `limit` has passed
@@ -101,11 +130,13 @@ impl Processes {
         command: &mut Command,
         limit: Duration,
     ) -> Result<Output, RunError> {
-        self.output_within_fed(command, limit, b"", None)
+        self.within(command, limit, b"", None, None)
     }
 
-    /// Like `output_within`, with `input` written to the child's stdin, and
-    /// the child killed once `ending` is asked if one is given
+    /// Like `output_within`, with `input` written to the child's stdin, the
+    /// child killed once `ending` is asked if one is given, and its stdout
+    /// and stderr written to the files `outputs` names, which are removed
+    /// once it ends
     ///
     /// A secret goes this way rather than in the arguments, which any
     /// process on the machine can list. The limit covers the write too, so a
@@ -116,12 +147,24 @@ impl Processes {
         limit: Duration,
         input: &[u8],
         ending: Option<&Ending>,
+        outputs: [&Path; 2],
+    ) -> Result<Output, RunError> {
+        self.within(command, limit, input, ending, Some(Files::of(outputs)))
+    }
+
+    fn within(
+        &self,
+        command: &mut Command,
+        limit: Duration,
+        input: &[u8],
+        ending: Option<&Ending>,
+        files: Option<Files<'_>>,
     ) -> Result<Output, RunError> {
         let until = Until {
             deadline: Some(Instant::now() + limit),
             ending,
         };
-        self.run(command, until, &|_| {}, None, input)
+        self.run(command, until, &|_| {}, files, input)
     }
 
     fn run(
@@ -129,11 +172,16 @@ impl Processes {
         command: &mut Command,
         until: Until<'_>,
         spawned: &dyn Fn(u32),
-        outputs: Option<[&Path; 2]>,
+        files: Option<Files<'_>>,
         input: &[u8],
     ) -> Result<Output, RunError> {
-        let (out, err) = match outputs {
-            Some([out, err]) => (
+        // Whatever way the call ends, its files go with it.
+        let _scrap = files.as_ref().map(|files| Scrap(files.outputs));
+        let (out, err) = match &files {
+            Some(Files {
+                outputs: [out, err],
+                ..
+            }) => (
                 Stdio::from(File::create(out).map_err(RunError::Io)?),
                 Stdio::from(File::create(err).map_err(RunError::Io)?),
             ),
@@ -176,8 +224,15 @@ impl Processes {
             running.children.push((id, child));
             id
         };
+        let mut recorded = files.as_ref().and_then(|files| {
+            let (call, path) = files.record?;
+            Some(Recorded::new(call, path, pid, files.outputs, until.ending?))
+        });
+        if let Some(recorded) = &recorded {
+            recorded.write();
+        }
         spawned(pid);
-        let status = self.wait(id, until)?;
+        let status = self.wait(id, until, recorded.as_mut())?;
         // A stopped child's own children may hold its pipes open, so its
         // output is left unread.
         if self.lock().stopping {
@@ -187,11 +242,14 @@ impl Processes {
             stdout.join().unwrap_or_default(),
             stderr.join().unwrap_or_default(),
         );
-        Ok(match outputs {
-            Some([out, err]) => Output {
+        Ok(match files {
+            Some(Files {
+                outputs: [out, err],
+                ..
+            }) => Output {
                 status,
-                stdout: take(out)?,
-                stderr: take(err)?,
+                stdout: std::fs::read(out).map_err(RunError::Io)?,
+                stderr: std::fs::read(err).map_err(RunError::Io)?,
             },
             None => Output {
                 status,
@@ -320,7 +378,12 @@ impl Processes {
         }
     }
 
-    fn wait(&self, id: u64, until: Until<'_>) -> Result<ExitStatus, RunError> {
+    fn wait(
+        &self,
+        id: u64,
+        until: Until<'_>,
+        mut recorded: Option<&mut Recorded>,
+    ) -> Result<ExitStatus, RunError> {
         loop {
             let passed = {
                 let mut running = self.lock();
@@ -339,6 +402,11 @@ impl Processes {
                 until.passed()
             };
             if passed {
+                if until.ending.is_some_and(Ending::asked)
+                    && let Some(recorded) = recorded.as_deref_mut()
+                {
+                    recorded.ending();
+                }
                 // The whole group, so a build or test the worker started
                 // and left running past the ceiling is ended too, not just
                 // the `claude` process this struct tracked.
@@ -351,6 +419,22 @@ impl Processes {
 
     fn lock(&self) -> MutexGuard<'_, Running> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+// Where a child's output goes in place of pipes, and the call whose record is
+// kept at the path while it runs, if any
+struct Files<'a> {
+    outputs: [&'a Path; 2],
+    record: Option<(&'a AgentCall, &'a Path)>,
+}
+
+impl<'a> Files<'a> {
+    fn of(outputs: [&'a Path; 2]) -> Self {
+        Self {
+            outputs,
+            record: None,
+        }
     }
 }
 
@@ -468,12 +552,16 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<u8>
     })
 }
 
-// The whole of the file at `path`, which is then removed: a call's output
-// holds its commands' output, which is not kept once read.
-fn take(path: &Path) -> Result<Vec<u8>, RunError> {
-    let bytes = std::fs::read(path).map_err(RunError::Io)?;
-    let _ = std::fs::remove_file(path);
-    Ok(bytes)
+// Removes a call's output files once it ends: they hold its commands'
+// output, which is not kept once read.
+struct Scrap<'a>([&'a Path; 2]);
+
+impl Drop for Scrap<'_> {
+    fn drop(&mut self) {
+        for path in self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 // Each line of `pipe` as it comes, until it closes.
@@ -581,6 +669,8 @@ mod tests {
     // child reads, which this one never does. The test bounds its own wait.
     #[test]
     fn a_child_that_never_reads_its_stdin_is_ended_at_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let outputs = [dir.path().join("out"), dir.path().join("err")];
         let processes = Processes::default();
         let running = processes.clone();
         let (done, finished) = mpsc::channel();
@@ -591,6 +681,7 @@ mod tests {
                 Duration::from_millis(200),
                 &input,
                 None,
+                [&outputs[0], &outputs[1]],
             );
             let _ = done.send(result);
         });
@@ -603,6 +694,7 @@ mod tests {
 
     #[test]
     fn a_child_that_reads_gets_all_of_an_input_bigger_than_a_pipe() {
+        let dir = tempfile::tempdir().unwrap();
         let processes = Processes::default();
         let input = vec![b'x'; 1024 * 1024];
         let output = processes
@@ -611,6 +703,7 @@ mod tests {
                 Duration::from_secs(30),
                 &input,
                 None,
+                [&dir.path().join("out"), &dir.path().join("err")],
             )
             .unwrap();
         assert_eq!(output.stdout, input);
