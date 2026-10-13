@@ -26,6 +26,7 @@ pub(crate) mod openai_gateway;
 pub(crate) mod paddock;
 mod pi;
 mod process;
+mod skills;
 mod srt;
 mod stop;
 mod test_runner;

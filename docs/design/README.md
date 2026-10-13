@@ -23,7 +23,8 @@ Rules live in Rust code; a model is called only for work and judgement.
 | file | covers | read when you touch |
 |---|---|---|
 | work.md | projects, board, slots, issue writer, PM | `src/board.rs`, `src/issues.rs`, `src/runner/slots.rs`, `src/runner/pm.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
-| workers.md | runner loop, turns, fence, skills | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/skills.rs`, `src/hooks.rs` |
+| workers.md | runner loop, turns, fence | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/hooks.rs` |
+| skills.md | step skills, repo plugins, how each harness loads them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | merge.md | CI, catching up, merge, after the merge | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |
