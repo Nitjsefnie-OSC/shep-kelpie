@@ -332,16 +332,15 @@ fn exchange(
     };
     let done = AtomicBool::new(false);
     thread::scope(|scope| {
-        let watcher = thread::Builder::new()
+        // The watcher is an extra: a reply is relayed whole without one.
+        let _watcher = thread::Builder::new()
             .name("watching".into())
             .spawn_scoped(scope, || hang_up_ends(&watched, &upstream_end, &done));
         let copied = io::copy(&mut server, client);
         done.store(true, Ordering::SeqCst);
-        watcher
-            .map_err(|e| e.kind())
-            .and(copied.map_err(|e| e.kind()))
+        copied
     })
-    .map_err(|kind| Reply::new(502, format!("kelpie lost the model server: {kind}")))?;
+    .map_err(unsent)?;
     Ok(())
 }
 
