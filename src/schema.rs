@@ -175,6 +175,10 @@ mod tests {
                 "# [app.dogs.kelpie.rulings]\n# decide = \"panel\"\n# pm_alone =",
                 "[app.dogs.kelpie.rulings]\ndecide = \"panel\"\npm_alone =",
             )
+            .replace(
+                "# [app.dogs.kelpie.contributions]\n# pick = \"off\"\n# reviewers = [\"defect-hunter\"]\n# security_reviewer = \"security-reviewer\"\n# quiet_days = 7\n# nudge_days = 3\n",
+                "[app.dogs.kelpie.contributions]\npick = \"off\"\nreviewers = [\"defect-hunter\"]\nsecurity_reviewer = \"security-reviewer\"\nquiet_days = 7\nnudge_days = 3\n",
+            )
             .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# issue_writer =", "issue_writer =")
             .replace("# fallback_after =", "fallback_after =")

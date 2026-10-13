@@ -24,6 +24,7 @@ mod agents;
 mod budget;
 mod ci;
 mod code_graph;
+mod contributions;
 mod domains;
 mod e2e;
 mod gateway;
@@ -43,6 +44,7 @@ pub use agents::{
 pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use code_graph::CodeGraph;
+pub use contributions::{Contributions, Pick};
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{
     Gateway, GatewayKey, GatewayKind, GatewayName, Gateways, KeyVar, ModelHost, Route,
@@ -89,6 +91,10 @@ pub struct Settings {
     /// manager decides alone. Its defaults when absent.
     #[serde(default)]
     pub rulings: Rulings,
+    /// Whether and how kelpie picks up other people's pull requests. It
+    /// picks up none when absent.
+    #[serde(default)]
+    pub contributions: Contributions,
     /// The project's own hooks, which kelpie runs at its own points for
     /// every harness and role. Each must resolve when the runner starts.
     /// Empty when absent.
