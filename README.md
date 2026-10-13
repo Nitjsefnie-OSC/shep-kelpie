@@ -204,12 +204,13 @@ nothing a project needs is missing
 
 ### 7. Open the sandbox to your registries
 
-A worker's sandbox reaches `github.com`, `api.github.com` and the model's API, and nothing else. `add` leaves `allowed_domains` empty, so a first issue on a repo with a cold cache can't fetch crates or npm packages. The project's table is stored on its runner sheep, so edit it in `shep lookout`:
+A worker's sandbox reaches `github.com`, `api.github.com` and the model's API, and nothing else. `add` leaves `allowed_domains` empty, so a first issue on a repo with a cold cache can't fetch crates or npm packages. Set it with `set`, which writes the project's table on its runner sheep. A list is a TOML value, so quote it for the shell:
 
-1. Open the runner's pane: the sheep named for the project, `scratch` here
-2. Press `9` for the `dogs` tab, put the cursor on the `dogs` row and press `Enter` or `e`
-3. Open the `kelpie` row, then `worker.allowed_domains`, and add the registries the project builds from
-4. Press `Esc` to write the table
+```sh
+shep kelpie set worker.allowed_domains '["crates.io", "index.crates.io", "static.crates.io"]'
+```
+
+A value that does not fit the settings is refused with the reason, and nothing is written. `shep kelpie get worker.allowed_domains` reads it back.
 
 It ends up holding:
 
@@ -1035,7 +1036,7 @@ Add `:Z` to the volume on an SELinux host. The script runs as the account's own 
 
 ### Settings
 
-A project's settings are its `[app.dogs.kelpie]` table, which lookout edits in the runner's pane. Every setting sits in a table of its own. `settings.example.toml` lists every key, and shows a runner's Flockfile entry for a project set up by hand. It needs `SHEP_HOME` as an absolute path in `env`, since a sheep starts without it. An older entry's `kill_timeout = "10s"` still works, and is no longer needed. The keys:
+A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]` prints it, or one dotted key, as TOML, and `shep kelpie set <key> <value>` changes one key, such as `shep kelpie set git.merging auto` or `shep kelpie set agents.reviewers '["qwen"]'`. The value is a TOML value, and text that is not one is a string. `set` writes only a table that loads as settings, and a running runner takes it at its next wake. Lookout edits the table too, in the runner's pane. Every setting sits in a table of its own. `settings.example.toml` lists every key, and shows a runner's Flockfile entry for a project set up by hand. It needs `SHEP_HOME` as an absolute path in `env`, since a sheep starts without it. An older entry's `kill_timeout = "10s"` still works, and is no longer needed. The keys:
 
 - `git.checkout`: the project's checkout
 - `git.remote`: its GitHub repo as `owner/name`. Left out, the runner reads it from the checkout's `origin` when it starts, and an `origin` that is not a GitHub repo stops the runner naming the setting
