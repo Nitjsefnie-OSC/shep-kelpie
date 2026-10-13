@@ -439,7 +439,14 @@ mod tests {
         );
         assert_eq!(policy.hosts, [MODEL_HOST]);
         let mut denied: Vec<String> = CREDENTIALS.map(str::to_owned).into();
-        denied.extend(["~/.codex/**".into(), "~/.pi/**".into()]);
+        denied.extend([
+            "~/.codex/**".into(),
+            "~/.pi/**".into(),
+            "~/.config/goose/**".into(),
+            "~/.local/share/goose/**".into(),
+            "~/.local/state/goose/**".into(),
+            "~/Library/Application Support/Block/goose/**".into(),
+        ]);
         assert_eq!(policy.no_read, denied);
         assert!(policy.read.contains(&w.path("extra")));
         assert!(!policy.verify_tls);
