@@ -382,3 +382,46 @@ fn a_turn_still_queued_at_its_ceiling_leaves_the_queue_without_running() {
     ));
     assert_eq!(rig.claude.calls(), [], "it spawned only to be ended");
 }
+
+#[test]
+fn a_turn_carries_its_ceiling_and_where_it_stands_for_its_record() {
+    let (rig, runner) = seven_open("acme");
+    let started = crate::ports::Clock::now(&rig.clock);
+    rig.claude.script([Scripted::Say("done")]);
+    let driven = Driven::new(&runner);
+    driven.started();
+    driven.landed();
+
+    let [seen] = rig.claude.seen().try_into().unwrap();
+    assert_eq!(
+        seen.carried,
+        Some(Flying {
+            left: CEILING,
+            began: started,
+            again: false,
+            first: true,
+            compact: false,
+        })
+    );
+}
+
+#[test]
+fn a_turn_queued_for_its_lease_carries_the_grant_as_when_it_began() {
+    let hold = Hold::default();
+    let (rig, runner, queue) = seven_queued("acme", Scripted::Hold(hold.clone()));
+    let started = crate::ports::Clock::now(&rig.clock);
+    let driven = Driven::new(&runner);
+    driven.started();
+    rig.clock.advance(3000);
+    driven.pass();
+
+    queue.release();
+    assert_eq!(driven.heard(), None);
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+
+    let [seen] = rig.claude.seen().try_into().unwrap();
+    let carried = seen.carried.unwrap();
+    assert_eq!(carried.began, Timestamp(started.0 + 3000));
+    assert_eq!(carried.left, CEILING);
+    hold.release();
+}

@@ -22,7 +22,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`; `command` keeps qwen script contract. #107
 - Local reviewer holds no lock (`lease` refused, no `/api/ps` check, no `local-model-spilled`); running round never preempted (kill wastes the work). #145, #502
 - One finding shape for every reviewer kind; bots are one provider with a tested profile each. #123
-- With `ci.test_command`, reviewer's attached failing test runs before/after fix, recorded, blocks nothing until trusted. #517, #518
+- With `ci.test_command`, reviewer's attached failing test runs before/after fix and is recorded. Still failing after the fix: worker gets one more fix turn on it (`sent_back` on the check), then `stuck` `test-still-fails`; yes = one more turn, no = check ends and pass goes on. Timeout or not run never acts. Public line names no output. #517, #518, #519
 - Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped). `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `src/runner/follow_up.rs`
 
 ## Bots

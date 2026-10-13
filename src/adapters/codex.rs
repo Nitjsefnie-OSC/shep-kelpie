@@ -26,6 +26,7 @@ use super::claude::sandbox::call_policy;
 use super::claude::settings::shell_quote;
 use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
+use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
@@ -179,12 +180,9 @@ impl Agents for CodexCli {
                 lambs.label(pid, &label);
             }
         };
-        // Codex dies of a full stdout pipe the sandbox's Node made non-blocking
-        // (`docs/facts/codex-as-an-agent.md`).
-        let outputs = [files.stdout.as_path(), files.stderr.as_path()];
         let run = self
             .processes
-            .output_to_files(&mut command, Some(ending), &spawned, outputs);
+            .output_of_call(&mut command, call, ending, &spawned);
         let output = run.map_err(|e| match e {
             RunError::Io(e) => AgentError::Spawn(CODEX, e.to_string()),
             RunError::Stopped => AgentError::Stopped,
@@ -336,21 +334,19 @@ struct Files {
     scratch: PathBuf,
     /// Where the sandbox's settings go
     sandbox_settings: PathBuf,
-    /// Codex's stdout and stderr, which kelpie opens for it outside the
-    /// call's reach and reads when it ends
+    /// Codex's stdout, which kelpie opens for it outside the call's reach
     stdout: PathBuf,
-    stderr: PathBuf,
 }
 
 impl Files {
     fn of(call: &AgentCall) -> Self {
+        let output = CallFiles::of(call);
         Self {
             home: call.settings.with_extension("codex"),
             threads: call.settings.with_extension("threads"),
             scratch: call.settings.with_extension("tmp"),
             sandbox_settings: call.settings.with_extension("sandbox.json"),
-            stdout: call.settings.with_extension("stdout.jsonl"),
-            stderr: call.settings.with_extension("stderr.log"),
+            stdout: output.stdout,
         }
     }
 

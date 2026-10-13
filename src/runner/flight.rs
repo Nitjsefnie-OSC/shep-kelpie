@@ -27,7 +27,9 @@ use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport
 use super::review::run_review_call;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
-use crate::ports::{AgentCall, AgentError, AgentReply, Ending, RoundStage, Timestamp, Wait};
+use crate::ports::{
+    AgentCall, AgentError, AgentReply, Ending, Flying, RoundStage, Timestamp, Wait,
+};
 use crate::settings::Harness;
 use crate::state::StateError;
 use crate::usage::{CallKind, Draft};
@@ -231,6 +233,19 @@ struct Flight {
     fallback: waiting::Fallback,
 }
 
+impl Flight {
+    // What the call's record keeps of this flight, counting from `began`
+    fn flying(&self, began: Timestamp) -> Flying {
+        Flying {
+            left: self.left,
+            began,
+            again: self.again,
+            first: self.first,
+            compact: self.compact,
+        }
+    }
+}
+
 // What a call's thread sends the runner
 enum News {
     Ended {
@@ -418,6 +433,13 @@ impl Runner {
         let ledger = self.flights.ledger.clone();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
+        ending.carry(Flying {
+            left: ceiling,
+            began: now,
+            again: false,
+            first: false,
+            compact: false,
+        });
         let held = ending.clone();
         let agents = TurnHooks::around(
             Arc::clone(&self.ports.agents),
@@ -453,6 +475,7 @@ impl Runner {
         {
             flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
             flight.began_at = Some(now);
+            flight.ending.carry(flight.flying(now));
             flight.told = None;
         }
         self.board_changed();
@@ -567,7 +590,24 @@ impl Runner {
             item,
         );
         let reviewer = Arc::clone(&self.ports.reviewer);
-        let held = ending.clone();
+        let left = deadline.map_or(0, |deadline| deadline.0.saturating_sub(now.0));
+        let flight = Flight {
+            deadline,
+            left,
+            ending,
+            again,
+            watched,
+            first,
+            compact,
+            began_at: None,
+            told: None,
+            fallback: waiting::Fallback::Stays,
+        };
+        // Only a turn has a ceiling to carry, for its record on disk.
+        if flight.deadline.is_some() {
+            flight.ending.carry(flight.flying(now));
+        }
+        let held = flight.ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let notes = self.notes.clone();
         let run = move || {
@@ -608,19 +648,6 @@ impl Runner {
             let end = unstarted(harness, &e);
             let _ = self.flights.send.send(News::Ended { issue, end });
         }
-        let left = deadline.map_or(0, |deadline| deadline.0.saturating_sub(now.0));
-        let flight = Flight {
-            deadline,
-            left,
-            ending,
-            again,
-            watched,
-            first,
-            compact,
-            began_at: None,
-            told: None,
-            fallback: waiting::Fallback::Stays,
-        };
         self.flights.flying.insert(issue, flight);
         self.board_changed();
     }

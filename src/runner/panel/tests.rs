@@ -11,6 +11,7 @@ use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 
 mod deciding;
+mod draining;
 mod fences;
 mod folders;
 mod mcp;
