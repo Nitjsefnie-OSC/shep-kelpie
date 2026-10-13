@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use super::calls::severity_tag;
-use crate::ports::Finding;
+use crate::ports::{CLEAN, Finding};
 
 /// `body` with `base` and `diff` in their places
 fn filled(body: &str, base: &str, diff: &str) -> String {
@@ -56,13 +56,13 @@ pub(super) fn reviewer_prompt(
     }
     if let Some(first) = first {
         let lines: String = match first.is_empty() {
-            true => "CLEAN\n".to_owned(),
+            true => format!("{CLEAN}\n"),
             false => first.iter().map(line).collect(),
         };
         prompt.push_str(&format!(
             "\n\nAnother reader has already read this change and found what follows. \
              Report only what it missed: a defect it did not list. Do not repeat or \
-             reword anything it found. If it missed nothing, output exactly CLEAN and \
+             reword anything it found. If it missed nothing, output exactly {CLEAN} and \
              nothing else.\n\n--- the first reader's findings ---\n{lines}--- end ---"
         ));
     }

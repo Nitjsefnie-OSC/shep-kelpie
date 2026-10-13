@@ -117,6 +117,7 @@ mod tests {
     use shep_client::testing::{fake_daemon_answering_with_ack, sample_ack};
 
     use super::*;
+    use crate::home::SHEP_SOCKET;
     use crate::runner::{StepReport, step};
     use crate::settings::Merging;
     use crate::shepherd::SHEP_VERSION;
@@ -131,7 +132,7 @@ mod tests {
         table: Arc<Mutex<Map<String, Value>>>,
     ) -> tokio::sync::oneshot::Sender<()> {
         std::fs::create_dir_all(home.join("run")).unwrap();
-        let socket = home.join("run/shep.sock");
+        let socket = home.join(SHEP_SOCKET);
         let mut ack = sample_ack();
         ack.daemon_version = SHEP_VERSION.into();
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();

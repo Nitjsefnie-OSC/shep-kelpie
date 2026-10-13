@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::*;
-use crate::ports::{Checks, ReviewComment, Session};
+use crate::ports::{CLEAN, Checks, ReviewComment, Session};
 use crate::runner::{StepReport, step};
 use crate::test::{Rig, Scripted, git};
 
@@ -99,10 +99,8 @@ fn a_reworked_pull_request_goes_through_every_gate_to_the_merge_ruling() {
     reviewed_71(&rig);
     let runner = running(&rig);
     rig.ask(&runner, "rework", Some("71"));
-    rig.claude.script([
-        Scripted::Push("fix.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("fix.txt", "fixed\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the rework's turn
     assert_eq!(
         rig.ask(&runner, "status", None)["work_item"]["phase"]["state"],
@@ -397,10 +395,8 @@ fn a_rework_of_a_pull_request_coderabbit_reviewed_spends_no_second_read() {
     );
     let runner = running(&rig);
     rig.ask(&runner, "rework", Some("71"));
-    rig.claude.script([
-        Scripted::Push("fix.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("fix.txt", "fixed\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the rework's turn
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     step(&runner).unwrap(); // review round 2, claude: scripted clean above

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::saved_with;
 use crate::ports::Finding;
 use crate::settings::AgentName;
-use crate::state::{Fix, RulingKind, StateError, Stuck};
+use crate::state::{Fix, RulingKind, STATE_FILE, StateError, Stuck};
 use crate::test::a_work_item;
 use crate::work_item::{CallKind, Phase, Review, ReviewStage, TimingPhase};
 
@@ -256,7 +256,7 @@ fn a_file_with_all_of_the_loop_loads_and_saves_without_it() {
     });
     let state = store.load().unwrap().unwrap();
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     for gone in [
         "judg",
         "verdicts",
@@ -283,7 +283,7 @@ fn a_pending_round_guard_ruling_is_refused() {
     assert_eq!(
         store.load(),
         Err(StateError::RemovedRuling {
-            path: dir.path().join("state.json"),
+            path: dir.path().join(STATE_FILE),
             id: 4,
             kind: "review-guard".into(),
         })

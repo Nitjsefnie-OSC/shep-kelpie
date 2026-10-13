@@ -19,6 +19,8 @@ use std::thread;
 
 use serde_json::{Value, json};
 
+use crate::ports::CLEAN;
+
 /// One scripted answer to a lease's take
 #[derive(Debug, Clone)]
 pub(crate) enum Take {
@@ -273,7 +275,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             .requests
             .push(serde_json::from_slice(&body).unwrap_or(Value::Null));
         let streams = shared.requests.last().is_some_and(|b| b["stream"] == true);
-        match shared.answers.pop_front().unwrap_or(Answer::Says("CLEAN")) {
+        match shared.answers.pop_front().unwrap_or(Answer::Says(CLEAN)) {
             Answer::Says(content) if streams => (200, events(content)),
             Answer::Says(content) => (
                 200,

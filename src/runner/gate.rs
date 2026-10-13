@@ -339,7 +339,7 @@ pub(super) mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ports::{Cost, Session, Usage};
+    use crate::ports::{CLEAN, Cost, Session, Usage};
     use crate::runner::step;
     use crate::test::{Rig, Scripted, git};
 
@@ -597,10 +597,8 @@ pub(super) mod tests {
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-        rig.claude.script([
-            Scripted::Push("work.txt", "work\n"),
-            Scripted::Text("CLEAN"),
-        ]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn: opens the pull request
         step(&runner).unwrap(); // review round 1, qwen: clean by default
         step(&runner).unwrap(); // review round 2, claude: scripted clean above
@@ -744,7 +742,7 @@ pub(super) mod tests {
         rig.ask(&runner, "rule", Some("1 no  remove that label yourself "));
         rig.claude.script([
             Scripted::Push("rename.txt", "renamed\n"),
-            Scripted::Text("CLEAN"),
+            Scripted::Text(CLEAN),
         ]);
         step(&runner).unwrap(); // the noted turn: pushes, enters round 1
         let [first, noted] = rig.claude.calls().try_into().unwrap();

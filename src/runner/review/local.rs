@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::report::StepReport;
 use crate::runner::{Runner, step};
 use crate::settings::AgentName;
@@ -43,10 +43,8 @@ fn with_no_local_round_listed_one_clean_claude_round_reaches_ci() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn
     assert_eq!(
         step(&runner).unwrap(), // round 1, claude: scripted clean above
@@ -171,7 +169,7 @@ fn a_session_that_says_neither_findings_nor_clean_fails() {
             step(&runner).unwrap(),
             Some(StepReport::GateFailed {
                 issue: 7,
-                reason: format!("the reviewer's reply is neither findings nor CLEAN: {said}"),
+                reason: format!("the reviewer's reply is neither findings nor {CLEAN}: {said}"),
             })
         );
     }
@@ -263,7 +261,7 @@ fn a_local_round_that_reviewed_nothing_goes_on_to_the_next_reviewer() {
     let rig = Rig::new("koji");
     let runner = at_round_one(&rig);
     rig.reviewer.script([found(UNREACHABLE)]);
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     assert_eq!(
         step(&runner).unwrap(),
         Some(StepReport::LocalRoundFailed {
@@ -291,21 +289,21 @@ fn a_local_round_that_fails_in_two_passes_is_left_out_of_the_next_and_status_say
     let runner = at_round_one(&rig);
     rig.reviewer
         .script([found(UNREACHABLE), found(UNREACHABLE)]);
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // qwen fails
     step(&runner).unwrap(); // claude: clean
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"].get("local_reviewers_down"), None);
 
     next_pass(&rig, &runner, "second.txt");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // qwen fails again
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["local_reviewers_down"], json!(["qwen"]));
     step(&runner).unwrap(); // claude: clean
 
     next_pass(&rig, &runner, "third.txt");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // claude, the only reviewer left: clean
     assert_eq!(phase(&rig, &runner)["state"], "ci");
     assert_eq!(rig.reviewer.seen().len(), 2, "no third local round");
@@ -356,7 +354,7 @@ fn pass(rig: &Rig, runner: &Mutex<Runner>, round: ScriptedRound) {
         rig.claude
             .script([Scripted::Push(Box::leak(fix.into_boxed_str()), "tidied\n")]);
     }
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     for _ in 0..6 {
         if phase(rig, runner)["state"] != "review" {
             return;

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use shep_client::shep_core::config::AppConfig;
 use shep_client::shep_core::values::UpDuration;
@@ -9,10 +8,8 @@ use crate::ports::Visibility;
 use crate::runner::ProjectPaths;
 use crate::settings::{AgentName, ForgeSlug};
 use crate::shepherd;
-use crate::test::{FakeForge, FakeShepherd};
-
-// Bounds every call against a fake shepherd, so a hang fails by name.
-const PATIENCE: Duration = Duration::from_secs(10);
+use crate::state::STATE_FILE;
+use crate::test::{CALL_PATIENCE, FakeForge, FakeShepherd};
 
 /// A scratch checkout of a private repo with CI, a home with no qwen
 /// script, a forge with one label of its own, and a flock holding only the
@@ -76,7 +73,7 @@ impl Scene {
             old_home: Some(&old),
         };
         let added = add(&client, &self.forge, &self.launch, &self.name, place);
-        tokio::time::timeout(PATIENCE, added)
+        tokio::time::timeout(CALL_PATIENCE, added)
             .await
             .expect("add neither ended nor failed in time")
     }
@@ -436,7 +433,7 @@ async fn add_warns_when_the_old_home_still_holds_the_runner_s_folder_and_still_a
     let scene = Scene::new().await;
     let left = scene.old_home().join("projects/koji");
     std::fs::create_dir_all(&left).unwrap();
-    std::fs::write(left.join("state.json"), "{}").unwrap();
+    std::fs::write(left.join(STATE_FILE), "{}").unwrap();
 
     let lines = scene.add().await.unwrap();
 

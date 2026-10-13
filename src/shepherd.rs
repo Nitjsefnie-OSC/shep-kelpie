@@ -14,6 +14,8 @@ use shep_client::shep_core::protocol::request::Response;
 use shep_client::shep_core::protocol::{Request, RpcErrorCode};
 use shep_client::{Client, ConnectError, RequestError};
 
+use crate::home::SHEP_SOCKET;
+
 /// The shep version kelpie is built with, pinned in the workspace manifest
 pub const SHEP_VERSION: &str = "0.12.4";
 
@@ -97,7 +99,7 @@ pub async fn connect(shep_home: &Path) -> Result<Client, ConnectRefused> {
 /// [`ConnectRefused::Skew`] when the shep client speaks a protocol the
 /// shepherd does not.
 pub async fn connect_any(shep_home: &Path) -> Result<Client, ConnectRefused> {
-    Client::connect(&shep_home.join("run/shep.sock"))
+    Client::connect(&shep_home.join(SHEP_SOCKET))
         .await
         .map_err(|e| match e {
             ConnectError::ProtocolMismatch { daemon_version, .. } => {
@@ -230,7 +232,6 @@ pub async fn read_section(client: &Client) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::time::Duration;
 
     use shep_client::shep_core::config::DogTable;
     use shep_client::shep_core::protocol::{Envelope, HelloAck};
@@ -238,9 +239,7 @@ mod tests {
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use super::*;
-
-    // Bounds every call against a fake shepherd, so a hang fails by name.
-    const PATIENCE: Duration = Duration::from_secs(10);
+    use crate::test::CALL_PATIENCE;
 
     fn ack(version: &str) -> HelloAck {
         let mut ack = sample_ack();
@@ -259,7 +258,7 @@ mod tests {
     async fn shepherd(version: &str) -> (tempfile::TempDir, UnboundedReceiver<Envelope>) {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir(home.path().join("run")).unwrap();
-        let socket = home.path().join("run/shep.sock");
+        let socket = home.path().join(SHEP_SOCKET);
         let sent = fake_daemon_answering_with_ack(&socket, ack(version), |request| match request {
             Request::DogSheepSettings { dog } if dog == DOG => Response::DogSheepSettings {
                 tables: BTreeMap::from([
@@ -277,7 +276,7 @@ mod tests {
     }
 
     async fn read_in_time(home: &Path, sheep: &str) -> Result<Tables, String> {
-        tokio::time::timeout(PATIENCE, read_tables(home, sheep))
+        tokio::time::timeout(CALL_PATIENCE, read_tables(home, sheep))
             .await
             .expect("the tables neither came nor failed in time")
     }

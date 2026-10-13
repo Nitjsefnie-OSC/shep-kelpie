@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use crate::ports::{Checks, Finding, Role, Severity};
+use crate::ports::{CLEAN, Checks, Finding, Role, Severity};
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Effort;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -38,7 +38,7 @@ fn whole_work_item(rig: &Rig, runner: &Mutex<Runner>) {
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
         Scripted::Push("work.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     for _ in 0..40 {
         if let Some(head) = rig.forge.head_of("kelpie/7") {

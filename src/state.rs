@@ -27,6 +27,9 @@ use crate::ports::{Cost, Finding, SessionId, Timestamp};
 use crate::settings::Account;
 use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, Turn, WorkItem};
 
+/// The name of a project's state file, in its folder
+pub const STATE_FILE: &str = "state.json";
+
 /// The state file's format version. 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and

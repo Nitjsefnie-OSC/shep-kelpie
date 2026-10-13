@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::late::LATE_READ;
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
 use crate::runner::rework::HUMAN;
@@ -277,7 +277,7 @@ fn a_withdrawn_merge_ruling_waits_for_a_slot() {
     rig.forge.open_pull_request(81, "kelpie/8", &[8]);
     rig.claude.script([
         Scripted::Push("eight.txt", "eight\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     // #8's turn, its qwen and Claude reads once its run is green, and its
     // draft marked ready.

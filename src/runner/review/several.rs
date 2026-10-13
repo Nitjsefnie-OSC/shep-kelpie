@@ -2,7 +2,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::{Finding, Role, Severity};
+use crate::ports::{CLEAN, Finding, Role, Severity};
 use crate::runner::{Runner, step};
 use crate::settings::LocalRound;
 use crate::test::{Rig, Scripted, ScriptedRound};
@@ -73,7 +73,7 @@ fn reviewer_models(rig: &Rig) -> Vec<String> {
 fn the_rigs_review_runs_qwen_then_claude() {
     let rig = Rig::new("koji");
     let runner = at_review(&rig, "work.txt");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     assert_eq!(reviewers_until_ci(&rig, &runner), ["qwen", "claude"]);
     assert_eq!(rig.reviewer.seen().len(), 1);
     assert_eq!(reviewer_models(&rig), ["claude-sonnet-5"]);
@@ -83,7 +83,7 @@ fn the_rigs_review_runs_qwen_then_claude() {
 fn each_listed_reviewer_runs_once_in_the_lists_order() {
     let rig = listing(&["claude", "mine"]);
     let runner = at_review(&rig, "work.txt");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     assert_eq!(reviewers_until_ci(&rig, &runner), ["claude", "mine"]);
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["work_item"]["phase"]["state"], "ci");
@@ -127,7 +127,7 @@ fn one_listed_reviewer_runs_once() {
 
     let rig = listing(&["claude"]);
     let runner = at_review(&rig, "work.txt");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     assert_eq!(reviewers_until_ci(&rig, &runner), ["claude"]);
     assert!(rig.reviewer.seen().is_empty(), "no local round ran");
 }
@@ -213,14 +213,14 @@ fn a_local_round_that_reviews_nothing_goes_on_to_the_next_local_reviewer() {
 fn a_reviewer_limited_to_paths_runs_only_where_the_pull_request_changes_them() {
     let rig = listing(&["claude", "opus"]);
     let runner = at_review(&rig, "docs/notes.md");
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     assert_eq!(reviewers_until_ci(&rig, &runner), ["claude"]);
     assert_eq!(reviewer_models(&rig), ["claude-sonnet-5"]);
 
     let rig = listing(&["claude", "opus"]);
     let runner = at_review(&rig, "src/merge.rs");
     rig.claude
-        .script([Scripted::Text("CLEAN"), Scripted::Text("CLEAN")]);
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
     assert_eq!(reviewers_until_ci(&rig, &runner), ["claude", "opus"]);
     assert_eq!(
         reviewer_models(&rig),
@@ -245,7 +245,7 @@ fn every_round_s_prompt_carries_the_issue_s_acceptance_criteria() {
     }])]);
     rig.claude.script([
         Scripted::Push("tidy.txt", "tidied\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     reviewers_until_ci(&rig, &runner);
     assert_eq!(
@@ -274,7 +274,7 @@ fn after_mine_the_list_becomes(to: &[&str]) -> Vec<&'static str> {
         )
     });
     let runner = rig.open().unwrap();
-    rig.claude.script([Scripted::Text("CLEAN")]);
+    rig.claude.script([Scripted::Text(CLEAN)]);
     let after = reviewers_until_ci(&rig, &runner);
     assert_eq!(rig.reviewer.seen().len(), 1, "mine ran once");
     after

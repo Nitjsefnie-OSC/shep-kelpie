@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::*;
-use crate::ports::{Reviewer, Severity};
+use crate::ports::{CLEAN, Reviewer, Severity};
 use crate::settings::{ContextSize, EndpointUrl, LocalRound, ModelHost, NonBlank};
 use crate::test::{
     Answer, Elsewhere, StandInEndpoint, cut_from_main, git, linked_worktree, main_commits,
@@ -224,9 +224,9 @@ fn system_sent(body: Option<&str>, criteria: &str, replies: &[&'static str]) -> 
 
 #[test]
 fn an_endpoint_reviewer_with_no_body_sends_the_text_it_sent_before() {
-    assert_eq!(system_sent(None, "", &["CLEAN"]), RECORDED);
+    assert_eq!(system_sent(None, "", &[CLEAN]), RECORDED);
     assert_eq!(
-        system_sent(None, "  Add b.\n", &["CLEAN"]),
+        system_sent(None, "  Add b.\n", &[CLEAN]),
         format!("{RECORDED}{CRITERIA_LEAD}Add b.\n")
     );
 }
@@ -235,7 +235,7 @@ fn an_endpoint_reviewer_with_no_body_sends_the_text_it_sent_before() {
 fn an_endpoint_chunk_s_request_carries_the_body_then_the_diff_and_answer_format_then_the_criteria()
 {
     let body = "Report only a panic a caller can reach.";
-    let sent = system_sent(Some(body), "Add b.", &["CLEAN"]);
+    let sent = system_sent(Some(body), "Add b.", &[CLEAN]);
     let diff_format = recorded_between(DIFF_FORMAT_STARTS, Some(WHAT_TO_REPORT_STARTS));
     let answer_format = recorded_between(ANSWER_FORMAT_STARTS, None);
     assert_eq!(
@@ -272,7 +272,7 @@ fn a_body_that_asks_for_another_answer_format_is_still_read_in_kelpie_s_format()
     assert_eq!(
         reviewer.round(&round, linked(&worktree), "origin/main", &out, 2, ""),
         Err(ReviewerError::Failed(format!(
-            "{url}'s reply is neither findings nor CLEAN: \
+            "{url}'s reply is neither findings nor {CLEAN}: \
              {{\"findings\":[{{\"line\":2,\"what\":\"b is new\"}}]}}"
         )))
     );
@@ -287,7 +287,7 @@ fn main_gaining_a_commit_after_the_branch_is_cut_leaves_the_diff_sent_alone() {
     std::fs::write(worktree.join("src/lib.rs"), "fn a() {}\nfn b() {}\n").unwrap();
     git(&worktree, &["commit", "--quiet", "-am", "change"]);
     main_commits(&checkout, "src/lib.rs", "fn only_main() {}\nfn a() {}\n");
-    let server = StandInEndpoint::start([Answer::Says("CLEAN")]);
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)]);
 
     LocalReviewer::default()
         .round(
@@ -429,7 +429,7 @@ fn a_reply_with_no_findings_that_is_not_clean_fails_the_round() {
         assert_eq!(
             reviewer.round(&local, linked(&worktree), "origin/main", &out, 1, ""),
             Err(ReviewerError::Failed(format!(
-                "{url}'s reply is neither findings nor CLEAN: {said}"
+                "{url}'s reply is neither findings nor {CLEAN}: {said}"
             )))
         );
         assert!(!out.join("round-1.txt.done").exists());
@@ -693,7 +693,7 @@ fn a_round_behind_a_gateway_sends_its_key_from_curls_stdin_and_holds_no_lock() {
     use crate::settings::{Gateway, GatewayName, Gateways, KeyVar};
     let dir = tempfile::tempdir().unwrap();
     let checkout = repo(dir.path(), "fn a() {}\nfn b() {}\n");
-    let server = StandInEndpoint::start([Answer::Says("CLEAN")]).like_paddock("pk-r", &[]);
+    let server = StandInEndpoint::start([Answer::Says(CLEAN)]).like_paddock("pk-r", &[]);
     let name = GatewayName::try_from("paddock".to_owned()).unwrap();
     let gateway = Gateway {
         url: EndpointUrl::try_from(server.host().to_owned()).unwrap(),

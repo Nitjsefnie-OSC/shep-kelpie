@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use crate::github::ApiError;
-use crate::ports::{Checks, Cost, Finding, ForgeError, Severity, Usage};
+use crate::ports::{CLEAN, Checks, Cost, Finding, ForgeError, Severity, Usage};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -163,7 +163,7 @@ fn at_ci_after_a_billed_round(billed: Cost) -> (Rig, Mutex<Runner>, String) {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
-        Scripted::Billed("CLEAN", billed),
+        Scripted::Billed(CLEAN, billed),
     ]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // review round 1, qwen: clean by default
@@ -260,8 +260,8 @@ fn a_round_with_a_second_look_costs_both_looks() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([
         Scripted::Push("work.txt", "work\n"),
-        Scripted::Billed("CLEAN", Cost(400_000_000)), // the first look
-        Scripted::Billed("CLEAN", Cost(400_000_000)), // the second look
+        Scripted::Billed(CLEAN, Cost(400_000_000)), // the first look
+        Scripted::Billed(CLEAN, Cost(400_000_000)), // the second look
     ]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // round 1, qwen
@@ -574,7 +574,7 @@ fn each_local_round_is_posted_on_the_pull_request_as_it_ends() {
     step(&runner).unwrap(); // the findings go to the worker
     rig.claude.script([
         Scripted::Push("fixed.txt", "fixed\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the fix turn pushes
     step(&runner).unwrap(); // the head moved, so round 1 ends

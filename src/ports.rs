@@ -819,6 +819,9 @@ pub fn parse_findings(text: &str) -> Vec<Finding> {
     text.lines().filter_map(parse_finding_line).collect()
 }
 
+/// What a reviewer writes, alone on its last line, when it found nothing
+pub const CLEAN: &str = "CLEAN";
+
 /// Reads a model's review reply: its findings, or none when its last
 /// non-empty line is exactly `CLEAN`
 ///
@@ -835,7 +838,7 @@ pub fn read_review(text: &str) -> Result<Vec<Finding>, String> {
         .lines()
         .rev()
         .find(|line| !line.trim().is_empty())
-        .is_some_and(|line| line.trim() == "CLEAN");
+        .is_some_and(|line| line.trim() == CLEAN);
     if findings.is_empty() && !ends_clean {
         return Err(text.trim().to_owned());
     }

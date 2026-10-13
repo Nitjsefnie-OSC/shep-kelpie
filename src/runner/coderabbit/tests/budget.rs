@@ -8,7 +8,7 @@ use serde_json::json;
 use super::super::{FULL_REVIEW, HEARD_WAIT};
 use super::full::adopted_set;
 use super::{fixed, hold_a_finding, labels, now, off, on, reviewed_by_qwen};
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -49,7 +49,7 @@ fn noted(rig: &Rig, runner: &Mutex<Runner>, head: &str) {
     rig.ask(runner, "rule", Some("1 rework name the flag"));
     rig.claude.script([
         Scripted::Push("named.txt", "named\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(runner).unwrap(); // the noted turn: pushes, and a pass begins
     step(runner).unwrap(); // round 1, qwen: clean by default
@@ -103,7 +103,7 @@ fn two_rounds_read_two_passes_and_not_a_third() {
     rig.ask(&runner, "rule", Some("2 rework once more"));
     rig.claude.script([
         Scripted::Push("again.txt", "again\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     step(&runner).unwrap(); // the noted turn
     step(&runner).unwrap(); // round 1, qwen

@@ -19,9 +19,7 @@ use tokio::sync::mpsc::Sender;
 
 use super::{Plan, Remote};
 use crate::adapters::shell_quote;
-
-/// The longest line of output sent as one; a longer one is cut into several
-const LONGEST_LINE: u64 = 64 * 1024;
+use crate::lease::door::LONGEST_LINE;
 
 /// The longest message kept of what rsync said when it failed
 const LONGEST_COMPLAINT: usize = 1000;

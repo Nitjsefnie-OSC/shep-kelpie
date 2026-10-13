@@ -70,6 +70,7 @@ mod tests {
     use crate::lease::Epoch;
     use crate::lease::counted::{Taker, Ticket};
     use crate::lease::wire::Asker;
+    use crate::test::EPOCH;
 
     #[test]
     fn the_maintainer_goes_ahead_of_queued_runners_without_preempting() {
@@ -159,7 +160,7 @@ mod tests {
             json!({
                 "kind": "e2e:e2e-box",
                 "capacity": 1,
-                "holders": [{ "pid": 4242, "what": "shep-kelpie lease e2e", "since": 1_790_000_000 }],
+                "holders": [{ "pid": 4242, "what": "shep-kelpie lease e2e", "since": EPOCH }],
                 "queue": [{ "pid": 4243, "what": "shep-kelpie lease e2e" }],
             })
         );

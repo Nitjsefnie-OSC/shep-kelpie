@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
@@ -9,13 +8,11 @@ use crate::github::AppTokens;
 use crate::ports::{ForgeError, MeterError, Visibility};
 use crate::shepherd::SHEP_VERSION;
 use crate::test::{
-    FakeAlerts, FakeClock, FakeForge, FakeGithub, FakeMeter, FakeReviewer, FakeShepherd, git,
-    project_table, unreachable_url,
+    CALL_PATIENCE, FakeAlerts, FakeClock, FakeForge, FakeGithub, FakeMeter, FakeReviewer,
+    FakeShepherd, git, project_table, unreachable_url,
 };
 use crate::tools::Tools;
 
-// Bounds every call against a fake shepherd, so a hang fails by name.
-const PATIENCE: Duration = Duration::from_secs(10);
 const EXAMPLE: &str = include_str!("../../settings.example.toml");
 
 // A URL no test would print by chance, so finding it in a report is a leak.
@@ -153,7 +150,7 @@ impl Scene {
             old_home: Some(&self.old_home),
         };
         let done = check(self.shepherd.home(), probes, here, ask);
-        tokio::time::timeout(PATIENCE, done)
+        tokio::time::timeout(CALL_PATIENCE, done)
             .await
             .expect("doctor neither ended nor failed in time")
     }
@@ -496,7 +493,7 @@ async fn no_shepherd_is_a_missing_shepherd_naming_its_home() {
         old_home: None,
     };
     let done = check(elsewhere.path(), probes, here, Ask::default());
-    let report = tokio::time::timeout(PATIENCE, done)
+    let report = tokio::time::timeout(CALL_PATIENCE, done)
         .await
         .expect("doctor neither ended nor failed in time");
     let (what, fix) = missing(&report, "shepherd");

@@ -1,16 +1,12 @@
 //! The board briefing, as the runner writes it through its stand-ins
 
 use std::sync::Mutex;
-use std::time::Duration;
 
 use crate::ports::{AgentError, CallActivity, Cost, Timestamp, Usage};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted, git};
-
-// Real threads on real time, so a held call's wait has this ceiling.
-const PATIENCE: Duration = Duration::from_secs(30);
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git};
 
 fn board(rig: &Rig) -> String {
     std::fs::read_to_string(rig.paths().board).unwrap()
@@ -168,7 +164,7 @@ fn a_worker_silent_past_ten_minutes_reads_as_idle_until_it_shows_something_again
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.claude
         .set_activity(CallActivity::At(Timestamp(Rig::EPOCH + 60)));
     rig.clock.advance(5 * 60);
@@ -191,7 +187,7 @@ fn a_worker_silent_past_ten_minutes_reads_as_idle_until_it_shows_something_again
     let text = board(&rig);
     assert!(text.contains("] 14:25 #7: worker active again\n"), "{text}");
     hold.release();
-    assert!(hold.answered(PATIENCE), "the turn never answered");
+    assert!(hold.answered(CALL_PATIENCE), "the turn never answered");
 }
 
 #[test]
@@ -224,7 +220,7 @@ fn a_turn_hung_before_its_transcript_exists_reads_as_idle() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     rig.claude.set_activity(CallActivity::Nothing);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.clock.advance(4 * 60);
     advance(&runner).unwrap();
     let text = board(&rig);
@@ -239,7 +235,7 @@ fn a_turn_hung_before_its_transcript_exists_reads_as_idle() {
     let event = "] 14:24 #7: worker idle, no tool call or output for 11m\n";
     assert!(text.contains(event), "{text}");
     hold.release();
-    assert!(hold.answered(PATIENCE), "the turn never answered");
+    assert!(hold.answered(CALL_PATIENCE), "the turn never answered");
 }
 
 #[test]

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use crate::board::Skip;
-use crate::ports::{Checks, Cost, Usage};
+use crate::ports::{CLEAN, Checks, Cost, Usage};
 use crate::runner::{Runner, StepReport, step};
 use crate::test::{Rig, Scripted};
 
@@ -235,7 +235,7 @@ pub(super) fn eight_reaches_ci(rig: &Rig, runner: &Mutex<Runner>) -> String {
     rig.forge.open_pull_request(81, "kelpie/8", &[8]);
     rig.claude.script([
         Scripted::Push("eight.txt", "eight\n"),
-        Scripted::Text("CLEAN"),
+        Scripted::Text(CLEAN),
     ]);
     assert_eq!(issue_of(step(runner).unwrap()), 8, "a turn");
     // Its review reads the head once its run is green.

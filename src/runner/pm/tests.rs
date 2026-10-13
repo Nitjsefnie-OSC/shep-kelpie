@@ -2,7 +2,7 @@
 //! kelpie does with its answer, and what happens when it gives none
 
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::json;
 
@@ -10,16 +10,13 @@ use crate::ports::{AgentError, CallActivity, Role, Session, Timestamp};
 use crate::runner::flight::advance;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted, Seen};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
 
 mod attach;
 mod code;
 mod follow_up;
 mod question;
 mod red;
-
-/// How long a test waits on a call in flight
-const PATIENCE: Duration = Duration::from_secs(60);
 
 const PICK_12: &str = "Neither touches open work, and #12 is smaller.\n\n```json\n\
     {\"pick\": 12, \"hold\": [], \"unstick\": null, \"reply\": null, \
@@ -74,7 +71,7 @@ fn dispatched(report: Option<StepReport>) -> u64 {
 /// Steps until a step reports what `wanted` matches, as a call ending on
 /// its own thread brings it
 fn step_until(runner: &Mutex<Runner>, wanted: impl Fn(&StepReport) -> bool) -> StepReport {
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Instant::now() + CALL_PATIENCE;
     while Instant::now() < deadline {
         match step(runner).unwrap() {
             Some(report) if wanted(&report) => return report,
@@ -514,7 +511,7 @@ fn an_idle_worker_wakes_it_and_a_retry_ends_the_call_and_resumes_it() {
         Scripted::Say("done"),
     ]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the turn never began");
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
     rig.claude
         .set_activity(CallActivity::At(Timestamp(Rig::EPOCH)));
     rig.clock.advance(11 * 60);
@@ -525,7 +522,10 @@ fn an_idle_worker_wakes_it_and_a_retry_ends_the_call_and_resumes_it() {
         ["#7 is stuck: its worker has shown no tool call or output for 11m"]
     );
     assert_eq!(acted, ["ended #7's idle call, to retry"]);
-    assert!(hold.answered(PATIENCE), "the idle call was never ended");
+    assert!(
+        hold.answered(CALL_PATIENCE),
+        "the idle call was never ended"
+    );
     step_until(&runner, |r| matches!(r, StepReport::TimedOut { .. }));
     assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
     step_until(&runner, |r| matches!(r, StepReport::Ended { .. }));

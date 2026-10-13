@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::saved_with;
 use crate::ports::Finding;
 use crate::settings::AgentName;
-use crate::state::{Fix, RulingKind, StateError, Stuck};
+use crate::state::{Fix, RulingKind, STATE_FILE, StateError, Stuck};
 use crate::work_item::{Phase, Review, ReviewStage};
 
 fn high() -> Value {
@@ -176,7 +176,7 @@ fn a_fix_not_pushed_ruling_of_the_deep_round_loads_without_its_why() {
         })
     );
     store.save(&state).unwrap();
-    let saved = fs::read_to_string(dir.path().join("state.json")).unwrap();
+    let saved = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
     for gone in [
         "\"why\": \"tests",
         "held",
@@ -223,7 +223,7 @@ fn a_pending_deep_review_ruling_is_refused() {
     assert_eq!(
         store.load(),
         Err(StateError::RemovedRuling {
-            path: dir.path().join("state.json"),
+            path: dir.path().join(STATE_FILE),
             id: 5,
             kind: "deep-review".into(),
         })

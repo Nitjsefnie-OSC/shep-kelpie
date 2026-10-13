@@ -78,7 +78,7 @@ pub fn run() -> ExitCode {
 ///
 /// A message when `SHEP_HOME` is relative, or neither it nor `HOME` is set.
 pub fn shepherd_socket() -> Result<PathBuf, String> {
-    Ok(home::shep_home()?.join("run/shep.sock"))
+    Ok(home::shep_home()?.join(home::SHEP_SOCKET))
 }
 
 /// The dog's book file, under kelpie's home
@@ -235,7 +235,7 @@ async fn serve() -> Result<(), String> {
         return Err(no_channel());
     }
     let shep_home = shep_home::required(shep_home::DOG_FIX)?;
-    let socket = shep_home.join("run/shep.sock");
+    let socket = shep_home.join(home::SHEP_SOCKET);
     let identity = link::identity();
     let listener = link::connect(&socket, &identity, "for events").await?;
     let client = link::connect(&socket, &identity, "for requests").await?;
@@ -492,14 +492,12 @@ mod tests {
     use super::*;
     use crate::lease::LeaseKind;
     use crate::review_bot::{Bot, ReviewWindow};
-    use crate::test::FakeClock;
-
-    const NOW: u64 = 1_790_000_000;
+    use crate::test::{EPOCH, FakeClock};
 
     fn opened(dir: &std::path::Path, file: BookFile) -> Kept {
         open(
             file,
-            Box::new(FakeClock::at(NOW)),
+            Box::new(FakeClock::at(EPOCH)),
             GpuLock::under(dir),
             Reviewers::default(),
         )
@@ -515,11 +513,7 @@ mod tests {
 
     fn kept(dir: &std::path::Path, file: BookFile) -> Kept {
         let gpu = GpuLock::under(dir);
-        let desk = Desk::new(
-            Box::new(FakeClock::at(1_790_000_000)),
-            gpu,
-            Reviewers::default(),
-        );
+        let desk = Desk::new(Box::new(FakeClock::at(EPOCH)), gpu, Reviewers::default());
         let last = desk.saved();
         Kept { desk, file, last }
     }
@@ -596,7 +590,7 @@ mod tests {
         let mut kept = opened(dir.path(), file.clone());
         assert_eq!(
             window(&mut kept),
-            serde_json::json!({ "quota": 1, "summons": [NOW], "opens": NOW + 3600 })
+            serde_json::json!({ "quota": 1, "summons": [EPOCH], "opens": EPOCH + 3600 })
         );
         kept.change(Desk::tick);
         assert_eq!(
@@ -679,7 +673,7 @@ mod tests {
         let file = BookFile::new(dir.path().join("book.json"));
         let window = |quota: u32| {
             serde_json::json!({
-                "quota": quota, "quota_at": null, "summons": [NOW - 600], "refusal": null,
+                "quota": quota, "quota_at": null, "summons": [EPOCH - 600], "refusal": null,
             })
         };
         let saved = serde_json::json!({
@@ -694,17 +688,17 @@ mod tests {
         std::fs::write(file.path(), saved.to_string()).unwrap();
         let mut kept = open(
             file,
-            Box::new(FakeClock::at(NOW)),
+            Box::new(FakeClock::at(EPOCH)),
             GpuLock::under(dir.path()),
             windows_in(&dir.path().join("agents")),
         );
         assert_eq!(
             window_of(&mut kept, "coderabbit"),
-            serde_json::json!({ "quota": 1, "summons": [NOW - 600], "opens": NOW + 3000 })
+            serde_json::json!({ "quota": 1, "summons": [EPOCH - 600], "opens": EPOCH + 3000 })
         );
         assert_eq!(
             window_of(&mut kept, "cubic"),
-            serde_json::json!({ "quota": 20, "summons": [NOW - 600], "opens": null }),
+            serde_json::json!({ "quota": 20, "summons": [EPOCH - 600], "opens": null }),
             "one of cubic's twenty a month"
         );
     }

@@ -8,10 +8,8 @@ use super::super::tests::Driven;
 use crate::ports::{AgentError, Role, Tools};
 use crate::runner::{Pass, StepReport, advance, step};
 use crate::settings::Harness;
-use crate::test::{Hold, Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
-// Real threads on real time, so every wait has this ceiling.
-const PATIENCE: Duration = Duration::from_secs(30);
 use crate::usage::{FILE, read};
 
 /// A file for an issue writer on Sonnet, named for the test
@@ -267,7 +265,7 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
     rig.claude.script([Scripted::Hold(hold.clone())]);
     let driven = Driven::new(&runner);
     driven.started();
-    assert!(hold.entered(PATIENCE), "the call never began");
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
     assert_eq!(
         rig.ask(&runner, "add", Some("7")),
         json!({ "error": "the issue writer is labelling #7: add it once that call ends" })
@@ -278,7 +276,7 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
         "the board waits too"
     );
     hold.release();
-    assert!(hold.answered(PATIENCE), "the call never answered");
+    assert!(hold.answered(CALL_PATIENCE), "the call never answered");
     // The stand-in has replied, but the runner has not yet taken the result in
     assert_eq!(
         driven.heard(),
@@ -288,7 +286,7 @@ fn add_refuses_an_issue_the_issue_writer_is_labelling() {
     rig.claude.script([Scripted::Say("done")]);
     // The call answering is not its news arriving: a step in between finds
     // the writer still labelling and reports nothing, so step until it does.
-    let by = Instant::now() + PATIENCE;
+    let by = Instant::now() + CALL_PATIENCE;
     let mut report = step(&runner).unwrap();
     while report.is_none() && Instant::now() < by {
         std::thread::sleep(Duration::from_millis(10));
@@ -340,10 +338,10 @@ fn a_drain_waits_out_the_issue_writers_ceiling() {
     let hold = Hold::default();
     rig.claude.script([Scripted::Hold(hold.clone())]);
     assert!(matches!(advance(&runner).unwrap(), Pass::Started));
-    assert!(hold.entered(PATIENCE), "the call never began");
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
     let draining = rig.ask(&runner, "drain", None)["draining"].clone();
     let calls = json!([{ "issue": 7, "role": "issue_writer" }]);
     assert_eq!(draining, json!({ "calls": calls, "ceiling": 15 * 60 }));
     hold.release();
-    assert!(hold.answered(PATIENCE), "the call never answered");
+    assert!(hold.answered(CALL_PATIENCE), "the call never answered");
 }

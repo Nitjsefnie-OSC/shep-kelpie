@@ -104,6 +104,7 @@ pub(super) fn severity_tag(severity: Severity) -> &'static str {
 mod tests {
 
     use super::*;
+    use crate::ports::CLEAN;
     use crate::runner::step;
     use crate::test::{Rig, Scripted, git, linked_worktree, main_commits};
     use crate::trim::deny_with_trim;
@@ -154,10 +155,8 @@ mod tests {
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-        rig.claude.script([
-            Scripted::Push("work.txt", "work\n"),
-            Scripted::Text("CLEAN"),
-        ]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn
         step(&runner).unwrap(); // round 1, qwen: clean by default
         step(&runner).unwrap(); // round 2, claude: scripted clean above
@@ -182,10 +181,8 @@ mod tests {
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-        rig.claude.script([
-            Scripted::Push("work.txt", "work\n"),
-            Scripted::Text("CLEAN"),
-        ]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn
         step(&runner).unwrap(); // round 1, qwen: clean by default
         step(&runner).unwrap(); // round 2, claude: scripted clean above

@@ -516,10 +516,7 @@ mod tests {
 
     use super::*;
     use crate::ports::ReviewerError;
-    use crate::test::{Hold, Rig, Scripted, ScriptedRound};
-
-    // The worker is a real thread on real time, so every wait has this ceiling.
-    const PATIENCE: Duration = Duration::from_secs(10);
+    use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, ScriptedRound};
 
     // The code is what shep's `stop_exit_codes` matches to leave a runner stopped.
     #[test]
@@ -536,7 +533,7 @@ mod tests {
         rig.ask(&runner, "add", Some("7"));
         rig.claude.script([Scripted::Hold(hold.clone())]);
         let worker = spawn(&runner);
-        assert!(hold.entered(PATIENCE), "the worker's turn never began");
+        assert!(hold.entered(CALL_PATIENCE), "the worker's turn never began");
         (runner, worker)
     }
 
@@ -581,7 +578,7 @@ mod tests {
     }
 
     fn eventually(what: &str, done: impl Fn() -> bool) {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Instant::now() + CALL_PATIENCE;
         while !done() {
             assert!(Instant::now() < deadline, "never saw {what}");
             std::thread::yield_now();
@@ -653,7 +650,7 @@ mod tests {
         wake.send(()).unwrap();
         eventually("the trigger's wake", || wakes.load(Ordering::SeqCst) == 1);
 
-        assert!(worker.stop(PATIENCE, || {}));
+        assert!(worker.stop(CALL_PATIENCE, || {}));
         assert_eq!(
             wakes.load(Ordering::SeqCst),
             1,
@@ -672,8 +669,11 @@ mod tests {
         rig.claude
             .script([Scripted::Hold(seven.clone()), Scripted::Hold(eight.clone())]);
         let worker = spawn(&runner);
-        assert!(seven.entered(PATIENCE), "#7's turn never began");
-        assert!(eight.entered(PATIENCE), "#8's turn never began beside #7's");
+        assert!(seven.entered(CALL_PATIENCE), "#7's turn never began");
+        assert!(
+            eight.entered(CALL_PATIENCE),
+            "#8's turn never began beside #7's"
+        );
         let running = vec![(7, "running".to_owned()), (8, "running".to_owned())];
         assert_eq!(turns(&rig, &runner), running);
 
@@ -689,7 +689,7 @@ mod tests {
             Some((false, false)),
             "the stop waited for a call to end"
         );
-        assert!(seven.answered(PATIENCE) && eight.answered(PATIENCE));
+        assert!(seven.answered(CALL_PATIENCE) && eight.answered(CALL_PATIENCE));
         assert_eq!(
             rig.claude.all_calls().len(),
             2,
@@ -767,7 +767,7 @@ mod tests {
         let (wake, woken) = mpsc::channel();
         let (stops, hook) = counting();
         let worker = spawn_with(&runner, (wake.clone(), woken), hook);
-        assert!(hold.entered(PATIENCE), "the worker's turn never began");
+        assert!(hold.entered(CALL_PATIENCE), "the worker's turn never began");
         let status = rig.ask(&runner, "finish", None);
         assert_eq!(
             (&status["run"], &status["working"]),
@@ -808,7 +808,7 @@ mod tests {
         let runner = Arc::new(rig.open().unwrap());
 
         stop_own_sheep(shepherd.home(), &project, &runner);
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Instant::now() + CALL_PATIENCE;
         while shepherd.sheep("koji").unwrap().1 {
             assert!(Instant::now() < deadline, "the sheep never stopped");
             tokio::time::sleep(Duration::from_millis(10)).await;

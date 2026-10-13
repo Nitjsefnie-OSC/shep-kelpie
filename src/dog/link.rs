@@ -115,8 +115,7 @@ mod tests {
     };
 
     use super::*;
-
-    const PATIENCE: Duration = Duration::from_secs(10);
+    use crate::test::CALL_PATIENCE;
 
     fn named() -> DogIdentity {
         DogIdentity::named("kelpie")
@@ -157,10 +156,11 @@ mod tests {
         let listener = connect(&socket, &named(), "for events").await.unwrap();
         let mut events = subscribe(&listener, BUDGET).await.unwrap();
         shepherd.cut().await;
-        let ended = tokio::time::timeout(PATIENCE, async { events.next().await.is_none() }).await;
+        let ended =
+            tokio::time::timeout(CALL_PATIENCE, async { events.next().await.is_none() }).await;
         assert_eq!(ended, Ok(true), "the cut ends the stream");
 
-        tokio::time::timeout(PATIENCE, subscribe(&listener, BUDGET))
+        tokio::time::timeout(CALL_PATIENCE, subscribe(&listener, BUDGET))
             .await
             .expect("the dog neither resubscribed nor gave up in time")
             .unwrap();
@@ -189,7 +189,7 @@ mod tests {
         let mut events = subscribe(&listener, BUDGET).await.unwrap();
         shepherd.cut().await;
         while events.next().await.is_some() {}
-        let err = tokio::time::timeout(PATIENCE, subscribe(&listener, BUDGET))
+        let err = tokio::time::timeout(CALL_PATIENCE, subscribe(&listener, BUDGET))
             .await
             .expect("a refusal neither waited out the budget nor ended the wait")
             .unwrap_err();

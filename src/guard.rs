@@ -63,6 +63,9 @@ pub struct Checkout<'a> {
 // A message file larger than this is not a message.
 const MESSAGE_FILE_MAX: u64 = 1 << 20;
 
+// How many characters of a word a refusal quotes back to the worker.
+pub(crate) const SHOWN_CHARS: usize = 40;
+
 // A shell run inside a shell this many times over is not a worker's command.
 const MAX_SHELLS: usize = 4;
 
@@ -193,7 +196,7 @@ pub fn local_paths(home: Option<&Path>, args: &[String]) -> Result<LocalPaths, S
     let mut folders: Vec<&Path> = home.into_iter().collect();
     for arg in args {
         let Some(folder) = arg.strip_prefix(FOLDER_FLAG) else {
-            let shown: String = arg.chars().take(40).collect();
+            let shown: String = arg.chars().take(SHOWN_CHARS).collect();
             return Err(format!("kelpie guard does not take `{shown}`"));
         };
         folders.push(Path::new(folder));

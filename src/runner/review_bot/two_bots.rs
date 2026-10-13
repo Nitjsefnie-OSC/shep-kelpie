@@ -9,7 +9,7 @@ use crate::coderabbit::{FULL_REVIEW, LABEL};
 use crate::cubic::SUMMON;
 use crate::lease::LeaseKind;
 use crate::lease::wire::WindowFact;
-use crate::ports::{Leases, PullRequestState};
+use crate::ports::{CLEAN, Leases, PullRequestState};
 use crate::review_bot::{Bot, Reviewers};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
@@ -52,10 +52,8 @@ pub(super) fn item_reviewed(rig: &Rig, runner: &Mutex<Runner>, issue: u64) -> St
     rig.ask(runner, "add", Some(&issue.to_string()));
     rig.forge
         .open_pull_request(issue * 10 + 1, &branch, &[issue]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(runner).unwrap(); // the worker's first turn: opens the pull request
     step(runner).unwrap(); // review round 1, qwen: clean by default
     step(runner).unwrap(); // review round 2, claude: scripted clean above

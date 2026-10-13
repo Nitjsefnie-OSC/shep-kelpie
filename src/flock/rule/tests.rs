@@ -3,7 +3,7 @@ use std::path::Path;
 use super::*;
 
 const FORMS: &str = "It takes `shep kelpie rule 14 yes` or `shep kelpie rule 14 no <note>`";
-use crate::state::{ProjectState, Resume, RulingKind, StateStore, Stuck};
+use crate::state::{ProjectState, Resume, RulingKind, STATE_FILE, StateStore, Stuck};
 
 fn yes_or_no(id: u64) -> Ruling {
     Ruling {
@@ -38,7 +38,7 @@ fn waiting(home: &Path, name: &str, rulings: Vec<Ruling>) {
     let mut state = ProjectState::new();
     state.last_ruling = rulings.iter().map(|r| r.id).max().unwrap_or(0);
     state.rulings = rulings;
-    let path = home.join(name).join("state.json");
+    let path = home.join(name).join(STATE_FILE);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     StateStore::new(path).save(&state).unwrap();
 }

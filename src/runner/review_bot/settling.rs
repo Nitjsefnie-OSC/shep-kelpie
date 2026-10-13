@@ -4,7 +4,7 @@
 
 use std::sync::Mutex;
 
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::review_bot::Thread;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::two_bots::{bot_reviewed, listing, reviewed, summoned};
@@ -356,10 +356,8 @@ fn a_bot_passed_over_that_reviews_while_the_last_reviewer_runs_gets_a_round_befo
     rig.ask(&runner, "start", None);
     rig.ask(&runner, "add", Some("7"));
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
-    rig.claude.script([
-        Scripted::Push("work.txt", "work\n"),
-        Scripted::Text("CLEAN"),
-    ]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
     step(&runner).unwrap(); // the worker's first turn: opens the pull request
     step(&runner).unwrap(); // review round 1, qwen: clean by default
     let head = rig.forge.head_of("kelpie/7").unwrap();
