@@ -6,7 +6,7 @@
 //! it runs in.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::runner::ProjectName;
@@ -62,21 +62,33 @@ pub(super) fn read_args(args: &[&str]) -> Result<Ask, String> {
     Ok(ask)
 }
 
+/// The folder of `project`, which holds its `steps.jsonl` once its runner
+/// logs a step
+///
+/// The file itself may not exist yet: a runner with nothing to do logs no
+/// step, and `watch` waits for the first.
+///
+/// # Errors
+///
+/// A message when the project has no folder, which its runner makes as it opens.
+fn folder_of(kelpie_home: &Path, project: &ProjectName) -> Result<PathBuf, String> {
+    let folder = kelpie_home.join(project.as_str());
+    if folder.is_dir() {
+        return Ok(folder);
+    }
+    Err(format!(
+        "{project} has no folder at {}: `shep kelpie start` runs it",
+        folder.display()
+    ))
+}
+
 /// Follows `project` until interrupted, printing what the stream shows
 ///
 /// # Errors
 ///
-/// A message when the project has no steps file yet, or the output cannot be written.
+/// A message when the project has no folder yet, or the output cannot be written.
 pub(super) fn follow(kelpie_home: &Path, project: &ProjectName, ask: Ask) -> Result<(), String> {
-    let folder = kelpie_home.join(project.as_str());
-    let steps = folder.join(crate::runner::STEPS_FILE);
-    if !steps.is_file() {
-        return Err(format!(
-            "{} has no steps file at {}: `shep kelpie start` runs it",
-            project,
-            steps.display()
-        ));
-    }
+    let folder = folder_of(kelpie_home, project)?;
     let options = Options {
         scope: ask.scope,
         back: ask.back,
@@ -105,6 +117,31 @@ mod tests {
     fn ask(line: &str) -> Result<Ask, String> {
         let words: Vec<&str> = line.split_whitespace().collect();
         read_args(&words)
+    }
+
+    #[test]
+    fn a_running_project_with_no_step_logged_yet_is_followed_not_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let koji = ProjectName::try_from("koji").unwrap();
+        assert!(folder_of(home.path(), &koji).is_err());
+        std::fs::create_dir(home.path().join("koji")).unwrap();
+        let folder = folder_of(home.path(), &koji).unwrap();
+        let (mut watch, first) = Watch::start(
+            folder.clone(),
+            Options {
+                scope: Scope::Project,
+                back: 0,
+                full: false,
+                zone: jiff::tz::TimeZone::UTC,
+            },
+        );
+        assert!(first.is_empty() && watch.poll().is_empty());
+        std::fs::write(
+            folder.join(crate::runner::STEPS_FILE),
+            "{\"at\":\"2026-10-10T12:00:00.000Z\",\"step\":\"finished\",\"issue\":7}\n",
+        )
+        .unwrap();
+        assert_eq!(watch.poll().len(), 1);
     }
 
     #[test]
