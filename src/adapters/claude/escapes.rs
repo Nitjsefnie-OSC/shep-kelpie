@@ -422,7 +422,11 @@ fn a_socket_the_policy_lists_is_still_refused_on_linux() {
     std::fs::create_dir_all(door.parent().unwrap()).unwrap();
     let _listener = std::os::unix::net::UnixListener::bind(&door).unwrap();
     let policy = policy(&w.call(), &w.path("home"), &[]).unwrap();
-    assert_eq!(policy.sockets, [door.clone()], "the door is listed");
+    assert_eq!(
+        policy.sockets,
+        std::slice::from_ref(&door),
+        "the door is listed"
+    );
     let out = w.try_to(&format!(
         "perl -MIO::Socket::UNIX -e 'IO::Socket::UNIX->new(Peer => $ARGV[0]) or exit 7' {}",
         door.display()
