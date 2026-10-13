@@ -136,3 +136,36 @@ async fn a_project_with_no_pi_agent_gets_no_pi_line() {
     assert!(subjects(&report).contains(&"golbat: pi"));
     assert!(subjects(&report).iter().any(|s| s.starts_with("koji: ")));
 }
+
+// A pi reviewer on a server of its own, which no gateway fronts
+const QWEN_REVIEWER: &str = "---\nrole: reviewer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                             url: http://box:11434/v1\ncontext: 65536\n---\nReview the diff.\n";
+
+#[tokio::test]
+async fn a_pi_reviewer_of_contributions_gets_a_pi_line_only_while_contributions_are_picked_up() {
+    let mut scene = Scene::new().await;
+    crate::test::write_in(
+        &scene.kelpie_home.join("agents"),
+        "qwen-r.md",
+        QWEN_REVIEWER,
+    );
+    scene.host.pi_version = Some(Ok("0.85.1"));
+    for (project, pick, key, value) in [
+        ("lists", "label", "reviewers", json!(["qwen-r"])),
+        ("lists-off", "off", "reviewers", json!(["qwen-r"])),
+        ("secures", "all", "security_reviewer", json!("qwen-r")),
+        ("secures-off", "off", "security_reviewer", json!("qwen-r")),
+    ] {
+        scene.runs(project, |t| {
+            t.insert("contributions".into(), json!({ "pick": pick, key: value }));
+        });
+    }
+    let report = scene.report().await;
+    for project in ["lists", "secures"] {
+        let (what, _) = missing(&report, &format!("{project}: pi"));
+        assert!(what.contains("older"), "{what}");
+    }
+    for project in ["lists-off", "secures-off"] {
+        assert!(!subjects(&report).contains(&format!("{project}: pi").as_str()));
+    }
+}

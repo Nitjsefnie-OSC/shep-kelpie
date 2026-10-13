@@ -14,7 +14,7 @@ use crate::runner::{
     source_of,
 };
 use crate::settings::{
-    Account, AgentHarness, ForgeSlug, Limit, RoleModel, Settings, SettingsError,
+    Account, AgentHarness, ForgeSlug, Limit, Pick, RoleModel, Settings, SettingsError,
 };
 use crate::webhook::KelpieSettings;
 
@@ -329,15 +329,26 @@ fn spends_codex(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
     sessions || roles.is_some_and(|roles| roles.implementers.iter().any(|i| codex(&i.limit)))
 }
 
-// Whether an implementer, another role agent or a listed reviewer runs on pi.
-// Settings that do not resolve are another line's to report.
+// Whether an implementer, another role agent or a reviewer runs on pi: one listed
+// in `agents.reviewers`, or, when contributions are picked up, one that reads a
+// contribution. Settings that do not resolve are another line's to report.
 fn spends_pi(settings: &Settings, book: &Agents, here: Here<'_>) -> bool {
     let pi = |model: &RoleModel| matches!(model.harness, AgentHarness::Pi(_));
     let roles = settings.role_agents(book).ok();
-    let lineup = settings.lineup(book, here.home).unwrap_or_default();
-    let reviewers = lineup
+    let mut reviewers = settings.lineup(book, here.home).unwrap_or_default();
+    let mut security = None;
+    if settings.contributions.pick != Pick::Off {
+        reviewers.extend(
+            settings
+                .contribution_lineup(book, here.home)
+                .unwrap_or_default(),
+        );
+        security = settings.security_reviewer(book).ok();
+    }
+    let reviewers = reviewers
         .iter()
         .filter_map(|r| r.runs.session())
+        .chain(security.and_then(|a| a.runs.session()))
         .any(|(model, _)| pi(model));
     reviewers
         || roles.is_some_and(|roles| {
