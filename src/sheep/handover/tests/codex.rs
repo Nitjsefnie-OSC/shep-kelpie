@@ -100,7 +100,12 @@ fn agents(rig: &Rig, folder: &Path) -> (ClaudeCli, Arc<Routed>) {
         .codex(rig.home.path().join("login"))
         .with_program(folder.join("codex"));
     let stand_in = Arc::new(rig.claude.clone());
-    let routed = Routed::new(stand_in.clone(), stand_in, Arc::new(codex));
+    let routed = Routed::new(
+        stand_in.clone(),
+        stand_in.clone(),
+        Arc::new(codex),
+        stand_in,
+    );
     (claude, Arc::new(routed))
 }
 

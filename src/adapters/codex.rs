@@ -37,6 +37,7 @@ use crate::ports::{
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
+mod skills;
 
 #[cfg(test)]
 mod adopt_tests;
@@ -173,7 +174,8 @@ impl Agents for CodexCli {
                 AgentError::Setup(format!("cannot make {}: {}", folder.display(), e.kind()))
             })?;
         }
-        link_login(&self.login, &files.home)
+        link_login(&self.login, &files.home)?;
+        skills::link_skills(call, &files.home)
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
@@ -532,7 +534,7 @@ fn argv(
     let mut off: Vec<&str> = FEATURES_OFF.into();
     // Only a worker runs commands. A review round reads what
     // its prompt holds, as Claude Code's do, with no command to run.
-    if call.tools != Tools::Work {
+    if !has_shell(call) {
         off.push("shell_tool");
     }
     for feature in off {
@@ -560,6 +562,14 @@ fn argv(
     }
     argv.push(prompt(call)?.into());
     Ok(argv)
+}
+
+/// Whether the call has a shell, the only tool that opens a file
+///
+/// Codex gets `shell_tool` and a call's skill links from this alone, so
+/// `agent_tools`, which Claude Code reads, does not change either.
+fn has_shell(call: &AgentCall) -> bool {
+    call.tools == Tools::Work
 }
 
 /// The prompt as Codex takes it

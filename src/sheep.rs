@@ -213,6 +213,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
             Arc::new(claude.clone()),
             Arc::new(claude.pi().with_gateways(gateways)),
             Arc::new(claude.codex(codex_home.clone())),
+            Arc::new(claude.goose()),
         )),
         forge: Arc::new(Gh::new(etags)),
         app_reads: Some(Arc::new(app_reads)),

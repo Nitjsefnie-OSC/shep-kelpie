@@ -4,11 +4,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::tests::{FRESH_ID, World, guarded, has_node, id};
+use super::guard_tests::{guarded, has_node};
+use super::tests::{FRESH_ID, URL, World, id};
 use super::*;
 use crate::ports::Role;
-
-const URL: &str = "http://192.0.2.9:11434/v1";
 
 // A reviewer's call as the runner shapes it: the fence it gets with a tests
 // folder, whose write folder, guard worktree and guard build are that folder.

@@ -10,6 +10,7 @@ mod bots;
 mod debug;
 mod experts;
 mod extends;
+mod goose;
 mod issue_writer;
 mod pm;
 mod tools;
@@ -138,7 +139,7 @@ fn an_unknown_harness_is_refused_naming_the_file_and_the_key() {
         err,
         format!(
             "agent file {}: `harness`: unknown variant `gemini`, expected one of \
-             claude-code, pi, codex, stand-in at line 3, column 10",
+             claude-code, pi, codex, goose, stand-in at line 3, column 10",
             path.display()
         ),
         "line 3 of the file is `harness: gemini`"

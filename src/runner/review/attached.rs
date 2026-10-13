@@ -26,7 +26,7 @@ pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> 
     match harness {
         Harness::ClaudeCode => Some("Write"),
         Harness::Pi => Some("write"),
-        Harness::Codex => None,
+        Harness::Codex | Harness::Goose => None,
         #[cfg(test)]
         Harness::StandIn => None,
     }

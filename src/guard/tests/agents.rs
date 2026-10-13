@@ -22,6 +22,9 @@ fn an_agent_of_the_workers_own_is_refused_however_it_is_started() {
         "caffeinate -i pi -p hi",
         "xargs pi < prompts.txt",
         "timeout 5 pi -p hi",
+        "goose run -t hi",
+        "env GOOSE_PROVIDER=openai goose run -t hi",
+        "sh -c 'goose session'",
     ] {
         let verdict = bash(command);
         assert_eq!(verdict, Verdict::Refuse(NO_AGENTS.into()), "{command}");
@@ -33,10 +36,15 @@ fn every_harness_kelpie_runs_is_refused_from_a_workers_commands() {
     use crate::settings::Harness;
     // A harness added to settings stops compiling here until it is listed.
     let runs = |harness: Harness| match harness {
-        Harness::ClaudeCode | Harness::Pi | Harness::Codex => true,
+        Harness::ClaudeCode | Harness::Pi | Harness::Codex | Harness::Goose => true,
         Harness::StandIn => false,
     };
-    let harnesses = [Harness::ClaudeCode, Harness::Pi, Harness::Codex];
+    let harnesses = [
+        Harness::ClaudeCode,
+        Harness::Pi,
+        Harness::Codex,
+        Harness::Goose,
+    ];
     assert!(harnesses.into_iter().all(runs));
     for program in harnesses.map(Harness::command) {
         for command in [
