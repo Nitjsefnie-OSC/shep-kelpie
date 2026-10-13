@@ -3,6 +3,10 @@
 //! A project that turns it on in `code_graph` has each worker turn and each
 //! reviewer indexed before the call starts. The index is kept under kelpie's
 //! home per work item, and goes with the work item's worktree.
+//!
+//! The call is prepared with the runner's lock held, and indexing takes
+//! seconds to minutes, so it runs on the call's own thread, where a stop
+//! ends it.
 
 use std::io;
 use std::path::Path;
@@ -10,7 +14,8 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use super::Runner;
-use crate::ports::{AgentCall, CodeGraph, Role, Tools};
+use super::claim::Notes;
+use crate::ports::{AgentCall, CodeGraph, Ending, Role, Tools};
 use crate::settings::AgentHarness;
 
 // An index that takes longer is not worth holding a turn for.
@@ -20,34 +25,29 @@ const INDEX_LIMIT: Duration = Duration::from_secs(300);
 const TAIL: usize = 300;
 
 impl Runner {
-    /// Gives `call` the code graph server over its worktree's index, if the
+    /// Names the code graph server and its index in `call`'s reach, if the
     /// project turned it on and the call reads the code
     ///
-    /// A call that cannot have it runs without, and a note says why.
+    /// The index is built by [`indexed`], once the call's thread has started.
+    /// A call that cannot have the server runs without, and a note says why.
     pub(super) fn with_code_graph(&self, call: &mut AgentCall) {
         if !self.settings.code_graph.enabled || !reads_code(call) {
             return;
         }
         let tools = &self.paths.tools;
-        let who = format!("issue #{}'s {}", call.issue, name(call.role));
         if !tools.has_code_graph() {
             self.notes.push(format!(
-                "{who} runs without a code graph: {} is not there, so run \
+                "{} runs without a code graph: {} is not there, so run \
                  `shep kelpie tools install`",
+                who(call),
                 tools.code_graph().display()
             ));
             return;
         }
-        let graph = CodeGraph {
+        call.reach.code_graph = Some(CodeGraph {
             binary: tools.code_graph(),
             index: self.paths.code_graph(call.issue),
-        };
-        match index(&graph, &call.cwd) {
-            Ok(()) => call.reach.code_graph = Some(graph),
-            Err(e) => self
-                .notes
-                .push(format!("{who} runs without a code graph: {e}")),
-        }
+        });
     }
 
     /// Removes the index of work item `issue`'s worktree
@@ -82,6 +82,25 @@ fn reads_code(call: &AgentCall) -> bool {
         )
 }
 
+fn who(call: &AgentCall) -> String {
+    format!("issue #{}'s {}", call.issue, name(call.role))
+}
+
+/// Indexes `call`'s worktree for the server its reach names, on the call's
+/// own thread
+///
+/// A call whose index cannot be built, or is ended while it builds, loses the
+/// server and runs without it, and a note says why.
+pub(super) fn indexed(call: &mut AgentCall, notes: &Notes, ending: &Ending) {
+    let Some(graph) = &call.reach.code_graph else {
+        return;
+    };
+    if let Err(e) = index(graph, &call.cwd, ending) {
+        notes.push(format!("{} runs without a code graph: {e}", who(call)));
+        call.reach.code_graph = None;
+    }
+}
+
 fn name(role: Role) -> &'static str {
     match role {
         Role::Worker => "worker",
@@ -95,7 +114,8 @@ fn name(role: Role) -> &'static str {
 
 // Indexes `worktree` into the graph's folder, which the server reads back.
 // Run again for each call, since the server only watches what it is running over.
-fn index(graph: &CodeGraph, worktree: &Path) -> Result<(), String> {
+// A call asked to end kills the indexer.
+fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), String> {
     std::fs::create_dir_all(&graph.index)
         .map_err(|e| format!("cannot make {}: {e}", graph.index.display()))?;
     let log = graph.index.join("kelpie-index.log");
@@ -119,13 +139,16 @@ fn index(graph: &CodeGraph, worktree: &Path) -> Result<(), String> {
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < INDEX_LIMIT => {
+            Ok(None) if !ending.asked() && started.elapsed() < INDEX_LIMIT => {
                 std::thread::sleep(Duration::from_millis(50));
             }
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("indexing took over {}s", INDEX_LIMIT.as_secs()));
+                return Err(match ending.asked() {
+                    true => "the call was ended while indexing".to_owned(),
+                    false => format!("indexing took over {}s", INDEX_LIMIT.as_secs()),
+                });
             }
             Err(e) => return Err(format!("cannot wait for the indexer: {e}")),
         }
@@ -315,5 +338,25 @@ mod tests {
             Some(crate::runner::StepReport::Finished { issue: 7, .. })
         ));
         assert!(!index.exists());
+    }
+
+    #[test]
+    fn a_call_ended_while_its_index_builds_kills_the_indexer_and_runs_without_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary = dir.path().join("codebase-memory-mcp");
+        write_script(&binary, "#!/bin/sh\nsleep 600\n");
+        let graph = CodeGraph {
+            binary,
+            index: dir.path().join("index"),
+        };
+        let ending = Ending::default();
+        ending.end();
+        let started = Instant::now();
+        let err = index(&graph, dir.path(), &ending).unwrap_err();
+        assert!(err.contains("ended while indexing"), "{err}");
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "it waited the sleep out"
+        );
     }
 }

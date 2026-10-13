@@ -421,7 +421,7 @@ enabled = true
 ```
 
 - `shep kelpie tools install` fetches the pinned release into `<kelpie home>/tools/bin`. Kelpie writes each call's MCP config itself and never runs the tool's own `install`, which writes to your agent config files.
-- Before each worker turn and each Claude Code reviewer, kelpie indexes the work item's worktree into `<kelpie home>/<project>/code-graphs/<issue>`. Indexing is local CPU and spends no tokens. It stops after five minutes. The folder goes when the work item's worktree does.
+- Before each worker turn and each Claude Code reviewer, kelpie indexes the work item's worktree into `<kelpie home>/<project>/code-graphs/<issue>`. Indexing is local CPU and spends no tokens. It runs on the call's own thread, not under the runner's lock, so a stop ends it, and it stops after five minutes. The folder goes when the work item's worktree does.
 - The call gets the server through `--mcp-config` beside `--strict-mcp-config`, and `mcp__codebase-memory-mcp` in its allow-list. No other MCP server loads. The server runs inside the call's sandbox, may read its binary and index, writes only its index, and reaches no host.
 - Only the worker's working turns and the reviewers have it, and only on Claude Code. A retro, the project manager, the advisor and the researcher do not, and neither does a pi or Codex call.
 - A project that turns it on while the server is not installed gets a MISSING `code graph` line in `doctor`. Its calls run without a graph and the runner logs why, so a missing binary or a failed index never stops a work item.
