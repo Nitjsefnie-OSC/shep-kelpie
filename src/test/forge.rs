@@ -250,21 +250,6 @@ impl FakeForge {
         self.blockers_of(number).iter().map(|b| b.number).collect()
     }
 
-    /// Makes closing an issue fail, or work again
-    pub(crate) fn set_closes_down(&self, down: bool) {
-        self.closes_down.store(down, Ordering::SeqCst);
-    }
-
-    /// How many closes the forge refused while closing was down
-    pub(crate) fn closes_refused(&self) -> usize {
-        self.closes_refused.load(Ordering::SeqCst)
-    }
-
-    /// The issues kelpie closed
-    pub(crate) fn closings(&self) -> Vec<u64> {
-        self.closings.lock().unwrap().clone()
-    }
-
     /// Marks issue `number` blocked by issue `by`, which is open until closed
     pub(crate) fn block(&self, number: u64, by: u64) {
         let mut blockers = self.blockers.lock().unwrap();
