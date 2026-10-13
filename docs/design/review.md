@@ -16,6 +16,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Reviewer failing 3 times passed over; pass nobody read marks item unreviewed (API outage can't auto-merge). #314
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290
+- A maintainer's yes to a merge ruling vouches for its head, so kelpie's catch-up with `main` before the merge carries the vouching and raises no second ruling; a no or a rework vouches for nothing. #668
 - Fix turn counts only if it moves `origin` head, unless it deferred all or got only nits; else parks `fix-not-pushed`. #40, #354
 - Clean reply is exactly `CLEAN`. #314
 - Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`; `command` keeps qwen script contract. #107
