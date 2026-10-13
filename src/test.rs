@@ -759,6 +759,7 @@ impl Rig {
         let ports = Ports {
             agents: Arc::new(self.claude.clone()),
             forge: Arc::new(self.forge.clone()),
+            app_reads: None,
             voice: Arc::new(AppVoice::new(tokens, Box::new(self.github.clone()))),
             meter: Box::new(self.meter.clone()),
             codex_meter: Box::new(self.codex_meter.clone()),

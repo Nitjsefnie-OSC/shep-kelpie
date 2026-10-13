@@ -300,3 +300,51 @@ async fn an_app_without_the_contents_permission_is_missing_and_names_the_fix() {
     ok(&report, "koji: github app");
     assert!(!report.passed());
 }
+
+#[tokio::test]
+async fn doctor_says_the_reads_of_a_covered_repo_go_through_the_app() {
+    let scene = Scene::new().await;
+
+    let report = scene.report().await;
+
+    let said = ok(&report, "koji: reads");
+    assert!(said.contains("go through kelpie's App"), "{said}");
+    assert!(said.contains("shep-pm/koji"), "{said}");
+}
+
+// An App registered before kelpie read through it was never given these.
+#[tokio::test]
+async fn an_app_without_checks_or_statuses_reads_the_rest_and_doctor_names_the_two() {
+    let scene = Scene::new().await;
+    scene.github.never_given(&["checks", "statuses"]);
+
+    let report = scene.report().await;
+
+    let Verdict::Unsure { what, next } = verdict(&report, "koji: reads") else {
+        panic!("{:#?}", report.render());
+    };
+    assert!(
+        what.contains("except those that need Checks and Commit statuses"),
+        "{what}"
+    );
+    assert!(what.contains("your own gh login"), "{what}");
+    assert!(next.contains("Checks and Commit statuses"), "{next}");
+    assert!(report.passed(), "an optional gain, not a failure");
+}
+
+#[tokio::test]
+async fn without_an_app_doctor_says_every_read_goes_through_the_maintainers_login() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| {
+        t["git"]["remote"] = json!("someone-else/golbat");
+    });
+
+    let report = scene.report().await;
+
+    let said = ok(&report, "golbat: reads");
+    assert!(
+        said.contains("does not cover someone-else/golbat"),
+        "{said}"
+    );
+    assert!(said.contains("your own gh login"), "{said}");
+}
