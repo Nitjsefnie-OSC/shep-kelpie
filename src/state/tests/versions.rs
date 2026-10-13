@@ -539,6 +539,114 @@ fn an_older_state_file_loads_with_no_contributions() {
 }
 
 #[test]
+fn an_older_state_file_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.contributions.push(Contribution::new(
+        12,
+        "newcomer".into(),
+        "2a8f1e6".into(),
+        Timestamp(1_790_000_000),
+    ));
+    let mut old = serde_json::to_value(&state).unwrap();
+    old["version"] = 46.into();
+    for key in ["heard", "context"] {
+        assert_eq!(old["contributions"][0].get(key), None, "left out until set");
+    }
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+
+    assert_eq!(loaded, state);
+    assert_eq!(loaded.contributions[0].heard, []);
+    assert_eq!(loaded.contributions[0].context, []);
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+}
+
+#[test]
+fn what_a_contribution_heard_survives_a_save_and_a_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut heard = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    heard.hear(Said::Comment {
+        id: 7,
+        at: Timestamp(2),
+    });
+    heard.hear(Said::Reply {
+        id: 7,
+        at: Timestamp(3),
+    });
+    heard.overhear(Said::Comment {
+        id: 8,
+        at: Timestamp(4),
+    });
+    let heard = heard.pushed("9c0ffee".into(), Timestamp(5));
+    let mut state = ProjectState::new();
+    state.contributions.push(heard);
+
+    store.save(&state).unwrap();
+
+    assert_eq!(store.load().unwrap(), Some(state));
+}
+
+#[test]
+fn an_id_means_a_thing_only_with_its_kind() {
+    let mut contribution = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    let comment = Said::Comment {
+        id: 7,
+        at: Timestamp(2),
+    };
+    contribution.hear(comment.clone());
+    contribution.overhear(Said::Reply {
+        id: 9,
+        at: Timestamp(3),
+    });
+
+    assert!(contribution.knows(&comment));
+    assert!(contribution.knows(&Said::Comment {
+        id: 7,
+        at: Timestamp(99)
+    }));
+    assert!(!contribution.knows(&Said::Reply {
+        id: 7,
+        at: Timestamp(2)
+    }));
+    assert!(contribution.knows(&Said::Reply {
+        id: 9,
+        at: Timestamp(3)
+    }));
+}
+
+#[test]
+fn a_contribution_keeps_the_last_fifty_of_each_list() {
+    let mut contribution = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+    for id in 0..70 {
+        let said = Said::Comment {
+            id,
+            at: Timestamp(id),
+        };
+        contribution.hear(said.clone());
+        contribution.overhear(said);
+    }
+
+    let ids = |list: &[Said]| -> Vec<u64> {
+        list.iter()
+            .map(|s| match s {
+                Said::Comment { id, .. } => *id,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(ids(&contribution.heard), (20..70).collect::<Vec<_>>());
+    assert_eq!(ids(&contribution.context), (20..70).collect::<Vec<_>>());
+    assert_eq!(contribution.latest(), Timestamp(69));
+}
+
+#[test]
 fn a_followed_contribution_survives_a_save_and_a_load() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());

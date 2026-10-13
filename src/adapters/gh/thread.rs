@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use super::conditional::{Etags, GhApi};
-use super::{gh, unreadable};
+use super::{gh, gh_as, unreadable};
 use crate::ports::{CommentMarks, ForgeError, ThreadComment, Thumb, Timestamp};
 use crate::settings::ForgeSlug;
 
@@ -25,6 +25,117 @@ pub(super) fn comments_since(
     );
     let pages = etags.pages(&GhApi, None, &path)?;
     parse_comments(format!("[{}]", join(&pages)).as_bytes())
+}
+
+// The first 100 review threads of a pull request with the first 100 comments
+// of each, as the conversation read for a worker is (`talk`). A pull request
+// past those is not expected; GraphQL has no `since` for a thread's
+// comments, so the ones before it are dropped here.
+const REPLIES: &str = "query($owner: String!, $name: String!, $number: Int!) { \
+    repository(owner: $owner, name: $name) { pullRequest(number: $number) { \
+    reviewThreads(first: 100) { nodes { comments(first: 100) { nodes { \
+    databaseId body createdAt author { login __typename } } } } } } } }";
+
+pub(super) fn thread_replies_since(
+    repo: &ForgeSlug,
+    number: u64,
+    since: Timestamp,
+) -> Result<Vec<ThreadComment>, ForgeError> {
+    let (owner, name) = repo.as_str().split_once('/').unwrap_or_default();
+    let stdout = gh_as(
+        None,
+        &[
+            "api",
+            "graphql",
+            "-f",
+            &format!("query={REPLIES}"),
+            "-f",
+            &format!("owner={owner}"),
+            "-f",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={number}"),
+        ],
+    )?;
+    parse_thread_replies(&stdout, number, since)
+}
+
+// GraphQL's answer to [`REPLIES`], the comments written at `since` or later,
+// oldest first. A deleted account is a ghost, and anything but a user is a bot.
+fn parse_thread_replies(
+    stdout: &[u8],
+    number: u64,
+    since: Timestamp,
+) -> Result<Vec<ThreadComment>, ForgeError> {
+    #[derive(Deserialize)]
+    struct Reply {
+        data: Data,
+    }
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Repository,
+    }
+    #[derive(Deserialize)]
+    struct Repository {
+        #[serde(rename = "pullRequest")]
+        pull_request: Pr,
+    }
+    #[derive(Deserialize)]
+    struct Pr {
+        #[serde(rename = "reviewThreads")]
+        threads: Nodes<Thread>,
+    }
+    #[derive(Deserialize)]
+    struct Nodes<T> {
+        nodes: Vec<T>,
+    }
+    #[derive(Deserialize)]
+    struct Thread {
+        comments: Nodes<Comment>,
+    }
+    #[derive(Deserialize)]
+    struct Comment {
+        #[serde(rename = "databaseId")]
+        id: u64,
+        body: Option<String>,
+        #[serde(rename = "createdAt")]
+        created: String,
+        author: Option<Author>,
+    }
+    #[derive(Deserialize)]
+    struct Author {
+        login: String,
+        #[serde(rename = "__typename")]
+        kind: String,
+    }
+    let reply: Reply = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    let mut replies = Vec::new();
+    for comment in (reply.data.repository.pull_request.threads.nodes.into_iter())
+        .flat_map(|thread| thread.comments.nodes)
+    {
+        let created = comment.created.parse::<jiff::Timestamp>().ok();
+        let created = created.and_then(|at| u64::try_from(at.as_second()).ok());
+        let Some(created) = created.map(Timestamp) else {
+            return Err(unreadable(stdout));
+        };
+        if created < since {
+            continue;
+        }
+        let (author, bot) = match comment.author {
+            Some(author) => (author.login, author.kind != "User"),
+            None => ("ghost".to_owned(), true),
+        };
+        replies.push(ThreadComment {
+            id: comment.id,
+            thread: number,
+            author,
+            bot,
+            body: comment.body.unwrap_or_default(),
+            created,
+        });
+    }
+    replies.sort_by_key(|c| (c.created, c.id));
+    Ok(replies)
 }
 
 // The pages as the elements of one list
@@ -268,6 +379,51 @@ mod tests {
         );
         assert!(bot.bot && bot.thread == 7);
         assert!(ghost.bot && ghost.body.is_empty());
+    }
+
+    // GraphQL's answer to `REPLIES` for a pull request with two review
+    // threads: the contributor replying to a bot, the maintainer answering,
+    // a comment from before the read, and a deleted account. The fixture is
+    // written from GitHub's schema, not recorded: a worker cannot run
+    // `gh api`.
+    const REPLIED: &str = include_str!("../../../fixtures/gh-graphql-thread-replies.json");
+
+    #[test]
+    fn the_gh_adapter_parses_the_recorded_thread_replies() {
+        let since = Timestamp(1_791_610_000);
+
+        let replies = parse_thread_replies(REPLIED.as_bytes(), 41, since).unwrap();
+
+        let seen: Vec<_> = replies
+            .iter()
+            .map(|c| (c.id, c.author.as_str(), c.bot, c.thread, c.created.0))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (3_001, "newcomer", false, 41, 1_791_610_314),
+                (3_002, "Boss", false, 41, 1_791_610_400),
+                (3_003, "coderabbitai", true, 41, 1_791_610_500),
+                (3_004, "ghost", true, 41, 1_791_610_600),
+            ]
+        );
+        assert!(replies[0].body.starts_with("Fixed in"));
+        // The comment before `since` is left out
+        let all = parse_thread_replies(REPLIED.as_bytes(), 41, Timestamp(0)).unwrap();
+        assert_eq!(all.len(), 5);
+    }
+
+    #[test]
+    fn a_thread_reply_answer_that_is_not_threads_is_unreadable() {
+        for text in ["{}", "", r#"{"data":{"repository":{"pullRequest":null}}}"#] {
+            assert!(
+                matches!(
+                    parse_thread_replies(text.as_bytes(), 1, Timestamp(0)),
+                    Err(ForgeError::Unreadable(_))
+                ),
+                "{text}"
+            );
+        }
     }
 
     #[test]

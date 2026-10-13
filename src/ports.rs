@@ -237,6 +237,20 @@ pub trait Forge: Send + Sync {
         since: Timestamp,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
 
+    /// The comments in the review threads of pull request `number` since
+    /// `since`, oldest first. Their ids are numbered apart from issue comments'.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked, has no such pull
+    /// request, or its answer cannot be read.
+    fn thread_replies_since(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError>;
+
     /// Whether `login` has write access to `repo`
     ///
     /// # Errors

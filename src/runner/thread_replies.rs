@@ -31,6 +31,10 @@
 //! comment is edited to say it is settled (see [`settled`]), unless the
 //! maintainer answered it here.
 //!
+//! The same read serves the contributions: the comments it finds on a followed
+//! pull request, and the review threads read beside it, are recorded by
+//! [`Runner::hear_contributions`] and answer nothing here.
+//!
 //! The forge is asked with the runner's lock let go: [`Runner::thread_job`]
 //! decides a read is due and copies what it needs, [`ThreadJob::run`] reads,
 //! and [`Runner::apply_threads`] acts on what was read.
@@ -46,7 +50,7 @@ use super::words::{Wants, read_answer};
 use super::{Answer, RuleError, Runner, voice};
 use crate::ports::{CommentMarks, Forge, ThreadComment, Timestamp};
 use crate::settings::ForgeSlug;
-use crate::state::{Heard, ProjectState, Ruling, RulingKind, StateError};
+use crate::state::{Contribution, Heard, ProjectState, Ruling, RulingKind, StateError};
 use crate::work_item::Phase;
 
 /// Seconds a ruling answered elsewhere is still watched, so a reply that
@@ -77,6 +81,11 @@ pub(super) struct Reading {
     read: Option<Timestamp>,
     /// The comments before this are not asked for again
     floor: Option<Timestamp>,
+    /// Where each followed pull request's review threads are read from, by
+    /// pull request, once a read of them failed or succeeded: those are read
+    /// apart from the repo's comments, so a failed one is read again from
+    /// where it began
+    review_floor: BTreeMap<u64, Timestamp>,
     watching: BTreeMap<u64, Watch>,
     /// The comments read and left alone, a bot's or a login's without write
     /// access, by id and when written, until a read no longer reaches them
@@ -86,6 +95,9 @@ pub(super) struct Reading {
     /// Why the last read of a ruling's comment for reactions and ticks
     /// failed, told once while it keeps failing
     marks_failed: Option<String>,
+    /// Why the last read of the followed pull requests' review threads
+    /// failed, told once while it keeps failing
+    replies_failed: Option<String>,
     /// Why a ruling's reaction or tick was refused, told once each, since
     /// it stays on the comment and is read again at every poll
     refused: BTreeMap<u64, String>,
@@ -136,6 +148,9 @@ pub(super) struct ThreadJob {
     watches: Vec<Watch>,
     judged: BTreeSet<u64>,
     own: BTreeSet<u64>,
+    /// The pull requests followed as contributions, each with the time its
+    /// review threads are read since
+    reviews: Vec<(u64, Timestamp)>,
 }
 
 /// What a read found
@@ -149,6 +164,9 @@ pub(super) struct ThreadRead {
     stopped: Option<(u64, String)>,
     /// What was done to each pending ruling's own comment
     marks: BTreeMap<u64, Result<CommentMarks, String>>,
+    /// The comments in each followed pull request's review threads, with the
+    /// time they were read since
+    replies: BTreeMap<u64, (Timestamp, Result<Vec<ThreadComment>, String>)>,
 }
 
 /// Reads the rulings' threads for answers, if a read is due, asking the
@@ -202,24 +220,36 @@ impl ThreadJob {
                 (ruling, marks)
             })
             .collect();
+        // Read apart from the repo's comments: GitHub lists a review thread's
+        // comments only with its pull request.
+        let replies = (self.reviews.iter())
+            .map(|&(number, since)| {
+                let replies = (self.forge.thread_replies_since(&self.repo, number, since))
+                    .map_err(|e| format!("cannot read the review threads of #{number}: {e}"));
+                (number, (since, replies))
+            })
+            .collect();
         Ok(ThreadRead {
             now,
             comments,
             writers,
             stopped,
             marks,
+            replies,
         })
     }
 }
 
 impl Runner {
     // Decides whether the threads are read now: at most once a [`BOARD_POLL`],
-    // where kelpie's App covers the repo and a ruling waits in its thread.
+    // where kelpie's App covers the repo and a ruling waits in its thread or a
+    // contribution is followed. One read of the repo's comments serves both.
     // Returns the time and what the read needs.
     fn thread_job(&mut self) -> Option<(Timestamp, ThreadJob)> {
         let now = self.ports.clock.now();
         self.watch_threads(now);
-        if self.threads.watching.is_empty() {
+        let followed = &self.state.contributions;
+        if self.threads.watching.is_empty() && followed.is_empty() {
             return None;
         }
         let poll = BOARD_POLL.as_secs();
@@ -231,17 +261,34 @@ impl Runner {
         }
         self.threads.read = Some(now);
         let watches: Vec<Watch> = self.threads.watching.values().cloned().collect();
-        let heard = watches.iter().map(|w| w.heard.time).min();
+        let followed = &self.state.contributions;
+        let heard = (watches.iter().map(|w| w.heard.time))
+            .chain(followed.iter().map(Contribution::latest))
+            .min();
         let since = heard.into_iter().chain(self.threads.floor).max();
+        let since = since.unwrap_or(now);
+        self.threads
+            .review_floor
+            .retain(|number, _| followed.iter().any(|c| c.pull_request == *number));
+        let reviews = (followed.iter())
+            .map(|c| c.pull_request)
+            .map(|n| {
+                (
+                    n,
+                    self.threads.review_floor.get(&n).copied().unwrap_or(since),
+                )
+            })
+            .collect();
         let mut own: BTreeSet<u64> = self.state.posted.iter().copied().collect();
         own.extend(self.posted.borrow().iter().copied());
         let job = ThreadJob {
             forge: Arc::clone(&self.ports.forge),
             repo: self.remote.clone(),
-            since: since.unwrap_or(now),
+            since,
             watches,
             judged: self.threads.judged.keys().copied().collect(),
             own,
+            reviews,
         };
         Some((now, job))
     }
@@ -259,6 +306,7 @@ impl Runner {
             }
         };
         self.threads.failed = None;
+        self.hear_replies(&read)?;
         for comment in &read.comments {
             if (read.stopped.as_ref()).is_some_and(|(id, _)| *id == comment.id) {
                 let why = read.stopped.as_ref().map(|(_, why)| why.clone());
@@ -295,6 +343,35 @@ impl Runner {
         self.threads.floor = Some(floor);
         self.threads.judged.retain(|_, created| *created >= floor);
         self.apply_marks(read.marks);
+        Ok(())
+    }
+
+    // Records what the contributors and the maintainer said, in the comments
+    // and the review threads read. A review read that failed is told once and
+    // read again from where it began; one that worked is read again from the
+    // slack behind this read.
+    fn hear_replies(&mut self, read: &ThreadRead) -> Result<(), StateError> {
+        let mut replies = Vec::new();
+        let mut failed = Vec::new();
+        let behind = Timestamp(read.now.0.saturating_sub(SLACK));
+        for (number, (since, result)) in &read.replies {
+            match result {
+                Ok(found) => {
+                    replies.extend(found.iter().cloned());
+                    self.threads.review_floor.insert(*number, behind);
+                }
+                Err(why) => {
+                    failed.push(why.clone());
+                    self.threads.review_floor.entry(*number).or_insert(*since);
+                }
+            }
+        }
+        self.hear_contributions(&read.comments, &replies)?;
+        let failed = (!failed.is_empty()).then(|| failed.join("; "));
+        if self.threads.replies_failed != failed {
+            self.notes.extend(failed.clone());
+            self.threads.replies_failed = failed;
+        }
         Ok(())
     }
 

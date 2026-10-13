@@ -214,6 +214,15 @@ impl Forge for Guarded {
         self.forge.comments_since(repo, since)
     }
 
+    fn thread_replies_since(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.forge.thread_replies_since(repo, number, since)
+    }
+
     fn can_write(&self, repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
         self.forge.can_write(repo, login)
     }
