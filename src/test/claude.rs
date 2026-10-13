@@ -174,6 +174,8 @@ pub(crate) struct Seen {
     pub(crate) build_existed: bool,
     /// What the runner had noted of the call, for its record, when it started
     pub(crate) carried: Option<crate::ports::Flying>,
+    /// The `change.diff` in its folder when the call started, if it had one
+    pub(crate) diff: Option<String>,
 }
 
 /// Records every call and answers from a script, failing once it runs out
@@ -332,6 +334,7 @@ impl Agents for FakeClaude {
             sandbox,
             build_existed,
             carried: ending.carried(),
+            diff: std::fs::read_to_string(call.cwd.join("change.diff")).ok(),
         });
         let next = match next {
             Some(Scripted::Spend(account, usage, cost)) => {

@@ -214,7 +214,7 @@ fn a_binary_a_symlink_a_submodule_or_an_oversize_diff_is_flagged_and_never_passe
                 &["commit", "--quiet", "--allow-empty", "-m", "pinned"],
             );
         }),
-        ("(the whole diff)", "a diff of", |h| {
+        ("(the whole diff)", "a diff over 200000 bytes", |h| {
             write(h, "big.txt", &"x".repeat(200_001));
         }),
     ];
@@ -284,8 +284,13 @@ fn the_review_runs_in_a_folder_outside_the_checkout_and_nothing_is_checked_out()
         call.cwd
     );
     assert!(!call.cwd.starts_with(rig.repo()), "{:?}", call.cwd);
-    let diff = std::fs::read_to_string(call.cwd.join("change.diff")).unwrap();
+    let diff = seen[0]
+        .diff
+        .as_deref()
+        .expect("the diff file was in the folder");
     assert!(diff.contains("+++ b/one.txt"), "{diff}");
+    assert!(!call.cwd.exists(), "the folder goes once the review ends");
+    assert!(!call.settings.exists(), "so does its settings file");
     assert!(!rig.repo().join("one.txt").exists());
     let after = (
         git(&rig.repo(), &["rev-parse", "HEAD"]),

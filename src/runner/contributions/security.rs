@@ -30,7 +30,7 @@ use crate::worktree::{self, Change};
 pub(super) const MAX_DIFF: usize = 200_000;
 
 /// The folder under the project's folder where each contribution's diff is
-/// written for its review, one folder each
+/// written for its review, one folder each, removed when the review ends
 const FOLDER: &str = "security";
 
 /// The file the diff is written to in that folder
@@ -67,13 +67,14 @@ impl Runner {
         }
         let checkout = &self.settings.git.checkout;
         let (head, passed) = (&contribution.head, contribution.passed.as_deref());
-        let change = match worktree::contribution_change(checkout, pull_request, head, passed) {
-            Ok(change) => change,
-            Err(e) => {
-                eprintln!("contribution #{pull_request}: cannot fetch {head} to read it: {e}");
-                return Ok(());
-            }
-        };
+        let change =
+            match worktree::contribution_change(checkout, pull_request, head, passed, MAX_DIFF) {
+                Ok(change) => change,
+                Err(e) => {
+                    eprintln!("contribution #{pull_request}: cannot fetch {head} to read it: {e}");
+                    return Ok(());
+                }
+            };
         let flagged = flagged_in_code(&change);
         let verdict = match flagged.is_empty() {
             false => SecurityVerdict::Flagged(flagged),
@@ -114,6 +115,9 @@ impl Runner {
         call.tools = Tools::Review;
         let ran = (self.ports.agents.prepare(&call))
             .and_then(|()| self.ports.agents.run(&call, &Ending::default()));
+        // The contributor's text and the call's settings are of no use after it.
+        let _ = fs::remove_dir_all(&folder);
+        let _ = fs::remove_file(&call.settings);
         let reply = match ran {
             Ok(reply) => reply,
             Err(e) => return fail(e.to_string()),
@@ -170,10 +174,10 @@ fn flagged_in_code(change: &Change) -> Vec<Finding> {
             )
         })
         .collect();
-    if change.diff.len() > MAX_DIFF {
+    if change.cut {
         found.push(finding(
             WHOLE_DIFF,
-            format!("a diff of {} bytes", change.diff.len()),
+            format!("a diff over {MAX_DIFF} bytes"),
             format!("it is over {MAX_DIFF} bytes, more than a model reads whole, so it is flagged for the maintainer, never passed"),
         ));
     }

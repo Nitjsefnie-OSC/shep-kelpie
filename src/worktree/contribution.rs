@@ -5,8 +5,10 @@
 //! branch, no worktree, no file on disk. The diff is read from those objects
 //! with every program a config or an attribute could name switched off.
 
+use std::io::Read;
 use std::path::Path;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
+use std::thread;
 
 use super::{BASE, WorktreeError, git, in_repo};
 
@@ -44,8 +46,11 @@ pub struct Touched {
 /// A contribution's change, as far as one head is read
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    /// The text of the diff
+    /// The text of the diff, cut at the limit it was read with
     pub diff: String,
+    /// Whether the diff was longer than that limit, so `diff` is cut short and
+    /// `opaque` is not read
+    pub cut: bool,
     /// The paths in it a model cannot read
     pub opaque: Vec<Touched>,
 }
@@ -58,6 +63,10 @@ pub struct Change {
 /// whole of `head`'s change from `origin/main`. Fetches `refs/pull/<n>/head`
 /// and `main` first, and checks nothing out.
 ///
+/// Reads at most `limit` bytes of any git output and stops git there, so a
+/// huge change from outside costs no more than that. A diff longer than
+/// `limit` comes back cut, with `cut` set and no `opaque` paths.
+///
 /// # Errors
 ///
 /// [`WorktreeError`] naming the git command that failed, or the commit the
@@ -67,24 +76,31 @@ pub fn change(
     pull_request: u64,
     head: &str,
     passed: Option<&str>,
+    limit: usize,
 ) -> Result<Change, WorktreeError> {
     fetch(repo, pull_request, head)?;
     let since = match passed {
         Some(passed) if descends(repo, passed, head)? => format!("{passed}..{head}"),
         _ => format!("origin/{BASE}...{head}"),
     };
-    let modes = diff_of(repo, &["--raw", "-z"], &since)?;
-    let counts = diff_of(repo, &["--numstat", "-z"], &since)?;
+    let (diff, cut) = diff_of(repo, &[], &since, limit)?;
+    if cut {
+        // Flagged for its length whatever else is in it: nothing more to read.
+        return Ok(Change {
+            diff,
+            cut,
+            opaque: Vec::new(),
+        });
+    }
+    let (modes, _) = diff_of(repo, &["--raw", "-z"], &since, limit)?;
+    let (counts, _) = diff_of(repo, &["--numstat", "-z"], &since, limit)?;
     let mut opaque = by_mode(&modes);
     for touched in binary(&counts) {
         if !opaque.iter().any(|o| o.path == touched.path) {
             opaque.push(touched);
         }
     }
-    Ok(Change {
-        diff: diff_of(repo, &[], &since)?,
-        opaque,
-    })
+    Ok(Change { diff, cut, opaque })
 }
 
 // Brings `pull_request`'s head and `main` into `repo`'s objects, and checks
@@ -122,11 +138,16 @@ fn descends(repo: &Path, passed: &str, head: &str) -> Result<bool, WorktreeError
     Ok(output.status.code() == Some(0))
 }
 
-// `git diff` of `since`, shaped by `shape`, whole: `git` trims what it
-// returns. Neither a program a config names nor one an attribute picks turns
-// the diff into something else, and a rename is a delete and an add, so each
-// file's content is in the diff.
-fn diff_of(repo: &Path, shape: &[&str], since: &str) -> Result<String, WorktreeError> {
+// `git diff` of `since`, shaped by `shape`, whole up to `limit` bytes, and
+// whether it was longer. Neither a program a config names nor one an
+// attribute picks turns the diff into something else, and a rename is a
+// delete and an add, so each file's content is in the diff.
+fn diff_of(
+    repo: &Path,
+    shape: &[&str],
+    since: &str,
+    limit: usize,
+) -> Result<(String, bool), WorktreeError> {
     let flags = [
         "--no-ext-diff",
         "--no-textconv",
@@ -135,18 +156,55 @@ fn diff_of(repo: &Path, shape: &[&str], since: &str) -> Result<String, WorktreeE
     ];
     let args = ["diff"].into_iter().chain(shape.iter().copied());
     let args: Vec<&str> = args.chain(flags).chain([since]).collect();
-    let output = in_repo(repo)
-        .args(&args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| WorktreeError::Spawn(e.to_string()))?;
-    if !output.status.success() {
-        return Err(WorktreeError::Git {
+    let mut git = in_repo(repo);
+    git.args(&args);
+    let (out, cut) = capped(git, limit)?;
+    match out {
+        Ok(stdout) => Ok((String::from_utf8_lossy(&stdout).into_owned(), cut)),
+        Err(stderr) => Err(WorktreeError::Git {
             args: args.join(" "),
-            stderr: String::from_utf8_lossy(&output.stderr).into(),
-        });
+            stderr,
+        }),
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+// Runs `git`, keeping at most `limit` bytes of its stdout. Past that it kills
+// it and says the output was cut. The inner result is the output, or stderr
+// when git failed on its own.
+fn capped(
+    mut git: Command,
+    limit: usize,
+) -> Result<(Result<Vec<u8>, String>, bool), WorktreeError> {
+    let spawn = |e: std::io::Error| WorktreeError::Spawn(e.to_string());
+    let mut child = (git.stdin(Stdio::null()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(spawn)?;
+    let stderr = child.stderr.take();
+    let errors = thread::spawn(move || {
+        let mut text = Vec::new();
+        if let Some(mut stderr) = stderr {
+            let _ = stderr.read_to_end(&mut text);
+        }
+        text
+    });
+    let mut out = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        let ask = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+        stdout.take(ask).read_to_end(&mut out).map_err(spawn)?;
+    }
+    let cut = out.len() > limit;
+    if cut {
+        out.truncate(limit);
+        let _ = child.kill();
+    }
+    let status = child.wait().map_err(spawn)?;
+    let stderr = errors.join().unwrap_or_default();
+    if cut || status.success() {
+        return Ok((Ok(out), cut));
+    }
+    Ok((Err(String::from_utf8_lossy(&stderr).into_owned()), false))
 }
 
 // The symlinks and submodules in `git diff --raw -z`, whose entries are

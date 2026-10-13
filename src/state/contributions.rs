@@ -19,8 +19,8 @@ pub struct Contribution {
     pub seen: Timestamp,
     /// The head the security review last read, and what it found
     ///
-    /// Left out until a head is read. It may name an older head than `head`,
-    /// for the review of a new one that has not happened yet.
+    /// Left out until a head is read. A new head clears it, so it names the
+    /// current `head` or nothing, and a head with none is not yet read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security: Option<Security>,
     /// The last head that passed the security review
