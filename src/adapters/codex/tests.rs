@@ -821,7 +821,7 @@ fn live() -> CodexCli {
 }
 
 fn run_raw(codex: &CodexCli, call: &AgentCall) -> Output {
-    let files = Files::of(call);
+    let files = crate::adapters::process::record::CallFiles::of(call);
     let mut command = codex.sandboxed_command(call).unwrap();
     let outputs = [files.stdout.as_path(), files.stderr.as_path()];
     codex

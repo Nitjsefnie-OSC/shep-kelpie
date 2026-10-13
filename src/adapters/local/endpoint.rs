@@ -281,6 +281,11 @@ impl LocalReviewer {
             }
             None => String::new(),
         };
+        // Beside the reply, as a call's output is beside its settings.
+        let outputs = [
+            reply.with_extension("stdout"),
+            reply.with_extension("stderr"),
+        ];
         let output = self
             .processes
             .output_within_fed(
@@ -288,6 +293,7 @@ impl LocalReviewer {
                 REQUEST_TIMEOUT,
                 config.as_bytes(),
                 Some(ending),
+                [&outputs[0], &outputs[1]],
             )
             .map_err(|e| match e {
                 RunError::Io(e) => ReviewerError::Spawn(format!("curl: {e}")),
