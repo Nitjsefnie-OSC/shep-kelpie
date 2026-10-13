@@ -70,7 +70,7 @@ enum Written {
 
 // Kelpie's own agents, by name: what `add` writes out, and what a missing
 // file falls back to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 13] = [
+const DEFAULTS: [(&str, &str, Written); 14] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../agents/sonnet-high.md"),
@@ -92,6 +92,11 @@ const DEFAULTS: [(&str, &str, Written); 13] = [
         Written::Always,
     ),
     ("spec", include_str!("../agents/spec.md"), Written::Always),
+    (
+        SECURITY_REVIEWER,
+        include_str!("../agents/security-reviewer.md"),
+        Written::Always,
+    ),
     (
         QWEN,
         include_str!("../agents/qwen.md"),

@@ -53,6 +53,13 @@ pub(super) struct Flights {
     pm: Option<(Timestamp, Ending)>,
     // The issue writer's call labelling an issue
     labelling: Option<label::Labelling>,
+    // The security review of a contribution's head
+    securing: Option<security::Securing>,
+    // The last contribution a security review was started on, after which the
+    // next unread one goes
+    security_cursor: u64,
+    // Whether a security review started since the loop last heard of it
+    security_launched: bool,
     // The experts of one ruling, voting
     panel: Option<panel::Panelling>,
     // The project manager's batch retro
@@ -72,6 +79,9 @@ impl Default for Flights {
             flying: BTreeMap::new(),
             pm: None,
             labelling: None,
+            securing: None,
+            security_cursor: 0,
+            security_launched: false,
             panel: None,
             retro: None,
             ledger: InFlight::default(),
@@ -89,6 +99,7 @@ impl Flights {
         self.flying.is_empty()
             && self.pm.is_none()
             && self.labelling.is_none()
+            && self.securing.is_none()
             && self.panel.is_none()
             && self.retro.is_none()
     }
@@ -178,6 +189,10 @@ impl Flights {
             issue: Some(l.issue),
             role: CallRole::IssueWriter,
         });
+        let securing = self.securing.iter().map(|_| CallRunning {
+            issue: None,
+            role: CallRole::Security,
+        });
         let panel = self.panel.iter().map(|_| CallRunning {
             issue: None,
             role: CallRole::Panel,
@@ -186,7 +201,8 @@ impl Flights {
             issue: None,
             role: CallRole::Retro,
         });
-        (items.chain(pm).chain(labelling).chain(panel))
+        (items.chain(pm).chain(labelling).chain(securing))
+            .chain(panel)
             .chain(retro)
             .collect()
     }
@@ -260,6 +276,12 @@ enum News {
     Labelled {
         issue: u64,
         end: End,
+    },
+    // A contribution's head was read for security, to a verdict or to none
+    Secured {
+        pull_request: u64,
+        head: String,
+        verdict: Option<crate::state::SecurityVerdict>,
     },
     // The experts of a ruling ended, each as its own call did
     Paneled {
@@ -386,11 +408,13 @@ impl Runner {
             .filter(|(_, ending)| !ending.asked())
             .map(|(deadline, _)| *deadline);
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
+        let securing = (self.flights.securing.iter()).filter_map(security::Securing::ceiling);
         let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
         let retro = (self.flights.retro.iter()).filter_map(retro::Retrospecting::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
+            .chain(securing)
             .chain(panel)
             .chain(retro)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
@@ -413,6 +437,9 @@ impl Runner {
         }
         if let Some(labelling) = &self.flights.labelling {
             labelling.end_overdue(now);
+        }
+        if let Some(securing) = &self.flights.securing {
+            securing.end_overdue(now);
         }
         if let Some(panel) = &self.flights.panel {
             panel.end_overdue(now);
@@ -753,7 +780,8 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
             let woke = lock(runner).wake_pm();
             let asked = lock(runner).panel_launched();
             let looked = !woke && lock(runner).retro_launched();
-            Ok(if woke || asked || looked {
+            let reading = std::mem::take(&mut lock(runner).flights.security_launched);
+            Ok(if woke || asked || looked || reading {
                 Pass::Started
             } else {
                 Pass::Idle
@@ -834,6 +862,14 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             return Ok(None);
         }
         News::Labelled { issue, end } => return runner.label_ended(issue, end),
+        News::Secured {
+            pull_request,
+            head,
+            verdict,
+        } => {
+            runner.security_heard(pull_request, &head, verdict)?;
+            return Ok(None);
+        }
         News::Paneled { id, ends } => return runner.panel_ended(id, ends),
         News::Retro(end) => {
             runner.retro_heard(end);
@@ -954,6 +990,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
 pub(super) mod label;
 pub(super) mod panel;
 pub(super) mod retro;
+pub(super) mod security;
 #[cfg(test)]
 mod tests;
 mod waiting;

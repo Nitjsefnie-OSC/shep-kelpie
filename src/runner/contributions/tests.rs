@@ -11,7 +11,7 @@ use crate::test::{Rig, Scripted};
 const MAINTAINER: &str = "Boss";
 
 // A runner for a project whose App covers the repo, with `pick` set
-fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
+pub(super) fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
     let rig = Rig::new("shep");
     rig.with_app();
     rig.maintainer(MAINTAINER);
@@ -22,7 +22,7 @@ fn picking(pick: &str) -> (Rig, Mutex<Runner>) {
 
 // Pull request `number` on a branch of its own, opened by `author`, ready
 // for review. Returns its head.
-fn opened(rig: &Rig, number: u64, author: &str) -> String {
+pub(super) fn opened(rig: &Rig, number: u64, author: &str) -> String {
     let branch = format!("topic/{number}");
     let head = rig.push_by_hand(&branch, &format!("{number}.txt"));
     rig.forge.open_pull_request(number, &branch, &[]);
@@ -32,7 +32,7 @@ fn opened(rig: &Rig, number: u64, author: &str) -> String {
 }
 
 // What `status` lists as followed: each one's number, author and head
-fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, String)> {
+pub(super) fn followed(rig: &Rig, runner: &Mutex<Runner>) -> Vec<(u64, String, String)> {
     let status = rig.ask(runner, "status", None);
     let listed = status["contributions"].as_array().cloned();
     listed
@@ -67,7 +67,7 @@ fn one(number: u64, author: &str, head: &str) -> Vec<(u64, String, String)> {
 }
 
 // A step with nothing for the board to do, after the next poll is due
-fn poll(rig: &Rig, runner: &Mutex<Runner>) {
+pub(super) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     rig.next_look();
     assert_eq!(step(runner).unwrap(), None);
 }
