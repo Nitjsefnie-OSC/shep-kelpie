@@ -16,8 +16,16 @@ use crate::runner::panel::{Answerer, Record};
 use crate::state::Finished;
 use crate::usage::{CallKind, CallLine, FinishedLine, Line};
 
+mod across;
+
 /// The most wakes listed under one work item
 const WAKES_LISTED: usize = 12;
+
+/// The most findings listed under one work item
+const FINDINGS_LISTED: usize = 20;
+
+/// The round from which a finding is called late
+const LATE_ROUND: u32 = 3;
 
 /// Everything a digest is built from
 pub(super) struct Records<'a> {
@@ -29,6 +37,8 @@ pub(super) struct Records<'a> {
     pub ledger: &'a [Line],
     /// When the last retro started, or zero with none
     pub since: u64,
+    /// The retro's own earlier findings still open, by theme
+    pub gaps: &'a [String],
 }
 
 /// A span of seconds as `1h05m`, `5m10s` or `42s`
@@ -66,6 +76,7 @@ pub(super) fn build(records: &Records<'_>) -> String {
         item(&mut out, records, finished);
     }
     out.push('\n');
+    across::section(&mut out, records);
     totals(&mut out, records);
     out
 }
@@ -103,18 +114,24 @@ fn item(out: &mut String, records: &Records<'_>, finished: &Finished) {
             line.rulings
         );
     }
-    let mine: Vec<&Stamped> = (records.journal.iter())
-        .filter(|s| s.at <= finished.at && s.entry.names(issue))
-        .collect();
+    let mine = mine(records, finished);
     wakes(out, &mine);
     rulings(out, records, finished);
     reviews(out, &mine);
+    sent(out, &mine);
     fixes(out, &mine);
     for stamped in &mine {
         if let Entry::Friction { text, .. } = &stamped.entry {
             let _ = writeln!(out, "- Friction the worker reported: {}", one_line(text));
         }
     }
+}
+
+// The journal's entries about the work item, up to its finish
+fn mine<'a>(records: &Records<'a>, finished: &Finished) -> Vec<&'a Stamped> {
+    (records.journal.iter())
+        .filter(|s| s.at <= finished.at && s.entry.names(finished.issue))
+        .collect()
 }
 
 // The item's line in the ledger: the last written at its finish
@@ -194,7 +211,14 @@ fn reviews(out: &mut String, mine: &[&Stamped]) {
         .map(|s| &s.entry)
         .filter(|e| matches!(e, Entry::Round { .. }))
         .collect();
-    let _ = writeln!(out, "- Review rounds reported: {}", rounds.len());
+    let latest = (rounds.iter())
+        .filter_map(|e| match e {
+            Entry::Round { round, .. } => Some(*round),
+            _ => None,
+        })
+        .max();
+    let latest = latest.map_or(String::new(), |n| format!(", the latest numbered {n}"));
+    let _ = writeln!(out, "- Review rounds reported: {}{latest}", rounds.len());
     for entry in rounds {
         let Entry::Round {
             issue,
@@ -214,6 +238,50 @@ fn reviews(out: &mut String, mine: &[&Stamped]) {
             out,
             "  - #{issue} round {round} by {reviewer}: {findings} findings{sent}"
         );
+    }
+}
+
+// Each finding sent to the worker, with its round; one from a late round is
+// marked, since a defect found that late was missed in the rounds before
+fn sent(out: &mut String, mine: &[&Stamped]) {
+    let mut lines = Vec::new();
+    for stamped in mine {
+        let Entry::Findings {
+            round, findings, ..
+        } = &stamped.entry
+        else {
+            continue;
+        };
+        let reviewer = mine.iter().find_map(|s| match &s.entry {
+            Entry::Round {
+                round: r, reviewer, ..
+            } if r == round => Some(reviewer.as_str()),
+            _ => None,
+        });
+        let late = if *round >= LATE_ROUND { " (late)" } else { "" };
+        for found in findings {
+            let line = match found.line {
+                0 => String::new(),
+                n => format!(":{n}"),
+            };
+            lines.push(format!(
+                "  - round {round}{late} by {}, {}, {}{line}: {}",
+                reviewer.unwrap_or("?"),
+                name(&found.severity),
+                found.file,
+                one_line(&found.what)
+            ));
+        }
+    }
+    if lines.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "- Findings sent to the worker:");
+    for line in lines.iter().take(FINDINGS_LISTED) {
+        let _ = writeln!(out, "{line}");
+    }
+    if lines.len() > FINDINGS_LISTED {
+        let _ = writeln!(out, "  - and {} more", lines.len() - FINDINGS_LISTED);
     }
 }
 

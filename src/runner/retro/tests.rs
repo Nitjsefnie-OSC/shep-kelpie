@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::ports::{AgentError, Forge, Role, Session, Timestamp, Tools};
 use crate::runner::flight::advance;
+use crate::runner::retro::journal;
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::state::{Finished, ProjectState, StateStore};
@@ -622,4 +623,79 @@ fn a_history_of_many_old_work_items_gets_a_retro_of_the_latest_ten() {
     assert!(prompt.contains("#125"), "{prompt}");
     assert!(!prompt.contains("#115,"), "{prompt}");
     assert!(prompt.contains("#116,"), "{prompt}");
+}
+
+const GAP: &str = "sandbox cannot bind a socket";
+
+// Keeps an earlier retro's report in the unverified folder, as the maintainer
+// has not yet consolidated it
+fn keep_report(rig: &Rig, text: &str) {
+    let folder = rig.paths().retro_reports;
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("koji-batch-20261010T000000Z.md"), text).unwrap();
+}
+
+// Work item `issue` told the journal what slowed it down
+fn friction(rig: &Rig, issue: u64, text: &str) {
+    let journal = rig.paths().journal;
+    fs::create_dir_all(journal.parent().unwrap()).unwrap();
+    let entry = journal::Entry::Friction {
+        issue,
+        text: text.to_owned(),
+    };
+    journal::append(&journal, Timestamp(Rig::EPOCH - 1500), entry).unwrap();
+}
+
+#[test]
+fn the_prompt_names_the_build_the_batch_ran_under() {
+    let (rig, runner) = parked_after(9);
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let [retro] = retros(&rig).try_into().unwrap();
+    let build = format!("build for this batch: {}", env!("CARGO_PKG_VERSION"));
+    assert!(retro.call.prompt.contains(&build), "{}", retro.call.prompt);
+    assert!(
+        retro
+            .call
+            .prompt
+            .contains("No earlier finding of yours is still open."),
+        "{}",
+        retro.call.prompt
+    );
+}
+
+#[test]
+fn an_open_known_gap_is_listed_and_one_that_recurs_is_counted_not_described_again() {
+    let (rig, runner) = parked_after_set(9, |rig| {
+        keep_report(
+            rig,
+            &format!("# Batch retro\n\n## New findings\n\n- {GAP}: tests need a port\n"),
+        );
+        friction(rig, 101, "The Sandbox cannot bind a socket again");
+        friction(
+            rig,
+            102,
+            "tests that bind a socket fail, sandbox cannot bind a socket",
+        );
+    });
+    rig.claude.script_for(Role::Pm, [Scripted::Say(REPORT)]);
+    merge(&rig, &runner);
+
+    let [retro] = retros(&rig).try_into().unwrap();
+    let prompt = &retro.call.prompt;
+    assert!(
+        prompt.contains(&format!("(the known gaps):\n- {GAP}\n")),
+        "{prompt}"
+    );
+    assert!(prompt.contains("reporting new items only"), "{prompt}");
+    assert!(prompt.contains("Report none of them again"), "{prompt}");
+    // Counted by the digest, by theme, with the earlier report's description left out
+    assert!(
+        prompt.contains(&format!(
+            "named again in this batch:\n  - {GAP}: #101, #102\n"
+        )),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("tests need a port"), "{prompt}");
 }

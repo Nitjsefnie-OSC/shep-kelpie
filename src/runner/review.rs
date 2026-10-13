@@ -44,6 +44,7 @@ use std::path::Path;
 
 use super::Runner;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
+use super::retro::journal::{Entry, Held};
 use super::review_bot::Answered;
 use super::ruling::park;
 use super::voice::Round;
@@ -517,6 +518,7 @@ impl Runner {
             return Ok(self.gate_failed(reason));
         }
         let held = findings.len();
+        let kept: Vec<Held> = findings.iter().map(Held::of).collect();
         let prompt = findings::fix_prompt(number, round, held, &path, report_threads);
         let deferred_before = match findings::deferred(build) {
             Ok(deferred) => deferred,
@@ -541,6 +543,11 @@ impl Runner {
                 ..review
             });
         })?;
+        self.journal(Entry::Findings {
+            issue,
+            round,
+            findings: kept,
+        });
         Ok(Begin::Report(StepReport::ReviewFindingsSent {
             issue,
             pull_request: number,
