@@ -46,10 +46,12 @@ fn strings(call: &AgentCall) -> Vec<String> {
 // goose as a script that keeps its arguments, prints `stdout` and `stderr`, and
 // exits with `code`.
 pub(super) fn script(world: &World, stdout: &str, stderr: &str, code: u8) -> PathBuf {
+    // Each script is a file of its own: `write_script` makes a file that is new.
+    let n = world.scripts.replace(world.scripts.get() + 1);
     let (out, err, program) = (
-        world.path(&format!("out-{code}")),
-        world.path(&format!("err-{code}")),
-        world.path(&format!("goose-{code}")),
+        world.path(&format!("out-{n}")),
+        world.path(&format!("err-{n}")),
+        world.path(&format!("goose-{n}")),
     );
     std::fs::write(&out, stdout).unwrap();
     std::fs::write(&err, stderr).unwrap();
@@ -581,6 +583,7 @@ fn an_error_goose_exits_with_is_the_calls_failure_and_the_next_turn_still_counts
 pub(super) struct World {
     _dir: tempfile::TempDir,
     root: PathBuf,
+    scripts: std::cell::Cell<u32>,
 }
 
 impl World {
@@ -591,7 +594,11 @@ impl World {
         for folder in ["wt", "build", "outside"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
         }
-        Self { _dir: dir, root }
+        Self {
+            _dir: dir,
+            root,
+            scripts: std::cell::Cell::new(0),
+        }
     }
 
     pub(super) fn path(&self, p: &str) -> PathBuf {
