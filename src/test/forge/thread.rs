@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::ports::{Clock, CommentMarks, ThreadComment, Thumb, Timestamp};
+use super::VIEWER;
+use crate::ports::{Clock, CommentMarks, Remark, Standing, ThreadComment, Thumb, Timestamp};
 use crate::test::FakeClock;
 
 /// The first id a comment on the fake forge gets
@@ -129,6 +130,29 @@ impl FakeThreads {
             .collect();
         read.sort_by_key(|c| c.id);
         read
+    }
+
+    /// The comments on conversation `number`, oldest first, as the forge's
+    /// GraphQL tells them: kelpie's own login and the logins given write
+    /// access are writers
+    pub(super) fn remarks(&self, number: u64) -> Vec<Remark> {
+        let threads = self.threads.lock().unwrap();
+        (threads.comments.iter())
+            .filter(|c| c.thread == number)
+            .map(|c| Remark {
+                id: c.id,
+                author: c.author.clone(),
+                standing: match (
+                    c.bot,
+                    threads.writers.contains(&c.author) || c.author == VIEWER,
+                ) {
+                    (true, _) => Standing::Bot,
+                    (false, true) => Standing::Writer,
+                    (false, false) => Standing::Other,
+                },
+                body: c.body.clone(),
+            })
+            .collect()
     }
 
     /// Whether `login` may write, noting the ask

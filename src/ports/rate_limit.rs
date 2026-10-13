@@ -13,8 +13,8 @@ use std::time::Instant;
 use super::Revalidated;
 use super::{
     BranchRun, Clock, CommentMarks, FolderEntry, Forge, ForgeError, Issue, LocalPace, NewLabel,
-    OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp,
-    Visibility, pace,
+    OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
+    Timestamp, Visibility, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -333,6 +333,10 @@ impl Forge for RateHeld {
             |a| a.reviewed(repo, number),
             |f| f.reviewed(repo, number),
         )
+    }
+
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.call(Kind::Talk, |f| f.talk(repo, number))
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {

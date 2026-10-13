@@ -1,19 +1,6 @@
-//! A pull request as the forge holds it, and as a rework reads it
+//! A pull request as a rework or an adoption reads it
 
-/// A pull request as the forge holds it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PullRequest {
-    /// Open, merged or closed
-    pub state: PullRequestState,
-    /// Whether it is still a draft
-    pub draft: bool,
-    /// Its head commit's hash
-    pub head: String,
-    /// Where CI stands on its head
-    pub checks: Checks,
-    /// Its labels' names
-    pub labels: Vec<String>,
-}
+use super::PullRequestState;
 
 /// A pull request as a rework or an adoption reads it
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,32 +53,4 @@ pub struct ReviewComment {
     pub line: Option<u32>,
     /// What it says
     pub body: String,
-}
-
-/// Whether a pull request is open, merged or closed without merging
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PullRequestState {
-    /// Open, draft or not
-    Open,
-    /// Merged
-    Merged,
-    /// Closed without merging
-    Closed,
-}
-
-/// Where CI stands on a pull request's head
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Checks {
-    /// No check has reported on the head
-    None,
-    /// At least one check is still running or queued
-    Pending,
-    /// Every check finished, and none failed
-    Passed,
-    /// Every check finished and was skipped, as a workflow whose jobs all
-    /// skip a draft leaves on one: nothing ran, and it counts as passed once
-    /// the pull request is ready
-    Skipped,
-    /// Every check finished, and these failed
-    Failed(Vec<String>),
 }

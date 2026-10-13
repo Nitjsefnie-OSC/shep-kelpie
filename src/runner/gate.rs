@@ -15,6 +15,7 @@ use super::Runner;
 use super::claude_files::Unchecked;
 use super::report::{Begin, StepReport};
 use super::rework::HUMAN;
+use super::talk::At;
 use super::turn::KEEP_BODY_TRUE;
 use crate::board::READY;
 use crate::ports::{Checks, PullRequestState, Timestamp};
@@ -143,6 +144,9 @@ impl Runner {
             return self.review_step();
         }
         if let Some(begin) = self.late_review()? {
+            return Ok(begin);
+        }
+        if let Some(begin) = self.talk_turn(&At::Ci(head.clone()))? {
             return Ok(begin);
         }
         let unreviewed = self.current().and_then(|item| item.unreviewed.clone());

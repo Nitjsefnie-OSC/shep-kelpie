@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use super::{
     BranchRun, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
-    PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, ThreadComment, Timestamp,
+    PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
     Visibility, Voice,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
@@ -196,6 +196,10 @@ impl Forge for Guarded {
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
         self.forge.reviewed(repo, number)
+    }
+
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.forge.talk(repo, number)
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {

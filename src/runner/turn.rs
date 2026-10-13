@@ -232,6 +232,14 @@ impl Runner {
         if self.unseated() {
             return Ok(self.idle(Reason::Unseated));
         }
+        let owes_replies =
+            item.talked.head.is_some() && matches!(item.phase, Phase::Review(_) | Phase::Ci { .. });
+        if owes_replies && let Some(begin) = self.answer_talk()? {
+            return Ok(begin);
+        }
+        let Some(item) = self.current() else {
+            return Ok(Begin::Idle);
+        };
         match &item.phase {
             Phase::Implement => {}
             // A fix turn, or a turn to push before a round, that ended goes
@@ -699,7 +707,7 @@ impl Runner {
                 item.context = reply.context;
                 // A fix turn's reply says what it made of each bot thread sent.
                 let fixing = matches!(&item.phase, Phase::Review(r) if matches!(r.stage, ReviewStage::Fixing { .. }));
-                if fixing {
+                if fixing || item.talked.head.is_some() {
                     item.answer_threads(&reply.text);
                 }
                 // A turn that left its work uncommitted and pushed nothing is

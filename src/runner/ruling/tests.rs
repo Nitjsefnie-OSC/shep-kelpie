@@ -169,7 +169,7 @@ fn a_no_on_a_merge_ruling_sends_the_note_and_its_fix_goes_to_ci_and_back_to_the_
     };
     assert!(
         question.contains(
-            "into main? This head is the worker's fix for your note, and no reviewer read it."
+            "into main? This head is the worker's fix for a note or comment, and no reviewer read it."
         ),
         "{question}"
     );

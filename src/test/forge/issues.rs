@@ -2,8 +2,17 @@
 
 use std::sync::atomic::Ordering;
 
-use super::{CreatedIssue, FakeForge};
+use super::FakeForge;
 use crate::ports::{ForgeError, OpenIssue, SubIssue, SubIssueState};
+
+/// An issue kelpie opened on the fake forge
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CreatedIssue {
+    pub(crate) number: u64,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) labels: Vec<String>,
+}
 
 impl FakeForge {
     /// Makes issue `child` a sub-issue of issue `parent`, as someone else would

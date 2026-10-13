@@ -11,7 +11,7 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FolderEntry, Forge, ForgeError, Issue, MaintainerReview,
-    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue,
+    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
     ThreadComment, Timestamp, Visibility,
 };
 use crate::review_bot::{Activity, Login};
@@ -99,27 +99,6 @@ pub(crate) struct FakeForge {
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
     pub(crate) threads: thread::FakeThreads,
-}
-
-/// A pull request on the fake forge. Its head is its branch on the rig's
-/// origin, so a push the runner makes moves it.
-#[derive(Debug, Clone)]
-struct FakePullRequest {
-    base: String,
-    branch: String,
-    state: PullRequestState,
-    draft: bool,
-    from_fork: bool,
-    author: String,
-}
-
-/// An issue kelpie opened on the fake forge
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CreatedIssue {
-    pub(crate) number: u64,
-    pub(crate) title: String,
-    pub(crate) body: String,
-    pub(crate) labels: Vec<String>,
 }
 
 /// The account the fake forge says kelpie acts as, and opens pull requests as
@@ -678,6 +657,15 @@ impl Forge for FakeForge {
         }
     }
 
+    fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        let mut talk = self.coderabbit.talk_of(number);
+        talk.comments.extend(self.threads.remarks(number));
+        talk.comments.sort_by_key(|r| r.id);
+        Ok(talk)
+    }
+
     fn comments_since(
         &self,
         _repo: &ForgeSlug,
@@ -988,6 +976,10 @@ impl Forge for FakeForge {
         Ok(self.reset())
     }
 }
+
+pub(crate) use issues::CreatedIssue;
+
+use handed::FakePullRequest;
 
 mod app;
 mod down;

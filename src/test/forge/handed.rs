@@ -4,7 +4,19 @@
 use std::collections::HashMap;
 
 use super::FakeForge;
-use crate::ports::BranchRun;
+use crate::ports::{BranchRun, PullRequestState};
+
+/// A pull request on the fake forge. Its head is its branch on the rig's
+/// origin, so a push the runner makes moves it.
+#[derive(Debug, Clone)]
+pub(super) struct FakePullRequest {
+    pub(super) base: String,
+    pub(super) branch: String,
+    pub(super) state: PullRequestState,
+    pub(super) draft: bool,
+    pub(super) from_fork: bool,
+    pub(super) author: String,
+}
 
 /// What the fake forge's failed CI runs say, and the reruns asked of them
 #[derive(Debug, Default)]

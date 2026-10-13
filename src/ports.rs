@@ -30,14 +30,15 @@ mod leased;
 mod local_paths;
 mod pace;
 mod paced_voice;
-mod pull_request;
 mod rate_limit;
 mod recorded_voice;
 mod revalidated;
+mod reviewed;
 mod reviewer;
 mod routed;
 mod run;
 mod sandbox;
+mod talk;
 mod test_runner;
 mod thread;
 mod voice;
@@ -56,16 +57,15 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
-pub use pull_request::{
-    Checks, MaintainerReview, PullRequest, PullRequestState, ReviewComment, Reviewed,
-};
 pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
+pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use run::BranchRun;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
+pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
@@ -203,6 +203,15 @@ pub trait Forge: Send + Sync {
     /// [`ForgeError`] when the forge cannot be asked, has no such pull
     /// request, or its answer cannot be read.
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError>;
+
+    /// What people wrote on pull request `number`: its comments and its
+    /// review threads, resolved ones included
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked, has no such pull
+    /// request, or its answer cannot be read.
+    fn talk(&self, repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError>;
 
     /// The login of the account kelpie acts as, which opens its pull requests
     ///
@@ -471,6 +480,49 @@ pub struct QueueStanding {
     pub removals: u32,
     /// What the forge gave for the latest removal
     pub reason: Option<String>,
+}
+
+/// A pull request as the forge holds it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequest {
+    /// Open, merged or closed
+    pub state: PullRequestState,
+    /// Whether it is still a draft
+    pub draft: bool,
+    /// Its head commit's hash
+    pub head: String,
+    /// Where CI stands on its head
+    pub checks: Checks,
+    /// Its labels' names
+    pub labels: Vec<String>,
+}
+
+/// Whether a pull request is open, merged or closed without merging
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullRequestState {
+    /// Open, draft or not
+    Open,
+    /// Merged
+    Merged,
+    /// Closed without merging
+    Closed,
+}
+
+/// Where CI stands on a pull request's head
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Checks {
+    /// No check has reported on the head
+    None,
+    /// At least one check is still running or queued
+    Pending,
+    /// Every check finished, and none failed
+    Passed,
+    /// Every check finished and was skipped, as a workflow whose jobs all
+    /// skip a draft leaves on one: nothing ran, and it counts as passed once
+    /// the pull request is ready
+    Skipped,
+    /// Every check finished, and these failed
+    Failed(Vec<String>),
 }
 
 /// A label kelpie makes on a project's repo
