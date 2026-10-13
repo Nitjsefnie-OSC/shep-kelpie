@@ -68,6 +68,7 @@ struct Shared {
     models: Vec<String>,
     models_body: Option<String>,
     renewals: Renewals,
+    paddock_status: Option<String>,
     key: Option<String>,
     takes: VecDeque<Take>,
     openai: bool,
@@ -135,6 +136,12 @@ impl StandInEndpoint {
     /// Has `/models` answer `200` with this body, whatever it is
     pub(crate) fn with_models_body(self, body: &str) -> Self {
         self.shared.lock().unwrap().models_body = Some(body.to_owned());
+        self
+    }
+
+    /// Has `/paddock/status` answer with this body, as paddock lists its leases
+    pub(crate) fn with_paddock_status(self, body: &str) -> Self {
+        self.shared.lock().unwrap().paddock_status = Some(body.to_owned());
         self
     }
 
@@ -270,6 +277,10 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
         let keyed = held.key.is_some() && held.key == auth;
         let take = request_line.starts_with("POST ");
         let renewals = held.renewals;
+        let listing = held
+            .paddock_status
+            .clone()
+            .unwrap_or_else(|| "{}".to_owned());
         let scripted = (keyed && take).then(|| {
             held.requests
                 .push(serde_json::from_slice(&body).unwrap_or(Value::Null));
@@ -288,7 +299,7 @@ fn serve(stream: TcpStream, shared: &Mutex<Shared>) {
             }
             (true, true, Some(Take::Status(status, body))) => (status, body.to_owned()),
             (true, true, None) => (200, json!({ "id": "L1", "ttl": "120s" }).to_string()),
-            (true, false, _) if request_line.starts_with("GET ") => (200, "{}".to_owned()),
+            (true, false, _) if request_line.starts_with("GET ") => (200, listing),
             (true, false, _) if request_line.starts_with("PUT ") => match renewals {
                 Renewals::Granted => (204, String::new()),
                 Renewals::Refused(status) => {

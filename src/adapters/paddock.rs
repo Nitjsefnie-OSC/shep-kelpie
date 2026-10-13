@@ -21,13 +21,16 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::forwarder::Upstream;
-use crate::ports::{Ending, KeyCheck, ModelGateway, Stand, Taking, Unheld};
+use crate::ports::{Ending, KeyCheck, ModelGateway, PaddockHolder, Stand, Taking, Unheld};
 
 // Paddock's default is 60s. Twice that rides out one lost renewal.
 const TTL: &str = "120s";
 
 /// How often a take waiting for its grant looks for a reason to give up
 const POLL: Duration = Duration::from_millis(100);
+
+/// How long `status` waits on a gateway's own status, since it is asked while a trigger is answered
+const STATUS_WITHIN: Duration = Duration::from_secs(2);
 
 /// The most of an answer read, in bytes
 const ANSWER_MAX: u64 = 1 << 20;
@@ -97,6 +100,39 @@ pub(crate) fn key_taken(gateway: &Upstream) -> Result<bool, String> {
         401 => Ok(false),
         status => Err(format!("`GET /paddock/status` answered HTTP {status}")),
     }
+}
+
+/// Who holds a lease on `model`, by `GET /paddock/status`
+///
+/// `None` when no lease on the model is held, or one a revoke has ended. A
+/// model that serves one sequence has at most one such lease.
+///
+/// # Errors
+///
+/// Why the gateway did not answer with its status.
+pub(crate) fn holder(gateway: &Upstream, model: &str) -> Result<Option<PaddockHolder>, String> {
+    let asked = ("GET", "/paddock/status");
+    let (status, body) = send(gateway, asked, None, true, STATUS_WITHIN)?;
+    if status != 200 {
+        return Err(format!("`GET /paddock/status` answered HTTP {status}"));
+    }
+    holder_in(&body, model)
+}
+
+// The first lease on `model` in a status body that a revoke has not ended.
+fn holder_in(body: &str, model: &str) -> Result<Option<PaddockHolder>, String> {
+    let read: Value = serde_json::from_str(body)
+        .map_err(|_| "`GET /paddock/status` answered something other than JSON".to_owned())?;
+    let mut held = read["leases"].as_array().into_iter().flatten();
+    let text = |lease: &Value, field: &str| lease[field].as_str().unwrap_or_default().to_owned();
+    Ok(held
+        .find(|l| l["model"] == model && l["revoked"].is_null())
+        .map(|lease| PaddockHolder {
+            lease: text(lease, "id"),
+            client: text(lease, "client"),
+            what: text(lease, "note"),
+            since: text(lease, "since"),
+        }))
 }
 
 /// The gateway port for a paddock, taking its leases on `timing`'s schedule
@@ -442,6 +478,29 @@ mod tests {
         retry: Duration::from_millis(20),
         lapse: Duration::from_secs(5),
     };
+
+    const LEASES: &str = r#"{"leases":[
+        {"id":"L1","client":"a","model":"coder","since":"t1","note":null,"revoked":{"by":"admin","note":"x"}},
+        {"id":"L2","client":"b","model":"other","since":"t2","note":"n","revoked":null},
+        {"id":"L3","client":"c","model":"coder","since":"t3","note":"mine","revoked":null}
+    ],"waiters":[]}"#;
+
+    #[test]
+    fn the_holder_is_the_live_lease_on_the_model() {
+        let holder = holder_in(LEASES, "coder").unwrap().unwrap();
+        assert_eq!(
+            (
+                holder.lease.as_str(),
+                holder.client.as_str(),
+                holder.what.as_str(),
+                holder.since.as_str()
+            ),
+            ("L3", "c", "mine", "t3")
+        );
+        assert_eq!(holder_in(LEASES, "idle"), Ok(None));
+        assert_eq!(holder_in("{}", "coder"), Ok(None));
+        assert!(holder_in("<html>", "coder").is_err());
+    }
 
     const BUSY: &str = r#"{"error":"busy","reason":"qwen is loading"}"#;
 

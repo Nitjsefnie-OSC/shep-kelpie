@@ -21,12 +21,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use super::paddock;
 #[cfg(test)]
 use super::paddock::Timing;
 use super::process::Processes;
+use crate::forwarder::Upstream;
 use crate::lease::gpu::{self, Attempt, Claim, GpuHold, GpuLock, LockHolder};
 use crate::ports::{
-    AgentError, Ending, Finding, LocalLeases, ModelSeat, Reviewer, ReviewerError, RoundStage,
+    AgentError, Ending, Finding, LocalLeases, ModelSeat, PaddockHolder, Reviewer, ReviewerError,
+    RoundStage,
 };
 use crate::settings::{Gateways, LeaseName, LocalRound};
 use crate::worktree::Linked;
@@ -177,6 +180,10 @@ impl LocalLeases for LocalReviewer {
 
     fn holder(&self, lease: &LeaseName) -> Option<LockHolder> {
         GpuLock::named(&self.temp_dir, lease.as_str()).holder()
+    }
+
+    fn paddock_holder(&self, gateway: &Upstream, model: &str) -> Option<PaddockHolder> {
+        paddock::holder(gateway, model).ok().flatten()
     }
 }
 

@@ -928,7 +928,7 @@ impl World {
 const NEEDS: &str = "needs KELPIE_TOOLS=<dir> from `shep kelpie tools install`, \
                      KELPIE_PI_URL=<server>/v1 running qwen3.8:27b, KELPIE_BIN=<kelpie>, \
                      and KELPIE_PI_RECORD=<dir> for what it prints. Run it under \
-                     `kelpie lease run gpu`";
+                     `kelpie lease run gpu --model <model>`";
 
 fn env(name: &str) -> String {
     std::env::var(name).expect(NEEDS)
