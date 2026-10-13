@@ -44,7 +44,9 @@ pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use code_graph::CodeGraph;
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
-pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
+pub use gateway::{
+    Gateway, GatewayKey, GatewayKind, GatewayName, Gateways, KeyVar, ModelHost, Route,
+};
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
