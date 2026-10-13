@@ -345,6 +345,7 @@ fn a_ruling_queued_behind_another_holds_from_its_turn_not_from_its_take_up() {
             ballots: BTreeMap::new(),
             plan: Plan::shadow(RulingName::Merge, work_of(None)),
             answered: None,
+            overtaken: BTreeSet::new(),
         },
     );
     desk.queue.push_back(2);

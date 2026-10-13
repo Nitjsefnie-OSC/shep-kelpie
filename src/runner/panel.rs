@@ -75,6 +75,9 @@ pub(super) struct Desk {
     closed: BTreeMap<u64, Plan>,
 }
 
+// Why a voter ended by the maintainer's answer abstains.
+const OVERTAKEN: &str = "the maintainer answered the ruling first";
+
 // How many closed rulings' plans are kept.
 const CLOSED_KEPT: usize = 32;
 
@@ -89,6 +92,8 @@ struct Open {
     // The ruling as the maintainer answered it, while its panel votes on
     // under `shadow`: its votes go to its line in `rulings.jsonl`
     answered: Option<Ruling>,
+    // Who was ended since the answer came before their vote
+    overtaken: BTreeSet<Voter>,
 }
 
 // How a ruling's panel is asked.
@@ -442,6 +447,7 @@ impl Runner {
             ballots: BTreeMap::new(),
             plan,
             answered: None,
+            overtaken: BTreeSet::new(),
         };
         let open = self.panel_enlist(id, issue, &asked, open);
         let asks = open.waiting.iter().any(|v| *v != Voter::Pm);
@@ -565,6 +571,10 @@ impl Runner {
                 open.ballots.insert(voter, Some(vote));
             }
             Err(why) => {
+                let why = match open.overtaken.contains(&voter) {
+                    true => OVERTAKEN.to_owned(),
+                    false => why,
+                };
                 open.ballots.insert(voter, None);
                 self.notes.push(format!(
                     "ruling {id}: the {} abstains, since {why}",
@@ -601,7 +611,7 @@ impl Runner {
                     return;
                 };
                 match &open.answered {
-                    Some(_) => self.panel_record_late(id, &open.plan, &ballots),
+                    Some(_) => self.panel_record_late(id, &open, &ballots),
                     None => self.panel_conclude(id, &open.plan, ballots),
                 }
                 self.panel.retire(id, open.plan);
@@ -669,15 +679,26 @@ impl Runner {
     // Saves the votes of a ruling the maintainer answered while they were
     // being cast, on its line in `rulings.jsonl`, where `status` counts them
     // against the answer. Under `shadow` they decide nothing.
-    fn panel_record_late(&mut self, id: u64, plan: &Plan, ballots: &[Ballot]) {
+    fn panel_record_late(&mut self, id: u64, open: &Open, ballots: &[Ballot]) {
+        let plan = &open.plan;
         let advice = advice_of(simulate(plan.start, plan.tier, ballots).1);
-        let fields = vec![
+        let overtaken: Vec<Voter> = (ballots.iter())
+            .filter(|b| b.vote.is_none() && open.overtaken.contains(&b.voter))
+            .map(|b| b.voter)
+            .collect();
+        let mut fields = vec![
             ("ballots", serde_json::to_value(ballots).unwrap_or_default()),
             (
                 "verdict",
                 serde_json::to_value(verdict_of(plan, advice)).unwrap_or_default(),
             ),
         ];
+        if !overtaken.is_empty() {
+            fields.push((
+                "overtaken",
+                serde_json::to_value(overtaken).unwrap_or_default(),
+            ));
+        }
         match history::amend(&self.paths.rulings, id, fields) {
             Ok(()) => self.notes.push(format!(
                 "ruling {id}: the panel voted after the answer: {}",
@@ -699,10 +720,12 @@ impl Runner {
         open.answered = Some(ruling);
         // The answer moves its work item on at once, and the worker's vote
         // shares that item's session, so the worker does not wait it out.
-        let why = "the ruling is answered and its work item moves on";
+        if open.waiting.contains(&Voter::Worker) {
+            open.overtaken.insert(Voter::Worker);
+        }
         match self.panel_release_worker(id) {
             Ok(true) => {}
-            Ok(false) => self.panel_abstains(id, Voter::Worker, why.into()),
+            Ok(false) => self.panel_abstains(id, Voter::Worker, OVERTAKEN.into()),
             Err(e) => self.notes.push(format!(
                 "cannot keep the cost of the worker's vote on ruling {id}: {e}"
             )),

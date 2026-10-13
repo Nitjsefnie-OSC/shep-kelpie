@@ -13,31 +13,37 @@ use crate::runner::{Runner, step};
 use crate::settings::Merging;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
-/// A merge ruling under `rulings` whose advisor is held mid-vote while the
-/// worker, the project manager and the researcher vote A. Returns once the
-/// advisor's call is under way, and the rig, runner and the advisor's hold.
-fn advisor_held(project: &str, rulings: &str) -> (Rig, Mutex<Runner>, Hold) {
+/// A merge ruling under `rulings` whose `held` expert is held mid-vote while
+/// the others vote A. Returns once its call is under way, with the rig,
+/// runner and its hold.
+fn held(project: &str, rulings: &str, held: Role) -> (Rig, Mutex<Runner>, Hold) {
     let (rig, runner) = ruling(project, "feat: add it", Merging::Auto, rulings);
     let hold = Hold::default();
-    let reply = leak(says("ADVISOR", 'B', false));
-    rig.claude
-        .script_for(Role::Advisor, [Scripted::HoldThenSay(hold.clone(), reply)]);
-    rig.claude.script_for(
-        Role::Worker,
-        [Scripted::Say(leak(says("WORKER", 'A', false)))],
-    );
-    rig.claude.script_for(
-        Role::Researcher,
-        [Scripted::Say(leak(says("RESEARCHER", 'A', false)))],
-    );
+    for (role, who) in [
+        (Role::Worker, "WORKER"),
+        (Role::Researcher, "RESEARCHER"),
+        (Role::Advisor, "ADVISOR"),
+    ] {
+        let choice = if role == Role::Advisor { 'B' } else { 'A' };
+        let reply = leak(says(who, choice, false));
+        let script = match role == held {
+            true => Scripted::HoldThenSay(hold.clone(), reply),
+            false => Scripted::Say(reply),
+        };
+        rig.claude.script_for(role, [script]);
+    }
     rig.claude
         .script_for(Role::Pm, [Scripted::Say(leak(pm_says('A', false)))]);
     let deadline = Instant::now() + CALL_PATIENCE;
     while !hold.entered(std::time::Duration::from_millis(10)) {
-        assert!(Instant::now() < deadline, "the advisor was never asked");
+        assert!(Instant::now() < deadline, "the held expert was never asked");
         step(&runner).unwrap();
     }
     (rig, runner, hold)
+}
+
+fn advisor_held(project: &str, rulings: &str) -> (Rig, Mutex<Runner>, Hold) {
+    held(project, rulings, Role::Advisor)
 }
 
 /// Steps until `done` holds of ruling 71's line in `rulings.jsonl`
@@ -145,4 +151,26 @@ fn under_panel_an_early_answer_still_ends_the_vote() {
     let line = line_of(&rig).unwrap();
     assert!(line["ballots"].is_null(), "no votes were kept: {line}");
     assert!(line["verdict"].is_null(), "{line}");
+}
+
+#[test]
+fn a_worker_ended_by_the_answer_abstains_as_overtaken_not_as_a_failed_call() {
+    let (rig, runner, _hold) = held("late-worker", SHADOW, Role::Worker);
+
+    rig.ask(&runner, "rule", Some("71 yes"));
+    let line = until_line(&rig, &runner, |l| !l["ballots"].is_null());
+
+    let ballots = line["ballots"].as_array().unwrap();
+    let worker = ballots.iter().find(|b| b["voter"] == "worker").unwrap();
+    assert!(worker["vote"].is_null(), "{line}");
+    assert_eq!(line["overtaken"], serde_json::json!(["worker"]), "{line}");
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains("the worker abstains, since the maintainer answered the ruling first"),
+        "{notes}"
+    );
+    let experts = rig.ask(&runner, "status", None)["panel"]["experts"].clone();
+    assert_eq!(experts["worker"]["overtaken"], 1, "{experts}");
+    assert_eq!(experts["worker"]["abstained"], 0, "{experts}");
+    assert_eq!(experts["advisor"]["votes"], 1, "{experts}");
 }

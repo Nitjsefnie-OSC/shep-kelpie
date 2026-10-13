@@ -11,7 +11,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::panel::{Ballot, Skip, Verdict};
+use crate::panel::{Ballot, Skip, Verdict, Voter};
 use crate::ports::Timestamp;
 use crate::runner::Answer;
 use crate::settings::RulingName;
@@ -67,6 +67,10 @@ pub(in crate::runner) struct Record {
     // Why the panel cast no vote on it, if it listed two options or more and none was cast
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) skipped: Option<Skip>,
+    // Who abstained since the answer came before their vote, which an
+    // expert's failed call does not say
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) overtaken: Vec<Voter>,
 }
 
 impl Record {
@@ -103,6 +107,7 @@ impl Record {
             verdict: ruling.verdict.clone(),
             ballots: ruling.panel.clone().unwrap_or_default(),
             skipped: ruling.skipped,
+            overtaken: Vec::new(),
         }
     }
 
