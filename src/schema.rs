@@ -188,6 +188,7 @@ mod tests {
                 "[app.dogs.kelpie.repo_setup]\nplugins =",
             )
             .replace("# roles =", "roles =")
+            .replace("# parts =", "parts =")
             .replace("# skip =", "skip =")
             .replace("# extra =", "extra =")
             .replace("# command = \"scripts/", "command = \"scripts/")
@@ -248,7 +249,7 @@ mod tests {
         let setup = resolve(&root, &project["properties"]["repo_setup"]);
         let key = |name: &str| resolve(&root, &setup["properties"][name]);
         assert_eq!(key("plugins")["type"], "boolean");
-        for list in ["roles", "skip"] {
+        for list in ["roles", "parts", "skip"] {
             let items = resolve(&root, &key(list)["items"]);
             assert_eq!(key(list)["type"], "array", "{list}");
             assert_eq!(items["type"], "string", "{list}");
