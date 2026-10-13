@@ -11,6 +11,9 @@ pub trait Host: Send + Sync + fmt::Debug {
     /// Whether this machine keeps logins in a keychain a sandboxed command can ask
     fn has_keychain(&self) -> bool;
 
+    /// This machine's operating system, as `std::env::consts::OS` names it
+    fn os(&self) -> &'static str;
+
     /// Whether this shell's environment holds the login token `claude setup-token` makes
     fn login_token(&self) -> bool;
 

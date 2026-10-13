@@ -1,6 +1,7 @@
 //! GitHub, through the `gh` command line
 
 mod access;
+mod app;
 mod board;
 mod contents;
 mod failed;
@@ -13,6 +14,9 @@ pub(crate) mod review_bot;
 mod runs;
 mod thread;
 
+pub use app::GhApps;
+
+use std::path::Path;
 use std::process::Stdio;
 
 use serde::Deserialize;
@@ -96,16 +100,7 @@ impl Forge for Gh {
     }
 
     fn issue(&self, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
-        let number = number.to_string();
-        parse_issue(&gh(&[
-            "issue",
-            "view",
-            &number,
-            "--repo",
-            repo.as_str(),
-            "--json",
-            "title,body,labels,state,parent,blockedBy",
-        ])?)
+        issue(None, repo, number)
     }
 
     fn sub_issues(&self, repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
@@ -113,28 +108,19 @@ impl Forge for Gh {
     }
 
     fn ready_issues(&self, repo: &ForgeSlug) -> Result<Vec<ReadyIssue>, ForgeError> {
-        board::ready_issues(repo)
+        board::ready_issues(None, repo)
     }
 
     fn open_pull_requests(&self, repo: &ForgeSlug) -> Result<Vec<OpenPullRequest>, ForgeError> {
-        board::open_pull_requests(repo)
+        board::open_pull_requests(None, repo)
     }
 
     fn pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<PullRequest, ForgeError> {
-        let number = number.to_string();
-        parse_pull_request(&gh(&[
-            "pr",
-            "view",
-            &number,
-            "--repo",
-            repo.as_str(),
-            "--json",
-            "state,isDraft,headRefOid,statusCheckRollup,labels",
-        ])?)
+        pull_request(None, repo, number)
     }
 
     fn reviewed(&self, repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
-        review::reviewed(repo, number)
+        review::reviewed(None, repo, number)
     }
 
     fn viewer(&self) -> Result<String, ForgeError> {
@@ -253,7 +239,7 @@ impl Forge for Gh {
         number: u64,
         login: Login<'_>,
     ) -> Result<Activity, ForgeError> {
-        review_bot::activity(repo, number, login)
+        review_bot::activity(None, repo, number, login)
     }
 
     fn resolve_thread(&self, _repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
@@ -311,8 +297,63 @@ fn merge_args<'a>(repo: &'a ForgeSlug, number: &'a str, head: &'a str) -> [&'a s
     ]
 }
 
+fn issue(config: Option<&Path>, repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
+    let number = number.to_string();
+    parse_issue(&gh_as(
+        config,
+        &[
+            "issue",
+            "view",
+            &number,
+            "--repo",
+            repo.as_str(),
+            "--json",
+            "title,body,labels,state,parent,blockedBy",
+        ],
+    )?)
+}
+
+fn pull_request(
+    config: Option<&Path>,
+    repo: &ForgeSlug,
+    number: u64,
+) -> Result<PullRequest, ForgeError> {
+    let number = number.to_string();
+    parse_pull_request(&gh_as(
+        config,
+        &[
+            "pr",
+            "view",
+            &number,
+            "--repo",
+            repo.as_str(),
+            "--json",
+            "state,isDraft,headRefOid,statusCheckRollup,labels",
+        ],
+    )?)
+}
+
 fn gh(args: &[&str]) -> Result<Vec<u8>, ForgeError> {
-    let output = crate::spawn::command("gh")
+    gh_as(None, args)
+}
+
+// The variables that hand `gh` a login ahead of its config folder's
+const LOGIN_VARS: [&str; 3] = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"];
+
+/// `gh` with `args`, as the login in the config folder `config` where there is
+/// one, and as the maintainer's own otherwise
+fn gh_as(config: Option<&Path>, args: &[&str]) -> Result<Vec<u8>, ForgeError> {
+    let mut command = crate::spawn::command("gh");
+    if let Some(config) = config {
+        // A token in the environment would win over the folder's.
+        for var in LOGIN_VARS {
+            command.env_remove(var);
+        }
+        command
+            .env("GH_CONFIG_DIR", config)
+            .env("GH_PROMPT_DISABLED", "1");
+    }
+    let output = command
         .args(args)
         .env("GH_DEBUG", "api")
         .stdin(Stdio::null())

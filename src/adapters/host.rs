@@ -20,6 +20,10 @@ impl Host for SystemHost {
         env::consts::OS == "macos"
     }
 
+    fn os(&self) -> &'static str {
+        env::consts::OS
+    }
+
     fn login_token(&self) -> bool {
         env::var(LOGIN_VAR).is_ok_and(|token| LoginToken::new(token).is_some())
     }

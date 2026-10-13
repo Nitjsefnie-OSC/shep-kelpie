@@ -1,10 +1,12 @@
 //! A pull request's branch, what it closes and the maintainer's latest
 //! review, for a rework or an adoption
 
+use std::path::Path;
+
 use serde::Deserialize;
 
 use super::board::{Closes, closed_here};
-use super::{Label, gh, pull_request_state, unreadable};
+use super::{Label, gh, gh_as, pull_request_state, unreadable};
 use crate::ports::{ForgeError, MaintainerReview, ReviewComment, Reviewed};
 use crate::settings::ForgeSlug;
 
@@ -19,21 +21,28 @@ const QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { \
     reviewThreads(last: 100) { nodes { isResolved comments(last: 100) { nodes { \
     body path line pullRequestReview { id } } } } } } } }";
 
-pub(super) fn reviewed(repo: &ForgeSlug, number: u64) -> Result<Reviewed, ForgeError> {
+pub(super) fn reviewed(
+    config: Option<&Path>,
+    repo: &ForgeSlug,
+    number: u64,
+) -> Result<Reviewed, ForgeError> {
     let (owner, name) = repo.as_str().split_once('/').unwrap_or_default();
     parse_reviewed(
-        &gh(&[
-            "api",
-            "graphql",
-            "-f",
-            &format!("query={QUERY}"),
-            "-f",
-            &format!("owner={owner}"),
-            "-f",
-            &format!("name={name}"),
-            "-F",
-            &format!("number={number}"),
-        ])?,
+        &gh_as(
+            config,
+            &[
+                "api",
+                "graphql",
+                "-f",
+                &format!("query={QUERY}"),
+                "-f",
+                &format!("owner={owner}"),
+                "-f",
+                &format!("name={name}"),
+                "-F",
+                &format!("number={number}"),
+            ],
+        )?,
         repo,
     )
 }
@@ -338,7 +347,7 @@ mod tests {
     #[ignore = "asks the real GitHub about shep-pm/shep#617 through gh, about 1 s"]
     fn the_real_gh_answers_the_query_in_the_recorded_shape() {
         let repo = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
-        let pr = reviewed(&repo, 617).unwrap();
+        let pr = reviewed(None, &repo, 617).unwrap();
         assert_eq!(pr.branch, "c/stoic-dijkstra-31dgjs");
         assert!(pr.review.is_some());
     }
