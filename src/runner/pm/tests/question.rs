@@ -190,6 +190,19 @@ fn passed_on(rig: &Rig, runner: &Mutex<Runner>, answer: &'static str) -> String 
 }
 
 #[test]
+fn candidates_are_dropped_where_the_project_has_no_panel_to_vote_on_them() {
+    let (rig, runner) = asking("vulpix", ASKS);
+    let text = passed_on(
+        &rig,
+        &runner,
+        "{\"answer\": {\"item\": 7, \"escalate\": true, \"candidates\": [\"Use --check\", \"Ask the \
+         maintainer\"], \"why\": \"a product call\"}}",
+    );
+    assert!(text.contains("PM says: a product call"), "{text}");
+    assert!(!text.contains("Use --check"), "{text}");
+}
+
+#[test]
 fn passing_a_question_on_puts_its_recommended_choice_first_in_the_list() {
     let (rig, runner) = asking("bulbasaur", CHOICES);
     let text = passed_on(

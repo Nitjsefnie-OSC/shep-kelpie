@@ -19,8 +19,9 @@ use crate::ports::Timestamp;
 use crate::settings::Merging;
 use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
-use crate::worktree;
+use crate::worktree::{self, Remote};
 
+mod act;
 mod prompts;
 mod question;
 mod test_fails;
@@ -52,6 +53,23 @@ pub enum Answer {
     Rework(String),
     /// The answer to the worker's question
     Text(String),
+    /// A ruling's option that names an action: kelpie carries it out, then
+    /// the work item goes on as a yes would send it
+    Do(Action),
+}
+
+/// What kelpie does, in code, when an option that names it is chosen
+///
+/// A ruling lists such an option only when it can be carried out, and its
+/// text says what kelpie will do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Rerun the failed jobs of the head, for a still-red ruling whose failed
+    /// logs name no file the branch changed
+    Rerun,
+    /// Restore the uncommitted change to an agent file in the worktree, for a
+    /// failed turn
+    Restore,
 }
 
 /// Why an answer was refused
@@ -76,6 +94,10 @@ pub enum RuleError {
     Adopt(String, String),
     /// A ruling the panel decided could not be reopened
     Reopen(u64, String),
+    /// The ruling lists no option for this action
+    NotOffered(u64, Action),
+    /// The action an option names could not be carried out
+    Act(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -113,6 +135,10 @@ impl fmt::Display for RuleError {
                 write!(f, "cannot bring the worktree to {}: {e}", short(head))
             }
             Self::Reopen(id, why) => write!(f, "ruling {id} cannot be reopened: {why}"),
+            Self::NotOffered(id, action) => {
+                write!(f, "ruling {id} does not offer to {}", action.verb())
+            }
+            Self::Act(id, why) => write!(f, "ruling {id}: {why}"),
             Self::State(e) => e.fmt(f),
         }
     }
@@ -176,6 +202,8 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         let ruling = next.rulings.remove(at);
+        let act = act::plan(id, &answer, &ruling.kind)?;
+        let asked = act::asked(&ruling, &answer, by);
         // Kept for the researcher once the answer is saved.
         let record = super::panel::Record::of(&ruling, &answer, now, by);
         let outlived = ruling.clone();
@@ -287,8 +315,9 @@ impl Runner {
             (&head_moved, &answer, parked)
             && let RulingKind::ForeignChange { known: seen, .. } = &ruling.kind
         {
-            let tip = worktree::origin_head(&self.settings.git.checkout, &item.branch)
-                .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
+            let tip =
+                worktree::origin_head(&self.settings.git.checkout, &item.branch, &Remote::Origin)
+                    .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
                 let issue = item.issue;
@@ -297,7 +326,14 @@ impl Runner {
                     .map(|()| false);
             }
         }
+        let worktree = parked.map(|item| item.worktree.clone());
         let moved = decide(id, answer, ruling, now, head_moved)?;
+        let did = (act.as_ref())
+            .map(|act| self.carry_out(id, act, worktree.as_deref()))
+            .transpose()?;
+        if let Some(did) = &did {
+            next.record_event(now, format!("{asked}: {did}"));
+        }
         if let Some(item) = next.work_items.iter_mut().find(|item| parked_on(item)) {
             if let (Some(filed), Some(pending)) = (follow_up, item.follow_ups.as_mut()) {
                 if filed {
@@ -310,6 +346,9 @@ impl Runner {
             }
             if accepts.is_some() {
                 item.claude_files_accepted = accepts;
+            }
+            if let Some(act::Act::Rerun { head }) = act {
+                item.reran = Some(head);
             }
             if merge {
                 item.threads_accepted.extend(accepted);
@@ -376,8 +415,15 @@ impl Runner {
                     item.phase = match (from, to) {
                         (Some(from), Some(to)) if from != to => {
                             let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                            worktree::adopt(repo, &item.worktree, branch, &from, &to)
-                                .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
+                            worktree::adopt(
+                                repo,
+                                &item.worktree,
+                                branch,
+                                &from,
+                                &to,
+                                &Remote::Origin,
+                            )
+                            .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
                             Phase::Review(Review::first())
                         }
                         _ => Phase::Ci {
@@ -390,7 +436,7 @@ impl Runner {
                 }
                 Move::Decline { prompt, from, to } => {
                     let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                    worktree::adopt(repo, &item.worktree, branch, &from, &to)
+                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &Remote::Origin)
                         .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
                     item.known.head = Some(to);
                     let review = Some(Phase::Review(Review::first()));
@@ -542,7 +588,7 @@ impl Runner {
 // Returns whether it does; an unchanged head keeps its place.
 fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError> {
     let known = item.known.head.clone();
-    let tip = worktree::origin_head(repo, &item.branch)
+    let tip = worktree::origin_head(repo, &item.branch, &Remote::Origin)
         .map_err(|e| RuleError::Adopt(known.clone().unwrap_or_default(), e.to_string()))?;
     let from = match known {
         Some(known) => known,
@@ -552,8 +598,15 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
     if from == tip && item.known.head.is_some() {
         return Ok(false);
     }
-    worktree::adopt(repo, &item.worktree, &item.branch, &from, &tip)
-        .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
+    worktree::adopt(
+        repo,
+        &item.worktree,
+        &item.branch,
+        &from,
+        &tip,
+        &Remote::Origin,
+    )
+    .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
     item.known.head = Some(tip);
     Ok(true)
 }
@@ -737,6 +790,25 @@ fn decide(
             });
         }
         (Answer::Rework(_), _) => return Err(RuleError::NotAMerge(id)),
+        // The jobs are rerun, so CI is looked at again, in the round it
+        // interrupted when it did.
+        (
+            Answer::Do(Action::Rerun),
+            RulingKind::Stuck(Stuck::StillRed {
+                review: Some(mut review),
+                ..
+            }),
+        ) => {
+            // The checks read red for a moment after a rerun starts.
+            if let Some(ci) = review.ci.as_deref_mut() {
+                ci.since = now;
+            }
+            Phase::Review(review)
+        }
+        (Answer::Do(Action::Rerun), RulingKind::Stuck(Stuck::StillRed { .. })) => Phase::Ci {
+            head: None,
+            since: now,
+        },
         (Answer::No(_), RulingKind::Stuck(Stuck::Unlabelled { .. })) => {
             return Err(RuleError::YesOnly(id));
         }
@@ -751,7 +823,10 @@ fn decide(
         // A turn that had started is resumed with a prompt of its own, and
         // the yes starts its ceiling afresh: the time it spent failing and
         // waiting is not held against it.
-        (Answer::Yes, RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. })) => {
+        (
+            Answer::Yes | Answer::Do(Action::Restore),
+            RulingKind::Stuck(Stuck::TurnFailed { phase, retry, .. }),
+        ) => {
             let turn = match retry {
                 Turn::Running { prompt, .. } => Turn::Next {
                     prompt: prompt.map_or_else(|| FAILED_CONTINUE.to_owned(), failed_again),
@@ -789,6 +864,7 @@ fn decide(
             merged: true,
             closed: false,
         },
+        (Answer::Do(action), _) => return Err(RuleError::NotOffered(id, action)),
         // The test is ended: the note is the worker's turn, and the pass goes on.
         (Answer::No(note), RulingKind::Stuck(Stuck::TestStillFails { fix, head, .. })) => {
             let (prompt, phase) = test_fails::no(ruling.pull_request, fix, &head, &note);

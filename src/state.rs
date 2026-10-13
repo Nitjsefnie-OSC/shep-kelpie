@@ -10,11 +10,13 @@ mod contributions;
 mod events;
 mod numbered;
 mod projects;
+mod red;
 mod removed;
 
 pub use contributions::Contribution;
 pub use events::{BoardEvent, EVENTS_KEPT};
 pub use projects::Projects;
+pub use red::RedWorkflow;
 pub use removed::OldWorker;
 
 use std::collections::BTreeMap;
@@ -34,7 +36,7 @@ use crate::work_item::{Attached, Known, Phase, Priced, Review, Seconds, Tally, T
 /// The name of a project's state file, in its folder
 pub const STATE_FILE: &str = "state.json";
 
-/// The state file's format version. 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
+/// The state file's format version. 44 added the still-red stuck reason's `rerun` and the turn-failed one's `restore`, 43 added `red`, 42 added a ruling's `skipped`, 41 added a test check's `sent_back` and the `test-still-fails` stuck reason, 40 added `contributions`, 39 added a work item's `talked`, 38 named rulings by their work item's number and dropped
 /// `last_ruling`, 37 added the still-red stuck reason's `review`, 36 added a work item's `reran`, 35 added a work item's `test_checks`, 34 added a finding's `test`, 33 added a work item's `budget_raises` and the `over-budget` stuck reason, 32 added a ruling verdict's `risky` and `shadow`, 31 added `order` and `ranked`, 30 added a ruling's `verdict`, 29 added `dropped`, 28 added a ruling's `panel` and `unposted`, 27 added `unmentioned`, 26 added `heard`'s `ruling_comment`, 25 added a work item's `threads_accepted` and a merge ruling's `held_by`, 24 added a work item's `context`, 23 added a review's `ci`, 22 added `heard` and `posted`, 21 added a work item's `thread_answers`, 20 added a work item's `retro`, 19 added `finishing`, 18 added `closed`
 /// to the `done` phase and to a finished work item, 17 added a work item's `pinned` and the
 /// `unlabelled` stuck reason, 16 added a work item's `ci_fix_turns` count and
@@ -49,7 +51,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-pub(crate) const VERSION: u32 = 42;
+pub(crate) const VERSION: u32 = 44;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
@@ -181,6 +183,10 @@ pub struct ProjectState {
     /// from that login too, so these are never read as answers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub posted: Vec<u64>,
+    /// The workflows whose latest completed run on `main` failed, in the order
+    /// they went red
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub red: Vec<RedWorkflow>,
 }
 
 /// How many ids of kelpie's own comments the state file keeps
@@ -240,6 +246,7 @@ impl ProjectState {
             heard: BTreeMap::new(),
             unmentioned: BTreeMap::new(),
             posted: Vec::new(),
+            red: Vec::new(),
         }
     }
 
@@ -577,6 +584,10 @@ pub enum Stuck {
         /// due; a yes goes back to it
         #[serde(default, skip_serializing_if = "Option::is_none")]
         review: Option<Review>,
+        /// Whether the failed logs name no file the branch changed, so the
+        /// ruling offers to rerun the head's failed jobs once more
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        rerun: bool,
     },
     /// The forge refused an automatic merge again after a catch-up. A yes
     /// looks again.
@@ -652,6 +663,11 @@ pub enum Stuck {
         phase: Phase,
         /// The turn as it stood before it failed, which a yes puts back
         retry: Turn,
+        /// The agent files (`.claude/`, `CLAUDE.md`, `AGENTS.md`) the worktree
+        /// holds uncommitted changes to, which the ruling offers to restore
+        /// before the turn resumes
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        restore: Vec<String>,
     },
     /// A work item's priced calls cost more than its cap, so its worker's
     /// next turn did not start. A yes doubles the cap, again while it is

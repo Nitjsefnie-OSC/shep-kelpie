@@ -83,24 +83,28 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 head,
                 checks,
                 fix_turns: None,
+                rerun,
                 ..
             } => format!(
                 "CI failed again on {about} at {}, and the worker pushed \
-                 no fix: {}. {yes} has kelpie look again",
+                 no fix: {}. {yes} has kelpie look again{}",
                 short(head),
-                checks.join(", ")
+                checks.join(", "),
+                reruns(*rerun, &trigger("rerun"))
             ),
             Stuck::StillRed {
                 head,
                 checks,
                 fix_turns: Some(turns),
+                rerun,
                 ..
             } => format!(
                 "CI failed on {about} at {}: {}. {}, and the cap `ci.fix_attempts` sets is \
-                 reached. {yes} has kelpie look again",
+                 reached. {yes} has kelpie look again{}",
                 short(head),
                 checks.join(", "),
-                fix_turns_had(*turns)
+                fix_turns_had(*turns),
+                reruns(*rerun, &trigger("rerun"))
             ),
             Stuck::MergeRefused { head, why } => format!(
                 "Kelpie could not merge {about} at {} after catching it up: {why}. \
@@ -145,10 +149,19 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                      and {no} stops the work item{kept}."
                 );
             }
-            Stuck::TurnFailed { why, .. } => {
+            Stuck::TurnFailed { why, restore, .. } => {
+                let restores = match restore.is_empty() {
+                    true => String::new(),
+                    false => format!(
+                        ", {} restores the uncommitted change to {} in the worktree and then \
+                         tries it again",
+                        trigger("restore"),
+                        restore.join(", ")
+                    ),
+                };
                 return format!(
-                    "The worker's turn on {about} failed: {}. {yes} tries that step again, \
-                     and {no} stops the work item{kept}.",
+                    "The worker's turn on {about} failed: {}. {yes} tries that step again\
+                     {restores}, and {no} stops the work item{kept}.",
                     why.trim()
                 );
             }
@@ -257,6 +270,16 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
         }
     };
     format!("{ask}, and {no} sends the worker your note.")
+}
+
+// What a still-red ruling that offers a rerun says it does, after what a yes does
+fn reruns(offered: bool, trigger: &str) -> String {
+    match offered {
+        true => format!(
+            ", {trigger} reruns the failed jobs of that head once more and then looks again"
+        ),
+        false => String::new(),
+    }
 }
 
 // An amount as dollars and cents

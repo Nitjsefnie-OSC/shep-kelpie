@@ -10,10 +10,10 @@
 //! the option it stood behind as the recommendation. A ruling the panel has
 //! not voted on holds the project manager's words where it gave any.
 
-use super::super::Answer;
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
+use super::super::{Action, Answer};
 use super::merge_notes;
 use crate::panel::Voter;
 use crate::state::{Ruling, RulingKind, Stuck};
@@ -24,6 +24,15 @@ const SENDS_BACK: &str = "Sends the worker back with a note, and the review read
 
 /// What picking an option of a worker's question does, when the worker wrote no effect
 const SENDS_ANSWER: &str = "Sends the worker this answer";
+
+/// The candidate answer that leaves a product call to the maintainer
+///
+/// The panel can vote for it, and a vote for it decides nothing: it is no
+/// answer to send the worker.
+pub(in crate::runner) const ASK_THE_MAINTAINER: &str = "Ask the maintainer";
+
+/// What picking [`ASK_THE_MAINTAINER`] does, in a table
+const LEAVES_IT: &str = "Sends the worker nothing: the maintainer answers in their own words";
 
 /// What a no does to a reviewer's test that still fails
 const ENDS_THE_CHECK: &str = "Sends the worker your note, ends the check and the review goes on";
@@ -118,6 +127,7 @@ pub(in crate::runner) fn chosen(kind: &RulingKind, answer: &Answer) -> Option<ch
         (Answer::Yes, Answer::Yes)
         | (Answer::No(_), Answer::No(_))
         | (Answer::Rework(_), Answer::Rework(_)) => true,
+        (Answer::Do(a), Answer::Do(b)) => a == b,
         (Answer::Text(a), Answer::Text(b)) => a.trim() == b.trim(),
         _ => false,
     };
@@ -133,6 +143,9 @@ pub(in crate::runner) fn chosen(kind: &RulingKind, answer: &Answer) -> Option<ch
 pub(in crate::runner) fn answer_for(kind: &RulingKind, key: char, note: &str) -> Option<Answer> {
     let at = ('A'..='Z').position(|letter| letter == key)?;
     let choice = Card::of(kind).choices.into_iter().nth(at)?;
+    if leaves_it(&choice) {
+        return None;
+    }
     Some(match choice.answer {
         Answer::No(_) => Answer::No(note.to_owned()),
         Answer::Rework(_) => Answer::Rework(note.to_owned()),
@@ -180,7 +193,9 @@ pub(in crate::runner) fn ticked(kind: &RulingKind, body: &str) -> Option<Answer>
         return None;
     };
     let at = ('A'..='Z').position(|letter| key == letter.to_string())?;
-    card.choices.into_iter().nth(at).map(|c| c.answer)
+    (card.choices.into_iter().nth(at))
+        .filter(|c| !leaves_it(c))
+        .map(|c| c.answer)
 }
 
 // Whether the comment lists boxes to tick: a merge ruling's and a question's
@@ -250,12 +265,14 @@ impl Card {
             }
             RulingKind::Stuck(reason) => {
                 let (title, yes, no) = stuck(reason);
+                let mut choices = yes_no(yes, no);
+                choices.extend(acting(reason));
                 Self {
                     problem: None,
                     title: title.to_owned(),
                     facts: (!matches!(reason, Stuck::Unlabelled { .. }))
                         .then(|| stuck_comment(reason)),
-                    choices: yes_no(yes, no),
+                    choices,
                     board: None,
                 }
             }
@@ -280,8 +297,12 @@ impl Card {
                     facts: (!facts.is_empty()).then(|| facts.to_owned()),
                     choices: (options.into_iter())
                         .map(|(option, effect)| {
-                            let answer = Answer::Text(option.trim_matches('`').to_owned());
-                            choice(&option, effect.as_deref().unwrap_or(SENDS_ANSWER), answer)
+                            let answer = Answer::Text(unticked(&option).to_owned());
+                            let does = match asks_the_maintainer(&option) {
+                                true => LEAVES_IT,
+                                false => SENDS_ANSWER,
+                            };
+                            choice(&option, effect.as_deref().unwrap_or(does), answer)
                         })
                         .collect(),
                     board,
@@ -408,6 +429,32 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
     }
 }
 
+// The option a stuck ruling lists for an action kelpie can carry out, which
+// says what kelpie will do
+fn acting(reason: &Stuck) -> Option<Choice> {
+    match reason {
+        Stuck::StillRed {
+            head, rerun: true, ..
+        } => Some(choice(
+            "Rerun",
+            &format!(
+                "Reruns the failed jobs of {} once more, and kelpie looks at CI again",
+                short(head)
+            ),
+            Answer::Do(Action::Rerun),
+        )),
+        Stuck::TurnFailed { restore, .. } if !restore.is_empty() => Some(choice(
+            "Restore",
+            &format!(
+                "Restores the uncommitted change to {} in the worktree, then resumes the turn",
+                restore.join(", ")
+            ),
+            Answer::Do(Action::Restore),
+        )),
+        _ => None,
+    }
+}
+
 fn choice(name: &str, does: &str, answer: Answer) -> Choice {
     Choice {
         name: name.to_owned(),
@@ -435,6 +482,24 @@ struct Asking {
     options: Vec<(String, Option<String>)>,
     /// What the project manager's `PM board:` line says
     board: Option<String>,
+}
+
+// `option` without the backticks that wrap all of it, if they do; one that
+// ends on code, such as ``Use `--check` ``, keeps its own.
+fn unticked(option: &str) -> &str {
+    let inner = option.strip_prefix('`').and_then(|o| o.strip_suffix('`'));
+    inner.filter(|o| !o.contains('`')).unwrap_or(option)
+}
+
+/// Whether `option` is the candidate that leaves a question to the maintainer
+pub(in crate::runner) fn asks_the_maintainer(option: &str) -> bool {
+    let option = option.trim().trim_matches('`').trim_end_matches('.');
+    option.eq_ignore_ascii_case(ASK_THE_MAINTAINER)
+}
+
+// Whether answering with `choice` sends the worker nothing.
+fn leaves_it(choice: &Choice) -> bool {
+    asks_the_maintainer(&choice.name)
 }
 
 // A worker's question without the project manager's lines, split into what it
@@ -642,10 +707,28 @@ fn answering(login: &str, number: u64, kind: &RulingKind, choices: &[Choice]) ->
         }
         Wants::YesOrNo => {
             lines.push("- 👍 answers yes, 👎 answers no".to_owned());
-            lines.push(format!("- Or reply `{number} yes` or `{number} no <note>`"));
+            let mut replies = vec![format!("`{number} yes`"), format!("`{number} no <note>`")];
+            replies.extend(actions(choices).map(|word| format!("`{number} {word}`")));
+            lines.push(format!("- Or reply {}", or_list(&replies)));
         }
     }
     lines.join("\n")
+}
+
+// The words that choose the options of `choices` that name an action
+fn actions(choices: &[Choice]) -> impl Iterator<Item = &'static str> + '_ {
+    choices.iter().filter_map(|c| match c.answer {
+        Answer::Do(action) => Some(action.word()),
+        _ => None,
+    })
+}
+
+// `items` as "a or b", or "a, b or c"
+fn or_list(items: &[String]) -> String {
+    match items {
+        [rest @ .., last] if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        _ => items.join(""),
+    }
 }
 
 // A ruling that mentions no one is answered at the terminal only.
@@ -656,7 +739,11 @@ fn unmentioned(number: u64, kind: &RulingKind, choices: &[Choice]) -> String {
         Wants::Merge if needs_pass(kind) => format!("`{rule} yes` or `{rule} no <note>`"),
         Wants::Merge => format!("`{rule} yes`, `{rule} no <note>` or `{rule} rework <note>`"),
         Wants::YesOrNo if choices.len() == 1 => format!("`{rule} yes`"),
-        Wants::YesOrNo => format!("`{rule} yes` or `{rule} no <note>`"),
+        Wants::YesOrNo => {
+            let mut forms = vec![format!("`{rule} yes`"), format!("`{rule} no <note>`")];
+            forms.extend(actions(choices).map(|word| format!("`{rule} {word}`")));
+            or_list(&forms)
+        }
     };
     format!(
         "This ruling mentions no one, so a reaction, a tick or a reply here answers nothing. \

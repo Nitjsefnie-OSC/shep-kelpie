@@ -8,7 +8,9 @@
 //! woken as it is for anything else, and answers when it does.
 //!
 //! A panel runs for a ruling once a project names an advisor or a
-//! researcher, and the ruling lists two options or more. The ruling's comment
+//! researcher, and the ruling lists two options or more. A worker's question
+//! that lists fewer first gets candidate answers from the project manager,
+//! which are its options (#709). The ruling's comment
 //! waits for its votes, for [`HOLD`] at most, and then lists them. A vote
 //! kelpie cannot read, or an expert that could not be asked, is an
 //! abstention, and is logged. An expert the project does not name is not on

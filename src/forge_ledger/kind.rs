@@ -62,6 +62,8 @@ pub enum Kind {
     FailedRunLogs,
     /// The latest completed CI run of each workflow on a branch
     BranchRuns,
+    /// The repo's workflows, listed
+    Workflows,
     /// The end of one CI run's failed log
     RunLogTail,
     /// The failed jobs of a head's CI runs rerun
@@ -138,6 +140,7 @@ impl Kind {
                 | Self::OpenIssues
                 | Self::FailedRunLogs
                 | Self::BranchRuns
+                | Self::Workflows
                 | Self::RunLogTail
                 | Self::ReviewBot
                 | Self::MergeQueue
@@ -189,6 +192,7 @@ impl Kind {
             | Self::EditPullRequest
             | Self::FailedRunLogs
             | Self::BranchRuns
+            | Self::Workflows
             | Self::RunLogTail
             | Self::RerunFailed
             | Self::AppWorkerToken

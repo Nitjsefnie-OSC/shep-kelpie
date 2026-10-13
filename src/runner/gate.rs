@@ -23,7 +23,7 @@ use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
 use crate::work_item::{Phase, Review, Turn, foreign_change};
-use crate::worktree::{self, Base};
+use crate::worktree::{self, Base, Remote};
 
 // GitHub registers the checks a push or a ready pull request starts within
 // seconds, one at a time. Kelpie trusts a rollup once two minutes have passed.
@@ -217,6 +217,7 @@ impl Runner {
         let item = self.current().expect("CI runs on a work item");
         if item.red_head.as_deref() == Some(head.as_str()) {
             let fix_turns = None;
+            let rerun = self.rerun_offered(&head);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -224,6 +225,7 @@ impl Runner {
                     checks,
                     fix_turns,
                     review,
+                    rerun,
                 }
                 .into(),
             );
@@ -241,6 +243,7 @@ impl Runner {
             .is_some_and(|cap| turns >= cap)
         {
             let fix_turns = Some(turns);
+            let rerun = self.rerun_offered(&head);
             return self.raise(
                 number,
                 Stuck::StillRed {
@@ -248,6 +251,7 @@ impl Runner {
                     checks,
                     fix_turns,
                     review,
+                    rerun,
                 }
                 .into(),
             );
@@ -299,8 +303,13 @@ impl Runner {
     /// Where `head` stands against `origin`, or why git could not say
     pub(super) fn base_of(&self, head: &str) -> Result<Base, String> {
         let item = self.current().expect("a base is of a work item");
-        worktree::base_of(&self.settings.git.checkout, &item.branch, head)
-            .map_err(|e| format!("cannot fetch main: {e}"))
+        worktree::base_of(
+            &self.settings.git.checkout,
+            &item.branch,
+            head,
+            &Remote::Origin,
+        )
+        .map_err(|e| format!("cannot fetch main: {e}"))
     }
 
     // A head no gate vouched for, such as one a yes under `ask` left before
