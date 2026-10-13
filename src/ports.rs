@@ -973,8 +973,7 @@ pub struct Ports {
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
-    /// The hold and pace of the login's forge calls, shared with every
-    /// runner on it where the dog keeps it
+    /// The login's forge hold and pace, kept by the dog where it is reached
     pub pace: Arc<dyn Pace>,
     /// The repo of every project in the flock, whose names a post to a public
     /// repo leaves out when GitHub marks them private
