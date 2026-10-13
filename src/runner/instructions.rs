@@ -55,7 +55,7 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 
 /// The instructions file for one worker turn
 ///
-/// Kelpie's own, naming the `kelpie` binary and the deferred findings file, then the skills the worker
+/// Kelpie's own, naming the `kelpie` binary and the deferred and disputed findings files, then the skills the worker
 /// writes tests and its pull request's body with, then the agent's
 /// instructions, then the project's. A pull request template in the
 /// worktree stands in for the body's skill.
@@ -65,8 +65,14 @@ pub(super) fn compose(
     skills: &Skills,
     kelpie: &Path,
     deferred_file: &Path,
+    disputed_file: &Path,
 ) -> String {
-    let mut text = profile::instructions(kelpie, extra.pull_request_file, deferred_file);
+    let mut text = profile::instructions(
+        kelpie,
+        extra.pull_request_file,
+        deferred_file,
+        disputed_file,
+    );
     let mut lines = Vec::new();
     if let Some(tdd) = skills.command(Step::Tests) {
         lines.push(format!(
@@ -216,7 +222,8 @@ mod tests {
     // Kelpie's own instructions, naming the binary the rig says kelpie is
     fn kelpies(rig: &Rig) -> String {
         let deferred = rig.build_7().join("deferred-findings.md");
-        profile::instructions(Path::new(Rig::KELPIE), None, &deferred)
+        let disputed = rig.build_7().join("disputed-findings.md");
+        profile::instructions(Path::new(Rig::KELPIE), None, &deferred, &disputed)
     }
 
     // The instructions file the worker's first turn was started with
@@ -265,6 +272,16 @@ mod tests {
         let path = rig.build_7().join("deferred-findings.md");
         assert!(text.contains(&format!("`{}`", path.display())), "{text}");
         assert!(!text.contains("{deferred}"), "{text}");
+    }
+
+    #[test]
+    fn the_first_turn_names_the_disputed_findings_file_the_next_reader_is_shown() {
+        let rig = Rig::new("koji");
+        let runner = rig.open().unwrap();
+        let text = first_instructions(&rig, &runner);
+        let path = rig.build_7().join("disputed-findings.md");
+        assert!(text.contains(&format!("`{}`", path.display())), "{text}");
+        assert!(!text.contains("{disputed}"), "{text}");
     }
 
     #[test]
@@ -390,6 +407,7 @@ mod tests {
             &skills,
             Path::new(Rig::KELPIE),
             Path::new("deferred-findings.md"),
+            Path::new("disputed-findings.md"),
         );
         let at = |needle: &str| text.find(needle).expect(needle);
         assert!(at("/mattpocock:tdd") < at("pull request template"));
@@ -412,6 +430,7 @@ mod tests {
                 &skills,
                 Path::new(Rig::KELPIE),
                 Path::new("deferred-findings.md"),
+                Path::new("disputed-findings.md"),
             ),
             compose(
                 Extra::default(),
@@ -419,6 +438,7 @@ mod tests {
                 &skills,
                 Path::new(Rig::KELPIE),
                 Path::new("deferred-findings.md"),
+                Path::new("disputed-findings.md"),
             ),
         );
         assert_eq!(blank, none);

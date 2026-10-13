@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Runner;
 use super::report::StepReport;
 use crate::pacer::Scope;
-use crate::ports::{AgentError, AgentReply, Finding, Session, SessionId, Timestamp};
+use crate::ports::{AgentError, AgentReply, COMPACT, Finding, Session, SessionId, Timestamp};
 use crate::settings::PmAgent;
 use crate::state::StateError;
 use crate::usage::CallKind;
@@ -69,9 +69,6 @@ const DOWN_FOR: u64 = 10 * 60;
 /// How long a pick of none holds the board with no work item open, in
 /// seconds, before the board rule picks
 pub(super) const NOTHING_FOR: u64 = 30 * 60;
-
-/// What `/compact` is sent as
-pub(super) const COMPACT: &str = "/compact";
 
 /// Why the project manager is woken
 #[derive(Debug, Clone, PartialEq, Eq)]

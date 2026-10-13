@@ -20,6 +20,7 @@ mod axes;
 pub(super) mod calls;
 mod checks;
 mod criteria;
+pub(super) mod disputes;
 pub(super) mod findings;
 #[cfg(test)]
 mod foreign;
@@ -214,7 +215,7 @@ impl Runner {
             }
             _ => None,
         };
-        let prompt = prompts::reviewer_prompt(
+        let mut prompt = prompts::reviewer_prompt(
             body,
             &base,
             &diff,
@@ -223,6 +224,7 @@ impl Runner {
             ask.as_ref()
                 .map(|(command, folder, tool)| (*command, folder.as_path(), *tool)),
         );
+        prompt.push_str(&prompts::disputes_note(&item.disputes));
         let call = calls::reviewer_call(issue, &worktree, &self.paths.worker, model, prompt, tests);
         match call.and_then(|call| self.prepared(call)) {
             Ok(call) => {
@@ -313,7 +315,15 @@ impl Runner {
                         let tests: Vec<_> = failing.into_iter().map(|f| f.test).collect();
                         let prompt = findings::still_failing_prompt(number, round, build, &tests);
                         let fix = Fix::Review(review);
-                        return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
+                        return self.raise(
+                            number,
+                            Stuck::FixNotPushed {
+                                fix,
+                                prompt,
+                                said: None,
+                            }
+                            .into(),
+                        );
                     }
                     // A size-skipped file's notice an older kelpie sent is no finding.
                     let count = (sent.findings.iter())
@@ -322,7 +332,19 @@ impl Runner {
                     if sent.findings.iter().all(Finding::is_nit) {
                         return self.went_unfixed(number, review, Unfixed::NitsDeclined(count));
                     }
-                    match findings::all_deferred(build, sent) {
+                    let already = (self.current()).map_or_else(Vec::new, |i| i.disputes.clone());
+                    let answers = match disputes::answers(build, sent, round, &already) {
+                        Ok(answers) => answers,
+                        Err(reason) => return Ok(self.gate_failed(reason)),
+                    };
+                    let said = answers.said(sent.findings);
+                    let repeated = answers.repeated();
+                    if let Some(settled) = answers.settled() {
+                        let unfixed = self.disputed_by(&review, sent, settled);
+                        return self.went_unfixed(number, review, unfixed);
+                    }
+                    // A finding disputed again is never a deferral that goes on.
+                    match findings::all_deferred(build, sent).map(|all| all && !repeated) {
                         Ok(true) => {
                             return self.went_unfixed(number, review, Unfixed::Deferred(count));
                         }
@@ -331,10 +353,13 @@ impl Runner {
                     }
                     let prompt = findings::again_prompt(number, round, &path, threads);
                     let fix = Fix::Review(review);
-                    return self.raise(number, Stuck::FixNotPushed { fix, prompt }.into());
+                    return self.raise(number, Stuck::FixNotPushed { fix, prompt, said }.into());
                 }
                 // A fix that moved the head answers the bot threads it was sent, by what the worker said.
                 Ok(now) => {
+                    if let Some(reason) = self.record_pushed_disputes(&review, sent)? {
+                        return Ok(self.gate_failed(reason));
+                    }
                     match self.answer_sent(number, true)? {
                         Answered::Done => {}
                         Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
@@ -410,6 +435,9 @@ impl Runner {
         let issue = self.current().expect("a fix is a work item's").issue;
         let round = review.round;
         let mut left_open = None;
+        if let Unfixed::Disputed { disputes, .. } = &unfixed {
+            self.update(|item| disputes::record(item, disputes))?;
+        }
         match self.answer_sent(number, false)? {
             Answered::Done => {}
             Answered::Retry(reason) => return Ok(self.gate_failed(reason)),
@@ -430,6 +458,13 @@ impl Runner {
                 issue,
                 pull_request: number,
                 round,
+                deferred,
+            },
+            Unfixed::Disputed { disputes, deferred } => StepReport::FindingsDisputed {
+                issue,
+                pull_request: number,
+                round,
+                disputed: disputes.len(),
                 deferred,
             },
             Unfixed::NitsDeclined(nits) => StepReport::NitsDeclined {
@@ -650,6 +685,10 @@ impl Runner {
         if result.is_ok() && matches!(review.stage, ReviewStage::Round) {
             item.counts.review_rounds = item.counts.review_rounds.saturating_add(1);
         }
+        // A reader the disputes were in the prompt of has read them once its round ends.
+        if result.is_ok() && !local_round {
+            disputes::mark_shown(item);
+        }
 
         // The script writes a line for a file it could not review, and still
         // finishes the round: those lines are not findings.
@@ -818,6 +857,11 @@ impl Runner {
 enum Unfixed {
     // The worker deferred every one as out of scope.
     Deferred(usize),
+    // The worker showed some wrong, each with a reason, and deferred the rest.
+    Disputed {
+        disputes: Vec<disputes::Raised>,
+        deferred: usize,
+    },
     // Every one was a nit, which the worker may decline.
     NitsDeclined(usize),
 }

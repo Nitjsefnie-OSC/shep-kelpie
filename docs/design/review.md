@@ -18,13 +18,13 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Round reads only pushed head; dirty worktree gets one turn to push, then parks `unpushed` (CI and merge take `origin`'s head). #290
 - Merge trusts only heads a round read or kelpie sent to CI unread on purpose; others raise `unread_head`. #290
 - A maintainer's yes to a merge ruling vouches for its head, so kelpie's catch-up with `main` before the merge carries the vouching and raises no second ruling; a no or a rework vouches for nothing. #668
-- Fix turn counts only if it moves `origin` head, unless it deferred all or got only nits; else parks `fix-not-pushed`. #40, #354
+- Fix turn counts only if it moves `origin` head, unless every finding is deferred or disputed with a reason (`disputed-findings.md`), or it got only nits; else parks `fix-not-pushed`, naming what was disputed and deferred. A dispute goes to the next reviewer, or one pull request comment when none follows; a second dispute of the same finding parks. #40, #354, #802
 - Clean reply is exactly `CLEAN`. #314
 - Local `command`/`endpoint` reviewers per project, checked at start; `endpoint` chunks diff by `context`; `command` keeps qwen script contract. #107
 - Local reviewer holds no lock (`lease` refused, no `/api/ps` check, no `local-model-spilled`); running round never preempted (kill wastes the work). #145, #502
 - One finding shape for every reviewer kind; bots are one provider with a tested profile each. #123
 - With `ci.test_command`, a reviewer on any harness may attach a failing test, held to `review-tests` in the build folder: Claude Code with `Write`, pi with `write` (held by the guard extension's `kelpie confine`), Codex with `apply_patch` (its shell is off; the `^apply_patch$` hook runs `kelpie confine` on the folder). The test runs before/after fix and is recorded. Still failing after the fix: worker gets one more fix turn on it (`sent_back` on the check), then `stuck` `test-still-fails`; yes = one more turn, no = check ends and pass goes on. Timeout or not run never acts. Public line names no output. #517, #518, #519
-- Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped). `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `src/runner/follow_up.rs`
+- Deferred finding kelpie sent is filed after merge in kelpie's words (nits dropped); a disputed one never, even if also deferred. `git.issues`: `ask` (default, `follow-up` ruling), `file` (as `needs-triage`; auto-filed were often false), `skip`. #142, #380, #384, `src/runner/follow_up.rs`
 
 ## Bots
 
