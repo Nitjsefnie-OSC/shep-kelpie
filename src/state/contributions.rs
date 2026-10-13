@@ -38,8 +38,9 @@ pub struct Contribution {
     /// nothing is spent.
     #[serde(default, skip_serializing_if = "Cost::is_free")]
     pub spend: Cost,
-    /// How many over-budget rulings were answered, each of which doubled the
-    /// cap. Left out while none was.
+    /// How many times the cap was doubled: once for each answered over-budget
+    /// ruling, and again while the spend was still above it. Left out while
+    /// none was.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub budget_raises: u32,
 }

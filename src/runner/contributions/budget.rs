@@ -2,7 +2,7 @@
 //!
 //! Each call's priced cost adds to the contribution's `spend`, over every head.
 //! The cap is checked before a call starts, so a call already running is never
-//! interrupted. At `budget.per_item_usd` no further call starts: a
+//! interrupted. Once the spend is past `budget.per_item_usd` no further call starts: a
 //! `contribution` ruling for `over-budget` asks the maintainer, and an answer
 //! doubles the cap, as for a work item.
 

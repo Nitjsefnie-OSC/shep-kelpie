@@ -120,11 +120,19 @@ pub(in crate::runner) fn raise_budget(
     ruling: &Ruling,
     per_item: PerItemUsd,
 ) -> bool {
-    let (Answer::Yes | Answer::No(_), RulingKind::Contribution(Held::OverBudget { .. })) =
-        (answer, &ruling.kind)
-    else {
-        return false;
+    let noted = match answer {
+        Answer::Yes => true,
+        Answer::No(note) => !note.trim().is_empty(),
+        _ => false,
     };
+    if !noted
+        || !matches!(
+            ruling.kind,
+            RulingKind::Contribution(Held::OverBudget { .. })
+        )
+    {
+        return false;
+    }
     let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
     if let Some(followed) = followed {
         followed.raise_budget(per_item);

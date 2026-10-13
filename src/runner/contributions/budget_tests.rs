@@ -229,3 +229,16 @@ fn a_yes_or_a_no_with_a_note_doubles_the_cap() {
     assert_eq!(contribution(&rig, &runner)["budget_raises"], 2);
     assert_eq!(rulings(&rig, &runner).len(), 0);
 }
+
+#[test]
+fn a_no_without_a_note_does_not_raise_the_cap() {
+    let (rig, runner) = over_its_cap();
+
+    let refused = rig.ask(&runner, "rule", Some("30 no"));
+
+    assert!(refused.get("error").is_some(), "{refused}");
+    assert_eq!(rulings(&rig, &runner).len(), 1, "the ruling still waits");
+    assert_eq!(contribution(&rig, &runner).get("budget_raises"), None);
+    poll(&rig, &runner);
+    assert_eq!(reviews(&rig).len(), 1);
+}
