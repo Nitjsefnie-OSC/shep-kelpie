@@ -14,7 +14,8 @@
 //! security review has read is read ([`security`]) before anything of the
 //! contributor's can run ([`ruling`] raises one for a flagged head). A head
 //! that passed, and whose CI is green, is then read by the reviewers
-//! ([`pass`]). Nothing is posted and nothing of the contributor's runs here.
+//! ([`pass`]). A quiet clock runs while the head's results wait on the contributor
+//! ([`clock`]). Nothing is posted and nothing of the contributor's runs here.
 //!
 //! A contribution holds no slot while it waits on its contributor. A call on
 //! it takes one for as long as it runs, starts only where a slot is free, and
@@ -26,12 +27,14 @@
 mod bots;
 mod budget;
 mod ci;
+mod clock;
 mod heard;
 mod pass;
 mod ruling;
 mod security;
 
 pub(super) use bots::waiting_on;
+pub use clock::Followed;
 pub(super) use ruling::{flagged_lines, raise_budget, trust};
 
 use crate::ports::{Agents, Ending, Reviewer};
@@ -220,7 +223,8 @@ impl Runner {
             self.give_up_asks(&asked)?;
         }
         self.follow_ci()?;
-        self.follow_bots()
+        self.follow_bots()?;
+        self.follow_clock()
     }
 }
 
@@ -228,6 +232,8 @@ impl Runner {
 pub(in crate::runner) mod budget_tests;
 #[cfg(test)]
 mod ci_tests;
+#[cfg(test)]
+mod clock_tests;
 #[cfg(test)]
 mod heard_tests;
 #[cfg(test)]

@@ -100,6 +100,13 @@ pub struct Contribution {
     /// none was.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub budget_raises: u32,
+    /// Since when kelpie has waited on the contributor for the current head
+    ///
+    /// Set when findings were recorded, a bot's threads are open, or CI went
+    /// red, and moved to now by the contributor's word. Left out while kelpie
+    /// waits on no one, and after a push.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<Timestamp>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -228,6 +235,7 @@ impl Contribution {
             heard: Vec::new(),
             context: Vec::new(),
             reviews_from: None,
+            waiting_since: None,
         }
     }
 
@@ -281,6 +289,8 @@ impl Contribution {
             ci: None,
             pass: None,
             walking: None,
+            // The head's own results start it again
+            waiting_since: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -313,6 +323,33 @@ impl Contribution {
     pub fn latest(&self) -> Timestamp {
         let times = self.heard.iter().chain(&self.context).map(Said::at);
         times.chain([self.seen]).max().unwrap_or(self.seen)
+    }
+
+    /// Whether the current head's results leave the next move to the
+    /// contributor: CI is red, the reviewers found something, or a bot's
+    /// threads are open, nits included
+    pub fn waits_on_contributor(&self) -> bool {
+        let red = |ci: &Ci| ci.head == self.head && matches!(ci.state, CiState::Red(_));
+        let open = |pass: &Pass| {
+            pass.head == self.head && !(pass.findings.is_empty() && pass.nits.is_empty())
+        };
+        self.ci.as_ref().is_some_and(red) || self.pass.as_ref().is_some_and(open)
+    }
+
+    /// Starts or clears the quiet clock to match the current head's results,
+    /// leaving a running one where it is
+    pub fn follow_clock(&mut self, now: Timestamp) {
+        self.waiting_since = match self.waits_on_contributor() {
+            true => self.waiting_since.or(Some(now)),
+            false => None,
+        };
+    }
+
+    /// The contributor's word: a running clock starts over at `now`
+    pub fn restart_clock(&mut self, now: Timestamp) {
+        if self.waiting_since.is_some() {
+            self.waiting_since = Some(now);
+        }
     }
 
     /// Whether the security review has read the current head
