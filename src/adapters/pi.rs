@@ -167,7 +167,7 @@ impl Agents for PiCli {
             // The forwarder stays until the call has ended.
             let (mut command, _forwarder) = self.sandboxed_command(call, lease)?;
             (self.processes)
-                .output_telling(&mut command, Some(ending), &spawned)
+                .output_of_call(&mut command, call, ending, &spawned)
                 .map_err(|e| match e {
                     RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
                     RunError::Stopped => AgentError::Stopped,
