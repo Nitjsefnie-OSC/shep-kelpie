@@ -23,6 +23,12 @@ impl FakeForge {
         &self.pull_request_reads
     }
 
+    /// Makes pull request `number` a draft again, or not, as someone other than kelpie would
+    pub(crate) fn set_draft(&self, number: u64, draft: bool) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        prs.get_mut(&number).expect("an opened pull request").draft = draft;
+    }
+
     pub(super) fn count_review(&self, number: u64) {
         let mut counts = self.review_counts.lock().unwrap();
         *counts.entry(number).or_default() += 1;
@@ -67,6 +73,7 @@ impl FakeForge {
                 checks: view.map_or(Checks::None, |v| v.checks),
                 from_fork: fake.from_fork,
                 author: fake.author,
+                author_is_bot: fake.author_is_bot,
                 marks: ReviewMarks {
                     reviews: reviews.unwrap_or_default(),
                     threads: 0,

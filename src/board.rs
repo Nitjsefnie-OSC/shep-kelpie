@@ -774,6 +774,7 @@ mod tests {
             checks: Checks::None,
             from_fork: false,
             author: "someone".into(),
+            author_is_bot: false,
             marks: ReviewMarks::default(),
         }];
         let pick = pick(

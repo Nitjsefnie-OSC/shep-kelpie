@@ -470,10 +470,42 @@ fn a_version_38_file_loads_with_no_comment_handled_and_saves_at_the_current_vers
     assert_eq!(saved["version"], VERSION);
 }
 
-// A version 39 file has no `skipped`: its rulings loaded as any panel may
+#[test]
+fn an_older_state_file_loads_with_no_contributions() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 39.into();
+    assert_eq!(old.get("contributions"), None);
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    assert_eq!(loaded.contributions, []);
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+}
+
+#[test]
+fn a_followed_contribution_survives_a_save_and_a_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut state = ProjectState::new();
+    state.contributions.push(Contribution {
+        pull_request: 12,
+        author: "newcomer".into(),
+        head: "2a8f1e6".into(),
+        seen: Timestamp(1_790_000_000),
+    });
+    store.save(&state).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state));
+}
+
+// A version 40 file has no `skipped`: its rulings loaded as any panel may
 // still vote on them, and a skip saved since is kept as the runner left it.
 #[test]
-fn a_version_39_file_loads_with_no_skips_and_a_skip_is_kept() {
+fn a_version_40_file_loads_with_no_skips_and_a_skip_is_kept() {
     use crate::panel::Skip;
 
     let dir = tempfile::tempdir().unwrap();
@@ -494,7 +526,7 @@ fn a_version_39_file_loads_with_no_skips_and_a_skip_is_kept() {
         raised: None,
     });
     let mut old = serde_json::to_value(&state).unwrap();
-    old["version"] = 39.into();
+    old["version"] = 40.into();
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let mut loaded = store.load().unwrap().expect("a saved state");
