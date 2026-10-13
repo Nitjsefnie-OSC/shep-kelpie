@@ -6,7 +6,7 @@
 //! issue view` and `list` on this repo, and `gh api` on an issue's id and
 //! its sub-issue and blocked-by links, each as plain words. It runs no git:
 //! the session reads the repo with Read, Grep and Glob. Every issue it
-//! files carries the status label kelpie names, exactly one `agent:` label
+//! files carries the status label kelpie names, at most one `agent:` label,
 //! naming a listed implementer, and an acceptance criteria section, and no
 //! title or body names this machine. It edits and links only the issues
 //! the session filed, as its ledger records them.

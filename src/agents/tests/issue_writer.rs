@@ -23,7 +23,7 @@ fn kelpies_issue_writer_is_opus_at_medium_with_its_rules_as_its_prompt() {
         "`Touches:` line",
         "only after its links are in",
         "## Acceptance criteria",
-        "Exactly one `agent:<name>` label",
+        "At most one `agent:<name>` label",
     ] {
         assert!(prompt.contains(rule), "{rule}");
     }

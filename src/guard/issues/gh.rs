@@ -147,13 +147,16 @@ fn create(
     }
     let labels = labels(flags.all("--label"))?;
     let agents: Vec<&str> = labels.iter().filter_map(|l| agent_of(l)).collect();
-    let [agent] = agents.as_slice() else {
+    // No `agent:` label leaves the issue to the default implementer.
+    if agents.len() > 1 {
         return Err(format!(
-            "an issue carries exactly one `{AGENT_LABEL}<name>` label, naming {}.",
+            "an issue carries at most one `{AGENT_LABEL}<name>` label, naming {}.",
             listed(rules)
         ));
-    };
-    named_agent(agent, rules)?;
+    }
+    for agent in agents {
+        named_agent(agent, rules)?;
+    }
     if !labels.iter().any(|l| l.eq_ignore_ascii_case(&rules.status)) {
         return Err(format!("file the issue with the label `{}`.", rules.status));
     }
@@ -198,7 +201,7 @@ fn edit(args: &[String], rules: &IssueRules, ledger: &Ledger) -> Result<(), Stri
     let agents: Vec<&str> = added.iter().filter_map(|l| agent_of(l)).collect();
     if agents.len() > 1 {
         return Err(format!(
-            "an issue carries exactly one `{AGENT_LABEL}<name>` label."
+            "an issue carries at most one `{AGENT_LABEL}<name>` label."
         ));
     }
     for agent in agents {

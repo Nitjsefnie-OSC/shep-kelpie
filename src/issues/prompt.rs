@@ -33,7 +33,8 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
              open, and then write each acceptance criterion as if your recommended \
              answer holds.\n\n\
              File every issue with `{status}`, which holds it for the maintainer to \
-             read before any agent takes it.\n\n\
+             read before any agent takes it, and with the `{AGENT_LABEL}` label you \
+             recommend.\n\n\
              When you have filed everything, end with one JSON object and nothing \
              else:\n\
              {{\"filed\": [<each issue's number, a parent first>], \"note\": \"<one \
@@ -47,10 +48,13 @@ pub fn instructions(writer: &Writer, project: &Project<'_>, mode: Mode) -> Strin
              request, round by round, until nothing is left silently assumed. Research \
              the repo before you ask. {FACTS}\n\n\
              File nothing until the maintainer confirms you share an understanding. \
-             Then propose the issues: each one's title, what it delivers, its agent and \
-             what blocks it. Ask whether the scope and any split are right, and file only \
-             what the maintainer agrees, with `{status}`, which puts it on kelpie's \
-             board. Then list what you filed, by number.\n\n\
+             Then propose the issues: each one's title, what it delivers, its priority \
+             and what blocks it. Ask whether the scope and any split are right. Then \
+             preview the `{AGENT_LABEL}` label you would put on each, and ask whether to \
+             apply those, apply none, or change some: an issue with none goes to the \
+             default implementer. File only what the maintainer agrees, with `{status}`, \
+             which puts it on kelpie's board, and only the agent labels they agreed. \
+             Then list what you filed, by number.\n\n\
              You are in a checkout of a docs branch cut from `origin/main`. As decisions \
              settle, `domain-modeling` writes terms to `GLOSSARY.md` and records ADRs \
              in `docs/adr/`: write them here. Those are the only files you may write, \
@@ -99,7 +103,7 @@ pub fn implementers(agents: &RoleAgents) -> String {
     let lines: Vec<String> = std::iter::once(default).chain(rest).map(line).collect();
     format!(
         "The implementers this project lists, the default first. Each issue's \
-         `{AGENT_LABEL}` label names one of them, and no other:\n\n{}",
+         `{AGENT_LABEL}` label, where it has one, names one of them, and no other:\n\n{}",
         lines.join("\n")
     )
 }
@@ -112,9 +116,11 @@ fn commands(status: &str) -> String {
          pipes, redirects or variables. Kelpie's guard refuses anything else, git \
          included.\n\n\
          - File an issue: `gh issue create --title '<title>' --label '{status}' --label \
-         '{AGENT_LABEL}<name>' --body-file - <<'EOF'`, then the body's lines, then `EOF`\n\
+         '<priority label>' --label '{AGENT_LABEL}<name>' --body-file - <<'EOF'`, then the \
+         body's lines, then `EOF`. Leave out the `{AGENT_LABEL}` label for none, and the \
+         priority label where the repo sets no priority rules\n\
          - Change the agent of an issue you filed: `gh issue edit <number> --remove-label \
-         '{AGENT_LABEL}<old>' --add-label '{AGENT_LABEL}<new>'`\n\
+         '{AGENT_LABEL}<old>' --add-label '{AGENT_LABEL}<new>'`, or either flag alone\n\
          - Read this repo's issues: `gh issue view <number>`, `gh issue list --search \
          '<words>'`\n\
          - An issue's id, which a link takes: `gh api \

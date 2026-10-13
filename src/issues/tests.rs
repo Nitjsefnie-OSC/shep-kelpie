@@ -352,6 +352,11 @@ fn the_prompt_lists_the_implementers_default_first_and_how_each_mode_ends() {
         "it talks to the maintainer"
     );
     assert!(!interactive.contains("Open questions"), "{interactive}");
+    // The maintainer sees the agent labels before any goes on, and may take none.
+    assert!(
+        interactive.contains("preview the `agent:` label") && interactive.contains("apply none"),
+        "{interactive}"
+    );
     for word in [
         "`grill-with-docs`",
         "`GLOSSARY.md`",
