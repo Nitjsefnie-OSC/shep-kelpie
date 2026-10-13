@@ -108,22 +108,20 @@ fn a_round_above_a_nit_sends_every_finding_for_one_fix_and_the_next_reviewer_rea
     let (rig, runner) = at_round_1("shep");
 
     rig.reviewer.script([ScriptedRound::Findings(vec![
-        Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: "the flag is misnamed".into(),
-            why: "it reads as its opposite".into(),
-            test: None,
-        },
-        Finding {
-            severity: Severity::Low,
-            file: "src/lib.rs".into(),
-            line: 9,
-            what: "unused variable".into(),
-            why: "dead code".into(),
-            test: None,
-        },
+        Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            3,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        ),
+        Finding::new(
+            Severity::Low,
+            "src/lib.rs",
+            9,
+            "unused variable",
+            "dead code",
+        ),
     ])]);
     let report = step(&runner).unwrap(); // round 1's qwen call
     assert!(

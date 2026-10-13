@@ -424,14 +424,14 @@ fn a_finding_without_a_test_is_never_run() {
 }
 
 fn finding_testing(path: &str) -> Finding {
-    Finding {
-        severity: Severity::Medium,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "the flag is read first".into(),
-        why: "a caller sees nothing".into(),
-        test: Some(path.to_owned()),
-    }
+    Finding::new(
+        Severity::Medium,
+        "src/lib.rs",
+        3,
+        "the flag is read first",
+        "a caller sees nothing",
+    )
+    .with_test(path)
 }
 
 // The path comes from the state file, which is read as it stands.

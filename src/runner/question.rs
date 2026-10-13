@@ -309,14 +309,14 @@ mod tests {
         rig.claude.script([Scripted::Push("work.txt", "work\n")]);
         step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
 
-        rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-            severity: Severity::Medium,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: "unused variable".into(),
-            why: "dead code".into(),
-            test: None,
-        }])]);
+        rig.reviewer
+            .script([ScriptedRound::Findings(vec![Finding::new(
+                Severity::Medium,
+                "src/lib.rs",
+                3,
+                "unused variable",
+                "dead code",
+            )])]);
         step(&runner).unwrap(); // round 1's qwen call
         step(&runner).unwrap(); // the finding goes to the worker
 

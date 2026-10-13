@@ -135,14 +135,13 @@ fn finding(thread: &Thread) -> Finding {
         (None, Some(n)) => format!("cubic's confidence is {n} of 10."),
         (None, None) => String::new(),
     };
-    Finding {
+    Finding::new(
         severity,
-        file: thread.path.clone(),
-        line: thread.line.unwrap_or(0),
-        what: one_line(text),
+        thread.path.clone(),
+        thread.line.unwrap_or(0),
+        one_line(text),
         why,
-        test: None,
-    }
+    )
 }
 
 #[cfg(test)]

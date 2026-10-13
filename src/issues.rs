@@ -437,21 +437,20 @@ fn call(
     )?;
     reach.read.push(scratch);
     Ok(AgentCall {
-        role: ports::Role::IssueWriter,
-        harness: writer.model.harness.clone(),
-        issue: 0,
-        model: writer.model.model.as_str().to_owned(),
-        effort: writer.model.effort,
-        session: Session::New(session.clone()),
-        cwd: checkout.to_owned(),
         settings,
         instructions: Some(prompt_file),
-        prompt: format!("The maintainer's request:\n\n{}", request.trim()),
         plugin_dirs: plugins.to_vec(),
-        tools: Tools::Issues,
-        agent_tools: None,
         reach,
-        compact_window: None,
+        ..AgentCall::new(
+            ports::Role::IssueWriter,
+            Tools::Issues,
+            writer.model.harness.clone(),
+            writer.model.model.as_str().to_owned(),
+            writer.model.effort,
+            Session::New(session.clone()),
+            checkout.to_owned(),
+            format!("The maintainer's request:\n\n{}", request.trim()),
+        )
     })
 }
 

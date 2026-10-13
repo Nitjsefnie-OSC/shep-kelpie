@@ -195,14 +195,8 @@ impl Job {
 // What kelpie flags without asking a model: a path a model cannot read, and a
 // diff too long for one to read whole.
 fn flagged_in_code(change: &Change) -> Vec<Finding> {
-    let finding = |file: &str, what: String, why: String| Finding {
-        severity: Severity::High,
-        file: file.to_owned(),
-        line: 0,
-        what,
-        why,
-        test: None,
-    };
+    let finding =
+        |file: &str, what: String, why: String| Finding::new(Severity::High, file, 0, what, why);
     let mut found: Vec<Finding> = (change.opaque.iter())
         .map(|touched| {
             finding(

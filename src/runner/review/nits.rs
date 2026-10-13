@@ -7,14 +7,13 @@ use crate::runner::{StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn nit() -> Finding {
-    Finding {
-        severity: Severity::Low,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "unused variable".into(),
-        why: "dead code".into(),
-        test: None,
-    }
+    Finding::new(
+        Severity::Low,
+        "src/lib.rs",
+        3,
+        "unused variable",
+        "dead code",
+    )
 }
 
 // The worker's first turn has pushed and the review's first round is due.

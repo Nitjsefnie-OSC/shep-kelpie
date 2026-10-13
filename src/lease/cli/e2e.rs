@@ -40,12 +40,8 @@ async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) ->
 // What the dog is asked: to run the e2e tests for the project holding `worktree`.
 fn ask(worktree: PathBuf) -> Ask {
     Ask {
-        take: E2E.into(),
-        pid: std::process::id(),
-        what: "shep-kelpie lease e2e".into(),
-        running: false,
         worktree: Some(worktree),
-        forge: None,
+        ..Ask::new(E2E, std::process::id(), "shep-kelpie lease e2e")
     }
 }
 

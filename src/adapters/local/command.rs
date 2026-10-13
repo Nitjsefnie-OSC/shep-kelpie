@@ -415,14 +415,13 @@ esac
             reviewer
                 .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
                 .unwrap(),
-            vec![Finding {
-                severity: Severity::Medium,
-                file: "sub/dir/big.rs".into(),
-                line: 5,
-                what: "leftover debug print".into(),
-                why: "noisy logs".into(),
-                test: None,
-            }]
+            vec![Finding::new(
+                Severity::Medium,
+                "sub/dir/big.rs",
+                5,
+                "leftover debug print",
+                "noisy logs"
+            )]
         );
     }
 
@@ -510,14 +509,13 @@ esac
         let out = home.path().join("out");
         let reviewer = LocalReviewer::default();
 
-        let skip = Finding {
-            severity: Severity::Low,
-            file: "nope.rs".into(),
-            line: 0,
-            what: "not reviewed: 900 lines exceeds the chunk limit".into(),
-            why: "split the file or review it by hand".into(),
-            test: None,
-        };
+        let skip = Finding::new(
+            Severity::Low,
+            "nope.rs",
+            0,
+            "not reviewed: 900 lines exceeds the chunk limit",
+            "split the file or review it by hand",
+        );
         assert_eq!(
             reviewer
                 .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
@@ -575,24 +573,21 @@ esac
         assert_eq!(
             findings,
             vec![
-                Finding {
-                    severity: Severity::Medium,
-                    file: "src/lib.rs".into(),
-                    line: 9,
-                    what: "a real finding".into(),
-                    why: "it matters".into(),
-                    test: None,
-                },
-                Finding {
-                    severity: Severity::Low,
-                    file: "sub/big.rs".into(),
-                    line: 0,
-                    what: "not reviewed: the local round failed: curl: (7) Failed to connect to \
-                            gpu.box port 8080"
-                        .into(),
-                    why: "the hunk's review failed".into(),
-                    test: None,
-                },
+                Finding::new(
+                    Severity::Medium,
+                    "src/lib.rs",
+                    9,
+                    "a real finding",
+                    "it matters"
+                ),
+                Finding::new(
+                    Severity::Low,
+                    "sub/big.rs",
+                    0,
+                    "not reviewed: the local round failed: curl: (7) Failed to connect to \
+                     gpu.box port 8080",
+                    "the hunk's review failed",
+                ),
             ]
         );
         assert!(findings[1].is_unreviewed());
@@ -660,14 +655,13 @@ esac
 
     #[test]
     fn only_the_scripts_own_skip_placeholder_is_treated_as_skipped_for_size() {
-        let skip = Finding {
-            severity: Severity::Low,
-            file: "big.rs".into(),
-            line: 0,
-            what: "not reviewed: 900 lines exceeds the chunk limit".into(),
-            why: "split the file or review it by hand".into(),
-            test: None,
-        };
+        let skip = Finding::new(
+            Severity::Low,
+            "big.rs",
+            0,
+            "not reviewed: 900 lines exceeds the chunk limit",
+            "split the file or review it by hand",
+        );
         assert!(skip.is_skipped_for_size());
 
         let real_low = Finding {

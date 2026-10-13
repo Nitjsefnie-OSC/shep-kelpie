@@ -240,18 +240,9 @@ impl Runner {
         let kind = RulingKind::Stuck(Stuck::Unlabelled { why });
         let question = super::super::ruling::question(issue, None, &kind);
         next.rulings.push(Ruling {
-            id,
             issue: Some(issue),
-            question: question.clone(),
-            pull_request: None,
-            kind,
-            alerted: false,
-            panel: None,
-            verdict: None,
-            unposted: false,
-            skipped: None,
-            effects: Vec::new(),
             raised: Some(names.now),
+            ..Ruling::new(id, question.clone(), kind)
         });
         self.save(next)?;
         Ok(StepReport::Unlabelled {

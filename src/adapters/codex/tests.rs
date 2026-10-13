@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use super::*;
 use crate::adapters::SandboxRuntime;
-use crate::ports::{Reach, Role, Unreadable};
+use crate::ports::{Role, Unreadable};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
@@ -739,21 +739,18 @@ impl World {
 
     fn call(&self, role: Role, session: Session) -> AgentCall {
         AgentCall {
-            harness: AgentHarness::Codex,
-            role,
             issue: 7,
-            model: "gpt-6-sol".into(),
-            effort: Effort::Medium,
-            session,
-            cwd: self.path("wt"),
             settings: self.path("worker/settings.json"),
-            instructions: None,
-            prompt: String::new(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Answer,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                role,
+                Tools::Answer,
+                AgentHarness::Codex,
+                "gpt-6-sol",
+                Effort::Medium,
+                session,
+                self.path("wt"),
+                String::new(),
+            )
         }
     }
 

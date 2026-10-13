@@ -294,14 +294,7 @@ mod tests {
     #[test]
     fn every_review_stage_is_pinned() {
         let value = |s: ReviewStage| serde_json::to_value(s).unwrap();
-        let finding = Finding {
-            severity: crate::ports::Severity::High,
-            file: "a.rs".into(),
-            line: 3,
-            what: "bad".into(),
-            why: "breaks".into(),
-            test: None,
-        };
+        let finding = Finding::new(crate::ports::Severity::High, "a.rs", 3, "bad", "breaks");
         assert_eq!(
             value(ReviewStage::SecondLook {
                 first: vec![finding.clone()],

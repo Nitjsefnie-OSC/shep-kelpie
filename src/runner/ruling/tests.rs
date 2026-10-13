@@ -414,13 +414,14 @@ fn a_yes_on_a_fix_turn_that_failed_before_starting_sends_the_findings_again() {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     step(&runner).unwrap();
-    let finding = |line| crate::ports::Finding {
-        severity: crate::ports::Severity::Medium,
-        file: "src/lib.rs".into(),
-        line,
-        what: "the flag is misnamed".into(),
-        why: "it reads as its opposite".into(),
-        test: None,
+    let finding = |line| {
+        crate::ports::Finding::new(
+            crate::ports::Severity::Medium,
+            "src/lib.rs",
+            line,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )
     };
     rig.reviewer
         .script([ScriptedRound::Findings((1..=5).map(finding).collect())]);
