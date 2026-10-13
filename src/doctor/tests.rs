@@ -74,7 +74,7 @@ struct Scene {
 
 impl Scene {
     async fn new() -> Self {
-        let shepherd = FakeShepherd::new().await;
+        let shepherd = FakeShepherd::new();
         let forge = FakeForge::new(PathBuf::from("/nowhere"));
         forge.set_repo_labels(&[
             "bug",
@@ -137,6 +137,7 @@ impl Scene {
     }
 
     async fn check(&self, ask: Ask<'_>) -> Report {
+        let dial = self.shepherd.dial();
         let probes = Probes {
             meter: &self.meter,
             codex_meter: &|_: &Path| Box::new(self.codex_meter.clone()) as Box<dyn Meter>,
@@ -147,6 +148,7 @@ impl Scene {
             alerts: &self.alerts,
             host: &self.host,
             clock: &self.clock,
+            shepherd: &*dial,
         };
         let here = Here {
             home: &self.home,
@@ -459,7 +461,7 @@ async fn a_machine_without_the_sandbox_runtime_is_told_to_install_it() {
 
 #[tokio::test]
 async fn a_shepherd_on_another_minor_names_both_versions_and_no_project_is_checked() {
-    let shepherd = FakeShepherd::on("0.13.0").await;
+    let shepherd = FakeShepherd::on("0.13.0");
     let mut scene = Scene::new().await;
     scene.shepherd = shepherd;
 
@@ -482,6 +484,7 @@ async fn a_shepherd_on_another_minor_names_both_versions_and_no_project_is_check
 async fn no_shepherd_is_a_missing_shepherd_naming_its_home() {
     let scene = Scene::new().await;
     let elsewhere = tempfile::tempdir().unwrap();
+    let dial = scene.shepherd.dial();
     let probes = Probes {
         meter: &scene.meter,
         codex_meter: &|_: &Path| Box::new(scene.codex_meter.clone()) as Box<dyn Meter>,
@@ -492,6 +495,7 @@ async fn no_shepherd_is_a_missing_shepherd_naming_its_home() {
         alerts: &scene.alerts,
         host: &scene.host,
         clock: &scene.clock,
+        shepherd: &*dial,
     };
     let here = Here {
         home: &scene.home,

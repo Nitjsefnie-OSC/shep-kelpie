@@ -9,8 +9,8 @@
 //! command and file write. pi starts no MCP servers. The sandbox allows no
 //! model host: pi's calls go to a forwarder outside it, which passes the
 //! server only the chat completions call. A model behind a gateway gets the
-//! gateway's key from the forwarder, and a worker's turn on one holds a
-//! paddock lease on its model from start to end.
+//! gateway's key from the forwarder, and each call on one holds a paddock
+//! lease on its model from start to end.
 
 use std::ffi::OsString;
 use std::net::{IpAddr, ToSocketAddrs};
@@ -30,7 +30,7 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy, Role,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Policy,
     Sandbox, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
@@ -158,21 +158,17 @@ impl Agents for PiCli {
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
         // The forwarder and the lease stay until the call has ended.
         let (mut command, _forwarder) = self.sandboxed_command(call)?;
-        let mut lease = self.gateway_lease(call, ending)?;
         let label = call.label();
         let spawned = |pid| {
             if let Some(lambs) = &self.lambs {
                 lambs.label(pid, &label);
             }
         };
-        let run = self
-            .processes
-            .output_telling(&mut command, Some(ending), &spawned);
-        // A lease the gateway took back ended the call, whatever the run says of it. Finishing it first settles that no later renewal can end the call.
-        if let Some(why) = lease.as_mut().and_then(paddock::Lease::finish) {
-            return Err(AgentError::Failed(PI, why));
-        }
-        let output = run.map_err(|e| match e {
+        let run = || {
+            self.processes
+                .output_telling(&mut command, Some(ending), &spawned)
+        };
+        let output = self.leased(call, ending, run)?.map_err(|e| match e {
             RunError::Io(e) => AgentError::Spawn(PI, e.to_string()),
             RunError::Stopped => AgentError::Stopped,
             RunError::TimedOut => AgentError::TimedOut(PI),
@@ -202,47 +198,45 @@ impl PiCli {
             .map_err(AgentError::Setup)
     }
 
-    // A worker's turn on a gateway's model holds a lease on it, so the
-    // gateway evicts nothing it runs on midway. Its ceiling counts from the grant.
-    fn gateway_lease(
+    // A call on a gateway's model holds a lease on it, so the gateway
+    // evicts nothing it runs on midway and queues the call behind any other
+    // lease. Its ceiling counts from the grant. A lease the gateway took back
+    // ended the call, whatever the run says of it.
+    fn leased<T>(
         &self,
         call: &AgentCall,
         ending: &Ending,
-    ) -> Result<Option<paddock::Lease>, AgentError> {
+        run: impl FnOnce() -> T,
+    ) -> Result<T, AgentError> {
         let server = server(call)?;
         let ModelHost::Gateway(name) = &server.host else {
-            return Ok(None);
+            return Ok(run());
         };
-        if call.role != Role::Worker {
-            return Ok(None);
-        }
         let upstream = self.upstream(server)?;
         let note = format!("kelpie {}", call.label());
-        let give_up = || ending.asked() || self.processes.stopping();
-        let busy = || ending.wait(Wait::Busy);
-        let timing = paddock::Timing::RUNNER;
-        ending.wait(Wait::Lease);
-        let taken = paddock::Lease::take(
-            &upstream,
-            &call.model,
-            &note,
-            &give_up,
-            &busy,
+        let tell = |stand| match stand {
+            paddock::Stand::Asking | paddock::Stand::Turn => ending.wait(Wait::Lease),
+            paddock::Stand::Busy => ending.wait(Wait::Busy),
+            paddock::Stand::Granted => ending.begin(),
+        };
+        let taking = paddock::Taking {
+            gateway: &upstream,
+            model: &call.model,
+            note: &note,
+            give_up: &|| ending.asked() || self.processes.stopping(),
+            tell: &tell,
             ending,
-            timing,
-        );
-        match taken {
-            Ok(Some(lease)) => {
-                ending.begin();
-                Ok(Some(lease))
-            }
-            Ok(None) if self.processes.stopping() => Err(AgentError::Stopped),
-            Ok(None) => Err(AgentError::TimedOut(PI)),
-            Err(why) => Err(AgentError::Setup(format!(
+            timing: paddock::Timing::RUNNER,
+        };
+        taking.around(run).map_err(|unheld| match unheld {
+            paddock::Unheld::GaveUp if self.processes.stopping() => AgentError::Stopped,
+            paddock::Unheld::GaveUp => AgentError::TimedOut(PI),
+            paddock::Unheld::Refused(why) => AgentError::Setup(format!(
                 "cannot take a lease on {} from gateway {name}: {why}",
                 call.model
-            ))),
-        }
+            )),
+            paddock::Unheld::Lost(why) => AgentError::Failed(PI, why),
+        })
     }
 
     fn sandboxed_command(&self, call: &AgentCall) -> Result<(Command, Forwarder), AgentError> {

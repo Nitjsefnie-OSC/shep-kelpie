@@ -2,6 +2,7 @@
 
 use super::{EXAMPLE, parse, parse_err};
 use crate::ports::Role;
+use crate::settings::Part;
 
 fn with(keys: &str) -> String {
     format!("{EXAMPLE}\n[app.dogs.kelpie.repo_setup]\n{keys}\n")
@@ -97,5 +98,34 @@ fn a_marketplace_is_written_kind_colon_address() {
             serde_json::json!({ "source": { "source": "git", "url": "https://h/r.git" } }),
             serde_json::json!({ "source": { "source": "directory", "path": "plugins/y" } }),
         ]
+    );
+}
+
+#[test]
+fn every_part_of_a_plugin_loads_unless_parts_narrows_it() {
+    let setup = parse(EXAMPLE).unwrap().repo_setup;
+    for part in [
+        Part::Skills,
+        Part::Agents,
+        Part::Commands,
+        Part::Hooks,
+        Part::Mcp,
+    ] {
+        assert!(setup.loads(part), "{part:?}");
+    }
+    let setup = parse(&with("parts = [\"skills\", \"agents\"]"))
+        .unwrap()
+        .repo_setup;
+    assert!(setup.loads(Part::Skills) && setup.loads(Part::Agents));
+    assert!(!setup.loads(Part::Hooks) && !setup.loads(Part::Commands) && !setup.loads(Part::Mcp));
+}
+
+#[test]
+fn a_part_a_plugin_lacks_is_refused() {
+    let err = parse_err(&with("parts = [\"themes\"]"));
+    assert!(err.contains("repo_setup.parts"), "{err}");
+    assert!(
+        err.contains("skills, agents, commands, hooks or mcp"),
+        "{err}"
     );
 }

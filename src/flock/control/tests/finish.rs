@@ -18,7 +18,7 @@ async fn finished(shepherd: &FakeShepherd) -> (Result<Vec<String>, String>, Vec<
 
 #[tokio::test]
 async fn finish_sends_the_runner_finish_and_names_the_items_still_open() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[FINISHING]);
     let (lines, said) = finished(&shepherd).await;
@@ -39,7 +39,7 @@ async fn finish_sends_the_runner_finish_and_names_the_items_still_open() {
 
 #[tokio::test]
 async fn finish_names_the_adoptions_left_waiting_for_the_next_start() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let waiting = r#"{"project":"koji","run":"finishing","work_items":[{"issue":7}],
         "adopted":[{"pull_request":40,"by_label":false},{"pull_request":41,"by_label":true}]}"#;
@@ -53,7 +53,7 @@ async fn finish_names_the_adoptions_left_waiting_for_the_next_start() {
 
 #[tokio::test]
 async fn finish_with_no_item_open_says_the_runner_stops_now() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says(
         "koji",
@@ -69,7 +69,7 @@ async fn finish_with_no_item_open_says_the_runner_stops_now() {
 
 #[tokio::test]
 async fn finish_waits_for_a_runner_still_starting() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[FINISHING]);
     shepherd.just_started("koji");
@@ -81,7 +81,7 @@ async fn finish_waits_for_a_runner_still_starting() {
 
 #[tokio::test]
 async fn finishing_a_stopped_runner_prints_an_object_with_json() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     let client = client(&shepherd).await;
     let say = &mut |_| {};
@@ -99,7 +99,7 @@ async fn finishing_a_stopped_runner_prints_an_object_with_json() {
 
 #[tokio::test]
 async fn finishing_a_stopped_runner_changes_nothing() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     let (lines, _) = finished(&shepherd).await;
     assert_eq!(
@@ -111,7 +111,7 @@ async fn finishing_a_stopped_runner_changes_nothing() {
 
 #[tokio::test]
 async fn finish_passes_on_a_runner_s_refusal() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[r#"{"error":"unknown action `finish`"}"#]);
     let (err, _) = finished(&shepherd).await;
@@ -120,7 +120,7 @@ async fn finish_passes_on_a_runner_s_refusal() {
 
 #[tokio::test]
 async fn finish_leaves_a_sheep_that_is_not_kelpie_s_alone() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     shepherd.holds(AppConfig::minimal("koji", "/usr/bin/koji"), true);
     let (err, _) = finished(&shepherd).await;
     let err = err.unwrap_err();
@@ -131,7 +131,7 @@ async fn finish_leaves_a_sheep_that_is_not_kelpie_s_alone() {
 #[tokio::test]
 async fn start_on_a_runner_finishing_sends_it_start() {
     for run in ["finishing", "finished"] {
-        let mut shepherd = FakeShepherd::new().await;
+        let mut shepherd = FakeShepherd::new();
         runner(&shepherd, "koji", Path::new("/src/koji"), true);
         shepherd.holds_dog("kelpie", true);
         let held = format!(r#"{{"project":"koji","run":"{run}"}}"#);
@@ -146,7 +146,7 @@ async fn start_on_a_runner_finishing_sends_it_start() {
 
 #[tokio::test]
 async fn start_passes_on_a_runner_still_stopping_itself() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.holds_dog("kelpie", true);
     let refused = r#"{"error":"the runner finished and is stopping its sheep"}"#;
@@ -161,7 +161,7 @@ async fn start_passes_on_a_runner_still_stopping_itself() {
 
 #[tokio::test]
 async fn pause_clears_finishing_just_before_its_stop() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let drained = r#"{"run":"finishing","work_items":[{"issue":7,"phase":{"state":"implement"}}],
         "draining":{"calls":[],"ceiling":3600}}"#;
@@ -179,7 +179,7 @@ async fn pause_clears_finishing_just_before_its_stop() {
 
 #[tokio::test]
 async fn status_marks_a_runner_finishing() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let both = r#"{"run":"finishing","draining":{"calls":[],"ceiling":3600}}"#;
     shepherd.says("koji", &[FINISHING, both]);

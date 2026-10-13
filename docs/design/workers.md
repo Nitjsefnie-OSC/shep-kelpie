@@ -20,7 +20,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Worker asks with a `<kelpie-question>` block ending its message; parks on `question` ruling with optional `- ` choices. #13
 - `shep kelpie attach <issue>` hands a Claude Code worker's session to maintainer without `bypassPermissions`; held by pid + start time (reused pid holds nothing). #325
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, text in the instructions, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
-- Out-of-scope finds named in final message; deferred review findings in deferred findings file; PR stays on its issue. `src/runner/follow_up.rs`
+- Out-of-scope finds named in final message; deferred review findings in deferred findings file, whose path the instructions name; PR stays on its issue. #649, `src/runner/follow_up.rs`
 
 ## Fence
 
@@ -41,8 +41,8 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 
 - Every step runs a skill: mattpocock/skills vendored + pinned in `skills/`, kelpie prompts as fallback; `[skills]` overrides a step. #147, `src/skills.rs`
 - Skills byte-identical; kelpie headless rules win (decide and record, no sub-agents, kelpie reply format, no own `/code-review`). Skill that can't load runs kelpie prompt, logged (unknown slash command passes as text). #170, #147
-- Plugins enabled in `.claude/settings.json` on `origin/main` reach every agent (skills only for now), never from a worker branch. Sources: plain git transports, no `-` or `::` addresses, no links or `..` (default branch settings aren't maintainer's alone). #569, #570
-- `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any (applied in `Runner::prepared`), `skip` drops `name@marketplace` ids, `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. The CLI's headless issue writer isn't the runner, so it loads them itself into a per-run folder. #571
+- Plugins enabled in `.claude/settings.json` on `origin/main` reach every agent (skills, agents, commands and hooks; MCP is slice 5), never from a worker branch. Sources: plain git transports, no `-` or `::` addresses, no links or `..` (default branch settings aren't maintainer's alone). #569, #570
+- `[app.dogs.kelpie.repo_setup]` narrows them: `plugins = false` drops the repo's, `roles` picks the calls that get any (applied in `Runner::prepared`), `skip` drops `name@marketplace` ids, `parts` picks which of a plugin's parts load (a plugin's hooks stay in its own `hooks/hooks.json`, beside the call's settings file's hooks, never in it, so they cannot replace kelpie's), `extra` adds ids with a one-string source (`github:o/n#ref`, `git:url`, `directory:dir`) that lookout can edit. The CLI's headless issue writer isn't the runner, so it loads them itself into a per-run folder. #571
 
 ## Not built
 

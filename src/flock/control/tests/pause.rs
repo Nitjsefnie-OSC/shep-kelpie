@@ -35,7 +35,7 @@ async fn paused(
 
 #[tokio::test]
 async fn pause_stops_the_runner_once_its_calls_end() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[RUNNING_7, RUNNING_7, RUNNING_7, DRAINED]);
     let (ran, said) = paused(&shepherd, FAST, Interrupt::Never).await;
@@ -66,7 +66,7 @@ async fn pause_stops_the_runner_once_its_calls_end() {
 
 #[tokio::test]
 async fn pause_waits_out_a_merge_in_flight() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[DRAINED, DRAINED, MERGING, DRAINED]);
     let (ran, said) = paused(&shepherd, FAST, Interrupt::Never).await;
@@ -83,7 +83,7 @@ async fn pause_waits_out_a_merge_in_flight() {
 
 #[tokio::test]
 async fn pause_leaves_an_attached_session_running_and_says_so() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[ATTACHED]);
     let (ran, _) = paused(&shepherd, FAST, Interrupt::Never).await;
@@ -100,7 +100,7 @@ async fn pause_leaves_an_attached_session_running_and_says_so() {
 
 #[tokio::test]
 async fn a_call_that_outlasts_its_ceiling_leaves_the_runner_running_and_undrained() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[RUNNING_7]);
     let patience = Patience {
@@ -124,7 +124,7 @@ async fn a_call_that_outlasts_its_ceiling_leaves_the_runner_running_and_undraine
 
 #[tokio::test]
 async fn a_ctrl_c_while_the_runner_drains_undrains_it() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[RUNNING_7]);
     let ctrl_c = Interrupt::After(Duration::from_millis(100));
@@ -140,7 +140,7 @@ async fn a_ctrl_c_while_the_runner_drains_undrains_it() {
 
 #[tokio::test]
 async fn pause_waits_for_a_runner_still_starting_then_drains_it() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[DRAINED]);
     shepherd.just_started("koji");
@@ -159,7 +159,7 @@ async fn pause_waits_for_a_runner_still_starting_then_drains_it() {
 
 #[tokio::test]
 async fn a_runner_that_stops_while_it_is_waited_on_is_reported_stopped() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[RUNNING_7]);
     let stopped_elsewhere = async {
@@ -180,7 +180,7 @@ async fn a_runner_that_stops_while_it_is_waited_on_is_reported_stopped() {
 
 #[tokio::test]
 async fn start_sends_a_runner_from_before_the_run_state_went_its_own_start() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.holds_dog("kelpie", true);
     let started = r#"{"project":"koji","run":"running"}"#;
@@ -201,7 +201,7 @@ async fn start_sends_a_runner_from_before_the_run_state_went_its_own_start() {
 
 #[tokio::test]
 async fn pausing_a_stopped_runner_changes_nothing() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     let (ran, said) = paused(&shepherd, FAST, Interrupt::Never).await;
     assert_eq!(
@@ -213,7 +213,7 @@ async fn pausing_a_stopped_runner_changes_nothing() {
 
 #[tokio::test]
 async fn a_ruling_reaches_a_running_runner_at_once() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let answers = shepherd.scratch("kelpie/koji/answers");
     let client = client(&shepherd).await;
@@ -225,7 +225,7 @@ async fn a_ruling_reaches_a_running_runner_at_once() {
 
 #[tokio::test]
 async fn a_ruling_for_a_stopped_runner_is_left_for_its_start() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     let answers = shepherd.home().join("kelpie/koji/answers");
     let client = client(&shepherd).await;
@@ -252,7 +252,7 @@ async fn a_ruling_for_a_stopped_runner_is_left_for_its_start() {
 
 #[tokio::test]
 async fn a_runner_s_refusal_of_a_ruling_is_its_error() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[r#"{"error":"no ruling 14 is pending"}"#]);
     let answers = shepherd.home().join("kelpie/koji/answers");

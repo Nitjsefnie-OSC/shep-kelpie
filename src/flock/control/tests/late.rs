@@ -23,7 +23,7 @@ fn one(lines: Result<Vec<String>, String>) -> String {
 }
 
 async fn changed(action: &str, params: Option<&str>, format: Format) -> (String, Vec<String>) {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     busy(&shepherd, &[]);
     let client = client(&shepherd).await;
@@ -93,7 +93,7 @@ async fn a_late_change_prints_an_object_with_json() {
 
 #[tokio::test]
 async fn a_change_the_runner_refuses_is_still_its_error() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[r#"{"error":"no work item for #713 is open"}"#]);
     let client = client(&shepherd).await;
@@ -110,7 +110,7 @@ async fn a_change_the_runner_refuses_is_still_its_error() {
 
 #[tokio::test]
 async fn a_rule_the_runner_answers_late_names_the_rulings_check() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     busy(&shepherd, &[]);
     let client = client(&shepherd).await;
@@ -125,7 +125,7 @@ async fn a_rule_the_runner_answers_late_names_the_rulings_check() {
 
 #[tokio::test]
 async fn a_finish_the_runner_answers_late_names_the_status_check() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     busy(&shepherd, &[HELD]);
     let client = client(&shepherd).await;
@@ -145,7 +145,7 @@ async fn a_finish_the_runner_answers_late_names_the_status_check() {
 
 #[tokio::test]
 async fn a_start_the_runner_answers_late_names_the_status_check() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.holds_dog("kelpie", true);
     busy(&shepherd, &[HELD]);
@@ -158,7 +158,7 @@ async fn a_start_the_runner_answers_late_names_the_status_check() {
 
 #[tokio::test]
 async fn status_of_a_project_that_does_not_answer_in_time_is_still_an_error() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     busy(&shepherd, &[]);
     let client = client(&shepherd).await;

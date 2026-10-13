@@ -6,7 +6,7 @@ use shep_client::shep_core::values::UpDuration;
 
 use super::*;
 use crate::flock::Launch;
-use crate::shepherd;
+use crate::shepherd::Connection;
 use crate::test::{CALL_PATIENCE, FakeShepherd};
 
 mod finish;
@@ -37,8 +37,8 @@ fn runner(shepherd: &FakeShepherd, name: &str, root: &Path, online: bool) {
     shepherd.holds(launch(shepherd).runner(&project(name), table), online);
 }
 
-async fn client(shepherd: &FakeShepherd) -> Client {
-    shepherd::connect(shepherd.home()).await.unwrap()
+async fn client(shepherd: &FakeShepherd) -> Box<dyn Connection> {
+    shepherd.connect().await
 }
 
 // Every call against the fake shepherd, bounded so a hang fails by name.
@@ -63,11 +63,9 @@ fn asked(writes: &[Request]) -> Vec<String> {
         .collect()
 }
 
-// Real sockets under a real clock: a paused one would time out the
-// handshake while the fake's socket is merely waiting.
 #[tokio::test]
 async fn start_brings_up_the_runner_then_reaches_it() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     shepherd.holds_dog("kelpie", true);
 
@@ -90,7 +88,7 @@ async fn start_brings_up_the_runner_then_reaches_it() {
 
 #[tokio::test]
 async fn start_brings_up_a_runner_whose_entry_still_sets_kill_timeout() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let mut table = crate::test::project_table(EXAMPLE);
     table["git"]["checkout"] = Value::String("/src/koji".into());
     let mut entry = launch(&shepherd).runner(&project("koji"), table);
@@ -108,7 +106,7 @@ async fn start_brings_up_a_runner_whose_entry_still_sets_kill_timeout() {
 
 #[tokio::test]
 async fn start_leaves_a_running_runner_running() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.holds_dog("kelpie", true);
     let client = client(&shepherd).await;
@@ -122,7 +120,7 @@ async fn start_leaves_a_running_runner_running() {
 
 #[tokio::test]
 async fn start_without_a_runner_says_to_add_one() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let client = client(&shepherd).await;
     let err = in_time(start(&client, &project("koji"))).await.unwrap_err();
     assert!(err.contains("`shep kelpie add`"), "{err}");
@@ -130,7 +128,7 @@ async fn start_without_a_runner_says_to_add_one() {
 
 #[tokio::test]
 async fn start_and_pause_leave_a_sheep_that_is_not_kelpie_s_alone() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     shepherd.holds(AppConfig::minimal("web", "/srv/web"), false);
     // A table alone does not make a runner: kelpie did not start it.
     let mut other = AppConfig::minimal("koji", "/srv/koji");
@@ -163,7 +161,7 @@ async fn start_and_pause_leave_a_sheep_that_is_not_kelpie_s_alone() {
 // A runner with no dog is never granted a lease, so it is left stopped.
 #[tokio::test]
 async fn start_with_kelpie_s_dog_down_says_how_to_bring_it_up() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     let client = client(&shepherd).await;
     let err = in_time(start(&client, &project("koji"))).await.unwrap_err();
@@ -185,7 +183,7 @@ async fn start_with_kelpie_s_dog_down_says_how_to_bring_it_up() {
 // A dog that crash-looped to a stop grants nothing, whatever its channel.
 #[tokio::test]
 async fn start_with_kelpie_s_dog_stopped_says_to_read_its_bleats() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     shepherd.holds_dog("kelpie", true);
     shepherd.stops("kelpie");
@@ -202,7 +200,7 @@ async fn start_with_kelpie_s_dog_stopped_says_to_read_its_bleats() {
 // holds nothing.
 #[tokio::test]
 async fn start_with_kelpie_s_dog_silent_says_so_and_how_to_bring_it_back() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     shepherd.holds_dog("kelpie", true);
     shepherd.never_names("kelpie");
@@ -238,7 +236,7 @@ fn git(folder: &Path, args: &[&str]) {
 
 #[tokio::test]
 async fn a_command_reaches_the_project_whose_repo_holds_the_folder() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let home = PathBuf::from("/home/me");
     let repo = shepherd.scratch("repos/reactmap");
     git(&repo, &["init", "-q"]);
@@ -286,7 +284,7 @@ fn clone_of(shepherd: &FakeShepherd, path: &str, url: &str) -> PathBuf {
 
 #[tokio::test]
 async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let home = PathBuf::from("/home/me");
     remote(
         &shepherd,
@@ -316,7 +314,7 @@ async fn a_plain_clone_reaches_the_one_project_whose_remote_is_its_origin() {
 
 #[tokio::test]
 async fn a_project_with_no_remote_set_matches_on_its_checkouts_origin() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let home = PathBuf::from("/home/me");
     let runner_checkout = clone_of(&shepherd, "runner/koji", "git@github.com:shep-pm/koji.git");
     let mut table = crate::test::project_table(EXAMPLE);
@@ -336,7 +334,7 @@ async fn a_project_with_no_remote_set_matches_on_its_checkouts_origin() {
 
 #[tokio::test]
 async fn a_clone_whose_origin_is_no_projects_remote_asks_for_a_name() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     remote(
         &shepherd,
         "koji",
@@ -360,7 +358,7 @@ async fn a_clone_whose_origin_is_no_projects_remote_asks_for_a_name() {
 
 #[tokio::test]
 async fn a_clone_whose_origin_two_projects_share_asks_for_a_name() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     remote(
         &shepherd,
         "koji",
@@ -391,7 +389,7 @@ async fn a_clone_whose_origin_two_projects_share_asks_for_a_name() {
 
 #[tokio::test]
 async fn with_no_projects_the_folder_names_none() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     let client = client(&shepherd).await;
     let folder = shepherd.scratch("elsewhere");
     let err = in_time(project_here(&client, &folder, Path::new("/home/me")))
@@ -405,7 +403,7 @@ async fn with_no_projects_the_folder_names_none() {
 
 #[tokio::test]
 async fn a_trigger_goes_to_its_project_with_its_params() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     runner(&shepherd, "reactmap", Path::new("/src/reactmap"), false);
     let client = client(&shepherd).await;
@@ -452,7 +450,7 @@ fn a_runner_s_refusal_is_its_error() {
 
 #[tokio::test]
 async fn status_reports_every_project() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     runner(&shepherd, "reactmap", Path::new("/src/reactmap"), false);
     shepherd.holds_dog("kelpie", true);
@@ -556,7 +554,7 @@ fn a_plain_status_of_an_idle_runner_says_so() {
 
 #[tokio::test]
 async fn a_plain_status_keeps_a_project_that_is_not_running_to_a_line() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), false);
     shepherd.holds_dog("kelpie", true);
     let client = client(&shepherd).await;
@@ -576,7 +574,7 @@ fn a_json_status_is_the_runner_s_object_as_it_came() {
 
 #[tokio::test]
 async fn status_marks_a_draining_runner() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let draining = r#"{"draining":{"calls":[],"ceiling":3600}}"#;
     shepherd.says("koji", &[draining]);
@@ -589,7 +587,7 @@ async fn status_marks_a_draining_runner() {
 
 #[tokio::test]
 async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() {
-    let mut shepherd = FakeShepherd::new().await;
+    let mut shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.replies("koji", &[None]);
     let client = client(&shepherd).await;
@@ -607,7 +605,7 @@ async fn a_tell_the_runner_never_answered_is_delivered_and_not_to_be_repeated() 
 
 #[tokio::test]
 async fn a_tell_the_runner_never_answered_prints_an_object_with_json() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.replies("koji", &[None]);
     let client = client(&shepherd).await;
@@ -621,7 +619,7 @@ async fn a_tell_the_runner_never_answered_prints_an_object_with_json() {
 
 #[tokio::test]
 async fn a_tell_the_runner_answered_says_it_was_told() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let client = client(&shepherd).await;
     let told = in_time(tell(&client, &project("koji"), "hold #4", Format::Plain)).await;
@@ -635,7 +633,7 @@ async fn a_tell_the_runner_answered_says_it_was_told() {
 
 #[tokio::test]
 async fn a_runner_that_refuses_a_tell_is_its_error() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     shepherd.says("koji", &[r#"{"error":"koji has no project manager"}"#]);
     let client = client(&shepherd).await;
@@ -645,7 +643,7 @@ async fn a_runner_that_refuses_a_tell_is_its_error() {
 
 #[tokio::test]
 async fn a_runner_still_taking_its_actions_is_starting() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     runner(&shepherd, "koji", Path::new("/src/koji"), true);
     let client = client(&shepherd).await;
     shepherd.just_started("koji");
@@ -663,7 +661,7 @@ async fn a_runner_still_taking_its_actions_is_starting() {
 
 #[tokio::test]
 async fn the_flock_s_repos_include_a_project_whose_settings_do_not_parse() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     remote(
         &shepherd,
         "koji",
@@ -688,7 +686,7 @@ async fn the_flock_s_repos_include_a_project_whose_settings_do_not_parse() {
 
 #[tokio::test]
 async fn the_flock_s_repos_are_refused_when_a_project_s_repo_cannot_be_told() {
-    let shepherd = FakeShepherd::new().await;
+    let shepherd = FakeShepherd::new();
     // A checkout that is no git checkout, and no `git.remote`.
     let mut table = crate::test::project_table(EXAMPLE);
     let checkout = shepherd.scratch("runner/vault").display().to_string();

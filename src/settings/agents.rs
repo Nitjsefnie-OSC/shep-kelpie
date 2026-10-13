@@ -192,7 +192,8 @@ pub enum Limit {
     Account(Account),
     /// A lease it holds for the whole of each call. It is never paced.
     Lease(LeaseName),
-    /// A gateway, which queues its calls itself: no lease and no pacing
+    /// A gateway, which queues its calls: each holds a lease the gateway
+    /// grants, no lock of kelpie's, and none is paced
     Gateway,
 }
 
