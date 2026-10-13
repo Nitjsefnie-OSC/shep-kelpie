@@ -379,7 +379,8 @@ impl Runner {
             &item.build,
             merged,
         );
-        if let Err(e) = removed {
+        let removed = removed.map_err(|e| e.to_string());
+        if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
             return Ok(self.gate_failed(format!("cannot clean up: {e}")));
         }
         let now = self.ports.clock.now();

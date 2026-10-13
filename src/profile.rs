@@ -285,6 +285,7 @@ impl WorkerProfile<'_> {
             read: Vec::new(),
             fence: Some(Box::new(fence)),
             block_keychain: false,
+            code_graph: None,
         }
     }
 
