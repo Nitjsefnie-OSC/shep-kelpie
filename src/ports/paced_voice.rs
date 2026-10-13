@@ -80,6 +80,10 @@ impl Voice for PacedVoice {
     }
 
     fn worker_token(&self, repo: &ForgeSlug) -> Result<Option<InstallationToken>, ForgeError> {
+        // A repo no App covers needs no call, so a hold has nothing to stop.
+        if self.hold.until(self.clock.now()).is_some() && !self.voice.covers(repo) {
+            return Ok(None);
+        }
         self.call(|v| v.worker_token(repo))
     }
 

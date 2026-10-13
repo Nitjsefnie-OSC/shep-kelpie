@@ -182,8 +182,14 @@ impl RateHeld {
         .unwrap_or(Timestamp(now.0.saturating_add(FALLBACK)))
     }
 
-    // The reset is a call to the forge too, so it is recorded like the rest.
+    // The reset is a call to the forge too, so it takes its turn in the pace
+    // and is recorded like the rest. A hold set meanwhile answers for it.
     fn reset(&self) -> Result<Option<Timestamp>, ForgeError> {
+        if let Some(project) = &self.project
+            && self.hold.admit(self.clock.as_ref(), project).is_err()
+        {
+            return Ok(None);
+        }
         let started = Instant::now();
         let result = self.forge.rate_limit_reset();
         let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);

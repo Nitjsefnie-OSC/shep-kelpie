@@ -104,3 +104,28 @@ fn a_runner_with_no_project_to_pace_still_sees_the_hold() {
         ForgeError::Held(Timestamp(1_000_030))
     );
 }
+
+#[test]
+fn the_reset_a_used_up_answer_asks_for_takes_its_turn_in_the_pace_too() {
+    const CAP: usize = 3;
+    let home = tempfile::tempdir().unwrap();
+    let clock = FakeClock::at(1_000_000);
+    let hold = ForgeHold::shared(Arc::new(LocalPace::with(CallPacer::new(CAP, 3))));
+    let forge = FakeForge::new(home.path().join("koji"));
+    let ledger = Arc::new(Ledger::in_home(home.path(), "x"));
+    let koji = runner(&forge, &clock, &hold, "koji", &ledger);
+    koji.viewer().unwrap();
+    koji.viewer().unwrap();
+    // The last call of the minute is refused with no word of when to ask again.
+    forge.set_used_up(None);
+
+    koji.viewer().unwrap_err();
+
+    let lines = forge_ledger::read(&home.path().join(forge_ledger::FILE)).unwrap();
+    let mut minutes = std::collections::BTreeMap::<u64, usize>::new();
+    for line in &lines {
+        *minutes.entry(line.at.0 / 60).or_default() += 1;
+    }
+    assert_eq!(lines.len(), 4, "three calls and the reset");
+    assert!(minutes.values().all(|n| *n <= CAP), "{minutes:?}");
+}

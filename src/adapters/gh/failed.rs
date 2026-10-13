@@ -13,8 +13,9 @@ const TRAFFIC: [&str; 3] = ["* ", "> ", "< "];
 /// The error for a call that exited unsuccessfully with `stderr`
 pub(super) fn failure(stderr: &str) -> ForgeError {
     let lines: Vec<&str> = stderr.lines().collect();
-    let is_traffic =
-        |line: &&str| TRAFFIC.iter().any(|mark| line.starts_with(mark)) || *line == "<";
+    let is_traffic = |line: &&str| {
+        TRAFFIC.iter().any(|mark| line.starts_with(mark)) || matches!(*line, "<" | ">")
+    };
     if !lines.iter().any(is_traffic) {
         return limited_or(stderr, stderr, Cooldown::default());
     }
@@ -31,7 +32,7 @@ pub(super) fn failure(stderr: &str) -> ForgeError {
         false => errors
             .iter()
             .copied()
-            .filter(|l| !l.starts_with(['{', '[']))
+            .filter(|l| !l.trim_start().starts_with(['{', '[', '}', ']', '"']))
             .collect(),
     };
     limited_or(&said.join("\n"), &said.join("\n"), cooldown)
@@ -125,6 +126,22 @@ gh: You have exceeded a secondary rate limit. Please wait a few minutes before y
         assert_eq!(
             failure(stderr),
             ForgeError::Failed("gh: Not Found (HTTP 404)".into())
+        );
+    }
+
+    #[test]
+    fn a_failure_with_no_gh_line_keeps_its_error_and_none_of_the_bodies_around_it() {
+        let stderr = "* Request to https://api.github.com/graphql\n> POST /graphql HTTP/1.1\n>\n\
+                      {\n  \"query\": \"mutation { addComment }\",\n  \
+                      \"body\": \"kelpie holds on a rate limit\"\n}\n\
+                      < HTTP/2.0 502 Bad Gateway\n<\n\
+                      {\"message\":\"rate limit text in a body\"}\n\
+                      GraphQL: Could not resolve to a node with the global id of 'X'. (node)\n";
+        assert_eq!(
+            failure(stderr),
+            ForgeError::Failed(
+                "GraphQL: Could not resolve to a node with the global id of 'X'. (node)".into()
+            )
         );
     }
 

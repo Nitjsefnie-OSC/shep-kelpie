@@ -87,3 +87,32 @@ fn a_hold_the_app_set_ends_with_the_pace_its_calls_were_spaced_by() {
     assert_eq!(clock.now(), Timestamp(1_000_060));
     assert_eq!(pace.held(clock.now()), None);
 }
+
+#[test]
+fn a_repo_no_app_covers_gets_no_token_and_is_not_stopped_by_a_hold() {
+    let home = tempfile::tempdir().unwrap();
+    let clock = FakeClock::at(1_000_000);
+    let hold = ForgeHold::shared(Arc::new(LocalPace::new()));
+    hold.hold(Timestamp(1_000_600));
+    let github = FakeGithub::new(clock.clone(), "shep-pm");
+    let voice = app(&github, home.path(), &clock, &hold, "koji");
+
+    assert_eq!(voice.worker_token(&koji()).unwrap(), None);
+}
+
+#[test]
+fn a_repo_an_app_covers_waits_out_a_hold_for_its_worker_token() {
+    let home = tempfile::tempdir().unwrap();
+    let clock = FakeClock::at(1_000_000);
+    let hold = ForgeHold::shared(Arc::new(LocalPace::new()));
+    hold.hold(Timestamp(1_000_600));
+    let github = FakeGithub::new(clock.clone(), "shep-pm");
+    github.registered(home.path(), "shep-pm/koji");
+    github.accept_workers();
+    let voice = app(&github, home.path(), &clock, &hold, "koji");
+
+    assert_eq!(
+        voice.worker_token(&koji()).unwrap_err(),
+        ForgeError::Held(Timestamp(1_000_600))
+    );
+}
