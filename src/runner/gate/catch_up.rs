@@ -8,7 +8,7 @@ use crate::runner::Runner;
 use crate::runner::report::{Begin, StepReport};
 use crate::state::{StateError, Stuck};
 use crate::work_item::{Conflict, Phase, Turn};
-use crate::worktree::{self, Rebase};
+use crate::worktree::{self, Rebase, Remote};
 
 // The most conflict turns one work item gets before the maintainer decides,
 // so a `main` that moves before every check cannot loop the worker.
@@ -28,6 +28,7 @@ impl Runner {
             &item.branch,
             head,
             rewrite,
+            &Remote::Origin,
         );
         match outcome {
             Ok(Rebase::Pushed(rebased)) => {

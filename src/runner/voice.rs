@@ -360,8 +360,8 @@ pub(super) fn said(kind: &RulingKind) -> String {
 mod card;
 
 pub(super) use self::card::{
-    BOARD, PROBLEM, answer_for, brief, chosen, effect_of, named, phrases, settled_comment, thumbs,
-    ticked,
+    ASK_THE_MAINTAINER, BOARD, PROBLEM, answer_for, asks_the_maintainer, brief, chosen, effect_of,
+    named, phrases, settled_comment, thumbs, ticked,
 };
 
 #[cfg(test)]

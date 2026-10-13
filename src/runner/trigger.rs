@@ -89,6 +89,10 @@ pub struct Status<'a> {
     pub order: &'a [u64],
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
+    /// The workflows whose latest completed run on `main` failed, in the
+    /// order they went red; left out while none is
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub red_workflows: Vec<super::RedStatus>,
     /// Rulings waiting on the maintainer, oldest first
     pub rulings: Vec<RulingStatus<'a>>,
     /// How the panel stands against the maintainer's answers, when the

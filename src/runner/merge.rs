@@ -18,7 +18,7 @@ use crate::ports::{Checks, PullRequestState};
 use crate::settings::Merging;
 use crate::state::{Finished, Notice, RulingKind, StateError, Stuck};
 use crate::work_item::{Phase, Review, ReviewCallState, ReviewStage, Turn};
-use crate::worktree::{self, Base};
+use crate::worktree::{self, Base, Remote};
 
 /// Why `drop` was refused
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,7 +263,7 @@ impl Runner {
     pub(super) fn regate(&mut self, from: &str, tip: &str) -> Result<(), String> {
         let item = self.current().expect("a gate is of a work item");
         let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-        worktree::adopt(repo, &item.worktree, branch, from, tip)
+        worktree::adopt(repo, &item.worktree, branch, from, tip, &Remote::Origin)
             .map_err(|e| format!("cannot bring the worktree to {}: {e}", short(tip)))?;
         let tip = Some(tip.to_owned());
         self.update(|item| {
@@ -387,7 +387,7 @@ impl Runner {
             &item.worktree,
             &item.branch,
             &item.build,
-            merged,
+            merged.then_some(&Remote::Origin),
         );
         let removed = removed.map_err(|e| e.to_string());
         if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {

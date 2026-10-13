@@ -19,7 +19,7 @@ use crate::ports::Timestamp;
 use crate::settings::Merging;
 use crate::state::{Fix, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
-use crate::worktree;
+use crate::worktree::{self, Remote};
 
 mod act;
 mod prompts;
@@ -314,8 +314,9 @@ impl Runner {
             (&head_moved, &answer, parked)
             && let RulingKind::ForeignChange { known: seen, .. } = &ruling.kind
         {
-            let tip = worktree::origin_head(&self.settings.git.checkout, &item.branch)
-                .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
+            let tip =
+                worktree::origin_head(&self.settings.git.checkout, &item.branch, &Remote::Origin)
+                    .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
                 let issue = item.issue;
@@ -413,8 +414,15 @@ impl Runner {
                     item.phase = match (from, to) {
                         (Some(from), Some(to)) if from != to => {
                             let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                            worktree::adopt(repo, &item.worktree, branch, &from, &to)
-                                .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
+                            worktree::adopt(
+                                repo,
+                                &item.worktree,
+                                branch,
+                                &from,
+                                &to,
+                                &Remote::Origin,
+                            )
+                            .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
                             Phase::Review(Review::first())
                         }
                         _ => Phase::Ci {
@@ -427,7 +435,7 @@ impl Runner {
                 }
                 Move::Decline { prompt, from, to } => {
                     let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                    worktree::adopt(repo, &item.worktree, branch, &from, &to)
+                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &Remote::Origin)
                         .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
                     item.known.head = Some(to);
                     let review = Some(Phase::Review(Review::first()));
@@ -577,7 +585,7 @@ impl Runner {
 // Returns whether it does; an unchanged head keeps its place.
 fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError> {
     let known = item.known.head.clone();
-    let tip = worktree::origin_head(repo, &item.branch)
+    let tip = worktree::origin_head(repo, &item.branch, &Remote::Origin)
         .map_err(|e| RuleError::Adopt(known.clone().unwrap_or_default(), e.to_string()))?;
     let from = match known {
         Some(known) => known,
@@ -587,8 +595,15 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
     if from == tip && item.known.head.is_some() {
         return Ok(false);
     }
-    worktree::adopt(repo, &item.worktree, &item.branch, &from, &tip)
-        .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
+    worktree::adopt(
+        repo,
+        &item.worktree,
+        &item.branch,
+        &from,
+        &tip,
+        &Remote::Origin,
+    )
+    .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
     item.known.head = Some(tip);
     Ok(true)
 }

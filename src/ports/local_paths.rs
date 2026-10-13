@@ -17,7 +17,7 @@ use std::sync::Arc;
 use super::{
     BranchRun, CommentMarks, FolderEntry, Forge, ForgeError, Issue, NewLabel, OpenIssue,
     PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
-    Visibility, Voice,
+    Visibility, Voice, Workflow,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -284,6 +284,10 @@ impl Forge for Guarded {
 
     fn branch_runs(&self, repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         self.forge.branch_runs(repo, branch)
+    }
+
+    fn workflows(&self, repo: &ForgeSlug) -> Result<Vec<Workflow>, ForgeError> {
+        self.forge.workflows(repo)
     }
 
     fn run_log_tail(&self, repo: &ForgeSlug, run: u64) -> Result<String, ForgeError> {
