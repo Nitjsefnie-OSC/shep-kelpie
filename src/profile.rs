@@ -608,6 +608,8 @@ mod tests {
                 "/k/wt/shep/7/**/.agents",
                 "/k/wt/shep/7/.pi",
                 "/k/wt/shep/7/**/.pi",
+                "/k/wt/shep/7/.goose",
+                "/k/wt/shep/7/**/.goose",
             ]
         );
         assert_eq!(s["env"]["CARGO_TARGET_DIR"], "/k/targets/shep/7");

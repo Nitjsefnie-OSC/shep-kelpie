@@ -27,18 +27,23 @@ use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
+use super::skills::skill_dirs;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Forward, Kept,
     Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Usage,
-    Wait, written_at,
+    Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
 
+mod activity;
 mod adopt;
+
+#[cfg(test)]
+mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
@@ -50,10 +55,17 @@ mod tests;
 mod escapes;
 
 #[cfg(test)]
+mod guard_tests;
+
+#[cfg(test)]
 mod gateway_tests;
 
 #[cfg(test)]
 mod unreachable_tests;
+
+/// The oldest pi kelpie is built for: built-in MCP needs 0.99 or later, and
+/// compaction events carry a `reason` from 1.0.4
+pub const PI_MINIMUM: &str = "1.0.4";
 
 /// This adapter's harness, as its errors and the fence name it
 const PI: Harness = Harness::Pi;
@@ -213,9 +225,7 @@ impl Agents for PiCli {
     }
 
     fn last_active(&self, call: &AgentCall) -> CallActivity {
-        // pi names its session file when it first writes it.
-        session_file(&Files::of(call).sessions(), call.session.id())
-            .map_or(CallActivity::Nothing, |file| written_at(&file))
+        activity::of_stdout(&CallFiles::of(call).stdout)
     }
 }
 
@@ -440,6 +450,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,
 // skills, prompt templates or themes it finds, and no project-local files.
+// The skills it loads are the ones named with `--skill`, which need no project trust.
 // It does read the repo's AGENTS.md and CLAUDE.md, as Claude Code does.
 fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let (prompt, skill) = skill_prompt(call);
@@ -462,7 +473,8 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         "--session-id".into(),
         call.session.id().0.as_str().into(),
     ];
-    match tool_names(call.tools, !call.reach.read.is_empty()) {
+    let tools = tool_names(call.tools, !call.reach.read.is_empty());
+    match tools {
         Some(names) => argv.extend(["--tools".into(), names.into()]),
         None => argv.push("--no-tools".into()),
     }
@@ -473,8 +485,15 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
     }
+    // The step's skill comes first, so its name wins a collision. Its text is in
+    // the prompt, but any other skill needs `read` to open and only costs context.
     if let Some(skill) = skill {
         argv.extend(["--skill".into(), skill.into()]);
+    }
+    if tools.is_some() {
+        for dir in skill_dirs(call) {
+            argv.extend(["--skill".into(), dir.into()]);
+        }
     }
     argv.extend(["--".into(), prompt.into()]);
     argv

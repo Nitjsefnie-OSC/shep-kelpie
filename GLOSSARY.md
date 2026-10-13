@@ -86,8 +86,9 @@ _Avoid_: model (one part of an agent), bot (a review bot is one kind of
 reviewer)
 
 **Harness**:
-What runs an agent's session: Claude Code (`claude-code`), Codex (`codex`)
-or pi (`pi`, a model on an OpenAI-compatible server). A reviewer may also
+What runs an agent's session: Claude Code (`claude-code`), Codex (`codex`),
+pi (`pi`, a model on an OpenAI-compatible server) or goose (`goose`, a model
+on an OpenAI-compatible server, in the researcher role for now). A reviewer may also
 run as a `command`, an `endpoint` or a `bot`.
 
 **Gateway**:
