@@ -246,7 +246,7 @@ impl Runner {
                 .into(),
             );
         }
-        let help = self.red_help(number, &head);
+        let help = format!("{}{}", self.red_help(number, &head), self.flake_note());
         let repeated = self.current().and_then(|i| i.reran.as_deref()) == Some(head.as_str());
         let prompt = self.skills.invoke(
             Step::CiFix,
