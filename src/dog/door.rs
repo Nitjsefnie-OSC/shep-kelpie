@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 use super::e2e::Remote;
 use super::{Kept, lock_desk};
 use crate::lease::counted::{CARGO_TEST, Taken, Taker, Ticket};
-use crate::lease::door::{Answer, Ask, E2E, LONGEST_LINE};
+use crate::lease::door::{Answer, Ask, E2E, FORGE, LONGEST_LINE};
 
 /// How long a connection has to send its ask before the dog hangs up
 const ASK_WITHIN: Duration = Duration::from_secs(10);
@@ -165,6 +165,9 @@ async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::In
         Ok(ask) if ask.take == CARGO_TEST => ask,
         Ok(ask) if ask.take == E2E => {
             return super::e2e::visit(&mut place, ask, &mut reader, &mut write).await;
+        }
+        Ok(ask) if ask.take == FORGE => {
+            return super::forge::visit(&place, ask, &mut write).await;
         }
         Ok(ask) => {
             let why = format!(

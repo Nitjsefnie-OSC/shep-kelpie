@@ -23,16 +23,18 @@ mod agent;
 mod forge_error;
 mod git;
 mod gpu;
+mod issue;
 mod keychain;
 mod leased;
 mod local_paths;
 mod model_seat;
+mod pace;
+mod paced_voice;
 mod rate_limit;
 mod recorded_voice;
 mod reviewer;
 mod routed;
 mod sandbox;
-mod sub_issue;
 mod test_runner;
 mod thread;
 mod voice;
@@ -41,19 +43,21 @@ pub use agent::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, CodeGraph, Cost, Ending, Fence, Guard,
     PM_NOTES, Reach, Role, Session, SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-pub use forge_error::ForgeError;
+pub use forge_error::{Cooldown, ForgeError};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
+pub use issue::{Issue, OpenIssue, SubIssue, SubIssueState};
 pub use keychain::KeychainBlocked;
 pub use leased::{Leased, LocalLeases};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use model_seat::ModelSeat;
-pub use rate_limit::{ForgeHold, RateHeld, Say};
+pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
+pub use paced_voice::PacedVoice;
+pub use rate_limit::{ForgeHold, RateHeld, Say, says_used_up};
 pub use recorded_voice::RecordedVoice;
 pub use reviewer::{Reviewer, ReviewerError, RoundStage};
 pub use routed::Routed;
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
-pub use sub_issue::{SubIssue, SubIssueState};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
 pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
 pub use voice::Voice;
@@ -68,6 +72,11 @@ pub struct Timestamp(pub u64);
 pub trait Clock: Send + Sync {
     /// The current time
     fn now(&self) -> Timestamp;
+
+    /// Lets `seconds` pass
+    fn wait(&self, seconds: u64) {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+    }
 }
 
 /// Who a repo is visible to on the forge
@@ -545,34 +554,6 @@ pub struct NewLabel<'a> {
     pub description: &'a str,
 }
 
-/// An issue as the forge holds it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Issue {
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
-    /// Its labels' names
-    pub labels: Vec<String>,
-    /// Whether it is still open
-    pub open: bool,
-    /// The issue it is a sub-issue of, if any
-    pub parent: Option<u64>,
-    /// The issues it is blocked by, as far as the forge lists them
-    pub blocked_by: Vec<u64>,
-}
-
-/// An open issue, as the follow-up check reads it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenIssue {
-    /// Its number
-    pub number: u64,
-    /// Its title
-    pub title: String,
-    /// Its body, as written
-    pub body: String,
-}
-
 /// How much of one usage window the account has spent
 // wire format: changing this is a breaking change to the pacer's status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -973,6 +954,8 @@ pub struct Ports {
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
+    /// The login's forge hold and pace, kept by the dog where it is reached
+    pub pace: Arc<dyn Pace>,
     /// The repo of every project in the flock, whose names a post to a public
     /// repo leaves out when GitHub marks them private
     pub flock: Vec<ForgeSlug>,

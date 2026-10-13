@@ -15,7 +15,7 @@ use crate::github::api::{
     self, ApiError, Call, Conversion, GithubApi, Grant, Installation, IssuedToken, Signer, Verb,
 };
 use crate::github::tokens::{InstallationToken, Jwt};
-use crate::ports::AlertError;
+use crate::ports::{AlertError, Cooldown};
 use crate::settings::ForgeSlug;
 
 const API: &str = "https://api.github.com";
@@ -32,17 +32,17 @@ impl GithubApi for CurlGithub {
     fn convert(&self, code: &str) -> Result<Conversion, ApiError> {
         let url = format!("{API}/app-manifests/{code}/conversions");
         match call(&url, None, Some(""))? {
-            (body, 201) => api::parse_conversion(&body),
-            (body, status) => Err(api::refusal(status, &body)),
+            (body, 201, _) => api::parse_conversion(&body),
+            (body, status, cooldown) => Err(api::refusal(status, &body, cooldown)),
         }
     }
 
     fn installation(&self, jwt: &Jwt, repo: &ForgeSlug) -> Result<Option<Installation>, ApiError> {
         let url = format!("{API}/repos/{}/installation", repo.as_str());
         match call(&url, Some(jwt), None)? {
-            (body, 200) => api::parse_installation(&body).map(Some),
-            (_, 404) => Ok(None),
-            (body, status) => Err(api::refusal(status, &body)),
+            (body, 200, _) => api::parse_installation(&body).map(Some),
+            (_, 404, _) => Ok(None),
+            (body, status, cooldown) => Err(api::refusal(status, &body, cooldown)),
         }
     }
 
@@ -55,8 +55,8 @@ impl GithubApi for CurlGithub {
     ) -> Result<IssuedToken, ApiError> {
         let url = format!("{API}/app/installations/{installation}/access_tokens");
         match call(&url, Some(jwt), Some(&api::token_request(repo, grant)))? {
-            (body, 201) => api::parse_token(&body),
-            (body, status) => Err(api::refusal(status, &body)),
+            (body, 201, _) => api::parse_token(&body),
+            (body, status, cooldown) => Err(api::refusal(status, &body, cooldown)),
         }
     }
 
@@ -69,16 +69,20 @@ impl GithubApi for CurlGithub {
             Verb::Delete => request(&url, bearer, Some("DELETE"), None)?,
         };
         match sent {
-            (body, 200..=299) => Ok(body),
-            (body, status) => Err(api::refusal(status, &body)),
+            (body, 200..=299, _) => Ok(body),
+            (body, status, cooldown) => Err(api::refusal(status, &body, cooldown)),
         }
     }
 }
 
 // One call to `url`, a `POST` of `post` when there is one, and what it
-// answered with its status. A redirect is never followed, so a JWT goes
-// nowhere but GitHub's API.
-fn call(url: &str, jwt: Option<&Jwt>, post: Option<&str>) -> Result<(String, u16), ApiError> {
+// answered with its status and when its headers say to ask again. A redirect
+// is never followed, so a JWT goes nowhere but GitHub's API.
+fn call(
+    url: &str,
+    jwt: Option<&Jwt>,
+    post: Option<&str>,
+) -> Result<(String, u16, Cooldown), ApiError> {
     request(url, jwt.map(Jwt::expose), None, post)
 }
 
@@ -89,7 +93,7 @@ fn request(
     bearer: Option<&str>,
     verb: Option<&str>,
     post: Option<&str>,
-) -> Result<(String, u16), ApiError> {
+) -> Result<(String, u16, Cooldown), ApiError> {
     let mut lines = vec![
         ("url", url.to_owned()),
         ("proto", "=https".to_owned()),
@@ -98,7 +102,7 @@ fn request(
         ("header", "Accept: application/vnd.github+json".to_owned()),
         ("header", "X-GitHub-Api-Version: 2022-11-28".to_owned()),
         ("user-agent", "shep-kelpie".to_owned()),
-        ("write-out", "\n%{http_code}".to_owned()),
+        ("write-out", WRITE_OUT.to_owned()),
     ];
     if let Some(bearer) = bearer {
         lines.push(("header", format!("Authorization: Bearer {bearer}")));
@@ -110,10 +114,25 @@ fn request(
         lines.push(("header", "Content-Type: application/json".to_owned()));
         lines.push(("data-raw", body.to_owned()));
     }
-    curl::run(&curl::render(&lines)).map_err(|e| match e {
+    let (printed, status) = curl::run(&curl::render(&lines)).map_err(|e| match e {
         AlertError::Unreachable(code) => ApiError::Unreachable(format!("curl exited {code}")),
         e => ApiError::Unreachable(e.to_string()),
-    })
+    })?;
+    let (body, cooldown) = split_cooldown(&printed);
+    Ok((body.to_owned(), status, cooldown))
+}
+
+// What curl prints after the body: the two headers a rate limit answers
+// with, on a line of their own, then the status, which `curl::run` takes.
+const WRITE_OUT: &str = "\n%header{retry-after}|%header{x-ratelimit-reset}\n%{http_code}";
+
+// `printed` without its last line, which is `WRITE_OUT`'s headers, and what
+// those say. A curl too old to know `%header` prints the line as it was
+// written, which reads as no cooldown.
+fn split_cooldown(printed: &str) -> (&str, Cooldown) {
+    let (body, headers) = printed.rsplit_once('\n').unwrap_or(("", printed));
+    let (retry_after, reset) = headers.split_once('|').unwrap_or_default();
+    (body, Cooldown::read(retry_after, reset))
 }
 
 /// Signs with the system's `openssl`, which reads the key from its file
@@ -144,5 +163,42 @@ impl Signer for Openssl {
                 String::from_utf8_lossy(&output.stderr).trim()
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::Timestamp;
+
+    #[test]
+    fn the_headers_a_rate_limit_answers_with_are_read_after_the_body() {
+        let (body, cooldown) = split_cooldown("{\"message\":\"slow\"}\n30|");
+        assert_eq!(body, "{\"message\":\"slow\"}");
+        assert_eq!(cooldown.retry_after, Some(30));
+        assert_eq!(cooldown.reset, None);
+
+        let (_, cooldown) = split_cooldown("{}\n|1790003600");
+        assert_eq!(cooldown.retry_after, None);
+        assert_eq!(cooldown.reset, Some(Timestamp(1_790_003_600)));
+    }
+
+    #[test]
+    fn a_body_over_several_lines_keeps_them_and_no_headers_read_as_no_cooldown() {
+        let (body, cooldown) = split_cooldown("a\nb\n|");
+        assert_eq!(body, "a\nb");
+        assert_eq!(cooldown, Cooldown::default());
+
+        // A curl that does not know `%header` prints the line as written.
+        let (body, cooldown) =
+            split_cooldown("{}\n%header{retry-after}|%header{x-ratelimit-reset}");
+        assert_eq!(body, "{}");
+        assert_eq!(cooldown, Cooldown::default());
+    }
+
+    #[test]
+    fn an_answer_with_no_body_has_no_cooldown_either() {
+        let (body, cooldown) = split_cooldown("\n|");
+        assert_eq!((body, cooldown), ("", Cooldown::default()));
     }
 }

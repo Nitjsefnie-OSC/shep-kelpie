@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::github::Verb;
-use crate::ports::{PostedComment, Timestamp};
+use crate::ports::{Cooldown, PostedComment, Timestamp};
 use crate::test::{Asked, FakeClock, FakeGithub};
 
 fn slug(s: &str) -> ForgeSlug {
@@ -71,6 +71,33 @@ fn a_permission_the_app_lacks_is_no_reason_to_wait() {
     let err = voice.worker_token(&slug("shep-pm/koji")).unwrap_err();
 
     assert!(matches!(err, ForgeError::App(_)), "{err:?}");
+}
+
+// What GitHub's headers said of when to ask again reaches the hold, whether
+// the call that was refused was a write or the mint of a worker's token.
+#[test]
+fn a_rate_limited_app_call_carries_the_cooldown_its_answer_gave() {
+    let (voice, github, _home) = voiced();
+    let cooldown = Cooldown {
+        retry_after: Some(45),
+        reset: None,
+    };
+    github.refuse_comments(ApiError::RateLimited(cooldown));
+
+    let err = voice
+        .comment(&slug("shep-pm/koji"), 12, "hello")
+        .unwrap_err();
+    assert!(
+        matches!(&err, ForgeError::Limited { cooldown: said, .. } if *said == cooldown),
+        "{err:?}"
+    );
+
+    github.fail_next(ApiError::RateLimited(cooldown));
+    let err = voice.worker_token(&slug("shep-pm/koji")).unwrap_err();
+    assert!(
+        matches!(&err, ForgeError::Limited { cooldown: said, .. } if *said == cooldown),
+        "{err:?}"
+    );
 }
 
 #[test]

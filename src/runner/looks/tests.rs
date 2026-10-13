@@ -1,8 +1,9 @@
 //! How often a pass reads the forge, through the runner's stand-ins
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::ports::{Clock, Timestamp};
+use crate::ports::{CallPacer, Clock, LocalPace, Timestamp};
 use crate::runner::{BOARD_POLL, Pass, StepReport, advance, step};
 use crate::test::Rig;
 
@@ -172,6 +173,50 @@ fn a_used_up_rate_limit_holds_every_forge_call_until_it_resets_and_says_so_once(
         rig.ask(&runner, "status", None).get("forge_held_until"),
         None
     );
+}
+
+#[test]
+fn a_hold_another_runner_put_on_the_login_stops_this_runners_forge_calls() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    runner.lock().unwrap().take_notes();
+    let asked = rig.forge.asked();
+    // The other runner's used-up answer, put on the pace both reach.
+    let until = Timestamp(rig.clock.now().0 + 300);
+    rig.pace.hold(until);
+
+    wake(&runner);
+
+    assert_eq!(rig.forge.asked(), asked, "a held call reached the forge");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["forge_held_until"],
+        until.0
+    );
+    rig.clock.advance(300);
+    wake(&runner);
+    assert!(rig.forge.asked() > asked);
+}
+
+#[test]
+fn a_runner_s_calls_past_the_logins_pace_wait_and_no_minute_in_the_ledger_is_over_the_cap() {
+    use crate::forge_ledger;
+
+    const CAP: usize = 4;
+    let mut rig = Rig::new("acme");
+    rig.pace = Arc::new(LocalPace::with(CallPacer::new(CAP, 2)));
+    let runner = rig.open().unwrap();
+    for _ in 0..4 {
+        rig.clock.advance(BOARD_POLL.as_secs());
+        wake(&runner);
+    }
+
+    let lines = forge_ledger::read(&rig.paths().kelpie_home.join(forge_ledger::FILE)).unwrap();
+    assert!(lines.len() > CAP, "the runner made calls enough: {lines:?}");
+    let mut minutes = std::collections::BTreeMap::<u64, usize>::new();
+    for line in &lines {
+        *minutes.entry(line.at.0 / 60).or_default() += 1;
+    }
+    assert!(minutes.values().all(|calls| *calls <= CAP), "{minutes:?}");
 }
 
 #[test]

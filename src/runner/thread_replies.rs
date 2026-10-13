@@ -95,10 +95,9 @@ pub(super) struct Reading {
     /// The rulings the last save took out of the state while their comments
     /// were up, until what became of them is said
     ended: BTreeMap<u64, Ended>,
-    /// The edit of a settled ruling's comment that failed, by ruling: the
-    /// comment's id and its new body, and when it is given up, tried again at
-    /// each poll until then
-    unedited: BTreeMap<u64, (u64, String, Timestamp)>,
+    /// The edit of a settled ruling's comment that failed, by ruling, tried
+    /// again after a wait that doubles until it is given up
+    unedited: BTreeMap<u64, settled::Unedited>,
     /// The rulings the panel decided while they are watched, as they stood
     /// when they were decided, so a `no <note>` can reopen one
     decided: BTreeMap<u64, Ruling>,

@@ -8,7 +8,7 @@
 use super::Runner;
 use crate::ports::{SubIssue, SubIssueState};
 
-/// Closes in a row the forge may refuse before the step gives up on an issue
+/// Closes the forge may refuse, one in each step, before the step gives up on an issue
 const TRIES: u32 = 3;
 
 /// What kelpie says on an issue it closes after the pull request merged
@@ -26,53 +26,54 @@ fn last_sub_issue_merged(pull_request: u64) -> String {
 }
 
 impl Runner {
-    /// Closes what merging `pull_request` for `issue` leaves open: the issue
-    /// itself, then its parent
-    pub(super) fn close_after_merge(&mut self, issue: u64, pull_request: u64) {
-        self.close_merged_issue(issue, pull_request);
-        self.close_done_parent_of(issue, pull_request);
-    }
-
     /// Closes `issue` if the forge still shows it open after `pull_request`
-    /// merged, never holding the work item
+    /// merged, trying the close once
     ///
-    /// The comment goes first, once, as `close_done_parent` does. One that
-    /// fails, a close the forge refuses [`TRIES`] times, or an issue that
-    /// cannot be read is told in the log, and the work item goes on.
-    pub(super) fn close_merged_issue(&mut self, issue: u64, pull_request: u64) {
+    /// The comment goes first, once, as `close_done_parent` does. A close the
+    /// forge refuses returns why, for the step to fail on and run again after
+    /// its backoff, until it has been refused [`TRIES`] times: then it is told
+    /// in the log and the work item goes on. A comment that fails or an issue
+    /// that cannot be read is told in the log and never holds the work item.
+    pub(super) fn close_merged_issue(&mut self, issue: u64, pull_request: u64) -> Option<String> {
         // The forge closes a named issue a moment after the merge, so one that
         // still reads as open then is left to it.
         let named = (self.ports.forge).reviewed(&self.remote, pull_request);
         if named.is_ok_and(|pr| pr.closes.contains(&issue)) {
-            return;
+            return None;
         }
         match (self.ports.forge).issue(&self.remote, issue) {
-            Ok(read) if !read.open => return,
+            Ok(read) if !read.open => {
+                self.close_refused.remove(&issue);
+                return None;
+            }
             Ok(_) => {}
             Err(e) => {
                 self.notes.push(format!(
                     "cannot read issue #{issue} after merging #{pull_request}: {e}"
                 ));
-                return;
+                return None;
             }
         }
-        if let Err(e) = self.comment_on_issue(issue, &merged_without_closing(pull_request)) {
+        if !self.close_refused.contains_key(&issue)
+            && let Err(e) = self.comment_on_issue(issue, &merged_without_closing(pull_request))
+        {
             self.notes.push(format!(
                 "cannot comment on issue #{issue} before closing it: {e}"
             ));
         }
-        let mut refused = None;
-        for _ in 0..TRIES {
-            match (self.ports.forge).close_issue(&self.remote, issue) {
-                Ok(()) => return,
-                Err(e) => refused = Some(e),
-            }
+        let Err(e) = (self.ports.forge).close_issue(&self.remote, issue) else {
+            self.close_refused.remove(&issue);
+            return None;
+        };
+        let failures = self.close_refused.entry(issue).or_default();
+        *failures += 1;
+        let reason = format!("cannot close issue #{issue} after merging #{pull_request}: {e}");
+        if *failures < TRIES {
+            return Some(reason);
         }
-        if let Some(e) = refused {
-            self.notes.push(format!(
-                "cannot close issue #{issue} after merging #{pull_request}, tried {TRIES} times: {e}"
-            ));
-        }
+        self.close_refused.remove(&issue);
+        self.notes.push(format!("{reason}, refused {TRIES} times"));
+        None
     }
 }
 

@@ -1,4 +1,4 @@
-//! The fake forge's open issues, the ones kelpie opened, and the issues' calls going down
+//! The fake forge's open issues, the ones kelpie opened and closed, and the issues' calls going down
 
 use std::sync::atomic::Ordering;
 
@@ -79,5 +79,20 @@ impl FakeForge {
     /// Lets `n` more issues open, then makes every later one fail
     pub(crate) fn set_creates_left(&self, n: usize) {
         *self.creates_left.lock().unwrap() = Some(n);
+    }
+
+    /// Makes closing an issue fail, or work again
+    pub(crate) fn set_closes_down(&self, down: bool) {
+        self.closes_down.store(down, Ordering::SeqCst);
+    }
+
+    /// How many closes the forge refused while closing was down
+    pub(crate) fn closes_refused(&self) -> usize {
+        self.closes_refused.load(Ordering::SeqCst)
+    }
+
+    /// The issues kelpie closed
+    pub(crate) fn closings(&self) -> Vec<u64> {
+        self.closings.lock().unwrap().clone()
     }
 }

@@ -12,6 +12,7 @@ use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
 use super::{LATE, Runner};
 use crate::ports::Timestamp;
+use crate::runner::alert::backoff;
 use crate::runner::panel::Answerer;
 use crate::state::Ruling;
 
@@ -20,6 +21,35 @@ const NOTHING_WAITS: &str = "Nothing waits on the maintainer.";
 
 /// Why an answer about a head that is gone withdraws its ruling
 const MOVED: &str = "the branch moved while it waited, so kelpie looks at what stands now";
+
+/// Seconds a failed edit waits before it is tried again, and the most it waits
+const RETRY_FIRST: u64 = 15;
+const RETRY_MAX: u64 = 10 * 60;
+
+/// The edit of a settled ruling's comment that has not gone through
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::runner) struct Unedited {
+    comment: u64,
+    body: String,
+    // When it is given up
+    until: Timestamp,
+    // Failures in a row, and when it is tried next
+    failures: u32,
+    next: Timestamp,
+}
+
+impl Unedited {
+    fn failed(comment: u64, body: String, until: Timestamp, failures: u32, now: Timestamp) -> Self {
+        let wait = backoff(RETRY_FIRST, failures, RETRY_MAX);
+        Self {
+            comment,
+            body,
+            until,
+            failures,
+            next: Timestamp(now.0.saturating_add(wait)),
+        }
+    }
+}
 
 /// Who settled a ruling
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,20 +198,35 @@ impl Runner {
                 "cannot edit the comment of ruling {id} to say it is settled, and will try \
                  again for a while: {e}"
             ));
-            let until = Timestamp(self.ports.clock.now().0.saturating_add(LATE));
-            (self.threads.unedited).insert(id, (ended.comment, body, until));
+            let now = self.ports.clock.now();
+            let until = Timestamp(now.0.saturating_add(LATE));
+            let failed = Unedited::failed(ended.comment, body, until, 1, now);
+            self.threads.unedited.insert(id, failed);
         }
     }
 
-    /// Tries again each edit of a settled ruling's comment that failed, and
-    /// lets go of the ones that went through or that have waited too long
+    /// Tries again each edit of a settled ruling's comment that failed and
+    /// whose wait is over, and lets go of the ones that went through or that
+    /// have waited too long
     pub(super) fn retry_edits(&mut self, now: Timestamp) {
         let wanted = std::mem::take(&mut self.threads.unedited);
-        for (id, (comment, body, until)) in wanted {
-            // The failure was told when it first happened, not at each poll.
-            let sent = (self.ports.voice).edit_comment(&self.remote, comment, &body);
-            if sent.is_err() && now < until {
-                self.threads.unedited.insert(id, (comment, body, until));
+        for (id, edit) in wanted {
+            if now < edit.next {
+                self.threads.unedited.insert(id, edit);
+                continue;
+            }
+            // The failure was told when it first happened, not at each try.
+            let sent = (self.ports.voice).edit_comment(&self.remote, edit.comment, &edit.body);
+            if sent.is_err() && now < edit.until {
+                let Unedited {
+                    comment,
+                    body,
+                    until,
+                    failures,
+                    ..
+                } = edit;
+                let failed = Unedited::failed(comment, body, until, failures + 1, now);
+                self.threads.unedited.insert(id, failed);
             }
         }
     }
