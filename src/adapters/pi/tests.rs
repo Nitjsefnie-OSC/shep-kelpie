@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::adapters::SandboxRuntime;
-use crate::ports::{Reach, Role};
+use crate::ports::Role;
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
 use crate::test::OpenSandbox;
@@ -878,21 +878,18 @@ impl World {
 
     pub(super) fn call(&self, url: &str, role: Role, session: Session) -> AgentCall {
         AgentCall {
-            harness: AgentHarness::Pi(Self::server(url)),
-            role,
             issue: 7,
-            model: "qwen3.8:27b".into(),
-            effort: Effort::Low,
-            session,
-            cwd: self.path("wt"),
             settings: self.path("settings.json"),
-            instructions: None,
-            prompt: String::new(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Answer,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                role,
+                Tools::Answer,
+                AgentHarness::Pi(Self::server(url)),
+                "qwen3.8:27b",
+                Effort::Low,
+                session,
+                self.path("wt"),
+                String::new(),
+            )
         }
     }
 

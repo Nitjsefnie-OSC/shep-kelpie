@@ -462,7 +462,7 @@ mod tests {
     use std::process::ExitStatus;
 
     use super::*;
-    use crate::ports::{Reach, Tools};
+    use crate::ports::Tools;
     use crate::settings::Effort;
     use crate::test::OpenSandbox;
 
@@ -566,21 +566,19 @@ mod tests {
 
     fn call(role: Role, session: Session) -> AgentCall {
         AgentCall {
-            harness: crate::settings::AgentHarness::ClaudeCode,
-            role,
             issue: 6,
-            model: "claude-sonnet-5".into(),
-            effort: Effort::Medium,
-            session,
-            cwd: PathBuf::from("/tmp"),
             settings: PathBuf::from("/k/worker/settings.json"),
             instructions: Some(PathBuf::from("/k/worker/instructions.md")),
-            prompt: "implement #6".into(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Work,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                role,
+                Tools::Work,
+                crate::settings::AgentHarness::ClaudeCode,
+                "claude-sonnet-5",
+                Effort::Medium,
+                session,
+                PathBuf::from("/tmp"),
+                "implement #6",
+            )
         }
     }
 

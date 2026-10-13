@@ -8,14 +8,7 @@ use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{Rig, Scripted, ScriptedRound};
 
 fn finding(severity: Severity) -> Finding {
-    Finding {
-        severity,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "unused variable".into(),
-        why: "dead code".into(),
-        test: None,
-    }
+    Finding::new(severity, "src/lib.rs", 3, "unused variable", "dead code")
 }
 
 // The worker's first turn has pushed and opened pull request 71, whose head

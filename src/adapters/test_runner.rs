@@ -71,14 +71,7 @@ impl SandboxedTests {
             .enable_all()
             .build()
             .map_err(|e| format!("cannot start the async runtime: {e}"))?;
-        let ask = Ask {
-            take: CARGO_TEST.into(),
-            pid: std::process::id(),
-            what: run.command.clone(),
-            running: false,
-            worktree: None,
-            forge: None,
-        };
+        let ask = Ask::new(CARGO_TEST, std::process::id(), run.command.clone());
         let visit = runtime.block_on(granted(&run.door, &ask))?;
         let ran = self.processes.output_within(&mut wrapped, run.ceiling);
         runtime.block_on(visit.give_back());

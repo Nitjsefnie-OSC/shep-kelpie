@@ -70,21 +70,19 @@ mod tests {
 
     fn call(role: Role, tools: Tools, settings: &Path, reach: Reach) -> AgentCall {
         AgentCall {
-            harness: AgentHarness::ClaudeCode,
-            role,
             issue: 7,
-            model: "claude-sonnet-5".into(),
-            effort: Effort::Medium,
-            session: Session::New(SessionId("7e812e8a-3bf1-42a7-bddf-0ab283b7372a".into())),
-            cwd: PathBuf::from("/work/7"),
             settings: settings.to_owned(),
-            instructions: None,
-            prompt: "go".into(),
-            plugin_dirs: Vec::new(),
-            tools,
-            agent_tools: None,
             reach,
-            compact_window: None,
+            ..AgentCall::new(
+                role,
+                tools,
+                AgentHarness::ClaudeCode,
+                "claude-sonnet-5",
+                Effort::Medium,
+                Session::New(SessionId("7e812e8a-3bf1-42a7-bddf-0ab283b7372a".into())),
+                PathBuf::from("/work/7"),
+                "go",
+            )
         }
     }
 

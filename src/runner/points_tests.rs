@@ -495,14 +495,14 @@ fn compact_due(rig: &Rig) -> Mutex<Runner> {
     rig.claude
         .script([Scripted::PushAt("work.txt", "work\n", 200_000)]);
     step(&runner).unwrap(); // the build turn opens the pull request
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-        severity: Severity::Medium,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "the flag is misnamed".into(),
-        why: "it reads as its opposite".into(),
-        test: None,
-    }])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            3,
+            "the flag is misnamed",
+            "it reads as its opposite",
+        )])]);
     step(&runner).unwrap(); // round 1's call
     step(&runner).unwrap(); // the findings go out
     runner

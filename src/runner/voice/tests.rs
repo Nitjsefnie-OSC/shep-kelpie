@@ -41,14 +41,14 @@ fn asking_on_a_pull_request(rig: &Rig) -> (Mutex<Runner>, StepReport) {
     rig.forge.open_pull_request(71, "kelpie/7", &[7]);
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-        severity: Severity::Medium,
-        file: "src/lib.rs".into(),
-        line: 3,
-        what: "unused variable".into(),
-        why: "dead code".into(),
-        test: None,
-    }])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "src/lib.rs",
+            3,
+            "unused variable",
+            "dead code",
+        )])]);
     step(&runner).unwrap(); // round 1's qwen call
     step(&runner).unwrap(); // the finding goes to the worker
     rig.claude.script([Scripted::Say(ASKS)]);
@@ -540,22 +540,14 @@ fn each_local_round_is_posted_on_the_pull_request_as_it_ends() {
     step(&runner).unwrap(); // opens the pull request, enters round 1 (qwen)
     let head = rig.forge.head_of("kelpie/7").unwrap();
     rig.reviewer.script([ScriptedRound::Findings(vec![
-        Finding {
-            severity: Severity::High,
-            file: "src/lib.rs".into(),
-            line: 3,
-            what: "unused variable".into(),
-            why: "dead code".into(),
-            test: None,
-        },
-        Finding {
-            severity: Severity::Low,
-            file: "README.md".into(),
-            line: 0,
-            what: "typo".into(),
-            why: "reads badly".into(),
-            test: None,
-        },
+        Finding::new(
+            Severity::High,
+            "src/lib.rs",
+            3,
+            "unused variable",
+            "dead code",
+        ),
+        Finding::new(Severity::Low, "README.md", 0, "typo", "reads badly"),
     ])]);
 
     step(&runner).unwrap(); // round 1's qwen call

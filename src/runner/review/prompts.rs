@@ -90,14 +90,13 @@ mod tests {
     use crate::settings::AgentName;
 
     fn finding(severity: Severity, line: u32) -> Finding {
-        Finding {
+        Finding::new(
             severity,
-            file: "src/lib.rs".into(),
+            "src/lib.rs",
             line,
-            what: "the flag is read first".into(),
-            why: "a caller sees nothing".into(),
-            test: None,
-        }
+            "the flag is read first",
+            "a caller sees nothing",
+        )
     }
 
     fn defect_hunter() -> String {

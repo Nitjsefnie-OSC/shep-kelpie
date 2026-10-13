@@ -67,7 +67,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::ports::{Reach, Role, Session, SessionId, Tools, Usage};
+    use crate::ports::{Role, Session, SessionId, Tools, Usage};
     use crate::settings::{AgentHarness, ContextSize, Effort, EndpointUrl, ModelServer};
 
     // An adapter that answers with its own name, so a reply says who ran it.
@@ -91,21 +91,18 @@ mod tests {
 
     fn call(harness: AgentHarness) -> AgentCall {
         AgentCall {
-            role: Role::Worker,
-            harness,
             issue: 7,
-            model: "m".into(),
-            effort: Effort::Low,
-            session: Session::New(SessionId("s".into())),
-            cwd: PathBuf::from("/k/wt/7"),
             settings: PathBuf::from("/k/worker/settings.json"),
-            instructions: None,
-            prompt: "go".into(),
-            plugin_dirs: Vec::new(),
-            tools: Tools::Work,
-            agent_tools: None,
-            reach: Reach::default(),
-            compact_window: None,
+            ..AgentCall::new(
+                Role::Worker,
+                Tools::Work,
+                harness,
+                "m",
+                Effort::Low,
+                Session::New(SessionId("s".into())),
+                PathBuf::from("/k/wt/7"),
+                "go",
+            )
         }
     }
 

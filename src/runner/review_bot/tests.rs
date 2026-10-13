@@ -103,14 +103,13 @@ impl Profile for StandIn {
             "[high" => Severity::High,
             _ => Severity::Low,
         };
-        Finding {
+        Finding::new(
             severity,
-            file: thread.path.clone(),
-            line: thread.line.unwrap_or(0),
-            what: what.to_owned(),
-            why: why.to_owned(),
-            test: None,
-        }
+            thread.path.clone(),
+            thread.line.unwrap_or(0),
+            what.to_owned(),
+            why.to_owned(),
+        )
     }
 }
 

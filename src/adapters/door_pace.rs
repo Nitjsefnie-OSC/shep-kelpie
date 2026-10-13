@@ -37,12 +37,8 @@ impl DoorPace {
     // The dog's answer, or none when it cannot be asked or its answer read.
     fn ask(&self, forge: ForgeAsk) -> Option<Answer> {
         let ask = Ask {
-            take: FORGE.into(),
-            pid: std::process::id(),
-            what: "forge".into(),
-            running: false,
-            worktree: None,
             forge: Some(forge),
+            ..Ask::new(FORGE, std::process::id(), "forge")
         };
         let mut stream = UnixStream::connect(&self.socket).ok()?;
         stream.set_read_timeout(Some(ANSWER_WITHIN)).ok()?;

@@ -99,14 +99,14 @@ fn a_fix_goes_to_the_next_reviewer_and_no_reviewer_runs_twice() {
         Scripted::Text("HIGH|work.txt:1|wrong|it is"),
         Scripted::Push("fixed.txt", "fixed\n"),
     ]);
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-        severity: Severity::High,
-        file: "fixed.txt".into(),
-        line: 1,
-        what: "still wrong".into(),
-        why: "it is".into(),
-        test: None,
-    }])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::High,
+            "fixed.txt",
+            1,
+            "still wrong",
+            "it is",
+        )])]);
     rig.claude
         .script([Scripted::Push("again.txt", "fixed again\n")]);
     // claude finds one, the worker fixes it, mine reads the fix and finds
@@ -234,14 +234,14 @@ fn a_reviewer_limited_to_paths_runs_only_where_the_pull_request_changes_them() {
 fn every_round_s_prompt_carries_the_issue_s_acceptance_criteria() {
     let rig = listing(&["mine", "claude"]);
     let runner = at_review(&rig, "work.txt");
-    rig.reviewer.script([ScriptedRound::Findings(vec![Finding {
-        severity: Severity::Low,
-        file: "work.txt".into(),
-        line: 1,
-        what: "a nit".into(),
-        why: "it is".into(),
-        test: None,
-    }])]);
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Low,
+            "work.txt",
+            1,
+            "a nit",
+            "it is",
+        )])]);
     rig.claude.script([
         Scripted::Push("tidy.txt", "tidied\n"),
         Scripted::Text(CLEAN),
