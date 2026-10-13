@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ports::Forge;
 use crate::settings::ForgeSlug;
-use crate::worktree::{self, BASE, Start, WorktreeError};
+use crate::worktree::{self, BASE, Remote, Start, WorktreeError};
 
 use super::Project;
 
@@ -48,8 +48,14 @@ impl Docs {
             build: folder.join(format!("docs-{name}.build")),
         };
         let repo = &project.settings.git.checkout;
-        let prepared =
-            worktree::prepare(repo, &docs.worktree, &docs.branch, Start::Main, &docs.build);
+        let prepared = worktree::prepare(
+            repo,
+            &docs.worktree,
+            &docs.branch,
+            Start::Main,
+            &Remote::Origin,
+            &docs.build,
+        );
         if let Err(e) = prepared {
             // A step after the worktree was added may have failed, and the
             // next run names a branch of its own. A branch or folder that
@@ -84,7 +90,7 @@ impl Docs {
     pub(super) fn discard(&self, project: &Project<'_>) {
         let repo = &project.settings.git.checkout;
         // Best effort: what is left behind is only disk.
-        let _ = worktree::remove(repo, &self.worktree, &self.branch, &self.build, false);
+        let _ = worktree::remove(repo, &self.worktree, &self.branch, &self.build, None);
     }
 
     /// Commits what the session wrote, pushes the branch, opens a draft pull

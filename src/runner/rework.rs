@@ -20,7 +20,7 @@ use crate::ports::{ForgeError, MaintainerReview, PullRequestState, Reviewed};
 use crate::settings::AgentName;
 use crate::state::StateError;
 use crate::work_item::{Known, Phase, Review, WorkItem, new_session_id};
-use crate::worktree;
+use crate::worktree::{self, Remote};
 
 /// The label on a pull request kelpie handed back to the maintainer
 ///
@@ -349,7 +349,7 @@ impl Runner {
         // counts once when it finds it.
         let mut bot_reads = std::collections::BTreeMap::new();
         // The head the turn starts from, so a turn that pushes nothing is told apart.
-        let head = worktree::origin_head(&self.settings.git.checkout, &pr.branch)
+        let head = worktree::origin_head(&self.settings.git.checkout, &pr.branch, &Remote::Origin)
             .map_err(|e| ReworkError::Head(pr.branch.clone(), e.to_string()))?;
         for bot in self
             .listed_bots()
