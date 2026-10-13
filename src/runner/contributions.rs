@@ -15,6 +15,7 @@
 //! contributor's can run ([`ruling`] raises one for a flagged head). Nothing
 //! is posted and nothing runs for a contribution here.
 
+mod heard;
 mod ruling;
 mod security;
 
@@ -96,11 +97,9 @@ impl Runner {
             followed.push(match known {
                 Some(known) if known.head == pr.commit => known.clone(),
                 // A new head is unread, and the last head that passed stays the
-                // one it is read since.
-                _ => Contribution {
-                    passed: known.and_then(|k| k.passed.clone()),
-                    ..Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now)
-                },
+                // one it is read since. The push is heard.
+                Some(known) => known.pushed(pr.commit.clone(), now),
+                None => Contribution::new(pr.number, pr.author.clone(), pr.commit.clone(), now),
             });
         }
         // Oldest first: the ones already followed keep their places
@@ -120,6 +119,8 @@ impl Runner {
     }
 }
 
+#[cfg(test)]
+mod heard_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

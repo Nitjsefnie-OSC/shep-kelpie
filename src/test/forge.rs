@@ -48,6 +48,7 @@ pub(crate) struct FakeForge {
     checks: Arc<Mutex<HashMap<String, Checks>>>,
     comments: Arc<Mutex<Vec<(u64, String)>>>,
     comments_down: Arc<AtomicBool>,
+    thread_replies_down: Arc<AtomicBool>,
     merges_down: Arc<AtomicBool>,
     merge_answers_lost: Arc<AtomicBool>,
     // Whether the repo has a merge queue, and where each pull request stands in it
@@ -129,6 +130,7 @@ impl FakeForge {
             checks: Arc::default(),
             comments: Arc::default(),
             comments_down: Arc::default(),
+            thread_replies_down: Arc::default(),
             merges_down: Arc::default(),
             merge_answers_lost: Arc::default(),
             queue_on: Arc::default(),
@@ -292,32 +294,6 @@ impl FakeForge {
         }
     }
 
-    /// Whether pull request `number` is a draft
-    pub(crate) fn draft(&self, number: u64) -> bool {
-        let prs = self.pull_requests.lock().unwrap();
-        prs.get(&number).expect("an opened pull request").draft
-    }
-
-    /// Marks pull request `number` ready, as someone other than kelpie would
-    pub(crate) fn ready_pull_request(&self, number: u64) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number).expect("an opened pull request").draft = false;
-    }
-
-    /// Makes pull request `number` merge into `base` rather than `main`
-    pub(crate) fn set_base(&self, number: u64, base: &str) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number).expect("an opened pull request").base = base.to_owned();
-    }
-
-    /// Makes pull request `number` come from a fork's branch
-    pub(crate) fn set_from_fork(&self, number: u64) {
-        let mut prs = self.pull_requests.lock().unwrap();
-        prs.get_mut(&number)
-            .expect("an opened pull request")
-            .from_fork = true;
-    }
-
     /// Makes reading pull request `number`'s review fail
     pub(crate) fn set_unreadable(&self, number: u64) {
         self.unreadable.lock().unwrap().insert(number);
@@ -427,6 +403,11 @@ impl FakeForge {
         let prs = self.pull_requests.lock().unwrap();
         let pr = prs.get(&number).cloned();
         pr.ok_or_else(|| ForgeError::Failed(format!("no pull request #{number}")))
+    }
+
+    /// Makes reading the review threads' comments fail, or work again
+    pub(crate) fn set_thread_replies_down(&self, down: bool) {
+        self.thread_replies_down.store(down, Ordering::SeqCst);
     }
 
     /// Makes listing the board fail, or work again
@@ -669,6 +650,20 @@ impl Forge for FakeForge {
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.ask()?;
         Ok(self.threads.read(since))
+    }
+
+    fn thread_replies_since(
+        &self,
+        _repo: &ForgeSlug,
+        number: u64,
+        since: Timestamp,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.ask()?;
+        self.opened(number)?;
+        if self.thread_replies_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("review threads are down".into()));
+        }
+        Ok(self.threads.read_reviews(number, since))
     }
 
     fn can_write(&self, _repo: &ForgeSlug, login: &str) -> Result<bool, ForgeError> {
