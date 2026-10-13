@@ -44,7 +44,7 @@ pub const STATE_FILE: &str = "state.json";
 /// kinds to six, 8 added the project manager's session, notes and attach, 7
 /// a work item's `attached`, 6 folded the timing phases to six, and 5 added
 /// the board's events, each of which an older kelpie refuses
-const VERSION: u32 = 35;
+pub(crate) const VERSION: u32 = 35;
 
 /// The format before a project could have more than one work item open,
 /// which this kelpie still reads
