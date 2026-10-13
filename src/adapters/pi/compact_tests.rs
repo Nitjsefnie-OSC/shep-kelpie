@@ -62,6 +62,26 @@ fn a_turn_whose_messages_carry_no_usage_reports_no_context() {
 }
 
 #[test]
+fn a_later_message_with_no_usage_leaves_no_stale_context() {
+    let bare = json!({ "type": "message_end", "message": {
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "done" }],
+        "stopReason": "stop",
+    } })
+    .to_string();
+    let reply = turn(&lines(&[header(), assistant(tokens(300, 20, 50, 7)), bare]));
+    assert_eq!(reply.context, None);
+    assert_eq!(reply.usage.input, 300);
+}
+
+#[test]
+fn a_compaction_event_with_an_odd_field_still_counts_its_usage() {
+    let odd = COMPACTION.replace(r#""willRetry":true"#, r#""willRetry":"yes""#);
+    assert_ne!(odd, COMPACTION);
+    assert_eq!(turn(&odd).usage, turn(COMPACTION).usage);
+}
+
+#[test]
 fn a_compaction_in_the_middle_of_a_turn_adds_its_usage_and_the_context_is_read_after_it() {
     let reply = turn(COMPACTION);
     assert_eq!(reply.context, Some(9_000 + 2_000 + 100));
@@ -114,6 +134,8 @@ fn a_compact_call_sends_the_extension_s_command_and_loads_the_extension_and_skip
  {
     let w = World::new();
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
+    std::fs::create_dir_all(w.path("plugin/skills")).unwrap();
+    call.plugin_dirs = vec![w.path("plugin")];
     call.prompt = COMPACT.to_owned();
     let argv = strings(&call);
     assert_eq!(argv.last().unwrap(), "/kelpie-compact");
@@ -136,6 +158,7 @@ fn a_compact_call_sends_the_extension_s_command_and_loads_the_extension_and_skip
     call.prompt = "implement #7".into();
     let argv = strings(&call);
     assert!(!argv.iter().any(|a| a.ends_with("settings.compact.ts")));
+    assert!(argv.iter().any(|a| a == "--skill"), "{argv:?}");
     assert_eq!(argv.last().unwrap(), "implement #7");
 }
 

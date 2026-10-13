@@ -513,7 +513,7 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if let Some(skill) = skill {
         argv.extend(["--skill".into(), skill.into()]);
     }
-    if tools.is_some() {
+    if tools.is_some() && !compacting {
         for dir in skill_dirs(call) {
             argv.extend(["--skill".into(), dir.into()]);
         }
@@ -795,8 +795,9 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             ("message_end", Some(message)) if message.role == "assistant" => {
                 if let Some(u) = &message.usage {
                     usage += u.usage();
-                    context = Some(u.context());
                 }
+                // The latest message alone: an earlier one's prompt is stale.
+                context = message.usage.as_ref().map(Tokens::context);
                 last = Some(message);
             }
             // pi's own threshold compaction, which runs inside a turn.

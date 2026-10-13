@@ -78,7 +78,17 @@ impl End {
 
 /// What the `compaction_end` event in `line` used, where the compaction made a summary
 pub(super) fn usage_of(line: &str) -> Usage {
-    serde_json::from_str::<End>(line).map_or_else(|_| Usage::default(), |end| end.usage())
+    // Read apart from `End`, so a field of the event that is not as expected
+    // does not lose the tokens beside it.
+    let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+        return Usage::default();
+    };
+    if event["aborted"].as_bool().unwrap_or(false) {
+        return Usage::default();
+    }
+    (event.pointer("/result/usage").cloned())
+        .and_then(|tokens| serde_json::from_value::<Tokens>(tokens).ok())
+        .map_or_else(Usage::default, |tokens| tokens.usage())
 }
 
 /// A compact call's reply: the compaction's usage and no text
