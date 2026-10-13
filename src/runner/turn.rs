@@ -34,7 +34,7 @@ use crate::skills::{Step, split_command};
 use crate::state::{Resume, RulingKind, StateError};
 use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
 use crate::worker_folder;
-use crate::worktree::{self, Start};
+use crate::worktree::{self, Remote, Start};
 use handover::{Handover, Refused};
 use held_up::Reason;
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
@@ -524,6 +524,7 @@ impl Runner {
             &item.worktree,
             &item.branch,
             start,
+            &Remote::Origin,
             &item.build,
         )
         .map_err(|e| e.to_string())?;

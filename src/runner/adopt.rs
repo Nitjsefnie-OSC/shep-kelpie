@@ -25,7 +25,7 @@ use crate::ports::{ForgeError, Issue, MaintainerReview, PullRequestState, Review
 use crate::settings::AgentName;
 use crate::state::{StateError, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
-use crate::worktree::{self, Start};
+use crate::worktree::{self, Remote, Start};
 
 /// The file in the build folder that tells the worker what it adopted
 const ADOPTED_FILE: &str = "adopted-pull-request.md";
@@ -366,7 +366,7 @@ impl Runner {
             &fresh.worktree,
             &pr.branch,
             &fresh.build,
-            false,
+            None,
         );
         removed.map_err(|e| AdoptError::Worktree(e.to_string()))?;
         self.remove_code_graph(issue)
@@ -376,10 +376,11 @@ impl Runner {
             &fresh.worktree,
             &pr.branch,
             Start::Pushed,
+            &Remote::Origin,
             &fresh.build,
         );
         prepared.map_err(|e| AdoptError::Worktree(e.to_string()))?;
-        let head = worktree::origin_head(&self.settings.git.checkout, &pr.branch)
+        let head = worktree::origin_head(&self.settings.git.checkout, &pr.branch, &Remote::Origin)
             .map_err(|e| AdoptError::Worktree(e.to_string()))?;
         // A listed bot's `rounds` counts the reviews it gave so far. One of
         // this head counts when the bot's round finds it, as any read does.
