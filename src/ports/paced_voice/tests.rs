@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::github::{ApiError, AppVoice};
-use crate::ports::{Cooldown, Forge, LocalPace, Pace, Pacer, RateHeld, Timestamp};
+use crate::ports::{CallPacer, Cooldown, Forge, LocalPace, Pace, RateHeld, Timestamp};
 use crate::test::{FakeClock, FakeForge, FakeGithub};
 
 fn koji() -> ForgeSlug {
@@ -73,7 +73,7 @@ fn an_app_calls_retry_after_holds_the_other_runners_app_and_gh_calls_for_that_lo
 fn a_hold_the_app_set_ends_with_the_pace_its_calls_were_spaced_by() {
     let home = tempfile::tempdir().unwrap();
     let clock = FakeClock::at(1_000_000);
-    let pace = Arc::new(LocalPace::with(Pacer::new(2, 5)));
+    let pace = Arc::new(LocalPace::with(CallPacer::new(2, 5)));
     let hold = ForgeHold::shared(pace.clone());
     let github = FakeGithub::new(clock.clone(), "shep-pm");
     github.registered(home.path(), "shep-pm/koji");

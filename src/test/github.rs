@@ -112,6 +112,11 @@ impl FakeGithub {
         self.hub.lock().unwrap().workers_refused = Some(error);
     }
 
+    /// Mints workers' tokens again after [`Self::refuse_workers`]
+    pub(crate) fn accept_workers(&self) {
+        self.hub.lock().unwrap().workers_refused = None;
+    }
+
     /// Makes GitHub grant every worker's token `permission` at `level` besides
     /// what was asked for
     pub(crate) fn grants_too(&self, permission: &str, level: &str) {

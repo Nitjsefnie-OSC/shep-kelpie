@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::forge_ledger::{self, Ledger};
-use crate::ports::Pacer;
+use crate::ports::CallPacer;
 use crate::test::{FakeClock, FakeForge};
 
 // A runner of `project` on `clock`, spaced and held by `hold`.
@@ -56,7 +56,7 @@ fn calls_past_the_cap_wait_and_then_go_and_no_minute_is_over_it() {
     const CAP: usize = 6;
     let home = tempfile::tempdir().unwrap();
     let clock = FakeClock::at(1_000_000);
-    let hold = ForgeHold::shared(Arc::new(LocalPace::with(Pacer::new(CAP, 3))));
+    let hold = ForgeHold::shared(Arc::new(LocalPace::with(CallPacer::new(CAP, 3))));
     let (koji_forge, golbat_forge) = (
         FakeForge::new(home.path().join("koji")),
         FakeForge::new(home.path().join("golbat")),

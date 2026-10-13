@@ -48,14 +48,14 @@ pub trait Pace: Send + Sync + fmt::Debug {
 
 /// The pacing rule alone, with no clock and no hold
 #[derive(Debug, Clone)]
-pub struct Pacer {
+pub struct CallPacer {
     per_minute: usize,
     at_once: usize,
     // When each call in the last minute went, and whose it was, oldest first
     grants: VecDeque<(u64, String)>,
 }
 
-impl Pacer {
+impl CallPacer {
     /// A pacer that lets through `per_minute` calls a minute and `at_once` a second
     pub fn new(per_minute: usize, at_once: usize) -> Self {
         Self {
@@ -106,7 +106,7 @@ impl Pacer {
 
 #[derive(Debug)]
 struct Standing {
-    pacer: Pacer,
+    pacer: CallPacer,
     until: Option<Timestamp>,
 }
 
@@ -117,11 +117,11 @@ pub struct LocalPace(Mutex<Standing>);
 impl LocalPace {
     /// A pace with the limits of [`PER_MINUTE`] and [`AT_ONCE`]
     pub fn new() -> Self {
-        Self::with(Pacer::new(PER_MINUTE, AT_ONCE))
+        Self::with(CallPacer::new(PER_MINUTE, AT_ONCE))
     }
 
     /// A pace spacing calls as `pacer` does
-    pub fn with(pacer: Pacer) -> Self {
+    pub fn with(pacer: CallPacer) -> Self {
         Self(Mutex::new(Standing { pacer, until: None }))
     }
 
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn calls_past_the_minutes_cap_wait_until_the_oldest_leaves_the_minute() {
-        let mut pacer = Pacer::new(3, 10);
+        let mut pacer = CallPacer::new(3, 10);
         assert_eq!(pacer.ask("a", at(0)), None);
         assert_eq!(pacer.ask("a", at(10)), None);
         assert_eq!(pacer.ask("a", at(20)), None);
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn calls_past_the_seconds_cap_wait_for_the_next_second() {
-        let mut pacer = Pacer::new(100, 2);
+        let mut pacer = CallPacer::new(100, 2);
         assert_eq!(pacer.ask("a", at(0)), None);
         assert_eq!(pacer.ask("a", at(0)), None);
         assert_eq!(pacer.ask("a", at(0)), Some(1));
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn a_busy_project_leaves_a_newcomer_its_share_of_the_cap() {
-        let mut pacer = Pacer::new(4, 10);
+        let mut pacer = CallPacer::new(4, 10);
         for second in 0..4 {
             assert_eq!(pacer.ask("busy", at(second)), None);
         }
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn no_minute_holds_more_calls_than_the_cap_however_many_projects_ask() {
-        let mut pacer = Pacer::new(6, 3);
+        let mut pacer = CallPacer::new(6, 3);
         let mut went = Vec::new();
         for second in 0..300 {
             for project in ["a", "b", "c"] {

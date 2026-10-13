@@ -7,7 +7,8 @@
 
 use std::cell::Cell;
 
-use crate::ports::Timestamp;
+use super::Runner;
+use crate::ports::{ForgeError, Timestamp};
 
 /// Seconds the turn waits before the token is asked for again
 const RETRY_AFTER: u64 = 30;
@@ -34,10 +35,12 @@ impl TokenWait {
         self.busy.set(false);
     }
 
-    /// The try failed for a reason that passes
-    pub(super) fn busy_at(&self, now: Timestamp) {
+    /// The try failed for a reason that passes, and no try is made before
+    /// `hold` ends, if the forge is held
+    pub(super) fn busy_at(&self, now: Timestamp, hold: Option<Timestamp>) {
         self.busy.set(true);
-        self.until.set(now.0.saturating_add(RETRY_AFTER));
+        let after = Timestamp(now.0.saturating_add(RETRY_AFTER));
+        self.until.set(hold.map_or(after, |hold| hold.max(after)).0);
     }
 
     /// Whether the try that just failed did so for a reason that passes
@@ -55,3 +58,24 @@ impl TokenWait {
         self.told.set(false);
     }
 }
+
+impl Runner {
+    /// Whether the token's `error` is one that passes, as a busy GitHub or a
+    /// held or rate-limited forge is, and the wait for it begins if so
+    ///
+    /// A rate-limited answer set the forge's hold, which the wait follows.
+    pub(super) fn token_error_passes(&self, error: &ForgeError) -> bool {
+        let passes = matches!(
+            error,
+            ForgeError::AppBusy(_) | ForgeError::Limited { .. } | ForgeError::Held(_)
+        );
+        if passes {
+            let now = self.ports.clock.now();
+            self.token_wait.busy_at(now, self.forge_hold.until(now));
+        }
+        passes
+    }
+}
+
+#[cfg(test)]
+mod tests;

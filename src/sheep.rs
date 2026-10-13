@@ -31,7 +31,7 @@ use crate::github::{AppTokens, AppVoice, Apps};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, GRANT};
-use crate::ports::{Leases, Ports, Routed, SandboxError};
+use crate::ports::{Leases, LocalPace, Ports, Routed, SandboxError};
 use crate::runner::{
     ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
     wakes,
@@ -203,6 +203,7 @@ fn serve(project: &str) -> Result<(), Exit> {
         test_runner: Arc::new(claude.test_runner()),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
+        pace: Arc::new(LocalPace::new()),
         flock,
     };
     let finished: OnFinished = {
