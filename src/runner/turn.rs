@@ -16,7 +16,7 @@ use super::adopt;
 use super::claude_files::Unchecked;
 use super::instructions;
 use super::pace::Pace;
-use super::pm::{COMPACT, WORKER_COMPACT_PAST};
+use super::pm::WORKER_COMPACT_PAST;
 use super::pull_request_file;
 use super::question::asked;
 use super::report::{Begin, StepReport};
@@ -26,7 +26,7 @@ use super::ruling::park;
 use crate::github::InstallationToken;
 use crate::pacer::Scope;
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
+    AgentCall, AgentError, AgentReply, COMPACT, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
 };
 use crate::profile::{self, WorkerProfile};
 use crate::settings::{AgentHarness, Effort, Limit};
