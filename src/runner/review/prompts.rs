@@ -200,6 +200,23 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
     }
 
     #[test]
+    fn the_prompt_names_apply_patch_for_codex() {
+        let folder = Path::new("/k/targets/shep/7/review-tests");
+        let tests = Some(("cargo test --test {name}", folder, "apply_patch"));
+
+        let prompt = reviewer_prompt(&defect_hunter(), "origin/main", "D", "", None, tests);
+
+        assert!(
+            prompt.contains("per finding with the apply_patch tool."),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("/k/targets/shep/7/review-tests"),
+            "{prompt}"
+        );
+    }
+
+    #[test]
     fn a_finding_with_a_test_is_listed_with_its_fifth_field() {
         let mut found = finding(Severity::High, 3);
         found.test = Some("tests/flag.rs".into());

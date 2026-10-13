@@ -40,7 +40,11 @@ pub(super) fn id(id: &str) -> SessionId {
     SessionId(id.into())
 }
 
-fn strings(call: &AgentCall, resumed: Option<&Thread>, instructions: Option<&str>) -> Vec<String> {
+pub(super) fn strings(
+    call: &AgentCall,
+    resumed: Option<&Thread>,
+    instructions: Option<&str>,
+) -> Vec<String> {
     argv(call, &Files::of(call).home, resumed, instructions)
         .unwrap()
         .into_iter()
@@ -156,7 +160,7 @@ fn hook_at(point: crate::settings::HookPoint) -> crate::settings::ProjectHook {
 }
 
 // The hook list Codex is given for `event`, if it is given one.
-fn codex_hooks(argv: &[String], event: &str) -> Option<toml::Value> {
+pub(super) fn codex_hooks(argv: &[String], event: &str) -> Option<toml::Value> {
     let hooks = argv
         .iter()
         .find_map(|a| a.strip_prefix(&format!("hooks.{event}=")))?;
@@ -754,7 +758,7 @@ impl World {
         }
     }
 
-    fn fenced(&self, kelpie: &Path, session: Session) -> AgentCall {
+    pub(super) fn fenced(&self, kelpie: &Path, session: Session) -> AgentCall {
         worker_in(
             &self.path("wt"),
             &self.path("build"),
