@@ -191,6 +191,24 @@ impl ModelGateway for Paddock {
             None => Ok(()),
         })
     }
+
+    fn resume(
+        &self,
+        gateway: &Upstream,
+        id: &str,
+        ending: &Ending,
+        call: &mut dyn FnMut(),
+    ) -> Option<Result<(), Unheld>> {
+        let mut lease = match Lease::resume(gateway, id, ending, self.timing) {
+            Ok(lease) => lease,
+            Err(why) => return Some(Err(Unheld::Refused(why))),
+        };
+        call();
+        Some(match lease.finish() {
+            Some(why) => Err(Unheld::Lost(why)),
+            None => Ok(()),
+        })
+    }
 }
 
 /// A heartbeat lease on one model, renewed until dropped and then released
@@ -260,14 +278,36 @@ impl Lease {
                 "`POST /paddock/leases` answered HTTP {status}, {error}{why}"
             ));
         };
-        // The id goes in a header and a path, so it is held to what paddock writes.
-        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        if !fits_header(id) {
             return Err(format!(
                 "`POST /paddock/leases` granted the id {id:?}, which cannot go in a \
                  header, so the take is refused"
             ));
         }
-        Ok(Some(Self::renewed(gateway, id, ending, timing)))
+        Ok(Some(Self::renewed(gateway, id, ending, timing, false)))
+    }
+
+    /// The lease `id`, which an earlier image of the runner took and left
+    /// held, renewed at once and then as the earlier image did
+    ///
+    /// A renewal paddock refuses means the lease was lost in between, which
+    /// asks `ending` to end the call and [`Lease::finish`] says.
+    ///
+    /// # Errors
+    ///
+    /// Why `id` cannot be a lease paddock granted.
+    pub(crate) fn resume(
+        gateway: &Upstream,
+        id: &str,
+        ending: &Ending,
+        timing: Timing,
+    ) -> Result<Self, String> {
+        if !fits_header(id) {
+            return Err(format!(
+                "the carried lease id {id:?} cannot go in a header, so it is not resumed"
+            ));
+        }
+        Ok(Self::renewed(gateway, id, ending, timing, true))
     }
 
     /// The id paddock granted, exactly as it wrote it
@@ -287,7 +327,14 @@ impl Lease {
         }
     }
 
-    fn renewed(gateway: &Upstream, id: &str, ending: &Ending, timing: Timing) -> Self {
+    // `resumed` has the first renewal made at once and not after `timing.renew`.
+    fn renewed(
+        gateway: &Upstream,
+        id: &str,
+        ending: &Ending,
+        timing: Timing,
+        resumed: bool,
+    ) -> Self {
         let (stop, stopped) = mpsc::channel::<()>();
         let held = Arc::new(Mutex::new(Held::Renewing));
         let (renewer, path) = (gateway.clone(), format!("/paddock/leases/{id}"));
@@ -297,6 +344,11 @@ impl Lease {
             let mut renewed_at = Instant::now();
             let mut last = "no renewal was due before it ran out".to_owned();
             let mut told = false;
+            let mut due = if resumed {
+                Duration::ZERO
+            } else {
+                timing.renew
+            };
             let why = loop {
                 // The ttl runs from the last renewal paddock took, so the lease
                 // is lost at that boundary and not before: tries go on up to it,
@@ -305,7 +357,8 @@ impl Lease {
                 if left.is_zero() {
                     break last;
                 }
-                let waited = stopped.recv_timeout(timing.renew.min(left));
+                let waited = stopped.recv_timeout(due.min(left));
+                due = timing.renew;
                 if !matches!(waited, Err(RecvTimeoutError::Timeout)) {
                     return;
                 }
@@ -353,6 +406,11 @@ impl Drop for Lease {
         let path = format!("/paddock/leases/{}", self.id);
         let _ = send(&self.gateway, ("DELETE", &path), None, true, self.release);
     }
+}
+
+// The id goes in a header and a path, so it is held to what paddock writes.
+fn fits_header(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 // What a busy answer says paddock turned the take away for.
@@ -475,435 +533,4 @@ fn exchange(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Instant;
-
-    use super::*;
-    use crate::settings::{EndpointUrl, GatewayKey};
-    use crate::test::{StandInEndpoint, Take};
-
-    const QUICK: Timing = Timing {
-        answer: Duration::from_secs(5),
-        release: Duration::from_secs(5),
-        renew: Duration::from_millis(20),
-        retry: Duration::from_millis(20),
-        lapse: Duration::from_secs(5),
-    };
-
-    const LEASES: &str = r#"{"leases":[
-        {"id":"L1","client":"a","model":"coder","since":"t1","note":null,"revoked":{"by":"admin","note":"x"}},
-        {"id":"L2","client":"b","model":"other","since":"t2","note":"n","revoked":null},
-        {"id":"L3","client":"c","model":"coder","since":"t3","note":"mine","revoked":null}
-    ],"waiters":[]}"#;
-
-    #[test]
-    fn the_holder_is_the_live_lease_on_the_model() {
-        let holder = holder_in(LEASES, "coder").unwrap().unwrap();
-        assert_eq!(
-            (
-                holder.lease.as_str(),
-                holder.client.as_str(),
-                holder.what.as_str(),
-                holder.since.as_str()
-            ),
-            ("L3", "c", "mine", "t3")
-        );
-        assert_eq!(holder_in(LEASES, "idle"), Ok(None));
-        assert_eq!(holder_in("{}", "coder"), Ok(None));
-        assert!(holder_in("<html>", "coder").is_err());
-    }
-
-    const BUSY: &str = r#"{"error":"busy","reason":"qwen is loading"}"#;
-
-    const TURN: &str = r#"{"error":"busy","reason":"qwen is serving kelpie #9, next in line","reason_kind":"turn"}"#;
-
-    fn gateway(server: &StandInEndpoint) -> Upstream {
-        let base = EndpointUrl::try_from(server.url().to_owned()).unwrap();
-        Upstream::new(&base)
-            .unwrap()
-            .with_key(GatewayKey::for_test("pk"))
-    }
-
-    fn calls(server: &StandInEndpoint) -> Vec<String> {
-        let seen = server.seen().into_iter();
-        seen.filter_map(|l| l.strip_suffix(" HTTP/1.0").map(str::to_owned))
-            .collect()
-    }
-
-    #[test]
-    fn a_200_that_is_not_a_model_list_is_an_error() {
-        for body in [
-            "{}",
-            r#"{"data":"none"}"#,
-            r#"{"data":[{"name":"qwen"}]}"#,
-            "[]",
-        ] {
-            let server = StandInEndpoint::start([])
-                .like_paddock("pk", &[])
-                .with_models_body(body);
-            let err = models(&gateway(&server)).unwrap_err();
-            assert_eq!(
-                err, "`GET /v1/models` answered something other than a model list",
-                "{body}"
-            );
-        }
-        let server = StandInEndpoint::start([]).like_paddock("pk", &["qwen"]);
-        assert_eq!(models(&gateway(&server)), Ok(vec!["qwen".to_owned()]));
-        let empty = StandInEndpoint::start([]).like_paddock("pk", &[]);
-        assert_eq!(models(&gateway(&empty)), Ok(vec![]));
-    }
-
-    #[test]
-    fn a_take_asks_for_a_heartbeat_renews_it_and_releases_it_when_dropped() {
-        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
-        let lease = Lease::take(
-            &gateway(&server),
-            "qwen",
-            "kelpie #7 worker",
-            &|| false,
-            &|_| {},
-            &Ending::default(),
-            QUICK,
-        );
-        let lease = lease.unwrap().unwrap();
-        let asked = &server.requests()[0];
-        let wanted = json!({ "model": "qwen", "hold": "heartbeat", "ttl": "120s",
-                             "note": "kelpie #7 worker" });
-        assert_eq!(asked, &wanted);
-        let until = Instant::now() + Duration::from_secs(5);
-        while !calls(&server).contains(&"PUT /paddock/leases/L1".to_owned()) {
-            assert!(Instant::now() < until, "no renewal: {:?}", server.seen());
-            thread::sleep(Duration::from_millis(10));
-        }
-        drop(lease);
-        assert_eq!(calls(&server).last().unwrap(), "DELETE /paddock/leases/L1");
-    }
-
-    #[test]
-    fn a_lease_gives_the_id_paddock_granted() {
-        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
-        let lease = held(&server, &Ending::default(), QUICK);
-        assert_eq!(lease.id(), "L1");
-    }
-
-    #[test]
-    fn a_granted_id_that_cannot_go_in_a_header_fails_the_take() {
-        for body in [r#"{"id":"L1\r\nx-evil: 1"}"#, r#"{"id":"L 1"}"#] {
-            let server = StandInEndpoint::start([])
-                .like_paddock("pk", &[])
-                .with_takes([Take::Status(200, body)]);
-            let err = Lease::take(
-                &gateway(&server),
-                "qwen",
-                "n",
-                &|| false,
-                &|_| {},
-                &Ending::default(),
-                QUICK,
-            )
-            .unwrap_err();
-            assert!(err.contains("`POST /paddock/leases`"), "{err}");
-            assert!(err.contains("refused"), "{err}");
-            assert_eq!(calls(&server), ["POST /paddock/leases"], "{body}");
-        }
-    }
-
-    fn held(server: &StandInEndpoint, ending: &Ending, timing: Timing) -> Lease {
-        let taken = Lease::take(
-            &gateway(server),
-            "qwen",
-            "n",
-            &|| false,
-            &|_| {},
-            ending,
-            timing,
-        );
-        taken.unwrap().unwrap()
-    }
-
-    fn until(what: &str, server: &StandInEndpoint, done: impl Fn() -> bool) {
-        let until = Instant::now() + Duration::from_secs(5);
-        while !done() {
-            assert!(Instant::now() < until, "no {what}: {:?}", server.seen());
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    #[test]
-    fn a_renewal_the_gateway_refuses_ends_the_turn_with_a_failure() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .refusing_renewals(404);
-        let ending = Ending::default();
-        let mut lease = held(&server, &ending, QUICK);
-        until("end", &server, || ending.asked());
-        let lost = lease.finish().unwrap();
-        assert!(lost.contains("L1") && lost.contains("HTTP 404"), "{lost}");
-    }
-
-    #[test]
-    fn renewals_the_gateway_leaves_unanswered_end_the_turn_once_the_ttl_has_run_out() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .hanging_renewals();
-        let timing = Timing {
-            answer: Duration::from_millis(50),
-            lapse: Duration::from_millis(300),
-            ..QUICK
-        };
-        let ending = Ending::default();
-        let mut lease = held(&server, &ending, timing);
-        until("end", &server, || ending.asked());
-        assert!(lease.finish().unwrap().contains("did not answer"));
-    }
-
-    #[test]
-    fn unanswered_renewals_are_tried_until_the_ttl_has_run_out_and_not_before() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .hanging_renewals();
-        let timing = Timing {
-            answer: Duration::from_millis(20),
-            renew: Duration::from_millis(100),
-            lapse: Duration::from_millis(400),
-            ..QUICK
-        };
-        let ending = Ending::default();
-        let started = Instant::now();
-        let _lease = held(&server, &ending, timing);
-        until("end", &server, || ending.asked());
-        assert!(started.elapsed() >= timing.lapse, "{:?}", started.elapsed());
-    }
-
-    #[test]
-    fn a_lease_let_go_of_with_a_renewal_in_flight_never_ends_the_call() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .hanging_renewals();
-        let timing = Timing {
-            answer: Duration::from_secs(2),
-            lapse: Duration::from_millis(500),
-            ..QUICK
-        };
-        let ending = Ending::default();
-        let mut lease = held(&server, &ending, timing);
-        until("renewal", &server, || {
-            calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
-        });
-        assert_eq!(lease.finish(), None);
-        // The renewal in flight is cut short at the lapse, after the lease was let go of.
-        thread::sleep(Duration::from_millis(900));
-        assert!(!ending.asked());
-    }
-
-    #[test]
-    fn a_healthy_lease_is_not_lost() {
-        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
-        let ending = Ending::default();
-        let mut lease = held(&server, &ending, QUICK);
-        until("renewal", &server, || {
-            calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
-        });
-        assert!(!ending.asked());
-        assert_eq!(lease.finish(), None);
-    }
-
-    #[test]
-    fn dropping_a_lease_with_a_renewal_in_flight_releases_it_at_once() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .hanging_renewals();
-        let lease = held(&server, &Ending::default(), QUICK);
-        until("renewal", &server, || {
-            calls(&server).contains(&"PUT /paddock/leases/L1".to_owned())
-        });
-        let dropped = Instant::now();
-        drop(lease);
-        assert!(dropped.elapsed() < Duration::from_secs(1));
-        assert_eq!(calls(&server).last().unwrap(), "DELETE /paddock/leases/L1");
-    }
-
-    #[test]
-    fn a_busy_take_is_asked_again_and_a_refused_one_names_why() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .with_takes([Take::Status(503, BUSY)]);
-        let busy = AtomicUsize::new(0);
-        let told = |_| {
-            busy.fetch_add(1, Ordering::SeqCst);
-        };
-        let lease = Lease::take(
-            &gateway(&server),
-            "qwen",
-            "n",
-            &|| false,
-            &told,
-            &Ending::default(),
-            QUICK,
-        )
-        .unwrap();
-        assert!(lease.is_some());
-        assert_eq!(busy.load(Ordering::SeqCst), 1, "each busy answer is told");
-        let takes = calls(&server)
-            .iter()
-            .filter(|l| l.starts_with("POST"))
-            .count();
-        assert_eq!(takes, 2);
-
-        let wrong = gateway(&server).with_key(GatewayKey::for_test("other"));
-        let err = Lease::take(
-            &wrong,
-            "qwen",
-            "n",
-            &|| false,
-            &|_| {},
-            &Ending::default(),
-            QUICK,
-        )
-        .unwrap_err();
-        assert_eq!(
-            err,
-            "`POST /paddock/leases` answered HTTP 401, unauthorized"
-        );
-        let bad = r#"{"error":"bad_lease_request","detail":"ttl is at most 1h"}"#;
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .with_takes([Take::Status(400, bad)]);
-        let err = Lease::take(
-            &gateway(&server),
-            "qwen",
-            "n",
-            &|| false,
-            &|_| {},
-            &Ending::default(),
-            QUICK,
-        )
-        .unwrap_err();
-        assert!(
-            err.ends_with("bad_lease_request: ttl is at most 1h"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn a_take_paddock_keeps_queued_or_busy_ends_when_the_turn_gives_up() {
-        for take in [Take::Hang, Take::Status(503, BUSY)] {
-            let server = StandInEndpoint::start([])
-                .like_paddock("pk", &[])
-                .with_takes([take.clone(), take]);
-            let looks = AtomicUsize::new(0);
-            let give_up = || looks.fetch_add(1, Ordering::SeqCst) >= 3;
-            let started = Instant::now();
-            let lease = Lease::take(
-                &gateway(&server),
-                "qwen",
-                "n",
-                &give_up,
-                &|_| {},
-                &Ending::default(),
-                QUICK,
-            );
-            assert!(matches!(lease, Ok(None)), "{lease:?}");
-            assert!(started.elapsed() < Duration::from_secs(5));
-            assert!(!calls(&server).iter().any(|l| l.starts_with("DELETE")));
-        }
-    }
-
-    fn round_calls(server: &StandInEndpoint) -> Vec<String> {
-        let all = calls(server).into_iter();
-        all.filter(|l| l.starts_with("POST") || l.starts_with("DELETE"))
-            .collect()
-    }
-
-    fn around<T>(
-        server: &StandInEndpoint,
-        ending: &Ending,
-        give_up: &dyn Fn() -> bool,
-        told: &Mutex<Vec<Stand>>,
-        call: impl FnOnce() -> T,
-    ) -> Result<T, Unheld> {
-        let tell = |stand| told.lock().unwrap().push(stand);
-        let taking = Taking {
-            model: "qwen",
-            note: "kelpie local round 1",
-            give_up,
-            tell: &tell,
-            ending,
-        };
-        let paddock = Paddock { timing: QUICK };
-        let port: &dyn ModelGateway = &paddock;
-        port.around(&gateway(server), &taking, call)
-    }
-
-    #[test]
-    fn a_reviewer_round_takes_a_lease_before_the_call_and_returns_it_after() {
-        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
-        let told = Mutex::new(Vec::new());
-        let during = around(&server, &Ending::default(), &|| false, &told, || {
-            round_calls(&server)
-        });
-        assert_eq!(during, Ok(vec!["POST /paddock/leases".to_owned()]));
-        assert_eq!(
-            round_calls(&server),
-            ["POST /paddock/leases", "DELETE /paddock/leases/L1"]
-        );
-        assert_eq!(*told.lock().unwrap(), [Stand::Asking, Stand::Granted]);
-    }
-
-    #[test]
-    fn a_turn_reason_is_told_as_a_turn_and_any_other_busy_answer_as_busy() {
-        for (body, wanted) in [(TURN, Stand::Turn), (BUSY, Stand::Busy), ("", Stand::Busy)] {
-            let server = StandInEndpoint::start([])
-                .like_paddock("pk", &[])
-                .with_takes([Take::Status(503, body)]);
-            let told = Mutex::new(Vec::new());
-            around(&server, &Ending::default(), &|| false, &told, || ()).unwrap();
-            let told = told.into_inner().unwrap();
-            assert_eq!(told, [Stand::Asking, wanted, Stand::Granted], "{body}");
-        }
-    }
-
-    #[test]
-    fn a_lease_lost_during_the_call_fails_it_whatever_the_call_returned() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .refusing_renewals(404);
-        let ending = Ending::default();
-        let lost = around(&server, &ending, &|| false, &Mutex::default(), || {
-            until("end", &server, || ending.asked());
-            "finished anyway"
-        });
-        let Err(Unheld::Lost(why)) = lost else {
-            panic!("{lost:?}");
-        };
-        assert!(why.contains("L1") && why.contains("HTTP 404"), "{why}");
-    }
-
-    #[test]
-    fn a_round_that_gives_up_the_wait_never_runs_and_one_refused_names_why() {
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .with_takes([Take::Hang]);
-        let ran = AtomicUsize::new(0);
-        let call = || ran.fetch_add(1, Ordering::SeqCst);
-        let told = Mutex::default();
-        let waited = around(&server, &Ending::default(), &|| true, &told, call);
-        assert_eq!(waited, Err(Unheld::GaveUp));
-        assert_eq!(ran.load(Ordering::SeqCst), 0);
-
-        let bad = r#"{"error":"bad_lease_request","detail":"ttl is at most 1h"}"#;
-        let server = StandInEndpoint::start([])
-            .like_paddock("pk", &[])
-            .with_takes([Take::Status(400, bad)]);
-        let refused = around(&server, &Ending::default(), &|| false, &told, call);
-        let Err(Unheld::Refused(why)) = refused else {
-            panic!("{refused:?}");
-        };
-        assert!(
-            why.ends_with("bad_lease_request: ttl is at most 1h"),
-            "{why}"
-        );
-        assert_eq!(ran.load(Ordering::SeqCst), 0);
-    }
-}
+mod tests;

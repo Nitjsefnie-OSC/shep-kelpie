@@ -13,9 +13,9 @@ use crate::ports::Role;
 use crate::settings::{ContextSize, EndpointUrl, Gateway, GatewayKind, GatewayName, KeyVar};
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
-const KEY: &str = "pk-not-for-workers";
+pub(super) const KEY: &str = "pk-not-for-workers";
 
-fn gateways(host: &str, kind: GatewayKind) -> Gateways {
+pub(super) fn gateways(host: &str, kind: GatewayKind) -> Gateways {
     let gateway = Gateway {
         kind,
         url: EndpointUrl::try_from(host.to_owned()).unwrap(),
@@ -51,7 +51,7 @@ fn pi_of_kind(
         .with_gateways(gateways(server.host(), kind))
 }
 
-fn on_gateway(world: &World, role: Role) -> AgentCall {
+pub(super) fn on_gateway(world: &World, role: Role) -> AgentCall {
     let mut call = world.call("http://unused/v1", role, Session::New(id(FRESH_ID)));
     call.harness = AgentHarness::Pi(ModelServer {
         host: ModelHost::Gateway(GatewayName::try_from("paddock".to_owned()).unwrap()),

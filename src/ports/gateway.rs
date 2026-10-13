@@ -95,6 +95,24 @@ pub trait ModelGateway: Send + Sync {
         taking: &Taking<'_>,
         call: &mut dyn FnMut(&str),
     ) -> Option<Result<(), Unheld>>;
+
+    /// Runs `call` holding the lease `id`, which an earlier image of the
+    /// runner took and left held, and releases it after
+    ///
+    /// The lease is renewed at once and then as it was, so it is not lost
+    /// between the images. `None` when this kind offers no lease, and `call`
+    /// has not run. `Some` when it was asked: `Err` when the lease was lost,
+    /// which is an error whatever `call` did, since it was asked to end.
+    fn resume(
+        &self,
+        gateway: &Upstream,
+        id: &str,
+        ending: &Ending,
+        call: &mut dyn FnMut(),
+    ) -> Option<Result<(), Unheld>> {
+        let _ = (gateway, id, ending, call);
+        None
+    }
 }
 
 impl dyn ModelGateway + '_ {
@@ -133,6 +151,29 @@ impl dyn ModelGateway + '_ {
         }
         // A kind with no lease left the call unrun.
         done.or_else(|| call.map(|call| call(None)))
+            .ok_or_else(|| Unheld::Refused("the lease ran no call".into()))
+    }
+
+    /// Runs `call` under the lease `id` an earlier image took, or at once
+    /// when this kind offers none
+    ///
+    /// # Errors
+    ///
+    /// [`Unheld`] when the lease was lost.
+    pub fn around_resumed<T>(
+        &self,
+        gateway: &Upstream,
+        id: &str,
+        ending: &Ending,
+        call: impl FnOnce() -> T,
+    ) -> Result<T, Unheld> {
+        let mut call = Some(call);
+        let mut done = None;
+        let mut run = || done = call.take().map(|call| call());
+        if let Some(Err(unheld)) = self.resume(gateway, id, ending, &mut run) {
+            return Err(unheld);
+        }
+        done.or_else(|| call.map(|call| call()))
             .ok_or_else(|| Unheld::Refused("the lease ran no call".into()))
     }
 }
@@ -182,5 +223,15 @@ mod tests {
         let port: &dyn ModelGateway = &Leaseless;
         assert_eq!(port.around(&upstream, &taking, || 7), Ok(7));
         assert!(!told.get() && !ending.asked());
+    }
+
+    #[test]
+    fn a_resumed_call_on_a_kind_with_no_lease_runs_at_once() {
+        let base = EndpointUrl::try_from("http://gpu:8700/v1".to_owned()).unwrap();
+        let upstream = Upstream::new(&base).unwrap();
+        let ending = Ending::default();
+        let port: &dyn ModelGateway = &Leaseless;
+        assert_eq!(port.around_resumed(&upstream, "L1", &ending, || 7), Ok(7));
+        assert!(!ending.asked());
     }
 }
