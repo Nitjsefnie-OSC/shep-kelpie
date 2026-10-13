@@ -51,7 +51,7 @@ pub use gpu::GpuCurl;
 pub use host::SystemHost;
 pub use leases::ShepLeases;
 pub use local::LocalReviewer;
-pub use pi::PiCli;
+pub use pi::{PI_MINIMUM, PiCli};
 pub use process::{Sealed, end_groups, feeding};
 pub use srt::SandboxRuntime;
 #[cfg(test)]
