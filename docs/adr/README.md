@@ -50,3 +50,19 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - a second pull request from a new branch, for a contribution (0010)
 - adopt a quiet contribution without asking its contributor (0010)
 - wait for a contributor's explicit yes before adopting (0010)
+
+### Decided against without an ADR
+
+Worker retros of 10 to 12 October 2026 kept proposing these. The maintainer turned them down on 12 October.
+
+- let the worker's sandbox write `packed-refs` or the shared `.git`: denied on purpose, and git is told not to try instead
+- allow `/tmp` in the worker's fence: every worker shares it. Tests honour `TMPDIR`
+- run `lease run cargo-test` outside the sandbox: it hands a worker an unsandboxed exec path
+- let workers run `gh api` or read-only GraphQL: a worker's `gh` is the maintainer's login
+- point `TMPDIR` under the build folder so socket tests bind: the bind is denied, not the path
+- mark tests the sandbox cannot run `#[ignore]`: CI never runs ignored tests, so coverage is lost
+- drop review findings in files outside the branch's diff: real findings sit there
+- forbid `std::fs` in `src/runner` with clippy: kelpie's own folders use it legitimately
+- a `just` recipe or test script beside the documented cargo commands: a second command shape
+- `cargo deny` or `cargo tree -d` for duplicate crates: upkeep for one incident
+- merge `origin/main` at the start of every round: kelpie merges main, and an early merge adds conflicts
