@@ -28,7 +28,11 @@ fn read(rig: &Rig, runner: &Mutex<Runner>) -> Value {
         if status["gpu"].get("age_seconds").is_some() {
             return status;
         }
-        assert!(Instant::now() < until, "the GPU was never read: {status}");
+        assert!(
+            Instant::now() < until,
+            "the GPU was never read: {}",
+            status["gpu"]
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
