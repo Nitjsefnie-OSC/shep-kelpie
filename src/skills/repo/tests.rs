@@ -8,6 +8,7 @@ use crate::runner::step;
 use crate::test::{Rig, Scripted, Synced, git};
 
 mod narrow;
+mod own;
 mod parts;
 
 // The files of a marketplace named `market` holding each of `plugins` with one skill, by path

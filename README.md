@@ -402,8 +402,9 @@ A plugin that cannot load is skipped, the runner logs why and the run goes on: n
 A project narrows what reaches each agent, and adds a plugin the repo does not name, in its `[app.dogs.kelpie.repo_setup]` table. Every key is optional, an unknown key stops the runner naming it, and a change is read as the runner rereads its settings.
 
 - `plugins`: `true` by default. `false` loads none of the plugins the repo turns on, and `extra` still loads.
-- `roles`: the calls that get plugins, from `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`. All of them by default. `roles = ["worker"]` keeps plugins from the reviewers, the issue writer, the project manager, the advisor and the researcher. It narrows `extra` as well.
-- `parts`: which parts of a plugin load, from `skills`, `agents`, `commands`, `hooks` and `mcp`. All of them by default. `parts = ["skills"]` copies only a plugin's skills, and leaves its agents, commands and hooks out. `mcp` is accepted and loads nothing yet.
+- `own`: `true` by default. The repo's own `.claude/skills/`, `.claude/agents/`, `.claude/commands/` and the `hooks` of `.claude/settings.json`, read from the default branch and written as one more plugin, `kelpie-repo`. `false` leaves them out and keeps the plugins, `extra` ones included. See [The repo's own files](#the-repos-own-files).
+- `roles`: the calls that get plugins and the repo's own files, from `worker`, `reviewer`, `issue-writer`, `pm`, `advisor` and `researcher`. All of them by default. `roles = ["worker"]` keeps plugins and the repo's own files from the reviewers, the issue writer, the project manager, the advisor and the researcher. It narrows `extra` as well.
+- `parts`: which parts of a plugin, and of the repo's own files, load, from `skills`, `agents`, `commands`, `hooks` and `mcp`. All of them by default. `parts = ["skills"]` copies only a plugin's skills, and leaves its agents, commands and hooks out, and the same for the repo's own files. `mcp` is accepted and loads nothing yet.
 - `skip`: plugins, as `name@marketplace`, left out though the repo turns them on. A skipped plugin is not listed in `status`.
 - `extra`: plugins the repo does not turn on, each as `name@marketplace` with its marketplace's source as one string: `github:owner/name`, `git:<url>` or `directory:<folder inside the checkout>`, and `#<branch or tag>` after a `github` or `git` address. The kinds are those of the `source` in an `extraKnownMarketplaces` entry. A marketplace given here takes the place of the repo's of the same name, and two plugins of one marketplace must give the same source. An extra plugin that cannot load is skipped with its reason, as the repo's are.
 
@@ -414,6 +415,16 @@ parts = ["skills", "agents"]
 skip = ["noisy@house"]
 extra = { "style@lab" = "github:acme/lab#v2" }
 ```
+
+##### The repo's own files
+
+A repo sets Claude Code up for everyone who works in it without a plugin too: skills in `.claude/skills/`, sub-agents in `.claude/agents/`, commands in `.claude/commands/` and hooks in `.claude/settings.json`. A worker loads them because its turn runs in the worktree, but the project manager, the advisor, the researcher and the issue writer run in folders of their own, so shep-kelpie hands them over.
+
+- It reads the four from the checkout's default branch, never a worker's branch, and writes them as one more plugin, `kelpie-repo`, under `<project folder>/skills/repo/kelpie-repo`, rewritten at every start and whenever the default branch moves. A plugin's name carries a namespace, so its skills are invoked as `kelpie-repo:<skill>`. A repo's plugin cannot take that name.
+- Every call gets it as one more `--plugin-dir`, as it gets a plugin, for the roles `repo_setup.roles` names. A Claude Code call that runs in a worktree whose agent files are exactly the default branch's already loads them there, and does not get the plugin as well: a worker's turns and the reviewers get none, so no skill or hook shows up twice. The issue writer, which runs in a view of the default branch, is such a call too.
+- The `hooks` of `.claude/settings.json` go to the plugin's `hooks/hooks.json`. They run beside the hooks in the call's settings file, inside the call's fence, and cannot replace or turn off shep-kelpie's own. A hook that runs a script in the repo reaches it through the call's folder, which for the project manager, the advisor and the researcher is not the repo, so the script is not found there. Only the `hooks` are read from `settings.json`.
+- `repo_setup.own = false` leaves all of this out and keeps the repo's plugins. `parts` narrows it as it narrows a plugin. A link in these folders is left out, as in a plugin.
+- `status` lists it under `plugins` as `.claude`, with the skills it brought, and `doctor` reports it under `repo plugins`. A repo with none of these files has no entry.
 
 #### Code graph
 
@@ -1074,7 +1085,7 @@ A project's settings are its `[app.dogs.kelpie]` table. `shep kelpie get [<key>]
 - `e2e.host`, `e2e.command` and `e2e.results`: an ssh host that runs the project's end-to-end tests, and the script and results folder in the repo. A runner reads them when it starts. See [End-to-end tests](#end-to-end-tests)
 - `skills.<step>`: see [Skills](#skills)
 - `code_graph.enabled`: whether the worker's and the reviewers' calls get a code graph of the worktree, off by default. See [Code graph](#code-graph)
-- `repo_setup.plugins`, `repo_setup.roles`, `repo_setup.parts`, `repo_setup.skip` and `repo_setup.extra`: which of the repo's plugins reach which calls, which of their parts load, and the plugins to add. See [Repo plugins](#repo-plugins)
+- `repo_setup.plugins`, `repo_setup.own`, `repo_setup.roles`, `repo_setup.parts`, `repo_setup.skip` and `repo_setup.extra`: which of the repo's plugins and own files reach which calls, which of their parts load, and the plugins to add. See [Repo plugins](#repo-plugins)
 
 shep-kelpie's own settings, shared by every project, are the `[kelpie]` section of `dogs.toml`, which lookout edits in the dog's pane. Start from `kelpie-settings.example.toml`, and keep `dogs.toml` private: the webhook's URL is a credential.
 

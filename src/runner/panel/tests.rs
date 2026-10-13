@@ -13,6 +13,7 @@ use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 mod deciding;
 mod fences;
 mod folders;
+mod own;
 mod plugins;
 
 const WORKER: &str = "Both threads were fixed in the last push, with tests. \
