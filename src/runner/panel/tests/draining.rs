@@ -105,3 +105,28 @@ fn a_ruling_that_waited_a_hold_for_a_drain_to_end_goes_to_the_maintainer_and_say
         serde_json::json!({ "draining": 1, "posted": 0 })
     );
 }
+
+#[test]
+fn a_ruling_whose_alert_went_out_before_the_panel_took_it_up_is_posted_and_says_why() {
+    let (rig, runner) = raised_in_a_drain("lickitung");
+    drop(runner);
+    let mut state = state_of(&rig);
+    state["rulings"][0]["alerted"] = true.into();
+    std::fs::write(rig.paths().state, state.to_string()).unwrap();
+
+    let runner = rig.open().unwrap();
+    let comment = settle(&rig, &runner);
+
+    assert!(!comment.contains("**Panel**"), "{comment}");
+    assert!(
+        seen(&rig, Role::Advisor).is_empty(),
+        "the panel was not asked"
+    );
+    let ruling = &state_of(&rig)["rulings"][0];
+    assert_eq!(ruling["skipped"], "posted", "{ruling}");
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(
+        notes.contains("ruling 71: the panel skips it, since its comment had gone out"),
+        "{notes}"
+    );
+}

@@ -285,12 +285,12 @@ impl Runner {
             .collect();
         for id in overdue {
             if self.panel.queue.contains(&id) {
-                self.panel.queue.retain(|queued| *queued != id);
                 let voted = self.panel.open[&id].ballots.values().any(Option::is_some);
                 if !voted {
                     self.panel_skip(id, Skip::Draining);
                     continue;
                 }
+                self.panel.queue.retain(|queued| *queued != id);
             }
             // Experts still in flight are ended, and abstain through their
             // calls' end, so no call runs on after its ruling is settled.
@@ -305,30 +305,41 @@ impl Runner {
         }
     }
 
-    // Lets ruling `id` go to the maintainer with no vote, and keeps why.
+    // Lets ruling `id` go to the maintainer with no vote, and keeps why. A reason
+    // that cannot be saved leaves the ruling with the panel, to be skipped again
+    // next step, so none goes unvoted with no reason on record.
     fn panel_skip(&mut self, id: u64, skip: Skip) {
+        if !self.panel_skipped(id, skip) {
+            return;
+        }
         if let Some(open) = self.panel.open.remove(&id) {
             self.panel.retire(id, open.plan);
         }
         self.panel.queue.retain(|queued| *queued != id);
-        self.panel_skipped(id, skip);
     }
 
-    /// Keeps on ruling `id` that the panel cast no vote on it, since `skip`
-    pub(super) fn panel_skipped(&mut self, id: u64, skip: Skip) {
+    /// Keeps on ruling `id` that the panel cast no vote on it, since `skip`,
+    /// and returns whether it is saved
+    pub(super) fn panel_skipped(&mut self, id: u64, skip: Skip) -> bool {
         let mut next = self.state.clone();
         let Some(ruling) = next.rulings.iter_mut().find(|r| r.id == id) else {
-            return;
+            return false;
         };
         ruling.skipped = Some(skip);
         match self.save(next) {
-            Ok(()) => self.notes.push(format!(
-                "ruling {id}: the panel skips it, since {}",
-                skip.why()
-            )),
-            Err(e) => self.notes.push(format!(
-                "cannot save why the panel skipped ruling {id}: {e}"
-            )),
+            Ok(()) => {
+                self.notes.push(format!(
+                    "ruling {id}: the panel skips it, since {}",
+                    skip.why()
+                ));
+                true
+            }
+            Err(e) => {
+                self.notes.push(format!(
+                    "cannot save why the panel skipped ruling {id}: {e}"
+                ));
+                false
+            }
         }
     }
 
