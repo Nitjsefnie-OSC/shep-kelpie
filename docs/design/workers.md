@@ -13,6 +13,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Implementers default `sonnet-high`, `opus-high` for work hard to undo (Sonnet high builds as well as Opus; `xhigh` no better). #313
 - `worker.turn_timeout` (60 min) counts from turn start, so restart buys no hour; past it parks `turn-timeout`; lease wait refunded. #16, `src/runner/turn/unfinished.rs`
 - Failed turn parks `stuck` `turn-failed`. #57
+- A due turn that does not start says why in `status` (`held_up`) and on the board line: no slot, push by someone else, pacer hold, GitHub token wait, drain, `attach`. Memory only; one log line once held 5 min, once per reason. #503, `src/runner/turn/held_up.rs`
 - First turn ending with no PR or question resumed once, then parks; uncommitted work with no push sent back once to commit. #140, #275
 - Item whose issue closed with no work ends with no ruling; parked item's issue read at most every 5 min. #385
 - Retro moved from worker to PM: batch after every 10 finished items and at a drain, one call with the PM's agent over a digest kelpie builds (`journal.jsonl`, rulings, ledger). The worker never saw PM wakes, rulings or merges, and overnight 30 retros were ~14% of spend (~94k-token cache write for ~3k of report). Worker keeps a PR-body `Friction` section. Off unless `skills.retro`; no slot, never retried, saved unread (agents acting on retros loop). #361, #566, `src/runner/retro.rs`
@@ -31,6 +32,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 - Guard denies what only kelpie does (merge, ready, `review please`, `gh api`, pushes to `main`, credential reads); label or ready change kelpie didn't make parks the worker. `src/guard.rs`
 - Agent files in worktree (`.claude`, `.mcp.json`, `.codex`, `.agents`) fenced and checked before each call; change parks `agent-files` (a review could plant an unsandboxed hook). #98
 - Every call runs whole inside kelpie's OS sandbox (`Sandbox` port, `srt` 0.0.77), hooks and MCP included; Claude Code's own sandbox off (macOS can't nest). #128
+- `[app.dogs.kelpie.code_graph] enabled` (off) gives the worker's `Work` turns and Claude Code reviewers codebase-memory-mcp: `tools install` fetches a release pinned by SHA-256, `Runner::prepared` names the server in the call's reach and the call's own thread (lock let go, a stop ends it) indexes the worktree into `<project>/code-graphs/<issue>` before each call, the adapter writes a per-call `--mcp-config` (`--strict-mcp-config` stays) and allows `mcp__codebase-memory-mcp`, and the sandbox lets the server write only its index. Missing binary or failed index: a logged skip and a `doctor` line, never a crash. The tool's own `install` is never run. #599, `src/runner/code_graph.rs`, `src/adapters/claude/graph.rs`
 - Guard refuses `claude`, `codex`, `pi` as programs (model endpoint open to process; nested session runs without hooks). `src/guard.rs`
 - Each harness declares run-code + login files; fence holds all, so one harness's call can't plant or read another's. #233
 

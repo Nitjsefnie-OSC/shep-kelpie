@@ -350,6 +350,8 @@ impl Runner {
             false,
         );
         removed.map_err(|e| AdoptError::Worktree(e.to_string()))?;
+        self.remove_code_graph(issue)
+            .map_err(AdoptError::Worktree)?;
         let prepared = worktree::prepare(
             &self.settings.git.checkout,
             &fresh.worktree,

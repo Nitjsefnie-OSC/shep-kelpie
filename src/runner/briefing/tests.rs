@@ -273,3 +273,24 @@ fn a_dropped_item_still_listed_ready_is_named_as_dropped_with_the_command_that_t
     assert!(text.contains(waits), "{text}");
     assert!(!text.contains("kelpie finished it"), "{text}");
 }
+
+#[test]
+fn a_due_turn_that_has_not_started_names_what_it_waits_on_in_place_of_being_due() {
+    let (rig, runner) = seven_and_eight("acme");
+    rig.ask(&runner, "drain", None);
+    assert!(matches!(
+        crate::runner::flight::advance(&runner).unwrap(),
+        Pass::Idle
+    ));
+    rig.clock.advance(5 * 60);
+    assert!(matches!(
+        crate::runner::flight::advance(&runner).unwrap(),
+        Pass::Idle
+    ));
+
+    let text = board(&rig);
+    let held = "  - Session: no call in flight; its first turn has waited 5m: \
+                the runner is draining, so no turn starts\n";
+    assert_eq!(text.matches(held).count(), 2, "{text}");
+    assert!(!text.contains("turn is due"), "{text}");
+}

@@ -48,7 +48,7 @@ pub(super) enum Pace {
     /// A fresh reading found this hold
     Held(Hold),
     /// A hold from an earlier reading still stands
-    StillHeld,
+    StillHeld(Hold),
 }
 
 impl Pace {
@@ -56,7 +56,7 @@ impl Pace {
     pub(super) fn holds(self) -> Option<Begin> {
         match self {
             Self::Clear => None,
-            Self::StillHeld => Some(Begin::Idle),
+            Self::StillHeld(_) => Some(Begin::Idle),
             Self::Held(Hold {
                 kind,
                 reason,
@@ -92,8 +92,8 @@ impl Runner {
         let now = self.ports.clock.now();
         if let Some((read_at, last)) = self.pacing.get(&account) {
             let trusted = now.0 < read_at.0 + RECHECK_SECS;
-            if trusted && last.hold(scope).is_some_and(|hold| now < hold.until) {
-                return Ok(Pace::StillHeld);
+            if let Some(hold) = last.hold(scope).filter(|hold| trusted && now < hold.until) {
+                return Ok(Pace::StillHeld(hold.clone()));
             }
         }
         let prior = self.state.day_start(account);

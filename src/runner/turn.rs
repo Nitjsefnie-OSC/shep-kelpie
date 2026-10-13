@@ -15,6 +15,7 @@ use super::Runner;
 use super::adopt;
 use super::claude_files::Unchecked;
 use super::instructions;
+use super::pace::Pace;
 use super::pm::{COMPACT, WORKER_COMPACT_PAST};
 use super::pull_request_file;
 use super::question::asked;
@@ -34,11 +35,13 @@ use crate::work_item::{Phase, Review, ReviewStage, Seat, Turn, WorkItem};
 use crate::worker_folder;
 use crate::worktree::{self, Start};
 use handover::{Handover, Refused};
+use held_up::Reason;
 use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
 mod budget;
 mod handover;
+pub(super) mod held_up;
 mod unfinished;
 pub(super) mod unreachable;
 
@@ -101,18 +104,24 @@ impl Runner {
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         if let Some(issue) = start_over {
             self.focus = Some(issue);
-            if self.current().is_some_and(|item| item.attached.is_some()) {
-                return Ok(Begin::Idle);
-            }
-            return self.begin_item(true);
+            let begin = if self.current().is_some_and(|item| item.attached.is_some()) {
+                self.held_up.because(Reason::Attached);
+                Begin::Idle
+            } else {
+                self.begin_item(true)?
+            };
+            self.note_held_up(issue, &begin);
+            return Ok(begin);
         }
         self.recheck_dropped()?;
         let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
+        self.held_up.keep_only(&open);
         self.seat_waiting()?;
         let mut waiting = None;
         let now = self.ports.clock.now();
         let rotation = self.rotation();
+        self.note_left_out(&rotation, now);
         self.looks.keep_only(&rotation);
         for slot in rotation {
             if !self.looks.due(slot, now) {
@@ -121,7 +130,9 @@ impl Runner {
             let begin = match slot {
                 Slot::Item(issue) => {
                     self.focus = Some(issue);
-                    self.begin_item(false)?
+                    let begin = self.begin_item(false)?;
+                    self.note_held_up(issue, &begin);
+                    begin
                 }
                 Slot::Board => {
                     self.focus = None;
@@ -145,6 +156,42 @@ impl Runner {
         Ok(waiting.map_or(Begin::Idle, Begin::Report))
     }
 
+    // Remembers why `issue`'s step began `begin`, and logs a turn held up long
+    fn note_held_up(&mut self, issue: u64, begin: &Begin) {
+        let now = self.ports.clock.now();
+        if let Some(line) = self.held_up.stepped(issue, begin, now) {
+            self.notes.push(line);
+        }
+    }
+
+    // Says what holds back each open work item the rotation leaves out, whose
+    // turn is due, and forgets the wait of the rest: the rotation never steps
+    // them, so no step would
+    fn note_left_out(&mut self, rotation: &[Slot], now: Timestamp) {
+        let left_out: Vec<(u64, Option<Reason>)> = (self.state.work_items.iter())
+            .filter(|i| !rotation.contains(&Slot::Item(i.issue)))
+            .map(|i| {
+                let due = matches!(i.turn, Turn::Due | Turn::Next { .. });
+                let reason = if !due || self.flights.flying(i.issue) {
+                    None
+                } else if i.attached.is_some() {
+                    Some(Reason::Attached)
+                } else {
+                    (i.seat == Seat::Waiting).then_some(Reason::Unseated)
+                };
+                (i.issue, reason)
+            })
+            .collect();
+        for (issue, reason) in left_out {
+            if let Some(reason) = reason {
+                self.held_up.because(reason);
+            }
+            if let Some(line) = self.held_up.stepped(issue, &Begin::Idle, now) {
+                self.notes.push(line);
+            }
+        }
+    }
+
     // The open work items with no call in flight, none attached and none
     // waiting for a slot, oldest first, then the board while it may open
     // one, from the one after the last to act, so one that keeps acting
@@ -163,12 +210,18 @@ impl Runner {
         slots
     }
 
+    // Idle for `reason`, which `status` and the board name
+    fn idle(&mut self, reason: Reason) -> Begin {
+        self.held_up.because(reason);
+        Begin::Idle
+    }
+
     fn begin_item(&mut self, start_over: bool) -> Result<Begin, StateError> {
         let Some(item) = self.current() else {
             return Ok(Begin::Idle);
         };
         if self.unseated() {
-            return Ok(Begin::Idle);
+            return Ok(self.idle(Reason::Unseated));
         }
         match &item.phase {
             Phase::Implement => {}
@@ -200,6 +253,9 @@ impl Runner {
         // resumes the same not-yet-begun turn after a session died unborn.
         let due = matches!(item.turn, Turn::Due | Turn::Next { .. });
         if let Some(begin) = self.pushed_by_someone_else()? {
+            if matches!(begin, Begin::Idle) {
+                self.held_up.because(Reason::PushedByAnother);
+            }
             return Ok(begin);
         }
         // A rework can start on a branch that already changes them.
@@ -209,8 +265,14 @@ impl Runner {
         if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
-        if due && let Some(held) = self.pace_worker(Scope::Turn)?.holds() {
-            return Ok(held);
+        if due {
+            let pace = self.pace_worker(Scope::Turn)?;
+            if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
+                self.held_up.because(Reason::Paced(hold.reason.clone()));
+            }
+            if let Some(held) = pace.holds() {
+                return Ok(held);
+            }
         }
         let item = self.current().expect("checked above");
         let id = item.session.clone();
@@ -270,7 +332,7 @@ impl Runner {
             return self.park_ceiling_passed(now);
         }
         if self.draining {
-            return Ok(Begin::Idle);
+            return Ok(self.idle(Reason::Draining));
         }
         let issue = item.issue;
         // A later turn restarted with a new session, as one that found no
@@ -281,7 +343,7 @@ impl Runner {
             && !item.calls.iter().any(|c| c.role == Role::Worker);
         // A token GitHub would not give a moment ago is not asked for at every pass.
         if self.token_wait.holds(now) {
-            return Ok(Begin::Idle);
+            return Ok(self.idle(Reason::Token));
         }
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
@@ -294,7 +356,7 @@ impl Runner {
                     self.notes
                         .push(format!("issue #{issue} waits to start its turn: {reason}"));
                 }
-                return Ok(Begin::Idle);
+                return Ok(self.idle(Reason::Token));
             }
             Ok(call) => {
                 self.token_wait.ends();
@@ -537,6 +599,7 @@ impl Runner {
                 }
             }
         }
+        self.with_code_graph(&mut call);
         self.ports
             .agents
             .prepare(&call)

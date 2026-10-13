@@ -23,6 +23,7 @@ pub use table::table_of;
 mod agents;
 mod budget;
 mod ci;
+mod code_graph;
 mod domains;
 mod e2e;
 mod gateway;
@@ -41,6 +42,7 @@ pub use agents::{
 };
 pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
+pub use code_graph::CodeGraph;
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{Gateway, GatewayKey, GatewayName, Gateways, KeyVar, ModelHost, Route};
 pub use git::{Filing, Git, GithubLogin, Merging};
@@ -98,6 +100,10 @@ pub struct Settings {
     /// every call, when absent.
     #[serde(default)]
     pub repo_setup: RepoSetup,
+    /// Whether workers and reviewers get a code graph of the worktree. Off
+    /// when absent.
+    #[serde(default)]
+    pub code_graph: CodeGraph,
     /// The host that runs the project's end-to-end tests for a worker, whose
     /// sandbox cannot. It must be disposable: the project's script runs there
     /// as the ssh alias's account, and a worker edits that script. None when

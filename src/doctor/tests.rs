@@ -688,6 +688,28 @@ async fn extra_instructions_the_runner_cannot_read_are_missing() {
 }
 
 #[tokio::test]
+async fn a_project_with_the_code_graph_on_is_missing_a_server_that_is_not_installed() {
+    let scene = Scene::new().await;
+    scene.runs("golbat", |t| t["code_graph"] = json!({ "enabled": true }));
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "golbat: code graph");
+    assert!(what.contains("codebase-memory-mcp"), "{what}");
+    assert_eq!(
+        fix,
+        "run `shep kelpie tools install`, or turn `code_graph.enabled` off"
+    );
+    assert!(
+        !subjects(&report).contains(&"koji: code graph"),
+        "off is not checked"
+    );
+
+    let server = Tools::under(&scene.kelpie_home).code_graph();
+    std::fs::create_dir_all(server.parent().unwrap()).unwrap();
+    std::fs::write(server, "").unwrap();
+    ok(&scene.report().await, "golbat: code graph");
+}
+
+#[tokio::test]
 async fn a_local_endpoint_nothing_answers_on_is_named() {
     let scene = Scene::new().await;
     let endpoint = format!(

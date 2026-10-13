@@ -44,6 +44,7 @@ mod claim;
 mod claude_files;
 mod close_merged;
 mod closed;
+mod code_graph;
 #[cfg(test)]
 mod coderabbit;
 mod compact;
@@ -365,6 +366,8 @@ pub struct Runner {
     token_wait: token_wait::TokenWait,
     // The turns waiting for a model host that cannot be reached, in memory only
     unreachable: turn::unreachable::Unreachable,
+    // Why each work item's due turn did not start on its last step, in memory only
+    held_up: turn::held_up::HeldUps,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -552,6 +555,7 @@ impl Runner {
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),
             unreachable: turn::unreachable::Unreachable::default(),
+            held_up: turn::held_up::HeldUps::default(),
             posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
@@ -652,6 +656,7 @@ impl Runner {
         let split = item.split(now, self.timing_phase(item));
         WorkItemStatus {
             waiting: self.model_wait(item.issue),
+            held_up: self.held_up.of(item.issue),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
