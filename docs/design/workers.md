@@ -6,7 +6,7 @@ Runner loop, worker turns, fences, skills, agents and harnesses.
 
 - Loop never waits on an agent call: each runs on its own thread, one per item, beside the PM's (triggers and `status` answer meanwhile). #318, ADR 0005, `src/runner/flight.rs`
 - Harness files carry the issue (`settings-<issue>.json`); runner git waits 2s for a ref lock, 5s for `packed-refs` (items share the repo). `src/runner/turn.rs`
-- On stop: SIGTERM each call's process group, save, exit inside shep's 1.6s `kill_timeout`; restart resumes each item from its session. One group per call lets kelpie end one call at its ceiling. ADR 0005
+- On stop: SIGTERM each call's process group, save, exit inside shep's 1.6s `kill_timeout`; restart resumes each item from its session. A `handover` trigger instead keeps the calls running (agents.md). ADR 0005
 - Worker owns one item, builds inline, no plan, no crew; instructions and headless rules forbid sub-agents. ADR 0006
 - Compaction: session whose last turn passed 150k context compacts before next turn (`WORKER_COMPACT_PAST`); Claude Code compacts mid-turn at `worker.compact_window` (200000). #426, #476
 - Agents never see budget numbers (budget talk makes models stop after each task). `src/runner/turn/budget.rs`

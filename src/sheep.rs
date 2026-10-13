@@ -19,6 +19,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use shep_handover::Arrival;
+
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken,
     Openssl, ShepLeases, SystemClock, SystemGit, stop_calls,
@@ -50,15 +52,18 @@ const FLUSH_TIMEOUT: Duration = Duration::from_millis(500);
 // shep's default `kill_timeout` of 1.6s, past which shep kills the runner.
 const JOIN_BOUND: Duration = Duration::from_secs(1);
 
+mod handover;
 mod look;
 
+pub use handover::Carry;
+use handover::Handing;
 use look::Look;
 
 /// Runs `project`'s runner until the shepherd stops it
 ///
 /// Kelpie's home is `KELPIE_HOME`, or `$SHEP_HOME/kelpie` when that is unset.
-pub fn run(project: &str) -> ExitCode {
-    match serve(project) {
+pub fn run(project: &str, arrival: Option<Arrival<Carry>>) -> ExitCode {
+    match serve(project, arrival) {
         Ok(()) => ExitCode::SUCCESS,
         Err(exit) => {
             eprintln!("kelpie runner {project}: {}", exit.message());
@@ -110,7 +115,7 @@ impl From<&str> for Exit {
     }
 }
 
-fn serve(project: &str) -> Result<(), Exit> {
+fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let project = ProjectName::try_from(project).map_err(|e| e.to_string())?;
     let shep_home = shep_home::required(shep_home::FLOCKFILE_FIX)?;
     let home = std::env::var_os("HOME")
@@ -240,6 +245,16 @@ fn serve(project: &str) -> Result<(), Exit> {
     let stopping = runner.stopping();
     let runner = Arc::new(Mutex::new(runner));
     let (wake, woken) = mpsc::channel();
+    // The turns a previous image left running are this one's before its first pass.
+    if let Some(arrival) = arrival {
+        let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
+        runner.wake_with(wake.clone());
+        runner.adopt_calls(arrival.state.into_turns());
+    }
+    let handover = Handing::installed(claude.clone());
+    let asked = wake.clone();
+    let handing = Arc::clone(&handover);
+    shepherd.on_action(handover::ACTION, move |_, _| handing.ask(&asked));
     for action in ACTIONS {
         let runner = Arc::clone(&runner);
         let wake = wake.clone();
@@ -261,7 +276,11 @@ fn serve(project: &str) -> Result<(), Exit> {
     let on_wake = Box::new(move |runner: &Mutex<Runner>| look.again(runner));
     let worker = Worker::spawn(
         Arc::clone(&runner),
-        Hooks { on_wake, finished },
+        Hooks {
+            on_wake,
+            finished,
+            handover,
+        },
         wake.clone(),
         woken,
         stop.clone(),
@@ -338,6 +357,8 @@ struct Hooks {
     on_wake: OnWake,
     /// Each time the runner's stop is due, once it finished
     finished: OnFinished,
+    /// The handover to the installed build, tried at the quiet point
+    handover: Arc<Handing>,
 }
 
 // Asks the shepherd, on a thread of its own, to stop `project`'s runner as
@@ -488,12 +509,17 @@ fn work(
             Ok(Pass::Idle) => {}
             Err(e) => eprintln!("cannot save what a pass did: {e}"),
         }
-        let wait = wait_after_pass(&runner.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut wait = wait_after_pass(&runner.lock().unwrap_or_else(PoisonError::into_inner));
+        if hooks.handover.pending() {
+            wait = wait.min(handover::HOLD_POLL);
+        }
         if let Err(RecvTimeoutError::Disconnected) = woken.recv_timeout(wait) {
             return;
         }
         // A stop has only JOIN_BOUND to be let go, so it skips the wake's work.
         if !stopping.load(Ordering::SeqCst) {
+            // The quiet point: no pass is running, so no child of one is.
+            hooks.handover.attempt(runner);
             (hooks.on_wake)(runner);
             log_started(runner);
         }
@@ -561,6 +587,7 @@ mod tests {
         let hooks = Hooks {
             on_wake: Box::new(|_| {}),
             finished,
+            handover: Handing::never(),
         };
         Worker::spawn(Arc::clone(runner), hooks, wake, woken, died)
     }
@@ -656,6 +683,7 @@ mod tests {
         let hooks = Hooks {
             on_wake,
             finished: Box::new(|_| {}),
+            handover: Handing::never(),
         };
         let worker = Worker::spawn(runner, hooks, wake.clone(), woken, died);
         wake.send(()).unwrap();
