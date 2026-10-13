@@ -295,6 +295,9 @@ pub struct Runner {
     unbuilt: parent::Unbuilt,
     // The review's reviewers, in order, from the project's list
     lineup: Vec<ListedReviewer>,
+    // The reviewers a contribution's pass walks, in order. None while the
+    // project picks no contributions.
+    contribution_lineup: Vec<ListedReviewer>,
     // The project's implementers
     agents: RoleAgents,
     // Every agent kelpie's files define, from which each turn runs its work item's agent
@@ -445,6 +448,7 @@ impl Runner {
             }
             .into());
         }
+        let mut contribution_lineup = Vec::new();
         if !settings.contributions.is_off() {
             if !ports.voice.covers(&remote) {
                 return Err(SettingsError::Invalid {
@@ -458,7 +462,7 @@ impl Runner {
                 }
                 .into());
             }
-            settings.contribution_lineup(&book, home)?;
+            contribution_lineup = settings.contribution_lineup(&book, home)?;
             settings.security_reviewer(&book)?;
         }
         // What the project's `publish` hooks judge is every text bound for the forge.
@@ -566,6 +570,7 @@ impl Runner {
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),
             lineup,
+            contribution_lineup,
             agents,
             book,
             home: home.to_owned(),

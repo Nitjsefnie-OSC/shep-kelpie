@@ -22,7 +22,9 @@ mod stale_lock;
 
 pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
-pub use contribution::{Change, Opaque, Touched, change as contribution_change};
+pub use contribution::{
+    Change, Opaque, Touched, change as contribution_change, checkout as contribution_checkout,
+};
 pub use remote::Remote;
 
 /// The branch every work item is cut from, on `origin`

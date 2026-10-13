@@ -26,12 +26,12 @@ mod foreign;
 #[cfg(test)]
 mod green;
 mod lineup;
-pub(super) use lineup::{changed_files, matches};
+pub(super) use lineup::{changed_files, matches, touches};
 #[cfg(test)]
 mod local;
 #[cfg(test)]
 mod nits;
-mod prompts;
+pub(super) mod prompts;
 pub(super) mod pushed;
 #[cfg(test)]
 mod second_look;
@@ -62,7 +62,7 @@ use crate::worktree::{self, Linked, Remote};
 // A reviewer whose call fails this many times in a row is passed over for
 // the rest of its pass: a reply it cannot give would otherwise stall the
 // review for good.
-const ROUND_FAILURES: u32 = 3;
+pub(super) const ROUND_FAILURES: u32 = 3;
 
 impl Runner {
     pub(super) fn review_step(&mut self) -> Result<Begin, StateError> {

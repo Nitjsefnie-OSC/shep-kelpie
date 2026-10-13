@@ -13,7 +13,7 @@ use std::process::Stdio;
 
 use super::super::Runner;
 use crate::ports::Timestamp;
-use crate::settings::{AgentName, ListedReviewer};
+use crate::settings::{AgentName, ListedReviewer, NonBlank};
 use crate::work_item::{Phase, Review, WorkItem};
 
 impl Runner {
@@ -51,11 +51,7 @@ impl Runner {
             !owed && bot.rounds.is_some_and(|rounds| reads >= rounds.get())
         };
         let runs = |r: &ListedReviewer| {
-            let paths = &r.paths;
-            let touched = paths.is_empty()
-                || changed
-                    .iter()
-                    .any(|file| paths.iter().any(|glob| matches(glob.as_str(), file)));
+            let touched = touches(&r.paths, &changed);
             let kind = !review.bots_only || r.bot().is_some();
             kind && touched && !(r.is_local() && down(r)) && !read_out(r)
         };
@@ -160,6 +156,15 @@ pub(in crate::runner) fn changed_files(
     }
     let names = String::from_utf8_lossy(&output.stdout);
     Ok(names.lines().map(str::to_owned).collect())
+}
+
+/// Whether a change to the `changed` files is one a reviewer limited to
+/// `paths` reads: any change when `paths` is empty
+pub(in crate::runner) fn touches(paths: &[NonBlank], changed: &[String]) -> bool {
+    paths.is_empty()
+        || changed
+            .iter()
+            .any(|file| paths.iter().any(|glob| matches(glob.as_str(), file)))
 }
 
 /// Whether `path` matches `glob`: `*` and `?` stay inside one folder,

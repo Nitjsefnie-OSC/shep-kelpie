@@ -57,7 +57,7 @@ pub(crate) use home::Home;
 pub(crate) use leases::{FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
-pub(crate) use reviewer::{FakeReviewer, ScriptedRound};
+pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;

@@ -1,9 +1,11 @@
-//! The security review of a contribution's head, in flight
+//! A call on a contribution's head, in flight: its security review, or the
+//! pass of the reviewers over it
 //!
-//! One read at a time, on a thread of its own, so the runner's lock is not
+//! One call at a time, on a thread of its own, so the runner's lock is not
 //! held for the minutes a model takes and a call past its ceiling is ended
-//! like any other. The thread does the whole read, the fetch, the diff and
-//! the call, and its verdict comes back as news; only then is it recorded.
+//! like any other. The thread does the whole call, the fetch, the diff and
+//! the reading, and what it came to comes back as news; only then is it
+//! recorded.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -12,13 +14,13 @@ use std::thread;
 use super::super::Runner;
 use super::super::contributions::{Job, Reading};
 use super::News;
-use crate::ports::{Cost, Ending, Timestamp};
+use crate::ports::{Ending, Timestamp};
 use crate::state::StateError;
 
 /// How long the security review gets to read one head, in seconds
 pub(in crate::runner) const CEILING: u64 = 15 * 60;
 
-/// A head's security review, in flight
+/// A call on a contribution's head, in flight
 #[derive(Debug)]
 pub(in crate::runner) struct Securing {
     pull_request: u64,
@@ -63,25 +65,26 @@ impl super::Flights {
 }
 
 impl Runner {
-    /// Starts reading `job`'s head on a thread of its own, ended past its
-    /// ceiling, whose verdict comes back as news
+    /// Starts the call `job` is on a thread of its own, ended past its
+    /// ceiling, whose end comes back as news
     pub(in crate::runner) fn launch_security(&mut self, job: Job) {
         let now = self.ports.clock.now();
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
         let agents = Arc::clone(&self.ports.agents);
-        let (pull_request, head) = (job.pull_request, job.head.clone());
-        let name = format!("#{pull_request} security");
+        let reviewer = Arc::clone(&self.ports.reviewer);
+        let (pull_request, head) = (job.pull_request(), job.head().to_owned());
+        let name = format!("#{pull_request} {}", job.name());
+        let unread = job.unread();
         let run = move || {
-            // A panic in the read leaves the head unread, as a failed call does.
-            let read = catch_unwind(AssertUnwindSafe(|| job.read(agents.as_ref(), &held)));
-            let reading = read.unwrap_or_else(|_| {
-                eprintln!("contribution #{pull_request}: the security review panicked");
-                Reading {
-                    verdict: None,
-                    cost: Cost::default(),
-                }
+            // A panic in the call leaves the head unread, as a failed call does.
+            let run = catch_unwind(AssertUnwindSafe(|| {
+                job.run(agents.as_ref(), reviewer.as_ref(), &held)
+            }));
+            let reading = run.unwrap_or_else(|_| {
+                eprintln!("contribution #{pull_request}: the call on its head panicked");
+                unread
             });
             let heard = News::Secured {
                 pull_request,
@@ -106,9 +109,9 @@ impl Runner {
         self.flights.security_tried.push(pull_request);
     }
 
-    // Records the end of the security review in flight, and gives its slot
-    // back: what it cost, and its verdict when it gave one, which otherwise
-    // leaves the head to be read at the next poll.
+    // Records the end of the call in flight, and gives its slot back: what it
+    // cost, and its verdict or pass when it gave one, which otherwise leaves
+    // the head to be read at the next poll.
     pub(super) fn security_heard(
         &mut self,
         pull_request: u64,
@@ -116,6 +119,9 @@ impl Runner {
         reading: Reading,
     ) -> Result<(), StateError> {
         self.flights.securing = None;
-        self.record_security(pull_request, head, reading)
+        match reading {
+            Reading::Security(reading) => self.record_security(pull_request, head, reading),
+            Reading::Pass(walked) => self.record_pass(pull_request, head, walked),
+        }
     }
 }

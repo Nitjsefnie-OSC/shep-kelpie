@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), and runs nothing of theirs but the CI runs of a head that passed the security review (below). #617, #618, #619, #622, #625
+Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #625
 
 ## Settings
 
@@ -44,4 +44,4 @@ Whether and how kelpie picks up other people's pull requests. Today it works onl
 - `contributions[].ci` is `{ head, since, state }`, left out until the approval succeeds. `since` is the approval, and `state` is `waiting`, `green` or `{ red: [failed checks' names] }`.
 - A rollup is trusted `CHECKS_SETTLE` (two minutes) after `since`, as at the gate, and only when `Forge::pull_request` reads the same head. No check or a pending one stays `waiting`. A skipped rollup is `green`: a contribution is never a draft. With `ci.block` off the state is `green` at the approval, as the gate passes a project without CI.
 - A refused approval or an unreadable pull request logs and changes nothing: the next poll tries again, and no poll fails. A call that listed no held run is an approval. A run GitHub holds after that listing is approved by listing again at each poll while the settled rollup shows no check or a pending one. State version 50.
-- No reviewer reads a contribution before green, per ADR 0008. #623 enforces it.
+- No reviewer reads a contribution before green, per ADR 0008. The pass (`contribution-pass.md`) enforces it.

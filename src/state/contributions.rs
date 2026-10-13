@@ -3,8 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::{ProjectState, RulingKind};
+use std::collections::BTreeMap;
+
 use crate::ports::{Cost, Finding, Timestamp};
-use crate::settings::PerItemUsd;
+use crate::settings::{AgentName, PerItemUsd};
 
 /// A pull request from someone else, as the board last saw it
 // wire format: changing this is a breaking change to the state file
@@ -39,6 +41,24 @@ pub struct Contribution {
     /// approved. Always names the current `head` or nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ci: Option<Ci>,
+    /// The local reviewers' pass over the head, and what it found
+    ///
+    /// Left out until a pass ends. A new head clears it, so it names the
+    /// current `head` or nothing, and a head with none is not yet reviewed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pass: Option<Pass>,
+    /// The reviewer that last answered a pass, whatever head it read
+    ///
+    /// The next pass starts at the reviewer after it. Left out until one
+    /// answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_answered: Option<AgentName>,
+    /// How many passes in a row each local reviewer reviewed nothing in, by
+    /// name
+    ///
+    /// Left out while none has. A reviewer that reviews something is removed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub local_failures: BTreeMap<AgentName, u32>,
     /// What the contributor said and did on the pull request, oldest first,
     /// the last [`KEPT`]
     ///
@@ -76,6 +96,28 @@ pub struct Contribution {
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+/// A pass of the reviewers over one head of a contribution
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pass {
+    /// The head it read
+    pub head: String,
+    /// The reviewers that were called, in the order they ran, a failing one
+    /// included
+    pub ran: Vec<AgentName>,
+    /// The reviewer that answered, with findings or `CLEAN`. None when the
+    /// pass ended unread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<AgentName>,
+    /// Why no reviewer read the head, when none did
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unread: Option<String>,
+    /// What the reviewer found, none for `CLEAN`
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<Finding>,
 }
 
 /// CI on a contribution's head after kelpie approved its held runs
@@ -134,6 +176,9 @@ impl Contribution {
             security: None,
             passed: None,
             ci: None,
+            pass: None,
+            last_answered: None,
+            local_failures: BTreeMap::new(),
             spend: Cost::default(),
             budget_raises: 0,
             heard: Vec::new(),
@@ -190,6 +235,7 @@ impl Contribution {
             seen,
             security: None,
             ci: None,
+            pass: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -232,6 +278,17 @@ impl Contribution {
     /// Whether kelpie approved the current head's held runs
     pub fn is_approved(&self) -> bool {
         self.ci.as_ref().is_some_and(|ci| ci.head == self.head)
+    }
+
+    /// Whether CI is green on the current head
+    pub fn is_green(&self) -> bool {
+        let green = |ci: &Ci| ci.head == self.head && ci.state == CiState::Green;
+        self.ci.as_ref().is_some_and(green)
+    }
+
+    /// Whether a pass has ended on the current head
+    pub fn is_reviewed(&self) -> bool {
+        self.pass.as_ref().is_some_and(|p| p.head == self.head)
     }
 
     /// Whether the current head passed the security review, or the maintainer

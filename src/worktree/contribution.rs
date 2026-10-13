@@ -1,16 +1,20 @@
-//! A contribution's head, fetched and diffed without checking anything out
+//! A contribution's head, fetched, diffed, and checked out for a reader
 //!
 //! Another person's pull request is code kelpie has not read. Fetching its
 //! head moves objects into the project's checkout and nothing else: no
 //! branch, no worktree, no file on disk. The diff is read from those objects
 //! with every program a config or an attribute could name switched off.
+//! [`checkout`] is the one call that puts its files on disk, in a detached
+//! worktree with hooks off, only for a head that has passed the security
+//! review, and only for a reader that runs no code in it.
 
+use std::ffi::OsStr;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
-use super::{BASE, WorktreeError, git, in_repo};
+use super::{BASE, WorktreeError, git, in_repo, output, remove_view};
 
 /// What a model cannot read in a change
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +105,40 @@ pub fn change(
         }
     }
     Ok(Change { diff, cut, opaque })
+}
+
+/// Makes `path` a detached worktree of `repo` at contribution
+/// `pull_request`'s `head`, fetched from `refs/pull/<n>/head`, for a reader
+/// that opens its files and changes nothing
+///
+/// A worktree already at `path` is replaced. The checkout runs none of the
+/// repo's hooks, and `main` is fetched too, so the change is
+/// `origin/main...HEAD` there.
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command or folder that failed, or the
+/// commit the fetch did not bring.
+pub fn checkout(
+    repo: &Path,
+    pull_request: u64,
+    head: &str,
+    path: &Path,
+) -> Result<(), WorktreeError> {
+    fetch(repo, pull_request, head)?;
+    remove_view(repo, path)?;
+    if let Some(parent) = path.parent() {
+        super::create(parent)?;
+    }
+    let args = ["-c", "core.hooksPath=/dev/null"].map(OsStr::new);
+    let add = ["worktree", "add", "--quiet", "--detach"].map(OsStr::new);
+    output(
+        in_repo(repo),
+        args.into_iter()
+            .chain(add)
+            .chain([path.as_os_str(), OsStr::new(head)]),
+    )
+    .map(drop)
 }
 
 // Brings `pull_request`'s head and `main` into `repo`'s objects, and checks
