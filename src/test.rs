@@ -77,6 +77,14 @@ pub(crate) fn make_fifo(path: &Path) {
     assert!(made.success(), "mkfifo {}: {made}", path.display());
 }
 
+/// [`a_work_item`] as an older file's loads: the comments on its pull request
+/// are marked as seen
+pub(crate) fn a_work_item_from_before_comments() -> WorkItem {
+    let mut item = a_work_item();
+    item.talked.quiet = true;
+    item
+}
+
 /// A work item with one call, so every field of its format shows
 pub(crate) fn a_work_item() -> WorkItem {
     WorkItem {

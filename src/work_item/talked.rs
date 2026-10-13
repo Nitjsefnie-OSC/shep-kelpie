@@ -16,6 +16,10 @@ pub struct Talked {
     /// Whether the pull request's comments have been read at all
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read: bool,
+    /// Whether what is already written is only noted at the first read, as the
+    /// worker has seen it: a work item from before comments were read
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
     /// The forge's ids of the conversation comments handled: sent to the
     /// worker, answered as a ruling, or ignored
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

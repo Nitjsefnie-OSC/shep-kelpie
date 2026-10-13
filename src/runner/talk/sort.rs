@@ -37,6 +37,9 @@ pub(super) struct Left {
     pub login: String,
     /// Whether the ruling takes any text as its answer, a worker's question
     pub takes_text: bool,
+    /// Whether it is a merge ruling, whose thread a plain comment is the
+    /// worker's to read in
+    pub merge: bool,
 }
 
 /// What a read is sorted by
@@ -69,7 +72,7 @@ pub(super) fn sort(talk: &Talk, sieve: &Sieve<'_>) -> Sorted {
         }
         let aimed_at_a_ruling = sieve.left.iter().any(|left| {
             left.login.eq_ignore_ascii_case(&comment.author)
-                && (left.takes_text || is_reply_words(&comment.body))
+                && (left.takes_text || !left.merge || is_reply_words(&comment.body))
         });
         if aimed_at_a_ruling {
             continue;

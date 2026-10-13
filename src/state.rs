@@ -58,6 +58,9 @@ const BUILT_IN_REVIEWERS: u32 = 2;
 /// this kelpie reads into a pass of the listed bots
 const BOT_ROUNDS: u32 = 3;
 
+// The last version before a work item remembered the comments it had read
+const BEFORE_TALKED: u32 = 37;
+
 /// How many finished work items the state file keeps a record of
 ///
 /// The file is written whole at every save, a heartbeat included, and a
@@ -812,7 +815,17 @@ impl StateStore {
             removed::fold_bot_rounds(&mut value);
         }
         removed::fold_ruling_kinds(&mut value);
-        let state: ProjectState = serde_json::from_value(value).map_err(malformed)?;
+        let mut state: ProjectState = serde_json::from_value(value).map_err(malformed)?;
+        if found <= BEFORE_TALKED {
+            // The worker has seen what is on a pull request already open.
+            for item in state
+                .work_items
+                .iter_mut()
+                .filter(|i| i.pull_request.is_some())
+            {
+                item.talked.quiet = true;
+            }
+        }
         Ok(Some(ProjectState {
             version: VERSION,
             ..state.one_item_moved()

@@ -409,15 +409,18 @@ impl Runner {
         self.save(next)
     }
 
-    // Whether `comment` answers none of the rulings `aimed` names: it is
-    // neither a number-led reply nor a yes, a no or a rework, and no ruling
-    // takes free text. The maintainer's comment on the pull request is then
-    // the worker's to read, as a `no <note>`.
+    // Whether `comment` is the worker's to read: it is neither a number-led
+    // reply nor a yes, a no or a rework, and every ruling `aimed` names that
+    // still waits is a merge ruling on a pull request, where the maintainer's
+    // plain comment is a `no <note>`. On any other ruling it is told how to
+    // reply, and on an issue no worker reads it.
     fn is_plain(&self, comment: &ThreadComment, aimed: &[u64]) -> bool {
-        let takes_text = (self.state.rulings.iter())
+        let waiting: Vec<_> = (self.state.rulings.iter())
             .filter(|r| aimed.contains(&r.id))
-            .any(|r| Wants::of(&r.kind) == Wants::Answer);
-        !takes_text && !is_reply_words(&comment.body)
+            .collect();
+        let merges =
+            |r: &&Ruling| matches!(r.kind, RulingKind::Merge { .. }) && r.pull_request.is_some();
+        !waiting.is_empty() && waiting.iter().all(merges) && !is_reply_words(&comment.body)
     }
 
     // Acts on a reply by the login a ruling mentions, with write access.

@@ -409,6 +409,78 @@ fn a_reviewers_remark_that_starts_like_a_kelpie_reply_is_still_a_request() {
     assert!(prompt.contains("is wrong here"), "{prompt}");
 }
 
+// A turn that declines a thread pushes nothing, and on an adopted pull
+// request that is still a comment round, not a turn that stopped short.
+#[test]
+fn a_declined_thread_on_an_adopted_pull_request_is_replied_to_not_sent_back() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    runner
+        .lock()
+        .unwrap()
+        .update(|item| {
+            item.adopted = true;
+            item.talked = crate::work_item::Talked {
+                read: true,
+                ..Default::default()
+            };
+        })
+        .unwrap();
+    rig.forge.coderabbit.person_opens(
+        71,
+        "src/lib.rs",
+        "octo-reviewer",
+        Standing::Writer,
+        "Remove this helper.",
+    );
+    rig.clock.advance(LATE_READ);
+    step(&runner).unwrap(); // the thread is read
+    rig.claude.script([Scripted::Say(
+        "Kept it.\nthread 1: declined: it is used twice",
+    )]);
+    step(&runner).unwrap(); // the worker declines
+    step(&runner).unwrap(); // the replies
+
+    let replies = rig.forge.coderabbit.replies();
+    let [(_, said)] = replies.as_slice() else {
+        panic!("{replies:?}");
+    };
+    assert_eq!(said, "Declined: it is used twice");
+    let kinds: Vec<_> = rig.ask(&runner, "status", None)["rulings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["kind"]["kind"].clone())
+        .collect();
+    assert!(!kinds.iter().any(|k| k == "stuck"), "{kinds:?}");
+}
+
+// A work item that was open before comments were read has a pull request
+// whose comments its worker has seen, as an adopted one does.
+#[test]
+fn comments_from_before_an_upgrade_are_not_sent() {
+    let (rig, runner, _) = Rig::parked("rotom");
+    assert_eq!(step(&runner).unwrap(), Some(StepReport::Alerted { id: 1 }));
+    runner
+        .lock()
+        .unwrap()
+        .update(|item| {
+            item.talked = crate::work_item::Talked {
+                quiet: true,
+                ..Default::default()
+            };
+        })
+        .unwrap();
+    rig.forge
+        .coderabbit
+        .person_says(71, "octo-reviewer", Standing::Writer, "Old news.");
+    let turns = rig.claude.seen().len();
+    rig.clock.advance(LATE_READ);
+    assert_eq!(step(&runner).unwrap(), None, "the old comment is read");
+    assert_eq!(rig.claude.seen().len(), turns);
+    assert_eq!(rig.ask(&runner, "status", None)["rulings"][0]["id"], 71);
+}
+
 // What was written on a pull request before kelpie took it over was seen
 // by whoever took it: only what comes after goes to the worker.
 #[test]

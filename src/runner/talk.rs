@@ -83,7 +83,7 @@ impl Runner {
             talked: &item.talked,
             own: &own,
             left: &left,
-            quiet: !item.talked.read && (item.adopted || item.rework),
+            quiet: !item.talked.read && (item.adopted || item.rework || item.talked.quiet),
         };
         let sorted = sort(&talk, &sieve);
         let capped = item.talked.capped();
@@ -116,6 +116,7 @@ impl Runner {
                 Some(Left {
                     login: heard.mentions.clone(),
                     takes_text: Wants::of(&r.kind) == Wants::Answer,
+                    merge: matches!(r.kind, RulingKind::Merge { .. }),
                 })
             })
             .collect()
