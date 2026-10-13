@@ -425,9 +425,8 @@ impl Runner {
             listed.push(item.issue);
         }
         next.record_finished(record);
-        // Before the save, so a runner that stops partway still has the work
-        // item and comes back here. The step reads the issue first, so it
-        // closes nothing twice.
+        // Before the save, so a runner that stops partway still has the work item
+        // and comes back here. Each step reads first, so it closes nothing twice.
         if let (true, Some(number)) = (merged, pull_request) {
             self.close_after_merge(issue, number);
         }
