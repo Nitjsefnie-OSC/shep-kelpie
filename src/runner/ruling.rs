@@ -178,6 +178,7 @@ impl Runner {
         let ruling = next.rulings.remove(at);
         // Kept for the researcher once the answer is saved.
         let record = super::panel::Record::of(&ruling, &answer, now, by);
+        let outlived = ruling.clone();
         // Whether the findings a merged pull request left are filed or dropped.
         let follow_up = match (&answer, &ruling.kind) {
             (Answer::Yes, RulingKind::FollowUp { .. }) => Some(true),
@@ -423,9 +424,11 @@ impl Runner {
             }
         }
         self.save(next).map_err(RuleError::State)?;
-        if let Err(why) = record.append(&self.paths.rulings) {
-            self.notes
-                .push(format!("ruling {id} is not kept for the researcher: {why}"));
+        match record.append(&self.paths.rulings) {
+            Ok(()) => self.panel_outlives(outlived),
+            Err(why) => self
+                .notes
+                .push(format!("ruling {id} is not kept for the researcher: {why}")),
         }
         Ok(true)
     }

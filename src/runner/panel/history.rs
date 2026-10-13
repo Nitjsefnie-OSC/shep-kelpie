@@ -136,6 +136,39 @@ impl Record {
     }
 }
 
+/// Sets `fields` on ruling `id`'s line in the file at `file`, leaving every
+/// other line and field as it is; a file with no such line is left alone
+///
+/// # Errors
+///
+/// What went wrong, for the log.
+pub(in crate::runner) fn amend(
+    file: &Path,
+    id: u64,
+    fields: Vec<(&str, serde_json::Value)>,
+) -> Result<(), String> {
+    let text = std::fs::read_to_string(file)
+        .map_err(|e| format!("cannot read {}: {}", file.display(), e.kind()))?;
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    let at = lines.iter().rposition(|line| {
+        let value = serde_json::from_str::<serde_json::Value>(line).ok();
+        value.is_some_and(|v| v["id"] == id)
+    });
+    let Some(at) = at else {
+        return Ok(());
+    };
+    let mut value: serde_json::Value =
+        serde_json::from_str(&lines[at]).map_err(|e| e.to_string())?;
+    for (name, field) in fields {
+        value[name] = field;
+    }
+    lines[at] = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+    let kept = file.with_extension("jsonl.tmp");
+    let wrote =
+        std::fs::write(&kept, lines.join("\n") + "\n").and_then(|()| std::fs::rename(&kept, file));
+    wrote.map_err(|e| format!("cannot rewrite {}: {}", file.display(), e.kind()))
+}
+
 /// Every ruling answered in the file at `file`, oldest first; a line that
 /// does not read is skipped
 pub(in crate::runner) fn records(file: &Path) -> Vec<Record> {
