@@ -16,7 +16,7 @@ use super::gate::short;
 use super::ruling::stuck_comment;
 use crate::issues::make_missing_with;
 use crate::ports::{Finding, ForgeError, NewLabel, Severity};
-use crate::state::{Heard, Notice, ProjectState, Ruling, RulingKind};
+use crate::state::{Heard, MergeNotice, ProjectState, Ruling, RulingKind};
 
 /// Where a ruling's posted comment is kept in the state
 pub(super) enum Placed {
@@ -252,8 +252,8 @@ fn finding_line(finding: &Finding) -> String {
 }
 
 /// The text of an automatic merge's notice
-pub(super) fn merged_notice(notice: &Notice) -> String {
-    let Notice {
+pub(super) fn merged_notice(notice: &MergeNotice) -> String {
+    let MergeNotice {
         issue,
         pull_request,
         head,

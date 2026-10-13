@@ -376,6 +376,26 @@ pub enum StepReport {
         /// When the post is tried again at the earliest
         retry_at: Timestamp,
     },
+    /// The notice of a workflow on `main` that stayed red, or went green, was
+    /// sent to the webhook, or only logged where there is none
+    MainNoticed {
+        /// The workflow's name
+        workflow: String,
+        /// Whether it went green
+        green: bool,
+    },
+    /// A notice of a workflow on `main` could not be posted to the webhook,
+    /// and is tried again later
+    MainNoticeFailed {
+        /// The workflow's name
+        workflow: String,
+        /// Whether it went green
+        green: bool,
+        /// Why, never naming the webhook's URL
+        reason: String,
+        /// When the post is tried again at the earliest
+        retry_at: Timestamp,
+    },
     /// A reply on the webhook's topic, carrying the authenticator code, answered it
     ReplyAnswered {
         /// The ruling's id

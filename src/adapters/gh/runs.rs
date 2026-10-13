@@ -189,6 +189,12 @@ pub(super) fn rerun_failed(repo: &ForgeSlug, head: &str) -> Result<(), ForgeErro
     }
 }
 
+/// Reruns the failed jobs of run `run`
+pub(super) fn rerun_run(repo: &ForgeSlug, run: u64) -> Result<(), ForgeError> {
+    let id = run.to_string();
+    gh(&["run", "rerun", &id, "--repo", repo.as_str(), "--failed"]).map(drop)
+}
+
 fn list(repo: &ForgeSlug) -> Result<Vec<u8>, ForgeError> {
     gh(&[
         "run",
