@@ -3,11 +3,13 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::Hold;
 use crate::adapters::LocalReviewer;
+use crate::adapters::paddock::Timing;
 use crate::ports::{Finding, ModelSeat, Reviewer, ReviewerError, RoundStage};
-use crate::settings::LocalRound;
+use crate::settings::{Gateways, LocalRound};
 use crate::worktree::Linked;
 
 /// What the stand-in reviewer answers for its next round
@@ -56,6 +58,19 @@ impl FakeReviewer {
         *self.real.lock().unwrap() = Some(LocalReviewer::default());
     }
 
+    /// Runs every later round with the real reviewer, behind these gateways
+    /// and with a paddock that retries at once
+    pub(crate) fn pass_through_behind(&self, gateways: Gateways) {
+        let quick = Timing {
+            retry: Duration::from_millis(10),
+            ..Timing::RUNNER
+        };
+        let real = LocalReviewer::default()
+            .with_gateways(gateways)
+            .with_paddock_timing(quick);
+        *self.real.lock().unwrap() = Some(real);
+    }
+
     /// Where its model sat, for `status`, as the last round's look at it
     pub(crate) fn set_seat(&self, seat: Option<ModelSeat>) {
         *self.seat.lock().unwrap() = seat;
@@ -69,7 +84,10 @@ impl FakeReviewer {
 
 impl Reviewer for FakeReviewer {
     fn check(&self, local: &LocalRound) -> Result<(), String> {
-        LocalReviewer::default().check(local)
+        match &*self.real.lock().unwrap() {
+            Some(real) => real.check(local),
+            None => LocalReviewer::default().check(local),
+        }
     }
 
     fn round(

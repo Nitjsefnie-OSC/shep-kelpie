@@ -1,12 +1,13 @@
 //! Paddock's own routes, for a gateway that is paddock, a shep dog
 //!
 //! `GET /v1/models` lists its models and needs no key. `GET /paddock/status`
-//! needs one, so it tells a key paddock takes from one it refuses. A worker
-//! turn on a model behind it holds a heartbeat lease, so nothing evicts the
-//! model midway: `POST /paddock/leases` waits for the grant, a `PUT` renews
-//! it, and a `DELETE` releases it when the turn ends. A take paddock turns
-//! away as busy is asked again until the turn gives up. Each request is one
-//! HTTP/1.0 exchange over plain `http://`, as the forwarder's are.
+//! needs one, so it tells a key paddock takes from one it refuses. A call or
+//! a review round on a model behind it holds a heartbeat lease, so nothing
+//! evicts the model midway: `POST /paddock/leases` waits for the grant, a
+//! `PUT` renews it, and a `DELETE` releases it when the call ends. A take
+//! paddock turns away as busy is asked again until the call gives up. Each
+//! request is one HTTP/1.0 exchange over plain `http://`, as the forwarder's
+//! are.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -87,6 +88,80 @@ pub(crate) fn key_taken(gateway: &Upstream) -> Result<bool, String> {
     }
 }
 
+/// Where a take stands, told to whoever waits on it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stand {
+    /// The take is about to be asked
+    Asking,
+    /// Paddock turned it away because the model's turn is another lease's
+    /// (`reason_kind` `turn`): it waits in line, as for a lock
+    Turn,
+    /// Paddock turned it away for another reason, such as a load
+    Busy,
+    /// The lease is held
+    Granted,
+}
+
+/// What a call or round needs to hold a lease on its model
+pub(crate) struct Taking<'a> {
+    pub(crate) gateway: &'a Upstream,
+    pub(crate) model: &'a str,
+    pub(crate) note: &'a str,
+    /// Says when the wait for the grant should end
+    pub(crate) give_up: &'a dyn Fn() -> bool,
+    /// Told where the take stands, at each change
+    pub(crate) tell: &'a dyn Fn(Stand),
+    /// Asked to end the call if the lease is lost
+    pub(crate) ending: &'a Ending,
+    pub(crate) timing: Timing,
+}
+
+/// Why a call did not run under its lease
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unheld {
+    /// `give_up` said to stop before the grant
+    GaveUp,
+    /// Paddock refused the take other than as busy, or could not be asked
+    Refused(String),
+    /// Paddock took the lease back while the call ran, with why
+    Lost(String),
+}
+
+impl Taking<'_> {
+    /// Runs `call` holding the lease, taken before it and released after
+    ///
+    /// A lease lost while it ran is an error whatever `call` returned, since
+    /// the call was asked to end for it.
+    ///
+    /// # Errors
+    ///
+    /// [`Unheld`] when the lease was not taken, or was lost.
+    pub(crate) fn around<T>(self, call: impl FnOnce() -> T) -> Result<T, Unheld> {
+        (self.tell)(Stand::Asking);
+        let taken = Lease::take(
+            self.gateway,
+            self.model,
+            self.note,
+            self.give_up,
+            self.tell,
+            self.ending,
+            self.timing,
+        );
+        let mut lease = match taken {
+            Ok(Some(lease)) => lease,
+            Ok(None) => return Err(Unheld::GaveUp),
+            Err(why) => return Err(Unheld::Refused(why)),
+        };
+        (self.tell)(Stand::Granted);
+        let done = call();
+        // Finishing it first settles that no later renewal can end the call.
+        match lease.finish() {
+            Some(why) => Err(Unheld::Lost(why)),
+            None => Ok(done),
+        }
+    }
+}
+
 /// A heartbeat lease on one model, renewed until dropped and then released
 ///
 /// A renewal paddock refuses, or renewals it leaves unanswered for the lease's
@@ -114,7 +189,8 @@ enum Held {
 
 impl Lease {
     /// Takes a lease on `model`, labelled `note`, waiting for its grant
-    /// until `give_up` says to stop, and telling `busy` of each busy answer
+    /// until `give_up` says to stop, and telling `busy` of each busy answer,
+    /// as [`Stand::Turn`] or [`Stand::Busy`]
     ///
     /// `None` when it gave up, which hangs up and so leaves paddock's queue.
     /// Once held, a lease it can no longer renew asks `ending` to end the call.
@@ -127,7 +203,7 @@ impl Lease {
         model: &str,
         note: &str,
         give_up: &dyn Fn() -> bool,
-        busy: &dyn Fn(),
+        busy: &dyn Fn(Stand),
         ending: &Ending,
         timing: Timing,
     ) -> Result<Option<Self>, String> {
@@ -139,7 +215,7 @@ impl Lease {
             if status != 503 {
                 break (status, answer);
             }
-            busy();
+            busy(busy_stand(&answer));
             if !wait(timing.retry, give_up) {
                 return Ok(None);
             }
@@ -233,6 +309,15 @@ impl Drop for Lease {
         // A release that fails still ends once the ttl runs out unrenewed.
         let path = format!("/paddock/leases/{}", self.id);
         let _ = send(&self.gateway, ("DELETE", &path), None, true, self.release);
+    }
+}
+
+// What a busy answer says paddock turned the take away for.
+fn busy_stand(answer: &str) -> Stand {
+    let read: Value = serde_json::from_str(answer).unwrap_or(Value::Null);
+    match read["reason_kind"].as_str() {
+        Some("turn") => Stand::Turn,
+        _ => Stand::Busy,
     }
 }
 
@@ -365,6 +450,8 @@ mod tests {
 
     const BUSY: &str = r#"{"error":"busy","reason":"qwen is loading"}"#;
 
+    const TURN: &str = r#"{"error":"busy","reason":"qwen is serving kelpie #9, next in line","reason_kind":"turn"}"#;
+
     fn gateway(server: &StandInEndpoint) -> Upstream {
         let base = EndpointUrl::try_from(server.url().to_owned()).unwrap();
         Upstream::new(&base)
@@ -409,7 +496,7 @@ mod tests {
             "qwen",
             "kelpie #7 worker",
             &|| false,
-            &|| {},
+            &|_| {},
             &Ending::default(),
             QUICK,
         );
@@ -433,7 +520,7 @@ mod tests {
             "qwen",
             "n",
             &|| false,
-            &|| {},
+            &|_| {},
             ending,
             timing,
         );
@@ -548,7 +635,7 @@ mod tests {
             .like_paddock("pk", &[])
             .with_takes([Take::Status(503, BUSY)]);
         let busy = AtomicUsize::new(0);
-        let told = || {
+        let told = |_| {
             busy.fetch_add(1, Ordering::SeqCst);
         };
         let lease = Lease::take(
@@ -575,7 +662,7 @@ mod tests {
             "qwen",
             "n",
             &|| false,
-            &|| {},
+            &|_| {},
             &Ending::default(),
             QUICK,
         )
@@ -593,7 +680,7 @@ mod tests {
             "qwen",
             "n",
             &|| false,
-            &|| {},
+            &|_| {},
             &Ending::default(),
             QUICK,
         )
@@ -618,7 +705,7 @@ mod tests {
                 "qwen",
                 "n",
                 &give_up,
-                &|| {},
+                &|_| {},
                 &Ending::default(),
                 QUICK,
             );
@@ -626,5 +713,102 @@ mod tests {
             assert!(started.elapsed() < Duration::from_secs(5));
             assert!(!calls(&server).iter().any(|l| l.starts_with("DELETE")));
         }
+    }
+
+    fn round_calls(server: &StandInEndpoint) -> Vec<String> {
+        let all = calls(server).into_iter();
+        all.filter(|l| l.starts_with("POST") || l.starts_with("DELETE"))
+            .collect()
+    }
+
+    fn around<T>(
+        server: &StandInEndpoint,
+        ending: &Ending,
+        give_up: &dyn Fn() -> bool,
+        told: &Mutex<Vec<Stand>>,
+        call: impl FnOnce() -> T,
+    ) -> Result<T, Unheld> {
+        let tell = |stand| told.lock().unwrap().push(stand);
+        let taking = Taking {
+            gateway: &gateway(server),
+            model: "qwen",
+            note: "kelpie local round 1",
+            give_up,
+            tell: &tell,
+            ending,
+            timing: QUICK,
+        };
+        taking.around(call)
+    }
+
+    #[test]
+    fn a_reviewer_round_takes_a_lease_before_the_call_and_returns_it_after() {
+        let server = StandInEndpoint::start([]).like_paddock("pk", &[]);
+        let told = Mutex::new(Vec::new());
+        let during = around(&server, &Ending::default(), &|| false, &told, || {
+            round_calls(&server)
+        });
+        assert_eq!(during, Ok(vec!["POST /paddock/leases".to_owned()]));
+        assert_eq!(
+            round_calls(&server),
+            ["POST /paddock/leases", "DELETE /paddock/leases/L1"]
+        );
+        assert_eq!(*told.lock().unwrap(), [Stand::Asking, Stand::Granted]);
+    }
+
+    #[test]
+    fn a_turn_reason_is_told_as_a_turn_and_any_other_busy_answer_as_busy() {
+        for (body, wanted) in [(TURN, Stand::Turn), (BUSY, Stand::Busy), ("", Stand::Busy)] {
+            let server = StandInEndpoint::start([])
+                .like_paddock("pk", &[])
+                .with_takes([Take::Status(503, body)]);
+            let told = Mutex::new(Vec::new());
+            around(&server, &Ending::default(), &|| false, &told, || ()).unwrap();
+            let told = told.into_inner().unwrap();
+            assert_eq!(told, [Stand::Asking, wanted, Stand::Granted], "{body}");
+        }
+    }
+
+    #[test]
+    fn a_lease_lost_during_the_call_fails_it_whatever_the_call_returned() {
+        let server = StandInEndpoint::start([])
+            .like_paddock("pk", &[])
+            .refusing_renewals(404);
+        let ending = Ending::default();
+        let lost = around(&server, &ending, &|| false, &Mutex::default(), || {
+            until("end", &server, || ending.asked());
+            "finished anyway"
+        });
+        let Err(Unheld::Lost(why)) = lost else {
+            panic!("{lost:?}");
+        };
+        assert!(why.contains("L1") && why.contains("HTTP 404"), "{why}");
+    }
+
+    #[test]
+    fn a_round_that_gives_up_the_wait_never_runs_and_one_refused_names_why() {
+        let server = StandInEndpoint::start([])
+            .like_paddock("pk", &[])
+            .with_takes([Take::Hang]);
+        let ran = AtomicUsize::new(0);
+        let call = || ran.fetch_add(1, Ordering::SeqCst);
+        let told = Mutex::default();
+        let waited = around(&server, &Ending::default(), &|| true, &told, call);
+        assert_eq!(waited, Err(Unheld::GaveUp));
+        assert_eq!(ran.load(Ordering::SeqCst), 0);
+
+        let bad = r#"{"error":"bad_lease_request","detail":"ttl is at most 1h"}"#;
+        let server = StandInEndpoint::start([])
+            .like_paddock("pk", &[])
+            .with_takes([Take::Status(400, bad)]);
+        let refused = around(&server, &Ending::default(), &|| false, &told, call);
+        let Err(Unheld::Refused(why)) = refused else {
+            panic!("{refused:?}");
+        };
+        assert!(
+            why.ends_with("bad_lease_request: ttl is at most 1h"),
+            "{why}"
+        );
+        assert_eq!(ran.load(Ordering::SeqCst), 0);
     }
 }

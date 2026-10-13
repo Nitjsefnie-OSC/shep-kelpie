@@ -1,5 +1,5 @@
 // pi on a model behind a gateway, against a stand-in paddock: the key goes
-// only from the forwarder, and a worker's turn holds a lease while it runs.
+// only from the forwarder, and each call holds a lease while it runs.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -95,9 +95,9 @@ fn a_workers_turn_holds_a_lease_from_start_to_end_and_a_failed_one_too() {
     let reviewer = on_gateway(&w, Role::Reviewer);
     pi.run(&reviewer, &Ending::default()).unwrap();
     assert_eq!(
-        lease_calls(&server).len(),
-        4,
-        "only a worker's turn holds one"
+        lease_calls(&server),
+        [held, held, held].concat(),
+        "a reviewer's session holds one too"
     );
 }
 

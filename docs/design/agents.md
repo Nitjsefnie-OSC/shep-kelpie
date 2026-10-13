@@ -15,5 +15,5 @@ Agent files, harnesses, gateways and spend by role. The runner loop, fence and s
 - Turn awaiting its model marked `waiting` in memory; with `agents.fallback_after`, waiting first turn moves to next free implementer; later or pinned turns never (lose session). #381, `src/runner/flight/waiting.rs`
 - Unreachable pi host retried 30s to 5 min for 30 min before parking. #457, `src/runner/turn/unreachable.rs`
 - `usage` (`claude`, `codex`, `none`) must match harness; `none` never paced, limited by `lease` (`gpu`) or gateway. #129
-- Gateway (`url`, `key_env`) queues and places models: agents unpaced, lockless; key unset in every call + child; worker turn holds heartbeat lease; a lease paddock refuses to renew, or leaves unanswered past its ttl, fails the turn, and a drop releases at once. #352, #497, `src/spawn.rs`
+- Gateway (`url`, `key_env`) queues and places models: agents unpaced, lockless; key unset in every call + child; every call (worker turn, reviewer session or round) holds a heartbeat lease, and a `turn` reason is the wait (`gpu_wait`, `waiting`); a lease paddock refuses to renew, or leaves unanswered past its ttl, fails the turn, and a drop releases at once. #352, #497, #500, `src/spawn.rs`
 - Spend = tokens per role, dollars only where reported; unpriced calls counted (zero never reads as free). #129
