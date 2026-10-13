@@ -74,6 +74,7 @@ _Avoid_: team (Claude's agent teams are one kind of crew)
 **Session**:
 One agent conversation, identified by its session id. Claude's word, kept
 as Claude uses it. A Codex session is a thread kelpie maps to its own id.
+A goose session is named by kelpie's id.
 _Avoid_: shift
 
 **Agent**:
@@ -269,7 +270,9 @@ moves the branch's head. A fix turn sent only nits starts nothing new: no
 reviewer reads again because of it, and a bot that read the pull request
 before has its nits on that fix's head left open. Findings the worker
 leaves out of scope go in the **deferred findings** file, which the merge
-files as follow-ups, all but its nits.
+files as follow-ups, all but its nits. A finding the worker shows is
+wrong goes in the **disputed findings** file with its reason: the next
+reviewer is shown it, and it is never filed.
 
 **Unreviewed**:
 The mark on a work item whose pass ended with no reviewer having read the

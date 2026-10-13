@@ -33,6 +33,7 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
             note_fix,
             late_fix,
             nits,
+            disputes,
             ..
         } => {
             let mut unread = unreviewed.as_ref().map_or_else(String::new, |why| {
@@ -58,6 +59,9 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
             });
             if let Some(nits) = nits {
                 open.push_str(&format!(" {nits}."));
+            }
+            if let Some(disputes) = disputes {
+                open.push_str(&format!(" {disputes}"));
             }
             let rework = trigger("rework <note>");
             if needs_pass(kind) {
@@ -129,11 +133,14 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 off_text(files, head, pushed),
                 review.round
             ),
-            Stuck::FixNotPushed { fix, .. } => {
+            Stuck::FixNotPushed { fix, said, .. } => {
                 let Fix::Review(review) = fix;
+                let said = said
+                    .as_ref()
+                    .map_or_else(String::new, |said| format!(" {said}"));
                 format!(
                     "The worker on {about} ended its fix for round {} of the review without \
-                     pushing, so those findings still hold. {yes} sends it the same fix turn \
+                     pushing, so those findings still hold.{said} {yes} sends it the same fix turn \
                      again: the findings, or the reviewer's tests still failing when it was sent back to them",
                     review.round
                 )

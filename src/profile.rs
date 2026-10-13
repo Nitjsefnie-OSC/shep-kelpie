@@ -33,8 +33,9 @@ const OPEN_YOURSELF: &str = "When the work is done, push the branch with `git pu
 const HAND_OVER: &str = "When the work is done, push the branch with `git push origin HEAD`. Do not open or edit the pull request yourself: your credential cannot, and kelpie does it. Write its title and body in `{file}`. The first line is the title, a conventional commit subject. The rest is the body, which ends with the line `Resolves #<issue>`, naming your work item's issue. Write the file before you end your turn, and write it again to change the title or body; kelpie opens the draft when a turn ends with the branch pushed, and sets the title and body to what the file says.";
 
 /// Kelpie's own worker instructions, naming `kelpie`, the binary a worker
-/// runs its tests under the machine's test lease with, and `deferred_file`,
-/// where it leaves the findings it defers
+/// runs its tests under the machine's test lease with, `deferred_file`,
+/// where it leaves the findings it defers, and `disputed_file`, where it
+/// leaves the findings it shows are wrong
 ///
 /// With `pull_request_file`, the worker holds a credential that opens no
 /// pull request, and is told to write its text there for kelpie to open.
@@ -42,6 +43,7 @@ pub fn instructions(
     kelpie: &Path,
     pull_request_file: Option<&Path>,
     deferred_file: &Path,
+    disputed_file: &Path,
 ) -> String {
     let pull_request = match pull_request_file {
         Some(file) => HAND_OVER.replace("{file}", &file.display().to_string()),
@@ -51,6 +53,7 @@ pub fn instructions(
         .replace("{pull_request}", &pull_request)
         .replace("{kelpie}", &kelpie.display().to_string())
         .replace("{deferred}", &deferred_file.display().to_string())
+        .replace("{disputed}", &disputed_file.display().to_string())
 }
 
 // Claude Code opens a worktree's whole common git dir to sandboxed writes.
@@ -919,7 +922,8 @@ mod tests {
     #[test]
     fn the_worker_instructions_name_the_deferred_findings_files_path() {
         let deferred = Path::new("/kelpie/shep/build-7/deferred-findings.md");
-        let text = instructions(Path::new("/opt/kelpie"), None, deferred);
+        let disputed = Path::new("/kelpie/shep/build-7/disputed-findings.md");
+        let text = instructions(Path::new("/opt/kelpie"), None, deferred, disputed);
         assert!(
             text.contains("`/kelpie/shep/build-7/deferred-findings.md`"),
             "{text}"
@@ -940,6 +944,18 @@ mod tests {
             INSTRUCTIONS.contains("Never offer a choice you cannot carry out"),
             "{INSTRUCTIONS}"
         );
+    }
+
+    #[test]
+    fn the_worker_instructions_name_the_disputed_findings_files_path() {
+        let deferred = Path::new("/kelpie/shep/build-7/deferred-findings.md");
+        let disputed = Path::new("/kelpie/shep/build-7/disputed-findings.md");
+        let text = instructions(Path::new("/opt/kelpie"), None, deferred, disputed);
+        assert!(
+            text.contains("`/kelpie/shep/build-7/disputed-findings.md`"),
+            "{text}"
+        );
+        assert!(!text.contains("{disputed}"), "{text}");
     }
 
     #[test]

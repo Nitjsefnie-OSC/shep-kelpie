@@ -158,6 +158,7 @@ fn a_bot_fix_that_pushed_nothing_is_a_fix_in_the_pass_of_the_bots() {
         RulingKind::from(Stuck::FixNotPushed {
             fix: Fix::Review(review),
             prompt: "again".into(),
+            said: None,
         })
     );
 }
@@ -202,6 +203,7 @@ fn a_round_cap_ruling_asks_again_to_send_the_threads_it_held() {
         RulingKind::from(Stuck::FixNotPushed {
             fix: Fix::Review(review(Some("c0ffee"), vec![finding(racy())])),
             prompt: "fix these".into(),
+            said: None,
         })
     );
     assert_eq!(
@@ -217,6 +219,7 @@ fn a_round_cap_ruling_asks_again_to_send_the_threads_it_held() {
         RulingKind::from(Stuck::FixNotPushed {
             fix: Fix::Review(review(None, Vec::new())),
             prompt: "older".into(),
+            said: None,
         }),
         "a ruling that parks no item sends what it held when answered"
     );

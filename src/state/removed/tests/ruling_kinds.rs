@@ -102,6 +102,7 @@ fn a_fix_not_pushed_ruling_is_stuck_on_the_fix() {
         Stuck::FixNotPushed {
             fix: Fix::Review(round_2()),
             prompt: "again".into(),
+            said: None,
         },
     );
 }

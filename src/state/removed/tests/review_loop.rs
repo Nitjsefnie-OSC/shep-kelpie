@@ -168,6 +168,7 @@ fn a_review_kept_by_a_ruling_or_a_resume_loses_the_loops_fields_too() {
                 deferred_before: Vec::new(),
             })),
             prompt: "p".into(),
+            said: None,
         })
     );
 }

@@ -1,0 +1,6 @@
+
+    __( O)>  ● new session · openai m
+   \____)    20261013_2 · /tmp/kelpie-goose
+     L L     goose is ready
+{"type":"message","message":{"id":"msg_6737bde5-cf56-489e-8f9d-68ee753a56d1","role":"assistant","created":1791931387,"content":[{"type":"text","text":"Network error: Could not connect to 127.0.0.1:9 — check your network connection and try again.\n\nPlease resend your message to try again."}],"metadata":{"userVisible":true,"agentVisible":true}}}
+{"type":"complete","total_tokens":0,"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_write_input_tokens":0}

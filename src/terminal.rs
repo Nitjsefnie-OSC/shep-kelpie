@@ -219,7 +219,7 @@ mod tests {
         crate::test::write_script(
             &script,
             "#!/bin/sh\ntrap 'echo got TERM; exit 7' TERM\necho ready\n\
-             while :; do sleep 1; done\n",
+             while kill -0 $PPID 2>/dev/null; do sleep 1; done\n",
         );
         let mut kelpie = Command::new(std::env::current_exe().unwrap())
             .args([

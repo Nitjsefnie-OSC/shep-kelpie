@@ -12,6 +12,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [Codex's usage](codexs-usage.md)
 - [Session transcripts](session-transcripts.md)
 - [Codex as an agent](codex-as-an-agent.md)
+- [goose as an agent](goose-as-an-agent.md)
 - [Worker profile and sandbox](worker-profile-and-sandbox.md)
 - [A worker's push, `gh` and package installs](a-workers-push-gh-and-package-installs.md)
 - [Resolving a review thread](resolving-a-review-thread.md)

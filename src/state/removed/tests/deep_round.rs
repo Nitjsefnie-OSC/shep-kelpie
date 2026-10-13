@@ -173,6 +173,7 @@ fn a_fix_not_pushed_ruling_of_the_deep_round_loads_without_its_why() {
                 deferred_before: Vec::new(),
             })),
             prompt: "p".into(),
+            said: None,
         })
     );
     store.save(&state).unwrap();
