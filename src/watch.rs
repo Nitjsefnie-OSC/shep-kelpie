@@ -1,10 +1,11 @@
 //! `shep kelpie watch`: one live stream of a project's runner steps and
 //! the transcripts of the sessions they name
 //!
-//! The runner logs a `session-started` step as each call starts, naming the
-//! session, its work item, role and agent, and where its harness writes the
-//! transcript. A session is attributed by that id. The log and every named
-//! transcript are read as they grow, and their lines are merged by time.
+//! The runner logs a `session-started` step to the project's `steps.jsonl`
+//! as each call starts, naming the session, its work item, role and agent,
+//! and where its harness writes the transcript. A session is attributed by
+//! that id. The steps file and every named transcript are read as they grow,
+//! and their lines are merged by time. The shepherd's out log is never read.
 //! Nothing here asks the shepherd or the runner.
 
 mod claude;
@@ -83,7 +84,7 @@ pub struct Options {
     pub zone: TimeZone,
 }
 
-/// A watch on one project's runner log
+/// A watch on one project's steps file and the transcripts it names
 #[derive(Debug)]
 pub struct Watch {
     log: Tail,
@@ -125,14 +126,14 @@ impl Session {
 }
 
 impl Watch {
-    /// Starts a watch on the runner log at `log`, with the lines it first
-    /// shows: the last `options.back`, or none
+    /// Starts a watch on the project whose folder is `folder`, with the lines
+    /// it first shows: the last `options.back`, or none
     ///
-    /// The whole log is read to learn which sessions are running, whatever
-    /// `back` is.
-    pub fn start(log: PathBuf, options: Options) -> (Self, Vec<Line>) {
+    /// The steps file in the folder is read whole to learn which sessions
+    /// are running, whatever `back` is.
+    pub fn start(folder: PathBuf, options: Options) -> (Self, Vec<Line>) {
         let mut watch = Self {
-            log: Tail::from_start(log),
+            log: Tail::from_start(folder.join(crate::runner::STEPS_FILE)),
             options,
             sessions: Vec::new(),
         };
