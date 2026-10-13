@@ -15,3 +15,4 @@ CI, catching the branch up, the merge, work after it. Review passes, bots and ru
 - Adoption: work item from a PR kelpie didn't open; merges `main` in, never rebases (owner may push). #84
 - `ready-for-human` set at merge ruling, removed when work resumes. `src/runner/ruling.rs`
 - Runner's own git/gh are plain children outside any worker fence. `src/spawn.rs`
+- One pass lists the open pull requests once (a GraphQL query: head, draft, checks, labels, closing issues, review and thread counts). Rework check, CI gate and merge read that listing; a single pull request is read only when the listing lacks it or a step runs outside a pass (a turn's end). A review is read in full only on `ready-for-agent` or when its counts changed since the last read; a merge still sends its head and the forge refuses a moved one. #581, `src/runner/snapshot.rs`
