@@ -121,6 +121,7 @@ mod token_wait;
 mod trigger;
 mod turn;
 mod turn_hooks;
+mod untrusted;
 mod voice;
 mod words;
 mod worker_files;
@@ -458,6 +459,7 @@ impl Runner {
                 .into());
             }
             settings.contribution_lineup(&book, home)?;
+            settings.security_reviewer(&book)?;
         }
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);

@@ -10,7 +10,7 @@ use std::path::Path;
 
 use super::agents::find;
 use super::{AgentName, NonBlank, Settings, SettingsError};
-use crate::agents::{self, Agents, DEFECT_HUNTER, QWEN, QWEN_REVIEW, Role, Runs};
+use crate::agents::{self, Agent, Agents, DEFECT_HUNTER, QWEN, QWEN_REVIEW, Role, Runs};
 use crate::review_bot::BotReviewer;
 
 /// Where a project lists its reviewers, as a refusal names it
@@ -18,6 +18,10 @@ const SETTING: &str = "agents.reviewers";
 
 /// Where a project lists its contributions' reviewers, as a refusal names it
 const CONTRIBUTION_SETTING: &str = "contributions.reviewers";
+
+/// Where a project names the reviewer that reads a contribution for
+/// security, as a refusal names it
+const SECURITY_SETTING: &str = "contributions.security_reviewer";
 
 pub(super) fn lowercase_name(value: &str) -> bool {
     let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';
@@ -91,6 +95,35 @@ impl Settings {
         match &self.contributions.reviewers {
             Some(names) => listed(names.clone(), agents, home, CONTRIBUTION_SETTING),
             None => self.lineup(agents, home),
+        }
+    }
+
+    /// The agent that reads a contribution for security
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `contributions.security_reviewer`
+    /// when it has no agent file, its file is not a reviewer's, or the
+    /// reviewer is not one that runs sessions: the diff is read in a session
+    /// of its own, which a command, an endpoint and a bot cannot be given.
+    pub fn security_reviewer<'a>(&self, agents: &'a Agents) -> Result<&'a Agent, SettingsError> {
+        let name = &self.contributions.security_reviewer;
+        let agent = find(
+            agents,
+            name,
+            SECURITY_SETTING,
+            SECURITY_SETTING,
+            Role::Reviewer,
+        )?;
+        match agent.runs.session() {
+            Some(_) => Ok(agent),
+            None => Err(SettingsError::Invalid {
+                setting: SECURITY_SETTING,
+                reason: format!(
+                    "`{SECURITY_SETTING}` names {name}, which does not run sessions: the \
+                     diff is read in a session of its own, so name a reviewer that does"
+                ),
+            }),
         }
     }
 }
