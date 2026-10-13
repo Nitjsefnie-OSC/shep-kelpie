@@ -27,6 +27,7 @@ use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
+use super::skills::skill_dirs;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
@@ -48,6 +49,9 @@ mod tests;
 
 #[cfg(test)]
 mod escapes;
+
+#[cfg(test)]
+mod guard_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -440,6 +444,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,
 // skills, prompt templates or themes it finds, and no project-local files.
+// The skills it loads are the ones named with `--skill`, which need no project trust.
 // It does read the repo's AGENTS.md and CLAUDE.md, as Claude Code does.
 fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let (prompt, skill) = skill_prompt(call);
@@ -462,7 +467,8 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         "--session-id".into(),
         call.session.id().0.as_str().into(),
     ];
-    match tool_names(call.tools, !call.reach.read.is_empty()) {
+    let tools = tool_names(call.tools, !call.reach.read.is_empty());
+    match tools {
         Some(names) => argv.extend(["--tools".into(), names.into()]),
         None => argv.push("--no-tools".into()),
     }
@@ -473,8 +479,15 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
     }
+    // The step's skill comes first, so its name wins a collision. Its text is in
+    // the prompt, but any other skill needs `read` to open and only costs context.
     if let Some(skill) = skill {
         argv.extend(["--skill".into(), skill.into()]);
+    }
+    if tools.is_some() {
+        for dir in skill_dirs(call) {
+            argv.extend(["--skill".into(), dir.into()]);
+        }
     }
     argv.extend(["--".into(), prompt.into()]);
     argv

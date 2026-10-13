@@ -237,7 +237,7 @@ pub struct AgentCall {
     pub instructions: Option<PathBuf>,
     /// The turn's prompt
     pub prompt: String,
-    /// The plugin folders its steps' skills are in
+    /// The plugin folders its steps' skills, and the repo's plugins, are in
     pub plugin_dirs: Vec<PathBuf>,
     /// The kinds of tool it may use
     pub tools: Tools,
