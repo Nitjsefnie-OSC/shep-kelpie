@@ -391,6 +391,9 @@ impl Runner {
             }
             Ok(call) => {
                 self.token_wait.ends();
+                if !compacting {
+                    self.note_resumed(item);
+                }
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
