@@ -163,7 +163,7 @@ fn the_first_turn_after_a_terminal_session_is_charged_for_none_of_the_gap() {
 }
 
 #[test]
-fn the_end_of_a_terminal_session_leaves_its_totals_to_be_counted_from_again() {
+fn a_terminal_session_notes_its_totals_are_stale_from_its_start() {
     let w = World::new();
     let goose = goose_in(&w, &OpenSandbox::default());
     let call = resumable(&w, URL);
@@ -174,10 +174,10 @@ fn the_end_of_a_terminal_session_leaves_its_totals_to_be_counted_from_again() {
     };
     files.keep(call.session.id(), spent).unwrap();
     goose.prepare(&call).unwrap();
+
     goose.foreground(&call).unwrap();
 
-    goose.foreground_ended(call.session.id());
-
+    // A runner restarted since has lost the session from memory, and the note still stands.
     let kept = files.spent(call.session.id()).unwrap().unwrap();
     assert_eq!(
         kept,
@@ -186,4 +186,6 @@ fn the_end_of_a_terminal_session_leaves_its_totals_to_be_counted_from_again() {
             ..spent
         }
     );
+    goose.foreground_ended(call.session.id());
+    assert_eq!(files.spent(call.session.id()).unwrap().unwrap(), kept);
 }

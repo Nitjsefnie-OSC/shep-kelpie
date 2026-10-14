@@ -14,7 +14,6 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -26,11 +25,10 @@ use crate::ports::{AgentCall, AgentError, SessionId};
 /// The `GOOSE_MODE` of the terminal, where goose asks before each tool call
 const TERMINAL_MODE: &str = "approve";
 
-/// A terminal session until its end: its forwarder, and the settings path its files are beside
+/// A terminal session until its end: its forwarder
 #[derive(Debug)]
 struct Terminal {
     _forwarder: Forwarder,
-    settings: PathBuf,
 }
 
 /// The terminal sessions, by session id
@@ -65,37 +63,29 @@ impl GooseCli {
             .map(Into::into)
             .collect();
         let (command, forwarder) = self.wrapped(call, None, argv, Some(TERMINAL_MODE))?;
+        // The terminal session runs on the session's model requests, so goose's totals will
+        // hold tokens kelpie cannot count: they are in goose's database. The record notes that
+        // when the session starts, not when it ends, since the hold outlives a runner that
+        // restarts and nothing in memory then remembers the session. The next headless turn
+        // counts from the totals it reports.
+        let files = Files::of(&call.settings);
+        if let Some(known) = files.spent(id)? {
+            files.keep(
+                id,
+                Spent {
+                    rebase: true,
+                    ..known
+                },
+            )?;
+        }
         let terminal = Terminal {
             _forwarder: forwarder,
-            settings: call.settings.clone(),
         };
         self.terminals.lock().insert(id.0.clone(), terminal);
         Ok(command)
     }
 
-    // The terminal session ran on the session's model requests, so goose's totals now hold
-    // tokens kelpie cannot count: they are in goose's database. The record notes that, and
-    // the next headless turn counts from the totals it reports.
     pub(super) fn terminal_ended(&self, session: &SessionId) {
-        let Some(terminal) = self.terminals.lock().remove(&session.0) else {
-            return;
-        };
-        let files = Files::of(&terminal.settings);
-        let noted = files.spent(session).and_then(|known| {
-            let Some(known) = known else { return Ok(()) };
-            files.keep(
-                session,
-                Spent {
-                    rebase: true,
-                    ..known
-                },
-            )
-        });
-        if let Err(e) = noted {
-            eprintln!(
-                "cannot note what the terminal session of {} spent: {e}",
-                session.0
-            );
-        }
+        self.terminals.lock().remove(&session.0);
     }
 }
