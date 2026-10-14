@@ -271,6 +271,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 dollars(*cap)
             );
         }
+        RulingKind::Contribution(Held::Question { asked }) => {
+            return format!(
+                "The contributor of {about} asks for a decision: {asked}\n\
+                 Nothing is posted on the pull request until you answer. Answer with \
+                 `shep kelpie rule {named} answer <your answer>`: the representative words it for the \
+                 contributor and posts it. This decides nothing about merging, which only a \
+                 merge ruling does."
+            );
+        }
         RulingKind::FollowUp { findings, refused } => {
             let list: Vec<String> = findings
                 .iter()

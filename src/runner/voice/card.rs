@@ -361,6 +361,13 @@ impl Card {
                     Some("Doubles the cap the same, and nothing is posted"),
                 ),
             },
+            RulingKind::Contribution(Held::Question { asked }) => Self {
+                problem: None,
+                board: None,
+                title: "A contributor asks for a decision".to_owned(),
+                facts: Some(asked.clone()),
+                choices: Vec::new(),
+            },
             RulingKind::FollowUp { findings, refused } => {
                 let count = match findings.len() {
                     1 => "1 unfixed finding".to_owned(),

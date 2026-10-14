@@ -316,7 +316,7 @@ fn a_call_that_answers_within_its_ceiling_is_not_ended() {
         .unwrap()
         .represent_within(&post(&[], "Hello"), Duration::from_secs(60));
 
-    assert_eq!(words.unwrap(), "Ok.");
+    assert_eq!(words.unwrap().0, "Ok.");
 }
 
 #[test]

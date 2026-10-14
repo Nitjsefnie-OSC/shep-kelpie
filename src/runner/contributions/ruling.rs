@@ -74,6 +74,17 @@ pub(super) fn raise_over_budget(
     raise_held(next, pull_request, Held::OverBudget { cap }, now);
 }
 
+/// Adds the ruling that puts the contributor's request for a decision, as
+/// `asked`, to the maintainer, to `next`
+pub(super) fn raise_question(
+    next: &mut ProjectState,
+    pull_request: u64,
+    asked: String,
+    now: Timestamp,
+) {
+    raise_held(next, pull_request, Held::Question { asked }, now);
+}
+
 fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Timestamp) {
     let kind = RulingKind::Contribution(held);
     next.rulings.push(Ruling {
@@ -93,15 +104,15 @@ fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Times
 }
 
 /// Takes out of `next` each contribution ruling whose head is not the head of
-/// a followed contribution any more, and each over-budget one whose pull
-/// request is not followed any more
+/// a followed contribution any more, and each over-budget or decision one
+/// whose pull request is not followed any more
 pub(super) fn withdraw(next: &mut ProjectState) {
     let followed = &next.contributions;
     next.rulings.retain(|r| match &r.kind {
         RulingKind::Contribution(Held::Security { head, .. }) => {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
-        RulingKind::Contribution(Held::OverBudget { .. }) => {
+        RulingKind::Contribution(Held::OverBudget { .. } | Held::Question { .. }) => {
             (followed.iter()).any(|c| c.pull_request == r.number())
         }
         _ => true,
@@ -138,6 +149,23 @@ pub(in crate::runner) fn raise_budget(
         followed.raise_budget(per_item);
     }
     true
+}
+
+/// Keeps the maintainer's answer to a contributor's request for a decision,
+/// in `next`, for the representative to word and post
+///
+/// Only a text answer to a decision ruling is kept; any other answer to it
+/// is refused by the ruling, which stays.
+pub(in crate::runner) fn keep_answer(next: &mut ProjectState, answer: &Answer, ruling: &Ruling) {
+    let (Answer::Text(text), RulingKind::Contribution(Held::Question { .. })) =
+        (answer, &ruling.kind)
+    else {
+        return;
+    };
+    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    if let Some(deciding) = followed.and_then(|c| c.deciding.as_mut()) {
+        deciding.answer = Some(text.trim().to_owned());
+    }
 }
 
 /// The fewest characters of a head's hash a yes may name

@@ -107,6 +107,7 @@ impl RulingName {
             RulingKind::Contribution(held) => match held {
                 Held::Security { .. } => Self::Security,
                 Held::OverBudget { .. } => Self::OverBudget,
+                Held::Question { .. } => Self::Question,
             },
             RulingKind::Stuck(stuck) => match stuck {
                 Stuck::Rebase { .. } => Self::Rebase,

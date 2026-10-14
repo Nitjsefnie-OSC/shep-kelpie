@@ -62,17 +62,30 @@ pub(in crate::runner) enum Posted {
 // The post as worded, kept in memory until it is posted
 #[derive(Debug, Clone)]
 pub(in crate::runner) struct Wording {
-    body: String,
+    pub(super) body: String,
     comments: Vec<LineComment>,
+}
+
+impl Wording {
+    // A post that is a comment with a body and no line comments
+    pub(super) fn comment(body: String) -> Self {
+        Self {
+            body,
+            comments: Vec::new(),
+        }
+    }
 }
 
 /// What the runner keeps of one post that has not gone through: how many
 /// times it failed, whether the log has said so, and its wording
 #[derive(Debug, Default)]
 pub(in crate::runner) struct Attempt {
-    failures: u32,
-    told: bool,
-    wording: Option<Wording>,
+    pub(super) failures: u32,
+    pub(super) told: bool,
+    pub(super) wording: Option<Wording>,
+    /// The id of the comment the forge took whose record was not saved, so
+    /// it is recorded at the next poll and never posted again
+    pub(super) sent: Option<u64>,
 }
 
 /// How many times a post may fail for a head before kelpie stops trying it
@@ -386,20 +399,20 @@ fn post_key(work: &Work, what: &str) -> String {
 }
 
 // Whether kelpie refused to send the text, as a hook or a local path does
-fn refused_text(e: &ForgeError) -> bool {
+pub(super) fn refused_text(e: &ForgeError) -> bool {
     matches!(e, ForgeError::LocalPath { .. } | ForgeError::Hook { .. })
 }
 
 // Whether the forge could not be asked just now, so that asking again later
 // may work
-fn forge_is_busy(e: &ForgeError) -> bool {
+pub(super) fn forge_is_busy(e: &ForgeError) -> bool {
     matches!(
         e,
         ForgeError::AppBusy(_) | ForgeError::Held(_) | ForgeError::Limited { .. }
     )
 }
 
-fn short(head: &str) -> &str {
+pub(super) fn short(head: &str) -> &str {
     head.get(..7).unwrap_or(head)
 }
 

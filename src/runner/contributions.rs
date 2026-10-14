@@ -25,6 +25,7 @@
 //! `budget.per_item_usd` no call starts until a ruling is answered
 //! ([`budget`]).
 
+mod answer;
 mod bots;
 mod budget;
 mod ci;
@@ -37,7 +38,7 @@ mod security;
 
 pub(super) use bots::waiting_on;
 pub use clock::Followed;
-pub(super) use ruling::{flagged_lines, raise_budget, trust};
+pub(super) use ruling::{flagged_lines, keep_answer, raise_budget, trust};
 
 use crate::ports::{Agents, Ending, Reviewer};
 use crate::state::StateError;
@@ -227,10 +228,13 @@ impl Runner {
         self.follow_ci()?;
         self.follow_bots()?;
         self.follow_posts()?;
+        self.follow_answers()?;
         self.follow_clock()
     }
 }
 
+#[cfg(test)]
+mod answer_tests;
 #[cfg(test)]
 pub(in crate::runner) mod budget_tests;
 #[cfg(test)]

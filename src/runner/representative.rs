@@ -86,6 +86,19 @@ impl Runner {
     /// [`RepresentError`] when the agent is not usable, the call cannot be
     /// set up, fails or is ended, or answers with nothing.
     pub fn represent(&mut self, post: &Post<'_>) -> Result<String, RepresentError> {
+        self.represent_within(post, CEILING).map(|(words, _)| words)
+    }
+
+    /// [`Self::represent`], with what the call cost where its harness priced
+    /// it, for a caller that holds the call to a budget
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::represent`]. A call that failed reports no cost.
+    pub(in crate::runner) fn represent_priced(
+        &mut self,
+        post: &Post<'_>,
+    ) -> Result<(String, Cost), RepresentError> {
         self.represent_within(post, CEILING)
     }
 
@@ -106,7 +119,7 @@ impl Runner {
         &mut self,
         post: &Post<'_>,
         ceiling: Duration,
-    ) -> Result<String, RepresentError> {
+    ) -> Result<(String, Cost), RepresentError> {
         let agent = (self.settings.representative(&self.book)).map_err(RepresentError::Agent)?;
         let folder = &self.paths.representative;
         fs::create_dir_all(folder).map_err(|e| {
@@ -150,10 +163,12 @@ impl Runner {
             self.ledger.append(&Line::Call(line));
         }
         let reply = ran.map_err(RepresentError::Call)?;
+        // A fresh session, so what it has cost is what this call did.
+        let cost = reply.session_cost.unwrap_or_default();
         let words = reply.text.trim();
         match words.is_empty() {
             true => Err(RepresentError::Empty),
-            false => Ok(neutered(words, post.contributor)),
+            false => Ok((neutered(words, post.contributor), cost)),
         }
     }
 
