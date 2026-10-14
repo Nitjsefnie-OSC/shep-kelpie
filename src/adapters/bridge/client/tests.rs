@@ -36,7 +36,20 @@ fn a_navigation_the_console_and_the_requests_read_as_the_server_sent_them() {
         Navigation::Loaded
     );
     client.settle(2).unwrap();
-    assert_eq!(client.console_errors().unwrap(), 2);
+    // One error is a failed load, in the console's own words and with its URL. The other is
+    // a script's exception, which the server prints with no prefix, and is counted all the same.
+    let errors = client.console_errors().unwrap();
+    assert_eq!(errors.len(), 2);
+    assert_eq!(
+        errors[0],
+        ConsoleError {
+            text: "Failed to load resource: the server responded with a status of 503 \
+                   (Service Unavailable)"
+                .to_owned(),
+            url: Some("http://localhost:5173/api/items".to_owned()),
+        }
+    );
+    assert_eq!(errors[1].url, None);
     let requests = client.requests().unwrap();
     let got: Vec<(&str, &str, Option<u16>)> = requests
         .iter()
@@ -62,7 +75,7 @@ fn a_navigation_the_console_and_the_requests_read_as_the_server_sent_them() {
             "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/gone".into()
         )
     );
-    assert_eq!(client.console_errors().unwrap(), 0);
+    assert_eq!(client.console_errors().unwrap(), []);
 
     // Kelpie sent what the recording says it did, but for its own version.
     expected[0]["params"]["clientInfo"]["version"] = env!("CARGO_PKG_VERSION").into();
@@ -114,7 +127,7 @@ fn a_message_the_server_sends_on_its_own_does_not_stand_in_for_the_reply() {
     let heard = format!("{init}\nnot json at all\n{list}\n{ask}\n{reply}\n");
     let mut client = Client::open(Cursor::new(heard), Vec::new()).unwrap();
 
-    assert_eq!(client.console_errors().unwrap(), 1);
+    assert_eq!(client.console_errors().unwrap().len(), 1);
 }
 
 #[test]

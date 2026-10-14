@@ -16,7 +16,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::{Runner, command_of, launch};
-use crate::ports::{DevPort, DevRun, DevServers, PageSession, Pages, Policy, READY_WITHIN, Visit};
+use crate::ports::{
+    ConsoleError, DevPort, DevRun, DevServers, PageSession, Pages, Policy, READY_WITHIN, Visit,
+};
 
 /// What the browser proof of one head came to
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +89,7 @@ impl Runner {
             .map(|d| d.as_str().to_owned())
             .collect();
         let gate = DevPort::default();
+        let worktree_read = worktree.clone();
         let run = DevRun {
             program: configuration.runtime_executable.clone(),
             args,
@@ -96,6 +99,8 @@ impl Runner {
             policy: Policy {
                 write: vec![worktree, build.clone()],
                 no_read: self.proof_no_read(),
+                // Both sit under kelpie's home, which `no_read` fences.
+                read: vec![worktree_read, build.clone()],
                 hosts: hosts.clone(),
                 verify_tls: true,
                 no_keychain: self.app_covers(),
@@ -156,10 +161,11 @@ impl BrowserProof {
             Ok(cwd) => self.run.cwd = cwd,
             Err(why) => return Browsed::Unavailable(format!("its dev server cannot start: {why}")),
         }
-        if let Some(build) = self.run.log.parent()
-            && let Err(e) = std::fs::create_dir_all(build)
-        {
-            return Browsed::NotRun(format!("cannot make {}: {e}", build.display()));
+        if let Some(build) = self.run.log.parent().map(Path::to_owned) {
+            if let Err(e) = std::fs::create_dir_all(&build) {
+                return Browsed::NotRun(format!("cannot make {}: {e}", build.display()));
+            }
+            install::before(&mut self.run, worktree, &build);
         }
         let started = match self.servers.start(&self.run) {
             Ok(started) => started,
@@ -216,12 +222,23 @@ fn judge(route: &str, port: u16, visit: &Visit) -> Vec<String> {
     let mut why: Vec<String> = (statuses.iter())
         .map(|status| format!("route `{route}` had a request answer {status}"))
         .collect();
-    match visit.console_errors {
+    // Chromium logs every resource that fails to load as a console error. One from another
+    // origin is that origin's failure, which this proof does not judge.
+    let errors = (visit.console_errors.iter())
+        .filter(|error| !foreign_load_failure(error, port))
+        .count();
+    match errors {
         0 => {}
         1 => why.push(format!("route `{route}` logged a console error")),
         n => why.push(format!("route `{route}` logged {n} console errors")),
     }
     why
+}
+
+// Whether `error` is Chromium's log of a resource at another origin that failed to load.
+fn foreign_load_failure(error: &ConsoleError, port: u16) -> bool {
+    error.text.starts_with("Failed to load resource")
+        && (error.url.as_deref()).is_some_and(|url| !from_dev_server(url, port))
 }
 
 // Whether `url` is on the dev server's origin: either loopback name, on its port. A URL
@@ -239,6 +256,8 @@ fn from_dev_server(url: &str, port: u16) -> bool {
             || (port == default && authority.eq_ignore_ascii_case(host))
     })
 }
+
+mod install;
 
 #[cfg(test)]
 mod tests;

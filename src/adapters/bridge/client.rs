@@ -14,7 +14,7 @@ use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
 
-use crate::ports::PageRequest;
+use crate::ports::{ConsoleError, PageRequest};
 
 /// The MCP revision kelpie asks for, which the server answered with the same
 const PROTOCOL: &str = "2025-06-18";
@@ -91,14 +91,27 @@ impl<R: BufRead, W: Write> Client<R, W> {
             .map(drop)
     }
 
-    /// How many errors the page has logged to its console since it loaded
+    /// The errors the page has logged to its console since it loaded
     ///
     /// # Errors
     ///
     /// The reason, when the call failed or its answer has no count.
-    pub(crate) fn console_errors(&mut self) -> Result<u32, String> {
+    pub(crate) fn console_errors(&mut self) -> Result<Vec<ConsoleError>, String> {
         let text = self.read_call("browser_console_messages", json!({ "level": "error" }))?;
-        error_count(&text)
+        let counted = error_count(&text)?;
+        let mut errors: Vec<ConsoleError> = section(&text, "Result")
+            .lines()
+            .filter_map(|line| line.strip_prefix("[ERROR] "))
+            .map(console_error)
+            .collect();
+        // An error the list did not show still counts.
+        while errors.len() < counted as usize {
+            errors.push(ConsoleError {
+                text: "an error the console's list left out".to_owned(),
+                url: None,
+            });
+        }
+        Ok(errors)
     }
 
     /// Every request the page made, static ones too, since the server leaves
@@ -227,6 +240,18 @@ fn error_count(text: &str) -> Result<u32, String> {
                 .ok()
         })
         .ok_or_else(|| "the console's answer has no count of errors".to_owned())
+}
+
+// One console message, `<text> @ <url>:<line>`.
+fn console_error(message: &str) -> ConsoleError {
+    let (text, url) = match message.rsplit_once(" @ ") {
+        Some((text, at)) => (text, Some(at.rsplit_once(':').map_or(at, |(url, _)| url))),
+        None => (message, None),
+    };
+    ConsoleError {
+        text: text.to_owned(),
+        url: url.map(str::to_owned),
+    }
 }
 
 // One line of the network tool's list: `3. [GET] <url> => [503] Service Unavailable`.

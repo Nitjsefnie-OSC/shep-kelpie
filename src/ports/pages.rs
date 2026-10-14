@@ -44,8 +44,17 @@ pub struct Visit {
     pub loaded: Result<(), String>,
     /// The requests that did not answer with success, and every fetch
     pub requests: Vec<PageRequest>,
-    /// How many errors the page's console logged
-    pub console_errors: u32,
+    /// The errors the page's console logged
+    pub console_errors: Vec<ConsoleError>,
+}
+
+/// One error the page's console logged
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsoleError {
+    /// What it said, without where it came from
+    pub text: String,
+    /// The URL it was logged at, when the server named one
+    pub url: Option<String>,
 }
 
 /// Opens pages in a headless browser

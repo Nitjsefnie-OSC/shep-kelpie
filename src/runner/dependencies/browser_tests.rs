@@ -89,8 +89,24 @@ fn the_dev_server_runs_in_the_bumps_checkout_in_a_sandbox_and_stops_after_the_pr
     let worktree = rig.paths().bump_worktree(50);
     assert_eq!(run.cwd, worktree.join("web"));
     assert_eq!(run.port, 4421);
+    assert_eq!(
+        run.program, "sh",
+        "the install comes first, then the server"
+    );
+    assert!(
+        run.args[1].contains("npm ci --ignore-scripts"),
+        "{:?}",
+        run.args
+    );
+    assert_eq!(run.args[3], worktree.join("web").display().to_string());
+    assert_eq!(run.args[4..8], ["npm", "run", "dev", "--"]);
     assert_eq!(run.policy.write, [worktree, rig.paths().bump_build(50)]);
-    assert_eq!(run.policy.hosts, ["app.example.com"]);
+    assert_eq!(run.policy.hosts, ["app.example.com", "registry.npmjs.org"]);
+    assert_eq!(
+        run.policy.read,
+        [rig.paths().bump_worktree(50), rig.paths().bump_build(50)],
+        "its own checkout and build folder are read back out of the fence on kelpie's home"
+    );
     assert!(run.policy.listen);
     assert!(!run.policy.no_read.is_empty(), "credentials are fenced");
     assert_eq!(rig.dev_servers.live(), 0, "stopped when the proof ended");
@@ -179,6 +195,11 @@ fn a_5xx_from_another_origin_does_not_fail_a_route() {
         url: "https://app.example.com/api".to_owned(),
         status: Some(502),
     });
+    visit.console_errors.push(crate::ports::ConsoleError {
+        text: "Failed to load resource: the server responded with a status of 502 (Bad Gateway)"
+            .to_owned(),
+        url: Some("https://app.example.com/api".to_owned()),
+    });
     rig.pages.script("/", visit);
     rig.e2e.script([E2eOutcome::NoHost]);
 
@@ -186,6 +207,22 @@ fn a_5xx_from_another_origin_does_not_fail_a_route() {
     poll(&rig, &runner);
 
     assert_eq!(rig.forge.merges(), [(50, head)]);
+}
+
+#[test]
+fn a_resource_of_the_dev_server_that_fails_to_load_is_red() {
+    let (rig, runner, _) = browsing("[\"/\"]");
+    rig.pages.fails_to_load("/", "dev-origin/logo.png");
+
+    settle(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert!(rig.forge.merges().is_empty());
+    assert!(
+        rig.forge.comments()[0]
+            .1
+            .contains("route `/` logged a console error")
+    );
 }
 
 #[test]

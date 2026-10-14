@@ -67,7 +67,7 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
-pub use pages::{PageRequest, PageSession, Pages, Visit};
+pub use pages::{ConsoleError, PageRequest, PageSession, Pages, Visit};
 pub use rate_limit::{
     AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, Warnings, says_used_up,
 };

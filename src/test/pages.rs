@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::ports::{PageRequest, PageSession, Pages, Visit};
+use crate::ports::{ConsoleError, PageRequest, PageSession, Pages, Visit};
 
 /// One ask for pages
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +60,29 @@ impl FakePages {
         self.script(
             path,
             Visit {
-                console_errors: count,
+                console_errors: (0..count)
+                    .map(|_| ConsoleError {
+                        text: "TypeError: x is undefined".to_owned(),
+                        url: Some("dev-origin/app.js".to_owned()),
+                    })
+                    .collect(),
+                ..clean()
+            },
+        );
+    }
+
+    /// Has the page at `path` log the error Chromium logs for a resource at `url` that failed
+    /// to load, which is all it logs
+    pub(crate) fn fails_to_load(&self, path: &str, url: &str) {
+        self.script(
+            path,
+            Visit {
+                console_errors: vec![ConsoleError {
+                    text: "Failed to load resource: the server responded with a status of 502 \
+                           (Bad Gateway)"
+                        .to_owned(),
+                    url: Some(url.to_owned()),
+                }],
                 ..clean()
             },
         );
@@ -87,7 +109,7 @@ pub(crate) fn clean() -> Visit {
     Visit {
         loaded: Ok(()),
         requests: Vec::new(),
-        console_errors: 0,
+        console_errors: Vec::new(),
     }
 }
 
@@ -120,6 +142,9 @@ impl Pages for FakePages {
                 let origin = url.strip_suffix(path_of(url)).unwrap_or(url);
                 for request in &mut visit.requests {
                     request.url = request.url.replace("dev-origin", origin);
+                }
+                for error in &mut visit.console_errors {
+                    error.url = (error.url.take()).map(|url| url.replace("dev-origin", origin));
                 }
                 visit
             })

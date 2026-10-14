@@ -54,7 +54,7 @@ impl Pages for PlaywrightPages {
                 Navigation::Failed(why) => Visit {
                     loaded: Err(why),
                     requests: Vec::new(),
-                    console_errors: 0,
+                    console_errors: Vec::new(),
                 },
                 Navigation::Loaded => {
                     client.settle(SETTLE)?;
