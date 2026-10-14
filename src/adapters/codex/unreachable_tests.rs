@@ -113,8 +113,6 @@ fn a_first_turn_that_found_no_host_is_tried_again_as_a_new_session() {
     assert_eq!(reply.text, "done");
     // The session resumes from the retry on.
     let next = w.call(Role::Worker, Session::Resume(id(WORKER_ID)));
-    assert!(!matches!(
-        stand_in(&w, FRESH).run(&next, &Ending::default()),
-        Err(AgentError::NoSession(..))
-    ));
+    let resumed = stand_in(&w, FRESH).run(&next, &Ending::default()).unwrap();
+    assert_eq!(resumed.text, "done");
 }
