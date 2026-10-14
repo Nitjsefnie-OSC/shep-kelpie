@@ -12,8 +12,8 @@ use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
 use shep_client::shep_core::protocol::request::Response;
 
-use super::add::share_none;
 use super::send;
+use super::share::share_none;
 use crate::agents::Agents;
 use crate::runner::{ProjectName, ProjectPaths, check_gateways};
 use crate::settings::{Settings, SettingsError, source};
@@ -85,7 +85,15 @@ pub async fn set(
         let remote = crate::runner::check_checkout(&settings).map_err(|e| e.to_string())?;
         let (rows, others) = (super::flock(client).await?, super::tables(client).await?);
         let root = &settings.git.checkout;
-        share_none(&rows, &others, name, place.home, root, remote.as_str())?;
+        share_none(
+            &rows,
+            &others,
+            name.as_str(),
+            place.home,
+            root,
+            remote.as_str(),
+        )
+        .map_err(|taken| taken.to_string())?;
     }
     let request = Request::SetSheepDogSettings {
         name: name.as_str().to_owned(),
