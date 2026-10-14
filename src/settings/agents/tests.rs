@@ -389,7 +389,7 @@ fn agents_representative_defaults_to_representative() {
     assert_eq!(unset.agents.representative.as_str(), "representative");
     let agent = unset.representative(&book()).unwrap();
     assert_eq!(agent.name.as_str(), "representative");
-    assert_eq!(pair(&agent.model), ("claude-opus-5-5", Effort::Medium));
+    assert_eq!(pair(&agent.model), ("claude-opus-5-5", Effort::Low));
     assert_eq!(agent.limit, Limit::Account(Account::Claude));
 }
 

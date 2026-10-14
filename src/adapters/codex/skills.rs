@@ -133,6 +133,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_wording_skill_is_linked_with_the_step_skills_on_a_worker_call() {
+        let w = World::new();
+        let skills =
+            crate::skills::Skills::load(&crate::settings::StepSkills::default(), &w.path("skills"));
+        let call = worker(&w, skills.plugin_dirs().to_vec());
+
+        cli(&w).prepare(&call).unwrap();
+
+        let linked = linked(&w);
+        assert!(
+            linked.contains(&(
+                "wording".to_owned(),
+                w.path("skills/kelpie-wording/skills/wording")
+            )),
+            "{linked:?}"
+        );
+        assert!(
+            linked.iter().any(|(name, _)| name == "implement"),
+            "{linked:?}"
+        );
+    }
+
     // A call has links exactly when Codex is given a shell, whatever
     // `agent_tools` says, since Claude Code alone reads that.
     #[test]

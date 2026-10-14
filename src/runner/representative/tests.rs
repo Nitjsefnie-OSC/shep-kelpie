@@ -2,8 +2,8 @@ use std::fs;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use super::{Post, RepresentError, unremoved};
-use crate::ports::{AgentError, Cost, Reach, Role, Session, Timestamp, Tools, Usage};
+use super::{Post, RepresentError, moment, unremoved};
+use crate::ports::{AgentError, Clock, Cost, Reach, Role, Session, Timestamp, Tools, Usage};
 use crate::runner::Runner;
 use crate::settings::Harness;
 use crate::test::{CLAUDE_REVIEWER, Hold, Rig, Scripted, Seen};
@@ -371,4 +371,118 @@ fn its_spend_is_recorded_under_the_representative_role() {
     assert_eq!(line.pull_request, Some(9));
     assert_eq!(line.agent.as_deref(), Some("representative"));
     assert_eq!(line.issue, None);
+}
+
+// Wednesday 14 October 2026, midday in UTC
+const NOW: &str = "2026-10-14T12:00:00Z";
+
+fn stamp(text: &str) -> Timestamp {
+    Timestamp(text.parse::<jiff::Timestamp>().unwrap().as_second() as u64)
+}
+
+fn worded(then: &str) -> String {
+    moment(stamp(then), stamp(NOW)).unwrap()
+}
+
+#[test]
+fn a_past_moment_is_worded_as_days_ago_and_yesterday() {
+    assert_eq!(worded("2026-10-13T23:59:00Z"), "yesterday");
+    assert_eq!(worded("2026-10-11T08:00:00Z"), "three days ago");
+    assert_eq!(worded("2026-10-04T08:00:00Z"), "ten days ago");
+    assert_eq!(worded("2026-10-01T08:00:00Z"), "13 days ago");
+}
+
+#[test]
+fn a_moment_long_past_is_worded_in_weeks_months_and_years() {
+    assert_eq!(worded("2026-09-30T08:00:00Z"), "two weeks ago");
+    assert_eq!(worded("2026-08-19T08:00:00Z"), "eight weeks ago");
+    assert_eq!(worded("2026-05-14T08:00:00Z"), "five months ago");
+    assert_eq!(worded("2025-10-14T08:00:00Z"), "a year ago");
+    assert_eq!(worded("2023-10-14T08:00:00Z"), "three years ago");
+}
+
+#[test]
+fn today_is_today_whichever_side_of_now_the_moment_falls() {
+    assert_eq!(worded("2026-10-14T00:00:00Z"), "today");
+    assert_eq!(worded("2026-10-14T12:00:00Z"), "today");
+    assert_eq!(worded("2026-10-14T23:59:00Z"), "today");
+}
+
+#[test]
+fn tomorrow_is_tomorrow() {
+    assert_eq!(worded("2026-10-15T00:01:00Z"), "tomorrow");
+    assert_eq!(worded("2026-10-15T23:00:00Z"), "tomorrow");
+}
+
+#[test]
+fn a_moment_later_this_week_names_its_weekday_and_the_gap() {
+    assert_eq!(worded("2026-10-16T09:00:00Z"), "by Friday (in 2 days)");
+    assert_eq!(worded("2026-10-18T09:00:00Z"), "by Sunday (in 4 days)");
+    assert_eq!(worded("2026-10-21T09:00:00Z"), "by Wednesday (in 7 days)");
+}
+
+#[test]
+fn a_moment_further_out_names_its_weekday_and_date_with_no_gap() {
+    assert_eq!(worded("2026-10-22T09:00:00Z"), "by Thursday 22 October");
+    assert_eq!(worded("2026-11-06T09:00:00Z"), "by Friday 6 November");
+    assert_eq!(worded("2027-01-05T09:00:00Z"), "by Tuesday 5 January 2027");
+}
+
+#[test]
+fn the_day_is_the_one_in_utc_so_a_late_hour_does_not_slip_to_the_next_day() {
+    assert_eq!(
+        moment(stamp("2026-10-15T00:30:00Z"), stamp("2026-10-14T23:30:00Z")).unwrap(),
+        "tomorrow"
+    );
+    assert_eq!(
+        moment(stamp("2026-10-14T23:30:00Z"), stamp("2026-10-15T00:30:00Z")).unwrap(),
+        "yesterday"
+    );
+}
+
+#[test]
+fn the_runner_words_a_moment_against_its_own_clock() {
+    let (rig, runner) = running();
+    let now = rig.clock.now();
+    let day = 24 * 60 * 60;
+
+    let words = runner
+        .lock()
+        .unwrap()
+        .moment_in_words(Timestamp(now.0 - 3 * day));
+
+    assert_eq!(words.as_deref(), Some("three days ago"));
+}
+
+#[test]
+fn a_moment_past_what_a_date_can_hold_is_not_worded() {
+    assert_eq!(moment(Timestamp(u64::MAX), stamp(NOW)), None);
+    assert_eq!(moment(Timestamp(1 << 62), stamp(NOW)), None);
+    assert_eq!(moment(stamp(NOW), Timestamp(u64::MAX)), None);
+}
+
+#[test]
+fn the_prompt_states_todays_weekday_and_date_from_the_runners_clock() {
+    let (rig, runner) = running();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say("Ok.")]);
+
+    represent(&runner, &post(&[], "Hello")).unwrap();
+
+    // The rig's clock starts at 2026-09-21 14:13 UTC.
+    let prompt = calls(&rig).remove(0).call.prompt;
+    assert!(
+        prompt.starts_with("Today is Monday 21 September 2026."),
+        "{prompt}"
+    );
+
+    rig.clock.advance(3 * 24 * 60 * 60);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say("Ok.")]);
+    represent(&runner, &post(&[], "Hello")).unwrap();
+    let prompt = calls(&rig).remove(1).call.prompt;
+    assert!(
+        prompt.starts_with("Today is Thursday 24 September 2026."),
+        "{prompt}"
+    );
 }
