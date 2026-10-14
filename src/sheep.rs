@@ -272,7 +272,10 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     if !shepherd.is_active() {
         return Err("no shepherd channel: run it under shep with `channel = true`".into());
     }
-    println!("{}", runner.up_line());
+    match &arrival {
+        Some(arrival) => println!("{}", arrival.state.took_over_line(&runner)),
+        None => println!("{}", runner.up_line()),
+    }
 
     let stopping = runner.stopping();
     let runner = Arc::new(Mutex::new(runner));
