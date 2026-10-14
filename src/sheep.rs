@@ -32,7 +32,7 @@ use crate::flock::control;
 use crate::github::{AppTokens, AppVoice, Apps};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
-use crate::lease::wire::{Asker, GRANT};
+use crate::lease::wire::GRANT;
 use crate::ports::{Leases, Ports, Revalidated, Routed, SandboxError};
 use crate::runner::{
     ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
@@ -207,10 +207,8 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));
     let book = BookFile::new(kelpie_home.join(crate::dog::BOOK));
-    let asker = match &arrival {
-        Some(arrival) => arrival.state.asker(epoch, &sheep, &book),
-        None => Asker::new(epoch),
-    };
+    let handed_over = arrival.is_some();
+    let asker = handover::asker(arrival.as_ref().map(|a| &a.state), epoch, &sheep, &book);
     let leases = Arc::new(ShepLeases::new(Arc::new(shepherd.clone()), asker, book));
     let app_tokens = Arc::new(AppTokens::new(
         Apps::under(&kelpie_home),
@@ -300,14 +298,16 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     }
     // A grant lands in the lease adapter, and the step it wakes reads it.
     let granted = wake.clone();
+    let handler = Arc::clone(&leases);
     shepherd.on_action(GRANT, move |params, _| {
-        let reply = match leases.grant(params.unwrap_or_default()) {
+        let reply = match handler.grant(params.unwrap_or_default()) {
             Ok(kind) => serde_json::json!({ "granted": kind }),
             Err(e) => serde_json::json!({ "error": e.to_string() }),
         };
         let _ = granted.send(());
         reply.to_string()
     });
+    handover::reconcile_grants(handed_over, &leases, &sheep, &wake);
     let (stop, stopped) = mpsc::channel();
     let on_wake = Box::new(move |runner: &Mutex<Runner>| look.again(runner));
     let worker = Worker::spawn(

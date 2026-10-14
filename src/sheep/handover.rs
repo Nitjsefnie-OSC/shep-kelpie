@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
-use crate::adapters::ClaudeCli;
+use crate::adapters::{ClaudeCli, ShepLeases};
 use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
@@ -62,6 +62,30 @@ pub struct Carry {
     // Absent from a build that carried only the turns.
     #[serde(default)]
     leases: Option<AskerCarry>,
+}
+
+/// The lease side of a runner `epoch` of `sheep`, from the `Carry` it took
+/// over with if it took one
+pub(super) fn asker(carry: Option<&Carry>, epoch: Epoch, sheep: &str, book: &BookFile) -> Asker {
+    carry.map_or_else(|| Asker::new(epoch), |c| c.asker(epoch, sheep, book))
+}
+
+/// Takes up what the dog's book says a runner that took over holds, once it
+/// takes `grant` triggers
+///
+/// The dog saves a grant before it delivers one and never retries, so one
+/// that came after the book was read and before the handler was up is only
+/// in the book.
+pub(super) fn reconcile_grants(
+    handed_over: bool,
+    leases: &ShepLeases,
+    sheep: &str,
+    wake: &Sender<()>,
+) {
+    if handed_over {
+        leases.reconcile(sheep);
+        let _ = wake.send(());
+    }
 }
 
 impl Carry {

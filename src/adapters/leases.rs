@@ -63,6 +63,18 @@ impl ShepLeases {
         self.asker().keep()
     }
 
+    /// Takes up what the dog's saved book says this run holds, as a runner
+    /// that has just taken over from another image does once it takes
+    /// `grant` triggers, since the dog does not retry a grant that found no
+    /// handler
+    pub fn reconcile(&self, sheep: &str) {
+        match self.book.load() {
+            Ok(Some(saved)) => self.asker().reconcile(sheep, &saved),
+            Ok(None) => {}
+            Err(e) => eprintln!("not reading the dog's book for the leases held, since {e}"),
+        }
+    }
+
     // Nothing holding the asker can leave it half changed.
     fn asker(&self) -> std::sync::MutexGuard<'_, Asker> {
         self.asker.lock().unwrap_or_else(PoisonError::into_inner)

@@ -252,10 +252,27 @@ impl Asker {
     ///
     /// The dog saves its book before it delivers a grant, and does not
     /// retry one, so a runner that is asking again repeats a total the dog
-    /// ignores.
+    /// ignores. A kind is taken only where the book has heard this run's
+    /// latest totals for it: a book that trails may show a hold the dog is
+    /// about to end.
     pub fn reconcile(&mut self, sheep: &str, book: &SavedBook) {
         let Ok(project) = ProjectName::try_from(sheep) else {
             return;
+        };
+        let epoch = self.epoch;
+        let Some(run) = book
+            .runs
+            .iter()
+            .find(|run| run.sheep == sheep && run.epoch == epoch)
+        else {
+            return;
+        };
+        let heard = |kind: &LeaseKind| {
+            let mine = self.totals.get(kind).copied().unwrap_or_default();
+            run.totals
+                .iter()
+                .find(|t| &t.kind == kind)
+                .is_some_and(|t| t.want == mine.want && t.give_back == mine.give_back)
         };
         let me = Holder::Runner {
             project,
@@ -264,7 +281,8 @@ impl Asker {
         for lease in &book.leases {
             let holder = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
             let new = !self.held.contains(&lease.kind);
-            if holder.as_ref() == Some(&me) && self.asking(&lease.kind) && new {
+            if holder.as_ref() == Some(&me) && self.asking(&lease.kind) && new && heard(&lease.kind)
+            {
                 self.held.push(lease.kind.clone());
             }
         }
