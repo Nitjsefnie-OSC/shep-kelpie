@@ -292,6 +292,53 @@ fn a_goose_implementer_beside_guard_hooks_or_the_model_hosts_domain_is_refused()
 }
 
 #[test]
+fn a_goose_worker_beside_an_after_command_hook_is_refused_at_load_naming_the_reason() {
+    let goose = RoleModel {
+        model: "qwen3.8:27b".to_owned().try_into().unwrap(),
+        effort: Effort::Low,
+        harness: AgentHarness::Goose(ModelServer {
+            host: ModelHost::Url("http://box:11434/v1".to_owned().try_into().unwrap()),
+            context: 65_536_i64.try_into().unwrap(),
+        }),
+        tools: None,
+    };
+    let name = AgentName::kelpies("goosey");
+    let hook = |point| crate::settings::ProjectHook {
+        point,
+        command: "true".to_owned().try_into().unwrap(),
+    };
+    let mut settings = project("implementers = [\"sonnet-high\"]\n");
+    settings.hooks = vec![
+        hook(crate::settings::HookPoint::Command),
+        hook(crate::settings::HookPoint::Write),
+    ];
+    assert!(settings.under_worker_fence(&name, &goose).is_ok());
+
+    settings
+        .hooks
+        .push(hook(crate::settings::HookPoint::AfterCommand));
+    let err = settings
+        .under_worker_fence(&name, &goose)
+        .unwrap_err()
+        .to_string();
+    for said in [
+        "implementer goosey runs on goose",
+        "`after_command`",
+        "result",
+        "`command` or `write` hook",
+        "another harness",
+    ] {
+        assert!(err.contains(said), "{said}: {err}");
+    }
+    // The other harnesses run it.
+    let claude = RoleModel {
+        harness: AgentHarness::ClaudeCode,
+        ..goose
+    };
+    assert!(settings.under_worker_fence(&name, &claude).is_ok());
+}
+
+#[test]
 fn an_agents_name_is_lowercase_letters_digits_and_dashes() {
     assert!(AgentName::try_from("Opus".to_owned()).is_err());
     assert!(AgentName::try_from("opus high".to_owned()).is_err());
