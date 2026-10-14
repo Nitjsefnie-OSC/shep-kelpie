@@ -134,10 +134,16 @@ impl Agents for GooseCli {
         hooks::only_ours(&files)?;
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
-        // A call that loads a server runs in `auto` too, so it is held by the hook as a worker is.
+        // A new session records the servers it is created with, since a resumed one holds those
+        // and not what the call loads by then.
+        if let Session::New(id) = &call.session {
+            files.keep_servers(id, &mcp::keys(call))?;
+        }
+        // A call whose session holds a server runs in `auto` too, so it is held by the hook as a
+        // worker is.
         match &call.reach.fence {
-            Some(fence) if works(call) || mcp::loads(call) => {
-                hooks::write(&files, fence, &mcp::keys(call))
+            Some(fence) if works(call) || mcp::loads(call, &files) => {
+                hooks::write(&files, fence, &mcp::held(call, &files)?)
             }
             _ => Ok(()),
         }
@@ -418,7 +424,7 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if works(call) || mcp::loads(call) {
+            if works(call) || mcp::loads(call, files) {
                 "auto"
             } else {
                 "chat"

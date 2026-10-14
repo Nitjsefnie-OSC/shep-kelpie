@@ -376,6 +376,7 @@ fn hook_arguments(w: &World, call: &mut AgentCall) -> Vec<String> {
     let kelpie = w.path("kelpie-bin");
     let seen = w.path("seen");
     let script = format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", seen.display());
+    let _ = std::fs::remove_file(&kelpie);
     crate::test::write_script(&kelpie, &script);
     call.reach.fence.as_mut().unwrap().guard.kelpie = kelpie;
     stand_in(w, FRESH).prepare(call).unwrap();
@@ -567,4 +568,76 @@ fn an_http_server_goose_would_key_developer_is_refused_beside_the_builtin() {
     );
     assert!(mcp::keys(&call).is_empty());
     assert!(server_flags(&strings(&call)).is_empty());
+}
+
+#[test]
+fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
+    let w = World::new();
+    let mode = |call: &AgentCall| {
+        let goose = ClaudeCli::default().goose();
+        let server = server(call).unwrap();
+        let upstream = goose.upstream(server).unwrap();
+        let files = Files::of(&call.settings);
+        let vars = env_args(call, server, &files, &upstream);
+        vars.into_iter()
+            .map(|v| v.into_string().unwrap())
+            .find(|v| v.starts_with("GOOSE_MODE="))
+            .unwrap()
+    };
+    let researcher = |session, servers| {
+        let mut call = worker(&w, session, servers, None);
+        call.role = Role::Researcher;
+        call.tools = Tools::Research;
+        call
+    };
+    let mut first = researcher(Session::New(id(FRESH_ID)), repo());
+    let created = [
+        "codebase-memory-mcp",
+        "docs_example_com_mcp",
+        "plugin_style_search",
+    ];
+    assert_eq!(
+        goose_server_flags(&hook_arguments(&w, &mut first)).0,
+        created
+    );
+
+    // The repo's set has since changed: the resumed session still holds the first one.
+    let changed = json!({ "renamed": { "command": "/k/renamed" } });
+    let mut later = researcher(Session::Resume(id(FRESH_ID)), changed.clone());
+    assert_eq!(
+        goose_server_flags(&hook_arguments(&w, &mut later)).0,
+        created
+    );
+    assert!(server_flags(&strings(&later)).is_empty());
+    assert_eq!(mode(&later), "GOOSE_MODE=auto");
+
+    // A set that is empty now does not switch a session that holds servers to chat.
+    let mut emptied = researcher(Session::Resume(id(FRESH_ID)), json!({}));
+    assert_eq!(
+        goose_server_flags(&hook_arguments(&w, &mut emptied)).0,
+        created
+    );
+    assert_eq!(mode(&emptied), "GOOSE_MODE=auto");
+
+    // A session created with none holds none, whatever the repo has since gained. (A fresh
+    // folder, since a call that loads no server leaves an earlier hook file as it was.)
+    let w = World::new();
+    let held = |session, servers| {
+        let mut call = worker(&w, session, servers, None);
+        call.role = Role::Researcher;
+        call.tools = Tools::Research;
+        stand_in(&w, FRESH).prepare(&call).unwrap();
+        (
+            mcp::held(&call, &Files::of(&call.settings)).unwrap(),
+            mode(&call),
+        )
+    };
+    assert_eq!(
+        held(Session::New(id(OTHER_ID)), json!({})),
+        (Vec::<String>::new(), "GOOSE_MODE=chat".to_owned())
+    );
+    assert_eq!(
+        held(Session::Resume(id(OTHER_ID)), changed),
+        (Vec::<String>::new(), "GOOSE_MODE=chat".to_owned())
+    );
 }

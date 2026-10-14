@@ -5,7 +5,8 @@
 //! command args"`, named as Claude Code names it, and an HTTP one is
 //! `--with-streamable-http-extension <url>`, which takes no header and no name: goose names it
 //! from its URL. A session keeps the set it began with and a resumed call adds its flags to that
-//! set, which a name already in it ends the run over, so only a new session is given flags.
+//! set, which a name already in it ends the run over, so only a new session is given flags. The keys it
+//! began with are recorded, and a resumed call's hook follows them.
 //!
 //! goose splits the stdio string like a shell with no escape (`split_command_args`): a double
 //! quote groups and cannot be written, and a single quote counts only at the start of a word. The
@@ -16,8 +17,9 @@ use std::ffi::OsString;
 
 use serde_json::Value;
 
+use super::files::Files;
 use crate::adapters::mcp::{SERVER, servers};
-use crate::ports::{AgentCall, Session};
+use crate::ports::{AgentCall, AgentError, Session};
 
 /// goose's own extension, which a call that works runs under this name
 const BUILTIN: &str = "developer";
@@ -78,14 +80,26 @@ pub(super) fn flags(call: &AgentCall) -> Vec<OsString> {
     }
 }
 
-/// The keys the hook lets the tools of, one per server the call loads
+/// The keys of the servers a new session loads, one each
 pub(super) fn keys(call: &AgentCall) -> Vec<String> {
     loaded(call).into_iter().map(|server| server.key).collect()
 }
 
-/// Whether the call loads any server, a resumed one included
-pub(super) fn loads(call: &AgentCall) -> bool {
-    !loaded(call).is_empty()
+/// The keys of the servers the call's session holds
+///
+/// A new session holds what the call loads. A resumed one holds the set it was created with,
+/// which kelpie recorded then, whatever the call loads now: goose keeps that set, so the hook
+/// and the mode follow it. A session with no record holds none.
+pub(super) fn held(call: &AgentCall, files: &Files) -> Result<Vec<String>, AgentError> {
+    match &call.session {
+        Session::New(_) => Ok(keys(call)),
+        Session::Resume(id) => Ok(files.servers(id)?.unwrap_or_default()),
+    }
+}
+
+/// Whether the call's session holds any server
+pub(super) fn loads(call: &AgentCall, files: &Files) -> bool {
+    held(call, files).is_ok_and(|held| !held.is_empty())
 }
 
 // The servers goose can load, in the order of their flags. The code graph is last and wins a key
