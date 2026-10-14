@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use super::*;
 use crate::adapters::SandboxRuntime;
-use crate::ports::{CodeGraph, Role, Unreadable};
+use crate::ports::{Browser, CodeGraph, Role, Unreadable};
 use crate::profile::WorkerProfile;
 use crate::settings::Effort;
 use crate::test::OpenSandbox;
@@ -257,6 +257,43 @@ fn a_call_on_a_covered_repo_runs_without_the_keychain_and_any_other_with_it() {
         call.reach.block_keychain = true;
         assert!(policy(call).no_keychain);
     }
+}
+
+#[test]
+fn a_call_with_a_browser_loads_playwright_and_the_sandbox_connects_only_to_its_socket() {
+    let w = World::new();
+    let browser = Browser {
+        kelpie: PathBuf::from("/k/kelpie"),
+        socket: w.path("0123456789abcdef0123456789abcdef.sock"),
+    };
+    let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let login = w.path("login");
+    let without = policy(&call, &login, &Files::of(&call), &[]);
+    let argv_without = strings(&call, None, None);
+    call.reach.browser = Some(Box::new(browser.clone()));
+    let with = policy(&call, &login, &Files::of(&call), &[]);
+    let argv_with = strings(&call, None, None);
+
+    assert!(!without.sockets.contains(&browser.socket));
+    assert_eq!(
+        with.sockets
+            .iter()
+            .filter(|s| !without.sockets.contains(s))
+            .collect::<Vec<_>>(),
+        [&browser.socket]
+    );
+    assert!(
+        !argv_without
+            .iter()
+            .any(|a| a.starts_with("mcp_servers.playwright")),
+        "{argv_without:?}"
+    );
+    let at = argv_with
+        .iter()
+        .position(|a| a.starts_with("mcp_servers.playwright="))
+        .expect("the override");
+    assert_eq!(argv_with[at - 1], "-c");
+    assert!(argv_with[at].contains("mcp-connect"), "{argv_with:?}");
 }
 
 #[test]

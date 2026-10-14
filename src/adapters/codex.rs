@@ -810,6 +810,7 @@ fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) ->
             .chain(call.reach.read.iter().cloned()),
     );
     super::mcp::fence_the_graph(&mut policy, call);
+    super::mcp::fence_the_browser(&mut policy, call);
     policy.hosts.push(MODEL_HOST.to_owned());
     // Codex verifies the model's certificate through macOS, as `gh` does
     // (`docs/facts/codex-as-an-agent.md`).

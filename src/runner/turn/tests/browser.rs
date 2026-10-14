@@ -77,7 +77,7 @@ fn a_project_without_the_table_gets_no_browser_though_the_tools_are_installed() 
 }
 
 #[test]
-fn a_codex_worker_gets_no_browser_and_is_not_told_of_one() {
+fn a_codex_worker_turn_on_a_project_with_the_browser_on_gets_one_and_is_told_of_it() {
     let rig = Rig::new("shep");
     turn_on(&rig);
     install(&rig);
@@ -93,8 +93,8 @@ fn a_codex_worker_gets_no_browser_and_is_not_told_of_one() {
     let seen = rig.claude.all_seen();
     let worker = seen.iter().find(|s| s.call.role == Role::Worker).unwrap();
     assert_eq!(worker.call.harness, AgentHarness::Codex);
-    assert_eq!(worker.call.reach.browser, None);
-    assert!(!instructions_of(worker).contains("playwright"));
+    assert!(worker.call.reach.browser.is_some());
+    assert!(instructions_of(worker).contains("`playwright` MCP server"));
 }
 
 #[test]
