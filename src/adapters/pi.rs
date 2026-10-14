@@ -189,7 +189,8 @@ impl Agents for PiCli {
         }
         if let Some(fence) = &call.reach.fence {
             let guard = files.guard();
-            std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
+            std::fs::write(&guard, guard_extension(fence, web::loaded(call)))
+                .map_err(|e| setup(&guard, e))?;
         }
         // A compact call of any role loads it, the project manager's included.
         if loads_compact(call) {
@@ -642,8 +643,9 @@ fn plugin_name(dir: &Path) -> Option<String> {
     manifest["name"].as_str().map(str::to_owned)
 }
 
-/// The guard extension's source for a call fenced by `fence`
-fn guard_extension(fence: &Fence) -> String {
+/// The guard extension's source for a call fenced by `fence`, which lets the web
+/// package's tools through when the call `web` loads it
+fn guard_extension(fence: &Fence, web: bool) -> String {
     let guard = &fence.guard;
     let text = |p: &Path| p.to_string_lossy().into_owned();
     let mut commands = vec![
@@ -682,7 +684,7 @@ fn guard_extension(fence: &Fence) -> String {
         "confine": confine,
         "guard": commands,
         "after": after,
-        "web": web::TOOLS,
+        "web": if web { web::TOOLS.to_vec() } else { Vec::new() },
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
 }

@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-// WEB names the tools of the web package, which only the researcher's call loads.
+// WEB names the tools of the web package: empty unless the call loads it.
 type Checks = {
 	kelpie: string;
 	confine: string[];

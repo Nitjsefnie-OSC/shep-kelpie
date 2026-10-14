@@ -12,11 +12,12 @@
 //! `docs/facts/the-second-harness.md`.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
 use crate::ports::{AgentCall, AgentError, Policy, Role, Tools};
+use crate::tools::PI_WEB_ACCESS;
 
 /// pi's names for the package's tools the researcher is given, besides `read`,
 /// `grep`, `find` and `ls`
@@ -35,11 +36,19 @@ pub(super) const SEARCH_HOST: &str = "mcp.exa.ai";
 /// The package's config, which it reads from the call's pi home
 const CONFIG: &str = "web-search.json";
 
+/// The web package's folders `call` names: the extensions called `pi-web-access`
+///
+/// An extension of any other name is not the pinned package, so nothing here
+/// opens the web for it.
+fn packages(call: &AgentCall) -> impl Iterator<Item = &PathBuf> {
+    (call.reach.extensions.iter()).filter(|e| e.file_name().is_some_and(|n| n == PI_WEB_ACCESS))
+}
+
 /// Whether `call` has the web: the researcher's, when its reach names the package
 pub(super) fn loaded(call: &AgentCall) -> bool {
     call.role == Role::Researcher
         && call.tools == Tools::Research
-        && !call.reach.extensions.is_empty()
+        && packages(call).next().is_some()
 }
 
 /// The flags that load the package, for a call that has the web
@@ -47,7 +56,7 @@ pub(super) fn flags(call: &AgentCall) -> Vec<OsString> {
     if !loaded(call) {
         return Vec::new();
     }
-    (call.reach.extensions.iter())
+    packages(call)
         .flat_map(|package| ["--extension".into(), package.clone().into_os_string()])
         .collect()
 }
@@ -71,7 +80,7 @@ pub(super) fn open(call: &AgentCall, policy: &mut Policy) {
     if !loaded(call) {
         return;
     }
-    for package in &call.reach.extensions {
+    for package in packages(call) {
         policy.read.push(package.clone());
         policy.read.extend(package.parent().map(Path::to_path_buf));
     }
@@ -197,6 +206,25 @@ mod tests {
         let at = argv.iter().position(|a| a == "--tools").unwrap();
         assert_eq!(argv[at + 1], "read,grep,find,ls");
         assert!(!argv.iter().any(|a| a == "--extension"), "{argv:?}");
+    }
+
+    #[test]
+    fn a_researcher_with_some_other_extension_gets_no_web() {
+        let w = World::new();
+        let mut call = researcher(&w);
+        call.reach.extensions = vec![w.path("kelpie/tools/node_modules/some-other-extension")];
+        assert!(!loaded(&call));
+        let argv = strings(&call);
+        assert!(!argv.iter().any(|a| a == "--extension"), "{argv:?}");
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(argv[at + 1], "read,grep,find,ls");
+        assert!(flags(&call).is_empty());
+        let mut policy = Policy::default();
+        open(&call, &mut policy);
+        assert!(policy.hosts.is_empty() && policy.read.is_empty());
+        let pi = stand_in(&w, FRESH);
+        pi.prepare(&call).unwrap();
+        assert!(!w.path("settings.pi/web-search.json").exists());
     }
 
     #[test]
