@@ -93,10 +93,11 @@ impl Runner {
     /// bare date for the representative to work a weekday or a gap out of
     ///
     /// "yesterday", "three days ago", "today", "tomorrow", "by Sunday (in 4
-    /// days)", and past a week "by Friday 6 November (in 23 days)". Days are
-    /// UTC's, the same as the day [`Self::represent`] tells the call it is.
+    /// days)", and past a week "by Friday 6 November". Days are UTC's, the
+    /// same as the day [`Self::represent`] tells the call it is. `None` when
+    /// the moment or the clock is past what a date can hold.
     #[must_use]
-    pub fn moment_in_words(&self, at: Timestamp) -> String {
+    pub fn moment_in_words(&self, at: Timestamp) -> Option<String> {
         moment(at, self.ports.clock.now())
     }
 
@@ -179,12 +180,13 @@ impl Runner {
     // that can still be read, and the contributor's text, the last two fenced
     // as data.
     fn post_prompt(&self, post: &Post<'_>) -> String {
-        let today = day(self.ports.clock.now());
+        // A clock past what a date can hold leaves the line out, not a wrong day.
+        let today = (day(self.ports.clock.now()))
+            .map(|today| format!("Today is {}.\n\n", today.strftime("%A %-d %B %Y")))
+            .unwrap_or_default();
         let mut prompt = format!(
-            "Today is {}.\n\nKind of post: {}\n\nFacts:\n{}\n",
-            today.strftime("%A %-d %B %Y"),
-            post.kind,
-            post.facts
+            "{today}Kind of post: {}\n\nFacts:\n{}\n",
+            post.kind, post.facts
         );
         let earlier: Vec<String> = (post.earlier.iter())
             .filter_map(|&id| self.ports.forge.comment_marks(&self.remote, id).ok())
@@ -207,22 +209,23 @@ impl Runner {
 }
 
 // The UTC day `at` falls on
-fn day(at: Timestamp) -> Date {
-    let seconds = i64::try_from(at.0).unwrap_or(i64::MAX);
-    jiff::Timestamp::from_second(seconds)
-        .unwrap_or(jiff::Timestamp::MAX)
-        .to_zoned(TimeZone::UTC)
-        .date()
+// or `None` for a moment past what a date can hold
+fn day(at: Timestamp) -> Option<Date> {
+    let seconds = i64::try_from(at.0).ok()?;
+    let at = jiff::Timestamp::from_second(seconds).ok()?;
+    Some(at.to_zoned(TimeZone::UTC).date())
 }
 
 // `then` in words against `now`, by the UTC days between them: a past day as
 // "yesterday" or how long ago, today and tomorrow as themselves, the days up
-// to a week ahead as "by <weekday> (in N days)", and further out with the
-// date too. The gap is in days, so a late hour never shifts it.
-fn moment(then: Timestamp, now: Timestamp) -> String {
-    let (then, today) = (day(then), day(now));
+// to a week ahead as "by <weekday> (in N days)", and further out as "by
+// <weekday> <date>" with no gap, since the writing guide never gives a date
+// and a relative time together. The gap is in days, so a late hour never
+// shifts it. `None` when either moment is past what a date can hold.
+fn moment(then: Timestamp, now: Timestamp) -> Option<String> {
+    let (then, today) = (day(then)?, day(now)?);
     let days = i64::from((then - today).get_days());
-    match days {
+    Some(match days {
         0 => "today".to_owned(),
         1 => "tomorrow".to_owned(),
         -1 => "yesterday".to_owned(),
@@ -234,10 +237,10 @@ fn moment(then: Timestamp, now: Timestamp) -> String {
                 " %Y"
             };
             let format = format!("%A %-d %B{year}");
-            format!("by {} (in {days} days)", then.strftime(&format))
+            format!("by {}", then.strftime(&format))
         }
         _ => format!("{} ago", span(-days)),
-    }
+    })
 }
 
 // How long `days` (at least 2) is, by the largest of weeks, months and years

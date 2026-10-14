@@ -381,7 +381,7 @@ fn stamp(text: &str) -> Timestamp {
 }
 
 fn worded(then: &str) -> String {
-    moment(stamp(then), stamp(NOW))
+    moment(stamp(then), stamp(NOW)).unwrap()
 }
 
 #[test]
@@ -422,29 +422,20 @@ fn a_moment_later_this_week_names_its_weekday_and_the_gap() {
 }
 
 #[test]
-fn a_moment_further_out_names_its_weekday_date_and_the_gap() {
-    assert_eq!(
-        worded("2026-10-22T09:00:00Z"),
-        "by Thursday 22 October (in 8 days)"
-    );
-    assert_eq!(
-        worded("2026-11-06T09:00:00Z"),
-        "by Friday 6 November (in 23 days)"
-    );
-    assert_eq!(
-        worded("2027-01-05T09:00:00Z"),
-        "by Tuesday 5 January 2027 (in 83 days)"
-    );
+fn a_moment_further_out_names_its_weekday_and_date_with_no_gap() {
+    assert_eq!(worded("2026-10-22T09:00:00Z"), "by Thursday 22 October");
+    assert_eq!(worded("2026-11-06T09:00:00Z"), "by Friday 6 November");
+    assert_eq!(worded("2027-01-05T09:00:00Z"), "by Tuesday 5 January 2027");
 }
 
 #[test]
 fn the_day_is_the_one_in_utc_so_a_late_hour_does_not_slip_to_the_next_day() {
     assert_eq!(
-        moment(stamp("2026-10-15T00:30:00Z"), stamp("2026-10-14T23:30:00Z")),
+        moment(stamp("2026-10-15T00:30:00Z"), stamp("2026-10-14T23:30:00Z")).unwrap(),
         "tomorrow"
     );
     assert_eq!(
-        moment(stamp("2026-10-14T23:30:00Z"), stamp("2026-10-15T00:30:00Z")),
+        moment(stamp("2026-10-14T23:30:00Z"), stamp("2026-10-15T00:30:00Z")).unwrap(),
         "yesterday"
     );
 }
@@ -460,7 +451,14 @@ fn the_runner_words_a_moment_against_its_own_clock() {
         .unwrap()
         .moment_in_words(Timestamp(now.0 - 3 * day));
 
-    assert_eq!(words, "three days ago");
+    assert_eq!(words.as_deref(), Some("three days ago"));
+}
+
+#[test]
+fn a_moment_past_what_a_date_can_hold_is_not_worded() {
+    assert_eq!(moment(Timestamp(u64::MAX), stamp(NOW)), None);
+    assert_eq!(moment(Timestamp(1 << 62), stamp(NOW)), None);
+    assert_eq!(moment(stamp(NOW), Timestamp(u64::MAX)), None);
 }
 
 #[test]
