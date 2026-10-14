@@ -24,15 +24,15 @@ use serde_json::json;
 
 use self::adopt::{Carried, kept_server};
 use self::compact::Tokens;
+use self::shared::profile;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
-use super::skills::skill_dirs;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
     Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
@@ -46,6 +46,7 @@ mod adopt;
 mod attach;
 mod compact;
 pub(crate) mod mcp;
+mod shared;
 mod web;
 
 #[cfg(test)]
@@ -597,62 +598,6 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     argv
 }
 
-/// What a call's pi has in a terminal and headless alike: its model, tools,
-/// instructions and guard
-fn profile(call: &AgentCall, files: &Files, skill: Option<PathBuf>) -> Vec<OsString> {
-    let mut argv: Vec<OsString> = vec![
-        "--model".into(),
-        format!("{PROVIDER}/{}", call.model).into(),
-        "--thinking".into(),
-        call.effort.as_str().into(),
-        "--no-extensions".into(),
-        "--no-skills".into(),
-        "--no-prompt-templates".into(),
-        "--no-themes".into(),
-        "--no-approve".into(),
-        "--offline".into(),
-        "--session-dir".into(),
-        files.sessions().into(),
-    ];
-    let tools = tools_of(call);
-    let mcp = mcp_config(call);
-    match tools {
-        Some(names) => {
-            let mut names = names.to_owned();
-            if mcp.is_some() {
-                for server in mcp::tool_names(call) {
-                    names.extend([",", &server]);
-                }
-            }
-            argv.extend(["--tools".into(), names.into()]);
-        }
-        None => argv.push("--no-tools".into()),
-    }
-    match mcp {
-        Some(_) => argv.extend(["--extension".into(), mcp::EXTENSION.into()]),
-        None => argv.push("--no-mcp".into()),
-    }
-    // pi builds its system prompt afresh on every call, a resumed one too.
-    if let Some(instructions) = &call.instructions {
-        argv.extend(["--append-system-prompt".into(), instructions.into()]);
-    }
-    if call.reach.fence.is_some() {
-        argv.extend(["--extension".into(), files.guard().into()]);
-    }
-    argv.extend(web::flags(call));
-    // The step's skill comes first, so its name wins a collision. Its text is in
-    // the prompt, but any other skill needs `read` to open and only costs context.
-    if let Some(skill) = skill {
-        argv.extend(["--skill".into(), skill.into()]);
-    }
-    if tools.is_some() && call.prompt != COMPACT {
-        for dir in skill_dirs(call) {
-            argv.extend(["--skill".into(), dir.into()]);
-        }
-    }
-    argv
-}
-
 /// The prompt as pi takes it, and the skill folder its slash command runs
 ///
 /// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`.
@@ -740,11 +685,13 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
         after.push(AFTER_FLAG.to_owned());
         after
     });
+    let pause = Pause::in_build(&guard.build);
     let checks = json!({
         "kelpie": text(&guard.kelpie),
         "confine": confine,
         "guard": commands,
         "after": after,
+        "pause": { "requested": pause.requested_file(), "ended": pause.ended_file() },
         "web": if web { web::TOOLS.to_vec() } else { Vec::new() },
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
@@ -860,7 +807,17 @@ pub(super) fn tail(text: &str) -> &str {
 
 // A compact call's output is read for its compaction, any other call's for its turn.
 fn read(call: &AgentCall, output: &Output) -> Result<AgentReply, AgentError> {
-    read_as(call.prompt == COMPACT, output, call.session.id())
+    if call.prompt == COMPACT {
+        return read_as(true, output, call.session.id());
+    }
+    parse_turn(output, call.session.id(), ended_for_pause(call))
+}
+
+// Whether the guard extension aborted the call's turn for a pause: it leaves
+// its marker before it aborts.
+fn ended_for_pause(call: &AgentCall) -> bool {
+    (call.reach.fence.as_deref())
+        .is_some_and(|fence| crate::guard::Pause::in_build(&fence.guard.build).ended_turn())
 }
 
 // The same for a call another image carried, which knows only whether it compacts.
@@ -890,6 +847,11 @@ fn failed(detail: &str) -> AgentError {
 // messages and its own compactions, its context the last request's prompt,
 // and its answer the last message's text. A local model has no price.
 fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentError> {
+    parse_turn(output, asked, false)
+}
+
+// The same for a turn that may have ended because the guard extension aborted it for a pause.
+fn parse_turn(output: &Output, asked: &SessionId, paused: bool) -> Result<AgentReply, AgentError> {
     #[derive(Deserialize)]
     struct Line {
         #[serde(rename = "type")]
@@ -950,7 +912,13 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             _ => {}
         }
     }
-    if !output.status.success() {
+    // A turn the guard extension aborted for a pause stops with the reason
+    // `aborted`, and is read for its usage like one that ended on its own.
+    let paused = paused
+        && last
+            .as_ref()
+            .is_some_and(|m| m.stop_reason.as_deref() == Some("aborted"));
+    if !paused && !output.status.success() {
         let why = last.as_ref().and_then(|m| m.error_message.clone());
         return Err(failed(why.as_deref().unwrap_or(tail(&stderr))));
     }
@@ -960,6 +928,7 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
     match last.stop_reason.as_deref() {
         Some("stop") => {}
         Some("length") => return Err(failed("the model ran out of output tokens")),
+        Some("aborted") if paused => {}
         Some("error" | "aborted") => {
             let why = last.error_message.as_deref();
             return Err(failed(why.unwrap_or("no reason given")));

@@ -24,6 +24,7 @@ use super::review::findings;
 use super::rework;
 use super::ruling::park;
 use crate::github::InstallationToken;
+use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, COMPACT, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
@@ -43,6 +44,7 @@ pub(super) use unfinished::{failed, named_files};
 mod budget;
 mod handover;
 pub(super) mod held_up;
+pub(super) mod paused;
 mod unfinished;
 pub(super) mod unreachable;
 
@@ -482,6 +484,8 @@ impl Runner {
             &findings::disputed_path(&item.build),
         );
         write(folder, &instructions, &text)?;
+        // A pause set for an earlier call, or one that ended it, is not this call's.
+        Pause::in_build(&item.build).clear();
         let prompt = match prompt {
             Some(prompt) => prompt,
             None if item.rework => rework::first_prompt(item),
@@ -641,7 +645,7 @@ impl Runner {
                 call.reach
                     .mcp_servers
                     .extend(self.repo_plugins.mcp_servers());
-                self.without_servers_pi_cannot_load(&mut call);
+                self.without_servers_the_harness_cannot_load(&mut call);
             }
         }
         self.with_code_graph(&mut call);
@@ -652,15 +656,17 @@ impl Runner {
         Ok(call)
     }
 
-    // A server pi cannot load is left out, and a note says which and why.
-    fn without_servers_pi_cannot_load(&self, call: &mut AgentCall) {
+    // A server pi or Codex cannot load is left out, and a note says which and why.
+    fn without_servers_the_harness_cannot_load(&self, call: &mut AgentCall) {
         // parity: harness.mcp-servers
-        if !matches!(call.harness, crate::settings::AgentHarness::Pi(_)) {
-            return;
-        }
+        let refusal: fn(&str, &serde_json::Value) -> Option<String> = match call.harness {
+            crate::settings::AgentHarness::Pi(_) => crate::adapters::pi_mcp_refusal,
+            crate::settings::AgentHarness::Codex => crate::adapters::codex_mcp_refusal,
+            _ => return,
+        };
         let who = super::code_graph::who(call);
         call.reach.mcp_servers.retain(|name, entry| {
-            let refused = crate::adapters::pi_mcp_refusal(name, entry);
+            let refused = refusal(name, entry);
             if let Some(why) = &refused {
                 self.notes
                     .push(format!("{who} runs without the MCP server `{name}`: {why}"));
@@ -677,6 +683,10 @@ impl Runner {
         // Its time so far is saved to the worker, which still runs it.
         if matches!(result, Err(AgentError::Stopped)) {
             return self.save_time().map(|()| None);
+        }
+        // A turn a pause ended at a tool result is not a finished one.
+        if let Some(paused) = self.end_paused(&result) {
+            return paused;
         }
         let now = self.ports.clock.now();
         // Whatever the turn left on `origin` is the worker's own. A head

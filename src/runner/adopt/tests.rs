@@ -753,3 +753,150 @@ fn threads_from_before_the_adoption_go_to_the_worker_once_kelpies_own_read_lands
     ));
     assert_eq!(rig.forge.merges(), [(80, fixed)]);
 }
+
+// Checks `fix/timeline` out in a worktree of the maintainer's own, named
+// `name` beside the rig's other folders, and returns where it is.
+fn hold_timeline(rig: &Rig, name: &str) -> PathBuf {
+    let mine = rig.home.path().join(name);
+    git(&rig.repo(), &["fetch", "--quiet", "origin", "fix/timeline"]);
+    let args = ["worktree", "add", "--quiet", "-B", "fix/timeline"];
+    let args = args.iter().map(|a| (*a).to_owned());
+    let place = [mine.display().to_string(), "origin/fix/timeline".to_owned()];
+    let args: Vec<String> = args.chain(place).collect();
+    git(
+        &rig.repo(),
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    mine
+}
+
+#[test]
+fn adopting_a_branch_checked_out_in_another_worktree_is_refused_and_names_it() {
+    let rig = Rig::new("shep");
+    opened_80(&rig);
+    hold_timeline(&rig, "mine");
+    let runner = running(&rig);
+
+    let reply = rig.ask(&runner, "adopt", Some("80"));
+
+    let error = reply["error"].as_str().expect("a refusal").to_owned();
+    assert!(
+        error.contains("`fix/timeline` is checked out in "),
+        "{error}"
+    );
+    assert!(error.contains("/mine"), "{error}");
+    assert!(
+        error.contains("remove it or switch it off the branch"),
+        "{error}"
+    );
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["adopted"], json!([]), "nothing is queued to fail");
+    assert_eq!(rig.forge.comments(), [], "the pull request is not told");
+}
+
+#[test]
+fn an_adopt_failing_on_every_pass_raises_one_ruling_until_its_error_changes() {
+    let rig = Rig::new("shep");
+    opened_80(&rig);
+    rig.forge.label_pull_request(80, READY);
+    let first = hold_timeline(&rig, "mine");
+    let runner = running(&rig);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::BoardFailed { .. })
+    ));
+    let status = rig.ask(&runner, "status", None);
+    let [ruling] = status["rulings"].as_array().unwrap().as_slice() else {
+        panic!("one ruling: {status}");
+    };
+    assert_eq!(ruling["id"], 80);
+    assert_eq!(ruling["pull_request"], 80);
+    assert_eq!(ruling["kind"]["kind"], "stuck");
+    assert_eq!(ruling["kind"]["reason"], "adopt-failed");
+    let question = ruling["question"].as_str().unwrap();
+    assert!(question.contains("/mine"), "{question}");
+    assert!(
+        question.contains("remove it or switch it off the branch"),
+        "{question}"
+    );
+    assert_eq!(status["work_items"], json!([]));
+
+    rig.clock.advance(60);
+    step(&runner).unwrap();
+    step(&runner).unwrap();
+    let again = rig.ask(&runner, "status", None);
+    let [kept] = again["rulings"].as_array().unwrap().as_slice() else {
+        panic!("one ruling: {again}");
+    };
+    let asked = |ruling: &serde_json::Value| (ruling["question"].clone(), ruling["raised"].clone());
+    assert_eq!(
+        asked(kept),
+        asked(&status["rulings"][0]),
+        "the same error asks nothing again"
+    );
+
+    rig.ask(&runner, "rule", Some("80 yes"));
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.ask(&runner, "status", None)["rulings"],
+        json!([]),
+        "an answered ruling is not raised again for the same error"
+    );
+
+    git(
+        &rig.repo(),
+        &[
+            "worktree",
+            "remove",
+            "--force",
+            &first.display().to_string(),
+        ],
+    );
+    hold_timeline(&rig, "theirs");
+    rig.clock.advance(60);
+    step(&runner).unwrap();
+    let changed = rig.ask(&runner, "status", None);
+    let [ruling] = changed["rulings"].as_array().unwrap().as_slice() else {
+        panic!("one ruling: {changed}");
+    };
+    let question = ruling["question"].as_str().unwrap();
+    assert!(question.contains("/theirs"), "{question}");
+    assert_ne!(ruling["raised"], status["rulings"][0]["raised"]);
+}
+
+#[test]
+fn a_pass_that_adopts_after_failures_clears_the_ruling_and_the_status_line() {
+    let rig = Rig::new("shep");
+    opened_80(&rig);
+    rig.forge.label_pull_request(80, READY);
+    let mine = hold_timeline(&rig, "mine");
+    let runner = running(&rig);
+
+    step(&runner).unwrap();
+    rig.clock.advance(3_600);
+    step(&runner).unwrap();
+    let status = rig.ask(&runner, "status", None);
+    let [line] = status["skipped"].as_array().unwrap().as_slice() else {
+        panic!("one status line: {status}");
+    };
+    assert_eq!(line["reason"], "adopt");
+    assert_eq!(line["pull_request"], 80);
+    assert!(line["error"].as_str().unwrap().contains("/mine"), "{line}");
+    assert_eq!(
+        line["since"],
+        Rig::EPOCH,
+        "since the first pass that failed"
+    );
+    assert_eq!(status["rulings"].as_array().unwrap().len(), 1);
+
+    git(
+        &rig.repo(),
+        &["worktree", "remove", "--force", &mine.display().to_string()],
+    );
+    assert_eq!(step(&runner).unwrap(), Some(adopted_80()));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"], json!([]));
+    assert_eq!(status["skipped"], json!([]));
+    assert_eq!(status["work_item"]["pull_request"], 80);
+}

@@ -209,6 +209,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                     dollars(raised_cap(*cap, *spent))
                 );
             }
+            Stuck::AdoptFailed { why } => {
+                return format!(
+                    "Kelpie cannot start {about}, which was adopted: {}. Fix what it names, \
+                     for a branch held by a worktree of yours remove that worktree or switch \
+                     it off the branch, then answer {yes}. Kelpie tries again every poll \
+                     and clears this once it starts.",
+                    why.trim()
+                );
+            }
             Stuck::Unlabelled { why } => {
                 return format!(
                     "The issue writer could not pick an implementer for {about}: {}. Label \

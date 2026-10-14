@@ -44,6 +44,8 @@
 //! the commands it lists. With `--record` too it is the PostToolUse hook
 //! that records what the session filed and read in that ledger. With `--after`
 //! it is the PostToolUse hook that runs the project's `after_command` hooks.
+//! With `--pause=<build folder>` it is the PostToolUse hook that ends a
+//! worker's turn at its next tool result while a pause is set.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an
@@ -99,6 +101,7 @@ fn main() -> ExitCode {
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
             let (after, local) = guard::after_flag(&local);
+            let (pause, local) = guard::pause_flag(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -113,6 +116,13 @@ fn main() -> ExitCode {
                 return hook(Verdict::Refuse(format!(
                     "kelpie cannot read this tool call: {e}"
                 )));
+            }
+            if let Some(build) = pause {
+                // The PostToolUse hook that ends a turn at a pause.
+                if let Some(answer) = guard::judge_pause(&build) {
+                    println!("{answer}");
+                }
+                return ExitCode::SUCCESS;
             }
             if let Some(rules) = issues.as_ref().filter(|_| record) {
                 guard::record_issues(&input[..], rules);

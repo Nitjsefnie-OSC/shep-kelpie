@@ -259,9 +259,24 @@ fn a_draining_answer_names_each_call() {
                 "#9's attached pi session".into(),
             ],
             ceiling: 3600,
+            at_tool: Vec::new(),
         })
     );
     for not_draining in [IDLE, r#"{"error":"unknown action `drain`"}"#, "", "[]"] {
         assert_eq!(drained(not_draining), None, "{not_draining}");
     }
+}
+
+#[test]
+fn a_draining_answer_names_the_worker_turns_that_end_at_a_tool_call() {
+    let body = r#"{"draining":{"calls":[{"issue":7,"role":"worker"},
+        {"issue":8,"role":"worker"}],"ceiling":3600,"at_tool":[7]}}"#;
+    assert_eq!(
+        drained(body),
+        Some(Drained {
+            calls: vec!["#8's worker turn".into()],
+            ceiling: 3600,
+            at_tool: vec!["#7's worker turn, which ends at its next tool call".into()],
+        })
+    );
 }

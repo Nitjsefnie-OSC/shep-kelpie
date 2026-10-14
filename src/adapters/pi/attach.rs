@@ -13,7 +13,8 @@ use std::ffi::OsString;
 use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use super::{Files, PiCli, profile, refuse_missing_session, server, skill_prompt};
+use super::shared::profile;
+use super::{Files, PiCli, refuse_missing_session, server, skill_prompt};
 use crate::adapters::forwarder::Forwarder;
 use crate::ports::{AgentCall, AgentError, SessionId};
 

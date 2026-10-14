@@ -30,6 +30,7 @@ const FAST: Patience = Patience {
     start: Duration::from_secs(10),
     merge: Duration::from_secs(10),
     margin: Duration::from_secs(10),
+    tool: Duration::from_secs(10),
 };
 
 const MERGING: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"merge","head":"abc"}}]}"#;

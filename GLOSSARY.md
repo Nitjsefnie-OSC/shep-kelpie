@@ -85,6 +85,13 @@ first, a fix turn per review round, a CI fix turn, one after each ruling
 answer.
 _Avoid_: step, reply
 
+**Paused turn**:
+A worker turn that a pause ended at its next tool call, on Claude Code or
+pi. It is not a finished turn: no unpushed check, no review, no ruling, and
+the work item keeps its stage. It holds no slot or lease, and the next start
+resumes its session with one message and a fresh turn ceiling. A Codex or
+goose call is not paused this way, and runs to its end.
+
 **Agent**:
 A definition file, `<kelpie home>/agents/<name>.md`, naming what it is for
 (its **role**: `implementer`, `reviewer`, `issue-writer` or `pm`), its
@@ -441,8 +448,9 @@ and takes no answer.
 
 **Draining**:
 A runner told to start no new call, while the calls it has running go on to
-their end. `shep kelpie upgrade` hands each runner over, and drains and
-restarts one that cannot be.
+their end, except a worker turn on Claude Code or pi, which a pause ends at
+its next tool call as a **paused turn**. `shep kelpie upgrade` hands each
+runner over, and drains and restarts one that cannot be.
 
 **Finishing**:
 A runner whose board picks nothing new while its open work items run on to

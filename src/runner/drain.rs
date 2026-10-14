@@ -8,10 +8,16 @@
 //! call it starts. `status` then lists the calls still
 //! running, so `shep kelpie upgrade` can restart the runner once none is.
 //! Draining is kept in memory only: a restart ends it, as `undrain` does.
+//!
+//! `drain pause`, which `shep kelpie pause` sends, also sets a pause for each
+//! worker turn in flight on a harness that can end a turn at a tool result:
+//! the turn ends at its next tool call and is resumed at the next start.
 
 use serde::Serialize;
 
 use super::Runner;
+use crate::guard::Pause;
+use crate::ports::Tools;
 
 /// What `status` shows while the runner drains
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -22,6 +28,10 @@ pub struct Draining {
     /// seconds: the turn ceiling, or the project manager's or the issue
     /// writer's in flight when longer
     pub ceiling: u64,
+    /// The work items whose worker turn ends at its next tool call, since
+    /// `drain pause` set a pause for it
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub at_tool: Vec<u64>,
 }
 
 /// A call in flight
@@ -59,18 +69,46 @@ pub enum CallRole {
 
 impl Runner {
     /// Starts no new call from now until a restart or [`Runner::undrain`]
-    pub(super) fn drain(&mut self) {
+    ///
+    /// With `at_tool`, each worker turn in flight that a hook can end is
+    /// asked to end at its next tool result.
+    pub(super) fn drain(&mut self, at_tool: bool) {
         // The one call a drain starts: a retro over what finished since the
         // last. It starts here, so the status this answers lists it. One that
         // cannot start yet is asked for on a later pass.
         self.retro_book.at_drain |= !self.draining;
         self.draining = true;
         self.retro_launched();
+        if at_tool {
+            self.pause_turns();
+        }
     }
 
     /// Starts calls again
     pub(super) fn undrain(&mut self) {
         self.draining = false;
+        // A turn that ended for the pause already stays paused, and resumes.
+        for item in &self.state.work_items {
+            Pause::in_build(&item.build).withdraw();
+        }
+    }
+
+    // Sets the pause for each worker turn in flight that a tool result can end.
+    fn pause_turns(&self) {
+        for item in &self.state.work_items {
+            // Only a call whose harness has the hook, and whose settings carry it.
+            let ends = (self.flights.turn_call(item.issue))
+                .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
+            if !ends {
+                continue;
+            }
+            if let Err(e) = Pause::in_build(&item.build).request() {
+                eprintln!(
+                    "cannot pause issue #{}'s turn at a tool call: {e}",
+                    item.issue
+                );
+            }
+        }
     }
 
     /// What `status` shows of the drain, while the runner drains
@@ -96,9 +134,15 @@ impl Runner {
             issue: Some(issue),
             role: CallRole::PiSession,
         });
+        let at_tool = (self.state.work_items.iter())
+            .filter(|item| self.flights.runs_turn(item.issue))
+            .filter(|item| Pause::in_build(&item.build).is_requested())
+            .map(|item| item.issue)
+            .collect();
         Some(Draining {
             calls: self.flights.running().into_iter().chain(attached).collect(),
             ceiling,
+            at_tool,
         })
     }
 }

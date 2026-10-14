@@ -364,6 +364,28 @@ pub fn remove_view(repo: &Path, view: &Path) -> Result<(), WorktreeError> {
     git(repo, ["worktree", "prune"]).map(drop)
 }
 
+/// The worktree other than `own` that has `branch` checked out, if one has:
+/// the project's checkout and a maintainer's own worktree included
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn holder_of(repo: &Path, branch: &str, own: &Path) -> Result<Option<PathBuf>, WorktreeError> {
+    let list = git(repo, ["worktree", "list", "--porcelain"])?;
+    let (own, want) = (canonical(own), format!("refs/heads/{branch}"));
+    let mut at = None;
+    for line in list.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            at = Some(PathBuf::from(path));
+        } else if line.strip_prefix("branch ") == Some(want.as_str())
+            && let Some(path) = at.take().filter(|path| canonical(path) != own)
+        {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
 /// Whether a work item's branch or worktree holds work `origin/main` lacks:
 /// a commit on `branch` or at the worktree's head, or a file not committed
 ///

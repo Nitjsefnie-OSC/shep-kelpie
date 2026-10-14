@@ -139,6 +139,18 @@ impl AgentHarness {
     /// Whether a call on it loads the MCP servers kelpie hands it: the repo's, its plugins' and the code graph
     pub fn loads_mcp(&self) -> bool {
         match self {
+            Self::ClaudeCode | Self::Pi(_) | Self::Codex => true,
+            Self::Goose(_) => false,
+            #[cfg(test)]
+            Self::StandIn => true,
+        }
+    }
+
+    /// Whether a pause ends a turn on it at its next tool result, through
+    /// kelpie's hook or guard extension; a call on any other runs to its end
+    pub fn ends_at_tool(&self) -> bool {
+        // parity: harness.boundary-pause
+        match self {
             Self::ClaudeCode | Self::Pi(_) => true,
             Self::Codex | Self::Goose(_) => false,
             #[cfg(test)]
