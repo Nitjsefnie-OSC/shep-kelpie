@@ -9,6 +9,8 @@
 
 use std::fmt;
 use std::fs;
+use std::io;
+use std::path::Path;
 
 use super::Runner;
 use super::untrusted::fenced;
@@ -103,7 +105,9 @@ impl Runner {
         let ran = (self.ports.agents)
             .prepare(&call)
             .and_then(|()| self.ports.agents.run(&call, &Ending::default()));
-        let _ = fs::remove_file(&call.settings);
+        if let Some(note) = unremoved(&call.settings) {
+            self.notes.push(note);
+        }
         if let Some(ended) = ended(&ran) {
             let mut draft = Draft::of(&call, agent.name.as_str(), CallKind::Post, started);
             draft.pull_request = Some(post.pull_request);
@@ -146,27 +150,40 @@ impl Runner {
     }
 }
 
+// What to note when the call's settings file stays: a file the call never
+// wrote is not a failure, but one that cannot be removed is left behind
+fn unremoved(settings: &Path) -> Option<String> {
+    match fs::remove_file(settings) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => {
+            Some(format!("cannot remove {}: {e}", settings.display()))
+        }
+        _ => None,
+    }
+}
+
 // `text` with every `@login` that is not `contributor`'s inside backticks.
-// Code the reply already has is left as it is: a fenced block, and an inline
-// span whose closing backticks are there. Backticks that close nothing are
-// plain text, so a mention after them is still put in code.
+// Code the reply already has is left as it is: a fenced block that closes,
+// and an inline span whose closing backticks are there. Backticks that close
+// nothing are plain text, so a mention after them is still put in code, and
+// so is one in a fence that never closes, which a reader may not see as code.
 fn neutered(text: &str, contributor: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut paragraph = String::new();
-    let mut fence: Option<(char, usize)> = None;
+    // The open fence's mark and length, and its lines so far
+    let mut fence: Option<(char, usize, String)> = None;
     for line in text.split_inclusive('\n') {
-        if let Some((mark, len)) = fence {
-            out.push_str(line);
-            if closes_fence(line, mark, len) {
+        if let Some((mark, len, held)) = fence.as_mut() {
+            held.push_str(line);
+            if closes_fence(line, *mark, *len) {
+                out.push_str(held);
                 fence = None;
             }
             continue;
         }
-        if let Some(opened) = opens_fence(line) {
+        if let Some((mark, len)) = opens_fence(line) {
             out.push_str(&outside_spans(&paragraph, contributor));
             paragraph.clear();
-            out.push_str(line);
-            fence = Some(opened);
+            fence = Some((mark, len, line.to_owned()));
             continue;
         }
         paragraph.push_str(line);
@@ -174,6 +191,9 @@ fn neutered(text: &str, contributor: &str) -> String {
             out.push_str(&outside_spans(&paragraph, contributor));
             paragraph.clear();
         }
+    }
+    if let Some((_, _, held)) = fence {
+        paragraph.push_str(&held);
     }
     out.push_str(&outside_spans(&paragraph, contributor));
     out
@@ -205,6 +225,9 @@ fn outside_spans(paragraph: &str, contributor: &str) -> String {
             let end = closing_run(&chars, at + run, run).unwrap_or(at + run);
             out.extend(&chars[at..end]);
             at = end;
+        } else if let Some(len) = link(&chars[at..]) {
+            out.extend(&chars[at..at + len]);
+            at += len;
         } else if here == '@'
             && can_ping(&chars, at)
             && let Some(len) = mention(&chars[at..])
@@ -221,6 +244,17 @@ fn outside_spans(paragraph: &str, contributor: &str) -> String {
         }
     }
     out
+}
+
+// The length of the web address that starts `chars`, up to the next space: an
+// `@` in one is a part of the address, and wrapping it would break the link
+fn link(chars: &[char]) -> Option<usize> {
+    let starts = |scheme: &str| {
+        let head: String = chars.iter().take(scheme.len()).collect();
+        head.eq_ignore_ascii_case(scheme)
+    };
+    (starts("https://") || starts("http://"))
+        .then(|| chars.iter().take_while(|c| !c.is_whitespace()).count())
 }
 
 // How many backticks run from `at`

@@ -1,6 +1,7 @@
+use std::fs;
 use std::sync::Mutex;
 
-use super::{Post, RepresentError};
+use super::{Post, RepresentError, unremoved};
 use crate::ports::{AgentError, Cost, Reach, Role, Session, Timestamp, Tools, Usage};
 use crate::runner::Runner;
 use crate::settings::Harness;
@@ -212,6 +213,48 @@ fn the_contributors_mention_and_mentions_in_code_are_left_alone() {
     let words = represent(&runner, &post(&[], "Hello")).unwrap();
 
     assert_eq!(words, said.replace("@e-user", "`@e-user`"));
+}
+
+#[test]
+fn a_mention_in_a_fence_that_never_closes_is_put_in_backticks() {
+    let (rig, runner) = running();
+    let said = "Look here.\n\n```\n@c-user\n\n@d-user";
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(said)]);
+
+    let words = represent(&runner, &post(&[], "Hello")).unwrap();
+
+    assert_eq!(words, "Look here.\n\n```\n`@c-user`\n\n`@d-user`");
+}
+
+#[test]
+fn an_at_sign_in_a_web_address_is_left_alone() {
+    let (rig, runner) = running();
+    let said = "See https://github.com/@user/repo?by=@other and [it](http://example.com/@a-user) \
+                from @b-user.";
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(said)]);
+
+    let words = represent(&runner, &post(&[], "Hello")).unwrap();
+
+    assert_eq!(words, said.replace("from @b-user", "from `@b-user`"));
+}
+
+#[test]
+fn a_settings_file_that_cannot_be_removed_is_noted_and_one_never_written_is_not() {
+    let folder = tempfile::tempdir().unwrap();
+    let written = folder.path().join("written.json");
+    fs::write(&written, "{}").unwrap();
+    // A folder in the file's place cannot be removed as a file.
+    let stuck = folder.path().join("stuck.json");
+    fs::create_dir_all(stuck.join("inside")).unwrap();
+
+    assert_eq!(unremoved(&written), None);
+    assert!(!written.exists());
+    assert_eq!(unremoved(&folder.path().join("never.json")), None);
+    let note = unremoved(&stuck).expect("a file that stays is noted");
+    assert!(note.starts_with("cannot remove "), "{note}");
+    assert!(note.contains("stuck.json"), "{note}");
 }
 
 #[test]
