@@ -12,7 +12,8 @@
 //! no read tool, so they read the repo through a `shell` that runs only what
 //! reads, and they write no file. A call also loads the MCP servers of the repo,
 //! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
-//! hook lets those servers' tools through. The sandbox
+//! hook lets those servers' tools through. A researcher's web is one such server,
+//! [`web`]. The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -47,6 +48,7 @@ mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
 mod output;
+pub(crate) mod web;
 
 #[cfg(test)]
 mod activity_tests;
@@ -67,10 +69,16 @@ mod mcp_tests;
 mod reading_tests;
 
 #[cfg(test)]
+mod escapes;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod unreachable_tests;
+
+#[cfg(test)]
+mod web_tests;
 
 /// The oldest goose kelpie is built for: `on_failure: block` hooks need 1.48 or
 /// later, and 1.53.0 is the source the adapter is written from. The target is 1.54.0.
@@ -518,6 +526,7 @@ fn env_args(
             serde_json::json!(CONTEXT_FILES).to_string().into(),
         ));
     }
+    vars.extend(web::env(call));
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
         let own: Vec<String> = vars.iter().map(|(name, _)| name.clone()).collect();
@@ -597,6 +606,7 @@ fn policy(
             .chain(call.reach.read.iter().cloned()),
     );
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
+    web::open(call, &mut policy);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
         host: WORKER_HOST.to_owned(),
