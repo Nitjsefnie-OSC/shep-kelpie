@@ -40,6 +40,7 @@ use crate::settings::{AgentHarness, Harness, HookPoint};
 mod adopt;
 mod context;
 pub(crate) mod mcp;
+mod reading;
 mod skills;
 
 #[cfg(test)]
@@ -53,6 +54,9 @@ mod hook_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reading_tests;
 
 #[cfg(test)]
 mod review_tests;
@@ -564,19 +568,16 @@ fn argv(
     argv.extend(context::limit_args(call.compact_window, resumed));
     argv.extend(mcp::overrides(call));
     let mut off: Vec<&str> = FEATURES_OFF.into();
-    // Only a worker runs commands. A review round reads what
-    // its prompt holds, as Claude Code's do, with no command to run.
-    if !has_shell(call) {
+    // A call with no fence has no shell, and a worker's runs under the worker's guard.
+    if !(has_shell(call) || reading::has_shell(call)) {
         off.push("shell_tool");
     }
     for feature in off {
         argv.extend(["--disable".into(), feature.into()]);
     }
-    // A retro, an advisor and a researcher change nothing, so no `apply_patch` of theirs is let through.
-    let reads_only = matches!(call.tools, Tools::Retro | Tools::Advise | Tools::Research);
     let hooks = match &call.reach.fence {
-        Some(fence) if !reads_only => hooks(fence),
-        _ => no_writes(),
+        Some(fence) => hooks(fence, call.tools),
+        None => no_writes(),
     };
     // Codex runs a hook only once it is trusted; kelpie wrote these itself.
     argv.push("--dangerously-bypass-hook-trust".into());
@@ -592,14 +593,15 @@ fn argv(
     if let Some(thread) = resumed {
         argv.push(thread.id.as_str().into());
     }
-    argv.push(prompt(call)?.into());
+    argv.push(reading::told(call, prompt(call)?).into());
     Ok(argv)
 }
 
-/// Whether the call has a shell, the only tool that opens a file
+/// Whether the call is a worker's, whose shell opens a step's `SKILL.md`
 ///
-/// Codex gets `shell_tool` and a call's skill links from this alone, so
-/// `agent_tools`, which Claude Code reads, does not change either.
+/// Codex gets a call's skill links from this alone, so `agent_tools`, which
+/// Claude Code reads, does not change them. A reviewer's, advisor's and
+/// retro's shell only reads (`reading`).
 fn has_shell(call: &AgentCall) -> bool {
     call.tools == Tools::Work
 }
@@ -637,8 +639,13 @@ fn prompt(call: &AgentCall) -> Result<String, AgentError> {
 
 /// The `PreToolUse` hooks that run kelpie's checks, as Codex's config takes them
 ///
-/// `apply_patch` is how Codex writes files, and `Bash` is every command.
-fn hooks(fence: &Fence) -> toml::Value {
+/// `apply_patch` is how Codex writes files, and `Bash` is every command. A
+/// reviewer's, advisor's and retro's commands go to the read-only guard.
+fn hooks(fence: &Fence, tools: Tools) -> toml::Value {
+    // A researcher has no shell, and writes no file.
+    if tools == Tools::Research {
+        return no_writes();
+    }
     let guard = &fence.guard;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
     let mut confine = vec![
@@ -672,10 +679,15 @@ fn hooks(fence: &Fence) -> toml::Value {
     )
     .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
     .collect();
-    toml::Value::Array(vec![
-        hook_entry("^apply_patch$", confine),
-        hook_entry("^Bash$", commands.join(" ")),
-    ])
+    let patch = match reading::patches_nothing(tools, fence) {
+        true => refuse_patch(),
+        false => hook_entry("^apply_patch$", confine),
+    };
+    let commands = match reading::judges_reads(tools) {
+        true => reading::guard_command(fence),
+        false => commands.join(" "),
+    };
+    toml::Value::Array(vec![patch, hook_entry("^Bash$", commands)])
 }
 
 /// The `PostToolUse` hook that runs the project's `after_command` hooks on a
@@ -707,8 +719,13 @@ fn after_hooks(fence: &Fence) -> Option<toml::Value> {
 /// Its model's `apply_patch` cannot be turned off from a call, so the hook
 /// refuses every one.
 fn no_writes() -> toml::Value {
+    toml::Value::Array(vec![refuse_patch()])
+}
+
+// The `apply_patch` entry that refuses every patch.
+fn refuse_patch() -> toml::Value {
     let refuse = "echo 'kelpie: this call writes no files' >&2; exit 2";
-    toml::Value::Array(vec![hook_entry("^apply_patch$", refuse.into())])
+    hook_entry("^apply_patch$", refuse.into())
 }
 
 /// One `PreToolUse` entry: a command hook for the tools `matcher` names
@@ -725,6 +742,9 @@ fn hook_entry(matcher: &str, command: String) -> toml::Value {
 /// The whole call's policy: its fence, or none, and what Codex itself needs
 fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) -> Policy {
     let mut policy = call_policy(call, unfenced);
+    if reading::writes_nothing(call.tools) {
+        policy.write.clear();
+    }
     policy.no_read.extend(fence::others_credentials(HARNESS));
     policy.no_keychain = call.reach.block_keychain;
     policy
