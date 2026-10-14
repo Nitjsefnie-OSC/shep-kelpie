@@ -7,7 +7,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - `goose run --no-profile --output-format stream-json --text=<prompt>`
   - `--text=<prompt>` is one argument, so a prompt that starts with `-` is not read as a flag.
   - `--system=<text>` carries the text of the call's instructions file. goose takes text, not a path. It is sent on every call, a resumed one too, since goose builds its system prompt afresh each time.
-  - A researcher gets no `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence).
+  - A researcher gets no `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
 - `call.effort` is not passed. goose's openai provider has no reasoning-effort flag or variable.
 - Session identity: goose picks its own session ids and `stream-json` never prints one.
   - A name set with `--name` is kept as given (`user_provided_name` in `crates/goose-cli/src/cli.rs`), and `--resume --name` finds the session whose name or id matches.
@@ -90,7 +90,20 @@ Written 2026-10-14 for #788, from goose's v1.54.0 source and docs. No model turn
   - the root's `.agents`, `.config` and `config` are outside the sandbox's `policy.write`, so the call's own `shell` cannot write them. `data`, `state` and the scratch folder stay writable.
 - The guard (`kelpie guard ... --goose=<build folder>`) judges `shell` as Claude Code's `Bash`, `write` and `edit` as `Write` and `Edit` held to the worktree and the build folder (a relative `path` is the working folder's), and judges `tree` as the `ls` of its path through the command guard, so the project's `command` hooks see it. `read_image` and every other name, `delegate` and `load` included, are refused, and so is a payload it cannot read.
 - goose cannot run an `after_command` hook. Its `PostToolUse` payload names the tool and its input but not the result, and a hook's output is never read back by the model, so `kelpie guard --after` has nothing to judge and nowhere to report. A goose worker beside one is refused at load.
-- A vote resumes a worker's session under another settings file (`vote-settings-<n>.json`). goose's files are keyed on the settings path, so the resume finds a root with no session and returns `NoSession`, as pi and Codex do. Retro is refused on goose until #789.
+- A vote resumes a worker's session under another settings file (`vote-settings-<n>.json`). goose's files are keyed on the settings path, so the resume finds a root with no session and returns `NoSession`, as pi and Codex do. A retro under it is no different: `prepare` writes its plugin, and the run is `NoSession`.
+
+## A reviewer, an advisor and a retro
+
+Written 2026-10-14 for #789, from the same source reading as the worker's. No model turn was run.
+
+- goose has no read tool, only `shell` and `tree`, so a reviewer, advisor or retro in a fence is offered the `developer` builtin behind the fence's plugin, as Codex is given a shell. `GOOSE_MODE=auto`, as the worker's, since `chat` would reject the tool calls.
+- The plugin's command is `kelpie guard <common dir> <worktree> [--hooks=...] --goose=<build folder> --read-only`. `shell` runs only what `kelpie guard --read-only` lists (the Codex list, `src/guard/reading.rs`, no git, no redirect), and the project's `command` hooks judge what it lets through. `tree` is the `ls` of its path through the same guard. `write`, `edit` and every other tool name are refused with "this call writes no file".
+- The reviewer's fence has the worktree as code and an empty folder of its own, as a Codex reviewer's does, and no write folder. goose has no way to write a test into a folder, so a goose reviewer is never asked for tests.
+- A retro and an advisor run under a fence that can write (the worker's, or the advisor's with none). The sandbox's `write` is cleared for both, so the hook is the first layer and the sandbox the second. goose's own data, state and scratch folders stay writable.
+- A resumed session is given no `--with-builtin`: goose restores a session's own extension set, and a retro resumes the worker's session. Whatever that set holds, `shell`, `write` and `edit` pass the hook and are refused there. A resumed worker is still given the builtin.
+- A call with no fence, and the researcher in any fence, is offered no extension and runs in `GOOSE_MODE=chat`.
+- A reviewer's prompt names Read, Grep and Glob, so goose's gets one more paragraph naming the shell, `tree` and the commands it runs. The advisor's and the retro's prompts name no such tool.
+- Not run: a reviewer reading a repo through the shell on a real model, and whether a resumed session keeps `developer` in its restored set. #798 records a reviewer.
 
 ### Risks for #798 to measure
 

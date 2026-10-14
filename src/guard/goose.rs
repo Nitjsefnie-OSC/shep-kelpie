@@ -10,6 +10,11 @@
 //! text. A tree is judged as the `ls` of its folder. Any other tool is
 //! refused, and so is a payload this cannot read, a name it does not know
 //! being no reason to let a call by.
+//!
+//! A goose reviewer, advisor or retro has the read-only guard instead,
+//! [`judge_goose_reading`]: its `shell` runs only what [`judge_reading`] lists,
+//! its `tree` is the `ls` of its folder, and every other tool is refused, since
+//! the call writes no file.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -17,7 +22,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Checkout, SHOWN_CHARS};
+use super::{Checkout, SHOWN_CHARS, judge_reading};
 use crate::adapters::goose::hooks::TOOLS;
 use crate::adapters::shell_quote;
 use crate::confine::{self, Verdict};
@@ -41,6 +46,15 @@ pub fn goose_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
     (build, rest)
 }
 
+// goose's `PreToolUse` payload
+#[derive(Deserialize)]
+struct Call {
+    tool_name: String,
+    #[serde(default)]
+    tool_input: Value,
+    working_dir: PathBuf,
+}
+
 /// Judges goose's `PreToolUse` payload in `input`
 ///
 /// `home` and `local` are what the command guard keeps off the forge, and
@@ -54,13 +68,6 @@ pub fn judge_goose(
     checkout: Checkout<'_>,
     build: &Path,
 ) -> Verdict {
-    #[derive(Deserialize)]
-    struct Call {
-        tool_name: String,
-        #[serde(default)]
-        tool_input: Value,
-        working_dir: PathBuf,
-    }
     let call: Call = match serde_json::from_reader(input) {
         Ok(call) => call,
         Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
@@ -120,4 +127,44 @@ pub fn judge_goose(
             ))
         }
     }
+}
+
+/// Judges goose's `PreToolUse` payload in `input` for a call that writes no
+/// file: a reviewer, an advisor or a retro
+///
+/// A `shell` command goes to [`judge_reading`] as Claude Code's `Bash` would,
+/// so it runs only what reads, and the project's `command` hooks judge it. A
+/// `tree` is the `ls` of its folder, judged the same way. Every other tool is
+/// refused, `write` and `edit` included, and so is a payload this cannot read.
+pub fn judge_goose_reading(input: impl Read, hooks: &Hooks) -> Verdict {
+    let call: Call = match serde_json::from_reader(input) {
+        Ok(call) => call,
+        Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
+    };
+    let command = match call.tool_name.as_str() {
+        "shell" => match call.tool_input["command"].as_str() {
+            Some(command) => command.to_owned(),
+            None => {
+                return Verdict::Refuse(format!("kelpie cannot read this {} call", call.tool_name));
+            }
+        },
+        "tree" => match &call.tool_input["path"] {
+            Value::Null => "ls -- .".to_owned(),
+            Value::String(path) => format!("ls -- {}", shell_quote(path)),
+            _ => return Verdict::Refuse("kelpie cannot read this tree call".to_owned()),
+        },
+        tool => {
+            let shown: String = tool.chars().take(SHOWN_CHARS).collect();
+            return Verdict::Refuse(format!(
+                "this call writes no file: it reads the repo with `shell` and `tree` alone, and \
+                 `{shown}` is not one of them"
+            ));
+        }
+    };
+    let bash = json!({
+        "tool_name": "Bash",
+        "cwd": call.working_dir,
+        "tool_input": { "command": command },
+    });
+    judge_reading(bash.to_string().as_bytes(), hooks)
 }
