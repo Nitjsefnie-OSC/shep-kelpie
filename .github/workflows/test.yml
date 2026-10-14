@@ -38,12 +38,18 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
       - run: scripts/design-size.sh
       - run: scripts/readme-size.sh
       - run: scripts/docs-links.py
+      - run: scripts/parity-gaps.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings

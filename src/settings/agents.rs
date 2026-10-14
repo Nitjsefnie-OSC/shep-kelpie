@@ -136,6 +136,16 @@ impl AgentHarness {
         }
     }
 
+    /// Whether a call on it loads the MCP servers kelpie hands it: the repo's, its plugins' and the code graph
+    pub fn loads_mcp(&self) -> bool {
+        match self {
+            Self::ClaudeCode | Self::Pi(_) => true,
+            Self::Codex | Self::Goose(_) => false,
+            #[cfg(test)]
+            Self::StandIn => true,
+        }
+    }
+
     /// The harness, as settings name it
     pub fn harness(&self) -> Harness {
         match self {
@@ -478,6 +488,7 @@ impl Settings {
             AgentHarness::Pi(_) => Some("pi"),
             AgentHarness::Codex => Some("codex"),
             AgentHarness::Goose(_) => Some("goose"),
+            // parity: harness.guard-hooks
             _ => None,
         };
         if let Some(harness) = other
@@ -493,6 +504,7 @@ impl Settings {
                 ),
             });
         }
+        // parity: harness.local-model
         if let AgentHarness::Pi(server) | AgentHarness::Goose(server) = &agent.harness
             && let ModelHost::Url(url) = &server.host
             && let Ok(upstream) = Upstream::new(url)

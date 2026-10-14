@@ -45,6 +45,9 @@ mod adopt_tests;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod review_tests;
+
 /// This adapter's harness, as its errors name it
 const CODEX: Harness = Harness::Codex;
 
@@ -326,6 +329,7 @@ fn is_codex(call: &AgentCall) -> Result<(), AgentError> {
 }
 
 // What a worker on Claude Code has and Codex here does not give it.
+// parity: harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     if call
         .reach

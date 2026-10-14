@@ -13,6 +13,7 @@ pub mod control;
 mod pm;
 pub mod rule;
 mod set;
+pub(crate) mod share;
 mod usage;
 mod verbs;
 mod watch;

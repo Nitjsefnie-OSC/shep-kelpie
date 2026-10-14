@@ -16,8 +16,8 @@ use crate::work_item::new_session_id;
 /// `worktree`, asked `prompt`, its settings in `worker_folder`
 ///
 /// With `tests`, the fenced reach of a reviewer that may write a failing test
-/// for a finding, it also has `Write` on Claude Code, and on pi `write` by the
-/// reach alone, which holds either to that folder.
+/// for a finding, it also has `Write` on Claude Code, and on pi `write` and on
+/// Codex `apply_patch` by the reach alone, which holds each to that folder.
 pub(super) fn reviewer_call(
     issue: u64,
     worktree: &Path,
@@ -33,6 +33,7 @@ pub(super) fn reviewer_call(
     if let Some(reach) = tests {
         // `agent_tools` is Claude's tool list, which pi ignores: its own tools
         // follow the reach's write folder.
+        // parity: harness.tool-allow-list
         if model.harness.harness() == Harness::ClaudeCode {
             let own = call.agent_tools.as_deref().unwrap_or(CLAUDE_REVIEW_TOOLS);
             call.agent_tools = Some(format!("{own},Write"));

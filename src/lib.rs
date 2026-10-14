@@ -56,4 +56,6 @@ mod worker_folder;
 pub mod worktree;
 
 #[cfg(test)]
+mod parity;
+#[cfg(test)]
 mod test;

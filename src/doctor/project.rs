@@ -158,10 +158,12 @@ pub(super) fn checks(
             Err(e) => Line::missing(at("codex usage"), e.to_string(), "set `codex_home` in kelpie's settings to a folder of kelpie's own, absolute or under `~/`"),
         });
     }
+    // parity: harness.doctor
     let on_pi = |h: &AgentHarness| matches!(h, AgentHarness::Pi(_));
     if spends_on(&settings, &book, here, on_pi) {
         lines.push(super::machine::pi(at("pi"), probes.host));
     }
+    // parity: harness.doctor
     let on_goose = |h: &AgentHarness| matches!(h, AgentHarness::Goose(_));
     if spends_on(&settings, &book, here, on_goose) {
         lines.push(super::machine::goose(at("goose"), probes.host));
@@ -443,6 +445,7 @@ fn coderabbit_listed(settings: &Settings, book: &Agents, home: &std::path::Path)
     let listed = |r: &crate::settings::ListedReviewer| r.bot().map(|b| b.bot);
     lineup
         .iter()
+        // parity: review-bot.private-repos
         .any(|r| listed(r) == Some(crate::review_bot::Bot::Coderabbit))
 }
 

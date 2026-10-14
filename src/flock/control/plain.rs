@@ -14,6 +14,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     }];
     let run = status["run"].as_str().unwrap_or("running");
     lines.push(format!("  run: {run}"));
+    refused(status, &mut lines);
     items(status, &mut lines);
     red_workflows(status, &mut lines);
     contributions(status, &mut lines);
@@ -103,6 +104,24 @@ fn draining(sheep: &str, draining: &Value) -> String {
         "{sheep} is draining: no new call starts; still running: {}",
         running.join(", ")
     )
+}
+
+// A settings change the runner refused, which stands until a reread holds.
+fn refused(status: &Value, lines: &mut Vec<String>) {
+    let refusal = &status["settings_refused"];
+    let Some(reason) = refusal["reason"].as_str() else {
+        return;
+    };
+    let when = match refusal["at"].as_u64() {
+        Some(at) => format!(
+            "{} UTC",
+            crate::board::briefing::date_time(crate::ports::Timestamp(at))
+        ),
+        None => "an unknown time".to_owned(),
+    };
+    lines.push(format!(
+        "  settings change refused at {when}, so the old settings stay: {reason}"
+    ));
 }
 
 fn items(status: &Value, lines: &mut Vec<String>) {
