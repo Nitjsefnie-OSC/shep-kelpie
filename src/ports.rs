@@ -60,7 +60,9 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
-pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
+pub use rate_limit::{
+    AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, Warning, says_used_up,
+};
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};

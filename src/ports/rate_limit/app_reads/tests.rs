@@ -159,6 +159,22 @@ fn a_token_without_a_permission_a_read_needs_leaves_that_read_to_the_login_and_s
 }
 
 #[test]
+fn a_permission_the_token_lacks_is_said_once_whichever_read_meets_it() {
+    let rig = Rig::new(Some(&["issues", "checks", "statuses"]));
+
+    rig.held.open_pull_requests(&repo()).unwrap();
+    rig.held.reviewed(&repo(), 7).unwrap();
+    rig.held.open_pull_requests(&repo()).unwrap();
+
+    let said = rig.said();
+    assert_eq!(said.len(), 1, "said once: {said:#?}");
+    assert!(
+        said[0].contains("lacks the pull_requests permission"),
+        "{said:#?}"
+    );
+}
+
+#[test]
 fn a_read_the_app_is_refused_for_want_of_a_permission_falls_to_the_login_and_says_which() {
     let rig = Rig::new(Some(&ALL));
     rig.app

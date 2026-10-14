@@ -500,7 +500,10 @@ impl Runner {
         .counting(ports.revalidated.clone())
         .paced_for(project.as_str());
         if let Some(app_reads) = ports.app_reads.take() {
-            rate_held = rate_held.with_app_reads(app_reads);
+            let standing = told.clone();
+            rate_held = rate_held
+                .with_app_reads(app_reads)
+                .with_standing(Box::new(move |key, line| standing.standing(key, line)));
         }
         let held: Arc<dyn Forge> = Arc::new(rate_held);
         let recorded =
@@ -701,6 +704,7 @@ impl Runner {
             contributions: self.followed_status(now),
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
+            standing: self.notes.standing_lines(),
             red_workflows: self.red_status(now),
             rulings: (self.state.rulings.iter())
                 .map(trigger::RulingStatus)

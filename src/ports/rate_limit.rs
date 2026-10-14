@@ -97,12 +97,18 @@ impl ForgeHold {
 /// Where [`RateHeld`] says a hold began, once for each
 pub type Say = Box<dyn Fn(String) + Send + Sync>;
 
+/// Where [`RateHeld`] tells a warning that stands while its cause does, with
+/// its key, which names the cause, and its line
+pub type Warning = Box<dyn Fn(&str, String) + Send + Sync>;
+
 /// A forge whose calls are held while its rate limit is used up
 pub struct RateHeld {
     forge: Arc<dyn Forge>,
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
+    // Where a warning that stands is told, instead of `say`
+    standing: Option<Warning>,
     ledger: Option<Arc<Ledger>>,
     // The project whose calls these are, when they are spaced by the hold's pace
     project: Option<String>,
@@ -121,6 +127,7 @@ impl RateHeld {
             clock,
             hold,
             say,
+            standing: None,
             ledger: None,
             project: None,
             app: None,
@@ -133,6 +140,14 @@ impl RateHeld {
     #[must_use]
     pub fn paced_for(mut self, project: &str) -> Self {
         self.project = Some(project.to_owned());
+        self
+    }
+
+    /// Tells a warning that stands while its cause does to `standing`, with
+    /// its key, in place of `say`
+    #[must_use]
+    pub fn with_standing(mut self, standing: Warning) -> Self {
+        self.standing = Some(standing);
         self
     }
 

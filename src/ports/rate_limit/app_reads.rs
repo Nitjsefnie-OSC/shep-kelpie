@@ -104,7 +104,7 @@ pub(super) struct AppReader {
     // Until when the App's rate limit is used up, so the login reads meanwhile
     held: Mutex<Option<Timestamp>>,
     // The reads said to have fallen back, so each is said once
-    told: Mutex<BTreeSet<(String, String)>>,
+    told: Mutex<BTreeSet<String>>,
 }
 
 impl AppReader {
@@ -176,7 +176,7 @@ impl RateHeld {
         }
         self.tell_once(
             repo,
-            read,
+            &lacking.join(" and "),
             format!(
                 "the App's token for {} lacks the {} permission to read, which the {} read \
                  needs, so the login reads it: add it in the App's settings, then accept it on \
@@ -192,7 +192,7 @@ impl RateHeld {
     fn told_lacking(&self, repo: &ForgeSlug, read: Read, error: &ForgeError) {
         self.tell_once(
             repo,
-            read,
+            &read.needs().join(" and "),
             format!(
                 "the App was refused the {} read of {} ({error}); it needs the {} permission to \
                  read, so the login reads it",
@@ -203,16 +203,21 @@ impl RateHeld {
         );
     }
 
-    fn tell_once(&self, repo: &ForgeSlug, read: Read, line: String) {
+    // Told once for each permission a repo's reads lack, whichever read met it.
+    fn tell_once(&self, repo: &ForgeSlug, permissions: &str, line: String) {
         let Some(reader) = &self.app else { return };
-        let key = (repo.as_str().to_owned(), read.kind().name());
+        let key = format!("app-lacks {permissions} on {}", repo.as_str());
         let first = reader
             .told
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(key);
-        if first {
-            (self.say)(line);
+            .insert(key.clone());
+        if !first {
+            return;
+        }
+        match &self.standing {
+            Some(standing) => standing(&key, line),
+            None => (self.say)(line),
         }
     }
 
