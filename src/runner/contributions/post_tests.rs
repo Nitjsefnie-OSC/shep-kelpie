@@ -4,6 +4,7 @@
 use std::sync::Mutex;
 
 use super::pass_tests::{listing, poll_through, read_through, write};
+use super::post::POST_TRIES;
 use super::security_tests::{commit_on, contribute, contribution};
 use crate::ports::{CLEAN, Finding, Role, Severity};
 use crate::runner::coderabbit::tests::now;
@@ -245,6 +246,8 @@ fn nothing_is_posted_as_the_maintainer_when_the_app_cannot_post() {
     let told: Vec<_> = told.iter().filter(|n| n.contains("cannot post")).collect();
     assert_eq!(told.len(), 1, "told once: {told:?}");
 
+    assert_eq!(worded(&rig).len(), 1, "a failed post is not worded again");
+
     rig.github.accept_reviews();
     poll_through(&rig, &runner);
 
@@ -344,4 +347,41 @@ fn a_post_the_state_could_not_keep_is_not_posted_again() {
 
     assert_eq!(rig.github.reviews().len(), 1, "the forge took it once");
     assert_eq!(contribution(&rig, &runner)["pass"]["review"], REVIEW_ID);
+}
+
+#[test]
+fn a_post_that_keeps_failing_is_given_up_for_the_head_and_told() {
+    let (rig, runner, head) = read_with(two_lines(), &[WORDED; 4]);
+    read_through(&rig, &runner, &head);
+    rig.github.refuse_reviews();
+
+    for _ in 0..POST_TRIES + 3 {
+        poll_through(&rig, &runner);
+    }
+
+    let tried = u32::try_from(rig.github.reviews().len()).unwrap();
+    assert_eq!(tried, POST_TRIES, "not tried again once given up");
+    assert_eq!(worded(&rig).len(), 1, "worded once");
+    let told = runner.lock().unwrap().take_notes();
+    let told: Vec<_> = told.iter().filter(|n| n.contains("cannot post")).collect();
+    assert_eq!(
+        told.len(),
+        2,
+        "told once, then told it is given up: {told:?}"
+    );
+    assert!(told[1].contains("not tried again"), "{told:?}");
+    assert_eq!(rig.forge.comments(), []);
+}
+
+#[test]
+fn a_representative_that_keeps_failing_is_given_up_for_the_head() {
+    let (rig, runner, head) = read_with(vec![], &[]);
+    read_through(&rig, &runner, &head);
+
+    for _ in 0..POST_TRIES + 3 {
+        poll_through(&rig, &runner);
+    }
+
+    assert_eq!(worded(&rig).len(), POST_TRIES as usize);
+    assert_eq!(rig.github.comments(), []);
 }

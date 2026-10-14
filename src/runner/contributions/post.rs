@@ -22,7 +22,7 @@ use super::super::Runner;
 use super::super::representative::{Post, neutered};
 use super::super::review::calls::diff_against;
 use super::pass::FOLDER;
-use crate::ports::{Finding, LineComment, Severity};
+use crate::ports::{Finding, ForgeError, LineComment, Severity};
 use crate::state::StateError;
 use crate::worktree::BASE;
 
@@ -58,6 +58,25 @@ pub(in crate::runner) enum Posted {
     Review(u64),
     Note(u64),
 }
+
+// The post as worded, kept in memory until it is posted
+#[derive(Debug, Clone)]
+pub(in crate::runner) struct Wording {
+    body: String,
+    comments: Vec<LineComment>,
+}
+
+/// What the runner keeps of one post that has not gone through: how many
+/// times it failed, whether the log has said so, and its wording
+#[derive(Debug, Default)]
+pub(in crate::runner) struct Attempt {
+    failures: u32,
+    told: bool,
+    wording: Option<Wording>,
+}
+
+/// How many times a post may fail for a head before kelpie stops trying it
+pub(super) const POST_TRIES: u32 = 5;
 
 // The review as the representative worded it: the opening text, and a comment
 // for each finding that has a line
@@ -129,6 +148,42 @@ impl Runner {
     }
 
     fn post_review(&mut self, work: &Work, findings: &[Finding]) -> Option<Posted> {
+        if self.given_up(work, "review") {
+            return None;
+        }
+        let worded = match self.kept_wording(work, "review") {
+            Some(worded) => worded,
+            None => {
+                let worded = self.word_review(work, findings)?;
+                self.keep_wording(work, "review", &worded);
+                worded
+            }
+        };
+        let sent = (self.ports.voice).review(
+            &self.remote,
+            work.number,
+            &work.head,
+            &worded.body,
+            &worded.comments,
+        );
+        match sent {
+            Ok(id) => {
+                self.post_ends(work, "review");
+                Some(Posted::Review(id))
+            }
+            Err(e) => {
+                self.post_failed(work, "review", &e, !forge_is_busy(&e));
+                if refused_text(&e) {
+                    self.drop_wording(work, "review");
+                }
+                None
+            }
+        }
+    }
+
+    // The review as the representative words it, or in the findings' own
+    // words when its answer is not the JSON asked for.
+    fn word_review(&mut self, work: &Work, findings: &[Finding]) -> Option<Wording> {
         let shown = self.shown_lines(work);
         let (inline, aside): (Vec<&Finding>, Vec<&Finding>) = findings
             .iter()
@@ -145,40 +200,58 @@ impl Runner {
         let said = match self.represent(&post) {
             Ok(said) => said,
             Err(e) => {
-                self.tell_once(work, "review", &e);
+                self.post_failed(work, "review", &e, true);
                 return None;
             }
         };
         let mut words = read_words(&said, inline.len())
             .unwrap_or_else(|| own_words(&work.head, &inline, &aside, &work.author));
         words.body = with_aside(&words.body, &aside, &work.author);
-        let comments: Vec<LineComment> = (inline.iter().zip(words.comments))
+        let comments = (inline.iter().zip(words.comments))
             .map(|(f, body)| LineComment {
                 path: f.file.clone(),
                 line: f.line,
                 body,
             })
             .collect();
-        let sent = (self.ports.voice).review(
-            &self.remote,
-            work.number,
-            &work.head,
-            &words.body,
-            &comments,
-        );
-        match sent {
-            Ok(id) => {
-                self.told_ends(work, "review");
-                Some(Posted::Review(id))
+        Some(Wording {
+            body: words.body,
+            comments,
+        })
+    }
+
+    fn post_note(&mut self, work: &Work) -> Option<Posted> {
+        if self.given_up(work, "note") {
+            return None;
+        }
+        let said = match self.kept_wording(work, "note") {
+            Some(worded) => worded.body,
+            None => {
+                let said = self.word_note(work)?;
+                let worded = Wording {
+                    body: said.clone(),
+                    comments: Vec::new(),
+                };
+                self.keep_wording(work, "note", &worded);
+                said
+            }
+        };
+        match (self.ports.voice).post(&self.remote, work.number, &said) {
+            Ok(posted) => {
+                self.post_ends(work, "note");
+                Some(Posted::Note(posted.id))
             }
             Err(e) => {
-                self.tell_once(work, "review", &e);
+                self.post_failed(work, "note", &e, !forge_is_busy(&e));
+                if refused_text(&e) {
+                    self.drop_wording(work, "note");
+                }
                 None
             }
         }
     }
 
-    fn post_note(&mut self, work: &Work) -> Option<Posted> {
+    fn word_note(&mut self, work: &Work) -> Option<String> {
         let facts = format!(
             "The local reviewer read `{}` and found nothing to flag. The pull request is with \
              the maintainer now.",
@@ -192,20 +265,10 @@ impl Runner {
             contributor: &work.author,
             said: "",
         };
-        let said = match self.represent(&post) {
-            Ok(said) => said,
+        match self.represent(&post) {
+            Ok(said) => Some(said),
             Err(e) => {
-                self.tell_once(work, "note", &e);
-                return None;
-            }
-        };
-        match (self.ports.voice).post(&self.remote, work.number, &said) {
-            Ok(posted) => {
-                self.told_ends(work, "note");
-                Some(Posted::Note(posted.id))
-            }
-            Err(e) => {
-                self.tell_once(work, "note", &e);
+                self.post_failed(work, "note", &e, true);
                 None
             }
         }
@@ -240,35 +303,100 @@ impl Runner {
         match diff_against(&self.settings.git.checkout, &worktree, &base) {
             Ok(diff) => lines_shown(&diff),
             Err(why) => {
-                self.tell_once(
-                    work,
-                    "diff",
-                    &format!("cannot read the diff to place lines: {why}"),
-                );
+                self.tell_diff(work, &why);
                 BTreeMap::new()
             }
         }
     }
 
-    // Says in the log that `what` could not be posted for the head, unless
-    // it said so already for this head.
-    fn tell_once(&self, work: &Work, what: &str, why: &dyn std::fmt::Display) {
-        let key = format!("{}:{}:{what}", work.number, work.head);
-        if self.post_told.borrow_mut().insert(key) {
+    // The wording an earlier poll made for the head, so a post that fails is
+    // sent again without asking the representative again.
+    fn kept_wording(&self, work: &Work, what: &str) -> Option<Wording> {
+        let tries = self.post_tries.borrow();
+        tries.get(&post_key(work, what))?.wording.clone()
+    }
+
+    fn keep_wording(&self, work: &Work, what: &str, worded: &Wording) {
+        let mut tries = self.post_tries.borrow_mut();
+        tries.entry(post_key(work, what)).or_default().wording = Some(worded.clone());
+    }
+
+    // The wording is worded again at the next try, since the text may have
+    // been what the guard refused.
+    fn drop_wording(&self, work: &Work, what: &str) {
+        let mut tries = self.post_tries.borrow_mut();
+        if let Some(attempt) = tries.get_mut(&post_key(work, what)) {
+            attempt.wording = None;
+        }
+    }
+
+    // Whether `what` failed [`POST_TRIES`] times for the head, which ends
+    // the trying until the head changes or kelpie restarts.
+    fn given_up(&self, work: &Work, what: &str) -> bool {
+        let tries = self.post_tries.borrow();
+        let failures = tries.get(&post_key(work, what)).map_or(0, |a| a.failures);
+        failures >= POST_TRIES
+    }
+
+    // Says in the log that `what` could not be posted for the head, once, and
+    // again when it is given up. A failure the forge being busy explains is
+    // not counted, since asking again later may work.
+    fn post_failed(&self, work: &Work, what: &str, why: &dyn std::fmt::Display, counts: bool) {
+        let mut tries = self.post_tries.borrow_mut();
+        let attempt = tries.entry(post_key(work, what)).or_default();
+        let (number, head) = (work.number, short(&work.head));
+        if counts {
+            attempt.failures += 1;
+        }
+        if attempt.failures >= POST_TRIES {
             self.notes.push(format!(
-                "contribution #{}: cannot post the {what} on {}: {why}; it is tried at the next \
-                 poll",
+                "contribution #{number}: cannot post the {what} on {head}: {why}; it failed \
+                 {POST_TRIES} times, so it is not tried again for this head"
+            ));
+        } else if !attempt.told {
+            attempt.told = true;
+            self.notes.push(format!(
+                "contribution #{number}: cannot post the {what} on {head}: {why}; it is tried at \
+                 the next poll"
+            ));
+        }
+    }
+
+    // Says in the log, once for the head, that the diff could not be read.
+    fn tell_diff(&self, work: &Work, why: &dyn std::fmt::Display) {
+        let mut tries = self.post_tries.borrow_mut();
+        let attempt = tries.entry(post_key(work, "diff")).or_default();
+        if !std::mem::replace(&mut attempt.told, true) {
+            self.notes.push(format!(
+                "contribution #{}: cannot read the diff to place lines on {}: {why}",
                 work.number,
                 short(&work.head)
             ));
         }
     }
 
-    // A post that worked is no longer one to stay quiet about.
-    fn told_ends(&self, work: &Work, what: &str) {
-        let key = format!("{}:{}:{what}", work.number, work.head);
-        self.post_told.borrow_mut().remove(&key);
+    // A post that worked leaves nothing to keep.
+    fn post_ends(&self, work: &Work, what: &str) {
+        self.post_tries.borrow_mut().remove(&post_key(work, what));
     }
+}
+
+fn post_key(work: &Work, what: &str) -> String {
+    format!("{}:{}:{what}", work.number, work.head)
+}
+
+// Whether kelpie refused to send the text, as a hook or a local path does
+fn refused_text(e: &ForgeError) -> bool {
+    matches!(e, ForgeError::LocalPath { .. } | ForgeError::Hook { .. })
+}
+
+// Whether the forge could not be asked just now, so that asking again later
+// may work
+fn forge_is_busy(e: &ForgeError) -> bool {
+    matches!(
+        e,
+        ForgeError::AppBusy(_) | ForgeError::Held(_) | ForgeError::Limited { .. }
+    )
 }
 
 fn short(head: &str) -> &str {

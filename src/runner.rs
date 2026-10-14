@@ -398,8 +398,9 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
-    // The posts to a contribution that failed and were told, until one works, in memory only
-    post_told: std::cell::RefCell<std::collections::BTreeSet<String>>,
+    // The posts to a contribution that failed, until one works or is given up, in memory only
+    post_tries:
+        std::cell::RefCell<std::collections::BTreeMap<String, contributions::post::Attempt>>,
     // The pull request, head and id of a post the forge took and the state did not keep, until
     // it does, in memory only
     post_unsaved: std::cell::RefCell<Vec<(u64, String, contributions::post::Posted)>>,
@@ -649,7 +650,7 @@ impl Runner {
             forge_ledger,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
-            post_told: std::cell::RefCell::default(),
+            post_tries: std::cell::RefCell::default(),
             post_unsaved: std::cell::RefCell::default(),
             token_wait: token_wait::TokenWait::default(),
             lease_waits: review_bot::lease_wait::LeaseWaits::default(),
