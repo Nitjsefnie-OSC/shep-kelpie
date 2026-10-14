@@ -77,6 +77,14 @@ as Claude uses it. A Codex session is a thread kelpie maps to its own id.
 A goose session is named by kelpie's id.
 _Avoid_: shift
 
+**Turn**:
+One run of an agent on one prompt, until the agent stops on its own or the
+turn timeout ends it. A turn holds many model replies and tool calls. Each
+later turn resumes the session, and a work item takes many turns: the
+first, a fix turn per review round, a CI fix turn, one after each ruling
+answer.
+_Avoid_: step, reply
+
 **Agent**:
 A definition file, `<kelpie home>/agents/<name>.md`, naming what it is for
 (its **role**: `implementer`, `reviewer`, `issue-writer` or `pm`), its
