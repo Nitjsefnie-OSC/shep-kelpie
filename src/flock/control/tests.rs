@@ -13,12 +13,15 @@ mod finish;
 mod late;
 mod pause;
 
+use pause::{IN_TOOL_7, paused};
+
 // A pause's waits, short so a test of one running out ends soon
 const FAST: Patience = Patience {
     poll: Duration::from_millis(10),
     start: Duration::from_secs(10),
     merge: Duration::from_secs(10),
     margin: Duration::from_secs(10),
+    tool: Duration::from_secs(10),
 };
 const EXAMPLE: &str = include_str!("../../../settings.example.toml");
 
@@ -606,6 +609,22 @@ fn a_plain_status_shows_a_refused_settings_change_and_when() {
     );
 }
 
+#[test]
+fn a_plain_status_shows_an_adopted_pull_request_that_keeps_failing_and_since_when() {
+    let failing = r#"{"project":"koji","work_items":[],"rulings":[],
+        "skipped":[{"reason":"adopt","pull_request":80,"error":"cannot prepare its worktree: busy",
+        "since":1790000000}],
+        "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;
+    assert_eq!(
+        plain_status("koji", failing)[2..4],
+        [
+            "  work items: none",
+            "  adopted, cannot start: PR #80 since 2026-09-21 14:13 UTC: \
+             cannot prepare its worktree: busy",
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_plain_status_keeps_a_project_that_is_not_running_to_a_line() {
     let shepherd = FakeShepherd::new();
@@ -753,4 +772,30 @@ async fn the_flock_s_repos_are_refused_when_a_project_s_repo_cannot_be_told() {
         .await
         .unwrap_err();
     assert!(err.contains("project vault"), "{err}");
+}
+
+#[tokio::test]
+async fn a_pause_stops_a_call_still_in_its_tool_after_the_limit() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[IN_TOOL_7]);
+    let patience = Patience {
+        tool: Duration::from_millis(100),
+        ..FAST
+    };
+    let (ran, said) = paused(&shepherd, patience, Interrupt::Never).await;
+    assert_eq!(
+        ran.unwrap(),
+        ["koji's runner is stopped: `shep kelpie start koji` runs it again"]
+    );
+    assert_eq!(asked(&shepherd.writes()).last().unwrap(), "stop");
+    assert!(
+        said.contains(
+            &"`koji` is still in a tool call of #7's worker turn, which ends at its next tool \
+              call after 0s, so the stop cuts it short"
+                .to_owned()
+        ),
+        "{said:?}"
+    );
+    assert!(!shepherd.sheep("koji").unwrap().1);
 }

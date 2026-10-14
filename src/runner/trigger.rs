@@ -308,7 +308,7 @@ enum Request {
     Tell(String),
     PmAttach(u32, Option<u32>),
     PmDetach(u32),
-    Drain,
+    Drain { at_tool: bool },
     Undrain,
     Finish,
     Start,
@@ -333,7 +333,8 @@ enum Request {
 /// takes them, `move <issue> <position>` or `top <issue>` to move one, and
 /// answers [`Board`](super::Board) either way, and every other action takes
 /// nothing. `drain` holds back every new call
-/// and answers the status with the calls still running, and `undrain` lets
+/// and answers the status with the calls still running, `drain pause` also
+/// ends each worker turn at its next tool call, and `undrain` lets
 /// calls start again. `finish` holds the board back until the open work
 /// items end, `start` lets it pick again, and `pausing`, which `pause` sends
 /// before its stop, clears the saved `finishing` so the runner comes back picking.
@@ -375,8 +376,8 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
         }
         Request::Tell(note) => runner.tell(&note).map_err(|e| e.to_string()),
         Request::Status | Request::Timings(_) => Ok(()),
-        Request::Drain => {
-            runner.drain();
+        Request::Drain { at_tool } => {
+            runner.drain(at_tool);
             Ok(())
         }
         Request::Undrain => {
@@ -489,11 +490,13 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
             read.map(|moving| Request::Board(Some(moving)))
                 .ok_or_else(|| format!("`board` {BOARD_USAGE}, not {p:?}"))
         }
+        // What `pause` sends: drain, and end each worker turn at its next tool call.
+        ("drain", Some("pause")) => Ok(Request::Drain { at_tool: true }),
         (_, _) if !ACTIONS.contains(&action) => Err(format!("unknown action `{action}`")),
         (_, Some(_)) => Err(format!("`{action}` takes no params")),
         ("gate", None) => Ok(Request::Gate(None)),
         ("drop", None) => Ok(Request::Drop(None)),
-        ("drain", None) => Ok(Request::Drain),
+        ("drain", None) => Ok(Request::Drain { at_tool: false }),
         ("undrain", None) => Ok(Request::Undrain),
         ("finish", None) => Ok(Request::Finish),
         ("start", None) => Ok(Request::Start),

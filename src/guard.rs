@@ -30,6 +30,7 @@ mod gh;
 mod git;
 mod issues;
 mod judging;
+mod pause;
 mod reading;
 mod script;
 mod shell;
@@ -40,6 +41,7 @@ pub use issues::{
     AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
     judge_issues, judge_issues_with, record_issues,
 };
+pub use pause::{PAUSE_FLAG, Pause, judge_pause, pause_flag};
 pub use reading::{READ_ONLY_COMMANDS, READ_ONLY_FLAG, judge_reading, reading_flag};
 
 use std::fs;

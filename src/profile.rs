@@ -881,7 +881,16 @@ mod tests {
             })
         );
         assert_eq!(s["hooks"]["PreToolUse"].as_array().unwrap().len(), 2);
-        assert_eq!(s["hooks"]["PostToolUse"], Value::Null);
+        // The one thing a worker's PostToolUse hook does: end the turn at a pause.
+        assert_eq!(
+            s["hooks"]["PostToolUse"],
+            json!([{
+                "hooks": [{
+                    "type": "command",
+                    "command": r"'/opt/kelpie'\''s bin/kelpie' 'guard' '/k/repos/shep/.git' '/k/wt/shep/7' '--pause=/k/targets/shep/7'",
+                }],
+            }])
+        );
     }
 
     #[test]
@@ -898,8 +907,13 @@ mod tests {
             })
         );
         assert_eq!(
-            s["hooks"]["PostToolUse"],
-            json!([{ "hooks": [{ "type": "command", "command": "~/bin/after" }] }])
+            s["hooks"]["PostToolUse"][0],
+            json!({ "hooks": [{ "type": "command", "command": "~/bin/after" }] })
+        );
+        assert_eq!(
+            s["hooks"]["PostToolUse"].as_array().unwrap().len(),
+            2,
+            "kelpie's pause hook follows the project's"
         );
     }
 

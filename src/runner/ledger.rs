@@ -78,7 +78,19 @@ impl Runner {
         open: &Open,
         result: &Result<AgentReply, AgentError>,
     ) -> Option<CallLine> {
-        let ended = ended(result)?;
+        let ended = match ended(result)? {
+            // A turn the pause ended at a tool result, whatever its harness
+            // reported of the abort.
+            Ended::Answered | Ended::Failed | Ended::Unreadable
+                if open
+                    .draft
+                    .issue
+                    .is_some_and(|issue| self.paused_at_tool(issue)) =>
+            {
+                Ended::Paused
+            }
+            ended => ended,
+        };
         let spent = result.as_ref().ok().map(Spent::from);
         let now = self.ports.clock.now();
         let before = self.cost_before(&open.draft);

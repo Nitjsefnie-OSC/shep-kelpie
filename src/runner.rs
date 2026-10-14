@@ -291,6 +291,8 @@ pub struct Runner {
     pacing: BTreeMap<Account, (Timestamp, Assessment)>,
     // What the board passed over on its last poll, kept in memory only
     skipped: Vec<Skip>,
+    // Each adopted pull request that keeps failing to start, kept in memory only
+    adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
     close_refused: parent::Refused,
     // The parents off the ready list that built nothing, kept in memory only
@@ -571,6 +573,7 @@ impl Runner {
             ports,
             pacing: BTreeMap::new(),
             skipped: Vec::new(),
+            adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),
             lineup,

@@ -16,6 +16,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     lines.push(format!("  run: {run}"));
     refused(status, &mut lines);
     items(status, &mut lines);
+    adopting(status, &mut lines);
     red_workflows(status, &mut lines);
     contributions(status, &mut lines);
     rulings(status, &mut lines);
@@ -141,6 +142,26 @@ fn items(status: &Value, lines: &mut Vec<String>) {
             item["phase"]["state"].as_str().unwrap_or("?"),
             item["turn"]["state"].as_str().unwrap_or("?"),
             pull_request(&item["pull_request"]),
+        ));
+    }
+}
+
+// One line for each adopted pull request the board could not start on its
+// last poll, which has failed every poll since the time shown
+fn adopting(status: &Value, lines: &mut Vec<String>) {
+    let skipped = status["skipped"].as_array().map_or(&[][..], Vec::as_slice);
+    for skip in skipped.iter().filter(|s| s["reason"] == "adopt") {
+        let since = match skip["since"].as_u64() {
+            Some(at) => format!(
+                "{} UTC",
+                crate::board::briefing::date_time(crate::ports::Timestamp(at))
+            ),
+            None => "an unknown time".to_owned(),
+        };
+        lines.push(format!(
+            "  adopted, cannot start: {} since {since}: {}",
+            pull_request(&skip["pull_request"]),
+            skip["error"].as_str().unwrap_or("?"),
         ));
     }
 }

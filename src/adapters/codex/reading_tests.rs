@@ -2,8 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+use super::hook_tests::codex_hooks;
 use super::review_tests::reviewer;
-use super::tests::{WORKER_ID, World, codex_hooks, id, strings};
+use super::tests::{WORKER_ID, World, id, strings};
 use super::*;
 use crate::ports::Role;
 

@@ -764,7 +764,7 @@ fn draining(body: &str) -> bool {
 }
 
 // The `error` a runner's answer carries, if any.
-fn refusal(body: &str) -> Option<String> {
+pub(crate) fn refusal(body: &str) -> Option<String> {
     let answer: serde_json::Value = serde_json::from_str(body).ok()?;
     match answer.get("error")? {
         serde_json::Value::String(why) => Some(why.clone()),
