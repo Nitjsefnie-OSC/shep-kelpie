@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use super::files::Files;
 use crate::adapters::mcp::{SERVER, servers};
-use crate::ports::{AgentCall, AgentError, Session};
+use crate::ports::{AgentCall, AgentError, Session, Tools};
 
 /// goose's own extension, which a call that works runs under this name
 const BUILTIN: &str = "developer";
@@ -90,9 +90,13 @@ pub(super) fn keys(call: &AgentCall) -> Vec<String> {
 /// A new session holds what the call loads. A resumed one holds the set it was created with,
 /// which kelpie recorded then, whatever the call loads now: goose keeps that set, so the hook
 /// and the mode follow it. A session with no record holds none.
+///
+/// A retro is handed no server, so the hook lets it none through, though the worker's session it
+/// resumes holds them: it stays unable to write.
 pub(super) fn held(call: &AgentCall, files: &Files) -> Result<Vec<String>, AgentError> {
     match &call.session {
         Session::New(_) => Ok(keys(call)),
+        Session::Resume(_) if call.tools == Tools::Retro => Ok(Vec::new()),
         Session::Resume(id) => Ok(files.servers(id)?.unwrap_or_default()),
     }
 }
