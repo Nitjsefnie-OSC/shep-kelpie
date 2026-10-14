@@ -18,7 +18,13 @@ impl Runner {
     pub(super) fn lease_granted(&self, bot: Bot) -> bool {
         let lease = self.profile(bot).lease();
         self.ports.leases.want(&lease);
-        self.ports.leases.holds(&lease) && !self.lease_held_elsewhere(bot)
+        let granted = self.ports.leases.holds(&lease) && !self.lease_held_elsewhere(bot);
+        if granted {
+            self.lease_wait_ends(bot, "granted");
+        } else {
+            self.lease_waits(bot);
+        }
+        granted
     }
 
     // What a summon's answer tells the dog: the window runs from `at`.

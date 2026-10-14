@@ -387,6 +387,8 @@ pub struct Runner {
     unmentioned_told: std::cell::Cell<bool>,
     // Whether a worker's turn waits for a token GitHub is not giving, in memory only
     token_wait: token_wait::TokenWait,
+    // When each work item began waiting for a bot's lease, in memory only
+    lease_waits: review_bot::lease_wait::LeaseWaits,
     // The turns waiting for a model host that cannot be reached, in memory only
     unreachable: turn::unreachable::Unreachable,
     // Why each work item's due turn did not start on its last step, in memory only
@@ -623,6 +625,7 @@ impl Runner {
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),
+            lease_waits: review_bot::lease_wait::LeaseWaits::default(),
             unreachable: turn::unreachable::Unreachable::default(),
             held_up: turn::held_up::HeldUps::default(),
             posted: std::cell::RefCell::default(),

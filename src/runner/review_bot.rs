@@ -31,6 +31,7 @@ mod failed;
 mod late;
 pub(in crate::runner) use answer::{Answered, is_reply};
 mod lease;
+pub(super) mod lease_wait;
 mod on_ready;
 mod settle;
 pub(in crate::runner) use settle::{lands, open_ids, read_threads, reread_due};
@@ -203,6 +204,7 @@ impl Runner {
             && opens.0 > now.0.saturating_add(FAR)
         {
             self.release(bot)?;
+            self.lease_wait_ends(bot, "refused");
             let reviewer = self.round_reviewer(bot);
             return self.pass_over(number, BotSkipped::Window { reviewer, opens });
         }
@@ -210,6 +212,7 @@ impl Runner {
         // pass no longer than a bot that never answers does.
         if now.0.saturating_sub(started.0) >= REVIEW_WAIT {
             self.release(bot)?;
+            self.lease_wait_ends(bot, "refused");
             let reviewer = self.round_reviewer(bot);
             let since = started;
             return self.pass_over(number, BotSkipped::Waited { reviewer, since });
