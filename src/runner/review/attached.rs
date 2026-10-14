@@ -1,6 +1,6 @@
 //! A failing test a reviewer attaches to a finding
 //!
-//! With `ci.test_command` set, a reviewer on Claude Code or pi may write a failing
+//! With `ci.test_command` set, a reviewer on any harness may write a failing
 //! test for a finding into `<build>/review-tests`, at the path the test should
 //! have in the repo, and name that path as the finding's fifth field. The
 //! reviewer can write nowhere else. When the round's findings are taken, each
@@ -26,7 +26,8 @@ pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> 
     match harness {
         Harness::ClaudeCode => Some("Write"),
         Harness::Pi => Some("write"),
-        Harness::Codex | Harness::Goose => None,
+        Harness::Codex => Some("apply_patch"),
+        Harness::Goose => None,
         #[cfg(test)]
         Harness::StandIn => None,
     }
@@ -188,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reviewer_is_asked_for_tests_on_claude_code_and_pi_and_not_on_codex() {
+    fn a_reviewer_is_asked_for_tests_on_every_harness() {
         let harnesses = || [AgentHarness::ClaudeCode, pi(), AgentHarness::Codex];
 
         let plain = Rig::new("shep");
@@ -206,10 +207,13 @@ mod tests {
         rig.test_command("cargo test --test {name}");
         let runner = rig.open().unwrap();
         let runner = runner.lock().unwrap();
-        let asked: Vec<bool> = harnesses()
-            .into_iter()
-            .map(|h| runner.test_command_for(&on(h)).is_some())
-            .collect();
-        assert_eq!(asked, [true, true, false]);
+        for harness in harnesses() {
+            let asked = runner.test_command_for(&on(harness.clone()));
+            assert_eq!(
+                asked.map(TestCommand::as_str),
+                Some("cargo test --test {name}"),
+                "{harness:?}"
+            );
+        }
     }
 }

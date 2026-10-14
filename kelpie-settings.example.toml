@@ -13,7 +13,8 @@
 
 # The GPU's Prometheus metrics page, such as `nvidia_gpu_exporter`'s
 # `/metrics`. `status` shows the GPU's load, memory, power and temperature
-# from it, and says why when the page cannot be read. Nothing is read when
+# under `gpu`, read every 15 seconds, and says why when the page cannot be
+# read. Nothing is read when
 # absent.
 # gpu_metrics_url = "http://gpu-box:9835/metrics"
 
@@ -33,19 +34,28 @@
 # A self-hosted ntfy is reached in three more setups. On a tailnet the `url`
 # may be `http://` when its host is a Tailscale address (100.64.0.0/10) or a
 # `.ts.net` name, since the tailnet encrypts it; any other `http://` host
-# (besides this machine) is refused. `ca_cert` is the absolute path of the
-# private CA's certificate file that curl trusts, and the dog will not start
-# when it cannot be read. `token` is an access token (`ntfy token add`), sent
-# as `Authorization: Bearer <token>` on every post and every read of replies
+# (besides this machine) is refused, and so is a URL with a user name or
+# password in it. `ca_cert` is the absolute path of the private CA's
+# certificate file that curl trusts for the post and for reading replies, and
+# the dog will not start when it cannot be read, saying `webhook.ca_cert` is
+# the key. `token` is an access token (`ntfy token add`), sent as
+# `Authorization: Bearer <token>` on every post and every read of replies
 # (on `kind = "ntfy"` only).
-# The token is a credential like the URL.
+# The token is a credential like the URL, and no error, log line or status
+# shows it.
 #
 # `trusted = true` is your word that the server lets only that token post to
 # the topic (an `ntfy access` rule denying everyone else), so a reply there is
-# yours. Replies then need no code, except a yes on a merge ruling, which still
-# takes it. It needs a `token`, and the dog will not start without one. Five
-# wrong codes still turn coded answers off. Without `trusted`, every reply
-# needs the authenticator code.
+# yours; kelpie cannot see the server's rules. Replies then need no code
+# (`14 no <note>`, `14 rework <note>`, a yes on any ruling but a merge, and a
+# worker's answer), except a yes on a merge ruling, which still takes it,
+# since the topic alone never merges. It needs a `token`, and the dog will not
+# start without one, saying `webhook.trusted` is the key. Five wrong codes
+# still turn coded answers off, and replies that need no code go on working.
+# The alert's last line shows the reply each ruling takes, and
+# `shep kelpie doctor` prints a `replies` line while the topic is trusted.
+# Without `trusted`, every reply needs the authenticator code.
+# `shep kelpie doctor --test-alert` posts a test through these settings.
 [kelpie.webhook]
 kind = "ntfy"
 url = "https://ntfy.sh/your-private-topic"
@@ -72,7 +82,8 @@ url = "https://ntfy.sh/your-private-topic"
 # How many commands may hold the `cargo-test` lease at once, 3 when absent.
 # A worker runs its test suite under it, as does anything on this machine
 # that runs `shep kelpie lease run cargo-test -- <command>`, and the rest
-# queue. The dog reads this when it starts.
+# queue. The dog reads this when it starts, so after a change run
+# `shep restart kelpie`.
 # [kelpie.leases]
 # cargo-test = 3
 
@@ -84,8 +95,10 @@ url = "https://ntfy.sh/your-private-topic"
 # maintainer's qwen-review script, only where that script is installed. A
 # project lists the ones that build its work items in `agents.implementers`
 # and the ones that review its pull requests in `agents.reviewers`. The
-# README describes every key. An implementer's body is added to kelpie's
-# own instructions; a pi implementer, for one, reads:
+# agents guide describes every key:
+# https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/agents.md
+# An implementer's body is added to kelpie's own instructions; a pi
+# implementer, for one, reads:
 #
 #   ---
 #   role: implementer
@@ -117,8 +130,9 @@ url = "https://ntfy.sh/your-private-topic"
 #   Read the change against {{BASE}} for defects in merging ...
 #
 # Or it runs on its own, with no body. `harness: command` runs a command
-# that keeps the README's contract, its path in `command` with a leading
-# `~/` for the home folder. `harness: endpoint` is kelpie's own reviewer:
+# that keeps the contract in
+# https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/review.md#local-reviewers,
+# its path in `command` with a leading `~/` for the home folder. `harness: endpoint` is kelpie's own reviewer:
 # any OpenAI-compatible server (Ollama, LM Studio, llama.cpp's server) as
 # `url`, its `model`, and the context size the server gives that model, in
 # tokens, as `context`:
@@ -141,8 +155,8 @@ url = "https://ntfy.sh/your-private-topic"
 # ships `coderabbit`, `cubic` and `codex`, which `add` writes out and no
 # project lists until told to. A bot's file is named for it and holds its
 # window, so many `reviews` in so many `hours`, account-wide: the dog books
-# each bot's window from its file when it starts, and holds the bot's lease
-# by it. CodeRabbit's is one an hour, which its review footers raise. cubic's
+# each bot's window from its file when it starts, so after a change to one
+# run `shep restart kelpie`, and holds the bot's lease by it. CodeRabbit's is one an hour, which its review footers raise. cubic's
 # free plan gives a repo GitHub marks private 20 reviews a month, and a
 # public repo draws on a fair-use pool of reviewed lines. Codex's is the
 # weekly allowance its plan gives code reviews, which its "usage limits"

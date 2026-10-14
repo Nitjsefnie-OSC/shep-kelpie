@@ -143,6 +143,10 @@ pub struct Status<'a> {
     /// used up, in seconds since the Unix epoch; left out when it makes them
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forge_held_until: Option<Timestamp>,
+    /// Why the stored settings are refused and since when, while they
+    /// are: the runner keeps the settings it has; left out otherwise
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings_refused: Option<&'a super::Refusal>,
 }
 
 /// A waiting ruling, as `status` shows it: the ruling as saved, with its

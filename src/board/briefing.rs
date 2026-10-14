@@ -643,8 +643,8 @@ fn clock(t: Timestamp) -> String {
     format!("{:02}:{:02}", seconds / 3600, seconds % 3600 / 60)
 }
 
-// The date and time in UTC, as `2026-10-05 14:05`
-fn date_time(t: Timestamp) -> String {
+/// The date and time in UTC, as `2026-10-05 14:05`
+pub(crate) fn date_time(t: Timestamp) -> String {
     let at = i64::try_from(t.0)
         .ok()
         .and_then(|s| jiff::Timestamp::from_second(s).ok());

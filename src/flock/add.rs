@@ -9,15 +9,15 @@
 //! the one that pauses it. The dog is the adopted kelpie, and `add` says
 //! when it is not running.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Map, Value};
 use shep_client::shep_core::config::DogTable;
 use shep_client::shep_core::protocol::Request;
-use shep_client::shep_core::protocol::request::{ProcessInfo, Response};
+use shep_client::shep_core::protocol::request::Response;
 use shep_client::shep_core::status::ProcStatus;
 
+use super::share::share_none;
 use super::{Checkout, Launch, flock, kelpie_sheep, send, tables};
 use crate::board::READY;
 use crate::dog;
@@ -138,7 +138,15 @@ pub async fn add(
     let mut done = Vec::new();
     let runner = kelpie_sheep(client, &rows, name.as_str(), &["runner", name.as_str()]).await?;
     let mut tables = tables(client).await?;
-    share_none(&rows, &tables, name, place.home, &checkout.root, slug)?;
+    share_none(
+        &rows,
+        &tables,
+        name.as_str(),
+        place.home,
+        &checkout.root,
+        slug,
+    )
+    .map_err(|taken| taken.to_string())?;
     // The runner's table as set, or the one to write.
     let (set, table) = match tables.remove(name.as_str()) {
         Some(set) => (true, set),
@@ -234,49 +242,6 @@ pub async fn add(
         Err(e) if done.is_empty() => Err(e),
         Err(e) => Err(format!("{e}, after this much: {}", done.join("; "))),
     }
-}
-
-/// Refuses a checkout or repo that another runner already runs
-///
-/// One runner per checkout and per repo: two would take the same issues. It
-/// reads each table by its raw keys, so one that no longer parses still counts.
-pub(super) fn share_none(
-    rows: &[ProcessInfo],
-    tables: &BTreeMap<String, Map<String, Value>>,
-    name: &ProjectName,
-    home: &Path,
-    root: &Path,
-    slug: &str,
-) -> Result<(), String> {
-    for row in rows.iter().filter(|r| r.name != name.as_str()) {
-        let sheep = row.name.as_str();
-        let Some(other) = tables.get(sheep) else {
-            continue;
-        };
-        // Today's `git` table, or the top-level key a table from before it holds.
-        let text = |key: &str, old: &str| {
-            let git = other.get("git").and_then(Value::as_object);
-            let set = git.and_then(|git| git.get(key)).or_else(|| other.get(old));
-            set.and_then(Value::as_str).map(str::to_owned)
-        };
-        let runs_from = text("checkout", "repo").map(|repo| match repo.strip_prefix("~/") {
-            Some(rest) => home.join(rest),
-            None => repo.into(),
-        });
-        // With no `git.remote`, its runner reads the repo from its checkout's `origin`.
-        let same_repo = match text("remote", "forge") {
-            Some(remote) => remote == slug,
-            None => (runs_from.as_deref())
-                .and_then(|folder| super::Checkout::of(folder).ok())
-                .is_some_and(|theirs| theirs.forge.as_str() == slug),
-        };
-        if runs_from.as_deref() == Some(root) || same_repo {
-            return Err(format!(
-                "project `{sheep}` already runs this checkout or {slug}: `shep kelpie start {sheep}`"
-            ));
-        }
-    }
-    Ok(())
 }
 
 // The project's settings: the defaults with what the checkout and the forge say.
