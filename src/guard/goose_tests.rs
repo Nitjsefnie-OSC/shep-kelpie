@@ -202,6 +202,11 @@ fn a_tree_is_allowed_and_any_other_tool_is_refused_and_so_is_an_unreadable_paylo
     );
     // A tree with no path lists the working folder.
     assert_eq!(w.judge("tree", json!({})), Verdict::Allow);
+    // The skills extension's tool reads inside goose.
+    assert_eq!(
+        w.judge("load_skill", json!({ "name": "tdd" })),
+        Verdict::Allow
+    );
     // Tools goose offers a worker that kelpie does not allow, and names it has never heard of.
     for tool in [
         "read_image",
@@ -350,6 +355,11 @@ fn the_read_only_flag_allows_a_listed_command_and_refuses_write_edit_and_any_oth
     }
     refusal(judge("shell", json!({})));
     refusal(judge("shell", json!({ "command": 7 })));
+
+    assert_eq!(
+        judge("load_skill", json!({ "name": "tdd" })),
+        Verdict::Allow
+    );
 
     // A tree is allowed, and it is the `ls` of its folder.
     assert_eq!(judge("tree", json!({ "path": "src" })), Verdict::Allow);

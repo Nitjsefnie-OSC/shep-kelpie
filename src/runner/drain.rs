@@ -18,6 +18,7 @@ use serde::Serialize;
 use super::Runner;
 use crate::guard::Pause;
 use crate::ports::Tools;
+use crate::settings::Harness;
 
 /// What `status` shows while the runner drains
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -65,6 +66,9 @@ pub enum CallRole {
     /// A pi session in the maintainer's terminal, whose forwarder a restart
     /// would take with it
     PiSession,
+    /// A goose session in the maintainer's terminal, whose forwarder a restart
+    /// would take with it
+    GooseSession,
 }
 
 impl Runner {
@@ -130,10 +134,14 @@ impl Runner {
             .max(securing.unwrap_or(0))
             .max(retro.unwrap_or(0))
             .max(panel.unwrap_or(0));
-        let attached = (self.pi_sessions_attached().into_iter()).map(|issue| CallRunning {
-            issue: Some(issue),
-            role: CallRole::PiSession,
-        });
+        let attached_on = |harness, role| {
+            (self.sessions_attached_on(harness).into_iter()).map(move |issue| CallRunning {
+                issue: Some(issue),
+                role,
+            })
+        };
+        let attached = attached_on(Harness::Pi, CallRole::PiSession)
+            .chain(attached_on(Harness::Goose, CallRole::GooseSession));
         let at_tool = (self.state.work_items.iter())
             .filter(|item| self.flights.runs_turn(item.issue))
             .filter(|item| Pause::in_build(&item.build).is_requested())

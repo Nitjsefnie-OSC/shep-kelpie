@@ -8,7 +8,7 @@ use std::process::Command as Process;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::tests::{FRESH, FRESH_ID, OTHER_ID, URL, World, id, stand_in, strings};
+use super::tests::{FRESH, FRESH_ID, OTHER_ID, URL, World, id, only_skills, stand_in, strings};
 use super::*;
 use crate::hooks::Hooks;
 use crate::lease::door::SOCKET_VAR;
@@ -42,7 +42,7 @@ pub(super) fn env_vars(call: &AgentCall) -> Vec<String> {
     let server = server(call).unwrap();
     let upstream = goose.upstream(server).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(call, server, &files, &upstream);
+    let vars = env_args(call, server, &files, &upstream, None);
     vars.into_iter().map(|v| v.into_string().unwrap()).collect()
 }
 
@@ -163,6 +163,8 @@ fn a_worker_is_offered_developer_and_nothing_else_in_auto_mode() {
             "--text=go",
             "--with-builtin",
             "developer",
+            "--with-builtin",
+            "skills",
             "--name",
             FRESH_ID,
         ]
@@ -174,6 +176,8 @@ fn a_worker_is_offered_developer_and_nothing_else_in_auto_mode() {
         [
             "--with-builtin",
             "developer",
+            "--with-builtin",
+            "skills",
             "--resume",
             "--name",
             FRESH_ID
@@ -199,7 +203,7 @@ fn a_worker_is_offered_developer_and_nothing_else_in_auto_mode() {
     let vars = env_vars(&research);
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
     assert!(!vars.iter().any(|v| v.starts_with("CONTEXT_FILE_NAMES=")));
-    assert!(!strings(&research).iter().any(|a| a.starts_with("--with-")));
+    assert!(only_skills(&research));
 }
 
 #[test]
@@ -305,45 +309,6 @@ fn a_plugin_besides_the_fence_in_the_roots_folder_refuses_the_call_and_the_fence
 }
 
 #[test]
-fn a_step_skill_is_a_file_a_goose_worker_reads() {
-    let w = World::new();
-    let plugin = w.path("skills/mattpocock");
-    std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
-    std::fs::create_dir_all(plugin.join("skills/implement")).unwrap();
-    std::fs::write(
-        plugin.join("skills/implement/SKILL.md"),
-        "---\nname: implement\n---\nThe implement steps.\n",
-    )
-    .unwrap();
-    std::fs::write(
-        plugin.join(".claude-plugin/plugin.json"),
-        r#"{"name":"mattpocock"}"#,
-    )
-    .unwrap();
-    let mut call = worker(&w, Session::New(id(FRESH_ID)));
-    call.plugin_dirs = vec![plugin.clone()];
-    call.prompt = "/mattpocock:implement Implement issue #7".into();
-
-    let text = strings(&call)
-        .into_iter()
-        .find_map(|a| a.strip_prefix("--text=").map(str::to_owned))
-        .unwrap();
-    let skill = plugin.join("skills/implement/SKILL.md");
-    assert!(text.contains(skill.to_str().unwrap()), "{text}");
-    assert!(text.contains("`implement`"), "{text}");
-    assert!(!text.contains("The implement steps."), "{text}");
-    assert!(text.ends_with("\n\nImplement issue #7"), "{text}");
-
-    // A skill the plugins do not hold goes through as it is.
-    call.prompt = "/mattpocock:tdd Implement issue #7".into();
-    assert!(strings(&call).contains(&format!("--text={}", call.prompt)));
-
-    // The skill's file is the sandbox's to read.
-    let policy = policy_of(&w, &call);
-    assert!(policy.read.contains(&plugin), "{:?}", policy.read);
-}
-
-#[test]
 fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researchers() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
@@ -355,7 +320,7 @@ fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researcher
     assert!(why.contains("outside the kelpie fence"), "{why}");
     assert!(!w.path("settings.goose").exists(), "nothing was made");
     // And a command built for one anyway is a researcher's: no tool, no auto mode.
-    assert!(!strings(&unfenced).iter().any(|a| a.starts_with("--with-")));
+    assert!(only_skills(&unfenced));
     let vars = env_vars(&unfenced);
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
 }

@@ -4,16 +4,19 @@
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
 //! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no builtin extension: the model is offered no shell or
-//! file tool, so it reads what kelpie wrote it and answers, with the web of its
-//! MCP server where the package is installed ([`web`]). A worker is offered goose's `developer`
+//! researcher is loaded no builtin extension but `skills`, which lists the skills
+//! and offers `load_skill`: the model is offered no shell or file tool, so it
+//! reads what kelpie wrote it and answers, with the web of its MCP server where
+//! the package is installed ([`web`]). A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
 //! no read tool, so they read the repo through a `shell` that runs only what
 //! reads, and they write no file. A call also loads the MCP servers of the repo,
 //! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
-//! hook lets those servers' tools through. The sandbox
+//! hook lets those servers' tools through. Every call lists the skills of its
+//! plugins, and a step's prompt runs as goose's own skill command ([`skills`]).
+//! The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -30,7 +33,7 @@ use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::pi::adopt::{Carried, kept_server};
-use super::pi::{deny_the_server, step_skill};
+use super::pi::deny_the_server;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
@@ -38,17 +41,20 @@ use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Forward,
-    Kept, Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
+    Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld,
+    Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
 mod adopt;
+mod attach;
 mod compact;
 mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
 mod output;
+mod skills;
 pub(crate) mod web;
 
 #[cfg(test)]
@@ -56,6 +62,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod compact_tests;
@@ -77,6 +86,9 @@ mod escapes;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod skills_tests;
 
 #[cfg(test)]
 mod tests;
@@ -118,6 +130,8 @@ pub struct GooseCli {
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
+    // The forwarder of each terminal session, until its end
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -132,6 +146,7 @@ impl ClaudeCli {
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -162,6 +177,7 @@ impl Agents for GooseCli {
         hooks::only_ours(&files)?;
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
+        skills::link(call, &files)?;
         // A new session records the servers it is created with, since a resumed one holds those
         // and not what the call loads by then.
         if let Session::New(id) = &call.session {
@@ -247,6 +263,14 @@ impl Agents for GooseCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.terminal_ended(session);
+    }
 }
 
 impl GooseCli {
@@ -306,15 +330,17 @@ impl GooseCli {
         call: &AgentCall,
         lease: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
-        self.wrapped_command(call, lease, argv(call)?)
+        self.wrapped_command(call, lease, argv(call)?, None)
     }
 
-    // `goose` with `args`, in the call's sandbox and with its variables
-    fn wrapped_command(
+    // `goose` with `args`, in the call's sandbox and with its variables. `mode` is the
+    // `GOOSE_MODE` the call is given in place of its headless one.
+    pub(super) fn wrapped_command(
         &self,
         call: &AgentCall,
         lease: Option<&str>,
         args: Vec<OsString>,
+        mode: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
         let server = server(call)?;
         let upstream = self.upstream(server)?;
@@ -345,7 +371,7 @@ impl GooseCli {
         // `env` runs inside the sandbox, after the sandbox has set its own variables.
         let mut command = crate::spawn::command("env");
         command
-            .args(env_args(call, server, &files, &upstream))
+            .args(env_args(call, server, &files, &upstream, mode))
             .arg(&self.program)
             .args(args)
             .current_dir(&call.cwd);
@@ -426,18 +452,13 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     Ok(())
 }
 
-// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. A worker
-// is told to follow that skill's file, which its shell reads.
+// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. goose
+// runs a skill it is given as `/<name> <rest>`, so a prompt that names one of
+// the call's skills is that command ([`skills::prompt`]), or the skill's text
+// where the call has no tool to load it with.
 fn prompt(call: &AgentCall) -> String {
-    match step_skill(call).filter(|_| works(call)) {
-        Some(step) => format!(
-            "Follow the skill `{}` in {}: read it first, then do what it says for this.\n\n{}",
-            step.name,
-            step.dir.join("SKILL.md").display(),
-            step.rest
-        ),
-        None => call.prompt.clone(),
-    }
+    let offers_tools = !chat(call, &Files::of(&call.settings));
+    skills::prompt(call, offers_tools).unwrap_or_else(|| call.prompt.clone())
 }
 
 // goose takes its system prompt as text, not as a path.
@@ -482,6 +503,12 @@ fn judging<'a>(call: &AgentCall, fence: &'a crate::ports::Fence) -> hooks::Judgi
     }
 }
 
+// Whether the call runs in `GOOSE_MODE=chat`: it has no shell and its session
+// holds no MCP server, so goose rejects any tool call it makes.
+fn chat(call: &AgentCall, files: &Files) -> bool {
+    !(has_shell(call) || mcp::loads(call, files))
+}
+
 // Whether goose offers the call its `developer` tools, behind the hook plugin.
 fn has_shell(call: &AgentCall) -> bool {
     works(call) || reads(call)
@@ -519,12 +546,13 @@ fn told(call: &AgentCall, prompt: String) -> String {
 // tool for `auto` to allow, and goose rejects one that appears anyway. A
 // worker's, a reader's and a call's that loads an MCP server is `auto`, which ignores
 // goose's own `permission.yaml`, so the hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
-// `CLAUDE.md`, as pi does, and never `.goosehints`.
+// `CLAUDE.md`, as pi does, and never `.goosehints`. A `mode` replaces that `GOOSE_MODE`.
 fn env_args(
     call: &AgentCall,
     server: &ModelServer,
     files: &Files,
     upstream: &Upstream,
+    mode: Option<&str>,
 ) -> Vec<OsString> {
     let mut vars: Vec<(String, OsString)> = vec![
         ("GOOSE_PATH_ROOT".into(), files.root.clone().into()),
@@ -536,10 +564,10 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if has_shell(call) || mcp::loads(call, files) {
-                "auto"
-            } else {
-                "chat"
+            match mode {
+                Some(mode) => mode,
+                None if chat(call, files) => "chat",
+                None => "auto",
             }
             .into(),
         ),
@@ -573,7 +601,7 @@ fn env_args(
 }
 
 // The prompt is one `--text=` argument, so one that starts with `-` is not read
-// as a flag. A researcher is given no extension but its MCP servers. A worker is
+// as a flag. A worker is
 // given the `developer` builtin on a resumed call too: goose de-duplicates a
 // builtin, where a repeated `--with-extension` name ends the run. A reviewer,
 // advisor or retro is given it on a new session ([`offers_developer`]), and only
@@ -593,6 +621,8 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
         argv.extend(["--with-builtin".into(), "developer".into()]);
     }
     argv.extend(mcp::flags(call));
+    // Every call lists its plugins' skills, a resumed one too: goose keeps a builtin once.
+    argv.extend(["--with-builtin".into(), "skills".into()]);
     // goose builds its system prompt afresh on every call, a resumed one too.
     if let Some(text) = system_text(call)? {
         argv.push(format!("--system={text}").into());
@@ -622,6 +652,7 @@ fn policy(
         policy.write.clear();
     }
     policy.no_keychain = call.reach.block_keychain;
+    skills::fence(&mut policy, files);
     // The call logs in nowhere and goose's config is relocated, so no harness's
     // login is its own, the maintainer's goose included.
     let logins = fence::HARNESSES.iter().flat_map(|own| own.credentials);

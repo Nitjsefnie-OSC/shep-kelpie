@@ -16,7 +16,7 @@ use crate::tools::Tools as KelpieTools;
 // Written by hand from the event types in goose's source, because the builder
 // had no model to record. #798 replaces them with recordings.
 pub(super) const FRESH: &str = include_str!("../../../fixtures/goose-run-fresh.jsonl");
-const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
+pub(super) const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
 const MAX_TURNS: &str = include_str!("../../../fixtures/goose-run-max-turns.jsonl");
 const REFUSED: &str = include_str!("../../../fixtures/goose-run-refused.jsonl");
 // The one fixture that is goose's own output: goose 1.54.0 with its server at a
@@ -77,12 +77,19 @@ pub(super) fn goose_with(world: &World, program: PathBuf) -> GooseCli {
         .with_program(program)
 }
 
+// Whether goose is offered no extension but `skills`
+pub(super) fn only_skills(call: &AgentCall) -> bool {
+    let argv = strings(call);
+    let flags = argv.iter().filter(|a| a.starts_with("--with-")).count();
+    flags == 1 && argv.windows(2).any(|a| a == ["--with-builtin", "skills"])
+}
+
 fn researcher(world: &World, session: Session) -> AgentCall {
     world.call(URL, Role::Researcher, session)
 }
 
 #[test]
-fn a_new_researcher_call_names_its_session_and_loads_no_extension() {
+fn a_new_researcher_call_names_its_session_and_loads_no_extension_but_skills() {
     let w = World::new();
     let mut call = researcher(&w, Session::New(id(FRESH_ID)));
     call.prompt = "--help me, the model needs it".into();
@@ -94,11 +101,14 @@ fn a_new_researcher_call_names_its_session_and_loads_no_extension() {
             "--output-format",
             "stream-json",
             "--text=--help me, the model needs it",
+            "--with-builtin",
+            "skills",
             "--name",
             FRESH_ID,
         ]
     );
-    for flag in ["--with-builtin", "--with-extension", "--recipe", "--resume"] {
+    assert!(only_skills(&call));
+    for flag in ["--with-extension", "--recipe", "--resume"] {
         assert!(
             !strings(&call).iter().any(|a| a.starts_with(flag)),
             "{flag}"
@@ -125,6 +135,8 @@ fn a_resumed_call_resumes_by_name_and_gets_its_instructions_again() {
             "--output-format",
             "stream-json",
             "--text=and now?",
+            "--with-builtin",
+            "skills",
             "--system=You are a researcher.\nBe brief.",
             "--resume",
             "--name",
@@ -157,7 +169,7 @@ fn the_call_s_environment_relocates_goose_and_closes_every_door() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let mut vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     vars.sort();
     let (root, scratch) = (w.path("settings.goose"), w.path("settings.tmp"));
@@ -339,7 +351,7 @@ fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     assert!(vars.contains(&"FROM_THE_FENCE=1".to_owned()), "{vars:?}");
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");

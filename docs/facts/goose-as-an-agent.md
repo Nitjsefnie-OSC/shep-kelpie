@@ -7,7 +7,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - `goose run --no-profile --output-format stream-json --text=<prompt>`
   - `--text=<prompt>` is one argument, so a prompt that starts with `-` is not read as a flag.
   - `--system=<text>` carries the text of the call's instructions file. goose takes text, not a path. It is sent on every call, a resumed one too, since goose builds its system prompt afresh each time.
-  - A researcher gets no `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
+  - A researcher gets no `--with-extension` or `--recipe`, and no `--with-builtin` but `skills` (see Skills): the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
 - `call.effort` is not passed. goose's openai provider has no reasoning-effort flag or variable.
 - Session identity: goose picks its own session ids and `stream-json` never prints one.
   - A name set with `--name` is kept as given (`user_provided_name` in `crates/goose-cli/src/cli.rs`), and `--resume --name` finds the session whose name or id matches.
@@ -29,10 +29,10 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 | `TMPDIR` | the call's scratch folder | the one temporary folder the sandbox lets it write |
 | `GOOSE_MODE` | `chat` | see below |
 
-- `GOOSE_MODE=chat` for a call that loads no extension: it has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker, and any call that loads an MCP server, runs in `auto` behind the hook (see A worker inside the fence and MCP servers).
+- `GOOSE_MODE=chat` for a call that loads no extension but `skills`: it has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker, and any call that loads an MCP server, runs in `auto` behind the hook (see A worker inside the fence and MCP servers).
 - `GOOSE_SLASH_COMMANDS_ENABLED` is left unset. It is not read on 1.54.0's default reply loop, and #792 and #793 use goose's commands.
   - goose reads a first message that starts with `/` as one of its own commands (`execute_command` in `crates/goose/src/agents/execute_commands.rs`).
-  - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. So the adapter adds no prefix. Not checked: a prompt that names a goose command or a skill goose has. None is loaded here.
+  - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. A prompt that names a skill goose has is rewritten to `/<name> rest` by the adapter (see Skills). Not checked: a prompt that names a goose command.
 
 ## Project files goose loads whatever `--no-profile` says
 
@@ -131,6 +131,31 @@ Written for #794, from goose's v1.54.0 source. No model turn was run: #798 runs 
 - The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`, or `researcher.allowed_domains`.
 - Not run: the flags against a real server, the `tool_name` in the hook's payload (read as `<key>__<tool>` from goose's source), and whether goose warns, not fails, on a skipped env key.
 
+## Skills
+
+Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs a real one. The `goose` binary was not run for this slice either.
+
+- The `skills` platform extension (`crates/goose/src/skills/client.rs`) puts every discovered skill's name and description in the system prompt and offers a `load_skill` tool. It is on by default, so `--no-profile` drops it and `--with-builtin skills` brings it back. Every call is given it (`Work`, `Review`, `Advise`, `Research`, `Retro`), beside `developer` where there is one, and a resumed call too: goose keeps a builtin once.
+- Discovery order (`all_skill_dirs_with_config` in `crates/goose/src/skills/mod.rs`): the worktree's `.agents/skills`, `.goose/skills` and `.claude/skills`, project plugins, then the real home's `~/.agents/skills`, `<GOOSE_PATH_ROOT>/config/skills`, `~/.claude/skills`, `~/.config/agents/skills`, and the skills of user plugins. The first skill of a name wins.
+  - `GOOSE_PATH_ROOT` moves the config folder and the plugin folder, and not the home. So left alone a call lists the maintainer's own skills from the real home.
+  - A skill's name is the `name` line of its `SKILL.md`, and a skill without one is skipped. Folders inside one root are read in directory order, so two skills of one name in one root are not stable.
+- Two skills are built in, `web-search` and `goose-doc-guide`, and listed unless a discovered skill already has the name. `web-search` tells the model to run `uvx ddgs` and `curl`.
+- A first message of `/<skill-name> <rest>` is resolved by goose (`handle_skill_command` in `crates/goose/src/agents/execute_commands.rs`). The model receives the skill's text and then `ARGUMENTS: <rest>`. Disk is read for this, so it works without the extension.
+  - When the skill's text holds `$ARGUMENTS`, `$ARGUMENTS[n]` or `$` and a number, goose splits `<rest>` like a shell, and an unbalanced quote ends the turn with an error text and no model call.
+- What kelpie does (`src/adapters/goose/skills.rs`):
+  - `prepare` empties `<GOOSE_PATH_ROOT>/config/skills` and links one folder per skill of the call's plugins into it, named by the `name` line. The step's skill comes first, then the plugins in order, and a folder name goes in sorted order within a plugin. The first of a name is linked and the rest are not. A skill with no `name`, or a `/` in it (or `.`, `..` or an empty one), is not linked. goose follows the links to the plugin folders, which the sandbox reads (`policy.read` holds `call.plugin_dirs`).
+  - A stub `SKILL.md` for `web-search` and `goose-doc-guide`, each saying it is not available in this run, is written into the same folder unless a plugin's skill has the name. goose adds a builtin only when no discovered skill has its name. The stubs stop a worker spending turns on `uvx` and on docs it cannot fetch. Deleting `STUBS` brings the builtins back.
+  - `~/.agents/skills`, `~/.claude/skills` and `~/.config/agents/skills` are unreadable to the call, and `<root>/config/skills` is unwritable, so the call cannot plant a skill for its next turn. The worktree's own `.agents/skills`, `.goose/skills` and `.claude/skills` still load, as on Claude Code: a worker cannot add one, since all three folders are write-fenced (`fence::HARNESSES`).
+  - A step prompt `/<plugin>:<skill> <rest>` becomes `/<name> <rest>` for the skill's `name` line, so goose injects the skill. When that `SKILL.md` holds `$ARGUMENTS` or a `$` followed by a digit, the prompt stays as written and the model loads the skill with `load_skill`; a call in `chat` cannot, so its prompt is the skill's text without the front matter, its placeholders filled in (`$ARGUMENTS` is `<rest>`, `$ARGUMENTS[n]` and `$n` its nth shell-split word, from 0), then `ARGUMENTS: <rest>`. goose's own substitution (`apply_skill_arguments`) was not read for this: the fill-in follows goose's documented placeholders, and #798 checks it. A skill that a worktree folder (`.agents/skills`, `.goose/skills`, `.claude/skills`) holds one of the same name beside is sent as its text too: goose reads those first (from the review of #847; not run). The stub of a builtin is never written where the path exists, which on a case-folding file system is where a plugin's `Web-Search` is linked. A prompt naming a skill no plugin holds is left as it is, and so is one naming a skill called like a goose command (`COMMANDS` in `src/adapters/goose/skills.rs`, a guess at a superset: the source of `execute_commands.rs` could not be read for this fix, and #798 settles the list).
+  - The fence hook lets `load_skill` through for every kind (`Work`, the read-only guard and a reviewer's tests guard). `load_skill` reads files inside goose, so the sandbox's read rules bound it.
+- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a researcher where the web package is not installed, and a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, or carries the skill's text where the skill holds a placeholder. Not run: whether goose lists skills at all in `chat`.
+- Not run: the tool's name in the hook's payload (read as bare `load_skill`, as `developer`'s tools are bare, and a prefixed name would be refused), that goose follows a link in `config/skills`, that it lists a stub in place of its builtin, and the `/<name>` command on a real turn.
+- What every prompt now carries, counted from the `SKILL.md` files (the `name:` and `description:` lines, a newline each, in bytes):
+  - The 15 skills of the vendored mattpocock plugin (`skills/skills/*/*/SKILL.md`): 2721 bytes.
+  - The two stubs: 232 bytes (`web-search` 112, `goose-doc-guide` 120).
+  - goose's two builtin skills: not counted. Their `SKILL.md` files are inside the goose binary, and no copy of the source was at hand. #798 can count them from a recorded system prompt. The stubs replace them, so they add to nothing.
+  - Each plugin's skills the repo and its marketplaces add come on top, and the repo's own `kelpie-repo` plugin is one.
+
 ## The researcher's web
 
 Measured 2026-10-14 for #797, with Node 26.11.1 and npm, no model and no GPU. Each candidate was installed in an empty folder at its latest version, started over stdio, and sent `initialize` and `tools/list`. goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it.
@@ -195,6 +220,19 @@ Written for #792, from goose's v1.54.0 source. No model turn was run: all of thi
 - `fixtures/goose-run-unreachable.jsonl` is goose's own output from the closed-port run, the temporary folder renamed.
 - `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. `fixtures/goose-run-refused.jsonl` is a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused, also by hand, with the shape of a tool request and its response read from the source. `goose-compact.jsonl` (a `/compact` that compacted), `goose-compact-failed.jsonl` (one that printed an error), `goose-auto-compacted.jsonl` (a turn with three `systemNotification` messages and a `complete` total that includes the compaction) and `goose-session-list.json` are by hand too, from the source's shapes. #798 replaces them with recordings, made by the ignored tests `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server` and `record_a_worker_whose_write_and_shell_the_fence_refuses`.
 
+## The terminal session
+
+Written for #796. Read from goose 1.54.0's source and not run. #798 confirms it live.
+
+- `goose session --resume --name <id>` resumes a session in the terminal. `--session-id` takes goose's own id for the session (`get_session(session_id)` in `crates/goose-cli/src/session/builder.rs`), which is not the name kelpie creates it with, so kelpie resumes by `--name`, which matches a name or an id. `--session-id` without `--resume` is an error, and `session` has no flag for a first message.
+- The terminal's tokens add to the session's accumulated totals in `sessions.db`, which the next `complete` event reports (`get_session_usage_totals`, a sum over the session and its children). Kelpie does not read the database, so it marks its own record of the totals stale when the terminal starts (a restarted runner has lost the session by its end), and the next headless turn is charged none of its tokens.
+- A resumed session uses the extension set it stored, so the command passes no `--with-*` flag and no `--no-profile`.
+- The session's permission mode is set again from `GOOSE_MODE` at every start, so the terminal can run in a different mode than the headless calls. Kelpie runs it in `approve`, where goose asks before each tool call. The `PreToolUse` hook runs in any mode.
+- The telemetry consent dialog is skipped when `GOOSE_TELEMETRY_OFF` is set, so no prompt blocks the start.
+- If the terminal's folder is not the session's, goose asks on the terminal whether to switch, so the command runs in the worktree.
+- goose keeps its sessions in SQLite with no per-session lock. Attach's wait for a call in flight and its hold keep a headless call and the terminal apart.
+- Not run: that interactive goose runs inside kelpie's sandbox with a terminal, and which paths its history file needs. Its history goes under the session's `GOOSE_PATH_ROOT`; a path the sandbox refuses goes in `policy.write`.
+
 ## Not run yet (for #798)
 
 - An MCP server's flags and tool names, as in MCP servers above.
@@ -206,4 +244,5 @@ Written for #792, from goose's v1.54.0 source. No model turn was run: all of thi
 - That goose starts without writing `<root>/config`.
 - Which session `--resume --name` picks when two share a name.
 - The retry delay on a refused connection and on a 502 or 503.
+- That `goose session --resume` starts under the sandbox with a terminal, as in The terminal session above.
 - `/compact`'s answer and its failure text, the shape of the `systemNotification` messages, and the `usage` object `session list` prints, with the fallback above if it holds none.

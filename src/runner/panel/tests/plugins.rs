@@ -8,6 +8,9 @@ use crate::test::Rig;
 const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                   url: http://box:11434/v1\ncontext: 65536\n---\n";
 
+const GOOSE: &str = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                     url: http://box:11434/v1\ncontext: 65536\n---\n";
+
 // Lands a marketplace `house` holding the plugin `style` on the default branch, and the repo's
 // settings turning it on
 fn land_style(rig: &Rig) {
@@ -76,6 +79,37 @@ fn a_pi_call_gets_the_repos_own_claude_files_whatever_its_worktree_holds() {
     assert!(!calls.is_empty(), "the worker made no call");
     for call in calls {
         assert!(matches!(call.call.harness, AgentHarness::Pi(_)));
+        assert!(
+            call.call.plugin_dirs.contains(&own),
+            "{:?}",
+            call.call.plugin_dirs
+        );
+        assert!(own.join("skills/house/SKILL.md").is_file());
+    }
+}
+
+// A goose call is not told to load the worktree's `.claude` folder, so the repo's own files
+// reach it as a plugin whether or not its worktree matches `main`.
+#[test]
+fn a_goose_call_gets_the_repos_own_claude_files_whatever_its_worktree_holds() {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        rig.land(
+            ".claude/skills/house/SKILL.md",
+            "---\nname: house\n---\nRules.\n",
+        );
+        name_panel(rig, true);
+        rig.write_agent("goose-box", GOOSE);
+        rig.implementers(&["goose-box"]);
+    });
+    script_all(&rig, true);
+    settle(&rig, &runner);
+    let own = rig.paths().skills.join("repo/kelpie-repo");
+    let calls = seen(&rig, Role::Worker);
+    assert!(!calls.is_empty(), "the worker made no call");
+    for call in calls {
+        assert!(matches!(call.call.harness, AgentHarness::Goose(_)));
         assert!(
             call.call.plugin_dirs.contains(&own),
             "{:?}",

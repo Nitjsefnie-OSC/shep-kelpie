@@ -20,13 +20,13 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 - Retro moved from worker to PM: batch after every 10 finished items and at a drain, one call with the PM's agent over a digest (`journal.jsonl`, rulings, ledger). Overnight 30 retros were ~14% of spend (~94k-token cache write for ~3k of report). Worker keeps a PR-body `Friction` section. Off unless `skills.retro`; no slot, never retried, saved unread (agents acting on retros loop). Digest counts conflicts per file, rounds, late findings, known flakes (also in CI fix prompts). #361, #566, #657, `src/runner/retro.rs`
 - Worker asks with a `<kelpie-question>` block ending its message; parks on a `question` ruling with optional `- ` choices. #13
 - A choice only the maintainer can carry out (run a command, change a setting, grant a permission) starts with `You`, names what they do and what the worker does after, in the worker's instructions and the PM's `candidates` and `escalate`: an answer is the worker's next turn, so a bare verb reads as an order to a worker that may be unable to obey (shep#829). Neither prompt offers more worker GitHub access as a choice; the token's scope is a design decision (`docs/design/github-app.md`). #805, `src/worker-instructions.md`, `src/runner/pm/prompt.rs`
-- `shep kelpie attach <issue>` hands a worker's Claude Code, pi or Codex session to maintainer, sandboxed; held by pid + start time. #325, #766, #775
+- `shep kelpie attach <issue>` hands a worker's Claude Code, pi, Codex or goose session to maintainer, sandboxed (goose: `goose session --resume --name <id>`, `GOOSE_MODE=approve`, so it asks before each tool call and the hook still refuses what a worker may not do); held by pid + start time. #325, #766, #775, #796
 - PR template filled, ending `Resolves #<issue>`; no repo template means the owner's `.github` one, read at start and reread, cut past 8 KiB. #596; `worker.instructions_file` adds project rules. #87, `src/runner/instructions.rs`
 - Out-of-scope finds named in final message; deferred review findings in the deferred findings file the instructions name; PR stays on its issue. #649, `src/runner/follow_up.rs`
 
 ## Fence
 
-- Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load. #98, `src/profile.rs`
+- Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load (on goose, the call's plugins' skills are linked into its own `config/skills`, `skills.md`). #98, `src/profile.rs`
 - Kelpie's guard in every worker's settings; `worker.guard_hooks` adds Claude Code hooks; an unresolvable hook stops the runner at start. #108, `src/runner/guard_hooks.rs`
 - Project `hooks` run own commands at `publish`, `commit`, `push`, `handover`, `command`, `write`, `turn_start`, `turn_end`, notices on every harness (`guard_hooks` reach Claude Code alone). ADR 0009, #454, `src/hooks.rs`
 - Workers run `bypassPermissions` over `main` ruleset + OS sandbox + `kelpie guard` denylist; no auto mode (classifier outages blocked work). `src/profile.rs`
