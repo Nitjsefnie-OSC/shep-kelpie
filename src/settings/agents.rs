@@ -282,6 +282,12 @@ pub struct RoleAgentNames {
     /// the codebase. When absent, no researcher votes.
     #[serde(default)]
     pub researcher: Option<AgentName>,
+    /// The representative, from kelpie's agent files: the one voice that
+    /// words every post to a contributor. A project that picks contributions
+    /// needs it, so unlike the advisor it has a default. `representative`
+    /// when absent.
+    #[serde(default = "default_representative")]
+    pub representative: AgentName,
 }
 
 impl Default for RoleAgentNames {
@@ -294,6 +300,7 @@ impl Default for RoleAgentNames {
             pm: None,
             advisor: None,
             researcher: None,
+            representative: default_representative(),
         }
     }
 }
@@ -304,6 +311,10 @@ fn default_implementers() -> Vec<AgentName> {
 
 fn default_issue_writer() -> AgentName {
     AgentName::kelpies(crate::agents::ISSUE_WRITER)
+}
+
+fn default_representative() -> AgentName {
+    AgentName::kelpies(crate::agents::REPRESENTATIVE)
 }
 
 /// One agent a project lists in `agents.implementers`
@@ -339,7 +350,8 @@ pub struct PmAgent {
     pub prompt: Option<String>,
 }
 
-/// The agent a project names in `agents.advisor` or `agents.researcher`
+/// The agent a project names in `agents.advisor`, `agents.researcher` or
+/// `agents.representative`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpertAgent {
     /// Its name
@@ -481,6 +493,27 @@ impl Settings {
             limit: limit.clone(),
             prompt: agent.prompt.clone(),
         }))
+    }
+
+    /// The representative the project names in `agents.representative`
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `agents.representative` when it has
+    /// no agent file, or its file's role is not `representative`.
+    pub fn representative(&self, agents: &Agents) -> Result<ExpertAgent, SettingsError> {
+        let at = "agents.representative";
+        let name = &self.agents.representative;
+        let agent = find(agents, name, at, at, Role::Representative)?;
+        let Runs::Session { model, limit } = &agent.runs else {
+            unreachable!("a representative's file only parses to a session")
+        };
+        Ok(ExpertAgent {
+            name: name.clone(),
+            model: model.clone(),
+            limit: limit.clone(),
+            prompt: agent.prompt.clone(),
+        })
     }
 
     /// Refuses a worker on `agent`, named `name`, where the worker's fence

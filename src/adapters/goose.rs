@@ -406,6 +406,8 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let refused = match (call.role, call.tools) {
         (Role::Researcher, _) => None,
+        // The representative reads and runs nothing: with no fence, goose offers it no tool.
+        (Role::Representative, Tools::Answer) => None,
         // ADR 0006: a harness that cannot fence cannot be a worker.
         (Role::Worker, Tools::Work) if call.reach.fence.is_none() => Some(
             "goose cannot run a worker outside the kelpie fence: the plugin that holds its \
@@ -417,11 +419,13 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
         (Role::Worker, Tools::Work | Tools::Retro)
         | (Role::Reviewer, Tools::Review)
         | (Role::Advisor, Tools::Advise) => None,
-        (Role::Worker | Role::Reviewer | Role::Advisor, tools) => Some(format!(
-            "goose cannot run {:?} tools for {}",
-            tools,
-            call.role.as_str()
-        )),
+        (Role::Worker | Role::Reviewer | Role::Advisor | Role::Representative, tools) => {
+            Some(format!(
+                "goose cannot run {:?} tools for {}",
+                tools,
+                call.role.as_str()
+            ))
+        }
         (Role::IssueWriter | Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
