@@ -38,6 +38,7 @@ use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
 mod context;
+pub(crate) mod mcp;
 mod skills;
 
 #[cfg(test)]
@@ -45,6 +46,9 @@ mod adopt_tests;
 
 #[cfg(test)]
 mod context_tests;
+
+#[cfg(test)]
+mod hook_tests;
 
 #[cfg(test)]
 mod tests;
@@ -502,7 +506,8 @@ fn config(key: &str, value: impl Into<toml::Value>) -> OsString {
 }
 
 // Codex ignores the user config and rules, and keeps its databases and
-// logs in folders of `home` the call may write. It reads the repo's AGENTS.md.
+// logs in folders of `home` the call may write. It reads the repo's AGENTS.md,
+// and loads only the MCP servers it is given.
 fn argv(
     call: &AgentCall,
     home: &Path,
@@ -553,6 +558,7 @@ fn argv(
         argv.extend(["-c".into(), config("developer_instructions", text)]);
     }
     argv.extend(context::limit_args(call.compact_window, resumed));
+    argv.extend(mcp::overrides(call));
     let mut off: Vec<&str> = FEATURES_OFF.into();
     // Only a worker runs commands. A review round reads what
     // its prompt holds, as Claude Code's do, with no command to run.
@@ -734,6 +740,7 @@ fn policy(call: &AgentCall, login: &Path, files: &Files, unfenced: &[String]) ->
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),
     );
+    super::mcp::fence_the_graph(&mut policy, call);
     policy.hosts.push(MODEL_HOST.to_owned());
     // Codex verifies the model's certificate through macOS, as `gh` does
     // (`docs/facts/codex-as-an-agent.md`).

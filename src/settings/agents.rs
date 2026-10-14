@@ -139,8 +139,8 @@ impl AgentHarness {
     /// Whether a call on it loads the MCP servers kelpie hands it: the repo's, its plugins' and the code graph
     pub fn loads_mcp(&self) -> bool {
         match self {
-            Self::ClaudeCode | Self::Pi(_) => true,
-            Self::Codex | Self::Goose(_) => false,
+            Self::ClaudeCode | Self::Pi(_) | Self::Codex => true,
+            Self::Goose(_) => false,
             #[cfg(test)]
             Self::StandIn => true,
         }

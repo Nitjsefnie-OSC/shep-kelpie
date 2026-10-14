@@ -271,3 +271,76 @@ fn a_server_pi_cannot_load_is_dropped_with_a_note() {
     assert!(notes.contains("the MCP server `old`"), "{notes}");
     assert!(notes.contains("SSE"), "{notes}");
 }
+
+const CODEX_IMPLEMENTER: &str =
+    "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neffort: low\n---\n";
+
+const CODEX_RESEARCHER: &str =
+    "---\nrole: researcher\nharness: codex\nmodel: gpt-6-sol\neffort: low\n---\nVote.\n";
+
+// A parked ruling on a repo with those servers, whose worker and researcher run on Codex, with
+// every call of the panel made
+fn settled_on_codex(own: Option<Value>) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        land_servers(rig);
+        if let Some(own) = own {
+            rig.land(".mcp.json", &own.to_string());
+        }
+        super::name_panel(rig, true);
+        rig.write_agent("codex-box", CODEX_IMPLEMENTER);
+        rig.implementers(&["codex-box"]);
+        rig.write_agent("codex-researcher", CODEX_RESEARCHER);
+        rig.edit_settings(|s| {
+            s.replace(
+                "researcher = \"researcher\"",
+                "researcher = \"codex-researcher\"",
+            )
+        });
+    });
+    script_all(&rig, true);
+    settle(&rig, &runner);
+    (rig, runner)
+}
+
+#[test]
+fn a_codex_researcher_gets_the_repos_servers_and_a_codex_retro_vote_gets_none() {
+    let (rig, _runner) = settled_on_codex(None);
+
+    let researchers = seen(&rig, Role::Researcher);
+    assert!(!researchers.is_empty());
+    for call in researchers {
+        assert_eq!(call.call.harness, AgentHarness::Codex);
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search"]);
+    }
+    let (works, votes): (Vec<_>, Vec<_>) =
+        (seen(&rig, Role::Worker).into_iter()).partition(|c| c.call.tools != Tools::Retro);
+    assert!(!works.is_empty() && !votes.is_empty());
+    for call in works {
+        assert_eq!(call.call.harness, AgentHarness::Codex);
+        assert_eq!(call.call.reach.mcp_servers.len(), 2);
+    }
+    for vote in votes {
+        assert_eq!(vote.call.harness, AgentHarness::Codex);
+        assert!(vote.call.reach.mcp_servers.is_empty());
+    }
+}
+
+#[test]
+fn a_server_codex_cannot_load_is_dropped_with_a_note() {
+    let own = json!({ "mcpServers": {
+        "docs": { "type": "http", "url": "https://docs.example.com/mcp" },
+        "old": { "type": "sse", "url": "https://old.example.com/sse" },
+    } });
+    let (rig, runner) = settled_on_codex(Some(own));
+
+    for call in seen(&rig, Role::Researcher) {
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search"]);
+    }
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("the MCP server `old`"), "{notes}");
+    assert!(notes.contains("SSE"), "{notes}");
+}
