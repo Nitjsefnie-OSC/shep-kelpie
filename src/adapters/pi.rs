@@ -32,7 +32,7 @@ use super::process::{Processes, RunError};
 use super::skills::skill_dirs;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
     Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
@@ -693,11 +693,13 @@ fn guard_extension(fence: &Fence) -> String {
         after.push(AFTER_FLAG.to_owned());
         after
     });
+    let pause = Pause::in_build(&guard.build);
     let checks = json!({
         "kelpie": text(&guard.kelpie),
         "confine": confine,
         "guard": commands,
         "after": after,
+        "pause": { "requested": pause.requested_file(), "ended": pause.ended_file() },
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
 }

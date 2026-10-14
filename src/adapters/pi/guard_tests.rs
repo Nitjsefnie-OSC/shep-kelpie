@@ -335,3 +335,60 @@ fn a_guard_whose_checks_cannot_run_refuses() {
     let verdicts = guarded(&w, &w.path("no-such-kelpie"), events);
     assert!(verdicts.iter().all(|v| v["block"] == true), "{verdicts:?}");
 }
+
+// Loads the guard extension as pi does and hands its `tool_result` handler two
+// events, with a context that counts the aborts asked of it.
+const ABORT_RUNNER: &str = r#"
+import { writeFileSync } from "node:fs";
+import guard from "./guard.mts";
+let handler;
+guard({ on: (name, fn) => { if (name === "tool_result") handler = fn; } });
+let aborts = 0;
+const ctx = { cwd: process.argv[2], abort: () => { aborts += 1; } };
+const event = { toolName: "read", input: { path: "a" }, content: [], isError: false };
+const first = (await handler(event, ctx)) ?? null;
+process.stdout.write(JSON.stringify({ aborts_before: aborts }) + "\n");
+writeFileSync(process.argv[3], "");
+const second = (await handler(event, ctx)) ?? null;
+console.log(JSON.stringify({ aborts, first, second }));
+"#;
+
+#[test]
+fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let fence = call.reach.fence.as_deref().unwrap();
+    let pause = crate::guard::Pause::in_build(&fence.guard.build);
+    std::fs::create_dir_all(&fence.guard.build).unwrap();
+    std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
+    std::fs::write(w.path("run.mjs"), ABORT_RUNNER).unwrap();
+    // The runner sets the pause between its two results, as `drain pause` does mid-turn.
+    let out = std::process::Command::new("node")
+        .arg(w.path("run.mjs"))
+        .arg(w.path("wt"))
+        .arg(pause.requested_file())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let lines: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert_eq!(
+        lines[0]["aborts_before"], 0,
+        "no pause is set: the turn goes on"
+    );
+    assert_eq!(lines[1]["aborts"], 1, "the next result ends the turn");
+    assert_eq!(
+        lines[1]["second"],
+        serde_json::Value::Null,
+        "the result is kept"
+    );
+    assert!(pause.ended_turn(), "the runner tells a paused turn by this");
+}

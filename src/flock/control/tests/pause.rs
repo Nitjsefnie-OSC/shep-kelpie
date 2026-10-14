@@ -21,7 +21,25 @@ const ATTACHED: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"
 const MERGING: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"merge","head":"abc"}}],
     "draining":{"calls":[],"ceiling":3600}}"#;
 
-async fn paused(
+// Draining with #7's worker turn ending at its next tool call, which it has
+// not reached
+pub(super) const IN_TOOL_7: &str = r#"{"work_items":[{"issue":7,"phase":{"state":"implement"}}],
+    "draining":{"calls":[{"issue":7,"role":"worker"}],"ceiling":3600,"at_tool":[7]}}"#;
+
+// What a runner from before `drain pause` answers it
+const NO_PARAMS: &str = r#"{"error":"`drain` takes no params"}"#;
+
+// The params of each `drain` sent
+fn drain_params(writes: &[Request]) -> Vec<Option<String>> {
+    (writes.iter())
+        .filter_map(|w| match w {
+            Request::Trigger { action, params, .. } if action == "drain" => Some(params.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(super) async fn paused(
     shepherd: &FakeShepherd,
     patience: Patience,
     interrupt: Interrupt,
@@ -260,4 +278,35 @@ async fn a_runner_s_refusal_of_a_ruling_is_its_error() {
     let err = in_time(rule(&client, &project("koji"), "14 yes", &answers)).await;
     assert_eq!(err, Err("no ruling 14 is pending".into()));
     assert!(!answers.exists());
+}
+
+#[tokio::test]
+async fn pause_says_which_work_items_it_waits_on_and_that_each_ends_at_its_next_tool_call() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[IN_TOOL_7, IN_TOOL_7, DRAINED]);
+    let (ran, said) = paused(&shepherd, FAST, Interrupt::Never).await;
+    ran.unwrap();
+    assert_eq!(
+        said[1],
+        "waiting: `koji` is running #7's worker turn, which ends at its next tool call"
+    );
+    assert_eq!(
+        drain_params(&shepherd.writes()),
+        [Some("pause".to_owned()), Some("pause".to_owned())]
+    );
+}
+
+#[tokio::test]
+async fn a_runner_from_before_drain_pause_is_drained_plainly() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[DRAINED, NO_PARAMS, DRAINED]);
+    let (ran, _) = paused(&shepherd, FAST, Interrupt::Never).await;
+    ran.unwrap();
+    assert_eq!(
+        drain_params(&shepherd.writes()),
+        [Some("pause".to_owned()), None],
+        "the refused params are sent again as a plain drain"
+    );
 }

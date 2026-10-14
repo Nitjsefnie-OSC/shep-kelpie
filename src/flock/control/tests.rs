@@ -13,12 +13,15 @@ mod finish;
 mod late;
 mod pause;
 
+use pause::{IN_TOOL_7, paused};
+
 // A pause's waits, short so a test of one running out ends soon
 const FAST: Patience = Patience {
     poll: Duration::from_millis(10),
     start: Duration::from_secs(10),
     merge: Duration::from_secs(10),
     margin: Duration::from_secs(10),
+    tool: Duration::from_secs(10),
 };
 const EXAMPLE: &str = include_str!("../../../settings.example.toml");
 
@@ -753,4 +756,30 @@ async fn the_flock_s_repos_are_refused_when_a_project_s_repo_cannot_be_told() {
         .await
         .unwrap_err();
     assert!(err.contains("project vault"), "{err}");
+}
+
+#[tokio::test]
+async fn a_pause_stops_a_call_still_in_its_tool_after_the_limit() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    shepherd.says("koji", &[IN_TOOL_7]);
+    let patience = Patience {
+        tool: Duration::from_millis(100),
+        ..FAST
+    };
+    let (ran, said) = paused(&shepherd, patience, Interrupt::Never).await;
+    assert_eq!(
+        ran.unwrap(),
+        ["koji's runner is stopped: `shep kelpie start koji` runs it again"]
+    );
+    assert_eq!(asked(&shepherd.writes()).last().unwrap(), "stop");
+    assert!(
+        said.contains(
+            &"`koji` is still in a tool call of #7's worker turn, which ends at its next tool \
+              call after 0s, so the stop cuts it short"
+                .to_owned()
+        ),
+        "{said:?}"
+    );
+    assert!(!shepherd.sheep("koji").unwrap().1);
 }

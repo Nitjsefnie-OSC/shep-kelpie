@@ -8,7 +8,14 @@
 //! answer says, plus [`Patience::margin`], counted from when the wait began.
 //! A turn's ceiling counts from when it got the lease it waited for, and a
 //! reviewer's call has none, so either can outrun the bound. Past it the runner is named and
-//! left running. A runner on a build from before `drain` answers it, twice,
+//! left running.
+//!
+//! A pause sends `drain pause`, which also ends each worker turn at its next
+//! tool call, on a harness that can. Those turns are waited on for
+//! [`Patience::tool`] only: a tool call can run long, and past the limit the
+//! pause goes on to the stop, which cuts the call short as `shep stop` does.
+//! A runner from before `drain pause` is sent a plain `drain` and waited on
+//! as an upgrade waits. A runner on a build from before `drain` answers it, twice,
 //! as an action nobody took while it answers `status`: it is restarted or
 //! stopped as before, which cuts its calls short.
 
@@ -18,7 +25,7 @@ use serde_json::Value;
 use tokio::time::Instant;
 
 use super::restart::Patience;
-use crate::flock::control::{Answered, trigger};
+use crate::flock::control::{Answered, refusal, trigger};
 use crate::shepherd::Connection;
 
 /// What a runner is drained for, which the lines about it name
@@ -55,6 +62,14 @@ impl Purpose {
         }
     }
 
+    // The params its `drain` takes: a pause also ends worker turns at a tool call.
+    fn params(self) -> Option<&'static str> {
+        match self {
+            Self::Upgrade => None,
+            Self::Pause => Some("pause"),
+        }
+    }
+
     // What ends a runner's calls without a drain.
     fn cut(self) -> &'static str {
         match self {
@@ -67,10 +82,13 @@ impl Purpose {
 /// What a draining runner's answer says
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Drained {
-    /// Each call still running, as the upgrade names it
+    /// Each call still running, as the upgrade names it, but those a pause
+    /// ends at a tool call
     pub calls: Vec<String>,
     /// The longest a call of the runner's may run, in seconds
     pub ceiling: u64,
+    /// Each worker turn still running that ends at its next tool call
+    pub at_tool: Vec<String>,
 }
 
 /// Reads a runner's answer to `drain`: `None` when it is not draining, as a
@@ -79,9 +97,21 @@ pub fn drained(body: &str) -> Option<Drained> {
     let answer = serde_json::from_str::<Value>(body).ok()?;
     let draining = answer.get("draining")?;
     let calls = draining.get("calls")?.as_array()?;
+    let at_tool: Vec<u64> = draining
+        .get("at_tool")
+        .and_then(Value::as_array)
+        .map(|issues| issues.iter().filter_map(Value::as_u64).collect())
+        .unwrap_or_default();
+    let ends_at_tool = |call: &&Value| {
+        call["role"] == "worker" && call["issue"].as_u64().is_some_and(|i| at_tool.contains(&i))
+    };
+    let (ending, others): (Vec<_>, Vec<_>) = calls.iter().partition(ends_at_tool);
     Some(Drained {
-        calls: calls.iter().map(call).collect(),
+        calls: others.into_iter().map(call).collect(),
         ceiling: draining.get("ceiling")?.as_u64()?,
+        at_tool: (ending.into_iter())
+            .map(|ending| format!("{}, which ends at its next tool call", call(ending)))
+            .collect(),
     })
 }
 
@@ -106,15 +136,16 @@ pub(super) async fn asked(
     client: &dyn Connection,
     name: &str,
     action: &str,
+    params: Option<&str>,
 ) -> Result<Option<Answered>, String> {
-    let mut answer = trigger(client, name, action, None).await?;
+    let mut answer = trigger(client, name, action, params).await?;
     if matches!(answer, Answered::Starting)
         && matches!(
             trigger(client, name, "status", None).await?,
             Answered::Runner(_)
         )
     {
-        answer = trigger(client, name, action, None).await?;
+        answer = trigger(client, name, action, params).await?;
         if matches!(answer, Answered::Starting) {
             return Ok(None);
         }
@@ -145,12 +176,20 @@ pub async fn drain(
     let mut limit = patience.merge;
     let mut told = Vec::new();
     let mut began = false;
+    let mut params = purpose.params();
+    let mut cut = false;
     loop {
-        let Some(answer) = asked(client, name, "drain").await? else {
+        let Some(answer) = asked(client, name, "drain", params).await? else {
             return predates(name, purpose, say);
         };
         let busy = match answer {
             Answered::Runner(body) => match drained(&body) {
+                // A runner from before `drain pause` refuses the params, and
+                // takes a plain `drain`.
+                None if params.is_some() && refusal(&body).is_some() => {
+                    params = None;
+                    continue;
+                }
                 Some(drained) => {
                     if !began {
                         began = true;
@@ -163,7 +202,28 @@ pub async fn drain(
                     }
                     limit = Duration::from_secs(drained.ceiling).saturating_add(patience.margin);
                     let running = |call| format!("`{name}` is running {call}");
-                    drained.calls.into_iter().map(running).collect()
+                    // A tool call is waited on for `patience.tool` only. Past
+                    // it the stop cuts the call short, as `shep stop` does.
+                    let past = waited.elapsed() >= patience.tool;
+                    let mut busy: Vec<String> = drained.calls.into_iter().map(running).collect();
+                    if past && !drained.at_tool.is_empty() && !cut {
+                        cut = true;
+                        say(format!(
+                            "`{name}` is still in a tool call of {} after {}s, so the stop cuts \
+                             {} short",
+                            drained.at_tool.join(" and "),
+                            patience.tool.as_secs(),
+                            if drained.at_tool.len() == 1 {
+                                "it"
+                            } else {
+                                "them"
+                            }
+                        ));
+                    }
+                    if !past {
+                        busy.extend(drained.at_tool.into_iter().map(running));
+                    }
+                    busy
                 }
                 None => return predates(name, purpose, say),
             },
