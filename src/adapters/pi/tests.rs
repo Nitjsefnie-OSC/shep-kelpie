@@ -13,7 +13,7 @@ use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
 use crate::test::OpenSandbox;
 use crate::tools::Tools as KelpieTools;
 
-// Recorded from pi 0.85.1 on qwen3.8:27b through Ollama, by the ignored test
+// Recorded from pi 1.1.0 on qwen3.8:27b through the paddock, by the ignored test
 // below, with the temporary folder renamed: a new session asked to say ok...
 pub(super) const FRESH: &str = include_str!("../../../fixtures/pi-p-fresh.jsonl");
 // ...the same session resumed and asked what it said...
