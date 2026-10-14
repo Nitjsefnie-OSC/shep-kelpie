@@ -189,7 +189,7 @@ It ends up holding:
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 ```
 
-For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](settings.example.toml), and `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
+For npm, that is `registry.npmjs.org`. What an entry may be is in [`settings.example.toml`](https://github.com/shep-pm/shep-kelpie/blob/main/settings.example.toml), and `researcher.allowed_domains` takes the same entries. A change reaches a running runner at its next wake.
 
 ### 8. Start it, and label a first issue
 
