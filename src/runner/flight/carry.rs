@@ -104,6 +104,7 @@ impl Runner {
 
     // The work items whose hold stands on a pi worker, whose session in the
     // maintainer's terminal dials a forwarder only this image holds.
+    // goose has no terminal session to attach, so its turns hold nothing here.
     pub(in crate::runner) fn pi_sessions_attached(&self) -> Vec<u64> {
         let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
         let on_pi = |item: &&WorkItem| {

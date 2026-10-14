@@ -26,6 +26,14 @@ impl Files {
         }
     }
 
+    /// The files of the call whose record is `record`, which sits beside its
+    /// settings as `<stem>.call.json` for the settings `<stem>.json`
+    pub(super) fn beside(record: &Path) -> Self {
+        let name = record.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let stem = name.strip_suffix(".call.json").unwrap_or(name);
+        Self::of(&record.with_file_name(format!("{stem}.json")))
+    }
+
     pub(super) fn config(&self) -> PathBuf {
         self.root.join("config")
     }

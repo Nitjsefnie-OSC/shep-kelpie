@@ -43,7 +43,7 @@ use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, Mod
 use crate::skills::split_command;
 
 mod activity;
-mod adopt;
+pub(super) mod adopt;
 mod attach;
 mod compact;
 pub(crate) mod mcp;

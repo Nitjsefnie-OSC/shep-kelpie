@@ -8,7 +8,7 @@
 //! gateway settings, and holds both until the adopted call ends.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::{PI, PiCli, read_as};
@@ -21,15 +21,20 @@ use crate::settings::{EndpointUrl, GatewayName, Harness, ModelHost};
 
 /// What running calls keep in this image's memory, by the call's record
 #[derive(Debug, Clone, Default)]
-pub(super) struct Carried(Arc<Mutex<HashMap<PathBuf, Kept>>>);
+pub(in crate::adapters) struct Carried(Arc<Mutex<HashMap<PathBuf, Kept>>>);
 
 impl Carried {
     fn lock(&self) -> MutexGuard<'_, HashMap<PathBuf, Kept>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// What the call with `record` keeps, if a running call noted it
+    pub(in crate::adapters) fn kept_by(&self, record: &Path) -> Option<Kept> {
+        self.lock().get(record).cloned()
+    }
+
     /// Notes what `call` keeps, until the returned guard is dropped
-    pub(super) fn note(&self, call: &AgentCall, kept: Kept) -> Noted {
+    pub(in crate::adapters) fn note(&self, call: &AgentCall, kept: Kept) -> Noted {
         let record = CallFiles::of(call).record;
         self.lock().insert(record.clone(), kept);
         Noted {
@@ -40,7 +45,7 @@ impl Carried {
 }
 
 /// A call's note in [`Carried`], which its end removes
-pub(super) struct Noted {
+pub(in crate::adapters) struct Noted {
     carried: Carried,
     record: PathBuf,
 }
@@ -52,14 +57,14 @@ impl Drop for Noted {
 }
 
 /// How a call's model server is written in a [`Kept`]
-pub(super) fn kept_server(host: &ModelHost) -> KeptServer {
+pub(in crate::adapters) fn kept_server(host: &ModelHost) -> KeptServer {
     match host {
         ModelHost::Url(url) => KeptServer::Url(url.as_str().to_owned()),
         ModelHost::Gateway(name) => KeptServer::Gateway(name.to_string()),
     }
 }
 
-fn host_of(server: &KeptServer) -> Result<ModelHost, String> {
+pub(in crate::adapters) fn host_of(server: &KeptServer) -> Result<ModelHost, String> {
     let unusable =
         |what: &str, e: &str| format!("the carried model server {what} is unusable: {e}");
     match server {
