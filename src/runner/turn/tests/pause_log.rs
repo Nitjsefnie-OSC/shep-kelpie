@@ -62,3 +62,35 @@ fn the_start_that_resumes_a_paused_turn_says_so_once() {
         "a later pass says nothing of the pause"
     );
 }
+
+#[test]
+fn a_pause_that_could_not_be_written_does_not_say_no_turn_could_end() {
+    use crate::guard::Pause;
+    let (rig, runner) = with_issue_7("shep");
+    notes(&runner);
+    let tool = Hold::default();
+    rig.claude.script([Scripted::AtTool(
+        tool.clone(),
+        Box::new(Scripted::Say("done")),
+    )]);
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            assert!(tool.entered(crate::test::CALL_PATIENCE));
+            // A folder where the request file goes: the write fails.
+            let request = Pause::in_build(&rig.build_7()).requested_file().to_owned();
+            std::fs::create_dir_all(request).unwrap();
+            rig.ask(&runner, "drain", Some("pause"));
+            tool.release();
+        });
+        step(&runner).unwrap();
+    });
+
+    let said = notes(&runner);
+    assert_eq!(
+        said[0],
+        "drain pause: no turn was asked to end at a tool call; \
+         the pause could not be written for #7",
+        "{said:?}"
+    );
+}

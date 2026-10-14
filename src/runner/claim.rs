@@ -65,6 +65,16 @@ impl Runner {
     }
 }
 
+impl crate::ports::Warnings for Notes {
+    fn stands(&self, key: &str, line: String) {
+        self.standing(key, line);
+    }
+
+    fn ends(&self, key: &str) {
+        Notes::ends(self, key);
+    }
+}
+
 /// What the runner carried on without, oldest first, kept in memory until
 /// `take_notes` hands it out, and shared with the forge's rate-limit hold
 ///

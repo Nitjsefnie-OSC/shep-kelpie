@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use super::*;
 use crate::forge_ledger::{self, Ledger, Line};
+use crate::ports::Warnings;
 use crate::ports::{Cooldown, ForgeHold};
 use crate::test::{FakeClock, FakeForge};
 
@@ -40,6 +41,11 @@ struct Rig {
 impl Rig {
     // `koji` is covered by the App, which holds `holds`, when `holds` is some.
     fn new(holds: Option<&[&str]>) -> Self {
+        Self::watched(holds, None)
+    }
+
+    // As `new`, telling warnings that stand to `standing`.
+    fn watched(holds: Option<&[&str]>, standing: Option<Arc<dyn Warnings>>) -> Self {
         let home = tempfile::tempdir().unwrap();
         let login = FakeForge::new(home.path().join("login"));
         let app = FakeForge::new(home.path().join("app"));
@@ -71,6 +77,10 @@ impl Rig {
         )
         .with_ledger(Arc::new(Ledger::in_home(home.path(), "koji")))
         .with_app_reads(covers.clone());
+        let held = match standing {
+            Some(standing) => held.with_standing(standing),
+            None => held,
+        };
         Self {
             held,
             login,
@@ -172,6 +182,55 @@ fn a_permission_the_token_lacks_is_said_once_whichever_read_meets_it() {
         said[0].contains("lacks the pull_requests permission"),
         "{said:#?}"
     );
+}
+
+// What the runner's notes would hold: the warnings that stand, by key.
+#[derive(Default)]
+struct Standing(Mutex<BTreeMap<String, String>>);
+
+impl Warnings for Standing {
+    fn stands(&self, key: &str, line: String) {
+        self.0.lock().unwrap().entry(key.to_owned()).or_insert(line);
+    }
+
+    fn ends(&self, key: &str) {
+        self.0.lock().unwrap().remove(key);
+    }
+}
+
+#[test]
+fn a_missing_permission_stands_until_the_token_holds_it() {
+    let standing = Arc::new(Standing::default());
+    let rig = Rig::watched(Some(&["issues"]), Some(standing.clone()));
+
+    rig.held.open_pull_requests(&repo()).unwrap();
+    rig.held.pull_request(&repo(), 7).unwrap();
+
+    let keys: Vec<String> = standing.0.lock().unwrap().keys().cloned().collect();
+    assert_eq!(
+        keys,
+        [
+            "app-lacks checks and statuses on shep-pm/koji",
+            "app-lacks pull_requests on shep-pm/koji"
+        ]
+    );
+
+    let hold = |holds: &[&str]| {
+        let reading = Reading::App {
+            reads: Arc::new(rig.app.clone()),
+            holds: holds.iter().map(|&h| h.to_owned()).collect(),
+        };
+        let mut covers = rig.covers.0.lock().unwrap();
+        covers.insert(repo().as_str().to_owned(), reading);
+    };
+    hold(&["issues", "pull_requests"]);
+    rig.held.open_pull_requests(&repo()).unwrap();
+    let keys: Vec<String> = standing.0.lock().unwrap().keys().cloned().collect();
+    assert_eq!(keys, ["app-lacks checks and statuses on shep-pm/koji"]);
+
+    hold(&ALL);
+    rig.held.pull_request(&repo(), 7).unwrap();
+    assert!(standing.0.lock().unwrap().is_empty());
 }
 
 #[test]

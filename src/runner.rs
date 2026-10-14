@@ -500,10 +500,9 @@ impl Runner {
         .counting(ports.revalidated.clone())
         .paced_for(project.as_str());
         if let Some(app_reads) = ports.app_reads.take() {
-            let standing = told.clone();
             rate_held = rate_held
                 .with_app_reads(app_reads)
-                .with_standing(Box::new(move |key, line| standing.standing(key, line)));
+                .with_standing(Arc::new(told.clone()));
         }
         let held: Arc<dyn Forge> = Arc::new(rate_held);
         let recorded =

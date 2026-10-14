@@ -52,6 +52,7 @@ impl Runner {
     /// back for an item that never took the lease would cancel a sibling's
     /// place in the dog's queue, or a grant it has yet to take up.
     pub(super) fn release(&mut self, bot: Bot) -> Result<(), StateError> {
+        self.lease_wait_forgotten(bot);
         let this = self.current().map(|item| item.issue);
         let mine = |l: &LeaseHeld| l.resource == bot.resource() && l.issue == this;
         let held = self.state.leases.iter().any(mine);
