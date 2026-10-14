@@ -4,6 +4,8 @@ use shep_handover::HandOverError;
 
 use super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
+use crate::ports::{Adopted, Flying, Kept, KeptServer, SessionId, Timestamp};
+use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // What a handover that did not happen leaves to look at
@@ -306,7 +308,10 @@ fn the_probe_refuses_a_target_that_reads_only_format_3_when_a_goose_turn_is_carr
         "[ \"$SHEP_PROCESS_HANDOVER_PROBE\" = 3 ] && exit 94; exit 95",
     );
 
-    let refused = Handover::new(&Carry { turns: Vec::new() })
+    let carry = a_carry_holding_a_goose_turn();
+    assert_eq!(carry.pids(), [4242]);
+
+    let refused = Handover::new(&carry)
         .target(&before_goose)
         .exec(&|_: &Path| Verdict::Carryable)
         .unwrap_err();
@@ -315,6 +320,46 @@ fn the_probe_refuses_a_target_that_reads_only_format_3_when_a_goose_turn_is_carr
         matches!(refused, HandOverError::Format { format: 4, .. }),
         "{refused}"
     );
+}
+
+// A `Carry` as the old image makes it for one running goose turn. Its
+// private fields are written as the wire has them, with the typed parts
+// serialized from the types the adapter fills.
+fn a_carry_holding_a_goose_turn() -> Carry {
+    let adopted = Adopted {
+        pid: 4242,
+        record: "calls/7.call.json".into(),
+        resumes: None,
+        flying: None,
+        harness: Harness::Goose,
+        kept: Some(Kept {
+            forwarder: "calls/a.sock".into(),
+            server: KeptServer::Gateway("paddock".into()),
+            session: SessionId("goose-7".into()),
+            lease: Some("lease-1".into()),
+        }),
+        session: Some(SessionId("goose-7".into())),
+    };
+    let flying = Flying {
+        left: 600,
+        began: Timestamp(1_000),
+        again: false,
+        first: true,
+        compact: false,
+    };
+    let draft = serde_json::json!({
+        "issue": 7, "pull_request": null, "role": "worker", "kind": "turn",
+        "agent": "goose-worker", "harness": "goose", "model": null,
+        "effort": null, "session": "goose-7", "started": 1_000,
+    });
+    serde_json::from_value(serde_json::json!({ "turns": [{
+        "issue": 7,
+        "adopted": adopted,
+        "flying": flying,
+        "started": 1_000,
+        "open": { "draft": draft, "pacer": {}, "ran_from": null, "no_model": false },
+    }] }))
+    .expect("the goose turn is a `Carry` as the wire has it")
 }
 
 mod codex;
