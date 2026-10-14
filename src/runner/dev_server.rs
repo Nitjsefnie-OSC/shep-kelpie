@@ -19,9 +19,14 @@ use super::Runner;
 use super::claim::Notes;
 use super::code_graph::who;
 use super::instructions::DevServer;
-use crate::ports::{AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Started};
+use crate::ports::{
+    AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Session, Started,
+};
 use crate::settings::NonBlank;
 use crate::work_item::WorkItem;
+
+/// How many times a port is picked before one that no other plan holds is given up on
+const PICKS: usize = 16;
 
 /// The Mach service a dev server's file watcher looks up on macOS
 const FS_EVENTS: &str = "com.apple.FSEvents";
@@ -32,12 +37,18 @@ pub(super) struct Planned(Mutex<BTreeMap<u64, DevRun>>);
 
 impl Planned {
     // Replaces the plan held for `issue`, or drops it.
-    fn hold(&self, issue: u64, plan: Option<DevRun>) {
+    pub(super) fn hold(&self, issue: u64, plan: Option<DevRun>) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         match plan {
             Some(plan) => held.insert(issue, plan),
             None => held.remove(&issue),
         };
+    }
+
+    // The ports the plans held name, which no other plan may take though nothing listens yet.
+    fn claimed(&self) -> Vec<u16> {
+        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.values().map(|plan| plan.port).collect()
     }
 
     pub(super) fn get(&self, issue: u64) -> Option<DevRun> {
@@ -91,7 +102,7 @@ impl Runner {
         let mut env = BTreeMap::from([("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned())]);
         if picked {
             env.insert("PORT".to_owned(), port.to_string());
-            let configured = configuration.port.map(|p| p.to_string());
+            let configured = (configuration.port.filter(|&p| p != 0)).map(|p| p.to_string());
             for arg in args
                 .iter_mut()
                 .filter(|a| Some(&**a) == configured.as_ref())
@@ -131,7 +142,18 @@ impl Runner {
     // configured one when nothing holds it, else a free one under `autoPort`.
     fn port_for(&self, configuration: &launch::Configuration) -> Result<(u16, bool), String> {
         let servers = &self.ports.dev_servers;
-        let free = |port: u16| servers.free(port);
+        // Another work item's server may not have bound its port yet.
+        let claimed = self.planned.claimed();
+        let free = |port: u16| !claimed.contains(&port) && servers.free(port);
+        let pick = || {
+            for _ in 0..PICKS {
+                match servers.pick() {
+                    Ok(port) if claimed.contains(&port) => {}
+                    other => return other,
+                }
+            }
+            Err("every port it found was planned for another work item".to_owned())
+        };
         match (configuration.port, configuration.auto_port) {
             (Some(port), _) if port != 0 && free(port) => Ok((port, false)),
             (Some(0), false) => {
@@ -140,7 +162,7 @@ impl Runner {
             (Some(port), false) => Err(format!(
                 "port {port} is taken, and the launch configuration has no `autoPort`"
             )),
-            (_, true) => (servers.pick())
+            (_, true) => pick()
                 .map(|port| (port, true))
                 .map_err(|e| format!("no free port for it: {e}")),
             (None, false) => Err("the launch configuration names no `port`".to_owned()),
@@ -196,7 +218,7 @@ impl Drop for Served {
 pub(super) fn started(
     servers: &dyn DevServers,
     run: &DevRun,
-    call: &AgentCall,
+    call: &mut AgentCall,
     notes: &Notes,
 ) -> Option<Served> {
     let log = run.log.display();
@@ -225,8 +247,14 @@ pub(super) fn started(
         ),
     };
     notes.push(format!("{}: {line}", who(call)));
-    if let Some(instructions) = call.instructions.as_deref() {
-        append(instructions, &line);
+    // A resumed session keeps the instructions it began with, so it is told in the prompt.
+    match (&call.session, call.instructions.as_deref()) {
+        (Session::Resume(_), _) | (_, None) => {
+            if !call.prompt.contains(&line) {
+                call.prompt = format!("{}\n\n{line}", call.prompt);
+            }
+        }
+        (Session::New(_), Some(instructions)) => append(instructions, &line),
     }
     started
 }

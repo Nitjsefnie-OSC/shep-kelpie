@@ -319,7 +319,7 @@ fn a_project_without_a_launch_file_starts_nothing_during_the_turn() {
 }
 
 // What the browser may open before, while and after the planned server is served.
-fn gate_around_serving(rig: &Rig) -> [Option<u16>; 3] {
+fn gate_around_serving(rig: &Rig) -> ([Option<u16>; 3], String) {
     let runner = rig.open().unwrap();
     rig.claude.script([Scripted::Push("work.txt", "work\n")]);
     rig.ask(&runner, "add", Some("7"));
@@ -327,32 +327,44 @@ fn gate_around_serving(rig: &Rig) -> [Option<u16>; 3] {
     let runner = runner.lock().unwrap();
     let item = runner.current().expect("an item").clone();
     let session = Session::Resume(item.session.clone());
-    let call = runner
+    let mut call = runner
         .worker_call(&item, session, Some("again".into()), true)
         .unwrap();
     let run = runner.planned.get(7).expect("a plan");
     let before = runner.dev_gate(7).get();
-    let served = crate::runner::dev_server::started(&rig.dev_servers, &run, &call, &runner.notes);
+    let served =
+        crate::runner::dev_server::started(&rig.dev_servers, &run, &mut call, &runner.notes);
     let during = runner.dev_gate(7).get();
     drop(served);
-    [before, during, runner.dev_gate(7).get()]
+    ([before, during, runner.dev_gate(7).get()], call.prompt)
 }
 
 #[test]
 fn the_browser_may_open_the_port_only_while_the_server_kelpie_started_answers() {
     let rig = project(Some(SHEP));
-    assert_eq!(gate_around_serving(&rig), [None, Some(4421), None]);
+    assert_eq!(gate_around_serving(&rig).0, [None, Some(4421), None]);
 }
 
 #[test]
 fn the_browser_may_not_open_the_port_of_a_server_that_never_answered_or_never_started() {
     let silent = project(Some(SHEP));
     silent.dev_servers.never_answer();
-    assert_eq!(gate_around_serving(&silent), [None, None, None]);
+    let (gates, prompt) = gate_around_serving(&silent);
+    assert_eq!(gates, [None, None, None]);
+    // The resumed session keeps its first instructions, so the prompt carries the news.
+    assert!(
+        prompt.contains("had not answered after 60 seconds"),
+        "{prompt}"
+    );
 
     let broken = project(Some(SHEP));
     broken.dev_servers.cannot_start("the port is taken");
-    assert_eq!(gate_around_serving(&broken), [None, None, None]);
+    let (gates, prompt) = gate_around_serving(&broken);
+    assert_eq!(gates, [None, None, None]);
+    assert!(
+        prompt.contains("could not start the dev server: the port is taken"),
+        "{prompt}"
+    );
 }
 
 #[test]
@@ -369,4 +381,54 @@ fn port_zero_is_replaced_under_auto_port_and_refused_without_it() {
     let (run, told) = planned(&project(Some(fixed)), |_| {});
     assert_eq!(run, None);
     assert!(told.contains("`port` is 0"), "{told}");
+}
+
+// The port planned for issue 7's second turn while issue 99's plan holds 4421 unbound.
+fn replanned_beside_a_plan_on_4421(rig: &Rig) -> (Option<DevRun>, String) {
+    let runner = rig.open().unwrap();
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    rig.ask(&runner, "add", Some("7"));
+    let _ = step(&runner);
+    let runner = runner.lock().unwrap();
+    let item = runner.current().expect("an item").clone();
+    let session = || Session::Resume(item.session.clone());
+    runner
+        .worker_call(&item, session(), Some("again".into()), true)
+        .unwrap();
+    // Nothing listens on 4421: the other item's server has not bound it yet.
+    let other = runner.planned.get(7).expect("a plan");
+    assert_eq!(other.port, 4421);
+    runner.planned.hold(99, Some(other));
+    let call = runner
+        .worker_call(&item, session(), Some("again".into()), true)
+        .unwrap();
+    let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
+    (runner.planned.get(7), told)
+}
+
+#[test]
+fn a_port_another_work_items_plan_holds_is_not_planned_again_though_nothing_listens() {
+    let rig = project(Some(SHEP));
+    rig.dev_servers.pick_next(5303);
+    let run = replanned_beside_a_plan_on_4421(&rig).0.expect("a plan");
+    assert_eq!(run.port, 5303);
+    assert_eq!(run.args, ["run", "dev", "--", "--port", "5303"]);
+
+    let fixed = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":4421}]}"#;
+    let rig = project(Some(fixed));
+    let (run, told) = replanned_beside_a_plan_on_4421(&rig);
+    assert_eq!(run, None);
+    assert!(told.contains("port 4421 is taken"), "{told}");
+}
+
+#[test]
+fn a_zero_port_is_not_swapped_into_the_arguments_that_say_zero() {
+    let zero = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","runtimeArgs":["dev","--retries","0"],"port":0,"autoPort":true}]}"#;
+    let rig = project(Some(zero));
+    rig.dev_servers.pick_next(5304);
+    rig.dev_servers.pick_next(5304);
+    let run = planned(&rig, |_| {}).0.expect("a plan");
+    assert_eq!(run.port, 5304);
+    assert_eq!(run.args, ["dev", "--retries", "0"]);
+    assert_eq!(run.env.get("PORT").map(String::as_str), Some("5304"));
 }
