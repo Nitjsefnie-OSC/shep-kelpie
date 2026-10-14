@@ -9,7 +9,7 @@ A ruling is a decision only you make. The worker waiting on one is parked, and t
 - `foreign-change`: someone else changed the pull request, and a yes accepts the change
 - `follow-up`: a merged pull request left findings unfixed, and a yes files them as issues
 
-A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie rule`, and posts to the webhook when kelpie's `[kelpie.webhook]` is set (see [Settings](settings.md#settings)). The pull request gets a comment for every ruling but a merge. Answer it from the terminal:
+A ruling shows in the runner's log, in `shep kelpie status` and in `shep kelpie rule`, and posts to the webhook when kelpie's `[kelpie.webhook]` is set (see [The webhook](#the-webhook)). The pull request gets a comment for every ruling but a merge. Answer it from the terminal:
 
 - `shep kelpie rule 14 yes`
 - `shep kelpie rule 14 no rename the flag`
@@ -68,35 +68,16 @@ Every answer, however given, is applied the same way, and the project manager re
 
 A ruling that mentions no one, because `git.maintainer` is unset and `gh` cannot say who it acts as, is answered at the terminal only, and its comment says so. Anyone else's reply, reaction or tick, a bot's and a comment kelpie posted itself are left alone. Kelpie reacts with a thumbs up to the reply it took as the answer, and replies once to one it could not read, saying what to type. It reads the thread and each waiting ruling's comment about once a minute. The first answer wins, whether it comes from the thread, the terminal or ntfy, and the other is told the ruling is already answered. A worker's own `gh` may not comment: `gh pr comment`, `gh issue comment`, and any `gh pr` or `gh issue` verb but `create` and `edit` that carries a body or `--comment` (a `close` with a comment, a `review` with a body) are refused, as is any flag but `-R` before the verb and any `gh` word a shell expands (`$`, a backtick, `{`, `~`, a glob character) outside a `--body` or `--title`, since its `gh` is your login.
 
-On an ntfy webhook, a ruling can be answered from the topic: run `shep kelpie totp` once and scan the QR code into an authenticator app, then reply with the line the alert ends on, such as `14 yes <code>`, with the app's code last. A reply takes the same answers as `shep kelpie rule`, and names the ruling the same ways: `427 yes <code>`, `#427 yes <code>` or `koji#427 yes <code>`. A reply by number written before the open ruling was raised is refused, saying the ruling changed and what it asks now, since a new ruling on the same pull request may ask something else. A reply by id, and an answer at the terminal, are taken as given. Anyone who can read the topic can read rulings, but only a reply with the code of the moment answers one, and each code answers once. Five wrong codes turn answers off until `shep kelpie totp --unlock`, and `shep kelpie totp --rotate` replaces a secret that may have leaked.
+On an ntfy webhook, a ruling can also be answered in the topic (see [Answering in the topic](#answering-in-the-topic)).
 
 With a project manager, it may answer a `stuck` ruling for you with a retry, or add its words to the ruling and post it again (see [The project manager](board.md#the-project-manager)).
 
-## A self-hosted or trusted ntfy
+## The webhook
 
-A self-hosted ntfy takes three more keys in `[kelpie.webhook]`, each optional:
+A webhook posts each ruling where you will see it away from the terminal. Without one, a ruling shows only in the runner's log, `status` and `shep kelpie rule`, so you have to look.
 
-```toml
-[kelpie.webhook]
-kind = "ntfy"
-url = "http://ntfy.your-tailnet.ts.net/your-private-topic"
-ca_cert = "/etc/kelpie/ca.pem"
-token = "tk_..."
-```
+It is the `[kelpie.webhook]` table of `dogs.toml` in the shepherd's home, for ntfy or Discord. Copy that table alone from [`kelpie-settings.example.toml`](../../kelpie-settings.example.toml) and put your own URL in it: the file's `url` is a public ntfy.sh topic anyone can read. Its comments say what each key does, including a self-hosted ntfy's `ca_cert` and `token` and a `trusted` topic. `shep kelpie doctor` names the webhook rulings post to, and `shep kelpie doctor --test-alert` posts a test through the same settings.
 
-- `url` may be `http://` when its host is a Tailscale address (100.64.0.0/10) or a `.ts.net` name, since the tailnet encrypts it. Any other `http://` host is refused, except this machine, and so is a URL with a user name or password in it.
-- `ca_cert` is the absolute path of your private CA's certificate file, which curl trusts for the post and for reading replies. The dog does not start when the file is missing or unreadable, and says `webhook.ca_cert` is the key.
-- `token` is an ntfy access token, sent as `Authorization: Bearer <token>` on the post and on reading replies. Like the URL, it is a credential and no error, log line or status shows it.
+### Answering in the topic
 
-`shep kelpie doctor --test-alert` posts through the same settings. Replies still need the authenticator code, unless the topic is `trusted`:
-
-```toml
-[kelpie.webhook]
-token = "tk_..."
-trusted = true
-```
-
-- `trusted = true` is your word that the server lets only that `token` post to the topic, such as an `ntfy access` rule denying everyone else. Kelpie cannot see the server's rules. The dog does not start with `trusted` and no `token`, and says `webhook.trusted` is the key.
-- On a trusted topic `14 no <note>`, `14 rework <note>`, a yes on any ruling but a merge and a worker's answer need no code. A yes on a merge ruling still takes the code, since the topic alone never merges.
-- Five wrong codes still turn coded answers off until `shep kelpie totp --unlock`, and replies that need no code go on working.
-- The alert's last line shows the reply each ruling takes, and `shep kelpie doctor` prints a `replies` line while the topic is trusted.
+On an ntfy webhook, a ruling can be answered from the topic: run `shep kelpie totp` once and scan the QR code into an authenticator app, then reply with the line the alert ends on, such as `14 yes <code>`, with the app's code last. A reply takes the same answers as `shep kelpie rule`, and names the ruling the same ways: `427 yes <code>`, `#427 yes <code>` or `koji#427 yes <code>`. A reply by number written before the open ruling was raised is refused, saying the ruling changed and what it asks now, since a new ruling on the same pull request may ask something else. A reply by id, and an answer at the terminal, are taken as given. Anyone who can read the topic can read rulings, but only a reply with the code of the moment answers one, and each code answers once. A `trusted` topic is the exception: most replies there need no code (see [`kelpie-settings.example.toml`](../../kelpie-settings.example.toml)). Five wrong codes turn answers off until `shep kelpie totp --unlock`, and `shep kelpie totp --rotate` replaces a secret that may have leaked.
