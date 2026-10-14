@@ -1,7 +1,9 @@
 //! The outside half of [`crate::bridge`]: the browser's MCP server behind one socket, for one call
 //!
 //! The socket has a name no one can guess, in the call's settings folder, and
-//! the sandbox may connect to that path alone. Connections are served one at
+//! the sandbox may connect to that path alone. The name is kept in a file, so
+//! a later bridge for the same work item binds the same path: a goose session
+//! keeps the command it began with, which names that path. Connections are served one at
 //! a time, each by a fresh server that stops when it ends. Every line goes
 //! through the [`Filter`] on its way in and out. Dropping the [`Bridge`] stops
 //! the server and removes the socket. What a server prints on stderr, and why
@@ -67,13 +69,22 @@ pub(crate) struct Bridge {
 impl Bridge {
     /// Opens a socket in `folder`, served by `server` through `filter`
     ///
+    /// The socket's name is the one `name_file` holds, drawn and written there if it holds none.
+    /// A socket a killed kelpie left under that name is replaced.
+    ///
     /// # Errors
     ///
-    /// The reason, when the socket's path is too long to bind or it cannot be
-    /// opened, or the proxy or the browser's config cannot be.
-    pub(crate) fn open(folder: &Path, mut server: Server, filter: Filter) -> Result<Self, String> {
-        let socket = folder.join(format!("{}.sock", unguessable()?));
+    /// The reason, when the name cannot be read or kept, the socket's path is too long to bind, it
+    /// cannot be opened, or the proxy or the browser's config cannot be.
+    pub(crate) fn open(
+        folder: &Path,
+        name_file: &Path,
+        mut server: Server,
+        filter: Filter,
+    ) -> Result<Self, String> {
+        let socket = folder.join(format!("{}.sock", kept_name(name_file)?));
         crate::home::socket_fits(&socket)?;
+        let _ = std::fs::remove_file(&socket);
         let proxy = Proxy::open(Origins::new(&filter.domains))?;
         let config = server.cwd.join("config.json");
         std::fs::write(&config, launch(&filter.domains, &proxy).to_string())
@@ -108,6 +119,19 @@ impl Bridge {
     pub(crate) fn socket(&self) -> &Path {
         &self.socket
     }
+}
+
+// The name in `file`, if it is one `unguessable` draws, and else a new one written there.
+fn kept_name(file: &Path) -> Result<String, String> {
+    if let Ok(text) = std::fs::read_to_string(file) {
+        let name = text.trim();
+        if name.len() == 32 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Ok(name.to_owned());
+        }
+    }
+    let name = unguessable()?;
+    std::fs::write(file, &name).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+    Ok(name)
 }
 
 impl Drop for Bridge {

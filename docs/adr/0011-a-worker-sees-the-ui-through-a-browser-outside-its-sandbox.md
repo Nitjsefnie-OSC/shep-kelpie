@@ -23,5 +23,4 @@ The decision: with `[app.dogs.kelpie.browser] enabled`, a worker's `Work` turn o
 - A socket the worker can connect to reaches a browser the worker cannot read. Anything in the sandbox can write to that socket, so the bridge treats every line as hostile and not only the agent's.
 - macOS only. On Linux an enabled table stops the runner at start, naming #135, which is where `srt` could run Chromium.
 - The bridge lives in the runner's memory, so a handover waits while a worker turn holds a browser.
-- Goose gets none until #864. `docs/parity.toml` has the row.
 - `localhost` is not on the list until #861, so a worker sees a deployed page and not its own dev server.

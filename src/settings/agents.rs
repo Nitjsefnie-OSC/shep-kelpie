@@ -161,10 +161,20 @@ impl AgentHarness {
     pub fn drives_a_browser(&self) -> bool {
         // parity: harness.browser
         match self {
-            Self::ClaudeCode | Self::Pi(_) | Self::Codex => true,
-            Self::Goose(_) => false,
+            Self::ClaudeCode | Self::Pi(_) | Self::Codex | Self::Goose(_) => true,
             #[cfg(test)]
             Self::StandIn => true,
+        }
+    }
+
+    /// Whether a session keeps the MCP servers it began with, whatever a later call loads
+    pub fn keeps_its_servers(&self) -> bool {
+        // parity: harness.resumed-servers
+        match self {
+            Self::Goose(_) => true,
+            Self::ClaudeCode | Self::Pi(_) | Self::Codex => false,
+            #[cfg(test)]
+            Self::StandIn => false,
         }
     }
 

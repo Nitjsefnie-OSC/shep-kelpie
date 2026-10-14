@@ -31,7 +31,8 @@ fn open(dir: &tempfile::TempDir, server: Server) -> Bridge {
     let filter = Filter {
         domains: vec!["app.example.com".into()],
     };
-    Bridge::open(&dir.path().canonicalize().unwrap(), server, filter).unwrap()
+    let folder = dir.path().canonicalize().unwrap();
+    Bridge::open(&folder, &folder.join("socket-name"), server, filter).unwrap()
 }
 
 fn ask(stream: &mut BufReader<UnixStream>, line: &str) -> Value {
@@ -68,6 +69,42 @@ fn the_socket_is_named_by_32_hex_characters_in_the_folder() {
     assert_eq!(extension, "sock");
     assert_eq!(stem.len(), 32, "{name}");
     assert!(stem.chars().all(|c| c.is_ascii_hexdigit()), "{name}");
+}
+
+#[test]
+fn a_bridge_opened_again_for_the_same_name_file_binds_the_same_socket() {
+    let (dir, server) = world();
+    let first = open(&dir, server.clone());
+    let socket = first.socket().to_owned();
+    drop(first);
+    assert!(!socket.exists());
+    let again = open(&dir, server);
+    assert_eq!(again.socket(), socket);
+}
+
+#[test]
+fn a_socket_a_killed_kelpie_left_behind_does_not_stop_the_next_bridge_binding() {
+    let (dir, server) = world();
+    let first = open(&dir, server.clone());
+    let socket = first.socket().to_owned();
+    // A killed kelpie drops nothing: its listener's file stays.
+    std::mem::forget(first);
+    assert!(socket.exists());
+    let next = open(&dir, server);
+    assert_eq!(next.socket(), socket);
+}
+
+#[test]
+fn a_name_file_that_is_not_a_socket_name_is_replaced() {
+    let (dir, server) = world();
+    let folder = dir.path().canonicalize().unwrap();
+    let name = folder.join("socket-name");
+    std::fs::write(&name, "../../etc/passwd").unwrap();
+    let bridge = Bridge::open(&folder, &name, server, Filter::default()).unwrap();
+    assert_eq!(bridge.socket().parent(), Some(folder.as_path()));
+    let kept = std::fs::read_to_string(&name).unwrap();
+    assert_eq!(kept.len(), 32);
+    assert!(kept.chars().all(|c| c.is_ascii_hexdigit()), "{kept}");
 }
 
 #[test]
@@ -114,9 +151,10 @@ fn the_browsers_launch_names_the_proxy_and_sends_loopback_through_it() {
 
 #[test]
 fn a_folder_too_long_to_bind_in_is_refused_naming_the_path() {
-    let (_dir, server) = world();
+    let (dir, server) = world();
     let folder = PathBuf::from(format!("/{}", "s".repeat(90)));
-    let error = Bridge::open(&folder, server, Filter::default()).unwrap_err();
+    let name = dir.path().join("socket-name");
+    let error = Bridge::open(&folder, &name, server, Filter::default()).unwrap_err();
     assert!(error.contains(&folder.display().to_string()), "{error}");
     assert!(error.contains("103"), "{error}");
 }
