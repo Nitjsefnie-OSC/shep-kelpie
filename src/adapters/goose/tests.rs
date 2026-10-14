@@ -77,12 +77,19 @@ pub(super) fn goose_with(world: &World, program: PathBuf) -> GooseCli {
         .with_program(program)
 }
 
+// Whether goose is offered no extension but `skills`
+pub(super) fn only_skills(call: &AgentCall) -> bool {
+    let argv = strings(call);
+    let flags = argv.iter().filter(|a| a.starts_with("--with-")).count();
+    flags == 1 && argv.windows(2).any(|a| a == ["--with-builtin", "skills"])
+}
+
 fn researcher(world: &World, session: Session) -> AgentCall {
     world.call(URL, Role::Researcher, session)
 }
 
 #[test]
-fn a_new_researcher_call_names_its_session_and_loads_no_extension() {
+fn a_new_researcher_call_names_its_session_and_loads_no_extension_but_skills() {
     let w = World::new();
     let mut call = researcher(&w, Session::New(id(FRESH_ID)));
     call.prompt = "--help me, the model needs it".into();
@@ -94,11 +101,14 @@ fn a_new_researcher_call_names_its_session_and_loads_no_extension() {
             "--output-format",
             "stream-json",
             "--text=--help me, the model needs it",
+            "--with-builtin",
+            "skills",
             "--name",
             FRESH_ID,
         ]
     );
-    for flag in ["--with-builtin", "--with-extension", "--recipe", "--resume"] {
+    assert!(only_skills(&call));
+    for flag in ["--with-extension", "--recipe", "--resume"] {
         assert!(
             !strings(&call).iter().any(|a| a.starts_with(flag)),
             "{flag}"
@@ -125,6 +135,8 @@ fn a_resumed_call_resumes_by_name_and_gets_its_instructions_again() {
             "--output-format",
             "stream-json",
             "--text=and now?",
+            "--with-builtin",
+            "skills",
             "--system=You are a researcher.\nBe brief.",
             "--resume",
             "--name",

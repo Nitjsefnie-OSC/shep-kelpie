@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Checkout, SHOWN_CHARS, judge_reading};
-use crate::adapters::goose::hooks::TOOLS;
+use crate::adapters::goose::hooks::{SKILL_TOOL, TOOLS};
 use crate::adapters::shell_quote;
 use crate::confine::{self, Verdict};
 use crate::hooks::Hooks;
@@ -164,13 +164,18 @@ pub fn judge_goose(
             });
             super::judge_with(bash.to_string().as_bytes(), home, local, hooks, checkout)
         }
-        tool if TOOLS.contains(&tool) => Verdict::Allow,
+        tool if TOOLS.contains(&tool) || tool == SKILL_TOOL => Verdict::Allow,
         tool if servers.iter().any(|key| of_server(tool, key)) => Verdict::Allow,
         tool => {
             let shown: String = tool.chars().take(SHOWN_CHARS).collect();
             Verdict::Refuse(format!(
                 "kelpie lets a goose worker use only these tools: {}. `{shown}` is not one of them",
-                TOOLS.map(|t| format!("`{t}`")).join(", ")
+                [SKILL_TOOL]
+                    .iter()
+                    .chain(&TOOLS)
+                    .map(|t| format!("`{t}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ))
         }
     }
@@ -236,6 +241,7 @@ fn judge_reading_with(
             let folders = [folder.to_owned(), folder.to_owned()];
             return judge_file(&call, "write", hooks, &folders);
         }
+        (SKILL_TOOL, _) => return Verdict::Allow,
         (tool, _) if servers.iter().any(|key| of_server(tool, key)) => return Verdict::Allow,
         (tool, _) => {
             let shown: String = tool.chars().take(SHOWN_CHARS).collect();
