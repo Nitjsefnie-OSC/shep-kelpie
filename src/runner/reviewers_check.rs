@@ -48,6 +48,7 @@ pub(super) fn check_coderabbit(
 ) -> Result<(), OpenError> {
     let listed = lineup
         .iter()
+        // parity: review-bot.private-repos
         .find(|r| r.bot().is_some_and(|b| b.bot == Bot::Coderabbit));
     let Some(listed) = listed else {
         return Ok(());

@@ -96,8 +96,9 @@ fn a_worker_with_a_window_writes_its_prompt_beside_the_settings_and_loads_the_ex
     assert!(policy.read.contains(&w.path("settings.prompt.md")));
 }
 
-// Loads the extension as pi does, into a stand-in `pi`, and fires a
-// `session_compact` event for each reason in turn.
+// Loads the extension as pi does, into a stand-in `pi`, starts a run and
+// fires a `session_compact` event for each reason in turn, then ends the run
+// and fires a `threshold` one, as pi does after a last answer.
 const COMPACTION_RUNNER: &str = r#"
 import extension from "./compact.mts";
 const handlers = {};
@@ -108,20 +109,25 @@ extension({
   sendMessage: (message, options) => { sent.push({ message, options }); },
 });
 const out = {};
+await handlers.agent_start({ type: "agent_start" });
 for (const reason of ["threshold", "overflow", "manual"]) {
   sent.length = 0;
   await handlers.session_compact({ type: "session_compact", reason });
   out[reason] = [...sent];
 }
+await handlers.agent_end({ type: "agent_end" });
+sent.length = 0;
+await handlers.session_compact({ type: "session_compact", reason: "threshold" });
+out.after_the_run = [...sent];
 console.log(JSON.stringify(out));
 "#;
 
-#[test]
-fn the_extension_hands_the_prompt_back_after_a_threshold_or_overflow_compaction_and_not_after_a_manual_one()
- {
+// What the extension sent for each event of `COMPACTION_RUNNER`, or None
+// without node
+fn compaction_events() -> Option<serde_json::Value> {
     if !has_node() {
         eprintln!("skipped: needs node, which loads pi's extensions");
-        return;
+        return None;
     }
     let w = World::new();
     std::fs::write(w.path("prompt.md"), "the prompt again\n").unwrap();
@@ -136,7 +142,15 @@ fn the_extension_hands_the_prompt_back_after_a_threshold_or_overflow_compaction_
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    let sent: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    Some(serde_json::from_slice(&out.stdout).unwrap())
+}
+
+#[test]
+fn the_extension_hands_the_prompt_back_after_a_threshold_or_overflow_compaction_and_not_after_a_manual_one()
+ {
+    let Some(sent) = compaction_events() else {
+        return;
+    };
     let again = json!([{
         "message": { "customType": "kelpie-prompt", "content": "the prompt again\n", "display": false },
         "options": { "deliverAs": "steer" },
@@ -144,6 +158,16 @@ fn the_extension_hands_the_prompt_back_after_a_threshold_or_overflow_compaction_
     assert_eq!(sent["threshold"], again);
     assert_eq!(sent["overflow"], again);
     assert_eq!(sent["manual"], json!([]));
+}
+
+// pi compacts after a run's last answer when the context is still past its
+// threshold, and the prompt handed back then would start the task over.
+#[test]
+fn the_extension_hands_nothing_back_after_a_compaction_that_follows_the_last_answer() {
+    let Some(sent) = compaction_events() else {
+        return;
+    };
+    assert_eq!(sent["after_the_run"], json!([]));
 }
 
 // A stale `settings.json` from an earlier call on the item would keep its

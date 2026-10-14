@@ -33,6 +33,7 @@ pub(super) fn reviewer_call(
     if let Some(reach) = tests {
         // `agent_tools` is Claude's tool list, which pi ignores: its own tools
         // follow the reach's write folder.
+        // parity: harness.tool-allow-list
         if model.harness.harness() == Harness::ClaudeCode {
             let own = call.agent_tools.as_deref().unwrap_or(CLAUDE_REVIEW_TOOLS);
             call.agent_tools = Some(format!("{own},Write"));

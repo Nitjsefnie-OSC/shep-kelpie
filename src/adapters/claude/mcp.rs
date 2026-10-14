@@ -11,32 +11,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use super::graph;
+use crate::adapters::mcp::{loads, servers};
 use crate::ports::AgentCall;
 
 /// Where the call's MCP config goes, beside its settings file
 pub(crate) fn mcp_file(settings: &Path) -> PathBuf {
     settings.with_extension("mcp.json")
-}
-
-/// The servers the call loads, by name: the repo's, then the code graph, which a repo's server of
-/// the same name does not replace
-pub(crate) fn servers(call: &AgentCall) -> serde_json::Map<String, Value> {
-    let mut servers: serde_json::Map<String, Value> = (call.reach.mcp_servers.iter())
-        .map(|(name, entry)| (name.clone(), entry.clone()))
-        .collect();
-    if let Some(code_graph) = &call.reach.code_graph {
-        servers.insert(
-            graph::SERVER.to_owned(),
-            graph::entry(code_graph, &call.cwd),
-        );
-    }
-    servers
-}
-
-/// Whether the call loads any server
-pub(crate) fn loads(call: &AgentCall) -> bool {
-    call.reach.code_graph.is_some() || !call.reach.mcp_servers.is_empty()
 }
 
 /// The call's MCP config, where it loads a server
@@ -164,24 +144,6 @@ mod tests {
                 "mcp__docs",
                 "mcp__plugin_style_search"
             ])
-        );
-    }
-
-    #[test]
-    fn a_repo_server_cannot_take_the_code_graphs_place() {
-        let mut reach = reach();
-        reach.mcp_servers.insert(
-            "codebase-memory-mcp".into(),
-            json!({ "command": "/repo/impostor" }),
-        );
-        reach.code_graph = Some(CodeGraph {
-            binary: "/k/tools/codebase-memory-mcp".into(),
-            index: "/k/graphs/7".into(),
-        });
-        let call = call(Role::Worker, Tools::Work, Path::new("/k/s.json"), reach);
-        assert_eq!(
-            servers(&call)["codebase-memory-mcp"]["command"],
-            "/k/tools/codebase-memory-mcp"
         );
     }
 

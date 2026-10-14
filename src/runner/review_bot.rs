@@ -258,6 +258,7 @@ impl Runner {
     ///
     /// A message when the forge cannot say whether the repo is public.
     pub(in crate::runner) fn shut_out(&self, bot: Bot) -> Result<bool, String> {
+        // parity: review-bot.private-repos
         if bot != Bot::Coderabbit {
             return Ok(false);
         }

@@ -124,6 +124,7 @@ impl Runner {
         let extra_instructions = instructions::read_extra(&settings)?;
         check_bots(&lineup, &self.ports)?;
         let listed = |lineup: &[ListedReviewer]| {
+            // parity: review-bot.private-repos
             let coderabbit = |r: &ListedReviewer| r.bot().is_some_and(|b| b.bot == Bot::Coderabbit);
             lineup.iter().any(coderabbit)
         };

@@ -1,0 +1,206 @@
+# What each provider kelpie supports can do, one table per category.
+#
+# `src/parity.rs` checks this file on every CI run:
+# - each category lists exactly the providers the code has;
+# - each row has a cell for every provider in its category;
+# - a code path that branches on some providers of a category names its row
+#   with a `// parity: <category>.<row>` comment, on its line or the three
+#   above (a wildcard `_ =>` arm after a provider's arm counts as a branch);
+# - an adapter's `refuse_unsupported` names the rows its provider lacks the
+#   same way;
+# - a harness row with `methods` lists `Agents` methods that have a refusing
+#   default, and its cells say which adapters override them.
+#
+# A cell is one of:
+#   "yes"
+#   { gap = <n> }   the open issue that adds it, by number
+#   { cannot = "why", doc = "<repo path>", says = "<words that file holds>" }
+
+[harness]
+providers = ["claude-code", "pi", "codex", "goose"]
+
+[harness.handover]
+what = "A worker turn in flight crosses a runner handover"
+methods = ["adoption", "adopt"]
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 791 }
+
+[harness.watch]
+what = "`shep kelpie watch` follows a call's transcript"
+methods = ["transcript"]
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 790 }
+
+[harness.idle-watch]
+what = "The idle watch reads when a call last showed something"
+methods = ["last_active"]
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 790 }
+
+[harness.attach]
+what = "`shep kelpie attach` resumes a worker's session in the terminal"
+methods = ["foreground"]
+claude-code = "yes"
+pi = { gap = 766 }
+codex = { gap = 775 }
+goose = { gap = 796 }
+
+[harness.compaction]
+what = "A turn reports its context size and compacts at the compact window"
+claude-code = "yes"
+pi = "yes"
+codex = { gap = 770 }
+goose = { gap = 792 }
+
+[harness.plugin-skills]
+what = "A call loads the skills of every plugin it is given"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 793 }
+
+[harness.mcp-servers]
+what = "A call loads the MCP servers of the repo, its plugins and the code graph"
+claude-code = "yes"
+pi = "yes"
+codex = { gap = 773 }
+goose = { gap = 794 }
+
+[harness.failing-test-findings]
+what = "A reviewer can attach a failing test to a finding"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 795 }
+
+[harness.web-research]
+what = "The researcher searches and fetches the web"
+claude-code = "yes"
+pi = { gap = 767 }
+codex = "yes"
+goose = { gap = 797 }
+
+[harness.reviewer-reads-repo]
+what = "Reviewers, advisors and the retro read the repo"
+claude-code = "yes"
+pi = "yes"
+codex = { gap = 777 }
+goose = { gap = 789 }
+
+[harness.worker]
+what = "Runs a worker"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 788 }
+
+[harness.reviewer]
+what = "Runs a reviewer"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 789 }
+
+[harness.advisor]
+what = "Runs an advisor"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 789 }
+
+[harness.retro]
+what = "Runs the retro"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = { gap = 789 }
+
+[harness.issue-writer]
+what = "Runs the issue writer"
+claude-code = "yes"
+pi = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
+codex = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
+goose = { cannot = "its guard is a Claude Code hook", doc = "docs/design/work.md", says = "`role: issue-writer`, Claude Code only" }
+
+[harness.pm]
+what = "Runs the project manager"
+claude-code = "yes"
+pi = { cannot = "a Claude Code hook holds its writes to its notes", doc = "src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+codex = { cannot = "a Claude Code hook holds its writes to its notes", doc = "src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+goose = { cannot = "a Claude Code hook holds its writes to its notes", doc = "src/agents/front.rs", says = "a Claude Code hook is what holds its writes to its notes" }
+
+[harness.guard-hooks]
+what = "Runs `worker.guard_hooks`"
+claude-code = "yes"
+pi = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
+codex = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
+goose = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
+
+[harness.tool-allow-list]
+what = "An agent file's `tools` names the tools a call may use"
+claude-code = "yes"
+pi = { cannot = "pi's tools follow the call's reach", doc = "src/agents/front.rs", says = "only claude-code has an allow-list to name" }
+codex = { cannot = "Codex has no tool allow-list", doc = "src/agents/front.rs", says = "only claude-code has an allow-list to name" }
+goose = { cannot = "goose has no tool allow-list", doc = "src/agents/front.rs", says = "only claude-code has an allow-list to name" }
+
+[harness.local-model]
+what = "Runs on a model an OpenAI-compatible server or a gateway serves"
+claude-code = { gap = 647 }
+pi = "yes"
+codex = { cannot = "Codex runs on the ChatGPT account it is logged in to", doc = "docs/design/agents.md", says = "ChatGPT plan windows beside Claude's" }
+goose = "yes"
+
+[harness.doctor]
+what = "`shep kelpie doctor` checks the harness is installed and logged in"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = "yes"
+
+[review-bot]
+providers = ["coderabbit", "cubic", "codex"]
+
+[review-bot.summon-by-label]
+what = "A label summons it"
+coderabbit = "yes"
+cubic = { cannot = "cubic is summoned by a comment", doc = "docs/facts/cubic.md", says = "`@cubic-dev-ai review` in a comment summons it" }
+codex = { cannot = "Codex is summoned by a comment or by marking ready", doc = "docs/facts/codex.md", says = "a bot that reviews on ready is summoned by marking ready" }
+
+[review-bot.full-review]
+what = "A comment asks it to read the whole pull request again"
+coderabbit = "yes"
+cubic = "yes"
+codex = "yes"
+
+[review-bot.private-repos]
+what = "Reviews a repo that is not public"
+coderabbit = { cannot = "its free plan reviews public repos only", doc = "docs/facts/coderabbit.md", says = "The free plan reviews public repos only." }
+cubic = "yes"
+codex = "yes"
+
+[webhook]
+providers = ["discord", "ntfy"]
+
+[webhook.replies]
+what = "The maintainer answers a ruling by replying to its alert"
+discord = { cannot = "a Discord webhook cannot read its channel", doc = "docs/facts/worker-questions-and-the-webhook.md", says = "So kelpie reads ruling replies on an ntfy topic alone." }
+ntfy = "yes"
+
+[webhook.token]
+what = "Kelpie sends a token beside the URL"
+discord = { cannot = "a Discord webhook's URL is its credential", doc = "docs/design/review.md", says = "URL is a credential" }
+ntfy = "yes"
+
+[gateway]
+providers = ["paddock", "openai"]
+
+[gateway.lease]
+what = "A call holds a lease on its model, so nothing evicts it mid-turn"
+paddock = "yes"
+openai = { cannot = "an OpenAI-compatible gateway knows nothing of leases", doc = "docs/design/agents.md", says = "no lease, so it may evict a model a turn runs on" }

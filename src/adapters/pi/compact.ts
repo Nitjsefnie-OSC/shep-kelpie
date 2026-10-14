@@ -24,7 +24,18 @@ export default function (pi: any) {
 		},
 	});
 	if (PROMPT_FILE === null) return;
+	// pi also compacts after a run's last answer when the context is still
+	// past its threshold. The prompt handed back then would start the task
+	// over, so it goes back only while a run is under way.
+	let running = false;
+	pi.on("agent_start", () => {
+		running = true;
+	});
+	pi.on("agent_end", () => {
+		running = false;
+	});
 	pi.on("session_compact", (event: any) => {
+		if (!running) return;
 		if (event.reason !== "threshold" && event.reason !== "overflow") return;
 		pi.sendMessage(
 			{ customType: "kelpie-prompt", content: readFileSync(PROMPT_FILE, "utf8"), display: false },
