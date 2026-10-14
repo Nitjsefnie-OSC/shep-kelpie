@@ -181,6 +181,7 @@ pub(crate) fn policy(
         policy.read.push(super::mcp::mcp_file(&call.settings));
     }
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
+    crate::adapters::mcp::fence_the_browser(&mut policy, call);
     policy.hosts.push(MODEL_HOST.to_owned());
     Ok(policy)
 }

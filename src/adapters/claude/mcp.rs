@@ -45,7 +45,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::claude::{ClaudeCli, argv, sandbox};
-    use crate::ports::{Agents, CodeGraph, Reach, Role, Session, SessionId, Tools};
+    use crate::ports::{Agents, Browser, CodeGraph, Reach, Role, Session, SessionId, Tools};
     use crate::settings::{AgentHarness, Effort};
 
     fn call(role: Role, tools: Tools, settings: &Path, reach: Reach) -> AgentCall {
@@ -157,5 +157,59 @@ mod tests {
         let without = call(Role::Worker, Tools::Work, settings, Reach::default());
         let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
         assert!(!policy.read.contains(&mcp_file(settings)));
+    }
+
+    fn browser() -> Browser {
+        Browser {
+            kelpie: "/k/bin/shep-kelpie".into(),
+            socket: "/k/worker/0123456789abcdef0123456789abcdef.sock".into(),
+        }
+    }
+
+    #[test]
+    fn a_call_with_a_browser_loads_playwright_allows_it_and_connects_the_sandbox_to_its_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("worker/settings.json");
+        let reach = Reach {
+            browser: Some(browser()),
+            ..Reach::default()
+        };
+        let with = call(Role::Worker, Tools::Work, &settings, reach);
+        ClaudeCli::default().prepare(&with).unwrap();
+
+        let read = |path: &Path| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+        };
+        assert_eq!(
+            read(&mcp_file(&settings))["mcpServers"]["playwright"],
+            json!({
+                "type": "stdio",
+                "command": "/k/bin/shep-kelpie",
+                "args": ["mcp-connect", "/k/worker/0123456789abcdef0123456789abcdef.sock"],
+            })
+        );
+        assert_eq!(
+            read(&settings)["permissions"]["allow"],
+            json!(["mcp__playwright"])
+        );
+        let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
+        assert_eq!(policy.sockets, [browser().socket]);
+    }
+
+    #[test]
+    fn a_call_without_a_browser_has_no_playwright_no_allowance_and_no_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join("worker/settings.json");
+        let without = call(Role::Worker, Tools::Work, &settings, reach());
+        ClaudeCli::default().prepare(&without).unwrap();
+
+        let read = |path: &Path| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+        };
+        assert!(read(&mcp_file(&settings))["mcpServers"]["playwright"].is_null());
+        let allowed = read(&settings)["permissions"]["allow"].to_string();
+        assert!(!allowed.contains("playwright"), "{allowed}");
+        let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
+        assert!(policy.sockets.is_empty());
     }
 }

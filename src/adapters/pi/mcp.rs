@@ -152,7 +152,7 @@ fn converted(entry: &Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use crate::adapters::pi::tests::{World, id, stand_in, strings};
-    use crate::ports::{Agents, CodeGraph, Reach, Role, Session};
+    use crate::ports::{Agents, Browser, CodeGraph, Reach, Role, Session};
 
     const URL: &str = "http://model.kelpie.test/v1";
     const SESSION: &str = "0b7f1c52-3b64-4f8e-9a52-0f6a2f1d9c11";
@@ -315,5 +315,34 @@ mod tests {
         let names: Vec<_> = config["mcpServers"].as_object().unwrap().keys().collect();
         assert_eq!(names, ["fine"]);
         assert_eq!(tool_names(&call), ["mcp__fine__*"]);
+    }
+
+    #[test]
+    fn a_call_with_a_browser_gets_playwright_in_the_mcp_file_and_its_tools_in_tools() {
+        let w = World::new();
+        let reach = Reach {
+            browser: Some(Browser {
+                kelpie: "/k/bin/shep-kelpie".into(),
+                socket: "/k/worker/0123456789abcdef0123456789abcdef.sock".into(),
+            }),
+            ..Reach::default()
+        };
+        let call = with_reach(&w, reach);
+        stand_in(&w, "").prepare(&call).unwrap();
+
+        let path = w.path("settings.pi/mcp.json");
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            written["mcpServers"]["playwright"],
+            json!({
+                "type": "stdio",
+                "command": "/k/bin/shep-kelpie",
+                "args": ["mcp-connect", "/k/worker/0123456789abcdef0123456789abcdef.sock"],
+                "exposure": "direct",
+            })
+        );
+        let argv = strings(&call);
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert!(argv[at + 1].ends_with(",mcp__playwright__*"), "{argv:?}");
     }
 }

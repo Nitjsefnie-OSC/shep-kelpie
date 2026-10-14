@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::*;
 use crate::adapters::SandboxRuntime;
 use crate::adapters::skills;
-use crate::ports::{CodeGraph, Role};
+use crate::ports::{Browser, CodeGraph, Role};
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
 use crate::test::OpenSandbox;
@@ -228,6 +228,33 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
         .filter(|p| !without.write.contains(p))
         .collect();
     assert_eq!(granted, [&graph.index]);
+}
+
+#[test]
+fn the_sandbox_connects_only_to_the_browsers_socket_when_the_call_has_one() {
+    let w = World::new();
+    let upstream = ClaudeCli::default()
+        .pi()
+        .upstream(&World::server(URL))
+        .unwrap();
+    let forwarder = w.path("forwarder.sock");
+    let browser = Browser {
+        kelpie: PathBuf::from("/k/kelpie"),
+        socket: w.path("0123456789abcdef0123456789abcdef.sock"),
+    };
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let without = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
+    call.reach.browser = Some(browser.clone());
+    let with = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
+
+    assert!(!without.sockets.contains(&browser.socket));
+    assert_eq!(
+        with.sockets
+            .iter()
+            .filter(|s| !without.sockets.contains(s))
+            .collect::<Vec<_>>(),
+        [&browser.socket]
+    );
 }
 
 #[test]
