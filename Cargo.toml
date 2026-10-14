@@ -32,17 +32,17 @@ serde = { version = "1", default-features = false, features = ["derive", "std"] 
 serde-saphyr = { version = "1", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 sha1 = { version = "0.11", default-features = false }
-shep-channel = { version = "=0.13.0", default-features = false, features = ["client"] }
+shep-channel = { version = "=0.14.0", default-features = false, features = ["client"] }
 # `schema` answers shep's `--schema` probe, which lookout edits kelpie's settings from
-shep-client = { version = "=0.13.0", default-features = false, features = ["schema"] }
+shep-client = { version = "=0.14.0", default-features = false, features = ["schema"] }
 # Handover documents, for the slices of #656 that follow
-shep-handover = "=0.13.0"
+shep-handover = "=0.14.0"
 tokio ={ version = "1", default-features = false, features = ["io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
 toml = { version = "1.1", default-features = false, features = ["std", "parse", "display", "serde"] }
 
 [dev-dependencies]
 # Only for the fake shepherds the tests run against
-shep-client = { version = "=0.13.0", default-features = false, features = ["schema", "test-support"] }
+shep-client = { version = "=0.14.0", default-features = false, features = ["schema", "test-support"] }
 # Only for throwaway homes and repos in tests
 tempfile = { version = "3", default-features = false }
 # Only for tests that pause the clock
