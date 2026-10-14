@@ -60,11 +60,13 @@ impl Runner {
         Some(saved.map(|()| None))
     }
 
-    // Says that the turn about to start resumes one a pause ended
-    pub(in crate::runner) fn note_resumed(&self, item: &WorkItem) {
-        if matches!(&item.turn, Turn::Next { prompt } if prompt == PAUSED) {
-            self.notes
-                .push(format!("#{} resumed-after-pause", item.issue));
-        }
+    // Says that the turn that just started resumed one a pause ended
+    pub(in crate::runner) fn note_resumed(&self, issue: u64) {
+        self.notes.push(format!("#{issue} resumed-after-pause"));
     }
+}
+
+// Whether the turn about to start resumes one a pause ended
+pub(in crate::runner) fn resumes_pause(item: &WorkItem) -> bool {
+    matches!(&item.turn, Turn::Next { prompt } if prompt == PAUSED)
 }

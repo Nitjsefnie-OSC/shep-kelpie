@@ -94,3 +94,24 @@ fn a_pause_that_could_not_be_written_does_not_say_no_turn_could_end() {
         "{said:?}"
     );
 }
+
+#[test]
+fn a_resume_whose_state_could_not_be_saved_does_not_say_it_resumed() {
+    let (rig, runner) = with_issue_7("shep");
+    step_paused_in_a_tool(&rig, &runner, Scripted::Say("done"));
+    drop(runner);
+    let runner = rig.open().unwrap();
+    notes(&runner);
+    // A folder where the state file goes: the save fails.
+    let state = rig.paths().state;
+    std::fs::remove_file(&state).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+
+    assert!(step(&runner).is_err());
+
+    assert!(
+        !notes(&runner)
+            .iter()
+            .any(|n| n.contains("resumed-after-pause"))
+    );
+}
