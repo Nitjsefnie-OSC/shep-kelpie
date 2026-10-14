@@ -284,3 +284,71 @@ fn the_projects_command_and_write_hooks_judge_what_goose_runs() {
         Verdict::Allow
     );
 }
+
+#[test]
+fn the_read_only_flag_allows_a_listed_command_and_refuses_write_edit_and_any_other_tool() {
+    let w = Worker::new();
+    let tree = w.worktree.path();
+    let judge = |tool: &str, input: Value| {
+        let payload = Worker::payload(tool, input, tree);
+        judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default())
+    };
+
+    // A listed command runs, and a pipe between listed commands.
+    assert_eq!(
+        judge("shell", json!({ "command": "cat src/lib.rs" })),
+        Verdict::Allow
+    );
+    assert_eq!(
+        judge("shell", json!({ "command": "rg todo src | wc -l" })),
+        Verdict::Allow
+    );
+    // The read-only guard's own refusals reach goose's shell: a command off the
+    // list, a redirect, git.
+    for command in ["rm -rf src", "echo x > a.rs", "git log", "gh pr merge 1"] {
+        let why = refusal(judge("shell", json!({ "command": command })));
+        assert!(why.contains("plain words"), "{command}: {why}");
+    }
+    refusal(judge("shell", json!({})));
+    refusal(judge("shell", json!({ "command": 7 })));
+
+    // A tree is allowed, and it is the `ls` of its folder.
+    assert_eq!(judge("tree", json!({ "path": "src" })), Verdict::Allow);
+    assert_eq!(judge("tree", json!({})), Verdict::Allow);
+    refusal(judge("tree", json!({ "path": 7 })));
+
+    // `write`, `edit` and every other tool name are refused for the same reason.
+    for (tool, input) in [
+        ("write", json!({ "path": "a.rs", "content": "x" })),
+        (
+            "edit",
+            json!({ "path": "a.rs", "before": "x", "after": "y" }),
+        ),
+        ("write", json!({})),
+        ("read_image", json!({})),
+        ("delegate", json!({})),
+        ("Bash", json!({ "command": "ls" })),
+        ("", json!({})),
+    ] {
+        let why = refusal(judge(tool, input));
+        assert!(why.contains("writes no file"), "{tool}: {why}");
+    }
+    let long = "x".repeat(500);
+    let why = refusal(judge(&long, json!({})));
+    assert!(why.len() < 400, "a long name is not quoted whole: {why}");
+
+    // Whatever cannot be read refuses.
+    let unreadable: [&[u8]; 3] = [b"", b"not json", b"{}"];
+    for payload in unreadable {
+        refusal(judge_goose_reading(payload, &Hooks::default()));
+    }
+
+    // The project's `command` hooks judge what the list lets through.
+    let keep = hooks(&[(HookPoint::Command, REFUSE_WORD)]);
+    let named = Worker::payload("shell", json!({ "command": "cat Acme" }), tree);
+    let why = refusal(judge_goose_reading(named.to_string().as_bytes(), &keep));
+    assert!(why.contains("the `command` hook `if` refused"), "{why}");
+    let named = Worker::payload("tree", json!({ "path": "Acme" }), tree);
+    let why = refusal(judge_goose_reading(named.to_string().as_bytes(), &keep));
+    assert!(why.contains("the `command` hook `if` refused"), "{why}");
+}

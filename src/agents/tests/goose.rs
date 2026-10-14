@@ -1,5 +1,5 @@
-//! goose in an agent file: a researcher and an implementer on a model server,
-//! and no other role until the slice that opens it
+//! goose in an agent file: a researcher, an implementer, a reviewer and an
+//! advisor on a model server
 
 use super::{folder, limit, model, name, refused};
 use crate::agents::{Agents, Role};
@@ -79,29 +79,28 @@ fn goose_takes_no_tools_and_no_usage_but_none() {
 }
 
 #[test]
-fn an_implementer_on_goose_loads_and_a_reviewer_and_an_advisor_are_still_refused() {
+fn an_implementer_on_goose_loads() {
     let implementer = RESEARCHER.replace("researcher", "implementer");
     let dir = folder(&[("i.md", &implementer)]);
     let agents = Agents::load(dir.path()).unwrap();
     let worker = agents.get(&name("i")).unwrap();
     assert_eq!(worker.role, Role::Implementer);
     assert_eq!(model(worker).harness.harness(), Harness::Goose);
+}
 
-    let reviewer = RESEARCHER.replace("researcher", "reviewer");
-    for (role, text, slice) in [
-        ("a reviewer", reviewer, "#789"),
-        (
-            "an advisor",
-            RESEARCHER.replace("researcher", "advisor"),
-            "#789",
-        ),
-    ] {
-        let err = refused(&[("g.md", &text)]);
-        assert!(
-            err.contains(&format!("{role} cannot run on goose yet")) && err.contains(slice),
-            "{role}: {err}"
-        );
+#[test]
+fn a_reviewer_and_an_advisor_on_goose_load() {
+    for role in ["reviewer", "advisor"] {
+        let text = RESEARCHER.replace("researcher", role);
+        let dir = folder(&[("g.md", &text)]);
+        let agents = Agents::load(dir.path()).unwrap();
+        let agent = agents.get(&name("g")).unwrap();
+        assert_eq!(model(agent).harness.harness(), Harness::Goose, "{role}");
     }
+}
+
+#[test]
+fn an_issue_writer_and_a_pm_still_run_on_claude_code_alone() {
     for role in ["issue-writer", "pm"] {
         let text = format!(
             "---\nrole: {role}\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n---\nGo.\n"

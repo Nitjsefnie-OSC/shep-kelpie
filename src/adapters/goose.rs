@@ -7,8 +7,10 @@
 //! researcher is loaded no extension: the model is offered no tool, so it reads
 //! what kelpie wrote it and answers. A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
-//! plugin that kelpie writes into the root, [`hooks`]. Only a researcher and a
-//! worker run on goose for now. The sandbox
+//! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
+//! advisor and a retro in a fence, with the plugin's read-only guard: goose has
+//! no read tool, so they read the repo through a `shell` that runs only what
+//! reads, and they write no file. The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -29,6 +31,7 @@ use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
+use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Policy, Role,
     Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
@@ -48,6 +51,9 @@ mod gateway_tests;
 
 #[cfg(test)]
 mod hooks_tests;
+
+#[cfg(test)]
+mod reading_tests;
 
 #[cfg(test)]
 mod tests;
@@ -128,7 +134,7 @@ impl Agents for GooseCli {
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
         match &call.reach.fence {
-            Some(fence) if works(call) => hooks::write(&files, fence),
+            Some(fence) if has_shell(call) => hooks::write(&files, fence, reads(call)),
             _ => Ok(()),
         }
     }
@@ -302,16 +308,11 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
     }
 }
 
-// What goose cannot give a call yet. The agent files already refuse a role
-// goose does not take, so this is the second line.
+// What goose cannot give a call. The agent files already refuse a role goose
+// does not take, so this is the second line.
 // parity: harness.reviewer, harness.advisor, harness.retro, harness.issue-writer,
 // parity: harness.pm, harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
-    let opens = |who: &str, slice: &str| {
-        Some(format!(
-            "goose cannot run {who} yet: {slice} opens it, and only a researcher and a worker run on it until then"
-        ))
-    };
     let refused = match (call.role, call.tools) {
         (Role::Researcher, _) => None,
         // ADR 0006: a harness that cannot fence cannot be a worker.
@@ -320,10 +321,16 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
              guard is written from the fence"
                 .to_owned(),
         ),
-        (Role::Worker, Tools::Work) => None,
-        (Role::Worker, _) => opens("a retro", "#789"),
-        (Role::Reviewer, _) => opens("a reviewer", "#789"),
-        (Role::Advisor, _) => opens("an advisor", "#789"),
+        // A retro, a reviewer and an advisor with no fence have no shell and read what
+        // kelpie wrote them, as a researcher does.
+        (Role::Worker, Tools::Work | Tools::Retro)
+        | (Role::Reviewer, Tools::Review)
+        | (Role::Advisor, Tools::Advise) => None,
+        (Role::Worker | Role::Reviewer | Role::Advisor, tools) => Some(format!(
+            "goose cannot run {:?} tools for {}",
+            tools,
+            call.role.as_str()
+        )),
         (Role::IssueWriter | Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
@@ -386,11 +393,50 @@ fn works(call: &AgentCall) -> bool {
     call.role == Role::Worker && call.tools == Tools::Work && call.reach.fence.is_some()
 }
 
+// Whether `call` reads the repo through the read-only shell: a reviewer, an
+// advisor or a retro with a fence to hold it. One with no fence is offered no
+// tool. The researcher is never one.
+fn reads(call: &AgentCall) -> bool {
+    call.reach.fence.is_some() && matches!(call.tools, Tools::Review | Tools::Advise | Tools::Retro)
+}
+
+// Whether goose offers the call its `developer` tools, behind the hook plugin.
+fn has_shell(call: &AgentCall) -> bool {
+    works(call) || reads(call)
+}
+
+// Whether the call is given `--with-builtin developer`. goose restores a
+// resumed session's own extension set, so a resumed call that only reads takes
+// none, and the plugin's hook is its only gate on the tools it has. A resumed
+// worker is given the builtin again: goose keeps one.
+fn offers_developer(call: &AgentCall) -> bool {
+    works(call) || (reads(call) && matches!(call.session, Session::New(_)))
+}
+
+// `prompt` for a reviewer, with what its shell is for. Its prompt sends it to
+// Read, Glob and Grep, which goose lacks. An advisor's and a retro's name none.
+fn told(call: &AgentCall, prompt: String) -> String {
+    if call.tools != Tools::Review || !reads(call) {
+        return prompt;
+    }
+    let commands: Vec<String> = READ_ONLY_COMMANDS
+        .iter()
+        .map(|c| format!("`{c}`"))
+        .collect();
+    format!(
+        "{prompt}\n\nThis session has no Read, Glob or Grep tool: read the repo with its `shell` \
+         and `tree` instead. The shell runs only {}, each as plain words, and pipes between \
+         them. It refuses a redirect, a `$` or a backtick, and any other command, git included. \
+         Where the instructions above say to run no command, they mean no other.",
+        commands.join(", ")
+    )
+}
+
 // The variables that move goose into the call's own root and point it at the
 // forwarder. `GOOSE_MODE` is `chat` for a call with no extension: there is no
 // tool for `auto` to allow, and goose rejects one that appears anyway. A
 // worker's is `auto`, which ignores goose's own `permission.yaml`, so the
-// hook plugin is the only gate. A worker reads the repo's `AGENTS.md` and
+// hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
 // `CLAUDE.md`, as pi does, and never `.goosehints`.
 fn env_args(
     call: &AgentCall,
@@ -408,7 +454,7 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if works(call) { "auto" } else { "chat" }.into(),
+            if has_shell(call) { "auto" } else { "chat" }.into(),
         ),
         ("OPENAI_BASE_URL".into(), upstream.worker_url().into()),
         ("OPENAI_API_KEY".into(), PLACEHOLDER_KEY.into()),
@@ -416,7 +462,7 @@ fn env_args(
         ("GOOSE_TELEMETRY_OFF".into(), "1".into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
     ];
-    if works(call) {
+    if has_shell(call) {
         vars.push((
             "CONTEXT_FILE_NAMES".into(),
             serde_json::json!(CONTEXT_FILES).to_string().into(),
@@ -440,16 +486,17 @@ fn env_args(
 // The prompt is one `--text=` argument, so one that starts with `-` is not read
 // as a flag. A researcher is given no extension, and so no tool. A worker is
 // given the `developer` builtin on a resumed call too: goose de-duplicates a
-// builtin, where a repeated `--with-extension` name ends the run.
+// builtin, where a repeated `--with-extension` name ends the run. A reviewer,
+// advisor or retro is given it on a new session ([`offers_developer`]).
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     let mut argv: Vec<OsString> = vec![
         "run".into(),
         "--no-profile".into(),
         "--output-format".into(),
         "stream-json".into(),
-        format!("--text={}", prompt(call)).into(),
+        format!("--text={}", told(call, prompt(call))).into(),
     ];
-    if works(call) {
+    if offers_developer(call) {
         argv.extend(["--with-builtin".into(), "developer".into()]);
     }
     // goose builds its system prompt afresh on every call, a resumed one too.
@@ -475,6 +522,11 @@ fn policy(
     unfenced: &[String],
 ) -> Policy {
     let mut policy = call_policy(call, unfenced);
+    // A retro and an advisor run under a fence that can write, which their
+    // read-only shell must not use: the hook is the first layer, this the second.
+    if matches!(call.tools, Tools::Retro | Tools::Advise) {
+        policy.write.clear();
+    }
     policy.no_keychain = call.reach.block_keychain;
     // The call logs in nowhere and goose's config is relocated, so no harness's
     // login is its own, the maintainer's goose included.

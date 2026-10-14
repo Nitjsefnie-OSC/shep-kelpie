@@ -244,38 +244,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
         Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
     }?;
-    goose_opens_at(&agent, &yaml)?;
     Ok(agent)
-}
-
-// goose runs the researcher and the implementer, and the other roles wait on the slice that opens them
-fn goose_opens_at(agent: &Agent, yaml: &str) -> Result<(), String> {
-    let on_goose = matches!(
-        agent.runs.session(),
-        Some((
-            RoleModel {
-                harness: AgentHarness::Goose(_),
-                ..
-            },
-            _
-        ))
-    );
-    let (who, slice) = match agent.role {
-        Role::Reviewer => ("a reviewer", "#789"),
-        Role::Advisor => ("an advisor", "#789"),
-        // The issue writer and the project manager already refuse any harness but Claude Code.
-        Role::Implementer | Role::IssueWriter | Role::Pm | Role::Researcher => return Ok(()),
-    };
-    match on_goose {
-        true => Err(at_key(
-            yaml,
-            "harness",
-            &format!(
-                "{who} cannot run on goose yet: {slice} opens it, and only a researcher and an implementer run on it until then"
-            ),
-        )),
-        false => Ok(()),
-    }
 }
 
 impl Expert {
