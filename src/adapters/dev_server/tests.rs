@@ -43,19 +43,20 @@ fn unused() -> u16 {
         .port()
 }
 
+// A script that listens on its port, as a dev server does, and says so in its log.
+const LISTENER: &str = "#!/bin/sh\necho \"serving $PORT\"\nexec python3 -c 'import socket, sys, time; \
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); \
+s.bind((\"127.0.0.1\", int(sys.argv[1]))); s.listen(); time.sleep(30)' \"$PORT\"\n";
+
 #[test]
-fn a_server_that_answers_on_its_port_is_returned_answering_and_runs_in_its_sandbox() {
+fn a_server_that_binds_its_port_is_returned_answering_and_runs_in_its_sandbox() {
     let dir = short_tempdir();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
+    let port = unused();
     let sandbox = OpenSandbox::default();
-    let run = run_of(
-        dir.path(),
-        "#!/bin/sh\necho \"serving $PORT\"\nexec sleep 30\n",
-        port,
-        Duration::from_secs(10),
-    );
-    let started = servers(&sandbox).start(&run).unwrap();
+    let run = run_of(dir.path(), LISTENER, port, Duration::from_secs(10));
+    let servers = servers(&sandbox);
+    assert!(servers.free(port), "nothing listens before the start");
+    let started = servers.start(&run).unwrap();
     assert!(started.answered);
     let [(policy, settings)] = sandbox.wrapped().try_into().unwrap();
     assert!(policy.listen);
@@ -63,6 +64,22 @@ fn a_server_that_answers_on_its_port_is_returned_answering_and_runs_in_its_sandb
     drop(started);
     let log = std::fs::read_to_string(&run.log).unwrap();
     assert!(log.contains(&format!("serving {port}")), "{log}");
+}
+
+#[test]
+fn a_port_that_something_else_took_starts_nothing() {
+    let dir = short_tempdir();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let run = run_of(
+        dir.path(),
+        "#!/bin/sh\ntouch ran\n",
+        port,
+        Duration::from_secs(10),
+    );
+    let why = servers(&OpenSandbox::default()).start(&run).unwrap_err();
+    assert!(why.contains(&format!("port {port} is taken")), "{why}");
+    assert!(!dir.path().join("ran").exists());
 }
 
 #[test]

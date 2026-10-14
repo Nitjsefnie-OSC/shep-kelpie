@@ -90,6 +90,11 @@ impl DevServers for SandboxedServers {
     }
 
     fn start(&self, run: &DevRun) -> Result<Started, String> {
+        // The plan checked the port some time ago. Whatever holds it now would
+        // answer in the server's place.
+        if !self.free(run.port) {
+            return Err(format!("port {} is taken", run.port));
+        }
         let mut command = crate::spawn::command(&run.program);
         command.args(&run.args).current_dir(&run.cwd).envs(&run.env);
         let mut wrapped = self
@@ -108,11 +113,12 @@ impl DevServers for SandboxedServers {
         let mut group = Group(child);
         let deadline = Instant::now() + run.ready_within;
         loop {
-            if answers(run.port) {
+            // An answer counts only while the server started here is running.
+            let running = matches!(group.0.try_wait(), Ok(None));
+            if running && answers(run.port) {
                 return Ok(Started::new(true, group));
             }
-            // A server that has exited will never answer.
-            if !matches!(group.0.try_wait(), Ok(None)) || Instant::now() >= deadline {
+            if !running || Instant::now() >= deadline {
                 return Ok(Started::new(false, group));
             }
             thread::sleep(ASK_EVERY.min(deadline.saturating_duration_since(Instant::now())));

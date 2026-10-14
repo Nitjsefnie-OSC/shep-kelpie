@@ -6,7 +6,7 @@ A worker's sandbox binds no port and a headless turn has no background tasks, so
 - `cwd` resolves under the worktree. One that leaves it by `..`, an absolute path or a link is refused, and the instructions say why.
 - Its own `srt` `Policy`: writes the worktree and build folder under the fence's `no_write` and `no_read`, reaches `browser.domains`, `listen: true`, `services: ["com.apple.FSEvents"]`, the keychain blocked as the call's is, and `NODE_USE_ENV_PROXY=1`.
 - Port: the configured one when free. Under `autoPort`, kelpie picks a free port, sets `PORT` and replaces the configured number where it is a whole `runtimeArgs` entry. Otherwise a taken port runs the turn without a dev server, and the instructions say so.
-- Ready when it answers on its port, 60 seconds at most. If it never answers the turn still runs, and the instructions name `dev-server.log` in the build folder.
+- A port taken between the plan and the start refuses the start. Ready when it answers on its port while the server kelpie started still runs, 60 seconds at most. If it never answers the turn still runs, and the instructions name `dev-server.log` in the build folder.
 - It is a child of the runner in its own process group, stopped (TERM, then KILL) when its `Started` guard drops, whatever ended the turn (ADR 0005).
 - The plan is made under the runner lock and lasts until the turn ends, so a retry reuses its port. The start and wait run on the call thread, off the lock.
 - A resumed Claude Code session does not re-read its instructions, so a standing line there names the log.
