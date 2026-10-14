@@ -23,19 +23,17 @@ use serde::Deserialize;
 
 use super::super::Runner;
 use super::super::representative::Post;
-use super::super::review::calls::diff_against;
-use super::pass::FOLDER;
 use super::post::{POST_TRIES, Wording, forge_is_busy, refused_text, short};
 use super::ruling::{flagged_lines, raise_question};
 use crate::ports::{Cost, Finding};
 use crate::state::{Contribution, Deciding, Said, StateError};
-use crate::worktree::BASE;
+use crate::worktree;
 
 /// The longest the contributor's words, or one of the maintainer's, are
 /// given to the call, in characters
 const LONGEST_SAID: usize = 8_000;
 
-/// The longest the diff is given to the call, in characters
+/// The longest the diff is given to the call, in bytes
 const LONGEST_DIFF: usize = 60_000;
 
 /// The longest the question to the maintainer is, in characters: the
@@ -129,6 +127,11 @@ impl Runner {
             .map(Due::Answer)
     }
 
+    // Whether a decision of the contributor's is open on the pull request
+    fn decision_open(&self, number: u64) -> bool {
+        (self.state.contributions.iter()).any(|c| c.pull_request == number && c.deciding.is_some())
+    }
+
     // Whether a ruling on the pull request waits for the maintainer
     fn ruling_waits(&self, number: u64) -> bool {
         (self.state.rulings.iter()).any(|r| r.id == number)
@@ -155,6 +158,13 @@ impl Runner {
                     return Ok(false);
                 };
                 match replied {
+                    Reply::Decision { .. } if self.decision_open(number) => {
+                        // A relay given up keeps its decision, and a second
+                        // would overwrite the maintainer's saved answer.
+                        let why = "an earlier decision is still open";
+                        self.answer_failed(&key, number, "answer", &why, true);
+                        return Ok(false);
+                    }
                     Reply::Decision { question } => {
                         self.raise_decision(number, said, &question)?;
                         self.answer_ends(&key);
@@ -317,7 +327,7 @@ impl Runner {
         if !nits.is_empty() {
             facts.push_str(&listed("Nits a review bot left", "", nits));
         }
-        let diff = self.diff_text(held.pull_request);
+        let diff = self.diff_text(held);
         facts.push_str(&format!(
             "\n{}\n",
             crate::runner::untrusted::fenced("The diff since main", &diff)
@@ -335,13 +345,21 @@ impl Runner {
         facts
     }
 
-    // The diff of the contribution from main, cut at [`LONGEST_DIFF`], or
-    // what is wrong with getting it
-    fn diff_text(&self, number: u64) -> String {
-        let worktree = (self.paths.folder.join(FOLDER)).join(number.to_string());
-        let base = format!("origin/{BASE}");
-        match diff_against(&self.settings.git.checkout, &worktree, &base) {
-            Ok(diff) => cut(&diff, LONGEST_DIFF, "\n[the diff is cut here]"),
+    // The change the contribution's current head makes from main, read from
+    // the head itself, fetched first, and not from a checkout that may still
+    // hold an earlier head. Cut at [`LONGEST_DIFF`] bytes, or what is wrong
+    // with getting it.
+    fn diff_text(&self, held: &Contribution) -> String {
+        let read = worktree::contribution_change(
+            &self.settings.git.checkout,
+            held.pull_request,
+            &held.head,
+            None,
+            LONGEST_DIFF,
+        );
+        match read {
+            Ok(change) if change.cut => format!("{}\n[the diff is cut here]", change.diff),
+            Ok(change) => change.diff,
             Err(why) => format!("[the diff cannot be read: {why}]"),
         }
     }
@@ -387,7 +405,7 @@ impl Runner {
     ) -> Result<(), StateError> {
         // Another ruling raised since the call keeps the pull request's id:
         // the comment stays unanswered and is asked again once it is gone.
-        if self.ruling_waits(number) {
+        if self.ruling_waits(number) || self.decision_open(number) {
             return Ok(());
         }
         let asked = cut(&one_line(question), LONGEST_ASK, "...");

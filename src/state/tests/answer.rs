@@ -14,20 +14,36 @@ fn an_older_state_file_loads() {
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
     old["version"] = 57.into();
     old["contributions"] = serde_json::json!([
-        { "pull_request": 12, "author": "newcomer", "head": "2a8f1e6", "seen": 1 }
+        { "pull_request": 12, "author": "newcomer", "head": "2a8f1e6", "seen": 1,
+          "heard": [
+              { "kind": "comment", "id": 5, "at": 20 },
+              { "kind": "push", "head": "2a8f1e6", "at": 30 },
+              { "kind": "reply", "id": 6, "at": 31 }
+          ] }
     ]);
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
     let loaded = store.load().unwrap().expect("a saved state");
-    assert_eq!(loaded.contributions[0].answered, []);
+    // What was heard before kelpie answered anyone counts as answered, so
+    // the first poll does not reply to old comments.
+    assert_eq!(
+        loaded.contributions[0].answered,
+        [
+            Said::Comment {
+                id: 5,
+                at: Timestamp(20)
+            },
+            Said::Reply {
+                id: 6,
+                at: Timestamp(31)
+            }
+        ]
+    );
+    assert_eq!(loaded.contributions[0].unanswered(), []);
     assert_eq!(loaded.contributions[0].deciding, None);
-    store.save(&loaded).unwrap();
-    let saved = read_back(dir.path());
-    assert_eq!(saved["version"], VERSION);
-    assert_eq!(saved["contributions"][0].get("answered"), None);
-    assert_eq!(saved["contributions"][0].get("deciding"), None);
 
     let mut state = loaded;
+    state.contributions[0].answered.clear();
     let said = Said::Comment {
         id: 7,
         at: Timestamp(40),

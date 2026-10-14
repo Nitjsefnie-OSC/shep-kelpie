@@ -74,6 +74,9 @@ const BOT_ROUNDS: u32 = 3;
 /// The last format before a work item remembered the comments it had read
 const BEFORE_TALKED: u32 = 38;
 
+/// The last format before a contribution recorded what it had answered
+const BEFORE_ANSWERED: u32 = 57;
+
 /// The format that named rulings by their work item's number, so a file
 /// saved before it has its rulings renamed as it loads
 const NUMBERED: u32 = 38;
@@ -896,6 +899,14 @@ impl StateStore {
                 .filter(|i| i.pull_request.is_some())
             {
                 item.talked.quiet = true;
+            }
+        }
+        if found <= BEFORE_ANSWERED {
+            // What the contributor said before kelpie answered anyone is not
+            // answered now: the maintainer has seen it, and a reply to it
+            // would be stale.
+            for held in &mut state.contributions {
+                held.answered = held.unanswered();
             }
         }
         let state = state.one_item_moved();

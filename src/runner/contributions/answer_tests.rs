@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::pass_tests::{listing, read_through, write};
 use super::post::POST_TRIES;
 use super::ruling_tests::{flagged, rule};
-use super::security_tests::{contribute, contribution};
+use super::security_tests::{commit_on, contribute, contribution};
 use super::tests::{opened, picking};
 use crate::ports::{AgentError, CLEAN, Clock, Cost, Finding, Role, Severity};
 use crate::runner::{Runner, step};
@@ -97,6 +97,7 @@ fn a_question_about_a_finding_is_answered_in_a_comment() {
     assert_eq!(prompts.len(), 2, "the review, then the answer");
     assert!(prompts[1].contains("first is wrong"), "{}", prompts[1]);
     assert!(prompts[1].contains("one.txt"), "{}", prompts[1]);
+    assert!(prompts[1].contains("+two"), "the diff: {}", prompts[1]);
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
 }
 
@@ -316,4 +317,55 @@ fn a_relay_given_up_no_longer_holds_the_comments_behind_it() {
         comments(&rig),
         ["That finding is about the first line, which breaks."]
     );
+}
+
+#[test]
+fn the_diff_is_the_current_heads_even_before_its_pass_has_run() {
+    let (rig, runner) = picking("all");
+    rig.claude
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ANSWERS)]);
+    contribute(&rig, 30, |h| write(h, "one.txt", "first head\n"));
+    assert_eq!(step(&runner).unwrap(), None);
+    let second = commit_on(&rig, 30, "topic/30", |h| {
+        write(h, "two.txt", "second head\n")
+    });
+    rig.clock.advance(10);
+    rig.writes_on(30, "newcomer", "Does it still work?");
+
+    polls(&rig, &runner);
+
+    let prompts: Vec<String> = (asked(&rig).into_iter())
+        .filter(|p| p.contains("Answer the contributor's latest comment"))
+        .collect();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains(&second[..7]), "{}", prompts[0]);
+    assert!(prompts[0].contains("+second head"), "{}", prompts[0]);
+}
+
+#[test]
+fn a_second_decision_does_not_overwrite_the_one_whose_relay_was_given_up() {
+    let down = || AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    let (rig, runner) = followed(&[ASKS]);
+    rig.writes_on(30, "newcomer", "Will you merge this?");
+    polls(&rig, &runner);
+    rule(&rig, &runner, "30 answer Not yet");
+    rig.claude.script_for(
+        Role::Representative,
+        (0..POST_TRIES).map(|_| Scripted::Fail(down())),
+    );
+    for _ in 0..POST_TRIES {
+        polls(&rig, &runner);
+    }
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ASKS)]);
+    rig.writes_on(30, "newcomer", "And will you release it?");
+
+    polls(&rig, &runner);
+
+    let held = contribution(&rig, &runner);
+    assert_eq!(held["deciding"]["answer"], "Not yet");
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+    assert_eq!(comments(&rig), Vec::<String>::new());
 }
