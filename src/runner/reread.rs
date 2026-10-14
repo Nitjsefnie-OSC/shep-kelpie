@@ -249,6 +249,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
+        browser: old_browser,
         local_rounds: old_local_rounds,
         e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
@@ -267,6 +268,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         skills: new_skills,
         repo_setup: new_repo_setup,
         code_graph: new_code_graph,
+        browser: new_browser,
         local_rounds: new_local_rounds,
         e2e: _,
     } = new;
@@ -296,6 +298,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("skills", old_skills != new_skills),
         ("repo_setup", old_repo_setup != new_repo_setup),
         ("code_graph", old_code_graph != new_code_graph),
+        ("browser", old_browser != new_browser),
         ("local_rounds", old_local_rounds != new_local_rounds),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
