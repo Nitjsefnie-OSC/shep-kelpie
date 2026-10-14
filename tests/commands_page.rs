@@ -14,12 +14,18 @@
 //! - a flag the usage text offers to every verb (`-p`, `--json`) is named by
 //!   any code span
 //!
-//! What the page names that the command line lacks, checked in these code
-//! spans only, since the page uses code spans for much besides commands:
+//! What the page names that the command line lacks, checked in code spans
+//! the page means as commands, since it uses code spans for much besides:
 //! - a `shep kelpie ...` span or `sh` line
-//! - a span that starts with a lowercase word followed by `<...>`, `[...]` or
-//!   `"<...>"`, or that opens a paragraph or list item
-//! - a span that starts with a flag
+//! - a span that starts with a lowercase word and has a `<...>`, `[...]` or
+//!   `"<...>"` after it, or that opens a paragraph or list item
+//! - a span in a list (joined by `,`, `and` or `or`) with a span that is a
+//!   command or names a verb
+//! - a span that starts with `lease`, `board` or another verb that has verbs
+//!   under it, with a second word
+//!
+//! Flags are checked the same way, in those spans, in any span that names a
+//! verb, and in any span that starts with a flag.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -188,28 +194,36 @@ struct Span {
     words: Vec<String>,
     /// Whether the page means this as a command, so what it names must exist
     command: bool,
+    /// Whether it starts with another program, such as `shep trigger`
+    foreign: bool,
     /// Every flag in the span, or in the whole line of a `sh` block
     flags: Vec<String>,
-    /// Whether those flags must exist too
-    flags_checked: bool,
+    /// Whether it starts with a flag, which then must exist
+    opens_with_flag: bool,
+    /// Whether only `,`, `and` or `or` separates it from the span before
+    joined: bool,
 }
 
 impl Span {
-    fn prose(code: &str, opens_item: bool) -> Self {
+    fn prose(code: &str, opens_item: bool, joined: bool) -> Self {
         let all: Vec<&str> = code.split_whitespace().collect();
         let (words, prefixed) = after_program(&all);
         let placeholder = words
-            .get(1)
-            .is_some_and(|w| ["<", "[", "\"<"].iter().any(|open| w.starts_with(open)));
+            .iter()
+            .skip(1)
+            .any(|w| ["<", "[", "\"<"].iter().any(|open| w.starts_with(open)));
+        let foreign = !prefixed && all.first() == Some(&"shep");
         let command = prefixed
-            || (all.first() != Some(&"shep")
+            || (!foreign
                 && words.first().is_some_and(|w| word_shaped(w))
                 && (opens_item || placeholder));
         Self {
             words,
             command,
+            foreign,
             flags: flags_in(all.iter().copied()).collect(),
-            flags_checked: command || code.starts_with('-'),
+            opens_with_flag: code.starts_with('-'),
+            joined,
         }
     }
 
@@ -220,10 +234,23 @@ impl Span {
         Self {
             words,
             command: prefixed,
+            foreign: false,
             flags: flags_in(line.split_whitespace()).collect(),
-            flags_checked: prefixed,
+            opens_with_flag: false,
+            joined: false,
         }
     }
+
+    fn starts_with_word(&self) -> bool {
+        !self.foreign && self.words.first().is_some_and(|w| word_shaped(w))
+    }
+}
+
+/// Whether the text between two code spans only joins them in a list
+fn joins(between: &str) -> bool {
+    between
+        .split_whitespace()
+        .all(|w| matches!(w, "," | "and" | "or"))
 }
 
 /// The page's code, in the paragraphs, list items and `sh` block lines it
@@ -251,13 +278,48 @@ fn chunks(page: &str) -> Vec<Vec<Span>> {
                 chunks.push(std::mem::take(&mut current));
             }
             let body = bullet.unwrap_or(item);
-            for (at, code) in body.split('`').enumerate().skip(1).step_by(2) {
-                current.push(Span::prose(code, at == 1 && body.starts_with('`')));
+            let pieces: Vec<&str> = body.split('`').collect();
+            for at in (1..pieces.len()).step_by(2) {
+                let opens_item = at == 1 && body.starts_with('`');
+                current.push(Span::prose(
+                    pieces[at],
+                    opens_item,
+                    at > 1 && joins(pieces[at - 1]),
+                ));
             }
         }
     }
     chunks.push(current);
     chunks
+}
+
+/// Which of a chunk's spans are commands: those the page means as one, those
+/// that name a verb, and those in a list with one (`finish`, `status` and `gate`)
+fn commands(cli: &Cli, spans: &[Span]) -> Vec<bool> {
+    let mut is: Vec<bool> = spans
+        .iter()
+        .map(|s| {
+            s.command
+                || (s.starts_with_word()
+                    && !matches!(cli.reading(&s.words), Reading::Unknown(v) if !v.contains(' ')))
+        })
+        .collect();
+    loop {
+        let mut changed = false;
+        for at in 0..spans.len() {
+            let after = spans
+                .get(at + 1)
+                .is_some_and(|next| next.joined && is[at + 1]);
+            let before = spans[at].joined && at > 0 && is[at - 1];
+            if !is[at] && spans[at].starts_with_word() && (after || before) {
+                is[at] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            return is;
+        }
+    }
 }
 
 /// What is wrong with `page` against `usage`: one line for each verb or flag
@@ -302,14 +364,17 @@ fn problems(usage: &str, page: &str) -> Vec<String> {
         }
     }
     let mut stale = BTreeSet::new();
-    for span in chunks.iter().flatten() {
-        if span.command
+    for (span, command) in chunks
+        .iter()
+        .flat_map(|spans| spans.iter().zip(commands(&cli, spans)))
+    {
+        if command
             && let Reading::Unknown(verb) = cli.reading(&span.words)
             && !TRIGGER_ONLY.contains(&verb.as_str())
         {
             stale.insert(format!("stale verb `{verb}`"));
         }
-        if span.flags_checked {
+        if command || span.opens_with_flag {
             for flag in span.flags.iter().filter(|f| !cli.defines_flag(f)) {
                 stale.insert(format!("stale flag `{flag}`"));
             }
@@ -491,6 +556,33 @@ Every trigger is a verb: `add <issue>`, `board move <issue> <position>`, `board 
             "{PAGE}\nThe state names `work_items` and `run: finishing`, and `jq -r .pacer` reads it.\n\
              ```text\nshep kelpie vanish --gone\n```\n"
         );
+        assert_eq!(problems(USAGE, &page), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_flag_the_cli_lacks_is_stale_in_any_span_that_names_a_verb() {
+        let page = format!("{PAGE}\nSee `add <issue>` and `upgrade --bogus`.\n");
+        assert_eq!(problems(USAGE, &page), ["stale flag `--bogus`"]);
+    }
+
+    #[test]
+    fn a_bare_verb_in_a_list_with_commands_is_stale_when_the_cli_lacks_it() {
+        let page = format!("{PAGE}\nAlso `add <issue>`, `drain` and `finish`.\n");
+        assert_eq!(
+            problems(USAGE, &page),
+            ["stale verb `drain`", "stale verb `finish`"]
+        );
+    }
+
+    #[test]
+    fn a_nested_verb_the_cli_lacks_is_stale_without_a_placeholder() {
+        let page = format!("{PAGE}\n`lease take` holds one.\n");
+        assert_eq!(problems(USAGE, &page), ["stale verb `lease take`"]);
+    }
+
+    #[test]
+    fn plain_words_in_a_list_are_left_alone() {
+        let page = format!("{PAGE}\nIt ends `ok`, `failed` or `held`, for `login` or `app`.\n");
         assert_eq!(problems(USAGE, &page), Vec::<String>::new());
     }
 
