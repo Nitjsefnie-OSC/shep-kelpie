@@ -24,12 +24,12 @@ use serde_json::json;
 
 use self::adopt::{Carried, kept_server};
 use self::compact::Tokens;
+use self::shared::profile;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
-use super::skills::skill_dirs;
 use super::unreachable::reaches_no_host;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
@@ -44,8 +44,10 @@ use crate::skills::split_command;
 
 mod activity;
 mod adopt;
+mod attach;
 mod compact;
 pub(crate) mod mcp;
+mod shared;
 mod web;
 
 #[cfg(test)]
@@ -53,6 +55,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod compact_tests;
@@ -145,6 +150,8 @@ pub struct PiCli {
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
+    // The forwarder of each session the maintainer has open in a terminal
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -159,6 +166,7 @@ impl ClaudeCli {
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -295,6 +303,14 @@ impl Agents for PiCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.drop_terminal(session);
+    }
 }
 
 impl PiCli {
@@ -359,6 +375,17 @@ impl PiCli {
             Some(id) => upstream.with_lease(id),
             None => upstream,
         };
+        self.inside_sandbox(call, upstream, argv(call, &Files::of(call)))
+    }
+
+    // `pi` with `argv`, in the call's sandbox and its scratch folder emptied,
+    // with a forwarder to `upstream` that the caller keeps for as long as pi runs.
+    fn inside_sandbox(
+        &self,
+        call: &AgentCall,
+        upstream: Upstream,
+        argv: Vec<OsString>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let files = Files::of(call);
         match std::fs::remove_dir_all(&files.scratch) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -384,7 +411,7 @@ impl PiCli {
         command
             .args(env_args(call, &files))
             .arg(&self.program)
-            .args(argv(call, &files))
+            .args(argv)
             .current_dir(&call.cwd);
         let policy = policy(
             call,
@@ -561,64 +588,13 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         true => (compact::COMMAND.to_owned(), None),
         false => skill_prompt(call),
     };
-    let mut argv: Vec<OsString> = vec![
-        "-p".into(),
-        "--mode".into(),
-        "json".into(),
-        "--model".into(),
-        format!("{PROVIDER}/{}", call.model).into(),
-        "--thinking".into(),
-        call.effort.as_str().into(),
-        "--no-extensions".into(),
-        "--no-skills".into(),
-        "--no-prompt-templates".into(),
-        "--no-themes".into(),
-        "--no-approve".into(),
-        "--offline".into(),
-        "--session-dir".into(),
-        files.sessions().into(),
-        "--session-id".into(),
-        call.session.id().0.as_str().into(),
-    ];
-    let tools = tools_of(call);
-    let mcp = mcp_config(call);
-    match tools {
-        Some(names) => {
-            let mut names = names.to_owned();
-            if mcp.is_some() {
-                for server in mcp::tool_names(call) {
-                    names.extend([",", &server]);
-                }
-            }
-            argv.extend(["--tools".into(), names.into()]);
-        }
-        None => argv.push("--no-tools".into()),
-    }
-    match mcp {
-        Some(_) => argv.extend(["--extension".into(), mcp::EXTENSION.into()]),
-        None => argv.push("--no-mcp".into()),
-    }
-    // pi builds its system prompt afresh on every call, a resumed one too.
-    if let Some(instructions) = &call.instructions {
-        argv.extend(["--append-system-prompt".into(), instructions.into()]);
-    }
-    if call.reach.fence.is_some() {
-        argv.extend(["--extension".into(), files.guard().into()]);
-    }
+    let mut argv = profile(call, files, skill);
+    // The terminal session has no turn for the extension to hand back after a compaction.
     if loads_compact(call) {
         argv.extend(["--extension".into(), files.compact().into()]);
     }
-    argv.extend(web::flags(call));
-    // The step's skill comes first, so its name wins a collision. Its text is in
-    // the prompt, but any other skill needs `read` to open and only costs context.
-    if let Some(skill) = skill {
-        argv.extend(["--skill".into(), skill.into()]);
-    }
-    if tools.is_some() && !compacting {
-        for dir in skill_dirs(call) {
-            argv.extend(["--skill".into(), dir.into()]);
-        }
-    }
+    argv.extend(["-p".into(), "--mode".into(), "json".into()]);
+    argv.extend(["--session-id".into(), call.session.id().0.as_str().into()]);
     argv.extend(["--".into(), prompt.into()]);
     argv
 }

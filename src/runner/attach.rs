@@ -111,8 +111,8 @@ impl fmt::Display for AttachError {
             ),
             Self::Harness(issue, harness, session) => write!(
                 f,
-                "the worker on #{issue} runs on {}, and only a Claude Code session can be \
-                 attached: pause the project (`shep kelpie pause`) and resume session {} \
+                "the worker on #{issue} runs on {}, and only a Claude Code or pi session \
+                 can be attached: pause the project (`shep kelpie pause`) and resume session {} \
                  with {} by hand",
                 harness.as_str(),
                 session.0,
@@ -197,6 +197,9 @@ impl Runner {
         }
         let ready = self.session_here();
         if ready.is_err() {
+            if let Some(item) = self.current() {
+                self.ports.agents.foreground_ended(&item.session);
+            }
             self.update(|item| item.attached = None)
                 .map_err(AttachError::State)?;
         }
@@ -270,7 +273,7 @@ impl Runner {
             Err(why) => return Some(AttachError::Setup(issue, why)),
         };
         // parity: harness.attach
-        if harness != Harness::ClaudeCode {
+        if !matches!(harness, Harness::ClaudeCode | Harness::Pi) {
             return Some(AttachError::Harness(issue, harness, item.session.clone()));
         }
         match item.phase {
@@ -319,6 +322,8 @@ impl Runner {
     fn end_attach(&mut self) -> Result<(), StateError> {
         let pushed = self.own_push();
         let item = self.current().expect("the work item held");
+        // The terminal session is over, and so is what its harness kept for it.
+        self.ports.agents.foreground_ended(&item.session);
         let found = (item.pull_request.is_none())
             .then(|| self.pull_request_from(&item.branch))
             .flatten();

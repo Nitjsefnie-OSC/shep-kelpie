@@ -3,7 +3,9 @@
 use std::fmt;
 use std::sync::Arc;
 
-use super::{Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript};
+use super::{
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId, Transcript,
+};
 use crate::settings::Harness;
 
 /// One adapter per harness, each taking the calls that name it
@@ -80,6 +82,13 @@ impl Agents for Routed {
 
     fn foreground(&self, call: &AgentCall) -> Result<std::process::Command, AgentError> {
         self.adapter(call).foreground(call)
+    }
+
+    // Only the call names a harness, and a session id is unique to one.
+    fn foreground_ended(&self, session: &SessionId) {
+        for adapter in [&self.claude_code, &self.pi, &self.codex, &self.goose] {
+            adapter.foreground_ended(session);
+        }
     }
 }
 
@@ -158,5 +167,44 @@ mod tests {
             assert_eq!(routed.run(&call, &Ending::default()).unwrap().text, name);
             assert_eq!(routed.prepare(&call), Err(AgentError::Setup(name.into())));
         }
+    }
+
+    // An adapter that notes the terminal sessions it was told ended.
+    struct Noting(Arc<std::sync::Mutex<Vec<String>>>, &'static str);
+
+    impl Agents for Noting {
+        fn prepare(&self, _: &AgentCall) -> Result<(), AgentError> {
+            Ok(())
+        }
+
+        fn run(&self, _: &AgentCall, _: &Ending) -> Result<AgentReply, AgentError> {
+            Err(AgentError::Stopped)
+        }
+
+        fn foreground_ended(&self, session: &SessionId) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("{}:{}", self.1, session.0));
+        }
+    }
+
+    #[test]
+    fn the_end_of_a_terminal_session_reaches_every_adapter() {
+        let told = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let noting = |name| Arc::new(Noting(Arc::clone(&told), name));
+        let routed = Routed::new(
+            noting("claude"),
+            noting("pi"),
+            noting("codex"),
+            noting("goose"),
+        );
+
+        routed.foreground_ended(&SessionId("s".into()));
+
+        assert_eq!(
+            *told.lock().unwrap(),
+            ["claude:s", "pi:s", "codex:s", "goose:s"]
+        );
     }
 }

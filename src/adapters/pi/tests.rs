@@ -96,9 +96,6 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
     assert_eq!(
         strings(&call),
         [
-            "-p",
-            "--mode",
-            "json",
             "--model",
             "kelpie/qwen3.8:27b",
             "--thinking",
@@ -111,8 +108,6 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
             "--offline",
             "--session-dir",
             home.join("sessions").to_str().unwrap(),
-            "--session-id",
-            WORKER_ID,
             "--tools",
             "read,bash,edit,write,grep,find,ls",
             "--no-mcp",
@@ -120,6 +115,11 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
             "/k/worker/instructions.md",
             "--extension",
             w.path("settings.guard.ts").to_str().unwrap(),
+            "-p",
+            "--mode",
+            "json",
+            "--session-id",
+            WORKER_ID,
             "--",
             "implement #7",
         ]
