@@ -641,3 +641,20 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
         (Vec::<String>::new(), "GOOSE_MODE=chat".to_owned())
     );
 }
+
+#[test]
+fn a_reviewer_s_read_only_hook_names_the_servers_it_loads() {
+    let w = World::new();
+    let mut call = worker(&w, Session::New(id(FRESH_ID)), repo(), Some(graph()));
+    call.role = Role::Reviewer;
+    call.tools = Tools::Review;
+    call.reach.fence.as_mut().unwrap().write.clear();
+    let arguments = hook_arguments(&w, &mut call);
+    assert!(
+        arguments.contains(&"--read-only".to_owned()),
+        "{arguments:?}"
+    );
+    let (keys, _) = goose_server_flags(&arguments);
+    assert_eq!(keys, mcp::keys(&call));
+    assert_eq!(keys.len(), 3);
+}

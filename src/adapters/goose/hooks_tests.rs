@@ -14,16 +14,16 @@ use crate::hooks::Hooks;
 use crate::lease::door::SOCKET_VAR;
 use crate::settings::{HookPoint, NonBlank, ProjectHook};
 
-fn worker(w: &World, session: Session) -> AgentCall {
+pub(super) fn worker(w: &World, session: Session) -> AgentCall {
     w.fenced(URL, Path::new("/k/kelpie"), session)
 }
 
 // Where goose reads the call's plugin from.
-fn plugin(w: &World) -> PathBuf {
+pub(super) fn plugin(w: &World) -> PathBuf {
     w.path("settings.goose/.agents/plugins/kelpie-fence")
 }
 
-fn json_in(path: &Path) -> Value {
+pub(super) fn json_in(path: &Path) -> Value {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     serde_json::from_str(&text).unwrap()
 }
@@ -37,7 +37,7 @@ fn names(folder: &Path) -> Vec<String> {
     found
 }
 
-fn env_vars(call: &AgentCall) -> Vec<String> {
+pub(super) fn env_vars(call: &AgentCall) -> Vec<String> {
     let goose = ClaudeCli::default().goose();
     let server = server(call).unwrap();
     let upstream = goose.upstream(server).unwrap();
@@ -46,14 +46,14 @@ fn env_vars(call: &AgentCall) -> Vec<String> {
     vars.into_iter().map(|v| v.into_string().unwrap()).collect()
 }
 
-fn policy_of(w: &World, call: &AgentCall) -> Policy {
+pub(super) fn policy_of(w: &World, call: &AgentCall) -> Policy {
     let goose = ClaudeCli::default().goose();
     let upstream = goose.upstream(server(call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
     policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
 }
 
-fn refused(result: Result<(), AgentError>) -> String {
+pub(super) fn refused(result: Result<(), AgentError>) -> String {
     match result {
         Err(AgentError::Setup(why)) => why,
         other => panic!("not a refusal to set up: {other:?}"),
@@ -344,29 +344,16 @@ fn a_step_skill_is_a_file_a_goose_worker_reads() {
 }
 
 #[test]
-fn a_retro_a_reviewer_and_an_advisor_are_still_refused_naming_the_read_only_slice() {
+fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researchers() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
-    let mut retro = worker(&w, Session::Resume(id(FRESH_ID)));
-    retro.tools = Tools::Retro;
-    let reviewer = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
-    let advisor = w.call(URL, Role::Advisor, Session::New(id(FRESH_ID)));
-    for (call, who) in [
-        (retro, "a retro"),
-        (reviewer, "a reviewer"),
-        (advisor, "an advisor"),
-    ] {
-        let why = refused(goose.prepare(&call));
-        assert!(why.contains(who) && why.contains("#789"), "{who}: {why}");
-        assert!(why.contains("a researcher and a worker"), "{who}: {why}");
-    }
-    assert!(!w.path("settings.goose").exists(), "nothing was made");
 
     // A worker with no fence has no guard to write: ADR 0006.
     let mut unfenced = w.call(URL, Role::Worker, Session::New(id(FRESH_ID)));
     unfenced.tools = Tools::Work;
     let why = refused(goose.prepare(&unfenced));
     assert!(why.contains("outside the kelpie fence"), "{why}");
+    assert!(!w.path("settings.goose").exists(), "nothing was made");
     // And a command built for one anyway is a researcher's: no tool, no auto mode.
     assert!(!strings(&unfenced).iter().any(|a| a.starts_with("--with-")));
     let vars = env_vars(&unfenced);
@@ -378,8 +365,7 @@ fn a_vote_resuming_the_workers_session_under_its_vote_settings_is_refused_and_fi
     // The runner resumes a worker's session for a vote under
     // `vote-settings-<n>.json`, with a retro's tools. pi and Codex keep their
     // sessions beside the settings path, so a resume under another finds none
-    // and is `NoSession`. goose does the same, and refuses the retro's tools
-    // before that, until #789 opens them.
+    // and is `NoSession`. goose does the same, a retro's tools or a worker's.
     let w = World::new();
     let goose = stand_in(&w, FRESH);
     // The worker's first turn ran, so its own root holds its session.
@@ -391,14 +377,12 @@ fn a_vote_resuming_the_workers_session_under_its_vote_settings_is_refused_and_fi
 
     let mut vote = worker(&w, Session::Resume(id(FRESH_ID)));
     vote.settings = w.path("vote-settings-7.json");
-    vote.tools = Tools::Retro;
-    let why = refused(goose.prepare(&vote));
-    assert!(why.contains("#789"), "{why}");
-
-    vote.tools = Tools::Work;
-    goose.prepare(&vote).unwrap();
-    let err = goose.run(&vote, &Ending::default()).unwrap_err();
-    assert_eq!(err, AgentError::NoSession(Harness::Goose, id(FRESH_ID)));
+    for tools in [Tools::Retro, Tools::Work] {
+        vote.tools = tools;
+        goose.prepare(&vote).unwrap();
+        let err = goose.run(&vote, &Ending::default()).unwrap_err();
+        assert_eq!(err, AgentError::NoSession(Harness::Goose, id(FRESH_ID)));
+    }
 }
 
 #[test]

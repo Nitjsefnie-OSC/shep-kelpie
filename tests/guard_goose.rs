@@ -37,11 +37,18 @@ impl Worker {
 
     // What the hook does with goose's payload for `tool`, as goose runs it.
     fn hook(&self, tool: &str, input: Value) -> Output {
+        self.hook_with(tool, input, &[])
+    }
+
+    // The same with `flags` after the build folder: `--read-only` is a
+    // reviewer's, advisor's and retro's.
+    fn hook_with(&self, tool: &str, input: Value, flags: &[&str]) -> Output {
         let mut hook = Command::new(KELPIE)
             .arg("guard")
             .arg(self.root.join("repo.git"))
             .arg(&self.worktree)
             .arg(format!("--goose={}", self.build.display()))
+            .args(flags)
             .env("HOME", self.root.join("home"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -126,4 +133,20 @@ fn a_tool_kelpie_does_not_allow_and_an_unreadable_payload_exit_2() {
         .unwrap();
     hook.stdin.take().unwrap().write_all(b"not json").unwrap();
     refusal(&hook.wait_with_output().unwrap());
+}
+
+#[test]
+fn with_read_only_a_listed_command_exits_0_and_a_write_exits_2() {
+    let w = Worker::new();
+    let read = |tool: &str, input: Value| w.hook_with(tool, input, &["--read-only"]);
+
+    allowed(&read("shell", json!({ "command": "ls src" })));
+    allowed(&read("tree", json!({ "path": "." })));
+    let why = refusal(&read("shell", json!({ "command": "rm -r src" })));
+    assert!(why.contains("plain words"), "{why}");
+    let why = refusal(&read(
+        "write",
+        json!({ "path": "src/a.rs", "content": "fn a() {}" }),
+    ));
+    assert!(why.contains("writes no file"), "{why}");
 }

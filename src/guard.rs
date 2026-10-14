@@ -22,7 +22,9 @@
 //! `--after` makes it the PostToolUse hook for `after_command` instead.
 //!
 //! A goose worker's guard, [`judge_goose`], reads goose's own payload: its shell
-//! goes through the command guard, its file tools through `kelpie confine`.
+//! goes through the command guard, its file tools through `kelpie confine`. A goose
+//! reviewer's, advisor's and retro's, [`judge_goose_reading`], is the read-only
+//! guard behind goose's payload.
 //!
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
 //! only the commands it lists. So does a Codex reviewer's, advisor's and
@@ -41,7 +43,9 @@ mod shell;
 mod wrap;
 
 pub use after::{AFTER_FLAG, after_flag, judge_after};
-pub use goose::{GOOSE_FLAG, GOOSE_SERVER_FLAG, goose_flag, goose_server_flags, judge_goose};
+pub use goose::{
+    GOOSE_FLAG, GOOSE_SERVER_FLAG, goose_flag, goose_server_flags, judge_goose, judge_goose_reading,
+};
 pub use issues::{
     AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
     judge_issues, judge_issues_with, record_issues,

@@ -50,7 +50,9 @@
 //! worker's turn at its next tool result while a pause is set.
 //! With `--goose=<build folder>` it is a goose worker's PreToolUse hook: it
 //! reads goose's own payload, judges a `shell` as a command and a `write` or
-//! `edit` as `confine` would, and refuses any tool it does not list.
+//! `edit` as `confine` would, and refuses any tool it does not list. With
+//! `--read-only` as well it is a goose reviewer's, advisor's and retro's: a
+//! `shell` runs only what reads, and `write`, `edit` and any other tool are refused.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an
@@ -122,7 +124,12 @@ fn main() -> ExitCode {
                         "kelpie cannot read this tool call: {e}"
                     )));
                 }
-                return hook(guard::judge_reading(&input[..], &hooks));
+                // A goose call's read-only hook names its build folder too, and
+                // reads goose's own payload.
+                return hook(match goose {
+                    Some(_) => guard::judge_goose_reading(&input[..], &hooks, &servers),
+                    None => guard::judge_reading(&input[..], &hooks),
+                });
             }
             let paths = match guard::local_paths(home.as_deref(), &folders) {
                 Ok(paths) => paths,

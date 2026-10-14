@@ -3,7 +3,8 @@
 //! It is not the worker's: it draws a fresh session id and runs under its
 //! own throwaway settings, never the worker's own. It keeps its read tools,
 //! to check its own work against the worktree, and runs no command, but on
-//! Codex, whose only read tool is a shell that kelpie's guard holds to reading.
+//! Codex and goose, whose only read tool is a shell that kelpie's guard holds to
+//! reading.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -19,8 +20,8 @@ use crate::work_item::new_session_id;
 /// With `tests`, the fenced reach of a reviewer that may write a failing test
 /// for a finding, it also has `Write` on Claude Code, and on pi `write` and on
 /// Codex `apply_patch` by the reach alone, which holds each to that folder.
-/// A Codex reviewer with no tests to write gets a reach with no write folder,
-/// which gives it a shell that only reads.
+/// A Codex or goose reviewer with no tests to write gets a reach with no write
+/// folder, which gives it a shell that only reads.
 pub(super) fn reviewer_call(
     issue: u64,
     worktree: &Path,
@@ -282,7 +283,7 @@ mod tests {
              Review the change against {{{{BASE}}}}. Output one finding per line as \
              SEVERITY|file:line|what|why, or CLEAN.\n",
             match harness {
-                "pi" => "url: http://box:11434/v1\ncontext: 65536\n",
+                "pi" | "goose" => "url: http://box:11434/v1\ncontext: 65536\n",
                 _ => "",
             }
         );
@@ -311,9 +312,10 @@ mod tests {
         (rig, build, seen)
     }
 
-    #[test]
-    fn a_codex_reviewer_gets_a_fence_with_no_write_folder() {
-        let (_rig, build, seen) = reviewer_of("codex");
+    // A reviewer of `harness`'s first round gets a fence of its own with nothing to write.
+    #[track_caller]
+    fn gets_a_fence_with_no_write_folder(harness: &str) {
+        let (_rig, build, seen) = reviewer_of(harness);
 
         let fence = seen.call.reach.fence.as_deref().expect("a fence");
         assert!(fence.write.is_empty(), "{:?}", fence.write);
@@ -323,6 +325,16 @@ mod tests {
         assert!(own.starts_with(&build), "{}", own.display());
         assert!(!own.starts_with(&seen.call.cwd), "{}", own.display());
         assert_eq!(seen.call.reach.read, std::slice::from_ref(&seen.call.cwd));
+    }
+
+    #[test]
+    fn a_codex_reviewer_gets_a_fence_with_no_write_folder() {
+        gets_a_fence_with_no_write_folder("codex");
+    }
+
+    #[test]
+    fn a_goose_reviewer_gets_a_fence_with_no_write_folder() {
+        gets_a_fence_with_no_write_folder("goose");
     }
 
     #[test]
