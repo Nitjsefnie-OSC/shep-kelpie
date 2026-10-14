@@ -191,6 +191,7 @@ impl Runner {
                 ModelHost::Gateway(name) => Some((name.clone(), model.to_owned())),
                 ModelHost::Url(_) => None,
             },
+            // parity: harness.local-model
             _ => None,
         };
         let implementers = self.agents.implementers.iter().map(|i| &i.model);

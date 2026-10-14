@@ -654,6 +654,7 @@ impl Runner {
 
     // A server pi cannot load is left out, and a note says which and why.
     fn without_servers_pi_cannot_load(&self, call: &mut AgentCall) {
+        // parity: harness.mcp-servers
         if !matches!(call.harness, crate::settings::AgentHarness::Pi(_)) {
             return;
         }

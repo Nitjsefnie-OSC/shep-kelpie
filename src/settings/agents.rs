@@ -488,6 +488,7 @@ impl Settings {
             AgentHarness::Pi(_) => Some("pi"),
             AgentHarness::Codex => Some("codex"),
             AgentHarness::Goose(_) => Some("goose"),
+            // parity: harness.guard-hooks
             _ => None,
         };
         if let Some(harness) = other
@@ -503,6 +504,7 @@ impl Settings {
                 ),
             });
         }
+        // parity: harness.local-model
         if let AgentHarness::Pi(server) | AgentHarness::Goose(server) = &agent.harness
             && let ModelHost::Url(url) = &server.host
             && let Ok(upstream) = Upstream::new(url)
