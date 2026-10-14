@@ -30,14 +30,18 @@ use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, Ending, Forward, Policy, Role, Sandbox, Session,
-    Stand, Taking, Tools, Unheld, Wait,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Policy, Role,
+    Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
+mod activity;
 mod files;
 pub(crate) mod hooks;
 mod output;
+
+#[cfg(test)]
+mod activity_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -165,6 +169,21 @@ impl Agents for GooseCli {
             files.keep(id, spent)?;
         }
         read.reply
+    }
+
+    // goose keeps its sessions in SQLite, which cannot be tailed. The call's
+    // stdout file is what the watch reads, and it is named for the settings
+    // path, so the folder returned is the call's goose root: the stdout file
+    // is its sibling under the same stem.
+    fn transcript(&self, call: &AgentCall) -> Option<Transcript> {
+        Some(Transcript {
+            folder: Files::of(&call.settings).root,
+            threads: None,
+        })
+    }
+
+    fn last_active(&self, call: &AgentCall) -> CallActivity {
+        activity::of_stdout(&CallFiles::of(call).stdout)
     }
 }
 

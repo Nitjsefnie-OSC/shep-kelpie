@@ -28,6 +28,7 @@ use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
+use super::unreachable::reaches_no_host;
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
@@ -37,6 +38,7 @@ use crate::ports::{
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
+mod attach;
 mod context;
 pub(crate) mod mcp;
 mod reading;
@@ -44,6 +46,9 @@ mod skills;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod context_tests;
@@ -59,6 +64,9 @@ mod reading_tests;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod unreachable_tests;
 
 /// This adapter's harness, as its errors name it
 const CODEX: Harness = Harness::Codex;
@@ -150,6 +158,7 @@ pub struct CodexCli {
     // What a call with no fence may not read: the shepherd's home
     unfenced_no_read: Vec<String>,
     login: PathBuf,
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -163,6 +172,7 @@ impl ClaudeCli {
             sandbox: Arc::clone(&self.sandbox),
             unfenced_no_read: self.unfenced_no_read.clone(),
             login: codex_home,
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -236,6 +246,14 @@ impl Agents for CodexCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         written_at(&Files::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.terminal_ended(session);
+    }
 }
 
 // Reads what the ended call left and writes its thread record, so its tokens
@@ -286,6 +304,22 @@ impl CodexCli {
                 None => return Err(AgentError::NoSession(CODEX, id.clone())),
             },
         };
+        let instructions = instructions(call)?;
+        self.in_sandbox(
+            call,
+            &files,
+            argv(call, &files.home, resumed.as_ref(), instructions.as_deref())?,
+        )
+    }
+
+    // `argv` run as the call: Codex's home and scratch folder, the fence's
+    // environment, and the call's sandbox around it.
+    fn in_sandbox(
+        &self,
+        call: &AgentCall,
+        files: &Files,
+        argv: Vec<OsString>,
+    ) -> Result<Command, AgentError> {
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
         };
@@ -296,20 +330,9 @@ impl CodexCli {
             _ => {}
         }
         std::fs::create_dir_all(&files.scratch).map_err(|e| setup(&files.scratch, e))?;
-        let instructions = match &call.instructions {
-            Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
-                AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind()))
-            })?),
-            None => None,
-        };
         let mut command = crate::spawn::command(&self.program);
         command
-            .args(argv(
-                call,
-                &files.home,
-                resumed.as_ref(),
-                instructions.as_deref(),
-            )?)
+            .args(argv)
             .current_dir(&call.cwd)
             .env("CODEX_HOME", &files.home)
             .env("TMPDIR", &files.scratch)
@@ -320,12 +343,24 @@ impl CodexCli {
         }
         self.sandbox
             .wrap(
-                &policy(call, &self.login, &files, &self.unfenced_no_read),
+                &policy(call, &self.login, files, &self.unfenced_no_read),
                 &files.sandbox_settings,
                 &command,
             )
             .map_err(|e| AgentError::Setup(e.to_string()))
     }
+}
+
+// The developer instructions the call carries, read from their file.
+fn instructions(call: &AgentCall) -> Result<Option<String>, AgentError> {
+    call.instructions
+        .as_ref()
+        .map(|path| {
+            std::fs::read_to_string(path).map_err(|e| {
+                AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind()))
+            })
+        })
+        .transpose()
 }
 
 /// Fails a call that names another harness
@@ -535,6 +570,25 @@ fn argv(
         .map(OsString::from),
     );
     argv.push(call.model.as_str().into());
+    argv.extend(overrides(call, home, resumed, instructions));
+    argv.push("--".into());
+    if let Some(thread) = resumed {
+        argv.push(thread.id.as_str().into());
+    }
+    argv.push(reading::told(call, prompt(call)?).into());
+    Ok(argv)
+}
+
+// What a call changes in Codex, as `-c` overrides and features turned off, for
+// the headless call and the terminal session alike, so the terminal holds the
+// worker to what its calls are held to.
+fn overrides(
+    call: &AgentCall,
+    home: &Path,
+    resumed: Option<&Thread>,
+    instructions: Option<&str>,
+) -> Vec<OsString> {
+    let mut argv: Vec<OsString> = Vec::new();
     argv.extend(
         [
             // Codex's levels share Claude Code's names; a model refuses one it lacks.
@@ -585,12 +639,7 @@ fn argv(
     if let Some(after) = after {
         argv.extend(["-c".into(), config("hooks.PostToolUse", after)]);
     }
-    argv.push("--".into());
-    if let Some(thread) = resumed {
-        argv.push(thread.id.as_str().into());
-    }
-    argv.push(reading::told(call, prompt(call)?).into());
-    Ok(argv)
+    argv
 }
 
 /// Whether the call is a worker's, whose shell opens a step's `SKILL.md`
@@ -781,6 +830,33 @@ fn tail(text: &str) -> &str {
     &text[start..]
 }
 
+// An error for a turn that failed with `detail`, unreachable where Codex says
+// its provider could not be reached or is overloaded.
+fn failed(detail: &str) -> AgentError {
+    // Codex words a status as "exceeded retry limit, last status: 503 ..." or
+    // "unexpected status 400 ...", so the status leads from there.
+    let status = STATUS_MARKERS
+        .iter()
+        .find_map(|marker| detail.split_once(marker))
+        .map_or(detail, |(_, status)| status);
+    if reaches_no_host(status, &["502", "503", "504"], &UNREACHABLE) {
+        AgentError::Unreachable(CODEX, detail.to_owned())
+    } else {
+        AgentError::Failed(CODEX, detail.to_owned())
+    }
+}
+
+/// What Codex puts before the status of a response it gave up on
+const STATUS_MARKERS: [&str; 2] = ["last status: ", "unexpected status "];
+
+/// What Codex prints, in lower case, when its provider cannot be reached or
+/// is overloaded, beyond a refused or reset connection
+const UNREACHABLE: [&str; 3] = [
+    "stream disconnected before completion",
+    "error sending request",
+    "currently experiencing high demand",
+];
+
 /// One `codex exec` turn, read from what it printed
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Turn {
@@ -875,7 +951,6 @@ fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentEr
             _ => {}
         }
     }
-    let failed = |detail: &str| AgentError::Failed(CODEX, detail.to_owned());
     // A turn that ended well is a success whatever retries came before it.
     if let Some(why) = failure.or(usage.is_none().then_some(error).flatten()) {
         return Err(failed(&why));
