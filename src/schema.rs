@@ -157,6 +157,7 @@ mod tests {
                 "# test_command = \"cargo test --test {name}\"",
                 "test_command = \"cargo test --test {name}\"",
             )
+            .replace("# configuration = \"web\"", "configuration = \"web\"")
             .replace("# pm = \"pm\"", "pm = \"pm\"")
             .replace("# advisor = \"advisor\"", "advisor = \"advisor\"")
             .replace(

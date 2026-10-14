@@ -229,7 +229,6 @@ fn every_other_local_address_and_port_is_refused_beside_the_dev_server() {
         "localhost:3000",
         "localhost:443",
         "127.0.0.1:3000",
-        "[::1]:4421",
         "0.0.0.0:4421",
         "10.0.0.5:4421",
         "local.example.test:4421",
@@ -239,6 +238,9 @@ fn every_other_local_address_and_port_is_refused_beside_the_dev_server() {
         let reply = world.ask(request.as_bytes());
         assert!(status(&reply).contains("403"), "{target}: {reply}");
     }
+    // An IPv6 literal is not read as a host at all, so it never reaches the lists.
+    let reply = world.ask(b"CONNECT [::1]:4421 HTTP/1.1\r\n\r\n");
+    assert!(status(&reply).contains("400"), "{reply}");
     assert!(world.dialed().is_empty(), "{:?}", world.dialed());
 }
 
