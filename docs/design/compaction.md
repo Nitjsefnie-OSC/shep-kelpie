@@ -18,7 +18,7 @@ When a worker's session compacts, on each harness. Runner loop and turns are in 
 
 ## goose
 
-- A worker's reply has its context from `usage.input_tokens` of its session in `goose session list --format json`, run after the turn in the call's sandbox and root. A failed read is logged and leaves it unset. Other roles read none. The session is found by `name` (kelpie's session id is the `--name`), else `id`.
+- A worker's reply has its context from `usage.input_tokens` of its session in `goose session list --format json`, run after the turn in the call's sandbox and root. A failed read is logged and leaves it unset. Other roles read none. The session is found by `id`, else by `name` (kelpie's session id is the `--name`, and goose picks an `id` of its own).
 - A `COMPACT` call resumes the session and sends goose's own `-t /compact`, which answers the assistant text `Compaction complete`; any other text is a failed call carrying it. Its usage is the session's totals after less before, so the compaction's request counts.
 - `worker.compact_window`: `GOOSE_AUTO_COMPACT_THRESHOLD` is window / `context` rounded up to 4 decimals, set only under goose's own 0.8 (1 or more turns it off, so never set). goose checks it at turn start, from the last request's total, so it compacts up to one completion past the window.
 - Inside one turn goose compacts only after a context-exceeded error, twice at most. A compaction keeps the latest user message, so nothing is handed back. A long first turn on a small window relies on that recovery. A turn another image adopts reports no context. `src/adapters/goose/compact.rs`. #792
