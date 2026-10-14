@@ -4,14 +4,17 @@
 //! agent runs in, at the version [`PACKAGE`] pins, and on macOS a copy of it
 //! with the keychain's services cut from its profile. It also fetches the code
 //! graph server, at the release [`graph::RELEASE`] pins. The packages pi loads
-//! as extensions come with the runtime, from the same `package.json`.
+//! as extensions, and the MCP server a researcher on goose has its web from, come with the
+//! runtime, from the same `package.json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod goose_packages;
 mod graph;
 mod pi_packages;
 
+pub use goose_packages::{WEB_SERVER as GOOSE_WEB, WEB_SERVER_FILE as GOOSE_WEB_FILE};
 pub use graph::RELEASE as CODE_GRAPH_RELEASE;
 pub use pi_packages::WEB_ACCESS as PI_WEB_ACCESS;
 
@@ -315,6 +318,29 @@ const lines = [
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["dependencies"][PI_WEB_ACCESS], "0.40.0", "{text}");
         assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.77", "{text}");
+    }
+
+    // The web server a goose researcher runs is a third party's, so the install is of the
+    // exact version measured, and a range would let a new release change what it dials.
+    #[test]
+    fn the_install_writes_the_pinned_goose_web_packages_into_package_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = Tools::at(dir.path().join("tools"));
+        let npm = dir.path().join("failing-npm");
+        crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+
+        let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["dependencies"][GOOSE_WEB], "2.0.3", "{text}");
+        for (name, version) in json["dependencies"].as_object().unwrap() {
+            let parts: Vec<_> = version.as_str().unwrap().split('.').collect();
+            let exact = parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+            assert!(exact, "{name} is pinned to {version}, not an exact version");
+        }
     }
 
     #[test]

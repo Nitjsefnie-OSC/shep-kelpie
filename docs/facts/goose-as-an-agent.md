@@ -131,6 +131,33 @@ Written for #794, from goose's v1.54.0 source. No model turn was run: #798 runs 
 - The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`, or `researcher.allowed_domains`.
 - Not run: the flags against a real server, the `tool_name` in the hook's payload (read as `<key>__<tool>` from goose's source), and whether goose warns, not fails, on a skipped env key.
 
+## The researcher's web
+
+Measured 2026-10-14 for #797, with Node 26.11.1 and npm, no model and no GPU. Each candidate was installed in an empty folder at its latest version, started over stdio, and sent `initialize` and `tools/list`. goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it.
+
+- Chosen: `duckduckgo-websearch` 2.0.3 (MIT), pinned exactly in `src/tools/package.json`, run as `node <package>/build/index.js` under the name `kelpie-web` (`src/adapters/goose/web.rs`). Its dependencies are `@modelcontextprotocol/sdk` and `cheerio`.
+- Tools, which goose names `kelpie-web__<tool>`:
+  - `search`: `query` (required), `max_results` (default 25).
+  - `fetch_content`: `url` (required), `max_content_length` (default 8000).
+  - The server reports its own version as 0.1.1 in `initialize`, whatever the package's.
+- Hosts, from `build/duckduckgoSearcher.js` and `build/webContentFetcher.js`:
+  - The keyless search POSTs to `html.duckduckgo.com` and follows nothing else. It also pings `duckduckgo.com/t/sl_h` after a search, ignoring the failure, so that host is left out of the policy.
+  - The fetch is Node's `fetch(url)`: it dials the page's own host. It goes through no reader service, so `researcher.allowed_domains` holds it.
+- Node's `fetch` ignores `HTTP_PROXY` and `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` is set (pi sets the same), so the researcher's env carries it. goose's list of env keys it never passes a server (`Envs::DISALLOWED_KEYS`) does not name it.
+- It reads no key and no config: its build files name no `process.env` variable, no home folder and no file read, and take no key. The call gives it none.
+- `npm install` of the pinned version runs no install script: the lockfile of the package and its dependencies has no `hasInstallScript`. The package declares a `prepare` script (`bun run build`), which npm does not run for a registry dependency, and its `build/` ships in the tarball.
+- It starts from kelpie's tools folder, which the fence hides, so the researcher's call reads the `node_modules` folder the package sits in (its dependencies are beside it).
+
+Rejected:
+
+- `fetch-mcp` 0.0.5: a fetch only (`fetch_url`, `fetch_youtube_transcript`), and it fetches through `got-scraping`, which ignores the proxy env, so the sandbox would not hold it.
+- `duckduckgo-mcp-server` 0.1.2: a search only (`duckduckgo_web_search`), no fetch.
+- `mcp-fetch-server` 1.1.2: a fetch only (`fetch_html`, `fetch_markdown`, `fetch_txt`, `fetch_json`, `fetch_readable`), and each takes request headers from the model.
+- `@oevortex/ddg_search` 1.4.0: searches through several hosts, so more to list. Its CLI did not answer `initialize` in three minutes here.
+- `mcp-duckduckgo` 3.1.0: not installed or run.
+
+Not run: a real search or fetch (no network from the worker's sandbox), goose starting the server, and goose passing `NODE_USE_ENV_PROXY` and the proxy variables to it. The first real turn is for #798. The fetch's reach is shown with `curl` through the same proxy (`adapters::goose::escapes`, ignored, needs `KELPIE_TOOLS`).
+
 ## The idle watch and the watch
 
 Written for #790. The event shapes are from goose's source, not a recorded turn. #798 checks them.

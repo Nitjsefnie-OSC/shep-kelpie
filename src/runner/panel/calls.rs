@@ -9,17 +9,19 @@
 //! code, and reaches the web, read only, plus the hosts the project names
 //! in `researcher.allowed_domains`. On pi, which has no web tool, the web is
 //! the `pi-web-access` package, which the call's reach names when `tools
-//! install` has put it there.
+//! install` has put it there. On goose, which has none either, it is the
+//! `duckduckgo-websearch` package, run as the stdio MCP server `kelpie-web`.
 //!
 //! The worker's vote is its own session resumed once, with the tools of a
 //! retro: it reads its worktree and changes nothing.
 
 use super::ask;
+use crate::adapters::goose::web;
 use crate::ports::{AgentCall, Reach, Role, Session, Tools};
 use crate::runner::Runner;
 use crate::settings::{AgentHarness, ExpertAgent};
 use crate::state::Ruling;
-use crate::tools::PI_WEB_ACCESS;
+use crate::tools::{GOOSE_WEB, GOOSE_WEB_FILE, PI_WEB_ACCESS};
 use crate::work_item::new_session_id;
 
 impl Runner {
@@ -97,13 +99,19 @@ impl Runner {
         )
     }
 
-    // On pi, which has no web tool, the package that gives the researcher
-    // one. A package that is not installed leaves it reading only, and a note says so.
+    // On pi and goose, which have no web tool, the package that gives the
+    // researcher one. A package that is not installed leaves it reading only,
+    // and a note says so.
     fn with_web(&self, harness: &AgentHarness, reach: &mut Reach) {
         // parity: harness.web-research
-        if !matches!(harness, AgentHarness::Pi(_)) {
-            return;
+        match harness {
+            AgentHarness::Pi(_) => self.with_pi_web(reach),
+            AgentHarness::Goose(_) => self.with_goose_web(reach),
+            _ => {}
         }
+    }
+
+    fn with_pi_web(&self, reach: &mut Reach) {
         let tools = &self.paths.tools;
         let package = tools.pi_package(PI_WEB_ACCESS);
         if !tools.has_pi_package(PI_WEB_ACCESS) {
@@ -115,6 +123,32 @@ impl Runner {
             return;
         }
         reach.extensions.push(package);
+    }
+
+    // The server file runs under the sandbox, which reads none of kelpie's
+    // home by default, so the package's `node_modules` folder is read-granted:
+    // the server's own dependencies sit beside it.
+    fn with_goose_web(&self, reach: &mut Reach) {
+        let tools = &self.paths.tools;
+        let package = tools.pi_package(GOOSE_WEB);
+        let server = package.join(GOOSE_WEB_FILE);
+        if !tools.has_pi_package(GOOSE_WEB) || !server.is_file() {
+            self.notes.push(format!(
+                "the researcher runs without the web: {} is not there, so run \
+                 `shep kelpie tools install`",
+                server.display()
+            ));
+            return;
+        }
+        reach.read.extend(package.parent().map(ToOwned::to_owned));
+        reach.mcp_servers.insert(
+            web::SERVER.to_owned(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": "node",
+                "args": [server],
+            }),
+        );
     }
 
     /// The call that resumes the worker's session to vote on `ruling`, which
