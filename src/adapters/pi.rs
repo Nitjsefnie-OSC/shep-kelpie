@@ -71,6 +71,9 @@ mod unreachable_tests;
 #[cfg(test)]
 mod review_tests;
 
+#[cfg(test)]
+mod window_tests;
+
 /// The oldest pi kelpie is built for: built-in MCP needs 0.99 or later, and
 /// compaction events carry a `reason` from 1.0.4
 pub const PI_MINIMUM: &str = "1.0.4";
@@ -186,9 +189,30 @@ impl Agents for PiCli {
             std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
         }
         // A compact call of any role loads it, the project manager's included.
-        if call.role == Role::Worker || call.prompt == COMPACT {
+        if loads_compact(call) {
             let compact = files.compact();
-            std::fs::write(&compact, compact::EXTENSION).map_err(|e| setup(&compact, e))?;
+            let again = call.compact_window.map(|_| files.prompt());
+            std::fs::write(&compact, compact::extension(again.as_deref()))
+                .map_err(|e| setup(&compact, e))?;
+        }
+        if call.compact_window.is_some() {
+            let prompt = files.prompt();
+            std::fs::write(&prompt, compact::handed_back(call)).map_err(|e| setup(&prompt, e))?;
+        }
+        // The home outlives the call, so an earlier call's reserve goes with its window.
+        let path = files.settings();
+        match call
+            .compact_window
+            .and_then(|w| compact::settings(server.context.get(), w))
+        {
+            Some(settings) => {
+                let text = serde_json::to_string_pretty(&settings).expect("settings are JSON");
+                std::fs::write(&path, text).map_err(|e| setup(&path, e))?;
+            }
+            None => match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(setup(&path, e)),
+                _ => {}
+            },
         }
         Ok(())
     }
@@ -387,6 +411,12 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     Ok(())
 }
 
+// A compact call, and a call bounded by a window that hands its prompt back
+// after pi compacts it, load the compact extension.
+fn loads_compact(call: &AgentCall) -> bool {
+    call.prompt == COMPACT || call.compact_window.is_some()
+}
+
 /// The files one call keeps beside its settings path
 struct Files {
     /// pi's own home for the call: the model, and the sessions folder
@@ -399,6 +429,8 @@ struct Files {
     guard_path: PathBuf,
     /// The extension a compact call loads, outside anything the call may write
     compact_path: PathBuf,
+    /// The turn's prompt, which the compact extension hands back after a compaction
+    prompt_path: PathBuf,
 }
 
 impl Files {
@@ -409,6 +441,7 @@ impl Files {
             sandbox_settings: call.settings.with_extension("sandbox.json"),
             guard_path: call.settings.with_extension("guard.ts"),
             compact_path: call.settings.with_extension("compact.ts"),
+            prompt_path: super::claude::settings::prompt_file(&call.settings),
         }
     }
 
@@ -424,10 +457,24 @@ impl Files {
         self.compact_path.clone()
     }
 
+    fn prompt(&self) -> PathBuf {
+        self.prompt_path.clone()
+    }
+
+    // pi's own settings, which it reads from its home.
+    fn settings(&self) -> PathBuf {
+        self.home.join("settings.json")
+    }
+
     // pi takes a lock folder beside each store it reads at start, even when
     // it changes nothing there.
-    fn locks(&self) -> [PathBuf; 2] {
-        ["auth.json.lock", "models-store.json.lock"].map(|lock| self.home.join(lock))
+    fn locks(&self) -> [PathBuf; 3] {
+        [
+            "auth.json.lock",
+            "models-store.json.lock",
+            "settings.json.lock",
+        ]
+        .map(|lock| self.home.join(lock))
     }
 }
 
@@ -517,7 +564,7 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
     }
-    if compacting {
+    if loads_compact(call) {
         argv.extend(["--extension".into(), files.compact().into()]);
     }
     // The step's skill comes first, so its name wins a collision. Its text is in
@@ -660,6 +707,7 @@ fn policy(
             files.scratch.clone(),
         ]
         .into_iter()
+        .chain(call.compact_window.map(|_| files.prompt()))
         .chain([outputs.stdout, outputs.stderr])
         .chain(call.instructions.iter().cloned())
         .chain(call.plugin_dirs.iter().cloned())
@@ -675,7 +723,7 @@ fn policy(
 
 // Whatever `allowed_domains` says, the sandbox never reaches the model server
 // or this machine's loopback by name or by the address the server resolves to.
-fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
+pub(super) fn deny_the_server(policy: &mut Policy, upstream: &Upstream) {
     let bracketed = |host: &str| match host.contains(':') {
         true => format!("[{host}]"),
         false => host.to_owned(),
@@ -726,7 +774,7 @@ fn reaches_no_host(detail: &str) -> bool {
 
 // The last `ERROR_TAIL` bytes of `text`, since a worker's output runs to
 // megabytes and an error reaches a ruling, the state file and the webhook.
-fn tail(text: &str) -> &str {
+pub(super) fn tail(text: &str) -> &str {
     let mut start = text.len().saturating_sub(ERROR_TAIL);
     while !text.is_char_boundary(start) {
         start += 1;

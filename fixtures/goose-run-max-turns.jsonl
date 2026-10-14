@@ -1,0 +1,6 @@
+
+    __( O)>  ● new session · openai qwen3.8:27b
+   \____)    20261013_2 · /tmp/kelpie-goose
+     L L     goose is ready
+{"type":"message","message":{"id":"msg_0d92b8f4-6c1e-4a75-b3d0-e58f21a9c647","role":"assistant","created":1791931500,"content":[{"type":"text","text":"I've reached the maximum number of actions I can do without user input. Would you like me to continue?"}],"metadata":{"userVisible":true,"agentVisible":true}}}
+{"type":"complete","total_tokens":4210,"input_tokens":4000,"output_tokens":210,"cache_read_input_tokens":0,"cache_write_input_tokens":0}

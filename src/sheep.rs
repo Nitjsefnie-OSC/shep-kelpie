@@ -227,9 +227,9 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let ports = Ports {
         agents: Arc::new(Routed::new(
             Arc::new(claude.clone()),
-            Arc::new(claude.pi().with_gateways(gateways)),
+            Arc::new(claude.pi().with_gateways(gateways.clone())),
             Arc::new(claude.codex(codex_home.clone())),
-            Arc::new(claude.goose()),
+            Arc::new(claude.goose().with_gateways(gateways)),
         )),
         forge: Arc::new(Gh::new(etags)),
         app_reads: Some(Arc::new(app_reads)),
