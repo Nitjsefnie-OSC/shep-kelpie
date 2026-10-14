@@ -4,6 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use super::Hold;
 use crate::ports::{E2eOutcome, E2eRun, E2eRunner};
 
 /// One run the runner was asked for
@@ -19,12 +20,18 @@ pub(crate) struct E2eRan {
 pub(crate) struct FakeE2e {
     outcomes: Arc<Mutex<VecDeque<E2eOutcome>>>,
     ran: Arc<Mutex<Vec<E2eRan>>>,
+    holds: Arc<Mutex<VecDeque<Hold>>>,
 }
 
 impl FakeE2e {
     /// Queues the outcomes of the next runs, one each. A run past the queue passes.
     pub(crate) fn script(&self, outcomes: impl IntoIterator<Item = E2eOutcome>) {
         self.outcomes.lock().unwrap().extend(outcomes);
+    }
+
+    /// Makes the next run block until `hold` is released, after it is recorded
+    pub(crate) fn hold_next(&self, hold: Hold) {
+        self.holds.lock().unwrap().push_back(hold);
     }
 
     /// Every run asked for, oldest first
@@ -39,6 +46,10 @@ impl E2eRunner for FakeE2e {
             run: run.clone(),
             checked_out: run.worktree.join(".git").exists(),
         });
+        let hold = self.holds.lock().unwrap().pop_front();
+        if let Some(hold) = hold {
+            hold.block();
+        }
         (self.outcomes.lock().unwrap().pop_front()).unwrap_or(E2eOutcome::Passed)
     }
 }

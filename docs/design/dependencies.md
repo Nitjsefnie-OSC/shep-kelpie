@@ -16,7 +16,7 @@ Whether kelpie merges the bumps bots open (Dependabot), and what it does with on
 
 - A bump is an open pull request, not a draft, from a branch of the repo itself, whose author is a listed bot. `is_bump`, `src/runner/dependencies.rs`. A bump takes no slot, no ruling and no model call.
 - `ProjectState.bumps` holds `Bump { pull_request, author, branch, head, seen, rebase_asked, e2e, standing, red }`, oldest first. A new head replaces `head` and `seen` and clears `e2e`; `rebase_asked` names the head last asked, so the new head is asked afresh. `src/state/bumps.rs`
-- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless kelpie had decided to close it and still owes its issue. One closed by someone else before kelpie's comment or close skips them and gets the issue. `pick = "off"` forgets all.
+- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless kelpie had decided to close it and still owes its issue; that record is kept whether the pull request left the board, became a draft or stopped being a listed bot's. One closed by someone else before kelpie's comment or close skips them and gets the issue. `pick = "off"` forgets all.
 
 ## Proving a head
 
@@ -24,6 +24,7 @@ Whether kelpie merges the bumps bots open (Dependabot), and what it does with on
 - On `main`: wait `CHECKS_SETTLE` (120 s) from `seen`, as the gate does, then read the checks. `Passed` and `Skipped` are green. Failed is red.
 - Pending or absent checks are red once `wait_hours` have passed since `seen`.
 - A web bump (`changed_paths` of the head against `origin/main` meets `web`) also needs a passing e2e run. `src/runner/flight/proving.rs`
+- No run starts while the runner drains, and a run in flight shows in the drain's `calls` as role `e2e`, so an upgrade or pause waits for it. `src/runner/flight/calls.rs`
 - The run is one thread at a time: check the head out at `worktrees/bump-<n>`, ask the dog (`E2eRunner`, `lease e2e`'s ask), remove the checkout, send the outcome as news. The dog finds the project from that folder. `src/adapters/e2e_runner.rs`
 - Outcomes: exit 0 passes and is saved; any other exit is red and saved with the end of its output; 78 (no host) leaves the bump unmerged and `status` says so, and the dog is not asked again for that head until the runner restarts; 75 (dog unreachable) is asked again at the next poll.
 - A proved bump is merged with `Forge::merge` (a merge commit, `--match-head-commit`). Merges come one at a time without a queue: the next bump is behind `main` and is asked to rebase.

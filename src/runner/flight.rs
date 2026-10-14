@@ -19,7 +19,6 @@ use std::time::Duration;
 use super::Runner;
 use super::alert::post_due;
 use super::briefing::{Watched, brief};
-use super::drain::{CallRole, CallRunning};
 use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
@@ -93,18 +92,6 @@ impl Default for Flights {
 }
 
 impl Flights {
-    /// Whether no call is in flight, the project manager's included
-    #[cfg(test)]
-    fn idle(&self) -> bool {
-        self.flying.is_empty()
-            && self.pm.is_none()
-            && self.labelling.is_none()
-            && self.securing.is_none()
-            && !self.proof_running()
-            && self.panel.is_none()
-            && self.retro.is_none()
-    }
-
     /// The issue the issue writer is labelling, while it is
     pub(super) fn labelling(&self) -> Option<u64> {
         self.labelling.as_ref().map(|l| l.issue)
@@ -170,42 +157,6 @@ impl Flights {
         if let Some(flight) = self.flying.get(&issue) {
             flight.ending.end();
         }
-    }
-
-    /// Every call in flight: each work item's by its issue, then the
-    /// project manager's
-    pub(super) fn running(&self) -> Vec<CallRunning> {
-        let items = self.flying.iter().map(|(&issue, flight)| CallRunning {
-            issue: Some(issue),
-            role: match flight.deadline {
-                Some(_) => CallRole::Worker,
-                None => CallRole::Reviewer,
-            },
-        });
-        let pm = self.pm.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Pm,
-        });
-        let labelling = self.labelling.iter().map(|l| CallRunning {
-            issue: Some(l.issue),
-            role: CallRole::IssueWriter,
-        });
-        let securing = self.securing.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Security,
-        });
-        let panel = self.panel.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Panel,
-        });
-        let retro = self.retro.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Retro,
-        });
-        (items.chain(pm).chain(labelling).chain(securing))
-            .chain(panel)
-            .chain(retro)
-            .collect()
     }
 
     /// The calls in flight as the usage ledger knows them
@@ -986,6 +937,7 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     }
 }
 
+mod calls;
 mod carry;
 pub(super) mod label;
 pub(super) mod panel;

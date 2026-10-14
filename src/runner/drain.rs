@@ -63,6 +63,8 @@ pub enum CallRole {
     Panel,
     /// The project manager's agent, running a batch retro
     Retro,
+    /// The e2e run of a dependency bump's head, on the project's e2e host
+    E2e,
     /// A pi session in the maintainer's terminal, whose forwarder a restart
     /// would take with it
     PiSession,

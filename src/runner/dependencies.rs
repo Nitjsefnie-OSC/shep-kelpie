@@ -116,10 +116,13 @@ impl Runner {
                 ),
             });
         }
-        // A red bump that left the board is still owed its issue.
-        let owed = (self.state.bumps.iter())
-            .filter(|b| b.issue_owed() && open.iter().all(|pr| pr.number != b.pull_request));
-        followed.extend(owed.cloned());
+        // A bump kelpie decided to close is owed its issue wherever it went: off
+        // the board, a draft, or no longer a listed bot's.
+        let owed: Vec<Bump> = (self.state.bumps.iter())
+            .filter(|b| b.issue_owed() && followed.iter().all(|f| f.pull_request != b.pull_request))
+            .cloned()
+            .collect();
+        followed.extend(owed);
         let place = |b: &Bump| {
             let held = (self.state.bumps.iter()).position(|k| k.pull_request == b.pull_request);
             (held.unwrap_or(usize::MAX), b.pull_request)
@@ -279,6 +282,9 @@ impl Runner {
         };
         if !web {
             return Next::Merge;
+        }
+        if self.draining {
+            return Next::Waiting("a web bump, waiting for the runner to stop draining".into());
         }
         if self.flights.proof_running() || !self.launch_proof(number, &bump.head) {
             return Next::Waiting("a web bump, waiting for the e2e host".into());

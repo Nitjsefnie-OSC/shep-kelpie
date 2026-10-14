@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::super::contributions::security_tests::commit_on;
 use crate::ports::{Checks, E2eOutcome};
-use crate::runner::{CHECKS_SETTLE, Runner, step};
-use crate::test::Rig;
+use crate::runner::{CHECKS_SETTLE, Pass, Runner, advance, step};
+use crate::test::{CALL_PATIENCE, Hold, Rig};
 
 // A runner for a project with `[app.dogs.kelpie.dependencies]` set to `pick = "on"`
 // and `table`'s lines
@@ -268,6 +268,90 @@ fn a_bump_that_changes_no_web_path_is_merged_with_no_e2e_run() {
 
     assert_eq!(rig.forge.merges(), [(50, head)]);
     assert!(rig.e2e.ran().is_empty());
+}
+
+#[test]
+fn a_bump_that_moves_a_web_file_out_of_the_web_paths_is_still_a_web_bump() {
+    let (rig, runner) = bumping("web = [\"web/\"]");
+    rig.land("web/app.js", "app\n");
+    let moved = commit_on(&rig, 50, "origin/main", |h| {
+        std::fs::rename(h.join("web/app.js"), h.join("app.js")).unwrap();
+    });
+    rig.forge.open_pull_request(50, "topic/50", &[]);
+    rig.forge.set_author(50, "dependabot");
+    rig.forge.ready_pull_request(50);
+    rig.forge.set_checks(&moved, Checks::Passed);
+
+    settle(&rig, &runner);
+
+    assert_eq!(rig.e2e.ran().len(), 1, "the move is a change to a web path");
+}
+
+#[test]
+fn a_green_web_bump_starts_no_e2e_run_while_the_runner_drains() {
+    let (rig, runner) = bumping("web = [\"web/\"]");
+    let head = bump(&rig, 50, "web/package-lock.json");
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.ask(&runner, "drain", None);
+
+    settle(&rig, &runner);
+    poll(&rig, &runner);
+
+    assert!(rig.e2e.ran().is_empty());
+    assert!(rig.forge.merges().is_empty());
+    let listed = bumps(&rig, &runner);
+    assert!(listed[0]["standing"].as_str().unwrap().contains("draining"));
+
+    rig.ask(&runner, "undrain", None);
+    poll(&rig, &runner);
+    assert_eq!(rig.e2e.ran().len(), 1);
+}
+
+#[test]
+fn an_e2e_run_in_flight_is_a_call_the_drain_waits_for() {
+    let (rig, runner) = bumping("web = [\"web/\"]");
+    let hold = Hold::default();
+    rig.e2e.hold_next(hold.clone());
+    let head = bump(&rig, 50, "web/package-lock.json");
+    rig.forge.set_checks(&head, Checks::Passed);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(CHECKS_SETTLE);
+
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the run never began");
+    let draining = rig.ask(&runner, "drain", None)["draining"].clone();
+    assert_eq!(draining["calls"], json!([{ "role": "e2e" }]));
+
+    hold.release();
+    assert!(hold.answered(CALL_PATIENCE), "the run never ended");
+    let by = std::time::Instant::now() + CALL_PATIENCE;
+    while !rig.ask(&runner, "status", None)["draining"]["calls"]
+        .as_array()
+        .is_some_and(Vec::is_empty)
+    {
+        assert!(std::time::Instant::now() < by, "the run never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        step(&runner).unwrap();
+    }
+}
+
+#[test]
+fn a_red_bump_that_stops_qualifying_is_still_closed_and_filed() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+    rig.forge.set_pull_request_closes_down(true);
+    settle(&rig, &runner);
+    assert!(rig.forge.pull_request_closings().is_empty());
+
+    rig.forge.set_author(40, "someone-else");
+    rig.forge.set_pull_request_closes_down(false);
+    poll(&rig, &runner);
+
+    assert_eq!(rig.forge.pull_request_closings(), [40]);
+    assert_eq!(rig.forge.created().len(), 1);
+    assert!(bumps(&rig, &runner).is_empty());
 }
 
 #[test]
