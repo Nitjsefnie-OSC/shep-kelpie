@@ -4,9 +4,10 @@
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
 //! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no extension but `skills`, which lists the skills and
-//! offers `load_skill`; goose's `chat` mode rejects a tool call, so it reads what
-//! kelpie wrote it and answers. A worker is offered goose's `developer`
+//! researcher is loaded no builtin extension but `skills`, which lists the skills
+//! and offers `load_skill`: the model is offered no shell or file tool, so it
+//! reads what kelpie wrote it and answers, with the web of its MCP server where
+//! the package is installed ([`web`]). A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
@@ -52,6 +53,7 @@ pub(crate) mod hooks;
 pub(crate) mod mcp;
 mod output;
 mod skills;
+pub(crate) mod web;
 
 #[cfg(test)]
 mod activity_tests;
@@ -75,6 +77,9 @@ mod mcp_tests;
 mod reading_tests;
 
 #[cfg(test)]
+mod escapes;
+
+#[cfg(test)]
 mod review_tests;
 
 #[cfg(test)]
@@ -85,6 +90,9 @@ mod tests;
 
 #[cfg(test)]
 mod unreachable_tests;
+
+#[cfg(test)]
+mod web_tests;
 
 /// The oldest goose kelpie is built for: `on_failure: block` hooks need 1.48 or
 /// later, and 1.53.0 is the source the adapter is written from. The target is 1.54.0.
@@ -551,6 +559,7 @@ fn env_args(
             serde_json::json!(CONTEXT_FILES).to_string().into(),
         ));
     }
+    vars.extend(web::env(call));
     vars.extend(compact::threshold_var(call, server.context.get()));
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
@@ -637,6 +646,7 @@ fn policy(
             .chain(call.reach.read.iter().cloned()),
     );
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
+    web::open(call, &mut policy);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
         host: WORKER_HOST.to_owned(),

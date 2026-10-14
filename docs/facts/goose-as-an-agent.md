@@ -148,13 +148,40 @@ Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs 
   - `~/.agents/skills`, `~/.claude/skills` and `~/.config/agents/skills` are unreadable to the call, and `<root>/config/skills` is unwritable, so the call cannot plant a skill for its next turn. The worktree's own `.agents/skills`, `.goose/skills` and `.claude/skills` still load, as on Claude Code: a worker cannot add one, since all three folders are write-fenced (`fence::HARNESSES`).
   - A step prompt `/<plugin>:<skill> <rest>` becomes `/<name> <rest>` for the skill's `name` line, so goose injects the skill. When that `SKILL.md` holds `$ARGUMENTS` or a `$` followed by a digit, the prompt stays as written and the model loads the skill with `load_skill`; a call in `chat` cannot, so its prompt is the skill's text without the front matter, its placeholders filled in (`$ARGUMENTS` is `<rest>`, `$ARGUMENTS[n]` and `$n` its nth shell-split word, from 0), then `ARGUMENTS: <rest>`. goose's own substitution (`apply_skill_arguments`) was not read for this: the fill-in follows goose's documented placeholders, and #798 checks it. A skill that a worktree folder (`.agents/skills`, `.goose/skills`, `.claude/skills`) holds one of the same name beside is sent as its text too: goose reads those first (from the review of #847; not run). The stub of a builtin is never written where the path exists, which on a case-folding file system is where a plugin's `Web-Search` is linked. A prompt naming a skill no plugin holds is left as it is, and so is one naming a skill called like a goose command (`COMMANDS` in `src/adapters/goose/skills.rs`, a guess at a superset: the source of `execute_commands.rs` could not be read for this fix, and #798 settles the list).
   - The fence hook lets `load_skill` through for every kind (`Work`, the read-only guard and a reviewer's tests guard). `load_skill` reads files inside goose, so the sandbox's read rules bound it.
-- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a researcher, and a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, or carries the skill's text where the skill holds a placeholder. Not run: whether goose lists skills at all in `chat`.
+- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a researcher where the web package is not installed, and a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, or carries the skill's text where the skill holds a placeholder. Not run: whether goose lists skills at all in `chat`.
 - Not run: the tool's name in the hook's payload (read as bare `load_skill`, as `developer`'s tools are bare, and a prefixed name would be refused), that goose follows a link in `config/skills`, that it lists a stub in place of its builtin, and the `/<name>` command on a real turn.
 - What every prompt now carries, counted from the `SKILL.md` files (the `name:` and `description:` lines, a newline each, in bytes):
   - The 15 skills of the vendored mattpocock plugin (`skills/skills/*/*/SKILL.md`): 2721 bytes.
   - The two stubs: 232 bytes (`web-search` 112, `goose-doc-guide` 120).
   - goose's two builtin skills: not counted. Their `SKILL.md` files are inside the goose binary, and no copy of the source was at hand. #798 can count them from a recorded system prompt. The stubs replace them, so they add to nothing.
   - Each plugin's skills the repo and its marketplaces add come on top, and the repo's own `kelpie-repo` plugin is one.
+
+## The researcher's web
+
+Measured 2026-10-14 for #797, with Node 26.11.1 and npm, no model and no GPU. Each candidate was installed in an empty folder at its latest version, started over stdio, and sent `initialize` and `tools/list`. goose v1.54.0 ships no search or fetch tool, and a pi package cannot be loaded into it.
+
+- Chosen: `duckduckgo-websearch` 2.0.3 (MIT), pinned exactly in `src/tools/package.json`, run as `node <package>/build/index.js` under the name `kelpie-web` (`src/adapters/goose/web.rs`). Its dependencies are `@modelcontextprotocol/sdk` and `cheerio`.
+- Tools, which goose names `kelpie-web__<tool>`:
+  - `search`: `query` (required), `max_results` (default 25).
+  - `fetch_content`: `url` (required), `max_content_length` (default 8000).
+  - The server reports its own version as 0.1.1 in `initialize`, whatever the package's.
+- Hosts, from `build/duckduckgoSearcher.js` and `build/webContentFetcher.js`:
+  - The keyless search POSTs to `html.duckduckgo.com` and follows nothing else. It also pings `duckduckgo.com/t/sl_h` after a search, ignoring the failure, so that host is left out of the policy.
+  - The fetch is Node's `fetch(url)`: it dials the page's own host. It goes through no reader service, so `researcher.allowed_domains` holds it.
+- Node's `fetch` ignores `HTTP_PROXY` and `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` is set (pi sets the same), so the researcher's env carries it. goose's list of env keys it never passes a server (`Envs::DISALLOWED_KEYS`) does not name it.
+- It reads no key and no config: its build files name no `process.env` variable, no home folder and no file read, and take no key. The call gives it none.
+- `npm install` of the pinned version runs no install script: the lockfile of the package and its dependencies has no `hasInstallScript`. The package declares a `prepare` script (`bun run build`), which npm does not run for a registry dependency, and its `build/` ships in the tarball.
+- It starts from kelpie's tools folder, which the fence hides, so the researcher's call reads the `node_modules` folder the package sits in (its dependencies are beside it).
+
+Rejected:
+
+- `fetch-mcp` 0.0.5: a fetch only (`fetch_url`, `fetch_youtube_transcript`), and it fetches through `got-scraping`, which ignores the proxy env, so the sandbox would not hold it.
+- `duckduckgo-mcp-server` 0.1.2: a search only (`duckduckgo_web_search`), no fetch.
+- `mcp-fetch-server` 1.1.2: a fetch only (`fetch_html`, `fetch_markdown`, `fetch_txt`, `fetch_json`, `fetch_readable`), and each takes request headers from the model.
+- `@oevortex/ddg_search` 1.4.0: searches through several hosts, so more to list. Its CLI did not answer `initialize` in three minutes here.
+- `mcp-duckduckgo` 3.1.0: not installed or run.
+
+Not run: a real search or fetch (no network from the worker's sandbox), goose starting the server, and goose passing `NODE_USE_ENV_PROXY` and the proxy variables to it. The first real turn is for #798. The fetch's reach is shown with `curl` through the same proxy (`adapters::goose::escapes`, ignored, needs `KELPIE_TOOLS`).
 
 ## The idle watch and the watch
 
