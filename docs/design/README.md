@@ -27,6 +27,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | workers.md | runner loop, turns, fence | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/hooks.rs` |
 | skills.md | step skills, repo plugins, how each harness loads them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
+| handover.md | a runner handing its in-flight worker turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, `usage`, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `src/usage.rs`, `src/settings/agents.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
 | merge.md | CI, catching up, merge, after the merge | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |

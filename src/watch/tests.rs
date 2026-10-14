@@ -468,6 +468,188 @@ fn a_pi_session_shows_from_its_session_file() {
     assert_eq!(lines[5], "12:00:04 #7 reviewer (qwen) said CLEAN");
 }
 
+// The step that names a goose call, as the runner logs it: the transcript
+// folder is the call's goose root, whose sibling `<stem>.stdout.jsonl` is the
+// stdout file.
+fn goose_started(rig: &Rig) -> (String, PathBuf) {
+    let root = rig.dir.path().join("worker/research-settings.goose");
+    let step = format!(
+        r#"{{"step":"session-started","issue":7,"role":"researcher","agent":"qwen","harness":"goose","session":"g7","transcript":{{"folder":{root:?}}}}}"#
+    );
+    (
+        step,
+        rig.dir.path().join("worker/research-settings.stdout.jsonl"),
+    )
+}
+
+#[test]
+fn a_goose_session_shows_from_the_stdout_file_of_its_call() {
+    let rig = Rig::new();
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.000+00:00", &step);
+    rig.append(
+        &stdout,
+        &[
+            "    __( O)>  ● new session · openai qwen3.8:27b",
+            "   \\____)    20261010_1 · /wt",
+            "     L L     goose is ready",
+            r#"{"type":"message","message":{"role":"assistant","created":1791633601,"content":[{"type":"thinking","thinking":"Look at the diff"},{"type":"toolRequest","id":"c1","toolCall":{"status":"success","value":{"name":"read","arguments":{"path":"src/lib.rs"}}}}]}}"#,
+            r#"{"type":"message","message":{"role":"user","created":1791633602,"content":[{"type":"toolResponse","id":"c1","toolResult":{"status":"success","value":{"content":[{"type":"text","text":"fn main() {}"}],"isError":false}}}]}}"#,
+            r#"{"type":"message","message":{"role":"assistant","created":1791633603,"content":[{"type":"text","text":"CLEAN"}]}}"#,
+            r#"{"type":"error","error":"model host went away"}"#,
+            r#"{"type":"complete","total_tokens":3}"#,
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 6, "{lines:#?}");
+    assert_eq!(
+        lines[1],
+        "12:00:01 #7 researcher (qwen) thinking Look at the diff"
+    );
+    assert_eq!(
+        lines[2],
+        "12:00:01 #7 researcher (qwen) tool read src/lib.rs"
+    );
+    assert_eq!(
+        lines[3],
+        "12:00:02 #7 researcher (qwen) result fn main() {}"
+    );
+    assert_eq!(lines[4], "12:00:03 #7 researcher (qwen) said CLEAN");
+    // goose gives an error no time, so it takes the time of the line before.
+    assert_eq!(
+        lines[5],
+        "12:00:03 #7 researcher (qwen) result error: model host went away"
+    );
+}
+
+#[test]
+fn a_goose_error_with_nothing_before_it_takes_the_time_its_call_started() {
+    let rig = Rig::new();
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.000+00:00", &step);
+    rig.append(&stdout, &[r#"{"type":"error","error":"no route to host"}"#]);
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    assert_eq!(
+        shown(&lines)[1],
+        "12:00:00 #7 researcher (qwen) result error: no route to host"
+    );
+}
+
+// Every call at one settings path writes the same stdout file, so a call's
+// lines belong to the newest session that names it.
+fn goose_call(rig: &Rig, at: &str, session: &str) -> (String, PathBuf) {
+    let (step, stdout) = goose_started(rig);
+    let step = step.replace(r#""session":"g7""#, &format!(r#""session":"{session}""#));
+    rig.step(at, &step);
+    (step, stdout)
+}
+
+fn goose_said(created: u64, text: &str) -> String {
+    format!(
+        r#"{{"type":"message","message":{{"role":"assistant","created":{created},"content":[{{"type":"text","text":"{text}"}}]}}}}"#
+    )
+}
+
+#[test]
+fn two_goose_sessions_at_one_settings_path_show_the_file_once() {
+    let rig = Rig::new();
+    let (_, stdout) = goose_call(&rig, "2026-10-10T12:00:00.000+00:00", "g1");
+    goose_call(&rig, "2026-10-10T12:05:00.000+00:00", "g2");
+    // The file holds the second call only, since each call empties it.
+    rig.append(&stdout, &[&goose_said(1791633901, "second")]);
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    let said: Vec<_> = shown(&lines)
+        .into_iter()
+        .filter(|line| line.contains(" said "))
+        .collect();
+    assert_eq!(said, ["12:05:01 #7 researcher (qwen) said second"]);
+}
+
+#[test]
+fn a_goose_call_started_while_watching_replaces_the_one_before_it_at_that_path() {
+    let rig = Rig::new();
+    let (_, stdout) = goose_call(&rig, "2026-10-10T12:00:00.000+00:00", "g1");
+    rig.append(&stdout, &[&goose_said(1791633601, "first")]);
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+
+    // The next call empties the file and writes it afresh, past the old offset.
+    goose_call(&rig, "2026-10-10T12:05:00.000+00:00", "g2");
+    std::fs::write(&stdout, "").unwrap();
+    rig.append(
+        &stdout,
+        &[
+            &goose_said(1791633901, "second"),
+            &goose_said(1791633902, "and more"),
+            &goose_said(1791633903, "and more still"),
+        ],
+    );
+    let said: Vec<_> = shown(&watch.poll())
+        .into_iter()
+        .filter(|line| line.contains(" said "))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            "12:05:01 #7 researcher (qwen) said second",
+            "12:05:02 #7 researcher (qwen) said and more",
+            "12:05:03 #7 researcher (qwen) said and more still",
+        ]
+    );
+}
+
+#[test]
+fn a_goose_session_resumed_while_watching_reads_its_emptied_file_afresh() {
+    let rig = Rig::new();
+    let (_, stdout) = goose_call(&rig, "2026-10-10T12:00:00.000+00:00", "g1");
+    rig.append(&stdout, &[&goose_said(1791633601, "first")]);
+    let (mut watch, _) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+
+    goose_call(&rig, "2026-10-10T12:05:00.000+00:00", "g1");
+    std::fs::write(&stdout, "").unwrap();
+    rig.append(
+        &stdout,
+        &[
+            &goose_said(1791633901, "second"),
+            &goose_said(1791633902, "and more"),
+        ],
+    );
+    let said: Vec<_> = shown(&watch.poll())
+        .into_iter()
+        .filter(|line| line.contains(" said "))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            "12:05:01 #7 researcher (qwen) said second",
+            "12:05:02 #7 researcher (qwen) said and more",
+        ]
+    );
+}
+
+#[test]
+fn a_goose_transcript_that_is_not_there_yet_is_waited_for() {
+    let rig = Rig::new();
+    let (mut watch, first) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
+    assert!(first.is_empty());
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.100+00:00", &step);
+    // The runner's step is shown, and the stdout file is not there to read.
+    assert_eq!(shown(&watch.poll()).len(), 1);
+    assert!(watch.poll().is_empty());
+
+    rig.append(
+        &stdout,
+        &[
+            r#"{"type":"message","message":{"role":"assistant","created":1791633601,"content":[{"type":"text","text":"CLEAN"}]}}"#,
+        ],
+    );
+    assert_eq!(
+        shown(&watch.poll()),
+        ["12:00:01 #7 researcher (qwen) said CLEAN"]
+    );
+}
+
 #[test]
 fn lines_that_are_not_steps_or_cannot_be_read_are_passed_over() {
     let rig = Rig::new();

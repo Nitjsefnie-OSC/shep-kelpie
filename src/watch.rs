@@ -10,6 +10,7 @@
 
 mod claude;
 mod codex;
+mod goose;
 mod line;
 mod locate;
 mod log;
@@ -39,6 +40,8 @@ pub(crate) fn said_in(format: Format, line: &str) -> Vec<Said> {
         Format::Claude => claude::events(line),
         Format::Codex => codex::events(line),
         Format::Pi => pi::events(line),
+        // goose's stdout file holds no whole session, so this is never read.
+        Format::Goose => goose::events(line, Timestamp::UNIX_EPOCH),
     }
 }
 
@@ -100,6 +103,9 @@ struct Session {
     // A transcript line before this belongs to an earlier call of a session
     // that was resumed.
     after: Option<Timestamp>,
+    // The time of the last line read, which stamps a goose error: goose gives
+    // it none.
+    last: Option<Timestamp>,
 }
 
 impl Session {
@@ -111,14 +117,22 @@ impl Session {
         let Some(tail) = &mut self.tail else {
             return Vec::new();
         };
-        let events = match self.started.format {
-            Format::Claude => claude::events as fn(&str) -> Vec<Event>,
-            Format::Codex => codex::events,
-            Format::Pi => pi::events,
-        };
-        tail.lines()
-            .iter()
-            .flat_map(|line| events(line))
+        let mut found = Vec::new();
+        for line in tail.lines() {
+            let events = match self.started.format {
+                Format::Claude => claude::events(&line),
+                Format::Codex => codex::events(&line),
+                Format::Pi => pi::events(&line),
+                Format::Goose => {
+                    let since = self.last.max(self.after).unwrap_or(self.started.at);
+                    goose::events(&line, since)
+                }
+            };
+            self.last = events.iter().map(|e| e.at).chain(self.last).max();
+            found.extend(events);
+        }
+        found
+            .into_iter()
             .filter(|event| self.after.is_none_or(|after| event.at >= after))
             .map(|event| (event, self.started.who.clone()))
             .collect()
@@ -186,18 +200,36 @@ impl Watch {
                 continue;
             };
             let after = following.and_then(|slack| step.at.checked_sub(slack).ok());
+            // Every goose call at one settings path writes the same file, which
+            // each call empties, so only the newest call to name it is read.
+            if started.format == Format::Goose {
+                self.sessions.retain(|s| {
+                    s.started.format != Format::Goose
+                        || s.started.folder != started.folder
+                        || s.started.session == started.session
+                });
+            }
+            let goose = started.format == Format::Goose;
             match self
                 .sessions
                 .iter_mut()
                 .find(|s| s.started.session == started.session)
             {
                 // A resumed session's next call: only its new lines.
-                Some(known) if following.is_some() => known.after = after,
+                Some(known) if following.is_some() => {
+                    known.after = after;
+                    if goose {
+                        // The file was emptied, so the old offset is meaningless.
+                        known.tail = None;
+                        known.last = None;
+                    }
+                }
                 Some(_) => {}
                 None => self.sessions.push(Session {
                     started,
                     tail: None,
                     after,
+                    last: None,
                 }),
             }
         }
