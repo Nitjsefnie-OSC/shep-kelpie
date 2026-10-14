@@ -275,6 +275,42 @@ mod tests {
         assert!(asked.contains(&folder.display().to_string()), "{asked}");
     }
 
+    #[test]
+    fn a_goose_reviewer_writes_only_its_review_tests_folder_when_a_test_command_is_set() {
+        let rig = Rig::new("shep");
+        rig.test_command("cargo test --test {name}");
+        rig.write_agent(
+            "goose-reviewer",
+            "---\nrole: reviewer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+             url: http://box:11434/v1\ncontext: 65536\n---\nReview the change against \
+             {{BASE}}. Output one finding per line as SEVERITY|file:line|what|why, or CLEAN.\n",
+        );
+        rig.reviewers(&["goose-reviewer"]);
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, the goose reviewer: scripted clean above
+
+        let build = runner.lock().unwrap().current().unwrap().build.clone();
+        let folder = build.join("review-tests");
+        assert!(folder.is_dir(), "kelpie made it before the call");
+        let all = rig.claude.all_seen();
+        let reviewer = all
+            .iter()
+            .find(|s| s.call.role == Role::Reviewer)
+            .expect("a reviewer round ran");
+        assert!(matches!(reviewer.call.harness, AgentHarness::Goose(_)));
+        assert_eq!(reviewer.call.agent_tools, None, "that list is Claude's");
+        let fence = reviewer.call.reach.fence.as_deref().expect("a fence");
+        assert_eq!(fence.write, std::slice::from_ref(&folder));
+        let asked = &reviewer.call.prompt;
+        assert!(asked.contains("with the write tool"), "{asked}");
+        assert!(asked.contains(&folder.display().to_string()), "{asked}");
+    }
+
     // A reviewer of `harness`'s first round, on a project with no test command.
     fn reviewer_of(harness: &str) -> (Rig, PathBuf, crate::test::Seen) {
         let rig = Rig::new("shep");
