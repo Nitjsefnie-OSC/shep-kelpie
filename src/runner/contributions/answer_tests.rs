@@ -5,7 +5,8 @@ use std::sync::Mutex;
 use serde_json::Value;
 
 use super::pass_tests::{listing, read_through, write};
-use super::ruling_tests::rule;
+use super::post::POST_TRIES;
+use super::ruling_tests::{flagged, rule};
 use super::security_tests::{contribute, contribution};
 use super::tests::{opened, picking};
 use crate::ports::{AgentError, CLEAN, Clock, Cost, Finding, Role, Severity};
@@ -258,4 +259,61 @@ fn a_failed_call_posts_nothing_and_is_tried_again() {
         ["That finding is about the first line, which breaks."]
     );
     assert_eq!(asked(&rig).len(), 2);
+}
+
+#[test]
+fn a_ruling_on_the_pull_request_holds_every_answer_until_it_is_answered() {
+    let (rig, runner, head) = flagged();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ANSWERS)]);
+    rig.clock.advance(10);
+    rig.writes_on(30, "newcomer", "A question");
+
+    polls(&rig, &runner);
+
+    assert_eq!(asked(&rig), Vec::<String>::new());
+    assert_eq!(comments(&rig), Vec::<String>::new());
+    assert_eq!(rulings(&rig, &runner).len(), 1, "no second ruling either");
+
+    rule(&rig, &runner, &format!("30 yes {}", &head[..7]));
+    polls(&rig, &runner);
+
+    // The trusted head's own pass note is not an answer.
+    let answers = (asked(&rig).into_iter())
+        .filter(|p| p.contains("Answer the contributor's latest comment"))
+        .count();
+    assert_eq!(answers, 1);
+    let answer = "That finding is about the first line, which breaks.";
+    assert!(comments(&rig).iter().any(|c| c == answer));
+}
+
+#[test]
+fn a_relay_given_up_no_longer_holds_the_comments_behind_it() {
+    let down = || AgentError::Failed(Harness::ClaudeCode, "overloaded".into());
+    let (rig, runner) = followed(&[ASKS]);
+    rig.writes_on(30, "newcomer", "Will you merge this?");
+    polls(&rig, &runner);
+    rule(&rig, &runner, "30 answer Not yet");
+    rig.claude.script_for(
+        Role::Representative,
+        (0..POST_TRIES).map(|_| Scripted::Fail(down())),
+    );
+    for _ in 0..POST_TRIES {
+        polls(&rig, &runner);
+    }
+    assert_eq!(
+        comments(&rig),
+        Vec::<String>::new(),
+        "the relay never posted"
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(ANSWERS)]);
+    rig.writes_on(30, "newcomer", "And another thing");
+
+    polls(&rig, &runner);
+
+    assert_eq!(
+        comments(&rig),
+        ["That finding is about the first line, which breaks."]
+    );
 }

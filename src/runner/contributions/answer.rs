@@ -93,9 +93,9 @@ impl Runner {
             .collect();
         for number in numbers {
             while let Some(due) = self.answer_due(number) {
-                // A ruling on the pull request holds its calls, a budget
-                // one included.
-                if self.over_budget(number)? {
+                // A ruling on the pull request holds its calls, whatever
+                // it is about, and a spend past the cap raises one.
+                if self.ruling_waits(number) || self.over_budget(number)? {
                     break;
                 }
                 let done = match due {
@@ -112,19 +112,26 @@ impl Runner {
 
     // The next thing to do for the contribution: the maintainer's answer
     // first, then the oldest comment or reply not yet answered that is not
-    // given up. Nothing while a decision waits on the maintainer.
+    // given up. Nothing while a decision waits on the maintainer. An answer
+    // whose relay is given up no longer holds the comments behind it.
     fn answer_due(&self, number: u64) -> Option<Due> {
         let held = (self.state.contributions.iter()).find(|c| c.pull_request == number)?;
         if let Some(deciding) = &held.deciding {
-            return deciding
-                .answer
-                .is_some()
-                .then(|| Due::Relay(deciding.clone()))
-                .filter(|_| !self.answer_given_up(&relay_key(number, &deciding.said)));
+            let given_up = self.answer_given_up(&relay_key(number, &deciding.said));
+            match (&deciding.answer, given_up) {
+                (None, _) => return None,
+                (Some(_), false) => return Some(Due::Relay(deciding.clone())),
+                (Some(_), true) => {}
+            }
         }
         (held.unanswered().into_iter())
             .find(|said| !self.answer_given_up(&answer_key(number, said)))
             .map(Due::Answer)
+    }
+
+    // Whether a ruling on the pull request waits for the maintainer
+    fn ruling_waits(&self, number: u64) -> bool {
+        (self.state.rulings.iter()).any(|r| r.id == number)
     }
 
     // Asks the representative about `said`. Returns whether it was dealt
@@ -378,6 +385,11 @@ impl Runner {
         said: Said,
         question: &str,
     ) -> Result<(), StateError> {
+        // Another ruling raised since the call keeps the pull request's id:
+        // the comment stays unanswered and is asked again once it is gone.
+        if self.ruling_waits(number) {
+            return Ok(());
+        }
         let asked = cut(&one_line(question), LONGEST_ASK, "...");
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
