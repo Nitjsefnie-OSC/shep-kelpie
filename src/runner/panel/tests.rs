@@ -10,6 +10,7 @@ use crate::runner::{Runner, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Rig, Scripted, Seen};
 
+mod calls;
 mod deciding;
 mod draining;
 mod fences;

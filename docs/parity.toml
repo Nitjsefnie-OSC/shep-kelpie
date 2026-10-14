@@ -82,7 +82,7 @@ goose = { gap = 795 }
 [harness.web-research]
 what = "The researcher searches and fetches the web"
 claude-code = "yes"
-pi = { gap = 767 }
+pi = "yes"
 codex = "yes"
 goose = { gap = 797 }
 
