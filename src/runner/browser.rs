@@ -9,8 +9,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use serde_json::json;
-
 use super::Runner;
 use super::code_graph::who;
 use crate::adapters::bridge::{Bridge, Server};
@@ -142,19 +140,8 @@ fn server(
                 .map_err(|e| format!("cannot make {}: {e}", dir.display()))?,
         }
     }
-    let config = folder.join("config.json");
-    let text = json!({
-        "browser": {
-            "browserName": "chromium",
-            "launchOptions": { "args": [resolver_rules(&settings.domains)] },
-        }
-    });
-    std::fs::write(&config, text.to_string())
-        .map_err(|e| format!("cannot write {}: {e}", config.display()))?;
     let mut args = vec![
         tools.playwright_mcp().display().to_string(),
-        "--config".to_owned(),
-        config.display().to_string(),
         "--isolated".to_owned(),
         "--output-dir".to_owned(),
         output.display().to_string(),
@@ -171,16 +158,4 @@ fn server(
         )]),
         cwd: folder.to_owned(),
     })
-}
-
-// Chromium's flag that maps every host to nothing but the project's own, which
-// also keeps an IP address and a WebSocket from reaching anywhere else. It
-// names hosts, not ports, so the settings refuse a domain with one.
-fn resolver_rules(domains: &[NonBlank]) -> String {
-    let mut rules = "--host-resolver-rules=MAP * ~NOTFOUND".to_owned();
-    for domain in domains {
-        rules.push_str(", EXCLUDE ");
-        rules.push_str(domain.as_str());
-    }
-    rules
 }

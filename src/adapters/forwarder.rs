@@ -24,18 +24,18 @@ use crate::confine::Verdict;
 use crate::forwarder::Upstream;
 use http::{Head, Reply, Timed};
 
-mod http;
+pub(in crate::adapters) mod http;
 #[cfg(test)]
 mod tests;
 
 /// Seconds the forwarder gives each address of the model server to connect
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(in crate::adapters) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a client may take to send its whole request
-const REQUEST_WAIT: Duration = Duration::from_secs(30);
+pub(in crate::adapters) const REQUEST_WAIT: Duration = Duration::from_secs(30);
 
 /// How long a client may leave a reply unread before the forwarder drops it
-const REPLY_STALL: Duration = Duration::from_secs(60);
+pub(in crate::adapters) const REPLY_STALL: Duration = Duration::from_secs(60);
 
 /// How often the forwarder looks to see whether the reply it is relaying is done
 const WATCH_EVERY: Duration = Duration::from_millis(100);
