@@ -15,9 +15,14 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
+
 use super::Runner;
 use super::untrusted::fenced;
-use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Ending, Role, Session, Tools};
+use crate::ports::{
+    AgentCall, AgentError, AgentReply, Cost, Ending, Role, Session, Timestamp, Tools,
+};
 use crate::settings::SettingsError;
 use crate::usage::{CallKind, Draft, Line, Spent, ended};
 use crate::work_item::new_session_id;
@@ -82,6 +87,17 @@ impl Runner {
     /// set up, fails or is ended, or answers with nothing.
     pub fn represent(&mut self, post: &Post<'_>) -> Result<String, RepresentError> {
         self.represent_within(post, CEILING)
+    }
+
+    /// `at` in words against the runner's clock, so a fact never carries a
+    /// bare date for the representative to work a weekday or a gap out of
+    ///
+    /// "yesterday", "three days ago", "today", "tomorrow", "by Sunday (in 4
+    /// days)", and past a week "by Friday 6 November (in 23 days)". Days are
+    /// UTC's, the same as the day [`Self::represent`] tells the call it is.
+    #[must_use]
+    pub fn moment_in_words(&self, at: Timestamp) -> String {
+        moment(at, self.ports.clock.now())
     }
 
     // `represent`, with the call ended once it has run for `ceiling`
@@ -163,7 +179,13 @@ impl Runner {
     // that can still be read, and the contributor's text, the last two fenced
     // as data.
     fn post_prompt(&self, post: &Post<'_>) -> String {
-        let mut prompt = format!("Kind of post: {}\n\nFacts:\n{}\n", post.kind, post.facts);
+        let today = day(self.ports.clock.now());
+        let mut prompt = format!(
+            "Today is {}.\n\nKind of post: {}\n\nFacts:\n{}\n",
+            today.strftime("%A %-d %B %Y"),
+            post.kind,
+            post.facts
+        );
         let earlier: Vec<String> = (post.earlier.iter())
             .filter_map(|&id| self.ports.forge.comment_marks(&self.remote, id).ok())
             .map(|marks| marks.body)
@@ -181,6 +203,64 @@ impl Runner {
             fenced(&what, post.said)
         ));
         prompt
+    }
+}
+
+// The UTC day `at` falls on
+fn day(at: Timestamp) -> Date {
+    let seconds = i64::try_from(at.0).unwrap_or(i64::MAX);
+    jiff::Timestamp::from_second(seconds)
+        .unwrap_or(jiff::Timestamp::MAX)
+        .to_zoned(TimeZone::UTC)
+        .date()
+}
+
+// `then` in words against `now`, by the UTC days between them: a past day as
+// "yesterday" or how long ago, today and tomorrow as themselves, the days up
+// to a week ahead as "by <weekday> (in N days)", and further out with the
+// date too. The gap is in days, so a late hour never shifts it.
+fn moment(then: Timestamp, now: Timestamp) -> String {
+    let (then, today) = (day(then), day(now));
+    let days = i64::from((then - today).get_days());
+    match days {
+        0 => "today".to_owned(),
+        1 => "tomorrow".to_owned(),
+        -1 => "yesterday".to_owned(),
+        2..=7 => format!("by {} (in {days} days)", then.strftime("%A")),
+        8.. => {
+            let year = if then.year() == today.year() {
+                ""
+            } else {
+                " %Y"
+            };
+            let format = format!("%A %-d %B{year}");
+            format!("by {} (in {days} days)", then.strftime(&format))
+        }
+        _ => format!("{} ago", span(-days)),
+    }
+}
+
+// How long `days` (at least 2) is, by the largest of weeks, months and years
+// that fits: "three days ago", "two weeks", "five months", "a year"
+fn span(days: i64) -> String {
+    let (n, unit) = match days {
+        ..=13 => (days, "day"),
+        14..=59 => (days / 7, "week"),
+        60..=364 => (days / 30, "month"),
+        365..=729 => return "a year".to_owned(),
+        _ => (days / 365, "year"),
+    };
+    format!("{} {unit}s", count(n))
+}
+
+// `n` as a word up to ten, and as digits past it
+fn count(n: i64) -> String {
+    const WORDS: [&str; 9] = [
+        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    ];
+    match usize::try_from(n - 2).ok().and_then(|i| WORDS.get(i)) {
+        Some(word) => (*word).to_owned(),
+        None => n.to_string(),
     }
 }
 

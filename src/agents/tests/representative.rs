@@ -24,13 +24,13 @@ fn a_representative_file_loads_with_its_role_harness_model_and_effort() {
 }
 
 #[test]
-fn the_shipped_representative_is_opus_at_medium_effort_on_claude_code() {
+fn the_shipped_representative_is_opus_at_low_effort_on_claude_code() {
     let agents = Agents::embedded();
 
     let representative = agents.get(&name("representative")).unwrap();
 
     assert_eq!(representative.role, Role::Representative);
-    assert_eq!(pair(representative), ("claude-opus-5-5", Effort::Medium));
+    assert_eq!(pair(representative), ("claude-opus-5-5", Effort::Low));
     assert_eq!(
         representative.runs.session().unwrap().0.harness,
         AgentHarness::ClaudeCode
@@ -41,6 +41,23 @@ fn the_shipped_representative_is_opus_at_medium_effort_on_claude_code() {
         "{prompt}"
     );
     assert!(prompt.contains("you never promise one"), "{prompt}");
+}
+
+#[test]
+fn the_shipped_representatives_guide_is_the_text_the_wording_test_picked() {
+    let agents = Agents::embedded();
+    let prompt = agents
+        .get(&name("representative"))
+        .unwrap()
+        .prompt
+        .as_deref()
+        .unwrap();
+    let results = include_str!("../../../docs/specs/wording-results.md");
+    let (_, picked) = results.split_once("```markdown\n").unwrap();
+    let (guide, _) = picked.split_once("\n```").unwrap();
+
+    assert!(prompt.contains(guide), "{prompt}");
+    assert!(!prompt.contains("rin-voice"), "{prompt}");
 }
 
 #[test]
