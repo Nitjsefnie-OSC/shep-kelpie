@@ -115,6 +115,25 @@ fn converted(entry: &Value) -> Result<Value, String> {
             out.insert((*field).to_owned(), value.clone());
         }
     }
+    // pi expands `${VAR}` in `env` and `headers` only, and Claude Code also in these.
+    let texts = [("command", entry["command"].as_str())]
+        .into_iter()
+        .chain([("url", entry["url"].as_str())])
+        .chain([("cwd", entry["cwd"].as_str())])
+        .chain(
+            entry["args"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|arg| ("args", arg.as_str())),
+        );
+    for (field, text) in texts {
+        if text.is_some_and(|text| text.contains("${")) {
+            return Err(format!(
+                "its `{field}` holds a `${{VAR}}`, which pi expands only in `env` and `headers`"
+            ));
+        }
+    }
     // pi runs a value of `env` or `headers` that starts with `!` as a command.
     for field in ["env", "headers"] {
         let mut values = entry[field].as_object().into_iter().flatten();
@@ -271,6 +290,16 @@ mod tests {
         assert!(refusal("a name", &json!({ "command": "/k/s" })).is_some());
         assert!(refusal("none", &json!({ "args": [] })).is_some());
         assert_eq!(refusal("fine", &json!({ "command": "/k/s" })), None);
+        for entry in [
+            json!({ "command": "/k/s", "args": ["--token", "${DOCS_TOKEN}"] }),
+            json!({ "url": "${DOCS_URL}/mcp" }),
+            json!({ "command": "${HOME}/s" }),
+        ] {
+            let why = refusal("var", &entry).unwrap();
+            assert!(why.contains("${VAR}"), "{why}");
+        }
+        let in_env = json!({ "command": "/k/s", "env": { "T": "${DOCS_TOKEN}" } });
+        assert_eq!(refusal("var", &in_env), None);
 
         let w = World::new();
         let mut loaded = Reach::default();
