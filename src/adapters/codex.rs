@@ -154,6 +154,7 @@ pub struct CodexCli {
     // What a call with no fence may not read: the shepherd's home
     unfenced_no_read: Vec<String>,
     login: PathBuf,
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -167,6 +168,7 @@ impl ClaudeCli {
             sandbox: Arc::clone(&self.sandbox),
             unfenced_no_read: self.unfenced_no_read.clone(),
             login: codex_home,
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -243,6 +245,10 @@ impl Agents for CodexCli {
 
     fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
         self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.terminal_ended(session);
     }
 }
 

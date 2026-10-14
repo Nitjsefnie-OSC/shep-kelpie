@@ -4,9 +4,13 @@
 use std::ffi::OsStr;
 use std::process::Command;
 
-use super::tests::{THREAD, WORKER_ID, World, id, strings};
+use super::tests::{THREAD, WORKER_ID, World, id, stand_in, strings};
 use super::*;
+use crate::ports::Usage;
 use crate::test::OpenSandbox;
+
+/// The rollout of a session that ran two requests and compacted
+const ROLLOUT: &str = include_str!("../../../fixtures/codex-rollout-compacted.jsonl");
 
 fn codex_in(world: &World, sandbox: &OpenSandbox) -> CodexCli {
     ClaudeCli::default()
@@ -156,4 +160,84 @@ fn a_prompt_is_the_first_message_of_the_resumed_session() {
         args[args.len() - 3..],
         ["--", THREAD, "pick up where you left off"]
     );
+}
+
+// Puts the rollout of `THREAD` where Codex keeps it in the call's home.
+fn rollout_of_terminal(call: &AgentCall, text: &str) {
+    let folder = Files::of(call).home.join("sessions/2026/10/13");
+    std::fs::create_dir_all(&folder).unwrap();
+    let name = format!("rollout-2026-10-13T09-00-00-{THREAD}.jsonl");
+    std::fs::write(folder.join(name), text).unwrap();
+}
+
+#[test]
+fn the_end_of_a_terminal_session_leaves_the_next_turn_to_count_only_its_own() {
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let call = resumable(&w, &codex);
+    let files = Files::of(&call);
+    save_thread(
+        &files,
+        &id(WORKER_ID),
+        &Thread {
+            compact: true,
+            context: Some(900),
+            ..thread(&files, &id(WORKER_ID)).unwrap().unwrap()
+        },
+    )
+    .unwrap();
+    codex.foreground(&call).unwrap();
+    rollout_of_terminal(&call, ROLLOUT);
+
+    codex.foreground_ended(call.session.id());
+
+    let kept = thread(&files, &id(WORKER_ID)).unwrap().unwrap();
+    assert_eq!(kept.id, THREAD);
+    assert_eq!(
+        kept.spent,
+        Spent {
+            input_tokens: 36989,
+            cached_input_tokens: 28416,
+            cache_write_input_tokens: 0,
+            output_tokens: 952,
+        }
+    );
+    assert_eq!(kept.context, Some(1523));
+    assert!(!kept.compact, "the session compacted when it resumed");
+    let next = stand_in(
+        &w,
+        concat!(
+            r#"{"type":"thread.started","thread_id":""#,
+            "01a0f7fd-4ed5-7773-80ea-165edc292d8d",
+            "\"}\n",
+            r#"{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}"#,
+            "\n",
+            r#"{"type":"turn.completed","usage":{"input_tokens":38989,"cached_input_tokens":28416,"output_tokens":1052}}"#,
+        ),
+    );
+    let reply = next.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        reply.usage,
+        Usage {
+            input: 2000,
+            output: 100,
+            ..Usage::default()
+        }
+    );
+}
+
+#[test]
+fn a_terminal_session_that_left_no_rollout_leaves_the_record_as_it_was() {
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let call = resumable(&w, &codex);
+    let files = Files::of(&call);
+    let before = thread(&files, &id(WORKER_ID)).unwrap();
+    codex.foreground(&call).unwrap();
+
+    codex.foreground_ended(call.session.id());
+    // A session that was never started in a terminal has nothing to end.
+    codex.foreground_ended(&id("never-attached"));
+
+    assert_eq!(thread(&files, &id(WORKER_ID)).unwrap(), before);
 }

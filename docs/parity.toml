@@ -56,7 +56,7 @@ what = "The end of a terminal session drops what the harness kept for it"
 methods = ["foreground_ended"]
 claude-code = { cannot = "its terminal session keeps nothing the runner holds", doc = "docs/design-log.md", says = "a no-op by default" }
 pi = "yes"
-codex = { cannot = "its terminal session keeps nothing the runner holds", doc = "docs/design-log.md", says = "a no-op by default" }
+codex = "yes"
 goose = { gap = 796 }
 
 [harness.compaction]
