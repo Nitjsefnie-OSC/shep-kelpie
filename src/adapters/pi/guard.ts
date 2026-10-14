@@ -7,7 +7,14 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-type Checks = { kelpie: string; confine: string[]; guard: string[]; after: string[] | null };
+// WEB names the tools of the web package: empty unless the call loads it.
+type Checks = {
+	kelpie: string;
+	confine: string[];
+	guard: string[];
+	after: string[] | null;
+	web: string[];
+};
 const CHECKS: Checks = __CHECKS__;
 
 // The path pi's write and edit resolve: it folds odd spaces, strips a
@@ -73,7 +80,7 @@ export default function (pi: any) {
 							tool_name: event.toolName === "write" ? "Write" : "Edit",
 							tool_input: { file_path: file, content: written(input) },
 						});
-		} else if (!["read", "grep", "find", "ls"].includes(event.toolName)) {
+		} else if (!["read", "grep", "find", "ls", ...CHECKS.web].includes(event.toolName)) {
 			why = `kelpie runs no ${event.toolName} tool for a worker`;
 		}
 		if (why !== undefined) return { block: true, reason: why };

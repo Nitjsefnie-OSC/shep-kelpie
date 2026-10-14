@@ -49,7 +49,7 @@ fn a_pi_reviewer_asked_for_tests_gets_write_and_the_guard() {
         Some(w.path("settings.guard.ts").display().to_string())
     );
     let fence = call.reach.fence.as_deref().unwrap();
-    let text = guard_extension(fence);
+    let text = guard_extension(fence, false);
     let line = text
         .lines()
         .find(|l| l.starts_with("const CHECKS"))
