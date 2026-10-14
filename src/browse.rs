@@ -70,8 +70,8 @@ pub fn allowed_url(url: &str, domains: &[String]) -> bool {
         .any(|domain| names(&domain.to_ascii_lowercase(), host))
 }
 
-// Whether `domain`, as the project lists it, names `host` of a URL.
-fn names(domain: &str, host: &str) -> bool {
+/// Whether `domain`, as the project lists it in lower case, names `host`
+pub(crate) fn names(domain: &str, host: &str) -> bool {
     match domain.strip_prefix("*.") {
         Some(parent) => host.ends_with(&format!(".{parent}")),
         None => host == domain,

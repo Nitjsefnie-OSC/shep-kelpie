@@ -13,7 +13,7 @@ fn world() -> (tempfile::TempDir, Server) {
     crate::test::write_script(
         &script,
         &format!(
-            "#!/bin/sh\necho $$ >> {root}/pids\necho 'Debugger listening on ws://127.0.0.1:9222'\n\
+            "#!/bin/sh\necho $$ >> {root}/pids\necho \"$@\" >> {root}/args\necho 'Debugger listening on ws://127.0.0.1:9222'\n\
              while read -r line; do\n  echo \"$line\" >> {root}/got\n  echo \"$line\"\ndone\n",
             root = root.display()
         ),
@@ -68,6 +68,48 @@ fn the_socket_is_named_by_32_hex_characters_in_the_folder() {
     assert_eq!(extension, "sock");
     assert_eq!(stem.len(), 32, "{name}");
     assert!(stem.chars().all(|c| c.is_ascii_hexdigit()), "{name}");
+}
+
+#[test]
+fn the_browsers_launch_names_the_proxy_and_sends_loopback_through_it() {
+    let (dir, server) = world();
+    let bridge = open(&dir, server);
+    let mut stream = BufReader::new(UnixStream::connect(bridge.socket()).unwrap());
+    ask(&mut stream, r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#);
+    let root = dir.path().canonicalize().unwrap();
+    let config = std::fs::read_to_string(root.join("config.json")).unwrap();
+    let config: Value = serde_json::from_str(&config).unwrap();
+    let launched = config["browser"]["launchOptions"]["args"]
+        .as_array()
+        .unwrap();
+    let launched: Vec<&str> = launched.iter().map(|a| a.as_str().unwrap()).collect();
+    assert!(
+        launched.contains(&"--proxy-bypass-list=<-loopback>"),
+        "{launched:?}"
+    );
+    assert!(
+        launched[0].starts_with("--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE app.example.com"),
+        "{launched:?}"
+    );
+    assert!(launched[0].contains("EXCLUDE 127.0.0.1"), "{launched:?}");
+    // The flag names a proxy that is listening, and that holds `localhost` out.
+    let named = launched
+        .iter()
+        .find_map(|a| a.strip_prefix("--proxy-server=http://127.0.0.1:"))
+        .unwrap();
+    let mut proxy =
+        std::net::TcpStream::connect(("127.0.0.1", named.parse::<u16>().unwrap())).unwrap();
+    proxy
+        .write_all(b"CONNECT localhost:3000 HTTP/1.1\r\n\r\n")
+        .unwrap();
+    let mut refusal = String::new();
+    BufReader::new(proxy).read_line(&mut refusal).unwrap();
+    assert!(refusal.contains("403"), "{refusal}");
+    let args = std::fs::read_to_string(root.join("args")).unwrap();
+    assert!(
+        args.contains(&format!("--config {}", root.join("config.json").display())),
+        "{args}"
+    );
 }
 
 #[test]

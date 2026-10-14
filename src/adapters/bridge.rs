@@ -6,6 +6,11 @@
 //! through the [`Filter`] on its way in and out. Dropping the [`Bridge`] stops
 //! the server and removes the socket. What a server prints on stderr, and why
 //! one could not start, go to `server.log` in its folder.
+//!
+//! The browser the server launches is held to the project's hosts twice: by
+//! Chromium's resolver rules, and by a [`Proxy`] that every request goes
+//! through, which also holds it to ports. The bridge writes the config that
+//! says so, `config.json` in the server's folder.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -19,9 +24,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use serde_json::json;
+
 use super::forwarder::unguessable;
 use super::process::stop_child;
 use crate::bridge::{Filter, Passage};
+use proxy::{Origins, Proxy};
+
+mod proxy;
 
 /// The file in a server's folder that its stderr and failures to start are appended to
 const LOG: &str = "server.log";
@@ -34,11 +44,11 @@ const GRACE: Duration = Duration::from_secs(5);
 pub(crate) struct Server {
     /// The program
     pub(crate) command: PathBuf,
-    /// Its arguments
+    /// Its arguments, without `--config`, which the bridge adds
     pub(crate) args: Vec<String>,
     /// Variables set for it, over kelpie's own
     pub(crate) env: BTreeMap<String, String>,
-    /// The folder it starts in
+    /// The folder it starts in, where the bridge writes its config
     pub(crate) cwd: PathBuf,
 }
 
@@ -50,6 +60,8 @@ pub(crate) struct Bridge {
     // The connection being served, which a drop closes to end it
     serving: Arc<Mutex<Option<UnixStream>>>,
     thread: Option<thread::JoinHandle<()>>,
+    // Ended after the server it holds, by being dropped last
+    _proxy: Proxy,
 }
 
 impl Bridge {
@@ -57,10 +69,17 @@ impl Bridge {
     ///
     /// # Errors
     ///
-    /// The reason, when the socket's path is too long to bind or it cannot be opened.
-    pub(crate) fn open(folder: &Path, server: Server, filter: Filter) -> Result<Self, String> {
+    /// The reason, when the socket's path is too long to bind or it cannot be
+    /// opened, or the proxy or the browser's config cannot be.
+    pub(crate) fn open(folder: &Path, mut server: Server, filter: Filter) -> Result<Self, String> {
         let socket = folder.join(format!("{}.sock", unguessable()?));
         crate::home::socket_fits(&socket)?;
+        let proxy = Proxy::open(Origins::new(&filter.domains))?;
+        let config = server.cwd.join("config.json");
+        std::fs::write(&config, launch(&filter.domains, &proxy).to_string())
+            .map_err(|e| format!("cannot write {}: {e}", config.display()))?;
+        server.args.push("--config".to_owned());
+        server.args.push(config.display().to_string());
         let listener = UnixListener::bind(&socket)
             .map_err(|e| format!("cannot open {}: {e}", socket.display()))?;
         let stopping = Arc::new(AtomicBool::new(false));
@@ -81,6 +100,7 @@ impl Bridge {
             stopping,
             serving,
             thread: Some(thread),
+            _proxy: proxy,
         })
     }
 
@@ -105,6 +125,21 @@ impl Drop for Bridge {
             let _ = thread.join();
         }
     }
+}
+
+// Playwright's config for the browser: Chromium launched with every host but the
+// project's mapped to nothing (which also keeps an IP address and a WebSocket from
+// reaching anywhere else), and every request sent through the proxy. The proxy's
+// own address is let through the rules, as an IP address is mapped away too.
+fn launch(domains: &[String], proxy: &Proxy) -> serde_json::Value {
+    let mut rules = "--host-resolver-rules=MAP * ~NOTFOUND".to_owned();
+    for host in domains.iter().map(String::as_str).chain([proxy::HOST]) {
+        rules.push_str(", EXCLUDE ");
+        rules.push_str(host);
+    }
+    let mut args = vec![rules];
+    args.extend(proxy.flags());
+    json!({ "browser": { "browserName": "chromium", "launchOptions": { "args": args } } })
 }
 
 // Serves one connection with a fresh server, filtering both ways, until either
