@@ -785,8 +785,14 @@ mod tests {
 
         let confine = commands_of(&s["hooks"]["PreToolUse"], FILE_TOOLS);
         assert!(!confine[0].contains("--hooks="), "{}", confine[0]);
-        assert!(s["hooks"].get("PostToolUse").is_none());
-        assert!(s["hooks"].get("PostToolUseFailure").is_none());
+        // The only post entry is the pause hook, which has no matcher.
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            assert!(
+                commands_of(&s["hooks"][event], "Bash").is_empty(),
+                "{event}"
+            );
+            assert_eq!(s["hooks"][event].as_array().unwrap().len(), 1, "{event}");
+        }
     }
 
     #[test]
