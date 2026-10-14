@@ -472,8 +472,13 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
     };
     assert!(vars(&call).contains(&"GOOSE_MODE=auto".to_owned()));
     let argv = strings(&call);
-    // A researcher is offered no builtin, only the servers.
-    assert!(!argv.contains(&"--with-builtin".to_owned()), "{argv:?}");
+    // A researcher is offered no builtin but `skills`, and the servers.
+    assert_eq!(
+        argv.iter().filter(|a| *a == "--with-builtin").count(),
+        1,
+        "{argv:?}"
+    );
+    assert!(argv.contains(&"skills".to_owned()), "{argv:?}");
     assert_eq!(server_flags(&argv).len(), 3);
     let arguments = hook_arguments(&w, &mut call);
     assert_eq!(goose_server_flags(&arguments).0.len(), 3);

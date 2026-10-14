@@ -7,7 +7,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - `goose run --no-profile --output-format stream-json --text=<prompt>`
   - `--text=<prompt>` is one argument, so a prompt that starts with `-` is not read as a flag.
   - `--system=<text>` carries the text of the call's instructions file. goose takes text, not a path. It is sent on every call, a resumed one too, since goose builds its system prompt afresh each time.
-  - A researcher gets no `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
+  - A researcher gets no `--with-extension` or `--recipe`, and no `--with-builtin` but `skills` (see Skills): the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence), and so does a new session of a reviewer, advisor or retro in a fence (see A reviewer, an advisor and a retro).
 - `call.effort` is not passed. goose's openai provider has no reasoning-effort flag or variable.
 - Session identity: goose picks its own session ids and `stream-json` never prints one.
   - A name set with `--name` is kept as given (`user_provided_name` in `crates/goose-cli/src/cli.rs`), and `--resume --name` finds the session whose name or id matches.
@@ -29,10 +29,10 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 | `TMPDIR` | the call's scratch folder | the one temporary folder the sandbox lets it write |
 | `GOOSE_MODE` | `chat` | see below |
 
-- `GOOSE_MODE=chat` for a call that loads no extension: it has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker, and any call that loads an MCP server, runs in `auto` behind the hook (see A worker inside the fence and MCP servers).
+- `GOOSE_MODE=chat` for a call that loads no extension but `skills`: it has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker, and any call that loads an MCP server, runs in `auto` behind the hook (see A worker inside the fence and MCP servers).
 - `GOOSE_SLASH_COMMANDS_ENABLED` is left unset. It is not read on 1.54.0's default reply loop, and #792 and #793 use goose's commands.
   - goose reads a first message that starts with `/` as one of its own commands (`execute_command` in `crates/goose/src/agents/execute_commands.rs`).
-  - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. So the adapter adds no prefix. Not checked: a prompt that names a goose command or a skill goose has. None is loaded here.
+  - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. A prompt that names a skill goose has is rewritten to `/<name> rest` by the adapter (see Skills). Not checked: a prompt that names a goose command.
 
 ## Project files goose loads whatever `--no-profile` says
 
@@ -130,6 +130,31 @@ Written for #794, from goose's v1.54.0 source. No model turn was run: #798 runs 
 - Two servers whose keys are alike (`Docs` and `docs`, or a URL's key and a stdio name) would end the run. Only the first loads, in the order of the flags with the code graph last, and a repo server never replaces it, whether it shares its name or only its key.
 - The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`, or `researcher.allowed_domains`.
 - Not run: the flags against a real server, the `tool_name` in the hook's payload (read as `<key>__<tool>` from goose's source), and whether goose warns, not fails, on a skipped env key.
+
+## Skills
+
+Written for #793, from goose's v1.54.0 source. No model turn was run: #798 runs a real one. The `goose` binary was not run for this slice either.
+
+- The `skills` platform extension (`crates/goose/src/skills/client.rs`) puts every discovered skill's name and description in the system prompt and offers a `load_skill` tool. It is on by default, so `--no-profile` drops it and `--with-builtin skills` brings it back. Every call is given it (`Work`, `Review`, `Advise`, `Research`, `Retro`), beside `developer` where there is one, and a resumed call too: goose keeps a builtin once.
+- Discovery order (`all_skill_dirs_with_config` in `crates/goose/src/skills/mod.rs`): the worktree's `.agents/skills`, `.goose/skills` and `.claude/skills`, project plugins, then the real home's `~/.agents/skills`, `<GOOSE_PATH_ROOT>/config/skills`, `~/.claude/skills`, `~/.config/agents/skills`, and the skills of user plugins. The first skill of a name wins.
+  - `GOOSE_PATH_ROOT` moves the config folder and the plugin folder, and not the home. So left alone a call lists the maintainer's own skills from the real home.
+  - A skill's name is the `name` line of its `SKILL.md`, and a skill without one is skipped. Folders inside one root are read in directory order, so two skills of one name in one root are not stable.
+- Two skills are built in, `web-search` and `goose-doc-guide`, and listed unless a discovered skill already has the name. `web-search` tells the model to run `uvx ddgs` and `curl`.
+- A first message of `/<skill-name> <rest>` is resolved by goose (`handle_skill_command` in `crates/goose/src/agents/execute_commands.rs`). The model receives the skill's text and then `ARGUMENTS: <rest>`. Disk is read for this, so it works without the extension.
+  - When the skill's text holds `$ARGUMENTS`, `$ARGUMENTS[n]` or `$` and a number, goose splits `<rest>` like a shell, and an unbalanced quote ends the turn with an error text and no model call.
+- What kelpie does (`src/adapters/goose/skills.rs`):
+  - `prepare` empties `<GOOSE_PATH_ROOT>/config/skills` and links one folder per skill of the call's plugins into it, named by the `name` line. The step's skill comes first, then the plugins in order, and a folder name goes in sorted order within a plugin. The first of a name is linked and the rest are not. A skill with no `name`, or a `/` in it (or `.`, `..` or an empty one), is not linked. goose follows the links to the plugin folders, which the sandbox reads (`policy.read` holds `call.plugin_dirs`).
+  - A stub `SKILL.md` for `web-search` and `goose-doc-guide`, each saying it is not available in this run, is written into the same folder unless a plugin's skill has the name. goose adds a builtin only when no discovered skill has its name. The stubs stop a worker spending turns on `uvx` and on docs it cannot fetch. Deleting `STUBS` brings the builtins back.
+  - `~/.agents/skills`, `~/.claude/skills` and `~/.config/agents/skills` are unreadable to the call, and `<root>/config/skills` is unwritable, so the call cannot plant a skill for its next turn. The worktree's own `.agents/skills`, `.goose/skills` and `.claude/skills` still load, as on Claude Code: a worker cannot add one, since all three folders are write-fenced (`fence::HARNESSES`).
+  - A step prompt `/<plugin>:<skill> <rest>` becomes `/<name> <rest>` for the skill's `name` line, so goose injects the skill. When that `SKILL.md` holds `$ARGUMENTS` or a `$` followed by a digit, the prompt stays as written and the model loads the skill with `load_skill`. A prompt naming a skill no plugin holds is left as it is.
+  - The fence hook lets `load_skill` through for every kind (`Work`, the read-only guard and a reviewer's tests guard). `load_skill` reads files inside goose, so the sandbox's read rules bound it.
+- A call that runs in `GOOSE_MODE=chat` (no shell and no MCP server: a researcher, and a call with no fence) lists the skills, but `chat` rejects a tool call, so it cannot call `load_skill`. Its step prompt still runs as the slash command, which needs no extension. Not run: whether goose lists skills at all in `chat`.
+- Not run: the tool's name in the hook's payload (read as bare `load_skill`, as `developer`'s tools are bare, and a prefixed name would be refused), that goose follows a link in `config/skills`, that it lists a stub in place of its builtin, and the `/<name>` command on a real turn.
+- What every prompt now carries, counted from the `SKILL.md` files (the `name:` and `description:` lines, a newline each, in bytes):
+  - The 15 skills of the vendored mattpocock plugin (`skills/skills/*/*/SKILL.md`): 2721 bytes.
+  - The two stubs: 232 bytes (`web-search` 112, `goose-doc-guide` 120).
+  - goose's two builtin skills: not counted. Their `SKILL.md` files are inside the goose binary, and no copy of the source was at hand. #798 can count them from a recorded system prompt. The stubs replace them, so they add to nothing.
+  - Each plugin's skills the repo and its marketplaces add come on top, and the repo's own `kelpie-repo` plugin is one.
 
 ## The idle watch and the watch
 

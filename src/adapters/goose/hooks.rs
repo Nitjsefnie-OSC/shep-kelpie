@@ -34,6 +34,11 @@ pub(crate) const PLUGIN: &str = "kelpie-fence";
 /// so a tool added here is one the worker may call.
 pub(crate) const TOOLS: [&str; 4] = ["shell", "write", "edit", "tree"];
 
+/// The tool of goose's `skills` extension, which every kind of call may call
+///
+/// It reads a skill's files inside goose, so the sandbox's read rules bound it.
+pub(crate) const SKILL_TOOL: &str = "load_skill";
+
 /// The plugin's folder under the root
 pub(super) fn folder(files: &Files) -> PathBuf {
     files.plugins().join(PLUGIN)

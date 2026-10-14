@@ -4,15 +4,17 @@
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
 //! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no extension: the model is offered no tool, so it reads
-//! what kelpie wrote it and answers. A worker is offered goose's `developer`
+//! researcher is loaded no extension but `skills`: the model is offered no
+//! tool, so it reads what kelpie wrote it and answers. A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
 //! no read tool, so they read the repo through a `shell` that runs only what
 //! reads, and they write no file. A call also loads the MCP servers of the repo,
 //! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
-//! hook lets those servers' tools through. The sandbox
+//! hook lets those servers' tools through. Every call lists the skills of its
+//! plugins, and a step's prompt runs as goose's own skill command ([`skills`]).
+//! The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -29,7 +31,7 @@ use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
 use super::pi::adopt::{Carried, kept_server};
-use super::pi::{deny_the_server, step_skill};
+use super::pi::deny_the_server;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
@@ -47,6 +49,7 @@ mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
 mod output;
+mod skills;
 
 #[cfg(test)]
 mod activity_tests;
@@ -68,6 +71,9 @@ mod reading_tests;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod skills_tests;
 
 #[cfg(test)]
 mod tests;
@@ -150,6 +156,7 @@ impl Agents for GooseCli {
         hooks::only_ours(&files)?;
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
+        skills::link(call, &files)?;
         // A new session records the servers it is created with, since a resumed one holds those
         // and not what the call loads by then.
         if let Session::New(id) = &call.session {
@@ -404,18 +411,11 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     Ok(())
 }
 
-// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. A worker
-// is told to follow that skill's file, which its shell reads.
+// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. goose
+// runs a skill it is given as `/<name> <rest>`, so a prompt that names one of
+// the call's skills is that command ([`skills::prompt`]).
 fn prompt(call: &AgentCall) -> String {
-    match step_skill(call).filter(|_| works(call)) {
-        Some(step) => format!(
-            "Follow the skill `{}` in {}: read it first, then do what it says for this.\n\n{}",
-            step.name,
-            step.dir.join("SKILL.md").display(),
-            step.rest
-        ),
-        None => call.prompt.clone(),
-    }
+    skills::prompt(call).unwrap_or_else(|| call.prompt.clone())
 }
 
 // goose takes its system prompt as text, not as a path.
@@ -549,7 +549,7 @@ fn env_args(
 }
 
 // The prompt is one `--text=` argument, so one that starts with `-` is not read
-// as a flag. A researcher is given no extension but its MCP servers. A worker is
+// as a flag. A worker is
 // given the `developer` builtin on a resumed call too: goose de-duplicates a
 // builtin, where a repeated `--with-extension` name ends the run. A reviewer,
 // advisor or retro is given it on a new session ([`offers_developer`]), and only
@@ -566,6 +566,8 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
         argv.extend(["--with-builtin".into(), "developer".into()]);
     }
     argv.extend(mcp::flags(call));
+    // Every call lists its plugins' skills, a resumed one too: goose keeps a builtin once.
+    argv.extend(["--with-builtin".into(), "skills".into()]);
     // goose builds its system prompt afresh on every call, a resumed one too.
     if let Some(text) = system_text(call)? {
         argv.push(format!("--system={text}").into());
@@ -595,6 +597,7 @@ fn policy(
         policy.write.clear();
     }
     policy.no_keychain = call.reach.block_keychain;
+    skills::fence(&mut policy, files);
     // The call logs in nowhere and goose's config is relocated, so no harness's
     // login is its own, the maintainer's goose included.
     let logins = fence::HARNESSES.iter().flat_map(|own| own.credentials);
