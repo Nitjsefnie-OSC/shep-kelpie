@@ -1,4 +1,4 @@
-//! The plugin that fences a goose worker
+//! The plugin that fences a goose worker, reviewer, advisor and retro
 //!
 //! goose has no sandbox rules of its own for a tool call, but it runs a
 //! `PreToolUse` command hook before every one and refuses the call when the
@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::files::Files;
 use crate::adapters::claude::settings::shell_quote;
-use crate::guard::{FOLDER_FLAG, GOOSE_FLAG};
+use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, READ_ONLY_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentError, Fence, Guard};
 
@@ -65,7 +65,9 @@ pub(super) fn only_ours(files: &Files) -> Result<(), AgentError> {
 }
 
 /// Writes the plugin and the config that turns it on, for a call held by `fence`
-pub(super) fn write(files: &Files, fence: &Fence) -> Result<(), AgentError> {
+///
+/// With `read_only`, the hook is the read-only guard's: the call writes no file.
+pub(super) fn write(files: &Files, fence: &Fence, read_only: bool) -> Result<(), AgentError> {
     let plugin = folder(files);
     // A link there would take the files below somewhere else.
     match std::fs::symlink_metadata(&plugin) {
@@ -83,10 +85,13 @@ pub(super) fn write(files: &Files, fence: &Fence) -> Result<(), AgentError> {
     let manifest = json!({
         "name": PLUGIN,
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Kelpie's fence: judges every tool call of a worker before it runs",
+        "description": "Kelpie's fence: judges every tool call of a worker, reviewer, advisor or retro before it runs",
     });
     put(&plugin.join("plugin.json"), &manifest)?;
-    put(&hooks.join("hooks.json"), &hooks_json(&fence.guard))?;
+    put(
+        &hooks.join("hooks.json"),
+        &hooks_json(&fence.guard, read_only),
+    )?;
     put(&files.config_file(), &config(files, &plugin)?)
 }
 
@@ -139,13 +144,13 @@ pub(super) fn no_settings_in_root(files: &Files) -> Result<(), AgentError> {
 }
 
 // One `PreToolUse` hook with no matcher, so it runs for every tool.
-fn hooks_json(guard: &Guard) -> serde_json::Value {
+fn hooks_json(guard: &Guard, read_only: bool) -> serde_json::Value {
     json!({
         "hooks": {
             "PreToolUse": [{
                 "hooks": [{
                     "type": "command",
-                    "command": command(guard),
+                    "command": command(guard, read_only),
                     "on_failure": "block",
                     // The guard's own budget ends first, and refuses.
                     "timeout": GUARD_BUDGET.as_secs() + 5,
@@ -157,10 +162,15 @@ fn hooks_json(guard: &Guard) -> serde_json::Value {
 
 /// The command goose runs for each tool call: `kelpie guard` with the
 /// worker's folders, the project's hooks and the build folder it may write
-fn command(guard: &Guard) -> String {
+///
+/// With `read_only` it leaves out the folders, which only the worker's command
+/// guard reads, and asks for the read-only guard after the build folder:
+/// `--goose=<build> --read-only`.
+fn command(guard: &Guard, read_only: bool) -> String {
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
-    let folders =
-        (guard.folders.iter()).map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display())));
+    let folders = (guard.folders.iter())
+        .filter(|_| !read_only)
+        .map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display())));
     [
         quoted(&guard.kelpie),
         shell_quote("guard"),
@@ -174,6 +184,7 @@ fn command(guard: &Guard) -> String {
         "{GOOSE_FLAG}{}",
         guard.build.display()
     ))])
+    .chain(read_only.then(|| shell_quote(READ_ONLY_FLAG)))
     .collect::<Vec<_>>()
     .join(" ")
 }

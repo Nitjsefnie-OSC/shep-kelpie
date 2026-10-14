@@ -20,7 +20,7 @@ use crate::worker_folder;
 /// The folder in the build folder where a reviewer writes its tests
 pub(in crate::runner) const TESTS_FOLDER: &str = "review-tests";
 
-/// The folder in the build folder a Codex reviewer with no tests to write is fenced to
+/// The folder in the build folder a Codex or goose reviewer with no tests to write is fenced to
 ///
 /// It stays empty: the reviewer reads the worktree and writes nothing.
 pub(in crate::runner) const READING_FOLDER: &str = "review-read";
@@ -60,9 +60,9 @@ impl Runner {
     /// Readies the folders for a session round, and gives a reviewer asked for
     /// tests the reach that lets it write its own folder alone
     ///
-    /// A Codex reviewer not asked for tests gets a fence too, with no write
-    /// folder, since its only way to read the worktree is a shell that the
-    /// fence's guard judges. A reviewer on any other harness has none.
+    /// A Codex or goose reviewer not asked for tests gets a fence too, with no
+    /// write folder, since its only way to read the worktree is a shell that
+    /// the fence's guard judges. A reviewer on any other harness has none.
     ///
     /// A first look of a reviewer asked for tests starts its own folder empty. A
     /// second look finds the first's files where they are. The checked copies
@@ -101,7 +101,7 @@ impl Runner {
         )))
     }
 
-    // The reach of a Codex reviewer that only reads, with an empty folder of its own.
+    // The reach of a Codex or goose reviewer that only reads, with an empty folder of its own.
     fn begin_reading(
         &self,
         model: &RoleModel,
@@ -109,7 +109,7 @@ impl Runner {
         build: &Path,
     ) -> Result<Option<Reach>, String> {
         // parity: harness.reviewer-reads-repo
-        if model.harness.harness() != Harness::Codex {
+        if !matches!(model.harness.harness(), Harness::Codex | Harness::Goose) {
             return Ok(None);
         }
         let folder = build.join(READING_FOLDER);
