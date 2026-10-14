@@ -1,9 +1,10 @@
 {
   "name": "kelpie-tools",
   "private": true,
-  "description": "Written by `shep kelpie tools install`: the sandbox runtime every agent runs in, and the packages pi loads as extensions",
+  "description": "Written by `shep kelpie tools install`: the sandbox runtime every agent runs in, the packages pi loads as extensions, and the MCP server a goose researcher has its web from",
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.77",
+    "duckduckgo-websearch": "2.0.3",
     "pi-web-access": "0.40.0"
   }
 }
