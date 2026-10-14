@@ -21,6 +21,9 @@
 //! The project's `command` hooks judge each command it lets through, whole;
 //! `--after` makes it the PostToolUse hook for `after_command` instead.
 //!
+//! A goose worker's guard, [`judge_goose`], reads goose's own payload: its shell
+//! goes through the command guard, its file tools through `kelpie confine`.
+//!
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
 //! only the commands it lists. So does a Codex reviewer's, advisor's and
 //! retro's, [`judge_reading`], which lists only commands that read.
@@ -28,6 +31,7 @@
 mod after;
 mod gh;
 mod git;
+mod goose;
 mod issues;
 mod judging;
 mod pause;
@@ -37,6 +41,7 @@ mod shell;
 mod wrap;
 
 pub use after::{AFTER_FLAG, after_flag, judge_after};
+pub use goose::{GOOSE_FLAG, goose_flag, judge_goose};
 pub use issues::{
     AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
     judge_issues, judge_issues_with, record_issues,
@@ -464,6 +469,9 @@ const WRITE: &str = "Take it out, then try again.";
 
 const REWRITE: &str = "Those commits have not left this machine: take it out and rewrite \
                        them, since a new commit on top would still send the old one.";
+
+#[cfg(test)]
+mod goose_tests;
 
 #[cfg(test)]
 mod machine_tests;

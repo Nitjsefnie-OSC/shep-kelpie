@@ -18,13 +18,14 @@ use crate::tools::Tools as KelpieTools;
 pub(super) const FRESH: &str = include_str!("../../../fixtures/goose-run-fresh.jsonl");
 const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
 const MAX_TURNS: &str = include_str!("../../../fixtures/goose-run-max-turns.jsonl");
+const REFUSED: &str = include_str!("../../../fixtures/goose-run-refused.jsonl");
 // The one fixture that is goose's own output: goose 1.54.0 with its server at a
 // port nothing listens on, the temporary folder renamed.
 pub(super) const UNREACHABLE: &str = include_str!("../../../fixtures/goose-run-unreachable.jsonl");
 
 pub(super) const FRESH_ID: &str = "0b6f3c1e-7d2a-4f4e-9a51-3c8d2e6f1a07";
-const OTHER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
-const URL: &str = "http://192.0.2.9:11434/v1";
+pub(super) const OTHER_ID: &str = "5a2e9d40-1c7b-4b38-8e6f-2d4a9c1b7e53";
+pub(super) const URL: &str = "http://192.0.2.9:11434/v1";
 
 pub(super) fn output(code: i32, stdout: &str, stderr: &str) -> Output {
     Output {
@@ -38,7 +39,7 @@ pub(super) fn id(id: &str) -> SessionId {
     SessionId(id.into())
 }
 
-fn strings(call: &AgentCall) -> Vec<String> {
+pub(super) fn strings(call: &AgentCall) -> Vec<String> {
     let argv = argv(call).unwrap();
     argv.into_iter().map(|a| a.into_string().unwrap()).collect()
 }
@@ -65,7 +66,7 @@ pub(super) fn script(world: &World, stdout: &str, stderr: &str, code: u8) -> Pat
     program
 }
 
-fn stand_in(world: &World, stdout: &str) -> GooseCli {
+pub(super) fn stand_in(world: &World, stdout: &str) -> GooseCli {
     goose_with(world, script(world, stdout, "", 0))
 }
 
@@ -279,40 +280,15 @@ fn goose_reads_no_harnesss_login_its_own_included() {
 }
 
 #[test]
-fn a_role_other_than_the_researcher_fails_before_the_call_naming_the_slice() {
+fn an_issue_writer_and_a_pm_never_run_on_goose() {
     let w = World::new();
     let goose = stand_in(&w, FRESH);
-    let mut retro = w.call(URL, Role::Worker, Session::Resume(id(FRESH_ID)));
-    retro.tools = Tools::Retro;
-    let refused = [
-        (
-            w.call(URL, Role::Worker, Session::New(id(FRESH_ID))),
-            "#788",
-        ),
-        (
-            w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID))),
-            "#789",
-        ),
-        (
-            w.call(URL, Role::Advisor, Session::New(id(FRESH_ID))),
-            "#789",
-        ),
-        (retro, "#789"),
-        (
-            w.call(URL, Role::IssueWriter, Session::New(id(FRESH_ID))),
-            "Claude Code alone",
-        ),
-        (
-            w.call(URL, Role::Pm, Session::New(id(FRESH_ID))),
-            "Claude Code alone",
-        ),
-    ];
-    for (call, said) in refused {
+    for role in [Role::IssueWriter, Role::Pm] {
+        let call = w.call(URL, role, Session::New(id(FRESH_ID)));
         let err = goose.prepare(&call).unwrap_err();
         assert!(
-            matches!(&err, AgentError::Setup(why) if why.contains(said)),
-            "{:?}: {err:?}",
-            call.role
+            matches!(&err, AgentError::Setup(why) if why.contains("Claude Code alone")),
+            "{role:?}: {err:?}"
         );
     }
     assert!(!w.path("settings.goose").exists(), "nothing was made");
@@ -551,6 +527,13 @@ fn a_new_session_counts_from_nothing_even_where_an_earlier_one_left_totals() {
 }
 
 #[test]
+fn a_turn_whose_tool_calls_the_fence_refused_answers_with_the_text_after_them() {
+    let reply = read_new(0, REFUSED, "").unwrap();
+    assert_eq!(reply.text, "Both calls were refused, so I changed nothing.");
+    assert_eq!(reply.usage.output, 51);
+}
+
+#[test]
 fn a_turn_that_hit_goose_s_turn_limit_fails_saying_so() {
     let err = read_new(0, MAX_TURNS, "").unwrap_err();
     let AgentError::Failed(Harness::Goose, why) = &err else {
@@ -670,7 +653,7 @@ impl World {
         }
     }
 
-    fn fenced(&self, url: &str, kelpie: &Path, session: Session) -> AgentCall {
+    pub(super) fn fenced(&self, url: &str, kelpie: &Path, session: Session) -> AgentCall {
         let (wt, build, git) = (self.path("wt"), self.path("build"), self.path("wt/.git"));
         let profile = WorkerProfile {
             worktree: &wt,
@@ -700,7 +683,8 @@ impl World {
 
 const NEEDS: &str = "needs KELPIE_TOOLS=<dir> from `shep kelpie tools install`, \
                      KELPIE_GOOSE_URL=<server>/v1 running qwen3.8:27b, \
-                     and KELPIE_GOOSE_RECORD=<dir> for what it prints. Run it under \
+                     KELPIE_GOOSE_RECORD=<dir> for what it prints, and KELPIE_BIN=<path> \
+                     (a fenced worker's recording only). Run it under \
                      `kelpie lease run gpu --model <model>`";
 
 fn env(name: &str) -> String {
@@ -760,6 +744,37 @@ fn record_a_turn_a_resumed_turn_and_an_unreachable_server() {
         "{:?}",
         read.reply
     );
+}
+
+// A fenced worker asked to write into `.claude/` and to merge a pull request,
+// recording what goose prints when the hook refuses both. It needs a build of
+// kelpie to run as the hook: `KELPIE_BIN` names it.
+#[test]
+#[ignore = "runs a fenced goose worker on a local model"]
+fn record_a_worker_whose_write_and_shell_the_fence_refuses() {
+    let url = env("KELPIE_GOOSE_URL");
+    let record = PathBuf::from(env("KELPIE_GOOSE_RECORD"));
+    let tools = KelpieTools::at(env("KELPIE_TOOLS").into());
+    let goose = ClaudeCli::default()
+        .sandboxed(
+            Arc::new(SandboxRuntime::new(tools)),
+            std::env::var_os("HOME").unwrap().into(),
+        )
+        .goose();
+    let world = World::new();
+
+    let kelpie = PathBuf::from(env("KELPIE_BIN"));
+    let mut call = world.fenced(&url, &kelpie, Session::New(id(FRESH_ID)));
+    call.prompt = "Write {} to .claude/settings.json, then run `gh pr merge 1`. \
+                   If either is refused, say so in one sentence."
+        .into();
+    goose.prepare(&call).unwrap();
+    let out = run_raw(&goose, &call);
+    let text = String::from_utf8_lossy(&out.stdout)
+        .replace(world.root.to_str().unwrap(), "/tmp/kelpie-goose");
+    std::fs::write(record.join("goose-run-refused.jsonl"), text).unwrap();
+    let read = output::read(&out, &call.session, Spent::default());
+    assert!(read.reply.is_ok(), "{:?}", read.reply);
 }
 
 fn run_raw(goose: &GooseCli, call: &AgentCall) -> Output {

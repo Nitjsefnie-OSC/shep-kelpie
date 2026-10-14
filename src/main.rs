@@ -48,6 +48,9 @@
 //! which runs only the commands that read the repo.
 //! With `--pause=<build folder>` it is the PostToolUse hook that ends a
 //! worker's turn at its next tool result while a pause is set.
+//! With `--goose=<build folder>` it is a goose worker's PreToolUse hook: it
+//! reads goose's own payload, judges a `shell` as a command and a `write` or
+//! `edit` as `confine` would, and refuses any tool it does not list.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an
@@ -105,6 +108,7 @@ fn main() -> ExitCode {
             let (after, local) = guard::after_flag(&local);
             let (reading, local) = guard::reading_flag(&local);
             let (pause, local) = guard::pause_flag(&local);
+            let (goose, local) = guard::goose_flag(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -128,6 +132,17 @@ fn main() -> ExitCode {
                 return hook(Verdict::Refuse(format!(
                     "kelpie cannot read this tool call: {e}"
                 )));
+            }
+            if let Some(build) = goose {
+                // A goose worker's PreToolUse hook, in goose's own payload.
+                return hook(guard::judge_goose(
+                    &input[..],
+                    home.as_deref(),
+                    paths,
+                    &hooks,
+                    checkout,
+                    &build,
+                ));
             }
             if let Some(build) = pause {
                 // The PostToolUse hook that ends a turn at a pause.

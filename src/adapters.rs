@@ -16,7 +16,7 @@ pub(crate) mod forwarder;
 pub(crate) mod gh;
 mod git;
 mod github;
-mod goose;
+pub(crate) mod goose;
 mod gpu;
 mod host;
 mod leases;

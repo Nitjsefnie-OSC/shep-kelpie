@@ -38,6 +38,16 @@ impl Files {
         self.root.join("state")
     }
 
+    /// The folder goose reads user plugins from under the root
+    pub(super) fn plugins(&self) -> PathBuf {
+        self.root.join(".agents").join("plugins")
+    }
+
+    /// goose's config file, which names the plugins that are on
+    pub(super) fn config_file(&self) -> PathBuf {
+        self.config().join("config.yaml")
+    }
+
     /// Makes the three folders goose keeps its files in
     pub(super) fn prepare(&self) -> Result<(), AgentError> {
         for folder in [self.config(), self.data(), self.state()] {

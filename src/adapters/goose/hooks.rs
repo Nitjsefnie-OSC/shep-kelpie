@@ -1,0 +1,147 @@
+//! The plugin that fences a goose worker
+//!
+//! goose has no sandbox rules of its own for a tool call, but it runs a
+//! `PreToolUse` command hook before every one and refuses the call when the
+//! hook exits 2. `on_failure: block` makes a hook that cannot run refuse as
+//! well, so the guard failing is never a call let through. Kelpie writes the
+//! plugin that holds the hook into the call's own goose root, where goose
+//! reads user plugins from, beside a `config.yaml` that has it on.
+//!
+//! Three things keep the worker from switching it off. The root's `.agents`
+//! and `config` folders are read only to the sandbox. The worktree's
+//! `.config/goose` is fenced as a harness folder, since a `disabledPlugins`
+//! entry there turns a plugin off by name. And the plugin's name is fixed: a
+//! project plugin of the same name would win over this one, so the call
+//! refuses to start when the plugin folder holds anything but it.
+
+use std::path::{Path, PathBuf};
+
+use serde_json::json;
+
+use super::files::Files;
+use crate::adapters::claude::settings::shell_quote;
+use crate::guard::{FOLDER_FLAG, GOOSE_FLAG};
+use crate::hooks::GUARD_BUDGET;
+use crate::ports::{AgentError, Fence, Guard};
+
+/// The plugin's name, and the one entry its folder may hold
+pub(crate) const PLUGIN: &str = "kelpie-fence";
+
+/// The tools of goose's `developer` extension that a worker may call
+///
+/// `shell`, `write` and `edit` are judged and `tree` is let through. Any
+/// other name is refused, `read_image` included. The guard reads this list,
+/// so a tool added here is one the worker may call.
+pub(crate) const TOOLS: [&str; 4] = ["shell", "write", "edit", "tree"];
+
+/// The plugin's folder under the root
+pub(super) fn folder(files: &Files) -> PathBuf {
+    files.plugins().join(PLUGIN)
+}
+
+/// Fails when the root's plugin folder holds a plugin besides the fence's
+///
+/// goose gives a plugin of the same name the first place among them, and
+/// loads every one it finds, so a plugin kelpie did not write is a hook that
+/// runs unjudged.
+pub(super) fn only_ours(files: &Files) -> Result<(), AgentError> {
+    let folder = files.plugins();
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(setup("read", &folder, &e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| setup("read", &folder, &e))?;
+        if entry.file_name() != PLUGIN {
+            return Err(AgentError::Setup(format!(
+                "goose would load {} as a plugin of the call: the plugin folder may hold only \
+                 `{PLUGIN}`, so remove it",
+                entry.path().display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Writes the plugin and the config that turns it on, for a call held by `fence`
+pub(super) fn write(files: &Files, fence: &Fence) -> Result<(), AgentError> {
+    let plugin = folder(files);
+    // A link there would take the files below somewhere else.
+    match std::fs::symlink_metadata(&plugin) {
+        Ok(found) if !found.is_dir() => {
+            return Err(AgentError::Setup(format!(
+                "{} is not a folder of the plugin's own",
+                plugin.display()
+            )));
+        }
+        Ok(_) => std::fs::remove_dir_all(&plugin).map_err(|e| setup("empty", &plugin, &e))?,
+        Err(_) => {}
+    }
+    let hooks = plugin.join("hooks");
+    std::fs::create_dir_all(&hooks).map_err(|e| setup("make", &hooks, &e))?;
+    let manifest = json!({
+        "name": PLUGIN,
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Kelpie's fence: judges every tool call of a worker before it runs",
+    });
+    put(&plugin.join("plugin.json"), &manifest)?;
+    put(&hooks.join("hooks.json"), &hooks_json(&fence.guard))?;
+    // goose keeps this map by the plugin's path. JSON is YAML, and a file that
+    // already lists the plugin as on is one goose has nothing to write to.
+    let mut plugins = serde_json::Map::new();
+    plugins.insert(
+        plugin.to_string_lossy().into_owned(),
+        json!({ "enabled": true }),
+    );
+    put(&files.config_file(), &json!({ "plugins": plugins }))
+}
+
+// One `PreToolUse` hook with no matcher, so it runs for every tool.
+fn hooks_json(guard: &Guard) -> serde_json::Value {
+    json!({
+        "hooks": {
+            "PreToolUse": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": command(guard),
+                    "on_failure": "block",
+                    // The guard's own budget ends first, and refuses.
+                    "timeout": GUARD_BUDGET.as_secs() + 5,
+                }]
+            }]
+        }
+    })
+}
+
+/// The command goose runs for each tool call: `kelpie guard` with the
+/// worker's folders, the project's hooks and the build folder it may write
+fn command(guard: &Guard) -> String {
+    let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
+    let folders =
+        (guard.folders.iter()).map(|p| shell_quote(&format!("{FOLDER_FLAG}{}", p.display())));
+    [
+        quoted(&guard.kelpie),
+        shell_quote("guard"),
+        quoted(&guard.git_common_dir),
+        quoted(&guard.worktree),
+    ]
+    .into_iter()
+    .chain(folders)
+    .chain(guard.hooks.flag().map(|flag| shell_quote(&flag)))
+    .chain([shell_quote(&format!(
+        "{GOOSE_FLAG}{}",
+        guard.build.display()
+    ))])
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn put(path: &Path, value: &serde_json::Value) -> Result<(), AgentError> {
+    let text = serde_json::to_string_pretty(value).expect("a plugin file is JSON");
+    std::fs::write(path, text).map_err(|e| setup("write", path, &e))
+}
+
+fn setup(verb: &str, path: &Path, e: &std::io::Error) -> AgentError {
+    AgentError::Setup(format!("cannot {verb} {}: {}", path.display(), e.kind()))
+}
