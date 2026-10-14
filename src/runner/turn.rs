@@ -297,6 +297,9 @@ impl Runner {
         if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
+        if due && let Some(why) = self.builds_hold() {
+            return Ok(self.idle(why));
+        }
         if due {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
@@ -394,6 +397,7 @@ impl Runner {
             Ok(call) => {
                 self.token_wait.ends();
                 resumed = !compacting && paused::resumes_pause(item);
+                self.builds_turn_begins();
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
@@ -692,6 +696,7 @@ impl Runner {
         if matches!(result, Err(AgentError::Stopped)) {
             return self.save_time().map(|()| None);
         }
+        self.builds_turn_ended();
         // A turn a pause ended at a tool result is not a finished one.
         if let Some(paused) = self.end_paused(&result) {
             return paused;
@@ -937,34 +942,6 @@ impl Runner {
         let mut report = report;
         self.fill_comment_failed(&mut report);
         Ok(Some(report))
-    }
-
-    // A ruling just raised is posted as a comment on its pull request, if it
-    // has one; only these three reports carry a ruling and need the outcome.
-    pub(super) fn fill_comment_failed(&mut self, report: &mut StepReport) {
-        match report {
-            StepReport::Asked {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            }
-            | StepReport::TimedOut {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            }
-            | StepReport::Failed {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            } => {
-                *comment_failed = self.post_ruling(*pull_request, *id);
-            }
-            _ => {}
-        }
     }
 
     // The open pull request from `branch`. A forge that cannot be asked

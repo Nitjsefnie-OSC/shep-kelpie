@@ -381,3 +381,31 @@ fn a_project_manager_is_named_by_its_file_and_none_is_the_default() {
         "{err}"
     );
 }
+
+#[test]
+fn agents_representative_defaults_to_representative() {
+    let unset = project("implementers = [\"sonnet-high\"]\n");
+
+    assert_eq!(unset.agents.representative.as_str(), "representative");
+    let agent = unset.representative(&book()).unwrap();
+    assert_eq!(agent.name.as_str(), "representative");
+    assert_eq!(pair(&agent.model), ("claude-opus-5-5", Effort::Medium));
+    assert_eq!(agent.limit, Limit::Account(Account::Claude));
+}
+
+#[test]
+fn a_representative_named_with_no_file_or_a_file_of_another_role_is_refused_naming_the_key() {
+    let missing = project("implementers = [\"sonnet-high\"]\nrepresentative = \"herald\"\n");
+    let err = missing.representative(&book()).unwrap_err().to_string();
+    assert!(
+        err.contains("`agents.representative` names herald"),
+        "{err}"
+    );
+
+    let wrong = project("implementers = [\"sonnet-high\"]\nrepresentative = \"advisor\"\n");
+    let err = wrong.representative(&book()).unwrap_err().to_string();
+    assert!(
+        err.contains("`agents.representative` names advisor, whose agent file's role is `advisor`"),
+        "{err}"
+    );
+}

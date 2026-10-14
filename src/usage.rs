@@ -85,6 +85,8 @@ pub enum CallKind {
     /// An expert's vote on a ruling: the worker's resumed session, the
     /// advisor's or the researcher's
     Vote,
+    /// The representative's wording of a post to a contributor
+    Post,
 }
 
 /// How a call ended

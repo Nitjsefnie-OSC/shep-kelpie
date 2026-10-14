@@ -253,6 +253,34 @@ impl Runner {
         self.fill_comment_failed(&mut report);
         Ok(Begin::Report(report))
     }
+
+    // A ruling just raised is posted as a comment on its pull request, if it
+    // has one; only these three reports carry a ruling and need the outcome.
+    pub(in crate::runner) fn fill_comment_failed(&mut self, report: &mut StepReport) {
+        match report {
+            StepReport::Asked {
+                pull_request,
+                id,
+                comment_failed,
+                ..
+            }
+            | StepReport::TimedOut {
+                pull_request,
+                id,
+                comment_failed,
+                ..
+            }
+            | StepReport::Failed {
+                pull_request,
+                id,
+                comment_failed,
+                ..
+            } => {
+                *comment_failed = self.post_ruling(*pull_request, *id);
+            }
+            _ => {}
+        }
+    }
 }
 
 // Parks the work item on a turn-ceiling ruling and builds its report. Shared

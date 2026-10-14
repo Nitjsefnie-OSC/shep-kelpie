@@ -86,6 +86,7 @@ pub fn report(
     out.push(totals("issue writer", &calls, Role::IssueWriter));
     out.extend(retros(&calls));
     out.extend(votes(&calls));
+    out.extend(posts(&calls));
     out.extend(super::panel::split(&calls));
     let recorded: BTreeSet<u64> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
@@ -237,6 +238,11 @@ fn totals(name: &str, calls: &[&CallLine], role: Role) -> String {
 // The project manager's batch retros, totalled apart from its wakes, if any ran
 fn retros(calls: &[&CallLine]) -> Option<String> {
     of_kind("retro", CallKind::Retro, calls)
+}
+
+// The representative's posts, totalled apart from the work items, if any ran
+fn posts(calls: &[&CallLine]) -> Option<String> {
+    of_kind("representative", CallKind::Post, calls)
 }
 
 // The panel's votes on rulings, totalled apart from the work items, if any ran

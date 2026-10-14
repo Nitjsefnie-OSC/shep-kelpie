@@ -20,6 +20,7 @@ use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod disk;
 mod e2e_runner;
 mod findings;
 mod forge_error;
@@ -50,6 +51,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use disk::Disk;
 pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
 pub use forge_error::{Cooldown, ForgeError};
@@ -821,6 +823,8 @@ pub struct Ports {
     pub git: Arc<dyn Git>,
     /// The GPU's figures, for `status`
     pub gpu: Arc<dyn GpuMetrics>,
+    /// The disk and the build folders on it, which a turn in flight is watched against
+    pub disk: Arc<dyn Disk>,
     /// The maintainer's webhook, shared so a post runs without holding the runner
     pub alerts: Arc<dyn Alerts>,
     /// Runs a reviewer's test, inside the worker's sandbox

@@ -30,6 +30,7 @@ mod claude;
 mod coderabbit;
 mod codex;
 mod cubic;
+mod disk;
 mod e2e_runner;
 mod elsewhere;
 mod endpoint;
@@ -49,6 +50,7 @@ mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
+pub(crate) use disk::{FakeDisk, GB};
 pub(crate) use e2e_runner::FakeE2e;
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
@@ -275,6 +277,7 @@ pub(crate) struct Rig {
     pub(crate) reviewer: FakeReviewer,
     pub(crate) local_leases: LocalReviewer,
     pub(crate) alerts: FakeAlerts,
+    pub(crate) disk: FakeDisk,
     pub(crate) leases: FakeLeases,
     pub(crate) tests: FakeTests,
     pub(crate) e2e: FakeE2e,
@@ -727,6 +730,7 @@ impl Rig {
             reviewer: Arc::new(self.reviewer.clone()),
             git: Arc::new(self.git.clone()),
             gpu: Arc::new(GpuCurl),
+            disk: Arc::new(self.disk.clone()),
             local_leases: Arc::new(self.local_leases.clone()),
             review_bots,
             alerts: Arc::new(self.alerts.clone()),

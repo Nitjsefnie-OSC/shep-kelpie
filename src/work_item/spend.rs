@@ -92,8 +92,8 @@ impl WorkItem {
                 Role::Reviewer => &mut spend.reviewer,
                 // It runs before any work item opens, so none records it.
                 Role::IssueWriter => continue,
-                // The panel and the project manager are the project's, so no work item records them.
-                Role::Pm | Role::Advisor | Role::Researcher => continue,
+                // The panel, the project manager and the representative are the project's, so no work item records them.
+                Role::Pm | Role::Advisor | Role::Researcher | Role::Representative => continue,
             };
             role.calls += 1;
             role.tokens += call.usage;
@@ -114,7 +114,11 @@ impl WorkItem {
             let role = match call.role {
                 Role::Worker => &mut priced.worker,
                 Role::Reviewer => &mut priced.reviewer,
-                Role::IssueWriter | Role::Pm | Role::Advisor | Role::Researcher => continue,
+                Role::IssueWriter
+                | Role::Pm
+                | Role::Advisor
+                | Role::Researcher
+                | Role::Representative => continue,
             };
             role.0 = role.0.saturating_add(call.cost.0);
         }

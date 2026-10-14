@@ -185,6 +185,7 @@ mod tests {
             )
             .replace("# full_panel_paths =", "full_panel_paths =")
             .replace("# issue_writer =", "issue_writer =")
+            .replace("# representative =", "representative =")
             .replace("# fallback_after =", "fallback_after =")
             .replace("# maintainer =", "maintainer =")
             .replace(
@@ -194,6 +195,10 @@ mod tests {
             .replace(
                 "# [app.dogs.kelpie.local_rounds]\n# keep = true\n# keep_days = 30\n# folder =",
                 "[app.dogs.kelpie.local_rounds]\nkeep = true\nkeep_days = 30\nfolder =",
+            )
+            .replace(
+                "# [app.dogs.kelpie.builds]\n# max_gb = 20\n# min_free_gb = 20",
+                "[app.dogs.kelpie.builds]\nmax_gb = 20\nmin_free_gb = 20",
             )
             .replace(
                 "# [app.dogs.kelpie.repo_setup]\n# plugins =",

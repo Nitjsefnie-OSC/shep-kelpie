@@ -415,6 +415,23 @@ fn a_wake_that_voted_on_two_rulings_shares_its_cost_between_them() {
 }
 
 #[test]
+fn a_report_totals_the_representatives_posts_apart_from_the_work_items() {
+    let lines = [
+        call(1, None, Role::Representative, CallKind::Post, 300),
+        call(2, None, Role::Representative, CallKind::Post, 200),
+    ];
+
+    let report = report("koji", &lines, None, &[]);
+
+    let total = report.iter().find(|l| l.starts_with("representative:"));
+    let total = total.unwrap_or_else(|| panic!("no representative total in {report:#?}"));
+    assert!(
+        total.starts_with("representative: 2 calls, 500 units, $1.00"),
+        "{total}"
+    );
+}
+
+#[test]
 fn a_report_of_a_ledger_with_no_votes_has_no_panel_section() {
     let lines = [call(5, None, Role::Pm, CallKind::Wake, 100)];
 

@@ -13,6 +13,7 @@ mod extends;
 mod goose;
 mod issue_writer;
 mod pm;
+mod representative;
 mod tools;
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
@@ -305,7 +306,8 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "issue-writer",
             "pm",
             "advisor",
-            "researcher"
+            "researcher",
+            "representative"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());

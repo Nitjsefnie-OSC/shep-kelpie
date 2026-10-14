@@ -37,6 +37,7 @@ mod alert;
 mod attach;
 mod briefing;
 mod browser;
+mod builds;
 mod ci_help;
 mod claim;
 mod claude_files;
@@ -100,6 +101,7 @@ mod question;
 mod refused;
 mod replies;
 mod report;
+mod representative;
 mod reread;
 mod retro;
 mod review;
@@ -154,6 +156,7 @@ pub use pm::{PmAttaching, PmError, PmStatus};
 pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
+pub use representative::{Post, RepresentError};
 pub(crate) use reread::check_gateways;
 use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
@@ -400,6 +403,8 @@ pub struct Runner {
     unreachable: turn::unreachable::Unreachable,
     // Why each work item's due turn did not start on its last step, in memory only
     held_up: turn::held_up::HeldUps,
+    // The build folders and the disk as last read while a turn ran, in memory only
+    builds: builds::BuildWatch,
     // The ids of comments kelpie posted as the login `gh` acts as since the
     // last save, which the state file keeps: none of them is ever an answer
     posted: std::cell::RefCell<Vec<u64>>,
@@ -486,6 +491,7 @@ impl Runner {
             }
             contribution_lineup = settings.contribution_lineup(&book, home)?;
             settings.security_reviewer(&book)?;
+            settings.representative(&book)?;
         }
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
@@ -638,6 +644,7 @@ impl Runner {
             lease_waits: review_bot::lease_wait::LeaseWaits::default(),
             unreachable: turn::unreachable::Unreachable::default(),
             held_up: turn::held_up::HeldUps::default(),
+            builds: builds::BuildWatch::default(),
             posted: std::cell::RefCell::default(),
         };
         runner.settle_older_bots()?;
@@ -728,6 +735,7 @@ impl Runner {
             plugins: self.repo_plugins.status(),
             pull_request_template: self.template_source(),
             gpu: self.gpu.status(),
+            disk_free_bytes: self.builds.free_bytes(),
             local_leases: self.local_leases(),
             board: &self.paths.board,
             pm: self.pm_status(),
@@ -744,6 +752,7 @@ impl Runner {
         WorkItemStatus {
             waiting: self.model_wait(item.issue),
             held_up: self.held_up.of(item.issue),
+            build_bytes: self.builds.folder_bytes(item.issue),
             ..WorkItemStatus::new(item, self.settings.budget.per_item_usd, split)
         }
     }
