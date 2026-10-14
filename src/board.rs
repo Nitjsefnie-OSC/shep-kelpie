@@ -21,6 +21,7 @@ use std::fmt;
 
 use serde::Serialize;
 
+use crate::ports::Timestamp;
 use crate::runner::IN_PROGRESS;
 use crate::settings::AgentName;
 
@@ -207,6 +208,9 @@ pub enum Skip {
         pull_request: u64,
         /// Why, as the refusal reads
         error: String,
+        /// When the pull request first failed to start, and has every
+        /// pass since
+        since: Timestamp,
     },
 }
 

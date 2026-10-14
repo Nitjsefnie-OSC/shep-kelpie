@@ -1,6 +1,6 @@
 # Work
 
-Projects, the board, work items, slots, issue writer, project manager.
+Projects, the board, work items, slots, issue writer. The project manager is in `pm.md`.
 
 ## Projects
 
@@ -24,6 +24,7 @@ Projects, the board, work items, slots, issue writer, project manager.
 - Interactive docs land on `kelpie/docs-<id>` worktree, writes confined to `GLOSSARY.md` + `docs/adr`, then draft PR with no `Resolves` (checkout untouched, no runner takes it). #365
 - Unlabelled ready issue + several implementers: runner makes pick-only issue-writer call and labels it itself; failure raises `stuck` `unlabelled`. #381, `src/runner/flight/label.rs`
 - Board order: `priority: P0` to `P4`, then unlabelled, oldest first; adoptions and reworks ahead; blocked or skipped issue never holds up next. Keeps an `order`: new or re-prioritised issue goes after last of its priority; `board` lists ready issues numbered, `board move <issue> <position>` and `board top <issue>` reorder them; a non-ready issue or position past the end is refused. #144, #494, #495, `src/board.rs`
+- Adopt: `adoptable` refuses a branch a worktree kelpie did not make holds (`git worktree list --porcelain`), naming it, so `adopt` queues nothing that cannot start. A queued PR whose pass fails with `AdoptError::Worktree` raises one `stuck` `adopt-failed` ruling (id is the PR number, no work item), raised again only when the error changes (an answered one included, until a restart), a failure to list the worktrees raises none, cleared when a pass adopts it or it leaves the queue. While any queued PR fails, `status` lists it under `skipped` (`reason: adopt`) with `error` and `since` (in memory, reset on restart). #713, `src/runner/adopt.rs`
 - `agent:<name>` label picks implementer, `!` pins against fallback; unknown or doubled label skipped; kelpie only adds missing `agent:` labels (deleting strips every issue). #381
 - Issue with sub-issues never worked (they are, instead); closed when all sub-issues closed. The sweep also closes an open issue off the ready list once its sub-issues are all closed with one completed (all not planned stays open); a sub-issue still open on the board's reread stops the close, and one with none completed is read again when its count changes or an hour on. #738, `src/runner/parent.rs`
 - Held issue carries `in-progress` (courtesy; refusal only logged). #199
@@ -38,23 +39,6 @@ Projects, the board, work items, slots, issue writer, project manager.
 - Issue naming a file a parked branch changes skipped as `overlap` (ruling may still change it). #355
 - Resuming a parked session after 1h repays cache write; accepted. shep-pm/shep#707
 - Bot window grant serves one item, never inherited (would summon twice in a window the dog counted once). #103
-
-## Project manager
-
-- Runner writes `board.md` so PM never runs git or gh (code-written board decides as well). Keeps newest 50 events + PM cursor; issue bodies quoted (600 chars) behind `> `; text naming this machine withheld. #326, `src/runner/briefing.rs`
-- Worker silent 10 min reads as idle (PM told only "busy" misses a hung worker). #326
-- Overlap from `git diff` + pairwise `git merge-tree` (git 2.38+), cached by commit, run without runner lock (trigger never waits on git). #326
-- `agents.pm` opts a project in (`pm`, Opus 5.5 at medium; Sonnet cost about the same here); without one board rule picks and every ruling waits on maintainer. `src/runner/pm.rs`, #327
-- Code wakes it, never a timer: free slot with 2+ choices, new conflict, stuck item, worker question, `shep kelpie tell`. #327
-- Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
-- No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
-- Tools `Read,Glob,Grep,Edit,Write`; writes only to append-only `pm-notes.md` via `kelpie confine --append`. #327
-- Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
-- Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
-- One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327
-- Answers or escalates worker questions, holding the ruling from maintainer one wake (10 min max). #437
-- Decides `follow-up` rulings, filing `ready-for-agent` or `needs-triage`. #510, #511
-- `shep kelpie pm` hands its session to maintainer's terminal like `attach`; no wake runs under them. #327
 
 ## Not built
 

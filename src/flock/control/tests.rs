@@ -609,6 +609,22 @@ fn a_plain_status_shows_a_refused_settings_change_and_when() {
     );
 }
 
+#[test]
+fn a_plain_status_shows_an_adopted_pull_request_that_keeps_failing_and_since_when() {
+    let failing = r#"{"project":"koji","work_items":[],"rulings":[],
+        "skipped":[{"reason":"adopt","pull_request":80,"error":"cannot prepare its worktree: busy",
+        "since":1790000000}],
+        "pacer":{"enabled":false,"claude":{"reading":null,"holding":null}}}"#;
+    assert_eq!(
+        plain_status("koji", failing)[2..4],
+        [
+            "  work items: none",
+            "  adopted, cannot start: PR #80 since 2026-09-21 14:13 UTC: \
+             cannot prepare its worktree: busy",
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_plain_status_keeps_a_project_that_is_not_running_to_a_line() {
     let shepherd = FakeShepherd::new();

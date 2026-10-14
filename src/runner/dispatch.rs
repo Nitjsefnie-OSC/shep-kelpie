@@ -102,6 +102,7 @@ impl Runner {
                         Skip::Adopt {
                             pull_request,
                             error,
+                            ..
                         } => Some(format!("cannot adopt #{pull_request}: {error}")),
                         _ => None,
                     })

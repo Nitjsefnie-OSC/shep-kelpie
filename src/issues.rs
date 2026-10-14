@@ -274,6 +274,7 @@ fn reach(
         block_keychain: false,
         code_graph: None,
         mcp_servers: BTreeMap::new(),
+        extensions: Vec::new(),
     })
 }
 

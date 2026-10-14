@@ -21,14 +21,25 @@ use super::rework::{HUMAN, review_text};
 use super::trigger;
 use super::turn;
 use crate::board::{LabelError, OpenPullRequest, READY, Skip};
-use crate::ports::{ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role};
+use crate::ports::{
+    ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
+};
 use crate::settings::AgentName;
-use crate::state::{StateError, Waiting};
+use crate::state::{Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
 use crate::worktree::{self, Remote, Start};
 
 /// The file in the build folder that tells the worker what it adopted
 const ADOPTED_FILE: &str = "adopted-pull-request.md";
+
+/// An adopted pull request that fails to start on every pass
+#[derive(Debug)]
+pub(super) struct Failing {
+    // The first pass that failed
+    since: Timestamp,
+    // The error its ruling was last raised for
+    raised: Option<String>,
+}
 
 /// Why a pull request cannot be adopted
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +68,8 @@ pub enum AdoptError {
     Session(String),
     /// The worktree could not be prepared on the branch, with the reason
     Worktree(String),
+    /// The repo's worktrees could not be listed, with the reason
+    Holder(String),
     /// The forge could not show the review bot's reviews of the pull request
     ReviewBot(String, u64, ForgeError),
     /// The file for the worker could not be written, with the reason
@@ -95,6 +108,7 @@ impl fmt::Display for AdoptError {
             Self::Label(e) => e.fmt(f),
             Self::Session(e) => write!(f, "cannot draw a session id: {e}"),
             Self::Worktree(e) => write!(f, "cannot prepare its worktree: {e}"),
+            Self::Holder(e) => write!(f, "cannot list the worktrees of the repo: {e}"),
             Self::ReviewBot(bot, number, e) => {
                 write!(f, "cannot read {bot}'s reviews of #{number}: {e}")
             }
@@ -200,16 +214,20 @@ impl Runner {
             }
         }
         let waiting: Vec<u64> = self.state.adopted.iter().map(|w| w.pull_request).collect();
+        self.forget_unwaiting(&waiting)?;
         for number in waiting {
             if let Some(held) = self.pace_dispatch()?.holds() {
                 return Ok((Some(held), skipped));
             }
             let begin = match self.start_adoption(number) {
-                Ok((issue, agent)) => Begin::Report(StepReport::Adopted {
-                    issue,
-                    pull_request: number,
-                    agent,
-                }),
+                Ok((issue, agent)) => {
+                    self.adopt_failing.remove(&number);
+                    Begin::Report(StepReport::Adopted {
+                        issue,
+                        pull_request: number,
+                        agent,
+                    })
+                }
                 Err(AdoptError::State(e)) => return Err(e),
                 Err(AdoptError::NotOpen(..)) => {
                     self.let_go(number)?;
@@ -220,24 +238,76 @@ impl Runner {
                 Err(e) if e.settled() => match self.refuse_adoption(number, &e)? {
                     Ok(begin) => begin,
                     Err(e) => {
-                        skipped.push(Skip::Adopt {
-                            pull_request: number,
-                            error: e.to_string(),
-                        });
+                        skipped.push(self.adopt_failed(number, &e)?);
                         continue;
                     }
                 },
                 Err(e) => {
-                    skipped.push(Skip::Adopt {
-                        pull_request: number,
-                        error: e.to_string(),
-                    });
+                    skipped.push(self.adopt_failed(number, &e)?);
                     continue;
                 }
             };
             return Ok((Some(begin), skipped));
         }
         Ok((None, skipped))
+    }
+
+    // Notes that adopted pull request `number` could not start this pass, and
+    // since when it has not. A worktree that cannot be prepared raises a
+    // ruling, once for each error it reads, which starting it clears.
+    fn adopt_failed(&mut self, number: u64, error: &AdoptError) -> Result<Skip, StateError> {
+        let now = self.ports.clock.now();
+        let failing = self.adopt_failing.entry(number).or_insert(Failing {
+            since: now,
+            raised: None,
+        });
+        let since = failing.since;
+        if matches!(error, AdoptError::Worktree(_)) {
+            let why = error.to_string();
+            // An answered ruling is gone, so what was raised is also kept here.
+            let known = failing.raised.as_ref() == Some(&why);
+            let saved = self
+                .adopt_ruling(number)
+                .is_some_and(|r| failed_with(r, &why));
+            if !known && !saved {
+                let mut next = self.state.clone();
+                next.rulings.retain(|r| !failed_on(r, number));
+                let kind = RulingKind::Stuck(Stuck::AdoptFailed { why: why.clone() });
+                let question = super::ruling::question(number, Some(number), &kind);
+                next.rulings.push(Ruling {
+                    pull_request: Some(number),
+                    raised: Some(now),
+                    ..Ruling::new(number, question, kind)
+                });
+                self.save(next)?;
+            }
+            // Only once saved, so a save that failed is tried again.
+            if let Some(failing) = self.adopt_failing.get_mut(&number) {
+                failing.raised = Some(why);
+            }
+        }
+        Ok(Skip::Adopt {
+            pull_request: number,
+            error: error.to_string(),
+            since,
+        })
+    }
+
+    fn adopt_ruling(&self, number: u64) -> Option<&Ruling> {
+        self.state.rulings.iter().find(|r| failed_on(r, number))
+    }
+
+    // Lets go of what a pull request that no longer waits left behind: the
+    // time it began failing and the ruling that said so.
+    fn forget_unwaiting(&mut self, waiting: &[u64]) -> Result<(), StateError> {
+        self.adopt_failing.retain(|n, _| waiting.contains(n));
+        let stale = |r: &Ruling| r.pull_request.is_some_and(|n| !waiting.contains(&n));
+        if self.state.rulings.iter().any(|r| failed(r) && stale(r)) {
+            let mut next = self.state.clone();
+            next.rulings.retain(|r| !(failed(r) && stale(r)));
+            self.save(next)?;
+        }
+        Ok(())
     }
 
     // The labelled pull requests whose branch isn't `kelpie/N` that adoption
@@ -296,6 +366,8 @@ impl Runner {
     fn let_go(&mut self, number: u64) -> Result<(), StateError> {
         let mut next = self.state.clone();
         next.adopted.retain(|w| w.pull_request != number);
+        next.rulings.retain(|r| !failed_on(r, number));
+        self.adopt_failing.remove(&number);
         self.save(next)
     }
 
@@ -328,11 +400,20 @@ impl Runner {
             };
             return Err(AdoptError::Author(number, login));
         }
-        pr.closes
-            .iter()
-            .min()
-            .copied()
-            .ok_or(AdoptError::NoIssue(number))
+        let issue = (pr.closes.iter().min().copied()).ok_or(AdoptError::NoIssue(number))?;
+        // The worktree kelpie keeps for the issue is cleared at the start, so
+        // only another one holding the branch stops it.
+        let own = self.paths.worktree(issue);
+        let holder = worktree::holder_of(&self.settings.git.checkout, &pr.branch, &own);
+        if let Some(holder) = holder.map_err(|e| AdoptError::Holder(e.to_string()))? {
+            return Err(AdoptError::Worktree(format!(
+                "`{}` is checked out in the worktree at {}, which kelpie did not make: \
+                 remove it or switch it off the branch",
+                pr.branch,
+                holder.display()
+            )));
+        }
+        Ok(issue)
     }
 
     // Checks the pull request can be adopted, then prepares its worktree,
@@ -420,6 +501,7 @@ impl Runner {
         let now = self.ports.clock.now();
         let mut next = self.state.clone();
         next.adopted.retain(|w| w.pull_request != number);
+        next.rulings.retain(|r| !failed_on(r, number));
         let (turn, phase, resume) = match &review {
             Some(review) => {
                 next.reworked.push(review.id.clone());
@@ -507,6 +589,20 @@ impl Runner {
         })?;
         self.check_ci().map(Some)
     }
+}
+
+// Whether `ruling` says an adopted pull request could not start.
+fn failed(ruling: &Ruling) -> bool {
+    matches!(ruling.kind, RulingKind::Stuck(Stuck::AdoptFailed { .. }))
+}
+
+fn failed_on(ruling: &Ruling, number: u64) -> bool {
+    failed(ruling) && ruling.pull_request == Some(number)
+}
+
+// Whether `ruling` already names `why`.
+fn failed_with(ruling: &Ruling, why: &str) -> bool {
+    matches!(&ruling.kind, RulingKind::Stuck(Stuck::AdoptFailed { why: said }) if said == why)
 }
 
 /// Whether the adopted work item's worker has yet to begin its session
