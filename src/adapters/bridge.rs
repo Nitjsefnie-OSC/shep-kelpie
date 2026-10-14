@@ -85,7 +85,7 @@ impl Bridge {
         let socket = folder.join(format!("{}.sock", kept_name(name_file)?));
         crate::home::socket_fits(&socket)?;
         let _ = std::fs::remove_file(&socket);
-        let proxy = Proxy::open(Origins::new(&filter.domains))?;
+        let proxy = Proxy::open(Origins::new(&filter.domains).with_local(filter.dev_port.clone()))?;
         let config = server.cwd.join("config.json");
         std::fs::write(&config, launch(&filter.domains, &proxy).to_string())
             .map_err(|e| format!("cannot write {}: {e}", config.display()))?;

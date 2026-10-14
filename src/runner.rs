@@ -49,6 +49,7 @@ mod coderabbit;
 mod compact;
 mod contributions;
 mod dependencies;
+mod dev_server;
 mod dispatch;
 mod drain;
 mod e2e;
@@ -349,6 +350,8 @@ pub struct Runner {
     flights: flight::Flights,
     // The browsers opened for turns about to launch, kept in memory only
     opened: browser::Opened,
+    // The dev servers planned for those turns, kept in memory only
+    planned: dev_server::Planned,
     // Where each call is recorded as it ends
     ledger: crate::usage::Ledger,
     steps: step_log::StepLog,
@@ -619,6 +622,7 @@ impl Runner {
             started: Vec::new(),
             flights: flight::Flights::default(),
             opened: browser::Opened::default(),
+            planned: dev_server::Planned::default(),
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
             steps: step_log::StepLog::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),

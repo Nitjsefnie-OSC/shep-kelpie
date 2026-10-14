@@ -30,6 +30,7 @@ fn world() -> (tempfile::TempDir, Server) {
 fn open(dir: &tempfile::TempDir, server: Server) -> Bridge {
     let filter = Filter {
         domains: vec!["app.example.com".into()],
+        ..Filter::default()
     };
     let folder = dir.path().canonicalize().unwrap();
     Bridge::open(&folder, &folder.join("socket-name"), server, filter).unwrap()

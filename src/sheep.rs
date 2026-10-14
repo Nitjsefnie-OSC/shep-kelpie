@@ -34,10 +34,7 @@ use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::GRANT;
 use crate::ports::{Leases, Ports, Revalidated, Routed, SandboxError};
-use crate::runner::{
-    ACTIONS, BOARD_POLL, Pass, ProjectName, ProjectPaths, READ_EVERY, Runner, advance, answer,
-    wakes,
-};
+use crate::runner::{ACTIONS, Pass, ProjectName, ProjectPaths, Runner, advance, answer, wakes};
 use crate::settings::Settings;
 use crate::shep_home;
 use crate::shepherd::{self, Dial, Socket};
@@ -55,10 +52,12 @@ const JOIN_BOUND: Duration = Duration::from_secs(1);
 
 mod handover;
 mod look;
+mod pace;
 
 use handover::Handing;
 pub use handover::{Carry, WITHDRAW};
 use look::Look;
+use pace::wait_after_pass;
 
 /// Runs `project`'s runner until the shepherd stops it
 ///
@@ -247,6 +246,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),
         test_runner: Arc::new(claude.test_runner()),
+        dev_servers: Arc::new(claude.dev_servers()),
         e2e_runner: Arc::new(DogE2e),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
@@ -574,17 +574,6 @@ fn log_started(runner: &Mutex<Runner>) {
     }
 }
 
-// How long the loop sleeps after a pass with nothing left to do, unless woken
-fn wait_after_pass(runner: &Runner) -> Duration {
-    let look = if runner.awaits_reply() {
-        Duration::from_secs(READ_EVERY)
-    } else {
-        BOARD_POLL
-    };
-    let soonest = [runner.next_ceiling(), runner.next_look()];
-    (soonest.into_iter().flatten()).fold(look, Duration::min)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
@@ -592,6 +581,7 @@ mod tests {
 
     use super::*;
     use crate::ports::ReviewerError;
+    use crate::runner::BOARD_POLL;
     use crate::test::{CALL_PATIENCE, FakeShepherd, Hold, Rig, Scripted, ScriptedRound};
 
     // A shepherd that holds a project `older`, running or not, whose table is the rig's, less what

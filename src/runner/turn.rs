@@ -489,6 +489,8 @@ impl Runner {
         let handed_over = token
             .is_some()
             .then(|| pull_request_file::path(&item.build));
+        let hosts = (self.browser_hosts(&harness, &session, item.issue)).filter(|_| browses);
+        let dev = self.dev_server(item, &reach, hosts);
         let text = instructions::compose(
             instructions::Extra {
                 agent: agent_prompt.as_deref(),
@@ -497,9 +499,8 @@ impl Runner {
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
                 owner_template: self.owner_template.as_ref(),
-                browser: self
-                    .browser_hosts(&harness, &session, item.issue)
-                    .filter(|_| browses),
+                browser: hosts,
+                dev_server: dev.as_ref(),
             },
             &item.worktree,
             &self.skills,
@@ -699,6 +700,7 @@ impl Runner {
             return self.save_time().map(|()| None);
         }
         self.builds_turn_ended();
+        self.dev_server_ended();
         // A turn a pause ended at a tool result is not a finished one.
         if let Some(paused) = self.end_paused(&result) {
             return paused;

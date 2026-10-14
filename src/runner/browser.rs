@@ -118,6 +118,7 @@ impl Runner {
             domains: (self.settings.browser.domains.iter())
                 .map(|d| d.as_str().to_owned())
                 .collect(),
+            dev_port: self.dev_gate(call.issue),
         };
         let bridge = Bridge::open(
             &self.paths.worker,

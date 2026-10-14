@@ -36,6 +36,10 @@ pub struct Policy {
     /// Whether the keychain's services are cut from its profile on macOS, so
     /// that nothing it runs can ask for a login the `security` command stored
     pub no_keychain: bool,
+    /// Whether it may bind a local port, which a dev server needs
+    pub listen: bool,
+    /// The Mach services it may look up on macOS, such as `com.apple.FSEvents`
+    pub services: Vec<String>,
 }
 
 /// A host whose traffic the sandbox's proxy hands to a Unix socket, not the network

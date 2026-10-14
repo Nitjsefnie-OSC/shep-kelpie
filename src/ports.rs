@@ -20,6 +20,7 @@ use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod dev_server;
 mod disk;
 mod e2e_runner;
 mod findings;
@@ -51,6 +52,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use dev_server::{DevPort, DevRun, DevServers, READY_WITHIN, Started};
 pub use disk::Disk;
 pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
@@ -829,6 +831,8 @@ pub struct Ports {
     pub alerts: Arc<dyn Alerts>,
     /// Runs a reviewer's test, inside the worker's sandbox
     pub test_runner: Arc<dyn TestRunner>,
+    /// Starts a project's dev server for a worker turn that has the browser
+    pub dev_servers: Arc<dyn DevServers>,
     /// Runs a bump's e2e tests on the dog's host
     pub e2e_runner: Arc<dyn E2eRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills

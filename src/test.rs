@@ -30,6 +30,7 @@ mod claude;
 mod coderabbit;
 mod codex;
 mod cubic;
+mod dev_server;
 mod disk;
 mod e2e_runner;
 mod elsewhere;
@@ -50,6 +51,7 @@ mod test_runner;
 
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
+pub(crate) use dev_server::FakeDevServers;
 pub(crate) use disk::{FakeDisk, GB};
 pub(crate) use e2e_runner::FakeE2e;
 pub(crate) use elsewhere::Elsewhere;
@@ -280,6 +282,7 @@ pub(crate) struct Rig {
     pub(crate) disk: FakeDisk,
     pub(crate) leases: FakeLeases,
     pub(crate) tests: FakeTests,
+    pub(crate) dev_servers: FakeDevServers,
     pub(crate) e2e: FakeE2e,
     pub(crate) clock: FakeClock,
     /// The login's forge hold and pace, which no test's calls reach the cap of
@@ -736,6 +739,7 @@ impl Rig {
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
             test_runner: Arc::new(self.tests.clone()),
+            dev_servers: Arc::new(self.dev_servers.clone()),
             e2e_runner: Arc::new(self.e2e.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),

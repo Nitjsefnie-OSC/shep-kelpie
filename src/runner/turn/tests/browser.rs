@@ -6,7 +6,7 @@ use crate::settings::AgentHarness;
 
 const OFF: &str = "[app.dogs.kelpie.browser]\nenabled = false\nheaded = false\ndomains = []";
 
-fn turn_on(rig: &Rig) {
+pub(super) fn turn_on(rig: &Rig) {
     rig.edit_settings(|s| {
         assert!(s.contains(OFF), "the example's browser moved");
         s.replace(
@@ -18,14 +18,14 @@ fn turn_on(rig: &Rig) {
 }
 
 // The server and a Chromium build, as `shep kelpie tools install` leaves them
-fn install(rig: &Rig) {
+pub(super) fn install(rig: &Rig) {
     let tools = rig.paths().tools;
     fs::create_dir_all(tools.playwright_mcp().parent().unwrap()).unwrap();
     fs::write(tools.playwright_mcp(), "").unwrap();
     fs::create_dir_all(tools.browsers().join("chromium-1200")).unwrap();
 }
 
-fn instructions_of(seen: &crate::test::Seen) -> String {
+pub(super) fn instructions_of(seen: &crate::test::Seen) -> String {
     fs::read_to_string(seen.call.instructions.as_ref().unwrap()).unwrap()
 }
 
