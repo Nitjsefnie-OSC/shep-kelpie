@@ -104,14 +104,9 @@ impl Runner {
             .collect()
     }
 
-    // The work items whose hold stands on a pi worker, whose session in the
+    // The work items whose hold stands on a worker of `harness`, whose session in the
     // maintainer's terminal dials a forwarder only this image holds.
-    pub(in crate::runner) fn pi_sessions_attached(&self) -> Vec<u64> {
-        self.sessions_attached_on(Harness::Pi)
-    }
-
-    // The same for a goose worker.
-    fn sessions_attached_on(&self, harness: Harness) -> Vec<u64> {
+    pub(in crate::runner) fn sessions_attached_on(&self, harness: Harness) -> Vec<u64> {
         let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
         let on_it = |item: &&WorkItem| {
             // parity: harness.attach-ends

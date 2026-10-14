@@ -100,3 +100,29 @@ fn a_drain_waits_while_a_pi_session_is_attached() {
     let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
     assert_eq!(draining, serde_json::json!([]));
 }
+
+#[test]
+fn a_drain_waits_while_a_goose_session_is_attached() {
+    let (rig, runner, _) = Rig::with_pull_request_set("rotom", |rig| {
+        rig.write_agent("goose-box", GOOSE);
+        rig.implementers(&["goose-box"]);
+    });
+    let child = Command::new("cat")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let me = Live(child);
+    let pid = me.0.id();
+    rig.ask(&runner, "attach", Some(&format!("7 {pid}")));
+
+    let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
+    assert_eq!(
+        draining,
+        serde_json::json!([{"issue": 7, "role": "goose_session"}])
+    );
+
+    rig.ask(&runner, "detach", Some(&format!("7 {pid}")));
+    let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
+    assert_eq!(draining, serde_json::json!([]));
+}
