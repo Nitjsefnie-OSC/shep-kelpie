@@ -200,13 +200,30 @@ impl Watch {
                 continue;
             };
             let after = following.and_then(|slack| step.at.checked_sub(slack).ok());
+            // Every goose call at one settings path writes the same file, which
+            // each call empties, so only the newest call to name it is read.
+            if started.format == Format::Goose {
+                self.sessions.retain(|s| {
+                    s.started.format != Format::Goose
+                        || s.started.folder != started.folder
+                        || s.started.session == started.session
+                });
+            }
+            let goose = started.format == Format::Goose;
             match self
                 .sessions
                 .iter_mut()
                 .find(|s| s.started.session == started.session)
             {
                 // A resumed session's next call: only its new lines.
-                Some(known) if following.is_some() => known.after = after,
+                Some(known) if following.is_some() => {
+                    known.after = after;
+                    if goose {
+                        // The file was emptied, so the old offset is meaningless.
+                        known.tail = None;
+                        known.last = None;
+                    }
+                }
                 Some(_) => {}
                 None => self.sessions.push(Session {
                     started,
