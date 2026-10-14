@@ -61,7 +61,9 @@ impl Origins {
     }
 
     // Whether `host` on `port` is listed. A host that is not plain letters, digits,
-    // dots and hyphens is never listed, so no IP address or encoded name is.
+    // dots and hyphens is never listed, so no encoded name or IPv6 literal is. An
+    // IPv4 literal passes that check and is listed only if a domain names it, which
+    // the settings refuse.
     fn lists(&self, host: &str, port: u16) -> bool {
         let host = host.to_ascii_lowercase();
         let host = host.strip_suffix('.').unwrap_or(&host);
@@ -335,11 +337,13 @@ fn exchange(client: &mut TcpStream, shared: &Shared, id: u64) -> Result<(), Repl
     let lost = |e: io::Error| Reply::new(502, format!("kelpie lost the origin: {}", e.kind()));
     match ask {
         Ask::Tunnel => {
+            // What followed the head in the same read belongs to the origin. It goes
+            // first, so a failure is still a refusal the browser has not been told
+            // is a tunnel.
+            upstream.write_all(reader.buffer()).map_err(lost)?;
             client
                 .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 .map_err(gone)?;
-            // What followed the head in the same read belongs to the origin.
-            upstream.write_all(reader.buffer()).map_err(lost)?;
             let _ = client.set_read_timeout(None);
             tunnel(client, &upstream);
         }
@@ -357,10 +361,37 @@ fn exchange(client: &mut TcpStream, shared: &Shared, id: u64) -> Result<(), Repl
                 .and_then(|()| upstream.write_all(&body))
                 .map_err(lost)?;
             let _ = upstream.set_read_timeout(Some(REPLY_IDLE));
-            io::copy(&mut upstream, client).map_err(lost)?;
+            // A reply that failed after its first byte cannot take a 502 behind it.
+            let mut sent = Counted {
+                to: client,
+                bytes: 0,
+            };
+            if let Err(e) = io::copy(&mut upstream, &mut sent)
+                && sent.bytes == 0
+            {
+                return Err(lost(e));
+            }
         }
     }
     Ok(())
+}
+
+// A writer that counts the bytes it passes on.
+struct Counted<'a> {
+    to: &'a mut TcpStream,
+    bytes: usize,
+}
+
+impl Write for Counted<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.to.write(buf)?;
+        self.bytes += written;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.to.flush()
+    }
 }
 
 // The origin and kind of a request, as its line says: `host:port` for a
