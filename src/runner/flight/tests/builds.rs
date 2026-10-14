@@ -338,4 +338,56 @@ fn a_restarted_runner_reads_the_folder_before_it_starts_a_paused_turn() {
     let status = rig.ask(&runner, "status", None);
     let because = status["work_item"]["held_up"]["because"].as_str().unwrap();
     assert!(because.contains("`builds.max_gb`"), "{because}");
+
+    // Emptied by the maintainer, the folder lets the turn go.
+    for n in 0..22 {
+        fs::remove_file(build.join(format!("kept{n}.txt"))).unwrap();
+    }
+    rig.clock.advance(60);
+    driven.started();
+    let [_, resumed] = rig.claude.calls().try_into().unwrap();
+    assert_eq!(resumed.prompt, PAUSED);
+    driven.landed();
+}
+
+#[test]
+fn a_restarted_runner_prunes_the_cache_of_a_folder_it_finds_over_the_cap() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, build) = mid_tool(&rig, &driven);
+    rig.ask(&runner, "drain", Some("pause"));
+    tool.release();
+    assert_eq!(driven.landed(), None);
+    drop(driven);
+    stale(&build, "debug/.fingerprint/dep-1/fp");
+    for n in 0..22 {
+        stale(&build, &format!("debug/deps/old{n}.rlib"));
+    }
+    rig.disk.set_per_file(GB);
+
+    drop(runner);
+    let runner = rig.open().unwrap();
+    let driven = Driven::new(&runner);
+    driven.started();
+
+    assert!(!build.join("debug/deps/old0.rlib").exists());
+    let [_, resumed] = rig.claude.calls().try_into().unwrap();
+    assert_eq!(resumed.prompt, PAUSED);
+    driven.landed();
+}
+
+#[test]
+fn an_undrain_leaves_the_pause_the_build_limits_set() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, build) = mid_tool(&rig, &driven);
+    rig.disk.set_free(5 * GB);
+    driven.pass();
+    assert!(build.join("kelpie-pause").is_file());
+
+    rig.ask(&runner, "undrain", None);
+
+    assert!(build.join("kelpie-pause").is_file());
+    tool.release();
+    driven.landed();
 }

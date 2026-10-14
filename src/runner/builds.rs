@@ -131,6 +131,12 @@ pub(super) struct BuildWatch {
 }
 
 impl BuildWatch {
+    /// Whether the limits set the pause for `issue`'s turn in flight, which
+    /// no `undrain` may take away
+    pub(super) fn holds_pause(&self, issue: u64) -> bool {
+        (self.items.get(&issue)).is_some_and(|watch| watch.over && watch.told_pause)
+    }
+
     /// The size of `issue`'s build folder as last read
     pub(super) fn folder_bytes(&self, issue: u64) -> Option<u64> {
         self.items.get(&issue)?.reading.folder
@@ -305,6 +311,21 @@ impl Runner {
         self.notes.push(note);
     }
 
+    // Reads the disk's free space and, with `folder`, the build folder
+    fn builds_look(&mut self, issue: u64, build: &Path, folder: bool) {
+        let now = self.ports.clock.now();
+        let limits = self.settings.builds;
+        let asked = Builds {
+            max_gb: if folder { limits.max_gb } else { 0 },
+            ..limits
+        };
+        let disk = self.ports.disk.as_ref();
+        let (mut reading, failed) = measure(disk, asked, build, &self.paths.kelpie_home);
+        reading.folder = (reading.folder)
+            .or_else(|| self.builds.items.get(&issue).and_then(|w| w.reading.folder));
+        self.record_build(issue, now, reading, failed);
+    }
+
     // Why the current work item's due turn must not start: the disk is under
     // its floor, or the item ran past a limit and a reading still finds one
     // passed, or cannot tell. Reads afresh when the last reading is a minute
@@ -316,18 +337,21 @@ impl Runner {
         let now = self.ports.clock.now();
         let limits = self.settings.builds;
         let seen = self.builds.items.get(&issue);
-        let with_folder = seen.is_none_or(|w| w.pruned) && build.is_dir();
-        if seen.is_none_or(|w| w.due(now)) {
-            let asked = Builds {
-                max_gb: if with_folder { limits.max_gb } else { 0 },
-                ..limits
-            };
-            let disk = self.ports.disk.as_ref();
-            let (mut reading, failed) = measure(disk, asked, &build, &self.paths.kelpie_home);
-            reading.folder = reading
-                .folder
-                .or_else(|| seen.and_then(|w| w.reading.folder));
-            self.record_build(issue, now, reading, failed);
+        let first = seen.is_none();
+        let due = seen.is_none_or(|w| w.due(now));
+        // A folder found past the cap is read again until it is not.
+        let cap = limits.max_bytes();
+        let over = |w: &Watch| cap.is_some_and(|cap| w.reading.folder.is_some_and(|f| f > cap));
+        let with_folder = seen.is_none_or(|w| w.pruned || over(w)) && build.is_dir();
+        if due {
+            self.builds_look(issue, &build, with_folder);
+            // Nothing watched the turn that filled the folder, so its cache
+            // is removed now.
+            let found_over = self.builds.items.get(&issue).is_some_and(over);
+            if first && found_over {
+                self.builds_prune(issue);
+                self.builds_look(issue, &build, true);
+            }
         }
         let watch = self.builds.items.get_mut(&issue)?;
         let Some(why) = (watch.reading.past(limits)).or_else(|| watch.unread.clone()) else {
