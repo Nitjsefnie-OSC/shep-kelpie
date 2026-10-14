@@ -114,8 +114,12 @@ impl Look {
     }
 
     // Why the git settings in `settings`, where they moved from the runner's,
-    // are another project's.
-    fn taken_by_another(&self, runner: &Mutex<Runner>, settings: &Settings) -> Option<String> {
+    // are another project's, or why that cannot be told.
+    fn taken_by_another(
+        &self,
+        runner: &Mutex<Runner>,
+        settings: &Settings,
+    ) -> Result<Option<String>, String> {
         let moved = {
             let runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
             let have = &runner.settings().git;
@@ -129,15 +133,12 @@ impl Look {
             moved.join(" and ")
         };
         if moved.is_empty() {
-            return None;
+            return Ok(None);
         }
-        match self.taken(settings) {
-            Ok(taken) => taken.map(|taken| format!("{moved}: {}", taken.clash())),
-            Err(e) => {
-                eprintln!("cannot tell whether another project runs the new {moved}: {e}");
-                None
-            }
-        }
+        let taken = self.taken(settings).map_err(|e| {
+            format!("cannot tell whether another project runs the new {moved}: {e}")
+        })?;
+        Ok(taken.map(|taken| format!("{moved}: {}", taken.clash())))
     }
 
     // A refusal of the stored table, which `status` shows and the webhook is told of.
@@ -151,12 +152,14 @@ impl Look {
     /// Reads again, and hands `runner` whatever changed since the last read
     pub(super) fn again(&mut self, runner: &Mutex<Runner>) {
         const KEPT: &str = "cannot read the settings again, so they stay as they are";
+        const WAIT: &str = "a git settings change waits, so they stay as they are";
+        const BAD: &str = "the settings table does not load, so they stay as they are";
         const REFUSED: &str = "a settings change was refused, so they stay as they are";
         let before = self.last.clone();
         let loaded = match self.fetch() {
             Ok(loaded) => loaded,
             Err(Unread::Shepherd(why)) => return self.say(KEPT, &why),
-            Err(Unread::Table(why)) => return self.refuse(runner, KEPT, &why),
+            Err(Unread::Table(why)) => return self.refuse(runner, BAD, &why),
         };
         if before == self.last {
             self.failed = None;
@@ -169,9 +172,18 @@ impl Look {
             }
             return;
         }
-        if let Some(why) = self.taken_by_another(runner, &loaded.settings) {
-            self.last = before;
-            return self.refuse(runner, REFUSED, &why);
+        match self.taken_by_another(runner, &loaded.settings) {
+            Ok(None) => {}
+            Ok(Some(why)) => {
+                self.last = before;
+                return self.refuse(runner, REFUSED, &why);
+            }
+            // The one-runner rule is not skipped: the change waits, and the
+            // next wake asks again.
+            Err(why) => {
+                self.last = before;
+                return self.say(WAIT, &why);
+            }
         }
         let mut runner = runner.lock().unwrap_or_else(PoisonError::into_inner);
         match runner.reread(loaded.settings, loaded.kelpie) {
@@ -196,6 +208,7 @@ impl Look {
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use serde_json::{Map, Value};
     use shep_client::shep_core::config::DogTable;
@@ -508,6 +521,72 @@ mod tests {
             rig.ask(&runner, "status", None).get("settings_refused"),
             None
         );
+    }
+
+    #[test]
+    fn a_reread_moving_git_checkout_waits_while_the_flock_cannot_be_listed() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        let theirs = rig.home.path().join("theirs");
+        crate::test::git(
+            rig.home.path(),
+            &["clone", "--quiet", rig.repo().to_str().unwrap(), "theirs"],
+        );
+        let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
+        let mut moved = project_table(&entry);
+        moved["git"]["checkout"] = theirs.display().to_string().into();
+        let table = Arc::new(Mutex::new(moved));
+        let listed = Arc::new(AtomicBool::new(false));
+        let (up, held) = (Arc::clone(&listed), Arc::clone(&table));
+        let shep_home = tempfile::tempdir().unwrap();
+        let (memory, _sent) =
+            Memory::answering(
+                shep_home.path(),
+                SHEP_VERSION,
+                move |request| match request {
+                    Request::DogSheepSettings { .. } => Response::DogSheepSettings {
+                        tables: BTreeMap::from([(
+                            "shep".to_owned(),
+                            DogTable::from(held.lock().unwrap().clone()),
+                        )]),
+                    },
+                    Request::DogConfig { .. } => Response::DogSection {
+                        toml: SECTION.to_owned().into(),
+                    },
+                    Request::ListFlock if up.load(Ordering::SeqCst) => Response::Flock(Vec::new()),
+                    Request::ListFlock => Response::DogSection {
+                        toml: String::new().into(),
+                    },
+                    other => panic!("the runner asked {other:?}"),
+                },
+            );
+        let paths = rig.paths();
+        let mut look = Look::new(
+            Arc::new(memory),
+            shep_home.path().to_owned(),
+            "shep".into(),
+            Sources {
+                folder: paths.folder.clone(),
+                agents: paths.agents.clone(),
+            },
+            rig.home.path().to_owned(),
+        );
+        let agents = agents::snapshot(&paths.agents);
+        look.last = Some((rig.settings(), rig.kelpie_settings(), agents));
+        let before = look.last.clone();
+        look.again(&runner);
+        look.again(&runner);
+        assert_eq!(look.last, before, "the change is not taken as read");
+        assert!(rig.alerts.posts().is_empty(), "no refusal to tell of");
+        assert_eq!(
+            rig.ask(&runner, "status", None).get("settings_refused"),
+            None
+        );
+        // Once the flock can be listed the move is checked, and goes through.
+        listed.store(true, Ordering::SeqCst);
+        look.again(&runner);
+        assert_ne!(look.last, before);
+        assert!(rig.alerts.posts().is_empty());
     }
 
     #[test]
