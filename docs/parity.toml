@@ -129,6 +129,13 @@ pi = "yes"
 codex = "yes"
 goose = "yes"
 
+[harness.triager]
+what = "Runs the triager's read-only call that researches an issue, with the reviewer's reach"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = "yes"
+
 [harness.retro]
 what = "Runs the retro"
 claude-code = "yes"

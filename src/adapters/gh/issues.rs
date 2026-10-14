@@ -3,6 +3,7 @@
 
 use serde::Deserialize;
 
+use super::review_bot::time;
 use super::{gh, unreadable};
 use crate::ports::{FinishedParent, ForgeError, OpenIssue, SubIssue, SubIssueState};
 use crate::settings::ForgeSlug;
@@ -22,7 +23,7 @@ pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError
         "--limit",
         LIST_LIMIT,
         "--json",
-        "number,title,body",
+        "number,title,body,author,labels,createdAt",
     ];
     parse_open_issues(&gh(&args)?)
 }
@@ -113,20 +114,39 @@ pub(super) fn set_label(
 
 fn parse_open_issues(stdout: &[u8]) -> Result<Vec<OpenIssue>, ForgeError> {
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Listed {
         number: u64,
         title: String,
         body: Option<String>,
+        author: Option<Author>,
+        labels: Vec<Label>,
+        created_at: String,
+    }
+    #[derive(Deserialize)]
+    struct Author {
+        login: String,
+        is_bot: bool,
+    }
+    #[derive(Deserialize)]
+    struct Label {
+        name: String,
     }
     let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
-    Ok(listed
+    listed
         .into_iter()
-        .map(|issue| OpenIssue {
-            number: issue.number,
-            title: issue.title,
-            body: issue.body.unwrap_or_default(),
+        .map(|issue| {
+            Ok(OpenIssue {
+                number: issue.number,
+                title: issue.title,
+                body: issue.body.unwrap_or_default(),
+                author_is_bot: issue.author.as_ref().is_some_and(|a| a.is_bot),
+                author: issue.author.map(|a| a.login).unwrap_or_default(),
+                labels: issue.labels.into_iter().map(|l| l.name).collect(),
+                created: time(&issue.created_at, stdout)?,
+            })
         })
-        .collect())
+        .collect()
 }
 
 pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
@@ -182,6 +202,7 @@ fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Timestamp;
 
     #[test]
     fn finished_parents_are_the_issues_whose_sub_issues_are_all_closed() {
@@ -201,7 +222,15 @@ mod tests {
 
     #[test]
     fn open_issues_are_read_with_a_body_that_may_be_null() {
-        let out = br#"[{"number":4,"title":"a","body":"b"},{"number":5,"title":"c","body":null}]"#;
+        let out = br#"[
+            {"number":4,"title":"a","body":"b","createdAt":"2026-10-14T08:00:00Z",
+             "author":{"login":"rin","is_bot":false,"id":"U_1","name":"Rin"},
+             "labels":[{"name":"bug","id":"L_1"},{"name":"needs-info","id":"L_2"}]},
+            {"number":5,"title":"c","body":null,"createdAt":"2026-10-14T09:30:00Z",
+             "author":{"login":"app/kelpie","is_bot":true},"labels":[]},
+            {"number":6,"title":"d","body":"","createdAt":"2026-10-14T09:30:00Z",
+             "author":null,"labels":[]}
+        ]"#;
         let issues = parse_open_issues(out).unwrap();
         assert_eq!(
             issues,
@@ -209,12 +238,29 @@ mod tests {
                 OpenIssue {
                     number: 4,
                     title: "a".into(),
-                    body: "b".into()
+                    body: "b".into(),
+                    author: "rin".into(),
+                    author_is_bot: false,
+                    labels: vec!["bug".into(), "needs-info".into()],
+                    created: Timestamp(1_791_964_800),
                 },
                 OpenIssue {
                     number: 5,
                     title: "c".into(),
-                    body: String::new()
+                    body: String::new(),
+                    author: "app/kelpie".into(),
+                    author_is_bot: true,
+                    labels: Vec::new(),
+                    created: Timestamp(1_791_970_200),
+                },
+                OpenIssue {
+                    number: 6,
+                    title: "d".into(),
+                    body: String::new(),
+                    author: String::new(),
+                    author_is_bot: false,
+                    labels: Vec::new(),
+                    created: Timestamp(1_791_970_200),
                 },
             ]
         );

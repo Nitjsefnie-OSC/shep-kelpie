@@ -15,6 +15,7 @@ mod issue_writer;
 mod pm;
 mod representative;
 mod tools;
+mod triager;
 
 const QWEN: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                     url: http://box:11434/v1\ncontext: 65536\n---\n";
@@ -307,7 +308,8 @@ fn defaults_are_written_where_missing_and_never_over_a_file() {
             "pm",
             "advisor",
             "researcher",
-            "representative"
+            "representative",
+            "triager"
         ]
     );
     assert_eq!(Agents::load(&agents).unwrap(), Agents::embedded());

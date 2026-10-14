@@ -59,6 +59,8 @@ pub(super) struct Looks {
     contributions_read: Option<Timestamp>,
     // When the bumps were last followed
     dependencies_read: Option<Timestamp>,
+    // When the issues were last listed for triage
+    triage_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
     // How many writes of kelpie's the forge had taken when the last pass began
@@ -137,6 +139,23 @@ impl Looks {
             .dependencies_read?
             .0
             .saturating_add(BOARD_POLL.as_secs());
+        (now.0 < at).then(|| Duration::from_secs(at - now.0))
+    }
+
+    /// Whether the open issues are due to be listed for triage at `now`,
+    /// which records the read: at most one in each [`BOARD_POLL`]
+    pub(super) fn triage_due(&mut self, now: Timestamp) -> bool {
+        if self.triage_wait(now).is_some() {
+            return false;
+        }
+        self.triage_read = Some(now);
+        true
+    }
+
+    /// How long until the open issues are next listed for triage, or `None`
+    /// when they are due now
+    pub(super) fn triage_wait(&self, now: Timestamp) -> Option<Duration> {
+        let at = self.triage_read?.0.saturating_add(BOARD_POLL.as_secs());
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
     }
 
@@ -269,8 +288,13 @@ impl Runner {
                 .unwrap_or_default()
                 .max(DUE_FLOOR)
         });
+        let triage = (!self.settings.triage.is_off()).then(|| {
+            (self.looks.triage_wait(now))
+                .unwrap_or_default()
+                .max(DUE_FLOOR)
+        });
         let builds = self.next_build_look();
-        [looks, host, wrote, followed, bumps, builds]
+        [looks, host, wrote, followed, bumps, triage, builds]
             .into_iter()
             .flatten()
             .min()

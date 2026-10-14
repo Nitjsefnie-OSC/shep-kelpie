@@ -87,6 +87,7 @@ pub fn report(
     out.extend(retros(&calls));
     out.extend(votes(&calls));
     out.extend(posts(&calls));
+    out.extend(triage(&calls));
     out.extend(super::panel::split(&calls));
     let recorded: BTreeSet<u64> = finished.iter().map(|item| item.issue).collect();
     out.extend(unrecorded(&calls, &recorded));
@@ -243,6 +244,11 @@ fn retros(calls: &[&CallLine]) -> Option<String> {
 // The representative's posts, totalled apart from the work items, if any ran
 fn posts(calls: &[&CallLine]) -> Option<String> {
     of_kind("representative", CallKind::Post, calls)
+}
+
+// The triager's research calls, totalled apart from the work items, if any ran
+fn triage(calls: &[&CallLine]) -> Option<String> {
+    of_kind("triager", CallKind::Triage, calls)
 }
 
 // The panel's votes on rulings, totalled apart from the work items, if any ran

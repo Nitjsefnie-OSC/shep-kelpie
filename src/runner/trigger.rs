@@ -88,6 +88,10 @@ pub struct Status<'a> {
     /// stands; left out when it follows none
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub bumps: Vec<super::dependencies::BumpStatus>,
+    /// The issues from other people that triage would pick up, oldest
+    /// first; left out while none is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triage: Option<super::triage::TriageStatus<'a>>,
     /// The first issues in the order the board takes the ready ones, which
     /// holds those it would pass over too
     pub order: &'a [u64],

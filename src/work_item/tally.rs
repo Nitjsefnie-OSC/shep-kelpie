@@ -113,7 +113,8 @@ impl WorkItem {
                 | Role::Pm
                 | Role::Advisor
                 | Role::Researcher
-                | Role::Representative => continue,
+                | Role::Representative
+                | Role::Triager => continue,
             };
             role.calls = role.calls.saturating_add(1);
             role.tokens += call.usage;

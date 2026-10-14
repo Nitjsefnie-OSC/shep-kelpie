@@ -797,6 +797,17 @@ mod tests {
     }
 
     #[test]
+    fn a_triager_runs_on_read_glob_grep_and_no_mcp_server() {
+        let mut triage = call(Role::Triager, fresh());
+        triage.tools = Tools::Review;
+        let argv = strings(&triage);
+        let at = argv.iter().position(|a| a == "--tools").unwrap();
+        assert_eq!(argv[at + 1], "Read,Glob,Grep");
+        assert!(argv.iter().any(|a| a == "--strict-mcp-config"));
+        assert!(!argv.iter().any(|a| a == "bypassPermissions"));
+    }
+
+    #[test]
     fn an_agent_files_tools_replace_a_workers_and_a_reviewers_but_no_others() {
         let tools_of = |call: &AgentCall| {
             let argv = strings(call);

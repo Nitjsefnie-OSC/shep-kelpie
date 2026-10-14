@@ -549,6 +549,21 @@ fn a_plain_status_lists_each_bump_with_where_it_stands() {
 }
 
 #[test]
+fn a_plain_status_lists_each_issue_triage_would_pick_up() {
+    let body = r#"{"project":"koji","work_items":[],"triage":{"due":[
+        {"issue":30,"title":"It crashes","author":"newcomer","created":1},
+        {"issue":31,"title":"A question","author":"","created":2}]},"rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..6],
+        [
+            "  triage due: 2",
+            "    #30 It crashes by newcomer",
+            "    #31 A question by a deleted account",
+        ]
+    );
+}
+
+#[test]
 fn a_plain_status_says_how_long_a_contribution_has_waited_on_its_contributor() {
     let body = r#"{"project":"koji","work_items":[],"contributions":[
         {"pull_request":12,"author":"newcomer","head":"2a8f1e6d0b4c","seen":1,
