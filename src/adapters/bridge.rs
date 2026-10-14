@@ -170,6 +170,9 @@ fn serve(
             }
             line.clear();
         }
+        // The server is gone: closing the client's end lets the loop below, and
+        // the `mcp-connect` behind it, see the end rather than wait on a dead server.
+        let _ = (replies.lock().unwrap_or_else(PoisonError::into_inner)).shutdown(Shutdown::Both);
     });
     if let Some(mut to_server) = child.stdin.take() {
         let mut lines = BufReader::new(stream);

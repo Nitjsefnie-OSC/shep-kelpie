@@ -153,17 +153,13 @@ fn server(
 }
 
 // Chromium's flag that maps every host to nothing but the project's own, which
-// also keeps an IP address and a WebSocket from reaching anywhere else.
+// also keeps an IP address and a WebSocket from reaching anywhere else. It
+// names hosts, not ports, so the settings refuse a domain with one.
 fn resolver_rules(domains: &[NonBlank]) -> String {
     let mut rules = "--host-resolver-rules=MAP * ~NOTFOUND".to_owned();
     for domain in domains {
-        let domain = domain.as_str();
-        let host = match domain.rsplit_once(':') {
-            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
-            _ => domain,
-        };
         rules.push_str(", EXCLUDE ");
-        rules.push_str(host);
+        rules.push_str(domain.as_str());
     }
     rules
 }

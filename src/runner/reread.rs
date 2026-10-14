@@ -74,6 +74,14 @@ impl Runner {
             }
             .into());
         }
+        // The start refuses a browser this machine cannot give, so a reread does too.
+        settings
+            .browser
+            .supported()
+            .map_err(|reason| SettingsError::Invalid {
+                setting: "browser.enabled",
+                reason,
+            })?;
         if settings.rulings != self.settings.rulings {
             self.notes.extend(settings.rulings.unused_under_always());
         }

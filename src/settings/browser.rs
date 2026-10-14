@@ -1,7 +1,8 @@
 //! `[app.dogs.kelpie.browser]`: whether a worker drives a browser to see the UI it builds
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::de::Error;
+use serde::{Deserialize, Deserializer};
 
 use super::{NonBlank, domains};
 
@@ -19,12 +20,47 @@ pub struct Browser {
     /// when absent.
     #[serde(default)]
     pub headed: bool,
-    /// The hosts the browser may reach, in the form of `worker.allowed_domains`:
-    /// a host, or `*.` and a parent for its subdomains, with an optional
-    /// `:port`. Every other host, and every IP address, fails to resolve.
-    /// Empty when absent, so the browser opens nothing.
-    #[serde(default, deserialize_with = "domains::allowed_domains")]
+    /// The hosts the browser may reach: a host, or `*.` and a parent for its
+    /// subdomains. Every other host, and every IP address, fails to resolve.
+    /// A port, an IP address and `localhost` are refused, since Chromium's
+    /// resolver cannot hold a host to one port and `localhost` waits on
+    /// shep-pm/shep-kelpie#861. Empty when absent, so the browser opens nothing.
+    #[serde(default, deserialize_with = "hosts")]
     pub domains: Vec<NonBlank>,
+}
+
+// Reads `domains` as `worker.allowed_domains` is, then refuses what the browser's
+// resolver rules cannot hold to: a port, an IP address, or a name for this machine.
+fn hosts<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<NonBlank>, D::Error> {
+    let entries = domains::allowed_domains(deserializer)?;
+    for entry in &entries {
+        let entry = entry.as_str();
+        let refuse = |why: &str| D::Error::custom(format!("`{entry}` is refused: {why}"));
+        if entry.starts_with('[') {
+            return Err(refuse(
+                "the browser reaches hosts by name, never an IP address",
+            ));
+        }
+        if entry.contains(':') {
+            return Err(refuse(
+                "a port cannot be enforced on every request the browser makes, so list the host alone",
+            ));
+        }
+        let host = entry.strip_prefix("*.").unwrap_or(entry);
+        let host = host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase();
+        let last = host.rsplit('.').next().unwrap_or(&host);
+        if last.starts_with(|c: char| c.is_ascii_digit()) {
+            return Err(refuse(
+                "the browser reaches hosts by name, never an IP address",
+            ));
+        }
+        if host == "localhost" || host.ends_with(".localhost") {
+            return Err(refuse(
+                "the browser does not reach this machine yet (shep-pm/shep-kelpie#861)",
+            ));
+        }
+    }
+    Ok(entries)
 }
 
 impl Browser {
@@ -79,12 +115,12 @@ mod tests {
         let on: Browser = serde_json::from_value(json!({
             "enabled": true,
             "headed": true,
-            "domains": ["app.example.com:5173", "*.example.com"],
+            "domains": ["app.example.com", "*.example.com"],
         }))
         .unwrap();
         assert!(on.enabled && on.headed);
         let listed: Vec<&str> = on.domains.iter().map(NonBlank::as_str).collect();
-        assert_eq!(listed, ["app.example.com:5173", "*.example.com"]);
+        assert_eq!(listed, ["app.example.com", "*.example.com"]);
     }
 
     #[test]
@@ -98,6 +134,29 @@ mod tests {
         for bad in ["https://example.com", "a.*.com", " ", "example.com/path"] {
             let error = serde_json::from_value::<Browser>(json!({ "domains": [bad] }));
             assert!(error.is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_port_an_ip_address_and_localhost_are_refused_by_name() {
+        for bad in [
+            "app.example.com:8443",
+            "*.example.com:443",
+            "127.0.0.1",
+            "10.0.0.5:3000",
+            "127.1",
+            "[::1]",
+            "[::1]:3000",
+            "localhost",
+            "localhost:5173",
+            "LOCALHOST",
+            "app.localhost",
+            "*.localhost",
+            "localhost.",
+        ] {
+            let error = serde_json::from_value::<Browser>(json!({ "domains": [bad] }));
+            let why = error.unwrap_err().to_string();
+            assert!(why.contains(&format!("`{bad}`")), "{bad}: {why}");
         }
     }
 }

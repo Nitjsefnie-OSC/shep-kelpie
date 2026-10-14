@@ -41,10 +41,11 @@ pub fn judge(arguments: &Value, domains: &[String]) -> Verdict {
 
 /// Whether `url` is `http` or `https` to one of `domains`
 ///
-/// A domain is a host, or `*.` and a parent for its subdomains, with a `:port`
-/// after either to hold the URL to that port. Anything this cannot read as
-/// such a URL is refused: another scheme, a user name, an IPv6 host, an
-/// encoded host, or a character a browser drops.
+/// A domain is a host, or `*.` and a parent for its subdomains. A URL's port is
+/// read but not held to anything, since the browser's resolver cannot hold a
+/// host to one port either. Anything this cannot read as such a URL is
+/// refused: another scheme, a user name, an IPv6 host, an encoded host, or a
+/// character a browser drops.
 pub fn allowed_url(url: &str, domains: &[String]) -> bool {
     let lower = url.to_ascii_lowercase();
     let Some(rest) = lower
@@ -54,12 +55,10 @@ pub fn allowed_url(url: &str, domains: &[String]) -> bool {
         return false;
     };
     let authority = rest.split(['/', '?', '#', '\\']).next().unwrap_or_default();
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((host, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => {
-            (host, Some(port))
-        }
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => host,
         Some(_) => return false,
-        None => (authority, None),
+        None => authority,
     };
     let host = host.strip_suffix('.').unwrap_or(host);
     let plain = |c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-';
@@ -68,20 +67,11 @@ pub fn allowed_url(url: &str, domains: &[String]) -> bool {
     }
     domains
         .iter()
-        .any(|domain| names(&domain.to_ascii_lowercase(), host, port))
+        .any(|domain| names(&domain.to_ascii_lowercase(), host))
 }
 
-// Whether `domain`, as the project lists it, names `host` and `port` of a URL.
-fn names(domain: &str, host: &str, port: Option<&str>) -> bool {
-    let (domain, wanted) = match domain.rsplit_once(':') {
-        Some((domain, wanted)) if wanted.chars().all(|c| c.is_ascii_digit()) => {
-            (domain, Some(wanted))
-        }
-        _ => (domain, None),
-    };
-    if wanted.is_some_and(|wanted| Some(wanted) != port) {
-        return false;
-    }
+// Whether `domain`, as the project lists it, names `host` of a URL.
+fn names(domain: &str, host: &str) -> bool {
     match domain.strip_prefix("*.") {
         Some(parent) => host.ends_with(&format!(".{parent}")),
         None => host == domain,
@@ -95,11 +85,7 @@ mod tests {
     use super::*;
 
     fn domains() -> Vec<String> {
-        vec![
-            "pokemon-go-api.github.io".into(),
-            "*.leekduck.com".into(),
-            "staging.example.com:8443".into(),
-        ]
+        vec!["pokemon-go-api.github.io".into(), "*.leekduck.com".into()]
     }
 
     #[test]
@@ -111,7 +97,7 @@ mod tests {
             "https://a.b.leekduck.com/",
             "HTTPS://POKEMON-GO-API.GITHUB.IO/",
             "https://pokemon-go-api.github.io./",
-            "https://staging.example.com:8443/app",
+            "https://pokemon-go-api.github.io:8443/app",
         ] {
             assert!(allowed_url(url, &domains()), "{url}");
         }
@@ -139,7 +125,6 @@ mod tests {
             "https://%70okemon-go-api.github.io/",
             "https://pokemon-go-api.github.io:443x/",
             "https://staging.example.com/",
-            "https://staging.example.com:9000/",
             "http://localhost:3000/",
             "http://127.0.0.1:3000/",
             "http://[::1]:3000/",

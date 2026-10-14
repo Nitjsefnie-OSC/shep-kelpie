@@ -4,7 +4,7 @@ A worker looks at the UI it builds through a browser kelpie runs outside its san
 
 ## Always
 
-- `[app.dogs.kelpie.browser]` (`enabled` off, `headed` off, `domains` empty) in `src/settings/browser.rs`. `domains` takes the form of `worker.allowed_domains`: a host, or `*.` and a parent, with an optional `:port`.
+- `[app.dogs.kelpie.browser]` (`enabled` off, `headed` off, `domains` empty) in `src/settings/browser.rs`. `domains` takes the form of `worker.allowed_domains`: a host, or `*.` and a parent. A port, an IP address and `localhost` are refused, since Chromium's resolver rules name hosts and cannot hold one to a port.
 - Only a worker's `Work` turn gets it, with a non-empty prompt that is not `COMPACT`, on a project with the table on, on macOS, on a harness whose `drives_a_browser` is true (Claude Code and pi). Reviewers, the project manager, the advisor, the researcher and `attach` get none. `src/runner/browser.rs`, parity row `harness.browser`
 - On Linux an enabled table stops the runner at start with `Exit::Refused`, naming #135. `src/sheep.rs`
 - `Runner::prepared` opens a `Bridge` (`src/adapters/bridge.rs`) and names its socket in `Reach.browser`. The tools missing is a note and a run without. A bridge that cannot open fails the call, since the instructions promise a browser.

@@ -383,7 +383,8 @@ enabled = false
 # Chromium itself resolves only `domains`, so every other host and every IP
 # address fails. `shep kelpie tools install` fetches the server and Chromium,
 # and a project that turns it on without them gets a doctor line. `domains` is
-# a host, or `*.` and a parent for its subdomains, with an optional `:port`.
+# a host, or `*.` and a parent for its subdomains. A port, an IP address and
+# `localhost` are refused: Chromium cannot hold a host to one port.
 # With `headed` on, the browser opens a window you can watch. macOS only: on
 # Linux an enabled table stops the runner when it starts.
 [app.dogs.kelpie.browser]

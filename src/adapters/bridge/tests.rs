@@ -169,3 +169,30 @@ fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
     let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
     assert!(log.contains("Error: no browser"), "{log}");
 }
+
+#[test]
+fn a_server_that_exits_ends_the_connection_instead_of_leaving_it_open() {
+    let (dir, mut server) = world();
+    let script = dir.path().join("exits");
+    crate::test::write_script(&script, "#!/bin/sh\nexit 0\n");
+    server.command = script;
+    let (near, far) = UnixStream::pair().unwrap();
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let held = Mutex::new(None);
+        serve(
+            near,
+            &server,
+            &Filter::default(),
+            &held,
+            &AtomicBool::new(false),
+        );
+        let _ = done.send(());
+    });
+    // `far` stays open, as a worker's `mcp-connect` would: only the bridge can end it.
+    ended
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the connection stayed open after its server exited");
+    let mut rest = String::new();
+    assert_eq!(BufReader::new(far).read_line(&mut rest).unwrap(), 0);
+}

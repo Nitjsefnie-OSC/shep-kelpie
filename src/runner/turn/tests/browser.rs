@@ -134,3 +134,22 @@ fn a_turn_whose_call_cannot_be_prepared_leaves_no_socket_behind() {
         .collect();
     assert!(left.is_empty(), "{left:?}");
 }
+
+// Linux waits on #135, so there a reread that turns the browser on is refused as the start is.
+#[test]
+fn a_reread_that_turns_the_browser_on_is_checked_as_the_start_checks_it() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    turn_on(&rig);
+    let read = (runner.lock().unwrap()).reread(rig.settings(), rig.kelpie_settings());
+    if cfg!(target_os = "macos") {
+        let line = read.unwrap().expect("a change");
+        assert!(line.contains("browser"), "{line}");
+    } else {
+        let why = read.unwrap_err().to_string();
+        assert!(
+            why.contains("browser.enabled") && why.contains("#135"),
+            "{why}"
+        );
+    }
+}

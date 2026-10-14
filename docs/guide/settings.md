@@ -41,7 +41,7 @@ domains = ["pokemon-go-api.github.io", "*.leekduck.com"]
 
 - `shep kelpie tools install` installs the Playwright MCP server and Chromium under `<kelpie home>/tools`, and a project that turns the browser on without them gets a MISSING `browser` line in `doctor`.
 - The worker's working turns on Claude Code and pi have it, as the `playwright` server. A reviewer, the project manager, the advisor, the researcher and `attach` do not, and Codex and goose do not yet.
-- Chromium resolves only `domains`. Every other host and every IP address fails to resolve, and the filter refuses a URL that is not `http` or `https` to one of them. `localhost` is not allowed yet. A tool call that names a `filename` is refused, and a screenshot comes back in the tool's reply.
+- Chromium resolves only `domains`. Every other host and every IP address fails to resolve, and the filter refuses a URL that is not `http` or `https` to one of them. An entry with a port, an IP address or `localhost` is refused when the settings load: Chromium's resolver rules name hosts and cannot hold one to a port, and `localhost` waits on shep-pm/shep-kelpie#861. A tool call that names a `filename` is refused, and a screenshot comes back in the tool's reply.
 - `headed = true` opens a window you can watch.
 - macOS only. On Linux an enabled table stops the runner when it starts, naming shep-pm/shep-kelpie#135.
 - A handover waits while a worker's turn holds a browser, since the browser lives in the running image.
