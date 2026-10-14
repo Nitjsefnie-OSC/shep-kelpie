@@ -6,7 +6,8 @@
 //! its own beside the call's settings, holding the one model the call runs
 //! and its sessions, so the maintainer's own pi setup never loads. A fenced
 //! call also loads an extension that runs kelpie's checks before each
-//! command and file write. pi starts no MCP servers. The sandbox allows no
+//! command and file write. A call that loads MCP servers gets them in an
+//! `mcp.json` in that home, and any other starts none. The sandbox allows no
 //! model host: pi's calls go to a forwarder outside it, which passes the
 //! server only the chat completions call. A model behind a gateway gets the
 //! gateway's key from the forwarder, and each call on one holds the gateway's
@@ -43,6 +44,7 @@ use crate::skills::split_command;
 mod activity;
 mod adopt;
 mod compact;
+pub(crate) mod mcp;
 
 #[cfg(test)]
 mod activity_tests;
@@ -100,6 +102,21 @@ fn tool_names(tools: Tools, reads: bool, writes: bool) -> Option<&'static str> {
         Tools::Answer | Tools::Pm if reads => Some("read"),
         Tools::Answer | Tools::Pm => None,
     }
+}
+
+// The tools the call has, by pi's names
+fn tools_of(call: &AgentCall) -> Option<&'static str> {
+    let writes = call
+        .reach
+        .fence
+        .as_ref()
+        .is_some_and(|f| !f.write.is_empty());
+    tool_names(call.tools, !call.reach.read.is_empty(), writes)
+}
+
+// The servers the call starts: none for a call with no tools, which could not use them.
+fn mcp_config(call: &AgentCall) -> Option<serde_json::Value> {
+    tools_of(call).and_then(|_| mcp::config(call))
 }
 
 /// Headless pi, one `pi -p` process per call, each inside the sandbox
@@ -190,7 +207,7 @@ impl Agents for PiCli {
             let compact = files.compact();
             std::fs::write(&compact, compact::EXTENSION).map_err(|e| setup(&compact, e))?;
         }
-        Ok(())
+        mcp::prepare(mcp_config(call), &files)
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
@@ -500,15 +517,23 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         "--session-id".into(),
         call.session.id().0.as_str().into(),
     ];
-    let writes = call
-        .reach
-        .fence
-        .as_ref()
-        .is_some_and(|f| !f.write.is_empty());
-    let tools = tool_names(call.tools, !call.reach.read.is_empty(), writes);
+    let tools = tools_of(call);
+    let mcp = mcp_config(call);
     match tools {
-        Some(names) => argv.extend(["--tools".into(), names.into()]),
+        Some(names) => {
+            let mut names = names.to_owned();
+            if mcp.is_some() {
+                for server in mcp::tool_names(call) {
+                    names.extend([",", &server]);
+                }
+            }
+            argv.extend(["--tools".into(), names.into()]);
+        }
         None => argv.push("--no-tools".into()),
+    }
+    match mcp {
+        Some(_) => argv.extend(["--extension".into(), mcp::EXTENSION.into()]),
+        None => argv.push("--no-mcp".into()),
     }
     // pi builds its system prompt afresh on every call, a resumed one too.
     if let Some(instructions) = &call.instructions {
@@ -665,6 +690,7 @@ fn policy(
         .chain(call.plugin_dirs.iter().cloned())
         .chain(call.reach.read.iter().cloned()),
     );
+    super::mcp::fence_the_graph(&mut policy, call);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
         host: WORKER_HOST.to_owned(),

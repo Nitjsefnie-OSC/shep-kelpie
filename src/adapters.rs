@@ -54,6 +54,7 @@ pub use gpu::GpuCurl;
 pub use host::SystemHost;
 pub use leases::ShepLeases;
 pub use local::LocalReviewer;
+pub(crate) use pi::mcp::refusal as pi_mcp_refusal;
 pub use pi::{PI_MINIMUM, PiCli};
 pub use process::{Sealed, end_groups, feeding};
 pub use srt::SandboxRuntime;

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use super::{parked_with, script_all, seen, settle};
 use crate::ports::{Role, Tools};
 use crate::runner::step;
+use crate::settings::AgentHarness;
 use crate::test::{Rig, Scripted};
 
 // Lands the plugin `style` of the marketplace `house` with an MCP server `search` in its
@@ -196,4 +197,77 @@ fn a_server_a_workers_branch_adds_to_mcp_json_is_not_loaded() {
         servers(&rig.claude.all_seen()[0]),
         ["docs", "plugin_style_search"]
     );
+}
+
+const PI_IMPLEMENTER: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                              url: http://box:11434/v1\ncontext: 65536\n---\n";
+
+const PI_RESEARCHER: &str = "---\nrole: researcher\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                             url: http://box:11434/v1\ncontext: 65536\nusage: none\n---\nVote.\n";
+
+// A parked ruling on a repo with those servers, whose worker and researcher run on pi, with every
+// call of the panel made
+fn settled_on_pi(own: Option<Value>) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        land_servers(rig);
+        if let Some(own) = own {
+            rig.land(".mcp.json", &own.to_string());
+        }
+        super::name_panel(rig, true);
+        rig.write_agent("pi-box", PI_IMPLEMENTER);
+        rig.implementers(&["pi-box"]);
+        rig.write_agent("pi-researcher", PI_RESEARCHER);
+        rig.edit_settings(|s| {
+            s.replace(
+                "researcher = \"researcher\"",
+                "researcher = \"pi-researcher\"",
+            )
+        });
+    });
+    script_all(&rig, true);
+    settle(&rig, &runner);
+    (rig, runner)
+}
+
+#[test]
+fn a_pi_researcher_gets_the_repos_servers_and_a_pi_retro_vote_gets_none() {
+    let (rig, _runner) = settled_on_pi(None);
+
+    let researchers = seen(&rig, Role::Researcher);
+    assert!(!researchers.is_empty());
+    for call in researchers {
+        assert!(matches!(call.call.harness, AgentHarness::Pi(_)));
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search"]);
+    }
+    let (works, votes): (Vec<_>, Vec<_>) =
+        (seen(&rig, Role::Worker).into_iter()).partition(|c| c.call.tools != Tools::Retro);
+    assert!(!works.is_empty() && !votes.is_empty());
+    for call in works {
+        assert!(matches!(call.call.harness, AgentHarness::Pi(_)));
+        assert_eq!(call.call.reach.mcp_servers.len(), 2);
+    }
+    for vote in votes {
+        assert!(matches!(vote.call.harness, AgentHarness::Pi(_)));
+        assert!(vote.call.reach.mcp_servers.is_empty());
+    }
+}
+
+#[test]
+fn a_server_pi_cannot_load_is_dropped_with_a_note() {
+    let own = json!({ "mcpServers": {
+        "docs": { "type": "http", "url": "https://docs.example.com/mcp" },
+        "old": { "type": "sse", "url": "https://old.example.com/sse" },
+    } });
+    let (rig, runner) = settled_on_pi(Some(own));
+
+    for call in seen(&rig, Role::Researcher) {
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search"]);
+    }
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    assert!(notes.contains("the MCP server `old`"), "{notes}");
+    assert!(notes.contains("SSE"), "{notes}");
 }

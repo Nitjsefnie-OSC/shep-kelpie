@@ -633,13 +633,14 @@ impl Runner {
                     call.plugin_dirs.push(plugin.to_owned());
                 }
             }
-            // Their MCP servers go in the call's own MCP config, since `--strict-mcp-config`
-            // drops every other. A call that only reads (a vote, a retro) is given none that
-            // could write, and only Claude Code takes the config.
-            if call.harness.reads_claude_files() && call.tools != Tools::Retro {
+            // Their MCP servers go in the call's own config, since Claude Code's
+            // `--strict-mcp-config` drops every other. A call that only reads (a vote, a retro)
+            // is given none that could write.
+            if call.harness.loads_mcp() && call.tools != Tools::Retro {
                 call.reach
                     .mcp_servers
                     .extend(self.repo_plugins.mcp_servers());
+                self.without_servers_pi_cannot_load(&mut call);
             }
         }
         self.with_code_graph(&mut call);
@@ -648,6 +649,22 @@ impl Runner {
             .prepare(&call)
             .map_err(|e| e.to_string())?;
         Ok(call)
+    }
+
+    // A server pi cannot load is left out, and a note says which and why.
+    fn without_servers_pi_cannot_load(&self, call: &mut AgentCall) {
+        if !matches!(call.harness, crate::settings::AgentHarness::Pi(_)) {
+            return;
+        }
+        let who = super::code_graph::who(call);
+        call.reach.mcp_servers.retain(|name, entry| {
+            let refused = crate::adapters::pi_mcp_refusal(name, entry);
+            if let Some(why) = &refused {
+                self.notes
+                    .push(format!("{who} runs without the MCP server `{name}`: {why}"));
+            }
+            refused.is_none()
+        });
     }
 
     pub(super) fn end_turn(
