@@ -121,6 +121,7 @@ impl Agents for GooseCli {
         system_text(call)?;
         let files = Files::of(&call.settings);
         hooks::only_ours(&files)?;
+        hooks::no_settings_in_root(&files)?;
         files.prepare()?;
         match &call.reach.fence {
             Some(fence) if works(call) => hooks::write(&files, fence),
@@ -358,10 +359,12 @@ fn system_text(call: &AgentCall) -> Result<Option<String>, AgentError> {
         .map_err(|e| AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind())))
 }
 
-// Whether `call` is a worker's with its tools, which goose runs behind the
-// fence's hook plugin.
+// Whether `call` is a worker's with its tools and a fence, which goose runs
+// behind the fence's hook plugin. A worker with no fence is refused by
+// `prepare`, and a command built for one anyway is a researcher's, which has
+// no tool.
 fn works(call: &AgentCall) -> bool {
-    call.role == Role::Worker && call.tools == Tools::Work
+    call.role == Role::Worker && call.tools == Tools::Work && call.reach.fence.is_some()
 }
 
 // The variables that move goose into the call's own root and point it at the

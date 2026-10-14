@@ -87,14 +87,55 @@ pub(super) fn write(files: &Files, fence: &Fence) -> Result<(), AgentError> {
     });
     put(&plugin.join("plugin.json"), &manifest)?;
     put(&hooks.join("hooks.json"), &hooks_json(&fence.guard))?;
-    // goose keeps this map by the plugin's path. JSON is YAML, and a file that
-    // already lists the plugin as on is one goose has nothing to write to.
-    let mut plugins = serde_json::Map::new();
+    put(&files.config_file(), &config(files, &plugin)?)
+}
+
+// The root's `config.yaml` with the plugin on. goose keeps the map by the
+// plugin's path. What else the file holds stays, since a resumed call's root
+// may hold settings goose wrote; a file that cannot be read as a map is
+// replaced, which goose could not have read either. JSON is YAML, and a file
+// that already lists the plugin as on is one goose has nothing to write to.
+fn config(files: &Files, plugin: &Path) -> Result<serde_json::Value, AgentError> {
+    let path = files.config_file();
+    let kept = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_saphyr::from_str::<serde_json::Value>(&text).ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(setup("read", &path, &e)),
+    };
+    let mut config = match kept {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    let mut plugins = match config.remove("plugins") {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
     plugins.insert(
         plugin.to_string_lossy().into_owned(),
         json!({ "enabled": true }),
     );
-    put(&files.config_file(), &json!({ "plugins": plugins }))
+    config.insert("plugins".into(), serde_json::Value::Object(plugins));
+    Ok(serde_json::Value::Object(config))
+}
+
+/// Fails when the root holds a goose settings file that turns plugins off
+///
+/// The root's `.config/goose/settings.json` is read by goose beside the
+/// working folder's, and a `disabledPlugins` entry in it drops a plugin by
+/// name. The sandbox leaves the folder read only, so a file there was not
+/// the call's to write: kelpie refuses it and does not guess at its entries.
+pub(super) fn no_settings_in_root(files: &Files) -> Result<(), AgentError> {
+    let folder = files.root.join(".config").join("goose");
+    for name in ["settings.json", "settings.local.json"] {
+        let file = folder.join(name);
+        if std::fs::symlink_metadata(&file).is_ok() {
+            return Err(AgentError::Setup(format!(
+                "goose would read {} and it can switch plugins off: remove it",
+                file.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 // One `PreToolUse` hook with no matcher, so it runs for every tool.

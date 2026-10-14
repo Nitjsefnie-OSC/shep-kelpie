@@ -82,13 +82,13 @@ Written 2026-10-14 for #788, from goose's v1.54.0 source and docs. No model turn
   - A `hooks.json` goose cannot parse is skipped without an error, which fails open. The plugin's file is written by kelpie, and the test reads it back as JSON.
 - In `GOOSE_MODE=auto` goose ignores `permission.yaml`, so the hook is the only gate. The worker runs in `auto` with `--with-builtin developer`, which is safe on a resumed call. A repeated `--with-extension` name ends the run, so a resume passes none.
 - Plugins load from `<GOOSE_PATH_ROOT>/.agents/plugins/<name>` (user) and `<working folder>/.agents/plugins/<name>` (project). A project plugin wins over a user one of the same name.
-  - `<root>/config/config.yaml` has `plugins: {<absolute plugin path>: {enabled: bool}}`, and an `enabled: false` entry drops the plugin.
+  - `<root>/config/config.yaml` (kelpie keeps any other key it holds) has `plugins: {<absolute plugin path>: {enabled: bool}}`, and an `enabled: false` entry drops the plugin.
   - `disabledPlugins` in the working folder's `.config/goose/settings.local.json` or `settings.json`, or the root's `.config/goose/settings.json`, disables a plugin by name.
 - So the worker is kept from dropping the plugin three ways:
-  - the plugin's name is fixed (`kelpie-fence`) and a call refuses to start when the root's `.agents/plugins` holds any other entry, or the worktree holds `.agents/plugins` or `.config/goose`
+  - the plugin's name is fixed (`kelpie-fence`) and a call refuses to start when the root's `.agents/plugins` holds any other entry, the root's `.config/goose` holds a `settings.json` or `settings.local.json`, or the worktree holds `.agents/plugins` or `.config/goose`
   - `.config/goose` in the worktree is fenced as a harness folder at any depth, as `.agents` already is
   - the root's `.agents`, `.config` and `config` are outside the sandbox's `policy.write`, so the call's own `shell` cannot write them. `data`, `state` and the scratch folder stay writable.
-- The guard (`kelpie guard ... --goose=<build folder>`) judges `shell` as Claude Code's `Bash`, `write` and `edit` as `Write` and `Edit` held to the worktree and the build folder (a relative `path` is the working folder's), and allows `tree`. `read_image` and every other name, `delegate` and `load` included, are refused, and so is a payload it cannot read.
+- The guard (`kelpie guard ... --goose=<build folder>`) judges `shell` as Claude Code's `Bash`, `write` and `edit` as `Write` and `Edit` held to the worktree and the build folder (a relative `path` is the working folder's), and judges `tree` as the `ls` of its path through the command guard, so the project's `command` hooks see it. `read_image` and every other name, `delegate` and `load` included, are refused, and so is a payload it cannot read.
 - goose cannot run an `after_command` hook. Its `PostToolUse` payload names the tool and its input but not the result, and a hook's output is never read back by the model, so `kelpie guard --after` has nothing to judge and nowhere to report. A goose worker beside one is refused at load.
 - A vote resumes a worker's session under another settings file (`vote-settings-<n>.json`). goose's files are keyed on the settings path, so the resume finds a root with no session and returns `NoSession`, as pi and Codex do. Retro is refused on goose until #789.
 

@@ -7,8 +7,9 @@
 //! the command guard as Claude Code's `Bash` would, and a `write` or an
 //! `edit` goes to `kelpie confine` as a `Write` or an `Edit`, held to the
 //! worktree and the build folder, with the project's `write` hooks seeing the
-//! text. A tree is allowed. Any other tool is refused, and so is a payload
-//! this cannot read, a name it does not know being no reason to let a call by.
+//! text. A tree is judged as the `ls` of its folder. Any other tool is
+//! refused, and so is a payload this cannot read, a name it does not know
+//! being no reason to let a call by.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ use serde_json::{Value, json};
 
 use super::{Checkout, SHOWN_CHARS};
 use crate::adapters::goose::hooks::TOOLS;
+use crate::adapters::shell_quote;
 use crate::confine::{self, Verdict};
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
@@ -93,6 +95,21 @@ pub fn judge_goose(
             });
             let folders = [checkout.worktree.to_owned(), build.to_owned()];
             confine::judge_with(file.to_string().as_bytes(), &folders, hooks)
+        }
+        "tree" => {
+            // A tree lists a folder, so the command guard judges it as the `ls`
+            // of that folder, with the same say over paths a `shell` has.
+            let path = match &call.tool_input["path"] {
+                Value::Null => ".",
+                Value::String(path) => path,
+                _ => return unreadable(),
+            };
+            let bash = json!({
+                "tool_name": "Bash",
+                "cwd": cwd,
+                "tool_input": { "command": format!("ls -- {}", shell_quote(path)) },
+            });
+            super::judge_with(bash.to_string().as_bytes(), home, local, hooks, checkout)
         }
         tool if TOOLS.contains(&tool) => Verdict::Allow,
         tool => {

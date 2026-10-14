@@ -367,6 +367,10 @@ fn a_retro_a_reviewer_and_an_advisor_are_still_refused_naming_the_read_only_slic
     unfenced.tools = Tools::Work;
     let why = refused(goose.prepare(&unfenced));
     assert!(why.contains("outside the kelpie fence"), "{why}");
+    // And a command built for one anyway is a researcher's: no tool, no auto mode.
+    assert!(!strings(&unfenced).iter().any(|a| a.starts_with("--with-")));
+    let vars = env_vars(&unfenced);
+    assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
 }
 
 #[test]
@@ -395,4 +399,47 @@ fn a_vote_resuming_the_workers_session_under_its_vote_settings_is_refused_and_fi
     goose.prepare(&vote).unwrap();
     let err = goose.run(&vote, &Ending::default()).unwrap_err();
     assert_eq!(err, AgentError::NoSession(Harness::Goose, id(FRESH_ID)));
+}
+
+#[test]
+fn a_config_file_with_other_settings_keeps_them_and_has_the_plugin_on() {
+    let w = World::new();
+    let call = worker(&w, Session::New(id(FRESH_ID)));
+    let goose = stand_in(&w, FRESH);
+    goose.prepare(&call).unwrap();
+    let config = w.path("settings.goose/config/config.yaml");
+    let ours = plugin(&w).to_string_lossy().into_owned();
+
+    // goose's own keys and another plugin's entry stay; ours is put back on.
+    let older = format!(
+        "GOOSE_PROVIDER: openai\nplugins:\n  /elsewhere/x:\n    enabled: false\n  {ours}:\n    enabled: false\n"
+    );
+    std::fs::write(&config, older).unwrap();
+    goose.prepare(&call).unwrap();
+    let kept = json_in(&config);
+    assert_eq!(kept["GOOSE_PROVIDER"], "openai");
+    assert_eq!(kept["plugins"]["/elsewhere/x"]["enabled"], false);
+    assert_eq!(kept["plugins"][&ours]["enabled"], true);
+
+    // A file that is no map is replaced by one that has the plugin on.
+    std::fs::write(&config, "- not\n- a map\n").unwrap();
+    goose.prepare(&call).unwrap();
+    assert_eq!(json_in(&config)["plugins"][&ours]["enabled"], true);
+}
+
+#[test]
+fn a_goose_settings_file_in_the_roots_own_folder_refuses_the_call() {
+    let w = World::new();
+    let call = worker(&w, Session::New(id(FRESH_ID)));
+    let goose = stand_in(&w, FRESH);
+    let folder = w.path("settings.goose/.config/goose");
+    std::fs::create_dir_all(&folder).unwrap();
+    for name in ["settings.json", "settings.local.json"] {
+        let file = folder.join(name);
+        std::fs::write(&file, r#"{"disabledPlugins":["kelpie-fence"]}"#).unwrap();
+        let why = refused(goose.prepare(&call));
+        assert!(why.contains(file.to_str().unwrap()), "{why}");
+        std::fs::remove_file(&file).unwrap();
+    }
+    goose.prepare(&call).unwrap();
 }

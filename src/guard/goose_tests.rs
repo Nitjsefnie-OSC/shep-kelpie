@@ -194,6 +194,8 @@ fn a_tree_is_allowed_and_any_other_tool_is_refused_and_so_is_an_unreadable_paylo
         w.judge("tree", json!({ "path": ".", "depth": 2 })),
         Verdict::Allow
     );
+    // A tree with no path lists the working folder.
+    assert_eq!(w.judge("tree", json!({})), Verdict::Allow);
     // Tools goose offers a worker that kelpie does not allow, and names it has never heard of.
     for tool in [
         "read_image",
@@ -222,6 +224,7 @@ fn a_tree_is_allowed_and_any_other_tool_is_refused_and_so_is_an_unreadable_paylo
     let nowhere = json!({ "tool_name": "shell", "tool_input": { "command": "ls" } });
     refusal(w.judge_raw(nowhere.to_string().as_bytes(), &Hooks::default()));
     // A shell with no command and a file tool with no path or text have nothing to judge.
+    refusal(w.judge("tree", json!({ "path": 7 })));
     refusal(w.judge("shell", json!({})));
     refusal(w.judge("shell", json!({ "command": 7 })));
     refusal(w.judge("write", json!({ "content": "x" })));
@@ -270,6 +273,14 @@ fn the_projects_command_and_write_hooks_judge_what_goose_runs() {
     );
     assert_eq!(
         w.judge_in("tree", json!({ "path": "." }), tree, &keep),
+        Verdict::Allow
+    );
+    // A tree is the `ls` of its folder, so the command hooks judge it too.
+    let why = refusal(w.judge_in("tree", json!({ "path": "Acme" }), tree, &keep));
+    assert!(why.contains("the `command` hook `if` refused"), "{why}");
+    // And a folder name does not run as a command.
+    assert_eq!(
+        w.judge_in("tree", json!({ "path": "a; gh pr merge 1" }), tree, &keep),
         Verdict::Allow
     );
 }
