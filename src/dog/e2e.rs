@@ -191,10 +191,13 @@ pub(super) async fn visit(
             _ = heard(reader) => return,
         }
     }
-    println!(
+    let line = format!(
         "{E2E}: granted to pid {pid} for {} on {}",
         plan.project, plan.host
     );
+    if let Some(line) = super::door::granted_after_wait(taken, line) {
+        println!("{line}");
+    }
     say(write, &Answer::Granted).await;
 
     let (lines, mut output) = mpsc::channel(OUTPUT_WAITING);

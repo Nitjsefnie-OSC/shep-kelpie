@@ -32,6 +32,18 @@ pub struct Delivery {
 struct Run {
     epoch: Epoch,
     totals: BTreeMap<LeaseKind, Totals>,
+    // The ignored asks already said, so a runner that asks again says nothing new.
+    said: BTreeSet<(LeaseKind, bool, u64)>,
+}
+
+/// What the dog made of one metric
+#[derive(Debug, Default)]
+pub struct Heard {
+    /// The grants it made
+    pub grants: Vec<Delivery>,
+    /// A line for the log when the metric was an ask or a return the dog did
+    /// not act on, once for each
+    pub ignored: Option<String>,
 }
 
 /// How many replaced runs the desk remembers per runner, newest kept. A
@@ -108,6 +120,7 @@ impl Desk {
                 let restored = Run {
                     epoch: run.epoch,
                     totals: totals.collect(),
+                    said: BTreeSet::new(),
                 };
                 (run.sheep, restored)
             })
@@ -183,12 +196,18 @@ impl Desk {
     /// Anything that is not a lease metric from a runner is ignored. A new
     /// epoch reclaims what the runner's earlier run held.
     pub fn metric(&mut self, sheep: &str, name: &str, value: f64) -> Vec<Delivery> {
+        self.heard(sheep, name, value).grants
+    }
+
+    /// Takes one channel metric as [`Desk::metric`] does, and says which a
+    /// run's ask or return it did not act on
+    pub fn heard(&mut self, sheep: &str, name: &str, value: f64) -> Heard {
         let (Ok(project), Some(value)) = (ProjectName::try_from(sheep), count(value)) else {
-            return Vec::new();
+            return Heard::default();
         };
         if let Some(fact) = WindowMetric::parse(name) {
             let Some(mut grants) = self.run_of(sheep, &project, fact.epoch) else {
-                return Vec::new();
+                return Heard::default();
             };
             let at = Timestamp(value);
             let window = match fact.fact {
@@ -197,13 +216,16 @@ impl Desk {
                 WindowFact::Quota(per_hour) => self.book.quota(&fact.kind, per_hour, at),
             };
             grants.extend(window);
-            return deliveries(grants);
+            return Heard {
+                grants: deliveries(grants),
+                ignored: None,
+            };
         }
         let Some(metric) = MetricName::parse(name) else {
-            return Vec::new();
+            return Heard::default();
         };
         let Some(mut grants) = self.run_of(sheep, &project, metric.epoch) else {
-            return Vec::new();
+            return Heard::default();
         };
         let run = self.runs.get_mut(sheep).expect("run_of keeps the run");
         let holder = Holder::Runner {
@@ -212,6 +234,7 @@ impl Desk {
         };
         let kind = metric.kind;
         let totals = run.totals.entry(kind.clone()).or_default();
+        let mut ignored = None;
         match metric.total {
             Total::Want if value > totals.want => {
                 totals.want = value;
@@ -228,9 +251,39 @@ impl Desk {
                 totals.give_back = value;
                 grants.extend(self.book.give_back(&kind, &holder));
             }
-            Total::Want | Total::Return => {}
+            // A want repeated while the ask stands is how a runner asks again.
+            Total::Want if value == totals.want && totals.asking() => {}
+            Total::Want => {
+                let recorded = totals.want;
+                let why = match value == recorded {
+                    true => format!(
+                        "the dog recorded {recorded} for this run, and {} given back",
+                        totals.give_back
+                    ),
+                    false => format!("the dog recorded {recorded} for this run"),
+                };
+                ignored = Some((kind, true, value, why));
+            }
+            Total::Return if value == totals.give_back => {}
+            Total::Return => {
+                let why = format!("the dog recorded {} for this run", totals.give_back);
+                ignored = Some((kind, false, value, why));
+            }
         }
-        deliveries(grants)
+        let ignored = ignored.and_then(|(kind, want, value, why)| {
+            let first = run.said.insert((kind.clone(), want, value));
+            let total = if want { "want" } else { "return" };
+            first.then(|| {
+                format!(
+                    "ignored {kind} {total} total {value} from {sheep} run {}: {why}",
+                    metric.epoch.0
+                )
+            })
+        });
+        Heard {
+            grants: deliveries(grants),
+            ignored,
+        }
     }
 
     /// Grants whatever an opened review window now allows
@@ -247,6 +300,7 @@ impl Desk {
         let run = self.runs.entry(sheep.to_owned()).or_insert_with(|| Run {
             epoch,
             totals: BTreeMap::new(),
+            said: BTreeSet::new(),
         });
         if run.epoch == epoch {
             return Some(Vec::new());
@@ -255,6 +309,7 @@ impl Desk {
         *run = Run {
             epoch,
             totals: BTreeMap::new(),
+            said: BTreeSet::new(),
         };
         Some(self.book.reclaim(project, Some(epoch)))
     }
@@ -365,6 +420,15 @@ pub(super) mod tests {
             self.desk.metric(sheep, &name, value)
         }
 
+        // What the dog says of a metric it does not act on, if anything.
+        pub(crate) fn ignored(
+            &mut self,
+            sheep: &str,
+            (name, value): (String, f64),
+        ) -> Option<String> {
+            self.desk.heard(sheep, &name, value).ignored
+        }
+
         pub(crate) fn ask(&mut self, action: &str, params: Option<&str>) -> (Value, Vec<Delivery>) {
             let (body, out) = self.desk.answer(action, params);
             (serde_json::from_str(&body).unwrap(), out)
@@ -437,6 +501,63 @@ pub(super) mod tests {
         }
         assert_eq!(w.raise("koji", want), []);
         assert_eq!(w.book_line()["holder"], json!({ "runner": "koji" }));
+    }
+
+    #[test]
+    fn a_total_below_the_one_recorded_is_said_to_be_ignored_once() {
+        let mut w = world();
+        let mut old = Asker::new(Epoch(101));
+        for _ in 0..3 {
+            let _ = old.want(&stand_in());
+            let _ = old.give_back(&stand_in());
+        }
+        for metric in old.metrics() {
+            w.raise("koji", metric);
+        }
+        // The new image of the run counts from zero.
+        let mut new = Asker::new(Epoch(101));
+        let want = new.want(&stand_in());
+        let said = w.ignored("koji", want.clone());
+        assert_eq!(
+            said.as_deref(),
+            Some(
+                "ignored stand-in want total 1 from koji run 101: \
+                 the dog recorded 3 for this run"
+            )
+        );
+        assert_eq!(w.ignored("koji", want), None, "the same ask is said once");
+    }
+
+    #[test]
+    fn a_want_the_dog_already_has_is_not_said_to_be_ignored() {
+        let mut w = world();
+        let mut koji = Asker::new(Epoch(101));
+        let want = koji.want(&stand_in());
+        assert_eq!(w.ignored("koji", want.clone()), None);
+        assert_eq!(
+            w.ignored("koji", want),
+            None,
+            "an ask repeated while it stands"
+        );
+        for metric in koji.metrics() {
+            assert_eq!(w.ignored("koji", metric), None);
+        }
+    }
+
+    #[test]
+    fn a_repeated_want_after_the_return_is_said_to_be_ignored() {
+        let mut w = world();
+        let mut koji = Asker::new(Epoch(101));
+        let want = koji.want(&stand_in());
+        w.raise("koji", want.clone());
+        w.raise("koji", koji.give_back(&stand_in()));
+        assert_eq!(
+            w.ignored("koji", want).as_deref(),
+            Some(
+                "ignored stand-in want total 1 from koji run 101: \
+                 the dog recorded 1 for this run, and 1 given back"
+            )
+        );
     }
 
     #[test]
