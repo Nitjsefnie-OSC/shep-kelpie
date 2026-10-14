@@ -46,7 +46,8 @@ fn named(name: &str) -> bool {
 // Codex's table for a Claude-shaped entry. Codex expands no `${VAR}` of its own, so an entry that
 // holds one is refused, and a field Codex has no name for is left out.
 fn converted(entry: &Value) -> Result<Table, String> {
-    let has = |field: &str| entry.get(field).is_some();
+    // A JSON `null` names nothing, as a missing field does.
+    let has = |field: &str| !entry[field].is_null();
     let (stdio, text) = match (entry["type"].as_str(), has("command"), has("url")) {
         (Some("stdio"), ..) | (None, true, _) => (true, "command"),
         (Some("http" | "streamable-http"), ..) | (None, false, true) => (false, "url"),
@@ -85,7 +86,7 @@ fn converted(entry: &Value) -> Result<Table, String> {
 
 // A string field, if the entry has it.
 fn string(entry: &Value, field: &str) -> Result<Option<String>, String> {
-    let Some(value) = entry.get(field) else {
+    let Some(value) = entry.get(field).filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let text = value
@@ -95,7 +96,7 @@ fn string(entry: &Value, field: &str) -> Result<Option<String>, String> {
 }
 
 fn list(entry: &Value, field: &str) -> Result<Option<Vec<String>>, String> {
-    let Some(value) = entry.get(field) else {
+    let Some(value) = entry.get(field).filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let items = value
@@ -113,7 +114,7 @@ fn list(entry: &Value, field: &str) -> Result<Option<Vec<String>>, String> {
 }
 
 fn map(entry: &Value, field: &str) -> Result<Option<Table>, String> {
-    let Some(value) = entry.get(field) else {
+    let Some(value) = entry.get(field).filter(|value| !value.is_null()) else {
         return Ok(None);
     };
     let pairs = value
@@ -281,6 +282,8 @@ mod tests {
         assert!(refusal("none", &json!({ "args": [] })).is_some());
         assert!(refusal("odd", &json!({ "command": "/k/s", "env": { "N": 1 } })).is_some());
         assert_eq!(refusal("fine", &json!({ "command": "/k/s" })), None);
+        let nulled = json!({ "command": null, "url": "https://d.example.com", "args": null });
+        assert_eq!(refusal("nulled", &nulled), None);
         for entry in [
             json!({ "command": "/k/s", "args": ["--token", "${DOCS_TOKEN}"] }),
             json!({ "command": "/k/s", "env": { "T": "${DOCS_TOKEN}" } }),
