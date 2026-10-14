@@ -22,7 +22,8 @@
 //! `--after` makes it the PostToolUse hook for `after_command` instead.
 //!
 //! The issue writer's guard is the other way round: [`judge_issues`] runs
-//! only the commands it lists.
+//! only the commands it lists. So does a Codex reviewer's, advisor's and
+//! retro's, [`judge_reading`], which lists only commands that read.
 
 mod after;
 mod gh;
@@ -30,6 +31,7 @@ mod git;
 mod issues;
 mod judging;
 mod pause;
+mod reading;
 mod script;
 mod shell;
 mod wrap;
@@ -40,6 +42,7 @@ pub use issues::{
     judge_issues, judge_issues_with, record_issues,
 };
 pub use pause::{PAUSE_FLAG, Pause, judge_pause, pause_flag};
+pub use reading::{READ_ONLY_COMMANDS, READ_ONLY_FLAG, judge_reading, reading_flag};
 
 use std::fs;
 use std::io::Read;
