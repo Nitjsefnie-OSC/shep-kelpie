@@ -41,9 +41,22 @@ fn a_researchers_fetch_reaches_only_the_hosts_its_policy_lists() {
         let reply = said(&curl(&world, &call, &forwarder, &["--noproxy", "", url]));
         reply.contains("blocked by network allowlist") && reply.ends_with("[403]")
     };
-    // The project's host, and the one search host.
-    assert!(!refused("http://example.com/"));
-    assert!(!refused(&format!("http://{SEARCH_HOST}/")));
+    // The project's host, and the one search host: the proxy let the request out, so the host
+    // answered with a status of its own (`curl` prints `[000]` when nothing answered).
+    let reached = |url: &str| {
+        let reply = said(&curl(&world, &call, &forwarder, &["--noproxy", "", url]));
+        let status = reply.rsplit('[').next().and_then(|s| s.strip_suffix(']'));
+        let status: u16 = status.and_then(|s| s.parse().ok()).unwrap_or(0);
+        !reply.contains("blocked by network allowlist") && (100..400).contains(&status)
+    };
+    assert!(
+        reached("http://example.com/"),
+        "example.com was not reached"
+    );
+    assert!(
+        reached(&format!("http://{SEARCH_HOST}/")),
+        "the search host was not reached"
+    );
     // Any other, a host a fetch could be sent to included.
     for url in [
         "http://example.org/",

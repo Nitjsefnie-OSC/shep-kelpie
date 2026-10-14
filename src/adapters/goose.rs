@@ -4,16 +4,16 @@
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
 //! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no extension: the model is offered no tool, so it reads
-//! what kelpie wrote it and answers. A worker is offered goose's `developer`
+//! researcher is loaded no builtin extension: the model is offered no shell or
+//! file tool, so it reads what kelpie wrote it and answers, with the web of its
+//! MCP server where the package is installed ([`web`]). A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
 //! no read tool, so they read the repo through a `shell` that runs only what
 //! reads, and they write no file. A call also loads the MCP servers of the repo,
 //! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
-//! hook lets those servers' tools through. A researcher's web is one such server,
-//! [`web`]. The sandbox
+//! hook lets those servers' tools through. The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
