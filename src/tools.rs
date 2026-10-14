@@ -3,13 +3,15 @@
 //! `shep kelpie tools install` fills the folder with the sandbox runtime every
 //! agent runs in, at the version [`PACKAGE`] pins, and on macOS a copy of it
 //! with the keychain's services cut from its profile. It also fetches the code
-//! graph server, at the release [`graph::RELEASE`] pins. The packages pi loads
+//! graph server, at the release [`graph::RELEASE`] pins, and Chromium for the
+//! Playwright MCP server a worker's browser runs. The packages pi loads
 //! as extensions, and the MCP server a researcher on goose has its web from, come with the
 //! runtime, from the same `package.json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod browser;
 mod goose_packages;
 mod graph;
 mod pi_packages;
@@ -59,6 +61,7 @@ impl Tools {
         if cfg!(target_os = "macos") {
             self.block_keychain()?;
         }
+        self.install_browser()?;
         if !self.install_code_graph()? {
             eprintln!(
                 "the code graph server has no build for this machine, so projects that turn \
@@ -318,6 +321,7 @@ const lines = [
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["dependencies"][PI_WEB_ACCESS], "0.40.0", "{text}");
         assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.77", "{text}");
+        assert_eq!(json["dependencies"]["@playwright/mcp"], "0.0.82", "{text}");
     }
 
     // The web server a goose researcher runs is a third party's, so the install is of the
