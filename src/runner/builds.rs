@@ -305,18 +305,28 @@ impl Runner {
         self.notes.push(note);
     }
 
-    // Why the current work item's due turn must not start: it ran past a limit
-    // and a reading still finds one passed, or cannot tell. Reads afresh when
-    // the last reading is a minute old.
+    // Why the current work item's due turn must not start: the disk is under
+    // its floor, or the item ran past a limit and a reading still finds one
+    // passed, or cannot tell. Reads afresh when the last reading is a minute
+    // old. The folder is read only for an item just pruned, or one not seen
+    // since the runner started, since the disk is what every item shares.
     pub(super) fn builds_hold(&mut self) -> Option<Reason> {
         let item = self.current()?;
         let (issue, build) = (item.issue, item.build.clone());
         let now = self.ports.clock.now();
         let limits = self.settings.builds;
-        let watch = self.builds.items.get(&issue).filter(|w| w.pruned)?;
-        if watch.due(now) {
+        let seen = self.builds.items.get(&issue);
+        let with_folder = seen.is_none_or(|w| w.pruned) && build.is_dir();
+        if seen.is_none_or(|w| w.due(now)) {
+            let asked = Builds {
+                max_gb: if with_folder { limits.max_gb } else { 0 },
+                ..limits
+            };
             let disk = self.ports.disk.as_ref();
-            let (reading, failed) = measure(disk, limits, &build, &self.paths.kelpie_home);
+            let (mut reading, failed) = measure(disk, asked, &build, &self.paths.kelpie_home);
+            reading.folder = reading
+                .folder
+                .or_else(|| seen.and_then(|w| w.reading.folder));
             self.record_build(issue, now, reading, failed);
         }
         let watch = self.builds.items.get_mut(&issue)?;

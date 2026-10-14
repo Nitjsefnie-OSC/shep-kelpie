@@ -295,3 +295,47 @@ fn a_failed_measurement_is_told_again_after_one_that_worked() {
     tool.release();
     driven.landed();
 }
+
+#[test]
+fn a_disk_under_the_floor_holds_every_item_that_would_start_a_turn() {
+    let (rig, runner) = two_open("shep");
+    rig.disk.set_free(5 * GB);
+    let driven = Driven::new(&runner);
+
+    assert!(idle(&driven));
+
+    assert!(
+        rig.claude.calls().is_empty(),
+        "a turn started on a full disk"
+    );
+    let status = rig.ask(&runner, "status", None);
+    for item in status["work_items"].as_array().unwrap() {
+        let because = item["held_up"]["because"].as_str().unwrap();
+        assert!(because.contains("`builds.min_free_gb`"), "{because}");
+    }
+}
+
+#[test]
+fn a_restarted_runner_reads_the_folder_before_it_starts_a_paused_turn() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, build) = mid_tool(&rig, &driven);
+    rig.ask(&runner, "drain", Some("pause"));
+    tool.release();
+    assert_eq!(driven.landed(), None);
+    drop(driven);
+    for n in 0..22 {
+        write_in(&build, &format!("kept{n}.txt"), "the worker's own files");
+    }
+    rig.disk.set_per_file(GB);
+
+    drop(runner);
+    let runner = rig.open().unwrap();
+    let driven = Driven::new(&runner);
+
+    assert!(idle(&driven));
+    assert_eq!(rig.claude.calls().len(), 1, "the turn started over the cap");
+    let status = rig.ask(&runner, "status", None);
+    let because = status["work_item"]["held_up"]["because"].as_str().unwrap();
+    assert!(because.contains("`builds.max_gb`"), "{because}");
+}
