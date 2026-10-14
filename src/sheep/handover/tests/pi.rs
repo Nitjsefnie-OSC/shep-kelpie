@@ -271,6 +271,13 @@ fn two_part_server() -> (String, mpsc::Sender<()>) {
 
 #[test]
 fn a_handover_waits_out_a_reply_the_forwarder_is_relaying() {
+    waits_out_a_relayed_reply();
+}
+
+// A forwarder relaying a model's reply holds a handover until the reply ends.
+// The forwarder is the same type for every harness that has one, so goose's
+// test runs this too.
+pub(super) fn waits_out_a_relayed_reply() {
     let rig = Rig::new("shep");
     let hold = Hold::default();
     let (url, go) = two_part_server();

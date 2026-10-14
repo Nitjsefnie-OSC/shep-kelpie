@@ -24,24 +24,29 @@ use self::output::Spent;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
+use super::pi::adopt::{Carried, kept_server};
 use super::pi::{deny_the_server, step_skill};
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Policy, Role,
-    Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Kept,
+    Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
+mod adopt;
 mod files;
 pub(crate) mod hooks;
 mod output;
 
 #[cfg(test)]
 mod activity_tests;
+
+#[cfg(test)]
+mod adopt_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -84,6 +89,8 @@ pub struct GooseCli {
     // What a call with no fence may not read: the shepherd's home
     unfenced_no_read: Vec<String>,
     gateways: Gateways,
+    // What each running call keeps in memory that a handover must carry
+    carried: Carried,
 }
 
 impl ClaudeCli {
@@ -97,6 +104,7 @@ impl ClaudeCli {
             sandbox: Arc::clone(&self.sandbox),
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
+            carried: Carried::default(),
         }
     }
 }
@@ -154,7 +162,16 @@ impl Agents for GooseCli {
         };
         let output = self.leased(call, ending, |lease| {
             // The forwarder stays until the call has ended.
-            let (mut command, _forwarder) = self.sandboxed_command(call, lease)?;
+            let (mut command, forwarder) = self.sandboxed_command(call, lease)?;
+            let _noted = self.carried.note(
+                call,
+                Kept {
+                    forwarder: forwarder.socket.clone(),
+                    server: kept_server(&server(call)?.host),
+                    session: id.clone(),
+                    lease: lease.map(str::to_owned),
+                },
+            );
             (self.processes)
                 .output_of_call(&mut command, call, ending, &spawned)
                 .map_err(|e| match e {
@@ -169,6 +186,14 @@ impl Agents for GooseCli {
             files.keep(id, spent)?;
         }
         read.reply
+    }
+
+    fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
+        self.adoption_of(call)
+    }
+
+    fn adopt(&self, adopted: &Adopted, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.adopt_call(adopted, ending)
     }
 
     // goose keeps its sessions in SQLite, which cannot be tailed. The call's

@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use shep_handover::HandOverError;
+
 use super::super::{Hooks, JOIN_BOUND, Worker};
 use super::*;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
@@ -295,6 +297,27 @@ fn a_build_that_starts_with_no_feed_going_is_carryable() {
     assert_eq!(fitness(&build, &[], true, &|| false), Verdict::Carryable);
 }
 
+#[test]
+fn the_probe_refuses_a_target_that_reads_only_format_3_when_a_goose_turn_is_carried() {
+    let rig = Rig::new("shep");
+    // A build from before goose turns crossed: it reads `Carry` as format 3.
+    let before_goose = build(
+        &rig,
+        "[ \"$SHEP_PROCESS_HANDOVER_PROBE\" = 3 ] && exit 94; exit 95",
+    );
+
+    let refused = Handover::new(&Carry { turns: Vec::new() })
+        .target(&before_goose)
+        .exec(&|_: &Path| Verdict::Carryable)
+        .unwrap_err();
+
+    assert!(
+        matches!(refused, HandOverError::Format { format: 4, .. }),
+        "{refused}"
+    );
+}
+
 mod codex;
 mod exec;
+mod goose;
 mod pi;
