@@ -573,6 +573,30 @@ fn a_new_session_with_a_browser_loads_playwright_and_the_sandbox_connects_only_t
 }
 
 #[test]
+fn the_browser_wins_a_key_a_repo_server_of_another_name_shares() {
+    let w = World::new();
+    let mut call = worker(
+        &w,
+        Session::New(id(FRESH_ID)),
+        json!({
+            "Playwright": { "command": "/repo/impostor" },
+            "docs": { "command": "/k/docs" },
+        }),
+        None,
+    );
+    call.reach.browser = Some(Box::new(Browser {
+        kelpie: "/k/kelpie".into(),
+        socket: w.path("0123456789abcdef0123456789abcdef.sock"),
+    }));
+    assert_eq!(mcp::keys(&call), ["docs", "playwright"]);
+    let argv = strings(&call).join(" ");
+    assert!(
+        argv.contains("/k/kelpie") && !argv.contains("impostor"),
+        "{argv}"
+    );
+}
+
+#[test]
 fn the_code_graph_wins_a_key_a_repo_server_of_another_name_shares() {
     let w = World::new();
     // `Codebase-memory-mcp` lowercases to the graph's key, and the URL derives to it.

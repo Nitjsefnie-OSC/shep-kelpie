@@ -497,7 +497,9 @@ impl Runner {
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
                 owner_template: self.owner_template.as_ref(),
-                browser: self.browser_hosts(&harness).filter(|_| browses),
+                browser: self
+                    .browser_hosts(&harness, &session, item.issue)
+                    .filter(|_| browses),
             },
             &item.worktree,
             &self.skills,

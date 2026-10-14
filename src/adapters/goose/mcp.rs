@@ -66,7 +66,7 @@ pub(super) struct Loaded {
     flag: [String; 2],
 }
 
-/// The flags that add the call's servers to a new session, one per server, the code graph last
+/// The flags that add the call's servers to a new session, one per server, the browser and the code graph last
 ///
 /// A resumed session is given none: it already holds the set it began with.
 pub(super) fn flags(call: &AgentCall) -> Vec<OsString> {
@@ -106,22 +106,30 @@ pub(super) fn loads(call: &AgentCall, files: &Files) -> bool {
     held(call, files).is_ok_and(|held| !held.is_empty())
 }
 
-// The servers goose can load, in the order of their flags. The code graph is last and wins a key
-// it shares with a repo server, whatever that server is named. goose ends the run over a key
-// used twice, so the later of two other servers that share one is left out.
+// The servers goose can load, in the order of their flags. The browser and the code graph come
+// last, the graph at the very end, and win a key they share with a repo server, whatever that
+// server is named. goose ends the run over a key used twice, so the later of two other servers
+// that share one is left out.
 pub(super) fn loaded(call: &AgentCall) -> Vec<Loaded> {
     let mut all = servers(call);
-    let graph = match call.reach.code_graph {
-        Some(_) => all
-            .remove(SERVER)
-            .and_then(|entry| converted(SERVER, &entry).ok()),
-        None => None,
+    let mut ours = |present: bool, name: &str| {
+        let entry = if present {
+            all.remove(name)?
+        } else {
+            return None;
+        };
+        converted(name, &entry).ok()
     };
-    let mut taken: HashSet<String> = graph.iter().map(|g| g.key.clone()).collect();
+    let browser = ours(call.reach.browser.is_some(), crate::bridge::SERVER);
+    let graph = ours(call.reach.code_graph.is_some(), SERVER);
+    let mut taken: HashSet<String> = (graph.iter().chain(&browser))
+        .map(|g| g.key.clone())
+        .collect();
     let mut loaded: Vec<Loaded> = (all.into_iter())
         .filter_map(|(name, entry)| converted(&name, &entry).ok())
         .filter(|server| taken.insert(server.key.clone()))
         .collect();
+    loaded.extend(browser);
     loaded.extend(graph);
     loaded
 }

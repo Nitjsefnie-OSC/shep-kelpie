@@ -1,7 +1,7 @@
 //! A worker turn on a project with a browser is given one, and no other call is
 
 use super::*;
-use crate::ports::{CLEAN, Role};
+use crate::ports::{CLEAN, Role, Session};
 use crate::settings::AgentHarness;
 
 const OFF: &str = "[app.dogs.kelpie.browser]\nenabled = false\nheaded = false\ndomains = []";
@@ -116,6 +116,63 @@ fn a_goose_worker_turn_on_a_project_with_the_browser_on_gets_one_and_is_told_of_
     assert!(matches!(worker.call.harness, AgentHarness::Goose(_)));
     assert!(worker.call.reach.browser.is_some());
     assert!(instructions_of(worker).contains("`playwright` MCP server"));
+}
+
+// Runs a goose worker's turn, kills the runner in it, and resumes the turn in a new runner. Says
+// the session of each of the two calls and whether it had a browser and was told of one.
+fn goose_turn_killed_and_resumed(
+    rig: &Rig,
+    install_before_resuming: bool,
+) -> Vec<(Session, bool, bool)> {
+    let agent = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                 url: http://box:11434/v1\ncontext: 65536\n---\nWork.\n";
+    rig.write_agent("goose-box", agent);
+    rig.implementers(&["goose-box"]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Kill]);
+    let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| step(&runner)));
+    assert!(killed.is_err(), "the scripted kill did not happen");
+    drop(runner);
+    if install_before_resuming {
+        install(rig);
+    }
+    let runner = rig.open().unwrap();
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    (rig.claude.seen().iter())
+        .map(|s| {
+            (
+                s.call.session.clone(),
+                s.call.reach.browser.is_some(),
+                instructions_of(s).contains("`playwright` MCP server"),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_resumed_goose_session_that_began_without_a_browser_is_given_none_and_told_of_none() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    let calls = goose_turn_killed_and_resumed(&rig, true);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(matches!(calls[0].0, Session::New(_)));
+    assert!(matches!(calls[1].0, Session::Resume(_)), "{calls:?}");
+    assert!(!calls[0].1);
+    assert_eq!((calls[1].1, calls[1].2), (false, false), "{calls:?}");
+}
+
+#[test]
+fn a_resumed_goose_session_that_began_with_a_browser_is_given_one_again() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let calls = goose_turn_killed_and_resumed(&rig, false);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(matches!(calls[1].0, Session::Resume(_)), "{calls:?}");
+    assert_eq!((calls[0].1, calls[0].2), (true, true));
+    assert_eq!((calls[1].1, calls[1].2), (true, true), "{calls:?}");
 }
 
 #[test]
