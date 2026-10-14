@@ -1,0 +1,159 @@
+// A Codex worker's session in the maintainer's terminal: the worker's sandbox,
+// overrides and hooks, with the maintainer at the prompt.
+
+use std::ffi::OsStr;
+use std::process::Command;
+
+use super::tests::{THREAD, WORKER_ID, World, id, strings};
+use super::*;
+use crate::test::OpenSandbox;
+
+fn codex_in(world: &World, sandbox: &OpenSandbox) -> CodexCli {
+    ClaudeCli::default()
+        .sandboxed(Arc::new(sandbox.clone()), world.path("home"))
+        .codex(world.path("login"))
+}
+
+// A worker's call whose Codex session kelpie has recorded, ready to resume.
+fn resumable(world: &World, codex: &CodexCli) -> AgentCall {
+    let mut call = world.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
+    call.instructions = Some(world.path("instructions.md"));
+    std::fs::write(world.path("instructions.md"), "Be brief.").unwrap();
+    codex.prepare(&call).unwrap();
+    let thread = Thread {
+        id: THREAD.into(),
+        spent: Spent::default(),
+        context: None,
+        compact: false,
+    };
+    save_thread(&Files::of(&call), &id(WORKER_ID), &thread).unwrap();
+    call
+}
+
+fn args_of(command: &Command) -> Vec<String> {
+    command
+        .get_args()
+        .map(|a| a.to_str().unwrap().to_owned())
+        .collect()
+}
+
+// The value of each `-c` in `argv`, in order.
+fn overrides(argv: &[String]) -> Vec<&str> {
+    argv.windows(2)
+        .filter(|w| w[0] == "-c")
+        .map(|w| w[1].as_str())
+        .collect()
+}
+
+fn env_of<'a>(command: &'a Command, name: &str) -> Option<&'a OsStr> {
+    command
+        .get_envs()
+        .find(|(n, _)| *n == OsStr::new(name))
+        .and_then(|(_, v)| v)
+}
+
+#[test]
+fn a_codex_session_for_the_terminal_resumes_in_the_workers_sandbox() {
+    let w = World::new();
+    let sandbox = OpenSandbox::default();
+    let codex = codex_in(&w, &sandbox);
+    let call = resumable(&w, &codex);
+
+    let command = codex.foreground(&call).unwrap();
+
+    let args = args_of(&command);
+    assert_eq!(command.get_program(), "codex");
+    assert_eq!(args[0], "resume");
+    assert_eq!(args[args.len() - 2..], ["--", THREAD]);
+    let pair = |a: &str, b: &str| args.windows(2).any(|w| w == [a, b]);
+    assert!(pair("--model", "gpt-6-sol"), "{args:?}");
+    assert!(pair("--sandbox", "danger-full-access"), "{args:?}");
+    assert!(pair("--ask-for-approval", "untrusted"), "{args:?}");
+    assert!(args.iter().any(|a| a == "--dangerously-bypass-hook-trust"));
+    let set = overrides(&args);
+    for key in [
+        "model_reasoning_effort=\"medium\"",
+        "web_search=\"disabled\"",
+        "developer_instructions=\"Be brief.\"",
+    ] {
+        assert!(set.contains(&key), "{key} in {set:?}");
+    }
+    for key in ["sqlite_home=", "log_dir=", "hooks.PreToolUse="] {
+        assert!(set.iter().any(|c| c.starts_with(key)), "{key} in {set:?}");
+    }
+    for headless in [
+        "exec",
+        "--json",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--dangerously-bypass-approvals-and-sandbox",
+    ] {
+        assert!(!args.iter().any(|a| a == headless), "{headless}: {args:?}");
+    }
+    let home = w.path("worker/settings.codex");
+    assert_eq!(env_of(&command, "CODEX_HOME"), Some(home.as_os_str()));
+    let scratch = w.path("worker/settings.tmp");
+    assert_eq!(env_of(&command, "TMPDIR"), Some(scratch.as_os_str()));
+    assert_eq!(command.get_current_dir(), Some(w.path("wt").as_path()));
+
+    codex.sandboxed_command(&call).unwrap();
+    let wrapped = sandbox.wrapped();
+    assert_eq!(
+        wrapped[0], wrapped[1],
+        "the terminal is held to the headless call's policy"
+    );
+}
+
+#[test]
+fn a_session_kelpie_never_started_is_refused() {
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let call = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
+    codex.prepare(&call).unwrap();
+
+    let err = codex.foreground(&call).unwrap_err();
+
+    assert_eq!(err, AgentError::NoSession(Harness::Codex, id(WORKER_ID)));
+}
+
+#[test]
+fn the_terminal_and_the_headless_call_share_their_overrides() {
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let mut call = resumable(&w, &codex);
+    call.compact_window = std::num::NonZeroU32::new(100_000);
+    let thread = thread(&Files::of(&call), &id(WORKER_ID)).unwrap().unwrap();
+
+    let terminal = args_of(&codex.foreground(&call).unwrap());
+    let headless = strings(&call, Some(&thread), Some("Be brief."));
+
+    assert_eq!(overrides(&terminal), overrides(&headless));
+    assert!(
+        overrides(&terminal)
+            .iter()
+            .any(|c| c.starts_with("model_auto_compact_token_limit=")),
+        "the shared list carries the compact window"
+    );
+    let features = |argv: &[String]| -> Vec<String> {
+        argv.windows(2)
+            .filter(|w| w[0] == "--disable")
+            .map(|w| w[1].clone())
+            .collect()
+    };
+    assert_eq!(features(&terminal), features(&headless));
+}
+
+#[test]
+fn a_prompt_is_the_first_message_of_the_resumed_session() {
+    let w = World::new();
+    let codex = codex_in(&w, &OpenSandbox::default());
+    let mut call = resumable(&w, &codex);
+    call.prompt = "pick up where you left off".into();
+
+    let args = args_of(&codex.foreground(&call).unwrap());
+
+    assert_eq!(
+        args[args.len() - 3..],
+        ["--", THREAD, "pick up where you left off"]
+    );
+}

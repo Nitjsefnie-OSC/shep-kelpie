@@ -1,12 +1,12 @@
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
-use crate::ports::Checks;
+use crate::ports::{AgentCall, AgentError, AgentReply, Agents, Checks, Ending};
 use crate::runner::{Pass, Runner, StepReport, advance, step};
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git, write_in};
+use crate::test::{CALL_PATIENCE, FakeClaude, Hold, Rig, Scripted, git, write_in};
 use crate::work_item::{Attached, Holder};
 
 const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
@@ -16,6 +16,15 @@ const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffor
 fn on_pi(rig: &Rig) {
     rig.write_agent("pi-box", PI);
     rig.implementers(&["pi-box"]);
+}
+
+const CODEX: &str =
+    "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neffort: medium\n---\n";
+
+// Settings that run issue 7 on Codex
+fn on_codex(rig: &Rig) {
+    rig.write_agent("gpt", CODEX);
+    rig.implementers(&["gpt"]);
 }
 
 // A process that lives until dropped, standing in for `shep kelpie attach`
@@ -235,24 +244,53 @@ fn an_item_with_no_session_or_parked_on_a_ruling_says_what_to_do_and_stays_as_it
 }
 
 #[test]
-fn a_worker_on_another_harness_is_refused() {
-    let rig = Rig::new("reactmap");
-    rig.write_agent(
-        "gpt",
-        "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neffort: medium\n---\n",
+fn a_codex_worker_is_attached() {
+    let (rig, runner, _) = Rig::with_pull_request_set("reactmap", on_codex);
+    let session = rig.claude.calls()[0].session.id().clone();
+    let me = Live::new();
+    let answer = attach(&rig, &runner, me.pid());
+    assert_eq!(answer["attach"], "ready", "{answer}");
+    assert_eq!(
+        rig.claude.terminals_started(),
+        std::slice::from_ref(&session)
     );
-    rig.implementers(&["sonnet-high", "gpt"]);
-    rig.forge.label(7, "agent:gpt");
-    let runner = rig.open().unwrap();
+    assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
+
+    detach(&rig, &runner, me.pid());
+    assert_eq!(rig.claude.terminals_ended(), std::slice::from_ref(&session));
+}
+
+// The stand-in's calls, with the port's own `foreground`, as a harness that
+// cannot run in a terminal has
+struct NoTerminal(FakeClaude);
+
+impl Agents for NoTerminal {
+    fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
+        self.0.prepare(call)
+    }
+
+    fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
+        self.0.run(call, ending)
+    }
+}
+
+#[test]
+fn a_harness_that_cannot_run_in_a_terminal_is_refused_with_its_ports_reason() {
+    let rig = Rig::new("reactmap");
+    on_codex(&rig);
+    let runner = rig
+        .open_agents(Arc::new(NoTerminal(rig.claude.clone())))
+        .unwrap();
     rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Say("done")]);
+    step(&runner).unwrap();
+
     let me = Live::new();
     let refused = attach(&rig, &runner, me.pid());
-    let why = refused["error"].as_str().unwrap();
-    assert!(
-        why.starts_with(
-            "the worker on #7 runs on codex, and only a Claude Code or pi session can be attached"
-        ),
-        "{why}"
+
+    assert_eq!(
+        refused,
+        json!({ "error": "cannot ready #7's session: kelpie cannot start a codex session in a terminal" })
     );
     assert_eq!(attached(&rig, &runner), Value::Null);
 }

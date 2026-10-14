@@ -37,6 +37,7 @@ use crate::ports::{
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
+mod attach;
 mod context;
 pub(crate) mod mcp;
 mod reading;
@@ -44,6 +45,9 @@ mod skills;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod context_tests;
@@ -236,6 +240,10 @@ impl Agents for CodexCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         written_at(&Files::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
 }
 
 // Reads what the ended call left and writes its thread record, so its tokens
@@ -286,6 +294,22 @@ impl CodexCli {
                 None => return Err(AgentError::NoSession(CODEX, id.clone())),
             },
         };
+        let instructions = instructions(call)?;
+        self.in_sandbox(
+            call,
+            &files,
+            argv(call, &files.home, resumed.as_ref(), instructions.as_deref())?,
+        )
+    }
+
+    // `argv` run as the call: Codex's home and scratch folder, the fence's
+    // environment, and the call's sandbox around it.
+    fn in_sandbox(
+        &self,
+        call: &AgentCall,
+        files: &Files,
+        argv: Vec<OsString>,
+    ) -> Result<Command, AgentError> {
         let setup = |what: &Path, e: std::io::Error| {
             AgentError::Setup(format!("cannot make {}: {}", what.display(), e.kind()))
         };
@@ -296,20 +320,9 @@ impl CodexCli {
             _ => {}
         }
         std::fs::create_dir_all(&files.scratch).map_err(|e| setup(&files.scratch, e))?;
-        let instructions = match &call.instructions {
-            Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
-                AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind()))
-            })?),
-            None => None,
-        };
         let mut command = crate::spawn::command(&self.program);
         command
-            .args(argv(
-                call,
-                &files.home,
-                resumed.as_ref(),
-                instructions.as_deref(),
-            )?)
+            .args(argv)
             .current_dir(&call.cwd)
             .env("CODEX_HOME", &files.home)
             .env("TMPDIR", &files.scratch)
@@ -320,12 +333,24 @@ impl CodexCli {
         }
         self.sandbox
             .wrap(
-                &policy(call, &self.login, &files, &self.unfenced_no_read),
+                &policy(call, &self.login, files, &self.unfenced_no_read),
                 &files.sandbox_settings,
                 &command,
             )
             .map_err(|e| AgentError::Setup(e.to_string()))
     }
+}
+
+// The developer instructions the call carries, read from their file.
+fn instructions(call: &AgentCall) -> Result<Option<String>, AgentError> {
+    call.instructions
+        .as_ref()
+        .map(|path| {
+            std::fs::read_to_string(path).map_err(|e| {
+                AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind()))
+            })
+        })
+        .transpose()
 }
 
 /// Fails a call that names another harness
@@ -535,6 +560,25 @@ fn argv(
         .map(OsString::from),
     );
     argv.push(call.model.as_str().into());
+    argv.extend(overrides(call, home, resumed, instructions));
+    argv.push("--".into());
+    if let Some(thread) = resumed {
+        argv.push(thread.id.as_str().into());
+    }
+    argv.push(reading::told(call, prompt(call)?).into());
+    Ok(argv)
+}
+
+// What a call changes in Codex, as `-c` overrides and features turned off, for
+// the headless call and the terminal session alike, so the terminal holds the
+// worker to what its calls are held to.
+fn overrides(
+    call: &AgentCall,
+    home: &Path,
+    resumed: Option<&Thread>,
+    instructions: Option<&str>,
+) -> Vec<OsString> {
+    let mut argv: Vec<OsString> = Vec::new();
     argv.extend(
         [
             // Codex's levels share Claude Code's names; a model refuses one it lacks.
@@ -585,12 +629,7 @@ fn argv(
     if let Some(after) = after {
         argv.extend(["-c".into(), config("hooks.PostToolUse", after)]);
     }
-    argv.push("--".into());
-    if let Some(thread) = resumed {
-        argv.push(thread.id.as_str().into());
-    }
-    argv.push(reading::told(call, prompt(call)?).into());
-    Ok(argv)
+    argv
 }
 
 /// Whether the call is a worker's, whose shell opens a step's `SKILL.md`

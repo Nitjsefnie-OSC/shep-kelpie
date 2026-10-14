@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use super::Runner;
 use super::trigger::WhichItem;
 use crate::ports::{Role, Session, SessionId};
-use crate::settings::Harness;
 use crate::state::StateError;
 use crate::terminal::Foreground;
 use crate::work_item::{Attached, Holder, Phase, Review, Seat, Turn, WorkItem};
@@ -66,8 +65,6 @@ pub enum AttachError {
     /// The work item holds no slot under `concurrency.active_items`, which its worker's
     /// session needs, and none is free for it
     NoSlot(u64),
-    /// The worker runs on a harness whose sessions resume another way
-    Harness(u64, Harness, SessionId),
     /// Another live process holds the work item
     Held(u64, u32),
     /// `detach`, or a session's pid, came from a process other than the
@@ -108,15 +105,6 @@ impl fmt::Display for AttachError {
                 "the work item for #{issue} holds no slot under `concurrency.active_items`, which its \
                  worker's session needs, and none is free: `shep kelpie attach {issue}` \
                  works once another work item ends or parks and frees one"
-            ),
-            Self::Harness(issue, harness, session) => write!(
-                f,
-                "the worker on #{issue} runs on {}, and only a Claude Code or pi session \
-                 can be attached: pause the project (`shep kelpie pause`) and resume session {} \
-                 with {} by hand",
-                harness.as_str(),
-                session.0,
-                harness.command()
             ),
             Self::Held(issue, pid) => write!(
                 f,
@@ -268,13 +256,8 @@ impl Runner {
     // has a session waits for a call in flight to end.
     fn refusal(&self, item: &WorkItem, flying: bool) -> Option<AttachError> {
         let issue = item.issue;
-        let harness = match self.worker_agent(item) {
-            Ok(agent) => agent.harness.harness(),
-            Err(why) => return Some(AttachError::Setup(issue, why)),
-        };
-        // parity: harness.attach
-        if !matches!(harness, Harness::ClaudeCode | Harness::Pi) {
-            return Some(AttachError::Harness(issue, harness, item.session.clone()));
+        if let Err(why) = self.worker_agent(item) {
+            return Some(AttachError::Setup(issue, why));
         }
         match item.phase {
             Phase::Ruling { id } => return Some(AttachError::Ruling(issue, id)),
