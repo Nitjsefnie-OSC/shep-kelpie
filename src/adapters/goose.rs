@@ -4,8 +4,9 @@
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
 //! call's settings, so the maintainer's own goose setup never loads. A
-//! researcher is loaded no extension but `skills`: the model is offered no
-//! tool, so it reads what kelpie wrote it and answers. A worker is offered goose's `developer`
+//! researcher is loaded no extension but `skills`, which lists the skills and
+//! offers `load_skill`; goose's `chat` mode rejects a tool call, so it reads what
+//! kelpie wrote it and answers. A worker is offered goose's `developer`
 //! extension, and every tool call it makes goes through a `PreToolUse` hook
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
@@ -413,9 +414,11 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
 
 // Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. goose
 // runs a skill it is given as `/<name> <rest>`, so a prompt that names one of
-// the call's skills is that command ([`skills::prompt`]).
+// the call's skills is that command ([`skills::prompt`]), or the skill's text
+// where the call has no tool to load it with.
 fn prompt(call: &AgentCall) -> String {
-    skills::prompt(call).unwrap_or_else(|| call.prompt.clone())
+    let offers_tools = has_shell(call) || !mcp::keys(call).is_empty();
+    skills::prompt(call, offers_tools).unwrap_or_else(|| call.prompt.clone())
 }
 
 // goose takes its system prompt as text, not as a path.

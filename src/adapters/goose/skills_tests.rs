@@ -260,6 +260,32 @@ fn a_step_prompt_runs_as_goose_s_slash_command_with_the_rest_after_it() {
 }
 
 #[test]
+fn a_step_skill_with_a_placeholder_is_sent_as_its_text_to_a_call_with_no_tool_to_load_it() {
+    let w = World::new();
+    let text = "---\nname: implement\ndescription: Does it.\n---\nDo this: $ARGUMENTS\n";
+    let mut call = with_plugins(&w, vec![implement(&w, text)]);
+    call.tools = Tools::Research;
+    call.prompt = "/mattpocock:implement Fix it, it's \"broken".into();
+
+    assert_eq!(
+        text_of(&call),
+        "Do this: $ARGUMENTS\n\nARGUMENTS: Fix it, it's \"broken"
+    );
+    // A call with a shell loads the skill itself and keeps the prompt as written.
+    call.tools = Tools::Work;
+    assert_eq!(text_of(&call), call.prompt);
+}
+
+#[test]
+fn a_step_skill_named_like_a_goose_command_keeps_the_prompt_as_written() {
+    let w = World::new();
+    let mut call = with_plugins(&w, vec![implement(&w, &named("Help"))]);
+    call.prompt = "/mattpocock:implement go".into();
+
+    assert_eq!(text_of(&call), call.prompt);
+}
+
+#[test]
 fn a_step_skill_with_an_arguments_placeholder_keeps_the_prompt_as_written() {
     let w = World::new();
     let written = "/mattpocock:implement Implement issue #7, it's \"broken";

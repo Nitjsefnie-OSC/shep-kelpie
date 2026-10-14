@@ -31,6 +31,26 @@ const NO_READ: [&str; 3] = [
     "~/.config/agents/skills/**",
 ];
 
+/// The first messages goose runs as a command of its own, which a skill of the
+/// same name would not get, a superset of what 1.54.0 holds because the list
+/// could not be read from the source here (#798 settles it)
+const COMMANDS: [&str; 14] = [
+    "help",
+    "exit",
+    "quit",
+    "prompts",
+    "prompt",
+    "compact",
+    "summarize",
+    "clear",
+    "skills",
+    "doctor",
+    "mode",
+    "plan",
+    "endplan",
+    "extension",
+];
+
 /// The skills goose lists unless a discovered skill has the name, with the
 /// description a stub of each gives
 const STUBS: [(&str, &str); 2] = [
@@ -125,17 +145,44 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
 /// runs `/<name> <rest>` itself: the model gets the skill's text and then
 /// `ARGUMENTS: <rest>`. It splits `<rest>` like a shell when the skill's text
 /// holds a placeholder, and a quote in it that never closes ends the turn with
-/// no model call, so such a skill keeps the prompt as written and the model
-/// loads it with `load_skill`. `None` leaves the prompt as it is, as it does
-/// for a skill no plugin holds.
-pub(super) fn prompt(call: &AgentCall) -> Option<String> {
+/// no model call. Such a skill keeps the prompt as written, and the model loads
+/// it with `load_skill`, when the call `offers_tools`. A call that offers none
+/// cannot load it, so its prompt is the skill's text, then `ARGUMENTS: <rest>`,
+/// as goose would give it without the split.
+///
+/// `None` leaves the prompt as it is, as it does for a skill no plugin holds
+/// and for a skill named like one of goose's own commands ([`COMMANDS`]), which
+/// goose would run in the skill's place.
+pub(super) fn prompt(call: &AgentCall, offers_tools: bool) -> Option<String> {
     let step = step_skill(call)?;
     let name = name_of(&step.dir)?;
-    let text = std::fs::read_to_string(step.dir.join("SKILL.md")).ok()?;
-    if has_placeholder(&text) {
+    if COMMANDS.contains(&name.to_ascii_lowercase().as_str()) {
         return None;
     }
-    Some(format!("/{name} {}", step.rest).trim_end().to_owned())
+    let text = std::fs::read_to_string(step.dir.join("SKILL.md")).ok()?;
+    if !has_placeholder(&text) {
+        return Some(format!("/{name} {}", step.rest).trim_end().to_owned());
+    }
+    if offers_tools {
+        return None;
+    }
+    let body = body_of(&text);
+    Some(
+        format!("{body}\n\nARGUMENTS: {}", step.rest)
+            .trim_end()
+            .to_owned(),
+    )
+}
+
+// The text of a `SKILL.md` after its front matter
+fn body_of(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("---") else {
+        return text.trim();
+    };
+    match rest.split_once("\n---") {
+        Some((_, after)) => after.trim(),
+        None => text.trim(),
+    }
 }
 
 // The skill's name goose lists it by: the `name` line of the `SKILL.md` in `dir`'s
