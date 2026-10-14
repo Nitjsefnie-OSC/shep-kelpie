@@ -47,13 +47,13 @@ Pacing, leases, forge limits, time, usage, settings.
 ## Settings
 
 - Read through shep client: runner sheep's `[app.dogs.kelpie]` table + kelpie's `[kelpie]` in `dogs.toml` (start needs no dog); missing required key stops runner by name. #114, #332, `src/settings.rs`
-- Changes apply at next wake (polled, no second connection); `git.*`, `hooks`, gateways wait for restart; failing change keeps old settings. `src/runner/reread.rs`
-- Every setting is read by something; removed key refused by name with replacement. Pre-table files not read, named in error. #332, `src/settings/removed.rs`
+- Changes apply at next wake (polled, no second connection); `git.*`, `hooks`, gateways wait for restart. Failing change keeps old settings, alerts once a reason, shows in `status`; hand-written table checked at start, reread. #809, `src/runner/reread.rs`
+- Every setting is read by something; removed key refused by name with replacement. Pre-table files named in error. #332, `src/settings/removed.rs`
 - `git`: `checkout`, `remote` (`origin`'s GitHub repo when absent), `merging`, `issues`. `src/settings/git.rs`
 - `ci`: `block`, `fix_attempts` (-1); `concurrency`: `active_items` (1), `pending_rulings` (2). `src/settings/ci.rs`
 - `budget.per_item_usd` ($10); `pacing.enabled` (on), `pacing.kickoff_hours` (8, display only). `src/settings/budget.rs`
 - `agents`: implementers, reviewers, pm, issue writer, advisor, researcher, `fallback_after`. `src/settings/agents.rs`
-- `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused), `pm_alone`, `full_panel_paths`. `src/settings/rulings.rs`
+- `rulings`: `decide` (`shadow`; `panel`; `always` = full panel decides every ruling it votes on by most votes, tie to PM else first option, never merges on a tie, `design` ignored, off unless set, `pm_alone`/`full_panel_paths` unused). `src/settings/rulings.rs`
 - `worker`: `allowed_domains`, `guard_hooks`, `instructions_file`, `turn_timeout` (60), `compact_window` (200000; pi: a reserve, workers.md). `src/runner/turn.rs`
 - `skills`: per-step overrides; `retro` off (the PM's batch retro when named); `triage`, `spec`, `reset` driven by no step yet. `src/skills.rs`
 - `hooks`, `e2e`. ADR 0009, `src/settings/hooks.rs`, `src/settings/e2e.rs`
