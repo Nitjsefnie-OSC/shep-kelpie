@@ -331,6 +331,23 @@ fn every_plugins_skills_load_after_the_steps_own_skill_folder() {
 }
 
 #[test]
+fn the_wording_skill_loads_with_the_steps_skills_on_a_worker_call() {
+    let w = World::new();
+    let skills =
+        crate::skills::Skills::load(&crate::settings::StepSkills::default(), &w.path("skills"));
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    call.plugin_dirs = skills.plugin_dirs().to_vec();
+    call.prompt = "/mattpocock:implement Implement issue #7".into();
+    let wording = w.path("skills/kelpie-wording/skills");
+    assert!(wording.join("wording/SKILL.md").is_file());
+    assert!(
+        values(&strings(&call), "--skill").contains(&wording.to_str().unwrap()),
+        "{:?}",
+        strings(&call)
+    );
+}
+
+#[test]
 fn a_call_with_no_tools_loads_its_steps_skill_and_no_other() {
     let w = World::new();
     let steps = plugin(&w, "mattpocock", &["implement"]);
