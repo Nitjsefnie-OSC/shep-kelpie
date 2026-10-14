@@ -380,6 +380,7 @@ impl Runner {
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
+        let mut resumed = false;
         let mut begin = match prepared {
             // A covered worker never runs as the maintainer, so a token that
             // passes waits here and is tried again, not parked on a ruling.
@@ -392,6 +393,7 @@ impl Runner {
             }
             Ok(call) => {
                 self.token_wait.ends();
+                resumed = !compacting && paused::resumes_pause(item);
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
@@ -416,6 +418,9 @@ impl Runner {
             }
         };
         self.save(next)?;
+        if resumed {
+            self.note_resumed(issue);
+        }
         if let Begin::Report(report) = &mut begin {
             self.fill_comment_failed(report);
         }

@@ -394,7 +394,11 @@ async fn on_event(
             let Some(sheep) = names.get(&id) else {
                 return Ok(Vec::new());
             };
-            Ok(lock_desk(desk).change(|d| d.metric(sheep, &name, value)))
+            let heard = lock_desk(desk).change(|d| d.heard(sheep, &name, value));
+            if let Some(line) = heard.ignored {
+                println!("{line}");
+            }
+            Ok(heard.grants)
         }
         BusEvent::Process { event, info, .. } => {
             names.insert(info.id, info.name.clone());

@@ -6,6 +6,7 @@
 //! a forge that refuses it leaves a note and never stops the work item.
 //! Each listed implementer's `agent:` label is made where the repo lacks it.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::Runner;
@@ -64,14 +65,35 @@ impl Runner {
     }
 }
 
+impl crate::ports::Warnings for Notes {
+    fn stands(&self, key: &str, line: String) {
+        self.standing(key, line);
+    }
+
+    fn ends(&self, key: &str) {
+        Notes::ends(self, key);
+    }
+}
+
 /// What the runner carried on without, oldest first, kept in memory until
 /// `take_notes` hands it out, and shared with the forge's rate-limit hold
+///
+/// A warning that stands as long as its cause does is told once with
+/// [`Notes::standing`], however many calls meet it, and `status` lists it
+/// until [`Notes::ends`].
 #[derive(Debug, Clone, Default)]
-pub(super) struct Notes(Arc<Mutex<Vec<String>>>);
+pub(super) struct Notes {
+    lines: Arc<Mutex<Vec<String>>>,
+    standing: Arc<Mutex<BTreeMap<String, String>>>,
+}
 
 impl Notes {
     fn lock(&self) -> MutexGuard<'_, Vec<String>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.lines.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn standing_lock(&self) -> MutexGuard<'_, BTreeMap<String, String>> {
+        self.standing.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(super) fn push(&self, note: String) {
@@ -84,6 +106,27 @@ impl Notes {
 
     fn take(&self) -> Vec<String> {
         std::mem::take(&mut *self.lock())
+    }
+
+    /// Notes `line`, and keeps it standing under `key`, unless `key` stands already
+    pub(super) fn standing(&self, key: &str, line: String) {
+        let mut all = self.standing_lock();
+        if all.contains_key(key) {
+            return;
+        }
+        all.insert(key.to_owned(), line.clone());
+        drop(all);
+        self.push(line);
+    }
+
+    /// The warning under `key` no longer stands, so it is told again if it returns
+    pub(super) fn ends(&self, key: &str) {
+        self.standing_lock().remove(key);
+    }
+
+    /// The warnings that stand now, by their keys
+    pub(super) fn standing_lines(&self) -> Vec<String> {
+        self.standing_lock().values().cloned().collect()
     }
 }
 
@@ -110,6 +153,23 @@ mod tests {
 
     fn notes(runner: &Mutex<Runner>) -> Vec<String> {
         runner.lock().unwrap().take_notes()
+    }
+
+    #[test]
+    fn a_standing_warning_is_noted_once_stands_in_the_list_and_is_noted_again_after_it_ends() {
+        let notes = Notes::default();
+
+        for _ in 0..3 {
+            notes.standing("graph", "no code graph".into());
+        }
+        notes.standing("app", "no permission".into());
+        assert_eq!(notes.take(), ["no code graph", "no permission"]);
+        assert_eq!(notes.standing_lines(), ["no permission", "no code graph"]);
+
+        notes.ends("graph");
+        assert_eq!(notes.standing_lines(), ["no permission"]);
+        notes.standing("graph", "no code graph".into());
+        assert_eq!(notes.take(), ["no code graph"]);
     }
 
     #[test]

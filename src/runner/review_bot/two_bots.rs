@@ -411,3 +411,41 @@ fn a_month_long_window_in_the_dogs_book_skips_cubic_unasked() {
         &json!([{ "why": "window", "reviewer": "cubic", "opens": now(&rig) + MONTH }])
     );
 }
+
+#[test]
+fn each_bots_lease_wait_is_said_on_its_own_with_its_own_time() {
+    let rig = listing("shep", &["cubic", "coderabbit"]);
+    rig.leases.close(&cubic(), true);
+    rig.leases.close(&cr(), true);
+    let (runner, head) = reviewed(&rig);
+    let notes = || runner.lock().unwrap().take_notes();
+    notes();
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::MarkedReady { .. })
+    ));
+    for _ in 0..2 {
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.clock.advance(60);
+    }
+
+    rig.clock.advance(2 * 3600);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { .. })
+    ));
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(300);
+    rig.leases.close(&cr(), false);
+    assert_eq!(step(&runner).unwrap(), summoned(&head));
+
+    assert_eq!(
+        notes(),
+        [
+            "#7 lease-wait kind=cubic reviewer=cubic",
+            "#7 lease-refused kind=cubic reviewer=cubic waited=7320s",
+            "#7 lease-wait kind=coderabbit reviewer=coderabbit",
+            "#7 lease-granted kind=coderabbit reviewer=coderabbit waited=300s",
+        ]
+    );
+}
