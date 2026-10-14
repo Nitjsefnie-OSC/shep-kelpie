@@ -39,13 +39,14 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Kept,
-    Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Forward,
+    Kept, Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
 mod adopt;
+mod compact;
 mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
@@ -57,6 +58,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod compact_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -213,12 +217,12 @@ impl Agents for GooseCli {
                     RunError::TimedOut => AgentError::TimedOut(GOOSE),
                 })
         })??;
-        let read = output::read(&output, &call.session, before);
+        let read = compact::read(call.prompt == COMPACT, &output, &call.session, before);
         // The session's totals grow whatever the call's reply was.
         if let Some(spent) = read.spent {
             files.keep(id, spent)?;
         }
-        read.reply
+        read.reply.map(|reply| self.with_context(call, reply))
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
@@ -302,6 +306,16 @@ impl GooseCli {
         call: &AgentCall,
         lease: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
+        self.wrapped_command(call, lease, argv(call)?)
+    }
+
+    // `goose` with `args`, in the call's sandbox and with its variables
+    fn wrapped_command(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+        args: Vec<OsString>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let server = server(call)?;
         let upstream = self.upstream(server)?;
         let upstream = match lease.filter(|_| call.role == Role::Worker) {
@@ -333,7 +347,7 @@ impl GooseCli {
         command
             .args(env_args(call, server, &files, &upstream))
             .arg(&self.program)
-            .args(argv(call)?)
+            .args(args)
             .current_dir(&call.cwd);
         let policy = policy(
             call,
@@ -537,6 +551,7 @@ fn env_args(
             serde_json::json!(CONTEXT_FILES).to_string().into(),
         ));
     }
+    vars.extend(compact::threshold_var(call, server.context.get()));
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
         let own: Vec<String> = vars.iter().map(|(name, _)| name.clone()).collect();
@@ -559,6 +574,9 @@ fn env_args(
 // advisor or retro is given it on a new session ([`offers_developer`]), and only
 // a new session is given its servers.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
+    if let Some(compact) = compact::argv(call) {
+        return Ok(compact);
+    }
     let mut argv: Vec<OsString> = vec![
         "run".into(),
         "--no-profile".into(),

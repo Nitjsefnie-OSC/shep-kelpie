@@ -70,7 +70,7 @@ pub(super) fn stand_in(world: &World, stdout: &str) -> GooseCli {
     goose_with(world, script(world, stdout, "", 0))
 }
 
-fn goose_with(world: &World, program: PathBuf) -> GooseCli {
+pub(super) fn goose_with(world: &World, program: PathBuf) -> GooseCli {
     ClaudeCli::default()
         .sandboxed(Arc::new(OpenSandbox::default()), world.path("home"))
         .goose()

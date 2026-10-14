@@ -13,8 +13,8 @@
 //! image reads to count what the call spent. goose has no thread record of its
 //! own to find: the session is named by the id kelpie gave it.
 
+use super::compact;
 use super::files::Files;
-use super::output;
 use super::{GOOSE, GooseCli};
 use crate::adapters::claude::ClaudeCli;
 use crate::adapters::forwarder::Forwarder;
@@ -98,7 +98,8 @@ impl GooseCli {
             Some(id) => Session::Resume(id.clone()),
             None => Session::New(kept.session.clone()),
         };
-        let read = output::read(&output, &session, before);
+        let compacting = adopted.flying.as_ref().is_some_and(|f| f.compact);
+        let read = compact::read(compacting, &output, &session, before);
         // The session's totals grow whatever the call's reply was.
         if let Some(spent) = read.spent {
             files.keep(&kept.session, spent)?;
