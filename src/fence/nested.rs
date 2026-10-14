@@ -11,6 +11,7 @@ const DEPTH: usize = 8;
 const ENTRIES: usize = 20_000;
 
 /// Every harness folder below `worktree`, in any case, as a path, sorted
+/// (`.config/goose` is listed as that, and `.config` is entered otherwise)
 ///
 /// The walk is best effort: a folder it cannot read, a link it does not follow
 /// and whatever lies past [`DEPTH`] levels or [`ENTRIES`] entries are left out,
@@ -31,7 +32,12 @@ pub(super) fn existing(worktree: &Path) -> Vec<PathBuf> {
                 return found;
             }
             let name = entry.file_name();
-            if (HARNESSES.iter().flat_map(|own| own.folders)).any(|own| folds_to(&name, own)) {
+            let parent = folder.file_name();
+            if (HARNESSES.iter().flat_map(|own| own.folders)).any(|own| folds_to(&name, own))
+                || (HARNESSES.iter().flat_map(|own| own.nested)).any(|[up, own]| {
+                    parent.is_some_and(|parent| folds_to(parent, up)) && folds_to(&name, own)
+                })
+            {
                 found.push(entry.path());
             } else if depth < DEPTH
                 && name != ".git"
@@ -43,4 +49,45 @@ pub(super) fn existing(worktree: &Path) -> Vec<PathBuf> {
     }
     found.sort();
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn found(worktree: &Path) -> Vec<String> {
+        existing(worktree)
+            .iter()
+            .map(|p| p.strip_prefix(worktree).unwrap().display().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_goose_settings_folder_is_listed_at_any_depth_in_any_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path();
+        for folder in [
+            ".config/goose/hooks",
+            "app/.Config/GOOSE",
+            "a/b/c/.config/goose",
+            ".config/other/nested",
+            "config/goose",
+            "src/.config",
+        ] {
+            fs::create_dir_all(wt.join(folder)).unwrap();
+        }
+        assert_eq!(
+            found(wt),
+            [".config/goose", "a/b/c/.config/goose", "app/.Config/GOOSE"]
+        );
+    }
+
+    #[test]
+    fn a_goose_settings_folder_below_another_harness_folder_is_left_inside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let wt = dir.path();
+        fs::create_dir_all(wt.join(".claude/.config/goose")).unwrap();
+        fs::create_dir_all(wt.join("pkg/.config/other/.pi")).unwrap();
+        assert_eq!(found(wt), [".claude", "pkg/.config/other/.pi"]);
+    }
 }

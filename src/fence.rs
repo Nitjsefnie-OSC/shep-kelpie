@@ -25,6 +25,9 @@ pub struct OwnFiles {
     pub harness: &'static str,
     /// Folders it loads, at the root or at any depth below
     pub folders: &'static [&'static str],
+    /// Folders it loads that sit in a folder of another name, as `.config/goose`,
+    /// at the root or at any depth below. Each is a parent's name and its own.
+    pub nested: &'static [[&'static str; 2]],
     /// Files it loads at the root only
     pub root_files: &'static [&'static str],
     /// Its login and secrets, under `~/`, which no other harness's call reads
@@ -41,6 +44,7 @@ pub const HARNESSES: [OwnFiles; 4] = [
     OwnFiles {
         harness: "Claude Code",
         folders: &[".claude"],
+        nested: &[],
         root_files: &[".mcp.json"],
         // Linux keeps the login in the file; `.claude.json` holds MCP servers' secrets.
         credentials: &["~/.claude/.credentials.json", "~/.claude.json"],
@@ -52,6 +56,7 @@ pub const HARNESSES: [OwnFiles; 4] = [
     OwnFiles {
         harness: "Codex",
         folders: &[".codex", ".agents"],
+        nested: &[],
         root_files: &[],
         credentials: &["~/.codex/**"],
         program: "codex",
@@ -60,6 +65,7 @@ pub const HARNESSES: [OwnFiles; 4] = [
     OwnFiles {
         harness: PI,
         folders: &[".pi"],
+        nested: &[],
         root_files: &[],
         credentials: &["~/.pi/**"],
         program: "pi",
@@ -70,6 +76,8 @@ pub const HARNESSES: [OwnFiles; 4] = [
     OwnFiles {
         harness: "goose",
         folders: &[".goose"],
+        // `settings.local.json` and `settings.json` there can disable a plugin by name.
+        nested: &[[".config", "goose"]],
         root_files: &[],
         credentials: &[
             "~/.config/goose/**",
@@ -118,6 +126,11 @@ fn deny_write_on(worktree: &Path, linux: bool) -> Vec<PathBuf> {
             paths.push(worktree.join(folder));
             paths.push(worktree.join("**").join(folder));
         }
+        for [parent, folder] in own.nested {
+            let inside = Path::new(parent).join(folder);
+            paths.push(worktree.join(&inside));
+            paths.push(worktree.join("**").join(inside));
+        }
         paths.extend(own.root_files.iter().map(|file| worktree.join(file)));
     }
     if linux {
@@ -150,6 +163,11 @@ pub fn owner(path: &Path) -> Option<&'static str> {
         .find(|own| {
             matches!(parts.as_slice(), [only] if any(own.root_files, only))
                 || parts.iter().any(|part| any(own.folders, part))
+                || (parts.windows(2)).any(|pair| {
+                    own.nested.iter().any(|[parent, folder]| {
+                        folds_to(pair[0], parent) && folds_to(pair[1], folder)
+                    })
+                })
         })
         .map(|own| own.harness)
 }
@@ -616,6 +634,37 @@ mod tests {
         assert!(own.iter().any(|p| p == "~/.pi/**"));
     }
 
+    // goose reads `settings.local.json` and `settings.json` under `.config/goose`
+    // in its working folder, and a `disabledPlugins` entry there switches off the
+    // plugin that fences a worker.
+    #[test]
+    fn a_goose_settings_file_in_the_worktree_at_any_depth_is_fenced() {
+        for path in [
+            ".config/goose",
+            ".config/goose/settings.local.json",
+            ".config/goose/settings.json",
+            "packages/app/.config/goose/settings.local.json",
+            ".CONFIG/Goose/settings.json",
+        ] {
+            assert_eq!(owner(Path::new(path)), Some("goose"), "{path}");
+        }
+        // Other tools' files under `.config`, and a goose folder elsewhere, are the project's.
+        for path in [
+            ".config",
+            ".config/other/settings.json",
+            "config/goose/settings.json",
+            "goose/.config/x",
+            "src/.config.rs",
+        ] {
+            assert!(!fenced(Path::new(path)), "{path}");
+        }
+        let wt = Path::new("/k/wt/7");
+        let deny = deny_write(wt);
+        for path in ["/k/wt/7/.config/goose", "/k/wt/7/**/.config/goose"] {
+            assert!(deny.contains(&PathBuf::from(path)), "{path}");
+        }
+    }
+
     #[test]
     fn the_sandbox_denies_every_harnesss_files_in_the_worktree() {
         let wt = Path::new("/k/wt/7");
@@ -637,6 +686,8 @@ mod tests {
                 "/k/wt/7/**/.pi",
                 "/k/wt/7/.goose",
                 "/k/wt/7/**/.goose",
+                "/k/wt/7/.config/goose",
+                "/k/wt/7/**/.config/goose",
             ]
         );
     }
@@ -668,9 +719,9 @@ mod tests {
         };
 
         let linux = listed(true);
-        assert_eq!(linux[..11], listed(false)[..]);
+        assert_eq!(linux[..13], listed(false)[..]);
         assert_eq!(
-            linux[11..],
+            linux[13..],
             [
                 "app/.Goose",
                 "docs/.CODEX",
@@ -695,7 +746,7 @@ mod tests {
         fs::create_dir_all(wt.join(".git/.claude")).unwrap();
         fs::create_dir_all(wt.join("near/.claude")).unwrap();
         let listed = deny_write_on(wt, true);
-        assert_eq!(listed[11..], [wt.join("near/.claude")]);
+        assert_eq!(listed[13..], [wt.join("near/.claude")]);
     }
 
     #[test]
