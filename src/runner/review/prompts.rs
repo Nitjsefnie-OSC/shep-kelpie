@@ -9,6 +9,7 @@ use std::path::Path;
 
 use super::calls::severity_tag;
 use crate::ports::{CLEAN, Finding};
+use crate::work_item::Dispute;
 
 /// `body` with `base` and `diff` in their places
 fn filled(body: &str, base: &str, diff: &str) -> String {
@@ -67,6 +68,25 @@ pub(in crate::runner) fn reviewer_prompt(
         ));
     }
     prompt
+}
+
+/// What a reader is told of the findings the worker disputed, to add after
+/// its prompt: each finding with the worker's reason, indented under it, and
+/// nothing when there are none
+pub(in crate::runner) fn disputes_note(disputes: &[Dispute]) -> String {
+    if disputes.is_empty() {
+        return String::new();
+    }
+    let lines: String = (disputes.iter())
+        .map(|d| format!("{}  {}\n", line(&d.finding), d.reason))
+        .collect();
+    format!(
+        "\n\nThe worker disputed these findings of an earlier reader on this pull \
+         request, saying each is wrong and why: each finding is followed by the \
+         worker's reason, indented. Check the reason against the code. Raise a finding \
+         again, in the same format, only if the reason is wrong; leave out one whose \
+         reason holds.\n\n--- the disputed findings ---\n{lines}--- end ---"
+    )
 }
 
 // One finding as the readers write it, its test as a fifth field.

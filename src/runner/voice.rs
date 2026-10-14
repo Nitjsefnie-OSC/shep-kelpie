@@ -119,6 +119,11 @@ impl Runner {
     /// the forge having the comment and the file not yet having its id, a
     /// crash between the two or a write that fails, which is told in the log.
     pub(super) fn comment_as_gh(&self, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.comment_as_gh_id(number, body).map(drop)
+    }
+
+    /// As [`Self::comment_as_gh`], and returns the comment's id
+    pub(super) fn comment_as_gh_id(&self, number: u64, body: &str) -> Result<u64, ForgeError> {
         let id = self.ports.forge.comment(&self.remote, number, body)?;
         self.posted.borrow_mut().push(id);
         let mut kept = self.state.clone();
@@ -128,7 +133,7 @@ impl Runner {
                 "cannot save the id of comment {id} on #{number}: {e}"
             ));
         }
-        Ok(())
+        Ok(id)
     }
 
     /// Makes each of `wanted` the repo lacks, as the App where one covers it
@@ -236,7 +241,7 @@ fn round_comment(round: &Round<'_>) -> String {
     format!("{read} and found {count}:\n\n{}", lines.join("\n"))
 }
 
-fn finding_line(finding: &Finding) -> String {
+pub(in crate::runner) fn finding_line(finding: &Finding) -> String {
     let severity = match finding.severity {
         Severity::High => "HIGH",
         Severity::Medium => "MEDIUM",
