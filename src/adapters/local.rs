@@ -168,15 +168,34 @@ fn check_command(command: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes round `round`'s findings file and marker from `out`, so a rework
-/// or a retried round never reads the last run's
+/// Removes everything a run of round `round` wrote to `out`, its findings
+/// file and marker, request and reply files and hunks, so a rework or a
+/// retried round never reads the last run's, and a kept round holds only
+/// its own
 fn clear_round(out: &Path, round: u32) -> Result<(), ReviewerError> {
-    for name in [
-        format!("round-{round}.txt"),
-        format!("round-{round}.txt.done"),
-    ] {
-        let path = out.join(name);
-        match std::fs::remove_file(&path) {
+    let hunks = out.join("hunks");
+    let mut stale = vec![
+        out.join(format!("round-{round}.txt")),
+        out.join(format!("round-{round}.txt.done")),
+        out.join(format!("round-{round}")),
+        hunks.join(round.to_string()),
+    ];
+    let prefix = format!("{round}-out-");
+    if let Ok(entries) = std::fs::read_dir(&hunks) {
+        stale.extend(
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .map(|e| e.path()),
+        );
+    }
+    for path in stale {
+        let removed = match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(&path),
+            Ok(_) => std::fs::remove_file(&path),
+            Err(e) => Err(e),
+        };
+        match removed {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {

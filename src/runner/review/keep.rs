@@ -187,11 +187,18 @@ fn keep(
             Err(e) => Some(Err(e)),
         })
         .expect("an unbounded range of names")?;
-    if out.is_dir() {
-        copy(out, &dest, Path::new(""), record.round)?;
+    let filled = (|| {
+        if out.is_dir() {
+            copy(out, &dest, Path::new(""), record.round)?;
+        }
+        let json = serde_json::to_string_pretty(record).map_err(io::Error::other)?;
+        std::fs::write(dest.join("round.json"), json + "\n")
+    })();
+    if filled.is_err() {
+        // Without its `round.json` no pruning would ever know it.
+        let _ = std::fs::remove_dir_all(&dest);
     }
-    let json = serde_json::to_string_pretty(record).map_err(io::Error::other)?;
-    std::fs::write(dest.join("round.json"), json + "\n")
+    filled
 }
 
 // Copies what round `round` wrote under `from` into `to`. Symlinks are left,

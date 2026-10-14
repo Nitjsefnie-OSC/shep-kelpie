@@ -865,6 +865,20 @@ fn a_kept_round_records_its_pull_request_head_model_and_how_it_ended() {
 }
 
 #[test]
+fn a_round_that_cannot_be_copied_leaves_no_half_kept_round() {
+    use std::os::unix::fs::PermissionsExt;
+    let (rig, runner) = at_round_1("shep");
+    let hunks = rig.build_7().join("qwen-review/hunks");
+    std::fs::create_dir_all(&hunks).unwrap();
+    std::fs::set_permissions(&hunks, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    step(&runner).unwrap(); // round 1, qwen: clean, but its files cannot be read
+
+    std::fs::set_permissions(&hunks, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(kept_rounds(&rig), Vec::<String>::new());
+}
+
+#[test]
 fn a_failed_local_round_is_kept_with_its_reason() {
     let (rig, runner) = at_round_1("shep");
     rig.reviewer

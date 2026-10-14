@@ -193,8 +193,8 @@ impl LocalReviewer {
         let prompt = system.len().div_ceil(BYTES_PER_TOKEN) + FRAMING_TOKENS;
         let budget = context.saturating_sub(reply + prompt) * BYTES_PER_TOKEN;
         let folder = out.join(format!("round-{round}"));
-        std::fs::create_dir_all(&folder).map_err(|e| failed(&folder, "create", &e))?;
         super::clear_round(out, round)?;
+        std::fs::create_dir_all(&folder).map_err(|e| failed(&folder, "create", &e))?;
         let mut text = String::new();
         let mut findings = Vec::new();
         for (index, chunk) in chunks(&parse(&diff), budget).iter().enumerate() {
