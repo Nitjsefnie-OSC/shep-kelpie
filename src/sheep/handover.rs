@@ -68,17 +68,27 @@ impl Carry {
     /// The lease side of the runner `epoch` of `sheep` in the new image: the
     /// old image's totals, or for a build that carried none, the dog's saved
     /// `book` for this run
+    ///
+    /// A grant can reach the old image after its totals were taken, so what
+    /// the book says the run holds is taken up either way.
     pub(super) fn asker(&self, epoch: Epoch, sheep: &str, book: &BookFile) -> Asker {
-        if let Some(carried) = &self.leases {
-            return Asker::resume(epoch, carried.clone());
-        }
-        match book.load() {
-            Ok(Some(saved)) => Asker::from_book(epoch, sheep, &saved),
-            Ok(None) => Asker::new(epoch),
+        let saved = match book.load() {
+            Ok(saved) => saved,
             Err(e) => {
-                eprintln!("handover: starting the lease totals at 0, since {e}");
-                Asker::new(epoch)
+                eprintln!("handover: not reading the dog's book for the lease totals, since {e}");
+                None
             }
+        };
+        match (&self.leases, saved) {
+            (Some(carried), saved) => {
+                let mut asker = Asker::resume(epoch, carried.clone());
+                if let Some(saved) = saved {
+                    asker.reconcile(sheep, &saved);
+                }
+                asker
+            }
+            (None, Some(saved)) => Asker::from_book(epoch, sheep, &saved),
+            (None, None) => Asker::new(epoch),
         }
     }
 

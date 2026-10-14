@@ -228,9 +228,6 @@ impl Asker {
     /// run of one, and it too starts fresh.
     pub fn from_book(epoch: Epoch, sheep: &str, book: &SavedBook) -> Self {
         let mut asker = Self::new(epoch);
-        let Ok(project) = ProjectName::try_from(sheep) else {
-            return asker;
-        };
         let Some(run) = book
             .runs
             .iter()
@@ -245,14 +242,32 @@ impl Asker {
             };
             asker.totals.insert(t.kind.clone(), totals);
         }
-        let me = Holder::Runner { project, epoch };
+        asker.reconcile(sheep, book);
+        asker
+    }
+
+    /// Takes as held each kind this run asks for that the dog's saved `book`
+    /// says it holds, which a `grant` that arrived while the previous image
+    /// handed over would otherwise have left unheard
+    ///
+    /// The dog saves its book before it delivers a grant, and does not
+    /// retry one, so a runner that is asking again repeats a total the dog
+    /// ignores.
+    pub fn reconcile(&mut self, sheep: &str, book: &SavedBook) {
+        let Ok(project) = ProjectName::try_from(sheep) else {
+            return;
+        };
+        let me = Holder::Runner {
+            project,
+            epoch: self.epoch,
+        };
         for lease in &book.leases {
-            let holds = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
-            if holds.as_ref() == Some(&me) {
-                asker.held.push(lease.kind.clone());
+            let holder = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
+            let new = !self.held.contains(&lease.kind);
+            if holder.as_ref() == Some(&me) && self.asking(&lease.kind) && new {
+                self.held.push(lease.kind.clone());
             }
         }
-        asker
     }
 
     /// What the next image of this runner takes up with [`Asker::resume`]

@@ -169,3 +169,44 @@ fn a_lease_the_dogs_book_gives_this_run_is_held_after_a_handover_from_a_build_wi
 
     assert!(asker.holds(&stand_in()));
 }
+
+#[test]
+fn a_grant_that_landed_after_the_totals_were_taken_is_held_in_the_new_image() {
+    let (dog, folder) = (Arc::new(DogStandIn::default()), short_tempdir());
+    let book = book_in(folder.path());
+    let old = ShepLeases::new(dog.clone(), Asker::new(EPOCH), book.clone());
+    old.want(&stand_in());
+    let carry = across_the_wire(&Carry {
+        turns: Vec::new(),
+        leases: Some(old.keep()),
+    });
+    // The dog's grant reached the old image after that, and the book has it.
+    let held = SavedHeld {
+        holder: SavedHolder::Runner {
+            project: ProjectName::try_from("koji").unwrap(),
+            epoch: EPOCH,
+        },
+        since: Timestamp(1_000),
+    };
+    let lease = SavedLease {
+        kind: stand_in(),
+        held: Some(held),
+        queue: Vec::new(),
+        window: None,
+    };
+    let run = SavedRun {
+        sheep: "koji".into(),
+        epoch: EPOCH,
+        totals: vec![SavedTotals {
+            kind: stand_in(),
+            want: 1,
+            give_back: 0,
+        }],
+    };
+    book.save(&SavedBook::new(vec![lease], vec![run], Vec::new()))
+        .unwrap();
+
+    let new = ShepLeases::new(dog.clone(), carry.asker(EPOCH, "koji", &book), book);
+
+    assert!(new.holds(&stand_in()));
+}
