@@ -133,7 +133,7 @@ impl Runner {
     }
 
     // Whether a ruling on the pull request waits for the maintainer
-    fn ruling_waits(&self, number: u64) -> bool {
+    pub(super) fn ruling_waits(&self, number: u64) -> bool {
         (self.state.rulings.iter()).any(|r| r.id == number)
     }
 
@@ -374,7 +374,7 @@ impl Runner {
     }
 
     // What the comment or reply `said` says now, read again from the forge
-    fn said_text(&self, number: u64, said: &Said) -> Result<String, String> {
+    pub(super) fn said_text(&self, number: u64, said: &Said) -> Result<String, String> {
         let forge = &self.ports.forge;
         let text = match said {
             Said::Comment { id, .. } => forge
@@ -425,7 +425,7 @@ impl Runner {
     }
 
     // Adds `cost` to the contribution's spend
-    fn add_spend(&mut self, number: u64, cost: Cost) -> Result<(), StateError> {
+    pub(super) fn add_spend(&mut self, number: u64, cost: Cost) -> Result<(), StateError> {
         if cost.is_free() {
             return Ok(());
         }
@@ -439,7 +439,13 @@ impl Runner {
 
     // Posts `text` on the pull request and returns the id the forge gave, or
     // `None` and the failure told in the log.
-    fn send_answer(&self, number: u64, key: &str, text: &str, what: &str) -> Option<u64> {
+    pub(super) fn send_answer(
+        &self,
+        number: u64,
+        key: &str,
+        text: &str,
+        what: &str,
+    ) -> Option<u64> {
         match (self.ports.voice).post(&self.remote, number, text) {
             Ok(posted) => Some(posted.id),
             Err(e) => {
@@ -487,18 +493,18 @@ impl Runner {
     }
 
     // The id of a post the forge took whose record was not saved
-    fn sent_before(&self, key: &str) -> Option<u64> {
+    pub(super) fn sent_before(&self, key: &str) -> Option<u64> {
         self.post_tries.borrow().get(key)?.sent
     }
 
     // The text an earlier try worded, so a post that fails is sent again
     // without asking the representative again
-    fn kept_answer(&self, key: &str) -> Option<String> {
+    pub(super) fn kept_answer(&self, key: &str) -> Option<String> {
         let tries = self.post_tries.borrow();
         Some(tries.get(key)?.wording.as_ref()?.body.clone())
     }
 
-    fn keep_answer(&self, key: &str, text: &str) {
+    pub(super) fn keep_answer(&self, key: &str, text: &str) {
         let mut tries = self.post_tries.borrow_mut();
         let wording = Wording::comment(text.to_owned());
         tries.entry(key.to_owned()).or_default().wording = Some(wording);
@@ -506,7 +512,7 @@ impl Runner {
 
     // The text is worded again at the next try, since it may have been what
     // the guard refused
-    fn drop_answer(&self, key: &str) {
+    pub(super) fn drop_answer(&self, key: &str) {
         if let Some(attempt) = self.post_tries.borrow_mut().get_mut(key) {
             attempt.wording = None;
         }
@@ -514,20 +520,20 @@ impl Runner {
 
     // Whether the answer failed [`POST_TRIES`] times, which ends the trying
     // until kelpie restarts
-    fn answer_given_up(&self, key: &str) -> bool {
+    pub(super) fn answer_given_up(&self, key: &str) -> bool {
         let tries = self.post_tries.borrow();
         tries.get(key).is_some_and(|a| a.failures >= POST_TRIES)
     }
 
     // A try that worked leaves nothing to keep
-    fn answer_ends(&self, key: &str) {
+    pub(super) fn answer_ends(&self, key: &str) {
         self.post_tries.borrow_mut().remove(key);
     }
 
     // Says in the log that `what` could not be done for the pull request,
     // once, and again when it is given up. A failure the forge being busy
     // explains is not counted, since asking again later may work.
-    fn answer_failed(
+    pub(super) fn answer_failed(
         &self,
         key: &str,
         number: u64,
@@ -556,7 +562,7 @@ impl Runner {
 }
 
 // A comment is told apart by its kind and id, as the record does
-fn said_key(said: &Said) -> String {
+pub(super) fn said_key(said: &Said) -> String {
     match said {
         Said::Comment { id, .. } => format!("comment-{id}"),
         Said::Reply { id, .. } => format!("reply-{id}"),
@@ -593,12 +599,12 @@ fn listed(title: &str, none: &str, findings: &[Finding]) -> String {
 }
 
 // `text` in one line
-fn one_line(text: &str) -> String {
+pub(super) fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 // `text` cut at `longest` characters, with `mark` after the cut
-fn cut(text: &str, longest: usize, mark: &str) -> String {
+pub(super) fn cut(text: &str, longest: usize, mark: &str) -> String {
     match text.char_indices().nth(longest) {
         Some((end, _)) => format!("{}{mark}", &text[..end]),
         None => text.to_owned(),

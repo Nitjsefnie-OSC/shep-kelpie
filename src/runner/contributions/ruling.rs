@@ -18,7 +18,17 @@ use super::super::ruling::question;
 use super::super::{Answer, RuleError};
 use crate::ports::{Cost, Finding, Timestamp};
 use crate::settings::PerItemUsd;
-use crate::state::{Held, ProjectState, Ruling, RulingKind};
+use crate::state::{Asked, Held, How, ProjectState, Released, Ruling, RulingKind};
+
+/// The answer to the ruling for a contributor who said no twice that waits
+/// on, and asks again after
+pub(in crate::runner) const KEEP_WAITING: &str = "keep waiting";
+
+/// The answer that takes the pull request over anyway
+pub(in crate::runner) const ADOPT_ANYWAY: &str = "adopt anyway";
+
+/// The answer that thanks the contributor and closes the pull request
+pub(in crate::runner) const CLOSE_WITH_THANKS: &str = "close with thanks";
 
 /// The longest a finding's `what` or `why` is shown, in characters: the
 /// reviewer wrote them from the contributor's text, and the ruling goes to
@@ -85,6 +95,12 @@ pub(super) fn raise_question(
     raise_held(next, pull_request, Held::Question { asked }, now);
 }
 
+/// Adds the ruling that asks what to do about a contributor who said no
+/// twice and went quiet, to `next`
+pub(super) fn raise_waiting(next: &mut ProjectState, pull_request: u64, now: Timestamp) {
+    raise_held(next, pull_request, Held::Waiting, now);
+}
+
 fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Timestamp) {
     let kind = RulingKind::Contribution(held);
     next.rulings.push(Ruling {
@@ -112,9 +128,9 @@ pub(super) fn withdraw(next: &mut ProjectState) {
         RulingKind::Contribution(Held::Security { head, .. }) => {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
-        RulingKind::Contribution(Held::OverBudget { .. } | Held::Question { .. }) => {
-            (followed.iter()).any(|c| c.pull_request == r.number())
-        }
+        RulingKind::Contribution(
+            Held::OverBudget { .. } | Held::Question { .. } | Held::Waiting,
+        ) => (followed.iter()).any(|c| c.pull_request == r.number()),
         _ => true,
     });
 }
@@ -166,6 +182,65 @@ pub(in crate::runner) fn keep_answer(next: &mut ProjectState, answer: &Answer, r
     if let Some(deciding) = followed.and_then(|c| c.deciding.as_mut()) {
         deciding.answer = Some(text.trim().to_owned());
     }
+}
+
+/// Carries the maintainer's answer to the ruling for a contributor who said
+/// no twice into `next`: keeping waiting starts the wait and the count over,
+/// adopting anyway records a release by the maintainer, and closing with
+/// thanks is left for the next poll, which has the representative say it
+///
+/// # Errors
+///
+/// [`RuleError::Choice`] when the text is none of the three.
+pub(in crate::runner) fn settle(
+    next: &mut ProjectState,
+    answer: &Answer,
+    ruling: &Ruling,
+    now: Timestamp,
+) -> Result<(), RuleError> {
+    let (Answer::Text(text), RulingKind::Contribution(Held::Waiting)) = (answer, &ruling.kind)
+    else {
+        return Ok(());
+    };
+    let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chosen = words.to_ascii_lowercase();
+    let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
+    match chosen.as_str() {
+        KEEP_WAITING | "keep" => {
+            if let Some(held) = followed {
+                held.asked = None;
+                held.waiting_since = Some(now);
+            }
+        }
+        ADOPT_ANYWAY | "adopt" => {
+            if let Some(held) = followed {
+                held.released = Some(Released {
+                    at: now,
+                    how: How::Maintainer,
+                });
+            }
+        }
+        CLOSE_WITH_THANKS | "close" => {
+            if let Some(held) = followed {
+                let asked = held.asked.get_or_insert_with(|| Asked {
+                    comment: 0,
+                    at: now,
+                    asks: 0,
+                    nos: 0,
+                    read: Vec::new(),
+                    closing: false,
+                });
+                asked.closing = true;
+            }
+        }
+        _ => {
+            let why = format!(
+                "takes `{KEEP_WAITING}`, `{ADOPT_ANYWAY}` or `{CLOSE_WITH_THANKS}`, not {words:?}"
+            );
+            return Err(RuleError::Choice(ruling.id, why));
+        }
+    }
+    Ok(())
 }
 
 /// The fewest characters of a head's hash a yes may name

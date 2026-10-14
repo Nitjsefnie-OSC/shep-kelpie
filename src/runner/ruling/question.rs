@@ -280,6 +280,17 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                  merge ruling does."
             );
         }
+        RulingKind::Contribution(Held::Waiting) => {
+            return format!(
+                "The contributor of {about} said no when kelpie asked to take it over, twice, \
+                 and has been quiet since. Nothing is posted on the pull request until you \
+                 answer: {} keeps waiting and asks again from the start, {} adopts it \
+                 anyway, and {} has the representative thank the contributor and closes it.",
+                trigger("answer keep waiting"),
+                trigger("answer adopt anyway"),
+                trigger("answer close with thanks")
+            );
+        }
         RulingKind::FollowUp { findings, refused } => {
             let list: Vec<String> = findings
                 .iter()

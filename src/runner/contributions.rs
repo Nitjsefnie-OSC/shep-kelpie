@@ -33,12 +33,16 @@ mod clock;
 mod heard;
 mod pass;
 pub(in crate::runner) mod post;
+mod release;
 mod ruling;
 mod security;
 
 pub(super) use bots::waiting_on;
 pub use clock::Followed;
-pub(super) use ruling::{flagged_lines, keep_answer, raise_budget, trust};
+pub(super) use ruling::{
+    ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, flagged_lines, keep_answer, raise_budget,
+    settle, trust,
+};
 
 use crate::ports::{Agents, Ending, Reviewer};
 use crate::state::StateError;
@@ -228,6 +232,9 @@ impl Runner {
         self.follow_ci()?;
         self.follow_bots()?;
         self.follow_posts()?;
+        // Before the answers, so a yes or a no to the ask is not answered as
+        // a conversation.
+        self.follow_release()?;
         self.follow_answers()?;
         self.follow_clock()
     }
@@ -247,6 +254,8 @@ mod heard_tests;
 pub(in crate::runner) mod pass_tests;
 #[cfg(test)]
 mod post_tests;
+#[cfg(test)]
+mod release_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

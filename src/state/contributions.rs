@@ -121,6 +121,80 @@ pub struct Contribution {
     /// Left out when no decision is open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deciding: Option<Deciding>,
+    /// Where kelpie's asking whether it may take the pull request over stands
+    ///
+    /// Left out until the first ask is posted, and after a push, a clock that
+    /// stops, or the maintainer's answer to keep waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<Asked>,
+    /// That the contributor let kelpie take the pull request over, or the
+    /// maintainer did
+    ///
+    /// Left out until it was. Nothing is asked again once it is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released: Option<Released>,
+}
+
+/// Kelpie's asking the contributor whether it may take their pull request
+/// over
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Asked {
+    /// The id of the latest ask's comment: a reaction counts on this one only
+    pub comment: u64,
+    /// When the latest ask was posted
+    pub at: Timestamp,
+    /// How many times it was asked
+    pub asks: u32,
+    /// How many asks were answered no, by a word or a thumbs down
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub nos: u32,
+    /// The contributor's words after the latest ask that were read and were
+    /// neither yes nor no, so they are not read again. The last [`KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read: Vec<Said>,
+    /// That the maintainer chose to close the pull request with thanks, which
+    /// the next poll does
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub closing: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl Asked {
+    /// Whether the latest ask has no answer yet
+    pub fn is_open(&self) -> bool {
+        self.nos < self.asks
+    }
+}
+
+/// That kelpie may take a contribution over, and how it came to
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Released {
+    /// When it was recorded
+    pub at: Timestamp,
+    /// What released it
+    pub how: How,
+}
+
+/// What released a contribution
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum How {
+    /// The contributor said yes
+    Yes,
+    /// The contributor left a thumbs up on the ask
+    ThumbsUp,
+    /// The contributor did not answer before `quiet_days` ran out
+    Silence,
+    /// The maintainer chose to adopt it anyway
+    Maintainer,
 }
 
 /// A contributor's request for a decision, handed to the maintainer as a
@@ -279,6 +353,8 @@ impl Contribution {
             waiting_since: None,
             answered: Vec::new(),
             deciding: None,
+            asked: None,
+            released: None,
         }
     }
 
@@ -332,8 +408,10 @@ impl Contribution {
             ci: None,
             pass: None,
             walking: None,
-            // The head's own results start it again
+            // The head's own results start it again, and the contributor
+            // who pushed has been heard: the asking starts over with it.
             waiting_since: None,
+            asked: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -406,6 +484,11 @@ impl Contribution {
             true => self.waiting_since.or(Some(now)),
             false => None,
         };
+        // Kelpie waits on no one, so there is nothing to have asked about. A
+        // close the maintainer chose still goes ahead.
+        if self.waiting_since.is_none() && !self.asked.as_ref().is_some_and(|a| a.closing) {
+            self.asked = None;
+        }
     }
 
     /// The contributor's word, written at `said`: a running clock that began
@@ -572,6 +655,10 @@ pub enum Held {
         /// What the representative asks the maintainer
         asked: String,
     },
+    /// The contributor said no to kelpie's taking the pull request over
+    /// twice and has been quiet since. The maintainer chooses: keep waiting,
+    /// adopt it anyway, or close it with thanks.
+    Waiting,
 }
 
 impl RulingKind {

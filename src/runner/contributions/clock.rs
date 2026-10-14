@@ -10,8 +10,9 @@
 //! which clears the clock, and so does a new head.
 //!
 //! [`Clock::due`] says when `contributions.nudge_days` and `quiet_days` have
-//! passed. Nothing acts on it yet, and nothing is posted: red CI before a
-//! release gets no comment.
+//! passed. The release stage (`release.rs`) acts on it: it asks at
+//! the nudge and counts silence at the quiet. Red CI before a release gets no
+//! comment of its own.
 
 use serde::Serialize;
 
@@ -64,6 +65,16 @@ impl Clock {
         } else {
             None
         }
+    }
+
+    /// Whole days until the contribution counts as quiet, 0 once it does
+    pub(super) fn days_to_quiet(&self, now: Timestamp) -> u64 {
+        self.quiet_days.saturating_sub(self.days(now))
+    }
+
+    /// Whole days from a restart of the clock to its quiet
+    pub(super) fn quiet_days(&self) -> u64 {
+        self.quiet_days
     }
 
     // Whole days waited

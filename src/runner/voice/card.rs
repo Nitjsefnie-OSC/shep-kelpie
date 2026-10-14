@@ -10,7 +10,7 @@
 //! the option it stood behind as the recommendation. A ruling the panel has
 //! not voted on holds the project manager's words where it gave any.
 
-use super::super::contributions::flagged_lines;
+use super::super::contributions::{ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, flagged_lines};
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
@@ -367,6 +367,33 @@ impl Card {
                 title: "A contributor asks for a decision".to_owned(),
                 facts: Some(asked.clone()),
                 choices: Vec::new(),
+            },
+            RulingKind::Contribution(Held::Waiting) => Self {
+                problem: None,
+                board: None,
+                title: "A contributor said no twice and has gone quiet".to_owned(),
+                facts: Some(
+                    "Kelpie asked the contributor whether it may take the pull request \
+                     over, and the answer was no, twice."
+                        .to_owned(),
+                ),
+                choices: vec![
+                    choice(
+                        "Keep waiting",
+                        "Starts the wait over, and kelpie asks again after it",
+                        Answer::Text(KEEP_WAITING.to_owned()),
+                    ),
+                    choice(
+                        "Adopt anyway",
+                        "Records the release as the maintainer's, so kelpie takes it over",
+                        Answer::Text(ADOPT_ANYWAY.to_owned()),
+                    ),
+                    choice(
+                        "Close with thanks",
+                        "The representative thanks the contributor and the pull request is closed",
+                        Answer::Text(CLOSE_WITH_THANKS.to_owned()),
+                    ),
+                ],
             },
             RulingKind::FollowUp { findings, refused } => {
                 let count = match findings.len() {
