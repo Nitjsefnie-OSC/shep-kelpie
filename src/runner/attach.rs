@@ -197,12 +197,11 @@ impl Runner {
         }
         let ready = self.session_here();
         if ready.is_err() {
-            let session = self.current().map(|item| item.session.clone());
+            if let Some(item) = self.current() {
+                self.ports.agents.foreground_ended(&item.session);
+            }
             self.update(|item| item.attached = None)
                 .map_err(AttachError::State)?;
-            if let Some(session) = session {
-                self.ports.agents.foreground_ended(&session);
-            }
         }
         ready
     }
