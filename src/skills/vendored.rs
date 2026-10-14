@@ -232,7 +232,10 @@ mod tests {
         let folder = vendor_folder();
         let mut found = Vec::new();
         files_under(&folder, &folder, &mut found);
-        found.retain(|path| path != "UPSTREAM" && path != "blobs.txt");
+        // Kelpie's own skills sit beside the vendored copy and are not part of it.
+        found.retain(|path| {
+            path != "UPSTREAM" && path != "blobs.txt" && !path.starts_with("kelpie/")
+        });
         found.sort();
         let mut built: Vec<&str> = FILES.iter().map(|(path, _)| *path).collect();
         built.sort_unstable();

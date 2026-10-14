@@ -9,7 +9,8 @@
 //!
 //! Most steps start their prompt with the skill's slash command. `tests`
 //! and `pr` happen inside a worker's turn, so the worker's instructions name
-//! their skills instead.
+//! their skills instead. The `pr` step's skill comes with a writing skill of
+//! kelpie's own, [`Skills::wording`], named beside it.
 
 use std::fmt;
 use std::fs;
@@ -22,6 +23,7 @@ use crate::settings::{SettingsError, SkillChoice, SkillName, StepSkills};
 
 mod repo;
 mod vendored;
+mod wording;
 
 pub use repo::{MARKETPLACES, RepoPlugin, RepoPlugins, Servers, default_head, host_of, inspect};
 pub use vendored::{PIN, PLUGIN, UPSTREAM};
@@ -137,13 +139,29 @@ pub struct StepSkill {
 pub struct Skills {
     steps: Vec<StepSkill>,
     plugins: Vec<PathBuf>,
+    wording: Wording,
+}
+
+// Kelpie's writing skill for the pull request's body: where it loaded, or why not
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Wording {
+    Loaded,
+    Off,
+    Failed(String),
+}
+
+impl Wording {
+    fn is_loaded(&self) -> bool {
+        matches!(self, Self::Loaded)
+    }
 }
 
 impl Skills {
     /// Loads each step's skill, writing the plugins it needs under `folder`
     ///
-    /// The vendored plugin goes in `folder/mattpocock`, and a step's own
-    /// skill folder is copied into a plugin at `folder/<step>`. Nothing here
+    /// The vendored plugin goes in `folder/mattpocock`, kelpie's wording
+    /// plugin in `folder/kelpie-wording`, and a step's own skill folder is
+    /// copied into a plugin at `folder/<step>`. Nothing here
     /// fails: a skill that cannot load leaves its step on kelpie's prompt.
     pub fn load(chosen: &StepSkills, folder: &Path) -> Self {
         let vendored = folder.join(PLUGIN);
@@ -198,7 +216,27 @@ impl Skills {
         let mut plugins: Vec<PathBuf> = steps.iter().filter_map(|s| s.plugin.clone()).collect();
         plugins.sort();
         plugins.dedup();
-        Self { steps, plugins }
+        // It goes with the `pr` step, so `pr = none` turns it off too.
+        let wording = if matches!(chosen.choice(Step::Pr), Some(SkillChoice::None {})) {
+            Wording::Off
+        } else {
+            let own = folder.join(wording::PLUGIN);
+            match wording::write(&own) {
+                Ok(()) => {
+                    plugins.push(own);
+                    Wording::Loaded
+                }
+                Err(e) => Wording::Failed(format!(
+                    "cannot write kelpie's wording skill to {}: {e}",
+                    own.display()
+                )),
+            }
+        };
+        Self {
+            steps,
+            plugins,
+            wording,
+        }
     }
 
     /// `prompt`, started with `step`'s slash command and kelpie's headless
@@ -213,10 +251,16 @@ impl Skills {
     /// The headless rules for the skills a worker runs inside its turn, if
     /// it has any
     pub fn worker_rules(&self) -> Option<String> {
-        [Step::Tests, Step::Pr]
+        let skill = [Step::Tests, Step::Pr]
             .into_iter()
-            .any(|step| self.command(step).is_some())
-            .then(|| rules(Step::Tests))
+            .any(|step| self.command(step).is_some());
+        (skill || self.wording.is_loaded()).then(|| rules(Step::Tests))
+    }
+
+    /// The slash command of kelpie's writing skill for a pull request's body,
+    /// unless `pr` is set to `none` or the skill could not be written
+    pub fn wording(&self) -> Option<String> {
+        self.wording.is_loaded().then(wording::command)
     }
 
     /// Whether the project set `step` to `none`, so it runs no skill and no
@@ -246,16 +290,24 @@ impl Skills {
         &self.steps
     }
 
-    /// A log line for each step whose skill could not load
+    /// A log line for each step whose skill could not load, and for the
+    /// wording skill if it could not be written
     pub fn notices(&self) -> impl Iterator<Item = String> + '_ {
-        self.steps.iter().filter_map(|s| {
+        let wording = match &self.wording {
+            Wording::Failed(reason) => Some(format!(
+                "{reason}, so the worker writes its pull request's body without it"
+            )),
+            Wording::Loaded | Wording::Off => None,
+        };
+        let steps = self.steps.iter().filter_map(|s| {
             s.fallback.as_ref().map(|reason| {
                 format!(
                     "the {} step's skill cannot load, so it runs kelpie's own prompt: {reason}",
                     s.step
                 )
             })
-        })
+        });
+        steps.chain(wording)
     }
 }
 

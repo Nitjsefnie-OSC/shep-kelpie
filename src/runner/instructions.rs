@@ -72,7 +72,8 @@ pub(super) fn e2e_command(kelpie: &Path) -> String {
 /// Kelpie's own, naming the `kelpie` binary and the deferred and disputed findings files, then the skills the worker
 /// writes tests and its pull request's body with, then the agent's
 /// instructions, then the project's. A pull request template in the
-/// worktree stands in for the body's skill.
+/// worktree stands in for the body's skill. A worker that writes
+/// `pull-request.md` is also told the wording skill that words it.
 pub(super) fn compose(
     extra: Extra<'_>,
     worktree: &Path,
@@ -102,6 +103,14 @@ pub(super) fn compose(
              `Resolves #<issue>`.\n"
         )),
         (None, None, None) => {}
+    }
+    // The skill words a body written to `pull-request.md`, not one the worker opens itself.
+    if extra.pull_request_file.is_some()
+        && let Some(wording) = skills.wording()
+    {
+        lines.push(format!(
+            "Word your pull request's title and body the way the `{wording}` skill says.\n"
+        ));
     }
     if !skills.off(Step::Retro) {
         lines.push(FRICTION.to_owned());
@@ -370,6 +379,35 @@ mod tests {
         let text = first_instructions(&handed_over, &runner);
         assert!(text.contains("pull-request.md"), "{text}");
         assert!(TOLD.iter().all(|line| text.contains(line)), "{text}");
+    }
+
+    #[test]
+    fn a_worker_told_to_write_the_pull_request_file_is_told_the_wording_skill_beside_the_pr_skill()
+    {
+        const NAMED: &str = "the `/kelpie-wording:wording` skill";
+        let own = Rig::new("koji");
+        let runner = own.open().unwrap();
+        let text = first_instructions(&own, &runner);
+        assert!(!text.contains("pull-request.md"), "{text}");
+        assert!(!text.contains("kelpie-wording"), "{text}");
+
+        let handed_over = Rig::new("koji");
+        handed_over.with_app();
+        let runner = handed_over.open().unwrap();
+        let text = first_instructions(&handed_over, &runner);
+        assert!(text.contains("pull-request.md"), "{text}");
+        let at = |needle: &str| text.find(needle).expect(needle);
+        assert!(at("/mattpocock:pr") < at(NAMED), "{text}");
+        assert!(at(NAMED) < at("Kelpie runs this skill headless"), "{text}");
+
+        // A template stands in for the pr skill, but the body is still worded.
+        let templated = Rig::new("koji");
+        templated.with_app();
+        templated.land_on_origin("PULL_REQUEST_TEMPLATE.md");
+        let runner = templated.open().unwrap();
+        let text = first_instructions(&templated, &runner);
+        assert!(!text.contains("/mattpocock:pr"), "{text}");
+        assert!(text.contains(NAMED), "{text}");
     }
 
     #[test]

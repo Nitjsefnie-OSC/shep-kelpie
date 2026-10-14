@@ -266,7 +266,13 @@ fn a_plugin_the_marketplace_lacks_is_skipped_with_its_reason_and_the_run_goes_on
     assert_eq!(plugin["plugin"], "absent@house");
     assert_eq!(plugin["skipped"], "the marketplace lists no plugin absent");
     let worker = call_of(&rig, Role::Worker);
-    assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
+    assert_eq!(
+        worker.plugin_dirs,
+        [
+            rig.paths().skills.join("mattpocock"),
+            rig.paths().skills.join("kelpie-wording")
+        ]
+    );
 }
 
 #[test]
@@ -306,7 +312,13 @@ fn kelpies_own_plugin_names_are_refused() {
     );
     // The vendored plugin is the only one the worker gets, and it is kelpie's.
     let worker = call_of(&rig, Role::Worker);
-    assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
+    assert_eq!(
+        worker.plugin_dirs,
+        [
+            rig.paths().skills.join("mattpocock"),
+            rig.paths().skills.join("kelpie-wording")
+        ]
+    );
     assert!(!rig.paths().skills.join("repo").join("mattpocock").exists());
 }
 
