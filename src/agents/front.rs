@@ -35,6 +35,7 @@ enum Front {
     Pm(OnClaude),
     Advisor(Expert),
     Researcher(Expert),
+    Representative(Expert),
 }
 
 // The first pass: the role alone, whatever else is there
@@ -78,8 +79,9 @@ struct OnClaude {
     effort: Effort,
 }
 
-// The advisor's and the researcher's keys: a session on any harness. Neither
-// takes `tools`: each is held to its reads by the kind of call kelpie makes.
+// The advisor's, the researcher's and the representative's keys: a session on
+// any harness. None takes `tools`: each is held to its reads by the kind of
+// call kelpie makes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expert {
@@ -185,11 +187,16 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         Role::Pm => Front::Pm(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Advisor => Front::Advisor(serde_saphyr::from_str(&yaml).map_err(refused)?),
         Role::Researcher => Front::Researcher(serde_saphyr::from_str(&yaml).map_err(refused)?),
+        Role::Representative => {
+            Front::Representative(serde_saphyr::from_str(&yaml).map_err(refused)?)
+        }
     };
     let leased = match &front {
         Front::Implementer(keys) => keys.lease.is_some(),
         Front::Reviewer(keys) => keys.lease.is_some(),
-        Front::Advisor(keys) | Front::Researcher(keys) => keys.lease.is_some(),
+        Front::Advisor(keys) | Front::Researcher(keys) | Front::Representative(keys) => {
+            keys.lease.is_some()
+        }
         Front::IssueWriter(_) | Front::Pm(_) => false,
     };
     if leased {
@@ -243,6 +250,9 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
         ),
         Front::Advisor(keys) => keys.agent(Role::Advisor, prompt, "the advisor"),
         Front::Researcher(keys) => keys.agent(Role::Researcher, prompt, "the researcher"),
+        Front::Representative(keys) => {
+            keys.agent(Role::Representative, prompt, "the representative")
+        }
     }?;
     Ok(agent)
 }

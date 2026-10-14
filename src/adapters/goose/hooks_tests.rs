@@ -326,6 +326,20 @@ fn a_worker_with_no_fence_is_refused_and_a_command_built_for_one_is_a_researcher
 }
 
 #[test]
+fn a_representatives_call_with_no_fence_is_set_up_with_no_tool_and_in_chat_mode() {
+    let w = World::new();
+    let goose = stand_in(&w, FRESH);
+
+    let mut call = w.call(URL, Role::Representative, Session::New(id(FRESH_ID)));
+    call.tools = Tools::Answer;
+    goose.prepare(&call).unwrap();
+
+    assert!(only_skills(&call));
+    let vars = env_vars(&call);
+    assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
+}
+
+#[test]
 fn a_vote_resuming_the_workers_session_under_its_vote_settings_is_refused_and_finds_no_session() {
     // The runner resumes a worker's session for a vote under
     // `vote-settings-<n>.json`, with a retro's tools. pi and Codex keep their

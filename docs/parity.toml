@@ -122,6 +122,13 @@ pi = "yes"
 codex = "yes"
 goose = "yes"
 
+[harness.representative]
+what = "Runs the representative's no-tool call that words a post"
+claude-code = "yes"
+pi = "yes"
+codex = "yes"
+goose = "yes"
+
 [harness.retro]
 what = "Runs the retro"
 claude-code = "yes"

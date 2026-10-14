@@ -41,6 +41,7 @@ impl Rig {
             reviewer: FakeReviewer::default(),
             local_leases: LocalReviewer::default(),
             alerts: FakeAlerts::on(clock.clone()),
+            disk: FakeDisk::default(),
             leases: FakeLeases::default(),
             tests: FakeTests::default(),
             e2e: FakeE2e::default(),

@@ -19,6 +19,18 @@ use super::Runner;
 use crate::guard::Pause;
 use crate::ports::Tools;
 use crate::settings::Harness;
+use crate::work_item::WorkItem;
+
+/// Where a pause set for a turn in flight ends it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Pausing {
+    /// At its next tool result
+    AtTool,
+    /// At its end, since its harness has no hook
+    AtEnd,
+    /// Nowhere: the pause could not be set
+    Failed,
+}
 
 /// What `status` shows while the runner drains
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -95,7 +107,10 @@ impl Runner {
         self.draining = false;
         // A turn that ended for the pause already stays paused, and resumes.
         for item in &self.state.work_items {
-            Pause::in_build(&item.build).withdraw();
+            // A pause the build limits set for a turn in flight stands.
+            if !self.builds.holds_pause(item.issue) {
+                Pause::in_build(&item.build).withdraw();
+            }
         }
     }
 
@@ -104,21 +119,10 @@ impl Runner {
     fn pause_turns(&self) {
         let (mut asked, mut refused) = (Vec::new(), Vec::new());
         for item in &self.state.work_items {
-            // Only a call whose harness has the hook, and whose settings carry it.
-            let ends = (self.flights.turn_call(item.issue))
-                .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
-            if !ends {
-                continue;
-            }
-            match Pause::in_build(&item.build).request() {
-                Ok(()) => asked.push(format!("#{}", item.issue)),
-                Err(e) => {
-                    eprintln!(
-                        "cannot pause issue #{}'s turn at a tool call: {e}",
-                        item.issue
-                    );
-                    refused.push(format!("#{}", item.issue));
-                }
+            match self.pause_turn(item) {
+                Pausing::AtTool => asked.push(format!("#{}", item.issue)),
+                Pausing::AtEnd => {}
+                Pausing::Failed => refused.push(format!("#{}", item.issue)),
             }
         }
         let mut line = if !asked.is_empty() {
@@ -134,6 +138,26 @@ impl Runner {
             line.push_str(&format!("; the pause could not be written for {turns}"));
         }
         self.notes.push(line);
+    }
+
+    // Sets the pause for `item`'s worker turn in flight. A tool result can end
+    // only a call whose harness has the hook, and whose settings carry it.
+    pub(super) fn pause_turn(&self, item: &WorkItem) -> Pausing {
+        let ends = (self.flights.turn_call(item.issue))
+            .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
+        if !ends {
+            return Pausing::AtEnd;
+        }
+        match Pause::in_build(&item.build).request() {
+            Ok(()) => Pausing::AtTool,
+            Err(e) => {
+                eprintln!(
+                    "cannot pause issue #{}'s turn at a tool call: {e}",
+                    item.issue
+                );
+                Pausing::Failed
+            }
+        }
     }
 
     /// What `status` shows of the drain, while the runner drains

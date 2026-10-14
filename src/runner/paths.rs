@@ -94,6 +94,8 @@ pub struct ProjectPaths {
     /// The researcher's folder: the ruling it votes on, the rulings before it,
     /// the threads, the worker's transcript and the maintainer's
     pub researcher: PathBuf,
+    /// The representative's folder, where its calls run with nothing in it
+    pub representative: PathBuf,
     /// Every ruling answered, one JSON object a line, which the researcher reads
     pub rulings: PathBuf,
     /// What happened to the work items, one JSON object a line, which the
@@ -138,6 +140,7 @@ impl ProjectPaths {
             pm: folder.join("pm"),
             advisor: folder.join("advisor"),
             researcher: folder.join("researcher"),
+            representative: folder.join("representative"),
             rulings: folder.join("rulings.jsonl"),
             journal: folder.join("journal.jsonl"),
             worker: folder.join("worker"),

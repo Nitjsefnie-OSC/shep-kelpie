@@ -229,7 +229,8 @@ _Avoid_: handover, consent, abandonment
 **Representative**:
 The agent that writes kelpie's prose for GitHub in one personality,
 starting with everything a **contributor** reads. Others draft the facts,
-and the representative words them.
+and the representative words them. It speaks as kelpie, never as the
+maintainer.
 _Avoid_: rep (reads as repo), liaison, voice
 
 **Phase**:
