@@ -21,7 +21,9 @@ use super::rework::{HUMAN, review_text};
 use super::trigger;
 use super::turn;
 use crate::board::{LabelError, OpenPullRequest, READY, Skip};
-use crate::ports::{ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role};
+use crate::ports::{
+    ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
+};
 use crate::settings::AgentName;
 use crate::state::{Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
@@ -29,6 +31,15 @@ use crate::worktree::{self, Remote, Start};
 
 /// The file in the build folder that tells the worker what it adopted
 const ADOPTED_FILE: &str = "adopted-pull-request.md";
+
+/// An adopted pull request that fails to start on every pass
+#[derive(Debug)]
+pub(super) struct Failing {
+    // The first pass that failed
+    since: Timestamp,
+    // The error its ruling was last raised for
+    raised: Option<String>,
+}
 
 /// Why a pull request cannot be adopted
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +68,8 @@ pub enum AdoptError {
     Session(String),
     /// The worktree could not be prepared on the branch, with the reason
     Worktree(String),
+    /// The repo's worktrees could not be listed, with the reason
+    Holder(String),
     /// The forge could not show the review bot's reviews of the pull request
     ReviewBot(String, u64, ForgeError),
     /// The file for the worker could not be written, with the reason
@@ -95,6 +108,7 @@ impl fmt::Display for AdoptError {
             Self::Label(e) => e.fmt(f),
             Self::Session(e) => write!(f, "cannot draw a session id: {e}"),
             Self::Worktree(e) => write!(f, "cannot prepare its worktree: {e}"),
+            Self::Holder(e) => write!(f, "cannot list the worktrees of the repo: {e}"),
             Self::ReviewBot(bot, number, e) => {
                 write!(f, "cannot read {bot}'s reviews of #{number}: {e}")
             }
@@ -243,13 +257,20 @@ impl Runner {
     // ruling, once for each error it reads, which starting it clears.
     fn adopt_failed(&mut self, number: u64, error: &AdoptError) -> Result<Skip, StateError> {
         let now = self.ports.clock.now();
-        let since = *self.adopt_failing.entry(number).or_insert(now);
+        let failing = self.adopt_failing.entry(number).or_insert(Failing {
+            since: now,
+            raised: None,
+        });
+        let since = failing.since;
         if matches!(error, AdoptError::Worktree(_)) {
             let why = error.to_string();
-            if !self
+            // An answered ruling is gone, so what was raised is also kept here.
+            let known = failing.raised.as_ref() == Some(&why);
+            failing.raised = Some(why.clone());
+            let saved = self
                 .adopt_ruling(number)
-                .is_some_and(|r| failed_with(r, &why))
-            {
+                .is_some_and(|r| failed_with(r, &why));
+            if !known && !saved {
                 let mut next = self.state.clone();
                 next.rulings.retain(|r| !failed_on(r, number));
                 let kind = RulingKind::Stuck(Stuck::AdoptFailed { why });
@@ -381,7 +402,7 @@ impl Runner {
         // only another one holding the branch stops it.
         let own = self.paths.worktree(issue);
         let holder = worktree::holder_of(&self.settings.git.checkout, &pr.branch, &own);
-        if let Some(holder) = holder.map_err(|e| AdoptError::Worktree(e.to_string()))? {
+        if let Some(holder) = holder.map_err(|e| AdoptError::Holder(e.to_string()))? {
             return Err(AdoptError::Worktree(format!(
                 "`{}` is checked out in the worktree at {}, which kelpie did not make: \
                  remove it or switch it off the branch",

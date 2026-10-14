@@ -836,6 +836,14 @@ fn an_adopt_failing_on_every_pass_raises_one_ruling_until_its_error_changes() {
         "the same error asks nothing again"
     );
 
+    rig.ask(&runner, "rule", Some("80 yes"));
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.ask(&runner, "status", None)["rulings"],
+        json!([]),
+        "an answered ruling is not raised again for the same error"
+    );
+
     git(
         &rig.repo(),
         &[
