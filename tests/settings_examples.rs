@@ -76,6 +76,7 @@ fn locate(root: &Value, schema: &Value, path: &[&str], prefix: &str) -> Option<S
             return locate(root, property, rest, &format!("{prefix}{segment}."));
         }
         if let Some(entry) = map_entry(root, node) {
+            // `segment` was the entry's name, which `*` stands for.
             return locate(root, entry, rest, &format!("{prefix}*."));
         }
         if let Some(element) = array_element(root, node) {
@@ -141,18 +142,17 @@ struct Entry {
 }
 
 // Every key line of a file, set or commented out, under the table header
-// before it. A key has a comment above it when prose sits directly over it, or
+// before it, or in the root table when none came. A key has a comment above it when prose sits directly over it, or
 // over the keys and the header it opens its table with, with no blank line
 // between.
 fn entries(text: &str) -> Vec<Entry> {
     let lines: Vec<Line> = text.lines().map(classify).collect();
-    let mut table: Option<&[String]> = None;
+    let mut table: &[String] = &[];
     let mut found = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         match line {
-            Line::Header(path) => table = Some(path),
+            Line::Header(path) => table = path,
             Line::Key(name) => {
-                let Some(table) = table else { continue };
                 let mut above = lines[..index].iter().rev();
                 let mut in_header = false;
                 let commented_above = loop {
@@ -186,7 +186,7 @@ fn problems(file: &str, text: &str, root: &Value, schema: &Value, section: &[&st
     let mut documented: BTreeMap<String, bool> = BTreeMap::new();
     for entry in entries(text) {
         let table = &entry.path[..entry.path.len() - 1];
-        if section.starts_with(table) && table.len() < section.len() {
+        if !table.is_empty() && section.starts_with(table) && table.len() < section.len() {
             continue;
         }
         let shown = entry.path.join(".");
@@ -368,5 +368,26 @@ fn a_table_outside_the_section_is_named() {
     assert_eq!(
         small_problems(&text),
         ["small.toml:24 holds `other.key`, outside `app`"]
+    );
+}
+
+#[test]
+fn a_key_in_a_map_of_tables_is_located_under_the_entry_name() {
+    let text = SMALL_EXAMPLE.replace("# url = ", "# uri = ");
+    assert_eq!(
+        small_problems(&text),
+        [
+            "small.toml:16 holds `gateways.paddock.uri`, which the schema does not accept",
+            "small.toml lacks `gateways.*.url`",
+        ]
+    );
+}
+
+#[test]
+fn a_key_before_any_table_is_outside_the_section() {
+    let text = format!("stray = 1\n\n{SMALL_EXAMPLE}");
+    assert_eq!(
+        small_problems(&text),
+        ["small.toml:1 holds `stray`, outside `app`"]
     );
 }
