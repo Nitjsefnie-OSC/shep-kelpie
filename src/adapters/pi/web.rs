@@ -33,6 +33,9 @@ pub(super) const RESEARCH_TOOLS: &str =
 /// The one host the package's search dials with no key
 pub(super) const SEARCH_HOST: &str = "mcp.exa.ai";
 
+/// What moves the package's Exa search off the keyless host
+const EXA_VARS: [&str; 2] = ["EXA_API_KEY", "EXA_BASE_URL"];
+
 /// The package's config, which it reads from the call's pi home
 const CONFIG: &str = "web-search.json";
 
@@ -68,6 +71,19 @@ pub(super) fn flags(call: &AgentCall) -> Vec<OsString> {
 pub(super) fn env(call: &AgentCall, scratch: &Path) -> Vec<(String, OsString)> {
     match loaded(call) {
         true => vec![("PI_WEB_ACCESS_CACHE_ROOT".into(), scratch.into())],
+        false => Vec::new(),
+    }
+}
+
+/// The variables a call that has the web must not inherit
+///
+/// The package swaps its keyless Exa host for another when kelpie's own
+/// environment holds a key or a base URL for Exa, and the allowlist holds only
+/// the keyless one. The config lists no other provider, so these are the two
+/// that reach it.
+pub(super) fn unset(call: &AgentCall) -> Vec<&'static str> {
+    match loaded(call) {
+        true => EXA_VARS.to_vec(),
         false => Vec::new(),
     }
 }
@@ -322,6 +338,29 @@ mod tests {
         bare.reach.extensions.clear();
         pi.prepare(&bare).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_researchers_call_unsets_what_would_move_the_search_off_its_host() {
+        let w = World::new();
+        let call = researcher(&w);
+        let files = super::super::Files::of(&call);
+        let args = super::super::env_args(&call, &files);
+        let args: Vec<_> = args.iter().map(|a| a.to_string_lossy()).collect();
+        // `env` takes its options before the first NAME=VALUE.
+        assert_eq!(
+            args[..4],
+            ["-u", "EXA_API_KEY", "-u", "EXA_BASE_URL"],
+            "{args:?}"
+        );
+        let first = args.iter().position(|a| a.contains('=')).unwrap();
+        assert!(first >= 4, "{args:?}");
+
+        let mut other = call.clone();
+        other.role = Role::Advisor;
+        other.tools = Tools::Advise;
+        let args = super::super::env_args(&other, &files);
+        assert!(!args.iter().any(|a| a == "-u"), "{args:?}");
     }
 
     #[test]

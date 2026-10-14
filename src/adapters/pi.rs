@@ -514,13 +514,16 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
                 .map(|(name, value)| (name.clone(), value.clone().into())),
         );
     }
-    vars.into_iter()
-        .map(|(name, value)| {
-            let mut pair = OsString::from(format!("{name}="));
-            pair.push(value);
-            pair
-        })
-        .collect()
+    // `env` takes its options before the first NAME=VALUE.
+    let unset = web::unset(call)
+        .into_iter()
+        .flat_map(|name| ["-u".into(), name.into()]);
+    let set = vars.into_iter().map(|(name, value)| {
+        let mut pair = OsString::from(format!("{name}="));
+        pair.push(value);
+        pair
+    });
+    unset.chain(set).collect()
 }
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,
