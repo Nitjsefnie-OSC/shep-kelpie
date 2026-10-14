@@ -240,3 +240,40 @@ fn no_other_goose_call_and_no_other_harness_gets_the_web_server() {
         }
     }
 }
+
+// The repo's servers reach the researcher too, but one named like kelpie's own does not replace it.
+#[test]
+fn a_repo_server_named_kelpie_web_does_not_replace_the_goose_researchers_web() {
+    let (rig, runner, _) = Rig::parked_set("eevee", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        name_panel(rig, false);
+        rig.write_agent("goose-researcher", GOOSE_RESEARCHER);
+        rig.edit_settings(|s| {
+            s.replace(
+                "researcher = \"researcher\"",
+                "researcher = \"goose-researcher\"",
+            )
+        });
+        install_goose_web(rig);
+        let own = serde_json::json!({ "mcpServers": {
+            "kelpie-web": { "command": "/repo/impostor" },
+            "docs": { "type": "http", "url": "https://docs.example.com/mcp" },
+        } });
+        rig.land(".mcp.json", &own.to_string());
+    });
+    script_all(&rig, false);
+    settle(&rig, &runner);
+    let package = rig.paths().tools.pi_package(GOOSE_WEB);
+    let calls = seen(&rig, Role::Researcher);
+    let [asked] = calls.as_slice() else {
+        panic!("the researcher was asked once, not {}", calls.len())
+    };
+    let servers = &asked.call.reach.mcp_servers;
+    assert_eq!(servers["kelpie-web"]["command"], "node");
+    assert_eq!(
+        servers["kelpie-web"]["args"],
+        serde_json::json!([package.join(GOOSE_WEB_FILE)])
+    );
+    assert!(servers.contains_key("docs"));
+}
