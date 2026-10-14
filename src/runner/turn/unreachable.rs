@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use super::super::Runner;
 use super::super::alert::backoff;
+use super::super::code_graph::who;
 use super::super::flight::Waiting;
 use super::super::report::Begin;
 use crate::ports::{AgentCall, AgentError, Timestamp, Wait};
@@ -171,8 +172,13 @@ impl Runner {
             Err(e) if self.token_error_passes(&e) => return Some(Begin::Idle),
             Ok(None) | Err(_) => {}
         }
+        let mut call = pause.call.clone();
+        if let Err(why) = self.reopen_browser(&mut call) {
+            self.notes
+                .push(format!("{} retries without its browser: {why}", who(&call)));
+        }
         Some(Begin::Call {
-            call: pause.call.clone(),
+            call,
             deadline: Timestamp(now.0.saturating_add(pause.left)),
             first: pause.first,
             compact: false,

@@ -164,8 +164,8 @@ impl Runner {
     ) -> Result<AgentCall, String> {
         let item = (ruling.issue.and_then(|n| self.state.item(n))).ok_or("it has no work item")?;
         let prompt = ask::worker(ruling.id, ruling.issue, brief);
-        let mut call =
-            self.worker_call(item, Session::Resume(item.session.clone()), Some(prompt))?;
+        let session = Session::Resume(item.session.clone());
+        let mut call = self.worker_call(item, session, Some(prompt), false)?;
         call.tools = Tools::Retro;
         call.settings = (self.paths.worker).join(format!("vote-settings-{}.json", item.issue));
         self.prepared(call)

@@ -103,6 +103,27 @@ impl Runner {
         self.opened.hold(call.issue, Some(bridge));
         Ok(())
     }
+
+    /// Opens a new browser for a call that had one and is run again
+    ///
+    /// The bridge of the call's first flight ended with it, and the call's MCP
+    /// config on disk still names that socket, so the config is written again.
+    ///
+    /// # Errors
+    ///
+    /// Why the browser cannot be opened or the config written. The call then
+    /// runs without a browser, or with the config it has.
+    pub(super) fn reopen_browser(&self, call: &mut AgentCall) -> Result<(), String> {
+        if call.reach.browser.take().is_none() {
+            return Ok(());
+        }
+        let opened = self.with_browser(call);
+        let written = (self.ports.agents.prepare(call)).map_err(|e| e.to_string());
+        if written.is_err() {
+            drop(self.opened.take(call.issue));
+        }
+        opened.and(written)
+    }
 }
 
 // The command that serves one connection, with the folder it writes to made

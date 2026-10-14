@@ -153,3 +153,56 @@ fn a_reread_that_turns_the_browser_on_is_checked_as_the_start_checks_it() {
         );
     }
 }
+
+#[test]
+fn a_turn_retried_after_its_host_was_down_gets_a_browser_of_its_own() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let down = AgentError::Unreachable(crate::settings::Harness::ClaudeCode, "502".into());
+    rig.claude
+        .script([Scripted::Fail(down), Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the host is down
+    rig.clock.advance(30);
+    step(&runner).unwrap(); // the retry
+
+    let seen = rig.claude.all_seen();
+    let workers: Vec<_> = seen
+        .iter()
+        .filter(|s| s.call.role == Role::Worker)
+        .collect();
+    assert_eq!(workers.len(), 2, "the failed call and its retry");
+    let socket = |s: &crate::test::Seen| {
+        s.call
+            .reach
+            .browser
+            .as_ref()
+            .expect("a browser")
+            .socket
+            .clone()
+    };
+    let (first, retry) = (socket(workers[0]), socket(workers[1]));
+    assert_ne!(first, retry, "the retry reused a socket that was gone");
+    let config = fs::read_to_string(workers[1].call.settings.with_extension("mcp.json")).unwrap();
+    assert!(config.contains(&retry.display().to_string()), "{config}");
+}
+
+#[test]
+fn an_attached_session_is_not_told_of_a_browser_it_lacks() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+    let runner = runner.lock().unwrap();
+    let item = runner.current().expect("an item").clone();
+    let session = crate::ports::Session::Resume(item.session.clone());
+    let attach = runner.prepare(&item, session, Some(String::new())).unwrap();
+    let told = fs::read_to_string(attach.instructions.as_ref().unwrap()).unwrap();
+    assert!(!told.contains("playwright"), "{told}");
+    assert_eq!(attach.reach.browser, None);
+}
