@@ -269,6 +269,7 @@ impl Runner {
             Ok(agent) => agent.harness.harness(),
             Err(why) => return Some(AttachError::Setup(issue, why)),
         };
+        // parity: harness.attach
         if harness != Harness::ClaudeCode {
             return Some(AttachError::Harness(issue, harness, item.session.clone()));
         }

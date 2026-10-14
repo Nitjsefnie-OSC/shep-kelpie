@@ -268,6 +268,8 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 
 // What goose cannot give a call yet. The agent files already refuse a role
 // goose does not take, so this is the second line.
+// parity: harness.worker, harness.reviewer, harness.advisor, harness.retro,
+// parity: harness.issue-writer, harness.pm, harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let opens = |who: &str, slice: &str| {
         Some(format!(

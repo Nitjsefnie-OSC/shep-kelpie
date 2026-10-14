@@ -316,6 +316,7 @@ impl OnClaude {
         yaml: &str,
         (who, why): (&str, &str),
     ) -> Result<Agent, String> {
+        // parity: harness.issue-writer, harness.pm
         if self.harness != Harness::ClaudeCode {
             let name = self.harness.as_str();
             return Err(at_key(
@@ -515,6 +516,7 @@ const LEASE_GONE: &str = "kelpie holds no lock of its own on a GPU now, so `leas
      and leave `lease` out";
 
 fn role_model(keys: &SessionKeys<'_>) -> Result<RoleModel, String> {
+    // parity: harness.tool-allow-list
     if keys.tools.is_some() && keys.harness != Harness::ClaudeCode {
         let name = keys.harness.as_str();
         return Err(format!(

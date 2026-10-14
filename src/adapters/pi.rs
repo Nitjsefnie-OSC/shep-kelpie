@@ -411,6 +411,7 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 }
 
 // What a worker on Claude Code has and pi cannot give it.
+// parity: harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     if call
         .reach

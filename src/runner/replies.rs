@@ -105,6 +105,7 @@ pub(super) fn authenticator(
     webhook: Option<&Webhook>,
     folder: &Path,
 ) -> Result<Option<Authenticator>, SettingsError> {
+    // parity: webhook.replies
     if !webhook.is_some_and(|w| w.kind == WebhookKind::Ntfy) {
         return Ok(None);
     }
@@ -178,6 +179,7 @@ impl Runner {
         let webhook = self
             .webhook
             .as_ref()
+            // parity: webhook.replies
             .filter(|w| w.kind == WebhookKind::Ntfy)?;
         // A trusted topic is still read once coded answers are off, since
         // the replies that need no code are not.
@@ -354,6 +356,7 @@ impl Runner {
         let ntfy = self
             .webhook
             .as_ref()
+            // parity: webhook.replies
             .filter(|w| w.kind == WebhookKind::Ntfy);
         let webhook = ntfy?.clone();
         let project = self.project.as_str();

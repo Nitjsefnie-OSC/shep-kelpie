@@ -111,6 +111,7 @@ fn access(webhook: &Webhook) -> Vec<(&'static str, String)> {
     let token = webhook
         .token
         .iter()
+        // parity: webhook.token
         .filter(|_| webhook.kind == WebhookKind::Ntfy)
         .map(|token| {
             (

@@ -67,6 +67,7 @@ pub(super) fn channel(subject: String, kelpie: &KelpieSettings) -> Line {
 ///
 /// Only an ntfy webhook is read for replies, so a Discord one says nothing.
 pub(super) fn trusted(kelpie: &KelpieSettings) -> Option<Line> {
+    // parity: webhook.replies
     let ntfy = |w: &&crate::webhook::Webhook| w.kind == WebhookKind::Ntfy && w.trusted;
     kelpie.webhook.as_ref().filter(ntfy)?;
     Some(Line::ok(
