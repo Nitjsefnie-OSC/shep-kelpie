@@ -70,6 +70,19 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - A message that starts "I've reached the maximum number of actions" means goose hit its turn limit and exited 0. The adapter returns `Failed` saying so. Not run: the message text on a real turn limit.
 - Output that cannot be read, or an exit 0 with no assistant message, is `Unreadable`.
 
+## The idle watch and the watch
+
+Written for #790. The event shapes are from goose's source, not a recorded turn. #798 checks them.
+
+- goose keeps its sessions in SQLite under `GOOSE_PATH_ROOT`, which kelpie cannot tail. The call's stdout file (`<settings>.stdout.jsonl`) is what it reads. `File::create` empties it as each call spawns (`src/adapters/process.rs`), so a resumed turn does not inherit the last turn's events.
+- The idle watch (`last_active`) is `Nothing` until the file holds a `message`, `notification` or `error` line, then the file's write time. The banner and `complete` do not count. A file past 1 MiB counts unread, a last line without its newline is not an event, and a missing file is `Nothing`.
+- goose does not stream text: a whole assistant message is one line. A model generating a long answer or a long reasoning block shows no event until it ends, so a slow model can read as silent. The idle watch is coarser on goose than on pi, and `agents.fallback_after` is 10 minutes by default.
+- The watch finds the file through the `session-started` step's `transcript.folder`, which for goose is the call's goose root (`<settings>.goose`). The stdout file is the root's sibling with `.stdout.jsonl` for the extension. The step keeps its shape, so an older log reads. Chosen over scanning the settings folder because that folder holds every role's calls and names no session.
+- A settings path is reused by every call of its role and issue, so a watch on an older session of that path reads the newer call's lines. The file is not a session's history.
+- A `message` line has `message.created` in seconds, which is its time. Its content blocks the watch renders: `text` (said, or prompt for a `user` message), `thinking`, `toolRequest` (`toolCall.value.name` and `arguments`) and `toolResponse` (`toolResult.value.content`, with `isError` or `status: "error"` shown as `error: ...`).
+- An `error` event has no time, so the watch stamps it when it reads it. It is shown as a `result` line `error: <text>`.
+- `transcripts::format_of(Harness::Goose)` stays `None`. No file holds a whole session, since the stdout file is emptied per call, so the researcher's panel gets no worker-session text on goose.
+
 ## Fixtures
 
 - `fixtures/goose-run-unreachable.jsonl` is goose's own output from the closed-port run, the temporary folder renamed.

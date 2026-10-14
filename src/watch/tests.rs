@@ -468,6 +468,84 @@ fn a_pi_session_shows_from_its_session_file() {
     assert_eq!(lines[5], "12:00:04 #7 reviewer (qwen) said CLEAN");
 }
 
+// The step that names a goose call, as the runner logs it: the transcript
+// folder is the call's goose root, whose sibling `<stem>.stdout.jsonl` is the
+// stdout file.
+fn goose_started(rig: &Rig) -> (String, PathBuf) {
+    let root = rig.dir.path().join("worker/research-settings.goose");
+    let step = format!(
+        r#"{{"step":"session-started","issue":7,"role":"researcher","agent":"qwen","harness":"goose","session":"g7","transcript":{{"folder":{root:?}}}}}"#
+    );
+    (
+        step,
+        rig.dir.path().join("worker/research-settings.stdout.jsonl"),
+    )
+}
+
+#[test]
+fn a_goose_session_shows_from_the_stdout_file_of_its_call() {
+    let rig = Rig::new();
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.000+00:00", &step);
+    rig.append(
+        &stdout,
+        &[
+            "    __( O)>  ● new session · openai qwen3.8:27b",
+            "   \\____)    20261010_1 · /wt",
+            "     L L     goose is ready",
+            r#"{"type":"message","message":{"role":"assistant","created":1791633601,"content":[{"type":"thinking","thinking":"Look at the diff"},{"type":"toolRequest","id":"c1","toolCall":{"status":"success","value":{"name":"read","arguments":{"path":"src/lib.rs"}}}}]}}"#,
+            r#"{"type":"message","message":{"role":"user","created":1791633602,"content":[{"type":"toolResponse","id":"c1","toolResult":{"status":"success","value":{"content":[{"type":"text","text":"fn main() {}"}],"isError":false}}}]}}"#,
+            r#"{"type":"message","message":{"role":"assistant","created":1791633603,"content":[{"type":"text","text":"CLEAN"}]}}"#,
+            r#"{"type":"error","error":"model host went away"}"#,
+            r#"{"type":"complete","total_tokens":3}"#,
+        ],
+    );
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    let lines = shown(&lines);
+    assert_eq!(lines.len(), 6, "{lines:#?}");
+    assert_eq!(
+        lines[1],
+        "12:00:01 #7 researcher (qwen) thinking Look at the diff"
+    );
+    assert_eq!(
+        lines[2],
+        "12:00:01 #7 researcher (qwen) tool read src/lib.rs"
+    );
+    assert_eq!(
+        lines[3],
+        "12:00:02 #7 researcher (qwen) result fn main() {}"
+    );
+    assert_eq!(lines[4], "12:00:03 #7 researcher (qwen) said CLEAN");
+    // goose stamps an error with no time, so the watch stamps it as it reads it.
+    assert!(
+        lines[5].ends_with("#7 researcher (qwen) result error: model host went away"),
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn a_goose_transcript_that_is_not_there_yet_is_waited_for() {
+    let rig = Rig::new();
+    let (mut watch, first) = Watch::start(rig.folder(), rig.options(Scope::Project, 0));
+    assert!(first.is_empty());
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.100+00:00", &step);
+    // The runner's step is shown, and the stdout file is not there to read.
+    assert_eq!(shown(&watch.poll()).len(), 1);
+    assert!(watch.poll().is_empty());
+
+    rig.append(
+        &stdout,
+        &[
+            r#"{"type":"message","message":{"role":"assistant","created":1791633601,"content":[{"type":"text","text":"CLEAN"}]}}"#,
+        ],
+    );
+    assert_eq!(
+        shown(&watch.poll()),
+        ["12:00:01 #7 researcher (qwen) said CLEAN"]
+    );
+}
+
 #[test]
 fn lines_that_are_not_steps_or_cannot_be_read_are_passed_over() {
     let rig = Rig::new();

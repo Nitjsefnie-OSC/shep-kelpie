@@ -10,6 +10,7 @@
 
 mod claude;
 mod codex;
+mod goose;
 mod line;
 mod locate;
 mod log;
@@ -39,6 +40,7 @@ pub(crate) fn said_in(format: Format, line: &str) -> Vec<Said> {
         Format::Claude => claude::events(line),
         Format::Codex => codex::events(line),
         Format::Pi => pi::events(line),
+        Format::Goose => goose::events(line),
     }
 }
 
@@ -115,6 +117,7 @@ impl Session {
             Format::Claude => claude::events as fn(&str) -> Vec<Event>,
             Format::Codex => codex::events,
             Format::Pi => pi::events,
+            Format::Goose => goose::events,
         };
         tail.lines()
             .iter()

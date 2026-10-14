@@ -91,6 +91,8 @@ pub(crate) fn format_of(harness: crate::settings::Harness) -> Option<Format> {
         Harness::ClaudeCode => Some(Format::Claude),
         Harness::Codex => Some(Format::Codex),
         Harness::Pi => Some(Format::Pi),
+        // The watch reads goose's stdout file, which each call empties, so no
+        // file holds a whole session.
         Harness::Goose => None,
         #[cfg(test)]
         Harness::StandIn => Some(Format::Claude),
