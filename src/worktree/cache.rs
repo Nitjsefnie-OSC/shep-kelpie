@@ -20,7 +20,7 @@ const CACHE: [&str; 2] = ["incremental", "deps"];
 /// How far below the build folder a profile folder is looked for
 const DEPTH: usize = 4;
 
-/// The file that records when the turn in flight began, by its modified time
+/// The file that records when the latest turn began, by its modified time
 const BEGAN: &str = "kelpie-turn-began";
 
 /// When a worker turn began, in the clock of the file system that holds its build folder
@@ -45,12 +45,6 @@ impl TurnMark {
     /// When the turn began, or `None` when none is recorded
     pub fn began(&self) -> Option<SystemTime> {
         fs::metadata(&self.0).ok()?.modified().ok()
-    }
-
-    /// Takes the mark away, for a turn that ended
-    pub fn end(&self) {
-        // Gone already is what it asks for.
-        let _ = fs::remove_file(&self.0);
     }
 }
 
@@ -107,6 +101,10 @@ fn is_dir(path: &Path) -> bool {
 }
 
 fn prune_below(dir: &Path, since: SystemTime, pruned: &mut Pruned) {
+    // A link named `deps` or `incremental` may lead anywhere.
+    if !is_dir(dir) {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -214,6 +212,22 @@ mod tests {
     }
 
     #[test]
+    fn a_cache_folder_that_is_a_link_is_not_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join("build");
+        let outside = dir.path().join("outside");
+        let began = SystemTime::now();
+        write(&outside.join("precious"), began, DAY);
+        fs::create_dir_all(build.join("debug/.fingerprint")).unwrap();
+        for cache in CACHE {
+            std::os::unix::fs::symlink(&outside, build.join("debug").join(cache)).unwrap();
+        }
+
+        assert_eq!(prune(&build, began), Pruned::default());
+        assert!(outside.join("precious").exists());
+    }
+
+    #[test]
     fn a_folder_with_no_cargo_output_loses_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let began = SystemTime::now();
@@ -223,13 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn the_mark_tells_when_the_turn_began_until_the_turn_ends() {
+    fn the_mark_tells_when_the_last_turn_began() {
         let dir = tempfile::tempdir().unwrap();
         let mark = TurnMark::in_build(dir.path());
         assert_eq!(mark.began(), None);
         mark.begin().unwrap();
         assert!(mark.began().is_some());
-        mark.end();
-        assert_eq!(mark.began(), None);
     }
 }

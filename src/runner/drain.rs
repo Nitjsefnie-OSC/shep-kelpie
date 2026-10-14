@@ -21,6 +21,17 @@ use crate::ports::Tools;
 use crate::settings::Harness;
 use crate::work_item::WorkItem;
 
+/// Where a pause set for a turn in flight ends it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Pausing {
+    /// At its next tool result
+    AtTool,
+    /// At its end, since its harness has no hook
+    AtEnd,
+    /// Nowhere: the pause could not be set
+    Failed,
+}
+
 /// What `status` shows while the runner drains
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Draining {
@@ -105,19 +116,24 @@ impl Runner {
         }
     }
 
-    // Sets the pause for `item`'s worker turn in flight, and says whether a
-    // tool result can end it: only a call whose harness has the hook, and whose
-    // settings carry it.
-    pub(super) fn pause_turn(&self, item: &WorkItem) -> bool {
+    // Sets the pause for `item`'s worker turn in flight. A tool result can end
+    // only a call whose harness has the hook, and whose settings carry it.
+    pub(super) fn pause_turn(&self, item: &WorkItem) -> Pausing {
         let ends = (self.flights.turn_call(item.issue))
             .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
-        if ends && let Err(e) = Pause::in_build(&item.build).request() {
-            eprintln!(
-                "cannot pause issue #{}'s turn at a tool call: {e}",
-                item.issue
-            );
+        if !ends {
+            return Pausing::AtEnd;
         }
-        ends
+        match Pause::in_build(&item.build).request() {
+            Ok(()) => Pausing::AtTool,
+            Err(e) => {
+                eprintln!(
+                    "cannot pause issue #{}'s turn at a tool call: {e}",
+                    item.issue
+                );
+                Pausing::Failed
+            }
+        }
     }
 
     /// What `status` shows of the drain, while the runner drains

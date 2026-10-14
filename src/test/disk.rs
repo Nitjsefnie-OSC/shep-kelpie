@@ -2,9 +2,10 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use super::Hold;
 use crate::ports::Disk;
 
 /// One GB, as `[builds]` counts it
@@ -20,6 +21,8 @@ pub(crate) struct FakeDisk {
     free: Arc<AtomicU64>,
     per_file: Arc<AtomicU64>,
     measured: Arc<Mutex<Vec<PathBuf>>>,
+    failing: Arc<AtomicBool>,
+    gate: Arc<Mutex<Option<Hold>>>,
 }
 
 impl Default for FakeDisk {
@@ -28,6 +31,8 @@ impl Default for FakeDisk {
             free: Arc::new(AtomicU64::new(PLENTY)),
             per_file: Arc::default(),
             measured: Arc::default(),
+            failing: Arc::default(),
+            gate: Arc::default(),
         }
     }
 }
@@ -41,6 +46,23 @@ impl FakeDisk {
     /// Makes every file in a measured folder count as `bytes`
     pub(crate) fn set_per_file(&self, bytes: u64) {
         self.per_file.store(bytes, Ordering::SeqCst);
+    }
+
+    /// Makes every measurement fail, or stop failing
+    pub(crate) fn set_failing(&self, failing: bool) {
+        self.failing.store(failing, Ordering::SeqCst);
+    }
+
+    /// Makes the next folder measurement wait, once begun, until `hold` is released
+    pub(crate) fn gate_next_measurement(&self, hold: Hold) {
+        *self.gate.lock().unwrap() = Some(hold);
+    }
+
+    fn fails(&self) -> io::Result<()> {
+        match self.failing.load(Ordering::SeqCst) {
+            true => Err(io::Error::other("the disk would not answer")),
+            false => Ok(()),
+        }
     }
 
     /// The folders measured, in order
@@ -64,11 +86,17 @@ fn files_in(folder: &Path) -> io::Result<u64> {
 
 impl Disk for FakeDisk {
     fn free_bytes(&self, _on: &Path) -> io::Result<u64> {
+        self.fails()?;
         Ok(self.free.load(Ordering::SeqCst))
     }
 
     fn folder_bytes(&self, folder: &Path) -> io::Result<u64> {
         self.measured.lock().unwrap().push(folder.to_owned());
+        self.fails()?;
+        let gate = self.gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.block();
+        }
         Ok(files_in(folder)? * self.per_file.load(Ordering::SeqCst))
     }
 }

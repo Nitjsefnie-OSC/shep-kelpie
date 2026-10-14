@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::Runner;
+use super::drain::Pausing;
 use super::trigger::lock;
 use super::turn::held_up::Reason;
 use crate::ports::{Disk, Timestamp};
@@ -104,6 +105,8 @@ struct Watch {
     reading: Reading,
     // The turn in flight was found past a limit, so its cache is pruned when it ends
     over: bool,
+    // Why the last reading could not measure what a limit asks for
+    unread: Option<String>,
     // The turn ended past a limit and was pruned: the next turn starts only
     // once a reading finds both limits kept
     pruned: bool,
@@ -190,15 +193,19 @@ impl Runner {
         let watch = self.builds.items.entry(issue).or_default();
         watch.read_at = Some(now);
         watch.reading = reading;
-        if let Some(failed) = failed
-            && !std::mem::replace(&mut watch.told_failed, true)
-        {
+        watch.unread = failed.clone();
+        let Some(failed) = failed else {
+            watch.told_failed = false;
+            return;
+        };
+        if !std::mem::replace(&mut watch.told_failed, true) {
             self.notes.push(format!("issue #{issue}: {failed}"));
         }
     }
 
     // Records a reading of `issue`'s build folder and the disk, and pauses the
-    // turn in flight if it found a limit passed
+    // turn in flight if it found a limit passed. A turn that ended while the
+    // folder was measured has its cache pruned at once.
     fn builds_read(
         &mut self,
         issue: u64,
@@ -206,27 +213,33 @@ impl Runner {
         reading: Reading,
         failed: Option<String>,
     ) {
-        // A turn that ended while the folder was measured has no pause to set.
-        if !self.flights.runs_turn(issue) {
-            return;
-        }
         self.record_build(issue, now, reading, failed);
         let Some(past) = reading.past(self.settings.builds) else {
             return;
         };
-        let watch = (self.builds.items.get_mut(&issue)).expect("the reading was just recorded");
+        if !self.flights.runs_turn(issue) {
+            self.builds_prune(issue);
+            return;
+        }
+        let Some(watch) = self.builds.items.get_mut(&issue) else {
+            return;
+        };
         watch.over = true;
-        if std::mem::replace(&mut watch.told_pause, true) {
+        if watch.told_pause {
             return;
         }
         let Some(item) = self.state.work_items.iter().find(|i| i.issue == issue) else {
             return;
         };
-        let ends = if self.pause_turn(item) {
-            "pausing its turn at its next tool call"
-        } else {
-            "its harness has no pause hook, so its turn ends where it ends"
+        let ends = match self.pause_turn(item) {
+            Pausing::AtTool => "pausing its turn at its next tool call",
+            Pausing::AtEnd => "its harness has no pause hook, so its turn ends where it ends",
+            // Told when a pause is set, so the next reading tries again.
+            Pausing::Failed => return,
         };
+        if let Some(watch) = self.builds.items.get_mut(&issue) {
+            watch.told_pause = true;
+        }
         self.notes.push(format!(
             "issue #{issue}: {past} ({}): {ends}, then removing the cargo cache the turn did not touch",
             reading.figures()
@@ -251,18 +264,28 @@ impl Runner {
     // The current work item's turn has ended: removes the cache it did not
     // touch when it ran past a limit
     pub(super) fn builds_turn_ended(&mut self) {
-        let Some(item) = self.current() else { return };
-        let (issue, build) = (item.issue, item.build.clone());
-        let mark = TurnMark::in_build(&build);
-        let began = mark.began();
-        mark.end();
+        let Some(issue) = self.current().map(|item| item.issue) else {
+            return;
+        };
         let Some(watch) = self.builds.items.get_mut(&issue) else {
             return;
         };
         watch.told_pause = false;
-        if !std::mem::take(&mut watch.over) {
-            return;
+        if std::mem::take(&mut watch.over) {
+            self.builds_prune(issue);
         }
+    }
+
+    // Removes the cache `issue`'s latest turn did not touch, and holds its next
+    // turn until a reading finds both limits kept. The mark of the latest
+    // turn's start stays until the next turn writes its own.
+    fn builds_prune(&mut self, issue: u64) {
+        let Some(item) = self.state.work_items.iter().find(|i| i.issue == issue) else {
+            return;
+        };
+        let build = item.build.clone();
+        let began = TurnMark::in_build(&build).began();
+        let watch = self.builds.items.entry(issue).or_default();
         watch.pruned = true;
         // The next turn reads again before it starts.
         watch.read_at = None;
@@ -283,8 +306,8 @@ impl Runner {
     }
 
     // Why the current work item's due turn must not start: it ran past a limit
-    // and a reading still finds one passed. Reads afresh when the last reading
-    // is a minute old.
+    // and a reading still finds one passed, or cannot tell. Reads afresh when
+    // the last reading is a minute old.
     pub(super) fn builds_hold(&mut self) -> Option<Reason> {
         let item = self.current()?;
         let (issue, build) = (item.issue, item.build.clone());
@@ -297,7 +320,7 @@ impl Runner {
             self.record_build(issue, now, reading, failed);
         }
         let watch = self.builds.items.get_mut(&issue)?;
-        let Some(past) = watch.reading.past(limits) else {
+        let Some(why) = (watch.reading.past(limits)).or_else(|| watch.unread.clone()) else {
             watch.pruned = false;
             watch.told_hold = false;
             return None;
@@ -305,10 +328,10 @@ impl Runner {
         if !std::mem::replace(&mut watch.told_hold, true) {
             let figures = watch.reading.figures();
             self.notes.push(format!(
-                "issue #{issue}: {past} ({figures}) after the cache the turn did not touch was removed: its next turn is held"
+                "issue #{issue}: {why} ({figures}): its next turn is held"
             ));
         }
-        Some(Reason::Builds(past))
+        Some(Reason::Builds(why))
     }
 
     /// How long until the soonest reading of a build folder whose turn runs,

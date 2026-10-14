@@ -1,6 +1,6 @@
 //! A work item's build folder and the disk, watched while its turn runs
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -191,6 +191,107 @@ fn a_limit_of_0_measures_nothing() {
 
     assert!(!rig.disk.measured().contains(&build));
     assert!(!build.join("kelpie-pause").exists());
+    tool.release();
+    driven.landed();
+}
+
+#[test]
+fn a_pause_that_could_not_be_set_is_tried_again_at_the_next_reading() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, build) = mid_tool(&rig, &driven);
+    rig.disk.set_free(5 * GB);
+    // A folder where the pause file goes, so the write is refused.
+    fs::create_dir(build.join("kelpie-pause")).unwrap();
+
+    driven.pass();
+    assert_eq!(told(&runner, "pausing its turn"), 0);
+    fs::remove_dir(build.join("kelpie-pause")).unwrap();
+    rig.clock.advance(60);
+    driven.pass();
+
+    assert_eq!(told(&runner, "pausing its turn"), 1);
+    assert!(build.join("kelpie-pause").is_file());
+    tool.release();
+    driven.landed();
+}
+
+// Lets a held measurement go when a failed assertion unwinds
+struct Releases(Hold);
+
+impl Drop for Releases {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+#[test]
+fn a_reading_that_finds_a_limit_passed_after_the_turn_ended_still_prunes_and_holds() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, build) = mid_tool(&rig, &driven);
+    stale(&build, "debug/.fingerprint/dep-1/fp");
+    stale(&build, "debug/deps/old.rlib");
+    rig.disk.set_free(5 * GB);
+    let measuring = Hold::default();
+    rig.disk.gate_next_measurement(measuring.clone());
+
+    std::thread::scope(|scope| {
+        let read = scope.spawn(|| advance(&runner).map(drop));
+        let _unblocks = Releases(measuring.clone());
+        assert!(measuring.entered(CALL_PATIENCE), "no measurement began");
+        // The turn ends while its folder is measured.
+        tool.release();
+        assert!(matches!(driven.landed(), Some(StepReport::Ended { .. })));
+        measuring.release();
+        read.join().unwrap().unwrap();
+    });
+
+    assert!(!build.join("debug/deps/old.rlib").exists());
+    assert!(idle(&driven));
+    let status = rig.ask(&runner, "status", None);
+    let because = status["work_item"]["held_up"]["because"].as_str().unwrap();
+    assert!(because.contains("`builds.min_free_gb`"), "{because}");
+}
+
+#[test]
+fn a_measurement_that_fails_when_the_turn_is_to_start_holds_it() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, _) = mid_tool(&rig, &driven);
+    rig.disk.set_free(5 * GB);
+    driven.pass();
+    tool.release();
+    driven.landed();
+
+    rig.disk.set_failing(true);
+    rig.disk.set_free(500 * GB);
+    rig.clock.advance(60);
+    assert!(idle(&driven));
+    let status = rig.ask(&runner, "status", None);
+    let because = status["work_item"]["held_up"]["because"].as_str().unwrap();
+    assert!(because.contains("cannot read the disk"), "{because}");
+    assert_eq!(rig.claude.calls().len(), 1, "a turn started unchecked");
+
+    rig.disk.set_failing(false);
+    rig.clock.advance(60);
+    driven.started();
+    driven.landed();
+}
+
+#[test]
+fn a_failed_measurement_is_told_again_after_one_that_worked() {
+    let (rig, runner) = seven_open("shep");
+    let driven = Driven::new(&runner);
+    let (tool, _) = mid_tool(&rig, &driven);
+
+    for failing in [true, true, false, true] {
+        rig.disk.set_failing(failing);
+        driven.pass();
+        rig.clock.advance(60);
+    }
+
+    assert_eq!(told(&runner, "cannot read the disk"), 2);
     tool.release();
     driven.landed();
 }
