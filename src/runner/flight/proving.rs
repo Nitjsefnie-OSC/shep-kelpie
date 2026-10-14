@@ -1,15 +1,18 @@
-//! The e2e run of a web bump's head, in flight
+//! The proof of a web bump's head, in flight
 //!
-//! One run at a time, on a thread of its own, since the host takes one run
+//! One proof at a time, on a thread of its own, since the host takes one run
 //! at a time and a run waits in its queue for as long as the dog's ceiling.
-//! The thread checks the head out, asks the dog, removes the checkout, and
-//! what the run came to comes back as news; only then is it recorded.
+//! The thread checks the head out and, where the project has the browser,
+//! opens the routes in it first. Unless a route failed it asks the dog for the
+//! e2e run, then removes the checkout, and what the proof came to comes back as
+//! news; only then is it recorded.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::thread;
 
 use super::super::Runner;
+use super::super::dev_server::{Browsed, BrowserProof};
 use super::News;
 use crate::ports::{E2eOutcome, E2eRun};
 use crate::state::StateError;
@@ -21,15 +24,23 @@ use crate::worktree;
 pub(in crate::runner) struct Proving {
     open: Option<(u64, String)>,
     launched: bool,
-    // The heads the dog said have no host to run on, which are not asked again
-    declined: Vec<(u64, String)>,
+    // The heads that cannot be proved, with why, which are not tried again
+    declined: Vec<(u64, String, String)>,
 }
 
-/// What an e2e run of a bump's head came to
+/// What the proof of a bump's head came to
 pub(in crate::runner) struct Proof {
     pull_request: u64,
     head: String,
-    outcome: E2eOutcome,
+    verdict: Verdict,
+}
+
+/// How the proof of a head ended
+pub(in crate::runner) enum Verdict {
+    /// The e2e run ended so, after the browser proof passed if it ran
+    E2e { outcome: E2eOutcome, browsed: bool },
+    /// The browser proof ended without a pass
+    Browser(Browsed),
 }
 
 impl super::Flights {
@@ -43,22 +54,31 @@ impl super::Flights {
         self.proving.open.is_some()
     }
 
-    /// Whether the dog said the project has no e2e host when it was asked to
-    /// run `head`, bump `pull_request`'s
-    pub(in crate::runner) fn declined(&self, pull_request: u64, head: &str) -> bool {
-        (self.proving.declined.iter()).any(|(n, h)| *n == pull_request && h == head)
+    /// Why `head`, bump `pull_request`'s, cannot be proved, if the dog said the
+    /// project has no e2e host or the browser could not be had for it
+    pub(in crate::runner) fn declined(&self, pull_request: u64, head: &str) -> Option<&str> {
+        (self.proving.declined.iter())
+            .find(|(n, h, _)| *n == pull_request && h == head)
+            .map(|(_, _, why)| why.as_str())
     }
 
-    /// Remembers that `head` has no host to run on
-    pub(in crate::runner) fn decline(&mut self, pull_request: u64, head: &str) {
-        self.proving.declined.push((pull_request, head.to_owned()));
+    /// Remembers that `head` cannot be proved, and why
+    pub(in crate::runner) fn decline(&mut self, pull_request: u64, head: &str, why: &str) {
+        (self.proving.declined).push((pull_request, head.to_owned(), why.to_owned()));
     }
 }
 
 impl Runner {
-    /// Starts the e2e run of bump `pull_request`'s `head` on a thread of its
+    /// Starts the proof of bump `pull_request`'s `head` on a thread of its
     /// own, whose end comes back as news, and says whether it started
-    pub(in crate::runner) fn launch_proof(&mut self, pull_request: u64, head: &str) -> bool {
+    ///
+    /// The browser proof, if the project has one, comes before the e2e run.
+    pub(in crate::runner) fn launch_proof(
+        &mut self,
+        pull_request: u64,
+        head: &str,
+        browser: Option<BrowserProof>,
+    ) -> bool {
         let repo = self.settings.git.checkout.clone();
         let (worktree, door) = (
             self.paths.bump_worktree(pull_request),
@@ -68,40 +88,49 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let head_run = head.to_owned();
         let run = move || {
-            let outcome = catch_unwind(AssertUnwindSafe(|| {
+            let verdict = catch_unwind(AssertUnwindSafe(|| {
                 let fetched =
                     worktree::contribution_checkout(&repo, pull_request, &head_run, &worktree);
-                let outcome = match fetched {
-                    Ok(()) => runner.run(&E2eRun {
-                        worktree: worktree.clone(),
-                        door,
+                let verdict = match fetched {
+                    Ok(()) => prove(browser, &worktree, || {
+                        runner.run(&E2eRun {
+                            worktree: worktree.clone(),
+                            door,
+                        })
                     }),
-                    Err(e) => E2eOutcome::NotRun {
-                        reason: format!("cannot check the head out: {e}"),
+                    Err(e) => Verdict::E2e {
+                        outcome: E2eOutcome::NotRun {
+                            reason: format!("cannot check the head out: {e}"),
+                        },
+                        browsed: false,
                     },
                 };
                 if let Err(e) = worktree::remove_view(&repo, &worktree) {
                     eprintln!("bump #{pull_request}: cannot remove its checkout: {e}");
                 }
-                outcome
+                verdict
             }))
-            .unwrap_or_else(|_| E2eOutcome::NotRun {
-                reason: "the run panicked".to_owned(),
+            .unwrap_or_else(|_| Verdict::E2e {
+                outcome: E2eOutcome::NotRun {
+                    reason: "the run panicked".to_owned(),
+                },
+                browsed: false,
             });
             let proof = Proof {
                 pull_request,
                 head: head_run,
-                outcome,
+                verdict,
             };
             let _ = news.send(News::Proved(proof));
             if let Some(wake) = &wake {
                 let _ = wake.send(());
             }
         };
-        let name = format!("#{pull_request} e2e");
+        let name = format!("#{pull_request} proof");
         if let Err(e) = thread::Builder::new().name(name).spawn(run) {
             // Nothing is in flight, so the next poll tries again.
-            eprintln!("bump #{pull_request}: cannot start a thread to run its e2e tests: {e}");
+            eprintln!("bump #{pull_request}: cannot start a thread to prove it: {e}");
+            self.release_proof_port(pull_request);
             return false;
         }
         self.flights.proving.open = Some((pull_request, head.to_owned()));
@@ -117,6 +146,24 @@ impl Runner {
     // Records the end of the run in flight, and frees the host for the next.
     pub(super) fn proof_heard(&mut self, proof: Proof) -> Result<(), StateError> {
         self.flights.proving.open = None;
-        self.record_proof(proof.pull_request, &proof.head, proof.outcome)
+        self.release_proof_port(proof.pull_request);
+        self.record_proof(proof.pull_request, &proof.head, proof.verdict)
+    }
+}
+
+// The browser proof, then the e2e run unless a route failed or the browser was not to be had.
+fn prove(
+    browser: Option<BrowserProof>,
+    worktree: &std::path::Path,
+    e2e: impl FnOnce() -> E2eOutcome,
+) -> Verdict {
+    let browsed = match browser.map(|proof| proof.run(worktree)) {
+        None => false,
+        Some(Browsed::Passed) => true,
+        Some(ended) => return Verdict::Browser(ended),
+    };
+    Verdict::E2e {
+        outcome: e2e(),
+        browsed,
     }
 }

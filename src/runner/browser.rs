@@ -6,7 +6,6 @@
 //! cannot carry it ([`Runner::carry_calls`] refuses while one is open).
 
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use super::Runner;
@@ -109,7 +108,12 @@ impl Runner {
             return Ok(());
         }
         let folder = self.paths.browser(call.issue);
-        let server = server(&self.settings.browser, &self.paths.tools, &folder)?;
+        let server = Server::playwright(
+            &tools.playwright_mcp(),
+            &tools.browsers(),
+            &folder,
+            self.settings.browser.headed,
+        )?;
         if let (Session::New(id), true) = (&call.session, call.harness.keeps_its_servers()) {
             std::fs::write(folder.join(SESSION_FILE), &id.0)
                 .map_err(|e| format!("cannot note the session of {}: {e}", who(call)))?;
@@ -155,40 +159,4 @@ impl Runner {
         }
         opened.and(written)
     }
-}
-
-// The command that serves one connection, with the folder it writes to made
-// ready: a real folder of kelpie's own, not a link a worker could have put there.
-fn server(
-    settings: &crate::settings::Browser,
-    tools: &crate::tools::Tools,
-    folder: &Path,
-) -> Result<Server, String> {
-    let output = folder.join("output");
-    for dir in [folder, output.as_path()] {
-        match std::fs::symlink_metadata(dir) {
-            Ok(found) if found.is_dir() => {}
-            Ok(_) => return Err(format!("{} is not a folder kelpie made", dir.display())),
-            Err(_) => std::fs::create_dir_all(dir)
-                .map_err(|e| format!("cannot make {}: {e}", dir.display()))?,
-        }
-    }
-    let mut args = vec![
-        tools.playwright_mcp().display().to_string(),
-        "--isolated".to_owned(),
-        "--output-dir".to_owned(),
-        output.display().to_string(),
-    ];
-    if !settings.headed {
-        args.push("--headless".to_owned());
-    }
-    Ok(Server {
-        command: "node".into(),
-        args,
-        env: BTreeMap::from([(
-            "PLAYWRIGHT_BROWSERS_PATH".to_owned(),
-            tools.browsers().display().to_string(),
-        )]),
-        cwd: folder.to_owned(),
-    })
 }

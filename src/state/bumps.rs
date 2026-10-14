@@ -26,9 +26,11 @@ pub struct Bump {
     /// Left out until it was asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rebase_asked: Option<String>,
-    /// How the end-to-end run of a web bump's head ended
+    /// How the proof of a web bump's head ended: the end-to-end run, or the browser
+    /// proof alone where the project has no e2e host
     ///
-    /// Left out until a run ends. A new head clears it, so it names the
+    /// A failed browser proof is not kept here; the bump goes red at once. Left out
+    /// until a proof ends. A new head clears it, so it names the
     /// current `head` or nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2e: Option<E2eResult>,
