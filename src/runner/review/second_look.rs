@@ -263,6 +263,7 @@ fn a_session_that_ends_after_the_review_moved_on_still_keeps_its_cost_and_its_en
         let reviewed = crate::runner::report::Reviewed {
             result: ReviewResult::Findings(Ok(Vec::new())),
             spent: Some(spent),
+            ended: None,
         };
         runner.end_review(reviewed).unwrap()
     };

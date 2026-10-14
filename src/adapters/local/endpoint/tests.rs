@@ -324,7 +324,7 @@ fn a_diff_bigger_than_the_context_goes_in_several_requests() {
     assert!(findings.is_empty(), "CLEAN from every chunk");
     let requests = server.requests();
     assert!(requests.len() > 1, "{} requests", requests.len());
-    let reply = 4096 / REPLY_SHARE;
+    let reply = 1024; // a quarter of the 4096 context
     let prompt = RECORDED.len().div_ceil(BYTES_PER_TOKEN) + FRAMING_TOKENS;
     let budget = (4096 - reply - prompt) * BYTES_PER_TOKEN;
     for request in &requests {
@@ -403,7 +403,7 @@ fn a_reply_cut_off_while_thinking_fails_the_round() {
     let url = format!("{}/chat/completions", server.url());
     assert_eq!(
         err,
-        ReviewerError::Failed(format!(
+        ReviewerError::CutOff(format!(
             "{url}'s reply ended inside its thinking, so nothing was reviewed"
         ))
     );
@@ -428,7 +428,7 @@ fn a_reply_cut_off_by_length_says_so() {
     let url = server.url();
     assert_eq!(
         err,
-        ReviewerError::Failed(format!(
+        ReviewerError::CutOff(format!(
             "{url}'s reply was cut off (finish_reason \"length\") after 9216 completion \
              tokens of the 2048 asked for, with 700 in the prompt, and held no answer"
         ))
@@ -457,7 +457,7 @@ fn a_reply_cut_off_by_length_partway_through_its_answer_is_not_taken_as_complete
     let url = server.url();
     assert_eq!(
         err,
-        ReviewerError::Failed(format!(
+        ReviewerError::CutOff(format!(
             "{url}'s reply was cut off (finish_reason \"length\") after 2048 completion \
              tokens of the 2048 asked for, with 700 in the prompt, and left its answer unfinished"
         ))

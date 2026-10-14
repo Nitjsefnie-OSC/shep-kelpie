@@ -10,7 +10,9 @@ use serde::Serialize;
 
 use crate::board::Skip;
 use crate::pacer::HoldKind;
-use crate::ports::{AgentCall, Cost, Finding, Role, SessionId, Timestamp, Transcript, Usage};
+use crate::ports::{
+    AgentCall, Cost, Finding, Role, RoundEnd, SessionId, Timestamp, Transcript, Usage,
+};
 use crate::settings::{AgentName, LocalRound};
 use crate::work_item::{QwenTally, Spend, Split, TestCheck};
 
@@ -822,6 +824,19 @@ pub(super) struct Reviewed {
     /// `None` when nothing ran to the end: a stopped call, or a Claude call
     /// that failed and so reported no cost
     pub spent: Option<Spent>,
+    /// How a local round ended, where the reviewer said; `None` for any other call
+    pub ended: Option<RoundEnd>,
+}
+
+impl Reviewed {
+    /// A call that came back with `reason` and ran no round
+    pub fn failed(reason: String) -> Self {
+        Self {
+            result: ReviewResult::Findings(Err(reason)),
+            spent: None,
+            ended: None,
+        }
+    }
 }
 
 /// What a [`ReviewCall`] came back with

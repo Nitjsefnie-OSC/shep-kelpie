@@ -429,6 +429,13 @@ impl Runner {
         notes.extend(book.skipped());
         notes.extend(worker_files::remove_old(&paths.worker));
         notes.extend(e2e::record(settings.e2e.as_ref(), &paths.e2e()));
+        let now = ports.clock.now();
+        notes.extend(review::prune_at_start(
+            &settings.local_rounds,
+            &paths.name(),
+            &paths.folder,
+            now,
+        ));
         notes.extend(e2e::dog_cannot_find(settings.e2e.as_ref(), paths));
         told.extend(notes);
         let agents = settings.role_agents(&book)?;

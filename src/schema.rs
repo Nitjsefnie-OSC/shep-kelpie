@@ -188,6 +188,10 @@ mod tests {
                 "[app.dogs.kelpie.e2e]\nhost =",
             )
             .replace(
+                "# [app.dogs.kelpie.local_rounds]\n# keep = true\n# keep_days = 30\n# folder =",
+                "[app.dogs.kelpie.local_rounds]\nkeep = true\nkeep_days = 30\nfolder =",
+            )
+            .replace(
                 "# [app.dogs.kelpie.repo_setup]\n# plugins =",
                 "[app.dogs.kelpie.repo_setup]\nplugins =",
             )
