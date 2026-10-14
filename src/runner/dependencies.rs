@@ -25,7 +25,7 @@ use super::Runner;
 use super::follow_up::TRIAGE_LABEL;
 use super::gate::{settled, short};
 use crate::board::{OpenPullRequest, TRIAGE};
-use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, Timestamp};
+use crate::ports::{Checks, E2eOutcome, ForgeError, NewLabel, PullRequestState, Timestamp};
 use crate::settings::{Dependencies, OnRed};
 use crate::state::{Bump, E2eResult, E2eState, Red, RedStep, StateError};
 use crate::worktree::{self, Base, Remote};
@@ -145,15 +145,10 @@ impl Runner {
         let Some(bump) = self.bump(number) else {
             return Ok(());
         };
-        let on_board = open.iter().any(|pr| pr.number == number);
         if bump.red.is_some() {
-            // Someone else closed it first, so only its issue is left to file.
-            if !on_board && bump.issue_owed() {
-                self.amend(number, |b| {
-                    if let Some(red) = b.red.as_mut() {
-                        red.step = RedStep::File;
-                    }
-                })?;
+            let on_board = open.iter().any(|pr| pr.number == number);
+            if !on_board && bump.issue_owed() && self.settle_left_red(&bump)? {
+                return Ok(());
             }
             return self.finish_red(number);
         }
@@ -164,6 +159,43 @@ impl Runner {
             Next::Waiting(why) => self.stand(number, why, false),
             Next::Red(why) => self.go_red(number, &bump.head, why),
             Next::Merge => self.merge_bump(&bump),
+        }
+    }
+
+    // A red bump that left the board before kelpie closed it: closed by
+    // someone else, its issue is still owed; merged, there is nothing to
+    // file; unreadable, it waits. Says whether that is all for this poll.
+    fn settle_left_red(&mut self, bump: &Bump) -> Result<bool, StateError> {
+        let number = bump.pull_request;
+        if bump
+            .red
+            .as_ref()
+            .is_none_or(|red| red.step == RedStep::File)
+        {
+            return Ok(false);
+        }
+        match (self.ports.forge).pull_request(&self.remote, number) {
+            Ok(now) if now.state == PullRequestState::Merged => {
+                self.notes.push(format!(
+                    "bump #{number}: merged by someone else while red, so no issue"
+                ));
+                self.drop_bump(number)?;
+                Ok(true)
+            }
+            Ok(now) if now.state == PullRequestState::Closed => {
+                self.amend(number, |b| {
+                    if let Some(red) = b.red.as_mut() {
+                        red.step = RedStep::File;
+                    }
+                })?;
+                Ok(false)
+            }
+            Ok(_) => Ok(false),
+            Err(e) => {
+                let why = format!("red, and cannot tell whether it was merged: {e}");
+                self.stand(number, why, true)?;
+                Ok(true)
+            }
         }
     }
 

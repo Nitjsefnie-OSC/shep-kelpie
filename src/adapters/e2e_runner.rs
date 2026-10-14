@@ -6,8 +6,7 @@
 
 use std::io::{self, Write};
 
-use crate::lease::cli::counted_run::NO_LEASE;
-use crate::lease::cli::e2e::{NOT_CONFIGURED, run_printing};
+use crate::lease::cli::e2e::{Ended, run_printing};
 use crate::ports::{E2eOutcome, E2eRun, E2eRunner, OUTPUT_KEPT, tail};
 
 /// Runs the e2e tests through the dog
@@ -28,17 +27,23 @@ impl E2eRunner for DogE2e {
             }
         };
         let mut written = Tail::default();
-        let code = runtime.block_on(run_printing(&run.door, run.worktree.clone(), &mut written));
-        match code {
-            0 => E2eOutcome::Passed,
-            NOT_CONFIGURED => E2eOutcome::NoHost,
-            NO_LEASE => E2eOutcome::NotRun {
-                reason: "the dog was not reached, or went away before the run ended".to_owned(),
-            },
-            _ => E2eOutcome::Failed {
-                output: tail(&written.0),
-            },
-        }
+        let ended = runtime.block_on(run_printing(&run.door, run.worktree.clone(), &mut written));
+        outcome_of(ended, &written.0)
+    }
+}
+
+// What the run came to: only a command that ran and exited non-zero failed.
+fn outcome_of(ended: Ended, written: &[u8]) -> E2eOutcome {
+    match ended {
+        Ended::Exited(0) => E2eOutcome::Passed,
+        Ended::Exited(_) => E2eOutcome::Failed {
+            output: tail(written),
+        },
+        Ended::NoHost(_) => E2eOutcome::NoHost,
+        Ended::Unreached(_) => E2eOutcome::NotRun {
+            reason: "the dog was not reached, or went away before the run ended".to_owned(),
+        },
+        Ended::Refused(why) => E2eOutcome::NotRun { reason: why },
     }
 }
 
@@ -74,6 +79,29 @@ mod tests {
         let outcome = DogE2e.run(&run);
 
         assert!(matches!(outcome, E2eOutcome::NotRun { .. }), "{outcome:?}");
+    }
+
+    #[test]
+    fn only_a_command_that_ran_and_failed_is_a_failed_run() {
+        let failed = |code| outcome_of(Ended::Exited(code), b"not ok\n");
+        // 75 and 78 are the dog's codes, but here they are the command's own.
+        for code in [1, 75, 78] {
+            assert_eq!(
+                failed(code),
+                E2eOutcome::Failed {
+                    output: "not ok\n".to_owned()
+                }
+            );
+        }
+        let refused = outcome_of(Ended::Refused("the dog refused".into()), b"");
+        assert!(matches!(refused, E2eOutcome::NotRun { .. }), "{refused:?}");
+        let gone = outcome_of(Ended::Unreached("gone".into()), b"");
+        assert!(matches!(gone, E2eOutcome::NotRun { .. }), "{gone:?}");
+        assert_eq!(
+            outcome_of(Ended::NoHost("none".into()), b""),
+            E2eOutcome::NoHost
+        );
+        assert_eq!(outcome_of(Ended::Exited(0), b""), E2eOutcome::Passed);
     }
 
     #[test]

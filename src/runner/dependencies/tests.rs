@@ -631,6 +631,30 @@ fn a_bump_closed_by_someone_else_before_kelpie_closed_it_is_still_filed() {
 }
 
 #[test]
+fn a_red_bump_merged_by_hand_before_kelpie_closed_it_gets_no_issue() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+    rig.forge.set_pull_request_closes_down(true);
+    settle(&rig, &runner);
+
+    rig.forge
+        .set_state(40, crate::ports::PullRequestState::Merged);
+    poll(&rig, &runner);
+
+    assert!(rig.forge.created().is_empty());
+    assert!(rig.forge.pull_request_closings().is_empty());
+    assert!(bumps(&rig, &runner).is_empty());
+    let notes = notes(&runner);
+    assert_eq!(
+        words(&notes, "bump #40: merged by someone else"),
+        1,
+        "{notes:?}"
+    );
+}
+
+#[test]
 fn a_merge_the_forge_refused_is_tried_again() {
     let (rig, runner) = bumping("");
     let head = bump(&rig, 40, "Cargo.lock");
