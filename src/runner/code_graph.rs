@@ -21,6 +21,10 @@ use crate::settings::AgentHarness;
 // An index that takes longer is not worth holding a turn for.
 const INDEX_LIMIT: Duration = Duration::from_secs(300);
 
+// The standing warnings: told once however many calls meet them.
+const NOT_INSTALLED: &str = "code-graph-not-installed";
+const INDEX_FAILED: &str = "code-graph-index-failed";
+
 // How much of an indexer's output a note repeats.
 const TAIL: usize = 300;
 
@@ -36,14 +40,18 @@ impl Runner {
         }
         let tools = &self.paths.tools;
         if !tools.has_code_graph() {
-            self.notes.push(format!(
-                "{} runs without a code graph: {} is not there, so run \
-                 `shep kelpie tools install`",
-                who(call),
-                tools.code_graph().display()
-            ));
+            self.notes.standing(
+                NOT_INSTALLED,
+                format!(
+                    "{} runs without a code graph: {} is not there, so run \
+                     `shep kelpie tools install`",
+                    who(call),
+                    tools.code_graph().display()
+                ),
+            );
             return;
         }
+        self.notes.ends(NOT_INSTALLED);
         call.reach.code_graph = Some(CodeGraph {
             binary: tools.code_graph(),
             index: self.paths.code_graph(call.issue),
@@ -120,9 +128,18 @@ pub(super) fn indexed(call: &mut AgentCall, notes: &Notes, ending: &Ending) {
     let Some(graph) = &call.reach.code_graph else {
         return;
     };
-    if let Err(e) = index(graph, &call.cwd, ending) {
-        notes.push(format!("{} runs without a code graph: {e}", who(call)));
-        call.reach.code_graph = None;
+    match index(graph, &call.cwd, ending) {
+        Ok(()) => notes.ends(INDEX_FAILED),
+        Err(e) => {
+            let line = format!("{} runs without a code graph: {e}", who(call));
+            // A call ended while it indexes says nothing of the graph itself.
+            if ending.asked() {
+                notes.push(line);
+            } else {
+                notes.standing(INDEX_FAILED, line);
+            }
+            call.reach.code_graph = None;
+        }
     }
 }
 
@@ -192,6 +209,8 @@ fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), Stri
 mod tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
+
+    use serde_json::json;
 
     use super::*;
     use crate::ports::CLEAN;
@@ -448,6 +467,22 @@ mod tests {
             .find(|n| n.contains("runs without a code graph"))
             .expect("a note");
         assert!(skip.contains("tools install"), "{skip}");
+    }
+
+    #[test]
+    fn a_server_that_is_not_installed_is_said_once_across_calls_and_status_shows_it() {
+        let rig = Rig::new("shep");
+        turn_on(&rig);
+        let runner = work_and_review(&rig);
+
+        assert!(reads_code(&rig).len() >= 2, "several calls met it");
+        let notes = runner.lock().unwrap().take_notes();
+        let said: Vec<_> = (notes.iter())
+            .filter(|n| n.contains("runs without a code graph"))
+            .collect();
+        assert_eq!(said.len(), 1, "{notes:#?}");
+        let status = rig.ask(&runner, "status", None);
+        assert_eq!(status["standing"], json!([said[0]]));
     }
 
     #[test]

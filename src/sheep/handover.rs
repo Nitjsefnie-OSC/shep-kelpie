@@ -32,6 +32,7 @@ use crate::lease::Epoch;
 use crate::lease::saved::BookFile;
 use crate::lease::wire::{Asker, AskerCarry};
 use crate::runner::{CarriedTurn, Runner};
+use crate::upgrade::build::Build;
 
 /// The trigger that asks for a handover
 pub const ACTION: &str = "handover";
@@ -62,6 +63,10 @@ pub struct Carry {
     // Absent from a build that carried only the turns.
     #[serde(default)]
     leases: Option<AskerCarry>,
+    // The kelpie version of the image that handed over; absent from one that
+    // did not say.
+    #[serde(default)]
+    build: Option<String>,
 }
 
 /// The lease side of a runner `epoch` of `sheep`, from the `Carry` it took
@@ -89,6 +94,25 @@ pub(super) fn reconcile_grants(
 }
 
 impl Carry {
+    /// The line the out log gets as the image that took this over starts, in
+    /// place of the plain `up:` line of a start
+    pub(super) fn took_over_line(&self, runner: &Runner) -> String {
+        let status = runner.status();
+        let from = self
+            .build
+            .as_ref()
+            .map_or_else(|| "an earlier build".to_owned(), |b| format!("kelpie {b}"));
+        format!(
+            "took over: {}, from {from} to kelpie {}, {} turns carried, {} work items open, \
+             {} rulings waiting",
+            status.project,
+            Build::this().kelpie,
+            self.turns.len(),
+            status.work_items.len(),
+            status.rulings.len()
+        )
+    }
+
     /// The lease side of the runner `epoch` of `sheep` in the new image: the
     /// old image's totals, or for a build that carried none, the dog's saved
     /// `book` for this run
@@ -276,7 +300,12 @@ impl Handing {
         match held.carry_calls() {
             Ok(turns) => {
                 let leases = held.carry_leases();
-                refuse((self.exec)(&Carry { turns, leases }))
+                let build = Some(Build::this().kelpie);
+                refuse((self.exec)(&Carry {
+                    turns,
+                    leases,
+                    build,
+                }))
             }
             Err(why) => refuse(why),
         }

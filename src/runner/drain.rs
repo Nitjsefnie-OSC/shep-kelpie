@@ -97,8 +97,10 @@ impl Runner {
         }
     }
 
-    // Sets the pause for each worker turn in flight that a tool result can end.
+    // Sets the pause for each worker turn in flight that a tool result can end,
+    // and says which.
     fn pause_turns(&self) {
+        let (mut asked, mut refused) = (Vec::new(), Vec::new());
         for item in &self.state.work_items {
             // Only a call whose harness has the hook, and whose settings carry it.
             let ends = (self.flights.turn_call(item.issue))
@@ -106,13 +108,30 @@ impl Runner {
             if !ends {
                 continue;
             }
-            if let Err(e) = Pause::in_build(&item.build).request() {
-                eprintln!(
-                    "cannot pause issue #{}'s turn at a tool call: {e}",
-                    item.issue
-                );
+            match Pause::in_build(&item.build).request() {
+                Ok(()) => asked.push(format!("#{}", item.issue)),
+                Err(e) => {
+                    eprintln!(
+                        "cannot pause issue #{}'s turn at a tool call: {e}",
+                        item.issue
+                    );
+                    refused.push(format!("#{}", item.issue));
+                }
             }
         }
+        let mut line = if !asked.is_empty() {
+            let turns = asked.join(", ");
+            format!("drain pause: turns asked to end at their next tool call: {turns}")
+        } else if refused.is_empty() {
+            "drain pause: no worker turn in flight can end at a tool call".to_owned()
+        } else {
+            "drain pause: no turn was asked to end at a tool call".to_owned()
+        };
+        if !refused.is_empty() {
+            let turns = refused.join(", ");
+            line.push_str(&format!("; the pause could not be written for {turns}"));
+        }
+        self.notes.push(line);
     }
 
     /// What `status` shows of the drain, while the runner drains
