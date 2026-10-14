@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG, RECORD_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PAUSE_FLAG, RECORD_FLAG};
 use crate::hooks::GUARD_BUDGET;
-use crate::ports::{Fence, PM_NOTES, Reach, Tools};
+use crate::ports::{Fence, Guard, PM_NOTES, Reach, Tools};
 use crate::settings::{HookEvent, HookPoint};
 use crate::trim::trimmed;
 
@@ -242,7 +242,7 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
     if !reach.read.is_empty() {
         permissions["additionalDirectories"] = json!(reach.read);
     }
-    let hooks = match tools {
+    let mut hooks = match tools {
         // Its session asks no one, so a command its guard allows must not wait on a prompt.
         Tools::Issues => {
             permissions["allow"] = json!(["Bash"]);
@@ -269,6 +269,9 @@ pub(crate) fn settings(tools: Tools, reach: &Reach) -> Value {
         }
         Tools::Work | Tools::Review | Tools::Answer | Tools::Retro => hooks(fence),
     };
+    if tools == Tools::Work {
+        pausing(&mut hooks, &fence.guard);
+    }
     trimmed(json!({
         // Kelpie's sandbox holds the whole process, and on macOS Claude Code's
         // own cannot start inside it: every command would be refused.
@@ -508,6 +511,24 @@ fn hooks(fence: &Fence) -> Value {
         hooks["PostToolUseFailure"] = failed.into();
     }
     hooks
+}
+
+// The hook that ends a worker's turn at its next tool result while a pause
+// is set, after a tool call that succeeded and after one that failed.
+fn pausing(hooks: &mut Value, guard: &Guard) {
+    let words = [
+        guard.kelpie.to_string_lossy().into_owned(),
+        "guard".to_owned(),
+        guard.git_common_dir.to_string_lossy().into_owned(),
+        guard.worktree.to_string_lossy().into_owned(),
+        format!("{PAUSE_FLAG}{}", guard.build.display()),
+    ];
+    let command = words.map(|w| shell_quote(&w)).join(" ");
+    for event in ["PostToolUse", "PostToolUseFailure"] {
+        let mut entries = hooks[event].as_array().cloned().unwrap_or_default();
+        entries.push(entry(None, &command));
+        hooks[event] = entries.into();
+    }
 }
 
 // The project manager's one hook: its file tools may only add to the end
@@ -764,8 +785,14 @@ mod tests {
 
         let confine = commands_of(&s["hooks"]["PreToolUse"], FILE_TOOLS);
         assert!(!confine[0].contains("--hooks="), "{}", confine[0]);
-        assert!(s["hooks"].get("PostToolUse").is_none());
-        assert!(s["hooks"].get("PostToolUseFailure").is_none());
+        // The only post entry is the pause hook, which has no matcher.
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            assert!(
+                commands_of(&s["hooks"][event], "Bash").is_empty(),
+                "{event}"
+            );
+            assert_eq!(s["hooks"][event].as_array().unwrap().len(), 1, "{event}");
+        }
     }
 
     #[test]

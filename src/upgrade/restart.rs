@@ -43,6 +43,9 @@ pub struct Patience {
     /// Past the longest a drained runner's call may run, for its last call
     /// to end and be recorded
     pub margin: Duration,
+    /// For a worker turn a pause ends at its next tool call, before the stop
+    /// cuts the call short
+    pub tool: Duration,
 }
 
 impl Default for Patience {
@@ -53,6 +56,9 @@ impl Default for Patience {
             start: Duration::from_secs(60),
             merge: Duration::from_secs(60 * 60),
             margin: Duration::from_secs(5 * 60),
+            // A full test run is about six minutes, so a call at its usual
+            // longest ends inside this; a hung one does not, and is cut.
+            tool: Duration::from_secs(10 * 60),
         }
     }
 }

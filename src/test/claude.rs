@@ -91,6 +91,10 @@ pub(crate) enum Scripted {
     HoldThenFail(Hold, AgentError),
     /// Blocks like [`Self::Hold`], then answers with this final message
     HoldThenSay(Hold, &'static str),
+    /// Runs a tool call until the test releases the hold, then, as the
+    /// worker's `PostToolUse` hook does, ends the turn at its result while a
+    /// pause is set, and goes on as the second does otherwise
+    AtTool(Hold, Box<Scripted>),
     /// Waits for a lease on its model until the test releases the hold, as a
     /// call queued at a gateway does, then goes on as the second does
     Queued(Hold, Box<Scripted>),
@@ -362,6 +366,10 @@ impl Agents for FakeClaude {
             }
             other => other,
         };
+        let (at_tool, next) = match next {
+            Some(Scripted::AtTool(tool, then)) => (Some(tool), Some(*then)),
+            other => (None, other),
+        };
         let settings: serde_json::Value = std::fs::read_to_string(&call.settings)
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
@@ -383,6 +391,14 @@ impl Agents for FakeClaude {
             carried: ending.carried(),
             diff: std::fs::read_to_string(call.cwd.join("change.diff")).ok(),
         });
+        if let Some(tool) = at_tool {
+            self.hold(&tool, call, ending)?;
+            // The hook is kelpie's own: the same check the real one runs.
+            let build = call.reach.fence.as_deref().map(|fence| &*fence.guard.build);
+            if build.and_then(crate::guard::judge_pause).is_some() {
+                return Ok(answer(call, ""));
+            }
+        }
         let next = match next {
             Some(Scripted::Spend(account, usage, cost)) => {
                 if let Some(meter) = &self.meter {
@@ -428,6 +444,7 @@ impl Agents for FakeClaude {
                 Ok(said(text))
             }
             Some(Scripted::Queued(..)) => unreachable!("turned into its second above"),
+            Some(Scripted::AtTool(..)) => unreachable!("turned into its second above"),
             Some(Scripted::HoldThenFail(hold, error)) => {
                 hold.block();
                 Err(error)

@@ -680,6 +680,29 @@ fn only_an_answer_the_model_ended_itself_is_a_success() {
 }
 
 #[test]
+fn a_turn_the_pause_aborted_is_read_for_its_usage_and_any_other_abort_is_a_failure() {
+    let aborted = FRESH.replace(r#""stopReason":"stop""#, r#""stopReason":"aborted""#);
+    let whole = parse_result(&output(0, FRESH, ""), &id(FRESH_ID)).unwrap();
+    // pi may leave with a failing status after an abort; the marker the
+    // extension leaves is what tells a pause from any other.
+    for status in [0, 1] {
+        let ran = output(status, &aborted, "");
+        let reply = parse_turn(&ran, &id(FRESH_ID), true).unwrap();
+        assert_eq!(reply.usage, whole.usage, "status {status}");
+        assert!(
+            matches!(
+                parse_turn(&ran, &id(FRESH_ID), false),
+                Err(AgentError::Failed(Harness::Pi, _))
+            ),
+            "status {status}: an abort with no pause failed"
+        );
+    }
+    // A pause does not excuse a turn that failed some other way.
+    let errored = FRESH.replace(r#""stopReason":"stop""#, r#""stopReason":"error""#);
+    assert!(parse_turn(&output(0, &errored, ""), &id(FRESH_ID), true).is_err());
+}
+
+#[test]
 fn an_answer_missing_a_token_count_still_counts_the_rest() {
     let text = FRESH.replace(r#","cacheWrite":0"#, "");
     assert_ne!(text, FRESH);

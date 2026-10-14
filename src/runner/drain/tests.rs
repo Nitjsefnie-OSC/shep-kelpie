@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use serde_json::{Value, json};
 
+use crate::guard::Pause;
 use crate::ports::{CLEAN, Cost, Role, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
 use crate::runner::{Pass, Runner, advance, step};
@@ -70,6 +71,19 @@ fn drain_answers_the_calls_still_running_until_they_end() {
     }
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(rig.claude.calls().len(), 1, "nothing started after it");
+}
+
+#[test]
+fn a_pause_sets_no_flag_for_a_work_item_with_no_turn_in_flight() {
+    let (rig, runner) = seven_due("shep");
+    // Issue 7's first turn is due, not running: nothing for a tool result to end.
+    std::fs::create_dir_all(rig.build_7()).unwrap();
+    let drained = rig.ask(&runner, "drain", Some("pause"));
+    assert_eq!(drained["draining"]["at_tool"], json!(null), "{drained}");
+    assert!(
+        !Pause::in_build(&rig.build_7()).is_requested(),
+        "a flag with no turn to read it would end the next one"
+    );
 }
 
 #[test]

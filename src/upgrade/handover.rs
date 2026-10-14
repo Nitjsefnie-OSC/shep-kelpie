@@ -48,7 +48,7 @@ pub async fn hand_over(
     };
     let waited = Instant::now();
     loop {
-        match asked(client, name, "handover").await? {
+        match asked(client, name, "handover", None).await? {
             None => return stays(format!("`{name}` runs a kelpie from before `handover`")),
             Some(Answered::Down) => return stopped(name, say),
             Some(Answered::Runner(body)) => {
