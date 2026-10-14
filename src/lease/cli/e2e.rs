@@ -20,19 +20,49 @@ pub(crate) const NOT_CONFIGURED: u8 = 78;
 /// How long a dog has to answer; a live one answers at once
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
-/// Asks the dog at `socket` to run the e2e tests for the project holding
-/// `worktree`, prints the command's output as it arrives, and returns the
-/// number to exit with: the command's own, or [`NO_LEASE`] when the dog is
-/// not reached or goes away
-pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
-    run_printing(socket, worktree, &mut std::io::stdout()).await
+/// How an ask for the e2e tests ended, which the exit code alone cannot say:
+/// the command's own code can equal one of the dog's
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Ended {
+    /// The command ran, and exited with this code
+    Exited(u8),
+    /// The dog says the project has no e2e host, and why
+    NoHost(String),
+    /// The dog was not reached, or went away, and why. The run may not have
+    /// happened, or its end is unknown.
+    Unreached(String),
+    /// The dog answered something other than a run, and what
+    Refused(String),
 }
 
-// `run`, printing the command's lines to `out`.
-async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> u8 {
+impl Ended {
+    /// The number to exit with: the command's own, [`NOT_CONFIGURED`] for no
+    /// host, [`NO_LEASE`] when the dog was not reached or went away, and 1
+    /// for a refusal
+    pub(crate) fn code(&self) -> u8 {
+        match self {
+            Self::Exited(code) => *code,
+            Self::NoHost(_) => NOT_CONFIGURED,
+            Self::Unreached(_) => NO_LEASE,
+            Self::Refused(_) => 1,
+        }
+    }
+}
+
+/// Asks the dog at `socket` to run the e2e tests for the project holding
+/// `worktree`, prints the command's output as it arrives, and returns the
+/// number to exit with
+pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
+    run_printing(socket, worktree, &mut std::io::stdout())
+        .await
+        .code()
+}
+
+// `run`, printing the command's lines to `out`, and saying how the ask ended.
+pub(crate) async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> Ended {
     let visit = match Visit::knock(socket, &ask(worktree)).await {
         Ok(visit) => visit,
-        Err(why) => return failed(&unreached(&why), NO_LEASE),
+        Err(why) => return Ended::Unreached(told(&unreached(&why))),
     };
     follow(visit, out).await
 }
@@ -46,20 +76,20 @@ fn ask(worktree: PathBuf) -> Ask {
 }
 
 // The dog's answers to an ask, printed and turned into a code.
-async fn follow(mut visit: Visit, out: &mut impl Write) -> u8 {
+async fn follow(mut visit: Visit, out: &mut impl Write) -> Ended {
     let first = match tokio::time::timeout(ANSWER_WITHIN, visit.answer()).await {
         Ok(answer) => answer,
-        Err(_) => return failed("the dog took the ask and never answered", NO_LEASE),
+        Err(_) => return Ended::Unreached(told("the dog took the ask and never answered")),
     };
     let mut granted = false;
     let mut next = first;
     loop {
         match next {
-            Err(why) if granted => return failed(&gone(&why), NO_LEASE),
-            Err(why) => return failed(&unreached(&why), NO_LEASE),
-            Ok(None) if granted => return failed(&gone("the dog closed the door"), NO_LEASE),
+            Err(why) if granted => return Ended::Unreached(told(&gone(&why))),
+            Err(why) => return Ended::Unreached(told(&unreached(&why))),
+            Ok(None) if granted => return Ended::Unreached(told(&gone("the dog closed the door"))),
             Ok(None) => {
-                return failed("the dog closed the door without answering", NO_LEASE);
+                return Ended::Unreached(told("the dog closed the door without answering"));
             }
             Ok(Some(Answer::Queued(ahead))) => {
                 eprintln!("shep kelpie lease: waiting for the e2e host, {ahead} ahead");
@@ -69,15 +99,15 @@ async fn follow(mut visit: Visit, out: &mut impl Write) -> u8 {
                 // A reader that went away leaves the run going; its code still counts.
                 let _ = writeln!(out, "{line}").and_then(|()| out.flush());
             }
-            Ok(Some(Answer::Done(code))) => return u8::try_from(code).unwrap_or(1),
+            Ok(Some(Answer::Done(code))) => return Ended::Exited(u8::try_from(code).unwrap_or(1)),
             Ok(Some(Answer::Error(why))) if why.starts_with(NO_E2E_HOST) => {
-                return failed(&why, NOT_CONFIGURED);
+                return Ended::NoHost(told(&why));
             }
             Ok(Some(Answer::Error(why))) => {
-                return failed(&format!("the dog refused: {why}"), 1);
+                return Ended::Refused(told(&format!("the dog refused: {why}")));
             }
             Ok(Some(other @ (Answer::Go | Answer::Wait(_) | Answer::Held(_)))) => {
-                return failed(&format!("the dog answered {other:?} to the e2e ask"), 1);
+                return Ended::Refused(told(&format!("the dog answered {other:?} to the e2e ask")));
             }
         }
         next = visit.answer().await;
@@ -97,9 +127,10 @@ fn unreached(why: &str) -> String {
     format!("{why}: the e2e tests did not run, so say so in your final message")
 }
 
-fn failed(message: &str, code: u8) -> u8 {
+// Says `message` on stderr, and hands it back.
+fn told(message: &str) -> String {
     eprintln!("shep kelpie lease: {message}");
-    code
+    message.to_owned()
 }
 
 #[cfg(test)]
@@ -113,12 +144,13 @@ mod tests {
     // reads one ask and answers it with `answer`, handing back the ask it read.
     async fn dog_answering(
         worktree: &Path,
-        answer: &'static str,
+        answer: &str,
     ) -> (Visit, tokio::task::JoinHandle<Option<Ask>>) {
         let (visitor, dog) = UnixStream::pair().unwrap();
         let visit = Visit::over(visitor, &ask(worktree.to_owned()))
             .await
             .unwrap();
+        let answer = answer.to_owned();
         let dog = tokio::spawn(async move {
             let (read, mut write) = dog.into_split();
             let line = BufReader::new(read).lines().next_line().await.ok()??;
@@ -140,7 +172,7 @@ mod tests {
         )
         .await;
 
-        let code = follow(visit, &mut Vec::new()).await;
+        let code = follow(visit, &mut Vec::new()).await.code();
 
         assert_eq!(code, 78);
         let heard = dog.await.unwrap().expect("the dog read an ask");
@@ -157,7 +189,7 @@ mod tests {
         .await;
         let mut printed = Vec::new();
 
-        let code = follow(visit, &mut printed).await;
+        let code = follow(visit, &mut printed).await.code();
 
         assert_eq!(code, 3);
         assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\nnot ok 2\n");
@@ -172,7 +204,7 @@ mod tests {
         .await;
         let mut printed = Vec::new();
 
-        let code = follow(visit, &mut printed).await;
+        let code = follow(visit, &mut printed).await.code();
 
         assert_eq!(code, 75);
         assert_eq!(String::from_utf8(printed).unwrap(), "ok 1\n");
@@ -186,7 +218,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(follow(visit, &mut Vec::new()).await, 1);
+        assert_eq!(follow(visit, &mut Vec::new()).await.code(), 1);
     }
 
     #[tokio::test]
@@ -195,5 +227,20 @@ mod tests {
         let socket = dir.path().join("lease.sock");
 
         assert_eq!(run(&socket, dir.path().to_owned()).await, 75);
+    }
+
+    #[tokio::test]
+    async fn a_command_that_exits_with_a_code_the_dog_uses_is_still_the_commands() {
+        for code in [75, 78] {
+            let (visit, _dog) = dog_answering(
+                Path::new("/work/tree"),
+                &format!("\"granted\"\n{{\"done\":{code}}}"),
+            )
+            .await;
+
+            let ended = follow(visit, &mut Vec::new()).await;
+
+            assert_eq!(ended, Ended::Exited(code));
+        }
     }
 }

@@ -1,6 +1,7 @@
 use super::*;
 
 mod contributions;
+mod dependencies;
 mod e2e;
 mod gateway_kind;
 mod repo_setup;

@@ -58,6 +58,8 @@ pub enum Kind {
     CreateIssue,
     /// An issue closed
     CloseIssue,
+    /// A pull request closed unmerged
+    ClosePullRequest,
     /// A pull request opened
     CreatePullRequest,
     /// A pull request's title and body rewritten
@@ -179,6 +181,7 @@ impl Kind {
             | Self::OpenIssues
             | Self::CreateIssue
             | Self::CloseIssue
+            | Self::ClosePullRequest
             | Self::MarkReady
             | Self::SetLabel
             | Self::SetIssueLabel

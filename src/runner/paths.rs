@@ -194,6 +194,12 @@ impl ProjectPaths {
         self.worktrees.join(issue.to_string())
     }
 
+    /// The worktree a bump's head is checked out in for its e2e run, in the
+    /// folder the dog finds the project by
+    pub fn bump_worktree(&self, pull_request: u64) -> PathBuf {
+        self.worktrees.join(format!("bump-{pull_request}"))
+    }
+
     /// The build folder for the work item that resolves `issue`
     pub fn build(&self, issue: u64) -> PathBuf {
         self.builds.join(issue.to_string())

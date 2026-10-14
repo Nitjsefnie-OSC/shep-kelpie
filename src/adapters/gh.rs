@@ -207,6 +207,10 @@ impl Forge for Gh {
         issues::close_issue(repo, number)
     }
 
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        issues::close_pull_request(repo, number)
+    }
+
     fn create_pull_request(
         &self,
         repo: &ForgeSlug,

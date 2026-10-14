@@ -47,6 +47,7 @@ mod code_graph;
 mod coderabbit;
 mod compact;
 mod contributions;
+mod dependencies;
 mod dispatch;
 mod drain;
 mod e2e;
@@ -131,6 +132,8 @@ pub use crate::coderabbit::LABEL as SUMMON_LABEL;
 pub use adopt::AdoptError;
 pub use attach::{AttachError, Attaching};
 pub use claim::IN_PROGRESS;
+#[cfg(test)]
+pub(crate) use dependencies::is_bump;
 pub use drain::{CallRole, CallRunning, Draining};
 pub use finishing::{Run, StartError};
 #[cfg(test)]
@@ -705,6 +708,7 @@ impl Runner {
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
             contributions: self.followed_status(now),
+            bumps: self.bumps_status(),
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             standing: self.notes.standing_lines(),

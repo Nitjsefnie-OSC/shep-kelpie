@@ -26,6 +26,7 @@ mod budget;
 mod ci;
 mod code_graph;
 mod contributions;
+mod dependencies;
 mod domains;
 mod e2e;
 mod gateway;
@@ -48,6 +49,7 @@ pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use code_graph::CodeGraph;
 pub use contributions::{Contributions, Pick};
+pub use dependencies::{Dependencies, DependencyPick, OnRed};
 pub use e2e::{E2e, RepoPath, ResultsDir, SshAlias};
 pub use gateway::{
     Gateway, GatewayKey, GatewayKind, GatewayName, Gateways, KeyVar, ModelHost, Route,
@@ -99,6 +101,10 @@ pub struct Settings {
     /// picks up none when absent.
     #[serde(default)]
     pub contributions: Contributions,
+    /// Whether kelpie merges the bumps bots open when they pass, and closes
+    /// those that break. It follows none when absent.
+    #[serde(default)]
+    pub dependencies: Dependencies,
     /// The project's own hooks, which kelpie runs at its own points for
     /// every harness and role. Each must resolve when the runner starts.
     /// Empty when absent.

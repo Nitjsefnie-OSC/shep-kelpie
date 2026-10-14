@@ -316,6 +316,24 @@ compact_window = 200000
 # quiet_days = 7
 # nudge_days = 3
 
+# Whether kelpie merges the bumps bots open. `pick` is `off` (every bot's pull
+# request is left alone) or `on`. A bump behind `main` is asked to rebase once
+# per head, and is proved only on the latest `main`: its checks must pass, as
+# at the merge gate. A bump that changes a path in `web` (a path ending in `/`
+# is a folder) also needs a passing e2e run through the dog's e2e host, and is
+# never merged without one. A proved bump is merged with a merge commit, with
+# no review. `bots` are the logins whose pull requests are bumps, ignoring case
+# and a `[bot]` suffix. A bump that fails a check or its e2e run, or whose
+# checks are still pending or absent after `wait_hours` (above 0), is red:
+# `on_red = "close"` comments what failed, closes it and files an issue, and
+# `"leave"` logs it and leaves it open.
+# [app.dogs.kelpie.dependencies]
+# pick = "off"
+# bots = ["dependabot"]
+# on_red = "close"
+# web = ["web/", "package.json"]
+# wait_hours = 24
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing;
 # https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/building.md#skills

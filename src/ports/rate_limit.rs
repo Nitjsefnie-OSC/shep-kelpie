@@ -421,6 +421,12 @@ impl Forge for RateHeld {
         self.call(Kind::CloseIssue, |f| f.close_issue(repo, number))
     }
 
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.call(Kind::ClosePullRequest, |f| {
+            f.close_pull_request(repo, number)
+        })
+    }
+
     fn create_pull_request(
         &self,
         repo: &ForgeSlug,
