@@ -198,3 +198,21 @@ fn a_reference_definition_and_an_html_link_are_checked() {
     assert!(out.contains("missing.md"), "{out}");
     assert!(out.contains("gone.md"), "{out}");
 }
+
+#[test]
+fn the_links_of_an_unreachable_guide_page_are_checked_too() {
+    let (ok, out) = check(&[
+        ("README.md", "# Dog\n"),
+        (
+            "docs/guide/lost.md",
+            "# Lost\n\n[gone](gone.md) [out](../../README.md#nope)\n",
+        ),
+    ]);
+    assert!(!ok);
+    assert!(out.contains("docs/guide/lost.md: not reachable"), "{out}");
+    assert!(
+        out.contains("docs/guide/lost.md:3: [gone.md]: no such file"),
+        "{out}"
+    );
+    assert!(out.contains("[../../README.md#nope]"), "{out}");
+}

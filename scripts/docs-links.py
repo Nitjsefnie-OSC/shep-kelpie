@@ -133,11 +133,10 @@ def main():
             return f.read()
 
     failures = []
-    reached = {"README.md"}
-    queue = ["README.md"]
+    edges = {}
     anchor_cache = {}
-    while queue:
-        page = queue.pop()
+    for page in pages:
+        edges[page] = set()
         for line, link in links(read(page)):
             if SCHEME.match(link):
                 continue
@@ -169,14 +168,18 @@ def main():
                 continue
             if not target.endswith(".md"):
                 continue
-            if target not in reached:
-                reached.add(target)
-                queue.append(target)
+            edges[page].add(target)
             if fragment:
                 if target not in anchor_cache:
                     anchor_cache[target] = anchors(read(target))
                 if fragment not in anchor_cache[target]:
                     fail(f"no heading makes the anchor #{fragment} in {target}")
+
+    reached, queue = {"README.md"}, ["README.md"]
+    while queue:
+        for target in edges[queue.pop()] - reached:
+            reached.add(target)
+            queue.append(target)
 
     for page in guide:
         if page not in reached:
