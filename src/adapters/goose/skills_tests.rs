@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::hooks::Judging;
-use super::hooks_tests::{plugin as fence_plugin, policy_of, worker};
+use super::hooks_tests::{env_vars, plugin as fence_plugin, policy_of, worker};
 use super::tests::{FRESH, FRESH_ID, OTHER_ID, URL, World, id, stand_in, strings};
 use super::*;
 use crate::confine::Verdict;
@@ -521,4 +521,61 @@ fn goose_s_two_builtin_skills_are_shadowed_by_stubs() {
         // A `: ` in a plain YAML value makes goose skip the skill, and so the shadow.
         assert!(!lines[2]["description: ".len()..].contains(": "), "{text}");
     }
+}
+
+#[test]
+fn a_skill_named_web_search_in_other_case_is_never_written_through() {
+    let w = World::new();
+    let text = named("Web-Search");
+    let plugin = plugin(&w, "house", &[("mine", &text)]);
+    let call = with_plugins(&w, vec![plugin.clone()]);
+
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+
+    // On a file system that folds case the stub's path is the link, so no stub is written.
+    assert_eq!(entries(&w), ["Web-Search", "goose-doc-guide"]);
+    assert_eq!(
+        std::fs::read_to_string(plugin.join("skills/mine/SKILL.md")).unwrap(),
+        text
+    );
+}
+
+#[test]
+fn a_step_skill_the_worktree_holds_one_of_the_same_name_beside_is_sent_as_its_text() {
+    let w = World::new();
+    let mut call = with_plugins(&w, vec![implement(&w, &named("tdd"))]);
+    call.prompt = "/mattpocock:implement go".into();
+    assert_eq!(text_of(&call), "/tdd go");
+
+    // goose reads the worktree's folder first, so the repo's `tdd` would run in its place.
+    let repo = call.cwd.join(".claude/skills/tdd");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("SKILL.md"), named("tdd")).unwrap();
+    assert_eq!(text_of(&call), "Steps of tdd.\n\nARGUMENTS: go");
+
+    // A repo skill of another name leaves the command alone.
+    std::fs::write(repo.join("SKILL.md"), named("other")).unwrap();
+    assert_eq!(text_of(&call), "/tdd go");
+}
+
+#[test]
+fn a_resumed_call_that_runs_in_chat_gets_a_placeholder_skill_as_text_whatever_the_plugins_now_hold()
+{
+    let w = World::new();
+    let text = "---\nname: implement\n---\nDo this: $ARGUMENTS\n";
+    let mut call = AgentCall {
+        tools: Tools::Research,
+        role: Role::Researcher,
+        ..with_plugins(&w, vec![implement(&w, text)])
+    };
+    call.session = Session::Resume(id(FRESH_ID));
+    call.prompt = "/mattpocock:implement go".into();
+    call.reach.mcp_servers = BTreeMap::from([(
+        "docs".to_owned(),
+        serde_json::json!({ "command": "/k/docs" }),
+    )]);
+
+    // The session was created with no server, so it runs in chat, whatever the call carries now.
+    assert!(env_vars(&call).contains(&"GOOSE_MODE=chat".to_owned()));
+    assert_eq!(text_of(&call), "Do this: go\n\nARGUMENTS: go");
 }

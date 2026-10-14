@@ -417,7 +417,7 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
 // the call's skills is that command ([`skills::prompt`]), or the skill's text
 // where the call has no tool to load it with.
 fn prompt(call: &AgentCall) -> String {
-    let offers_tools = has_shell(call) || !mcp::keys(call).is_empty();
+    let offers_tools = !chat(call, &Files::of(&call.settings));
     skills::prompt(call, offers_tools).unwrap_or_else(|| call.prompt.clone())
 }
 
@@ -461,6 +461,12 @@ fn judging<'a>(call: &AgentCall, fence: &'a crate::ports::Fence) -> hooks::Judgi
         (true, Tools::Review, Some(folder)) => hooks::Judging::Tests(folder),
         (true, _, _) => hooks::Judging::Reading,
     }
+}
+
+// Whether the call runs in `GOOSE_MODE=chat`: it has no shell and its session
+// holds no MCP server, so goose rejects any tool call it makes.
+fn chat(call: &AgentCall, files: &Files) -> bool {
+    !(has_shell(call) || mcp::loads(call, files))
 }
 
 // Whether goose offers the call its `developer` tools, behind the hook plugin.
@@ -517,12 +523,7 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if has_shell(call) || mcp::loads(call, files) {
-                "auto"
-            } else {
-                "chat"
-            }
-            .into(),
+            if chat(call, files) { "chat" } else { "auto" }.into(),
         ),
         ("OPENAI_BASE_URL".into(), upstream.worker_url().into()),
         ("OPENAI_API_KEY".into(), PLACEHOLDER_KEY.into()),

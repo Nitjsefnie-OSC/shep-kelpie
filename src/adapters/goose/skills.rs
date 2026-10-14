@@ -31,6 +31,9 @@ const NO_READ: [&str; 3] = [
     "~/.config/agents/skills/**",
 ];
 
+/// The folders of a worktree that goose reads skills from before the call's own
+const REPO_SKILLS: [&str; 3] = [".agents/skills", ".goose/skills", ".claude/skills"];
+
 /// The first messages goose runs as a command of its own, which a skill of the
 /// same name would not get, a superset of what 1.54.0 holds because the list
 /// could not be read from the source here (#798 settles it)
@@ -123,10 +126,13 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
         }
     }
     for (name, description) in STUBS {
-        if taken.contains(name) {
+        // A file system that folds case holds `Web-Search` as `web-search`, and
+        // writing into a link would write into the plugin's own folder.
+        let held = taken.iter().any(|held| held.eq_ignore_ascii_case(name));
+        let stub = folder.join(name);
+        if held || std::fs::symlink_metadata(&stub).is_ok() {
             continue;
         }
-        let stub = folder.join(name);
         std::fs::create_dir_all(&stub).map_err(|e| setup(&stub, e))?;
         let text = format!(
             "---\nname: {name}\ndescription: {description}\n---\n\n\
@@ -148,7 +154,9 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
 /// no model call. Such a skill keeps the prompt as written, and the model loads
 /// it with `load_skill`, when the call `offers_tools`. A call that offers none
 /// cannot load it, so its prompt is the skill's text with the placeholders filled
-/// in as goose fills them, then `ARGUMENTS: <rest>`.
+/// in as goose fills them, then `ARGUMENTS: <rest>`. So is a skill the worktree
+/// holds a skill of the same name beside ([`REPO_SKILLS`]): goose would give the
+/// repo's, and `load_skill` would too.
 ///
 /// `None` leaves the prompt as it is, as it does for a skill no plugin holds
 /// and for a skill named like one of goose's own commands ([`COMMANDS`]), which
@@ -160,10 +168,12 @@ pub(super) fn prompt(call: &AgentCall, offers_tools: bool) -> Option<String> {
         return None;
     }
     let text = std::fs::read_to_string(step.dir.join("SKILL.md")).ok()?;
-    if !has_placeholder(&text) {
+    // goose looks in the worktree's folders before the call's, and the first of a name wins.
+    let shadowed = repo_holds(&call.cwd, &name);
+    if !shadowed && !has_placeholder(&text) {
         return Some(format!("/{name} {}", step.rest).trim_end().to_owned());
     }
-    if offers_tools {
+    if !shadowed && offers_tools {
         return None;
     }
     let body = with_arguments(body_of(&text), &step.rest);
@@ -172,6 +182,16 @@ pub(super) fn prompt(call: &AgentCall, offers_tools: bool) -> Option<String> {
             .trim_end()
             .to_owned(),
     )
+}
+
+// Whether a skill called `name` is in one of the worktree's skill folders
+fn repo_holds(cwd: &Path, name: &str) -> bool {
+    REPO_SKILLS
+        .iter()
+        .filter_map(|folder| std::fs::read_dir(cwd.join(folder)).ok())
+        .flatten()
+        .filter_map(Result::ok)
+        .any(|entry| name_of(&entry.path()).as_deref() == Some(name))
 }
 
 // `text` with goose's placeholders filled in: `$ARGUMENTS` is `rest` whole, and
