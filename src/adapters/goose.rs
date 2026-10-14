@@ -3,9 +3,12 @@
 //!
 //! Each call runs whole inside kelpie's sandbox, as pi's do. goose has no
 //! sandbox of its own here. Kelpie gives it a root of its own beside the
-//! call's settings, so the maintainer's own goose setup never loads, and loads
-//! it no extension: the model is offered no tool, so it reads what kelpie
-//! wrote it and answers. Only the researcher runs on goose for now. The sandbox
+//! call's settings, so the maintainer's own goose setup never loads. A
+//! researcher is loaded no extension: the model is offered no tool, so it reads
+//! what kelpie wrote it and answers. A worker is offered goose's `developer`
+//! extension, and every tool call it makes goes through a `PreToolUse` hook
+//! plugin that kelpie writes into the root, [`hooks`]. Only a researcher and a
+//! worker run on goose for now. The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -21,7 +24,7 @@ use self::output::Spent;
 use super::claude::sandbox::call_policy;
 use super::claude::{ClaudeCli, LambLabels};
 use super::forwarder::Forwarder;
-use super::pi::deny_the_server;
+use super::pi::{deny_the_server, step_skill};
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
 use crate::fence;
@@ -34,6 +37,7 @@ use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
 mod files;
+pub(crate) mod hooks;
 mod output;
 
 #[cfg(test)]
@@ -41,6 +45,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod gateway_tests;
+
+#[cfg(test)]
+mod hooks_tests;
 
 #[cfg(test)]
 mod tests;
@@ -57,6 +64,9 @@ const GOOSE: Harness = Harness::Goose;
 
 /// The key goose is given for its server. The forwarder sends a gateway's own.
 const PLACEHOLDER_KEY: &str = "kelpie";
+
+/// The files goose loads as the repo's instructions for a worker
+const CONTEXT_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 
 /// The project folders goose loads plugins and their settings from, whatever
 /// `--no-profile` says
@@ -113,7 +123,14 @@ impl Agents for GooseCli {
         refuse_unsupported(call)?;
         self.upstream(server)?;
         system_text(call)?;
-        Files::of(&call.settings).prepare()
+        let files = Files::of(&call.settings);
+        hooks::only_ours(&files)?;
+        hooks::no_settings_in_root(&files)?;
+        files.prepare()?;
+        match &call.reach.fence {
+            Some(fence) if works(call) => hooks::write(&files, fence),
+            _ => Ok(()),
+        }
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
@@ -287,18 +304,24 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 
 // What goose cannot give a call yet. The agent files already refuse a role
 // goose does not take, so this is the second line.
-// parity: harness.worker, harness.reviewer, harness.advisor, harness.retro,
-// parity: harness.issue-writer, harness.pm, harness.guard-hooks
+// parity: harness.reviewer, harness.advisor, harness.retro, harness.issue-writer,
+// parity: harness.pm, harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let opens = |who: &str, slice: &str| {
         Some(format!(
-            "goose cannot run {who} yet: {slice} opens it, and only a researcher runs on it until then"
+            "goose cannot run {who} yet: {slice} opens it, and only a researcher and a worker run on it until then"
         ))
     };
     let refused = match (call.role, call.tools) {
         (Role::Researcher, _) => None,
-        (Role::Worker, Tools::Retro) => opens("a retro", "#789"),
-        (Role::Worker, _) => opens("a worker", "#788"),
+        // ADR 0006: a harness that cannot fence cannot be a worker.
+        (Role::Worker, Tools::Work) if call.reach.fence.is_none() => Some(
+            "goose cannot run a worker outside the kelpie fence: the plugin that holds its \
+             guard is written from the fence"
+                .to_owned(),
+        ),
+        (Role::Worker, Tools::Work) => None,
+        (Role::Worker, _) => opens("a retro", "#789"),
         (Role::Reviewer, _) => opens("a reviewer", "#789"),
         (Role::Advisor, _) => opens("an advisor", "#789"),
         (Role::IssueWriter | Role::Pm, _) => Some(format!(
@@ -331,6 +354,20 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     Ok(())
 }
 
+// Kelpie starts a step's prompt with Claude Code's `/<plugin>:<skill>`. A worker
+// is told to follow that skill's file, which its shell reads.
+fn prompt(call: &AgentCall) -> String {
+    match step_skill(call).filter(|_| works(call)) {
+        Some(step) => format!(
+            "Follow the skill `{}` in {}: read it first, then do what it says for this.\n\n{}",
+            step.name,
+            step.dir.join("SKILL.md").display(),
+            step.rest
+        ),
+        None => call.prompt.clone(),
+    }
+}
+
 // goose takes its system prompt as text, not as a path.
 fn system_text(call: &AgentCall) -> Result<Option<String>, AgentError> {
     let Some(path) = &call.instructions else {
@@ -341,9 +378,20 @@ fn system_text(call: &AgentCall) -> Result<Option<String>, AgentError> {
         .map_err(|e| AgentError::Setup(format!("cannot read {}: {}", path.display(), e.kind())))
 }
 
+// Whether `call` is a worker's with its tools and a fence, which goose runs
+// behind the fence's hook plugin. A worker with no fence is refused by
+// `prepare`, and a command built for one anyway is a researcher's, which has
+// no tool.
+fn works(call: &AgentCall) -> bool {
+    call.role == Role::Worker && call.tools == Tools::Work && call.reach.fence.is_some()
+}
+
 // The variables that move goose into the call's own root and point it at the
-// forwarder. `GOOSE_MODE` is `chat`: the call loads no extension, so there is
-// no tool for `auto` to allow, and goose rejects one that appears anyway.
+// forwarder. `GOOSE_MODE` is `chat` for a call with no extension: there is no
+// tool for `auto` to allow, and goose rejects one that appears anyway. A
+// worker's is `auto`, which ignores goose's own `permission.yaml`, so the
+// hook plugin is the only gate. A worker reads the repo's `AGENTS.md` and
+// `CLAUDE.md`, as pi does, and never `.goosehints`.
 fn env_args(
     call: &AgentCall,
     server: &ModelServer,
@@ -358,13 +406,22 @@ fn env_args(
             "GOOSE_CONTEXT_LIMIT".into(),
             server.context.get().to_string().into(),
         ),
-        ("GOOSE_MODE".into(), "chat".into()),
+        (
+            "GOOSE_MODE".into(),
+            if works(call) { "auto" } else { "chat" }.into(),
+        ),
         ("OPENAI_BASE_URL".into(), upstream.worker_url().into()),
         ("OPENAI_API_KEY".into(), PLACEHOLDER_KEY.into()),
         ("GOOSE_DISABLE_KEYRING".into(), "1".into()),
         ("GOOSE_TELEMETRY_OFF".into(), "1".into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
     ];
+    if works(call) {
+        vars.push((
+            "CONTEXT_FILE_NAMES".into(),
+            serde_json::json!(CONTEXT_FILES).to_string().into(),
+        ));
+    }
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
         let own: Vec<String> = vars.iter().map(|(name, _)| name.clone()).collect();
@@ -381,15 +438,20 @@ fn env_args(
 }
 
 // The prompt is one `--text=` argument, so one that starts with `-` is not read
-// as a flag. goose is given no extension, and so no tool.
+// as a flag. A researcher is given no extension, and so no tool. A worker is
+// given the `developer` builtin on a resumed call too: goose de-duplicates a
+// builtin, where a repeated `--with-extension` name ends the run.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     let mut argv: Vec<OsString> = vec![
         "run".into(),
         "--no-profile".into(),
         "--output-format".into(),
         "stream-json".into(),
-        format!("--text={}", call.prompt).into(),
+        format!("--text={}", prompt(call)).into(),
     ];
+    if works(call) {
+        argv.extend(["--with-builtin".into(), "developer".into()]);
+    }
     // goose builds its system prompt afresh on every call, a resumed one too.
     if let Some(text) = system_text(call)? {
         argv.push(format!("--system={text}").into());

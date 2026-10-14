@@ -1,5 +1,5 @@
-//! goose in an agent file: a researcher on a model server for now, and no
-//! other role until the slice that opens it
+//! goose in an agent file: a researcher and an implementer on a model server,
+//! and no other role until the slice that opens it
 
 use super::{folder, limit, model, name, refused};
 use crate::agents::{Agents, Role};
@@ -79,14 +79,16 @@ fn goose_takes_no_tools_and_no_usage_but_none() {
 }
 
 #[test]
-fn an_implementer_a_reviewer_or_an_advisor_on_goose_is_refused_naming_the_slice_that_opens_it() {
+fn an_implementer_on_goose_loads_and_a_reviewer_and_an_advisor_are_still_refused() {
+    let implementer = RESEARCHER.replace("researcher", "implementer");
+    let dir = folder(&[("i.md", &implementer)]);
+    let agents = Agents::load(dir.path()).unwrap();
+    let worker = agents.get(&name("i")).unwrap();
+    assert_eq!(worker.role, Role::Implementer);
+    assert_eq!(model(worker).harness.harness(), Harness::Goose);
+
     let reviewer = RESEARCHER.replace("researcher", "reviewer");
     for (role, text, slice) in [
-        (
-            "an implementer",
-            RESEARCHER.replace("researcher", "implementer"),
-            "#788",
-        ),
         ("a reviewer", reviewer, "#789"),
         (
             "an advisor",

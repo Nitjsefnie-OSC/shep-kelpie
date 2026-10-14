@@ -248,7 +248,7 @@ pub(super) fn parse(text: &str) -> Result<Agent, String> {
     Ok(agent)
 }
 
-// goose runs the researcher alone until the slices that open the other roles
+// goose runs the researcher and the implementer, and the other roles wait on the slice that opens them
 fn goose_opens_at(agent: &Agent, yaml: &str) -> Result<(), String> {
     let on_goose = matches!(
         agent.runs.session(),
@@ -261,18 +261,17 @@ fn goose_opens_at(agent: &Agent, yaml: &str) -> Result<(), String> {
         ))
     );
     let (who, slice) = match agent.role {
-        Role::Implementer => ("an implementer", "#788"),
         Role::Reviewer => ("a reviewer", "#789"),
         Role::Advisor => ("an advisor", "#789"),
         // The issue writer and the project manager already refuse any harness but Claude Code.
-        Role::IssueWriter | Role::Pm | Role::Researcher => return Ok(()),
+        Role::Implementer | Role::IssueWriter | Role::Pm | Role::Researcher => return Ok(()),
     };
     match on_goose {
         true => Err(at_key(
             yaml,
             "harness",
             &format!(
-                "{who} cannot run on goose yet: {slice} opens it, and only a researcher runs on it until then"
+                "{who} cannot run on goose yet: {slice} opens it, and only a researcher and an implementer run on it until then"
             ),
         )),
         false => Ok(()),

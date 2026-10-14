@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::gateway::ModelHost;
 use super::local::ContextSize;
 use super::reviewers::lowercase_name;
-use super::{RoleModel, Settings, SettingsError};
+use super::{HookPoint, RoleModel, Settings, SettingsError};
 use crate::agents::{Agent, Agents, FOLDER, Role, Runs};
 use crate::forwarder::Upstream;
 
@@ -513,6 +513,26 @@ impl Settings {
                     "implementer {name} runs on {harness}, which cannot run {what}: \
                      turn those off, move the check to a `command` or `write` hook in \
                      `hooks`, which runs on every harness, or build on Claude Code"
+                ),
+            });
+        }
+        // goose's PostToolUse payload names the tool and its input, not the result,
+        // and the model never reads a hook's output, so `--after` has nothing to
+        // judge and nowhere to report.
+        // parity: harness.after-command
+        if matches!(agent.harness, AgentHarness::Goose(_))
+            && self
+                .hooks
+                .iter()
+                .any(|h| h.point == HookPoint::AfterCommand)
+        {
+            return Err(SettingsError::Invalid {
+                setting: IMPLEMENTERS,
+                reason: format!(
+                    "implementer {name} runs on goose, which cannot run an `after_command` hook: \
+                     goose's PostToolUse hook is not given a command's result, and the model \
+                     never reads what a hook prints. Move the check to a `command` or `write` \
+                     hook, or build on another harness"
                 ),
             });
         }
