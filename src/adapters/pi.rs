@@ -32,7 +32,7 @@ use super::process::{Processes, RunError};
 use super::skills::skill_dirs;
 use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
-use crate::guard::{AFTER_FLAG, FOLDER_FLAG};
+use crate::guard::{AFTER_FLAG, FOLDER_FLAG, Pause};
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
     Forward, Kept, Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript,
@@ -45,6 +45,7 @@ mod activity;
 mod adopt;
 mod compact;
 pub(crate) mod mcp;
+mod web;
 
 #[cfg(test)]
 mod activity_tests;
@@ -92,12 +93,14 @@ const GUARD: &str = include_str!("pi/guard.ts");
 /// pi's tools for each kind, by its own names
 ///
 /// A reviewer that may write has `write` alone, as Claude's has `Write` alone.
-fn tool_names(tools: Tools, reads: bool, writes: bool) -> Option<&'static str> {
+/// A researcher has the web when `web` says its call loads the package, and
+/// otherwise reads what kelpie wrote it and no more.
+fn tool_names(tools: Tools, reads: bool, writes: bool, web: bool) -> Option<&'static str> {
     match tools {
         Tools::Work => Some("read,bash,edit,write,grep,find,ls"),
         Tools::Review if writes => Some("read,grep,find,ls,write"),
+        Tools::Research if web => Some(web::RESEARCH_TOOLS),
         // The issue writer runs on Claude Code alone, whose hook is its guard.
-        // pi has no web tool, so a researcher on it reads what kelpie wrote it and no more.
         Tools::Review | Tools::Issues | Tools::Retro | Tools::Advise | Tools::Research => {
             Some("read,grep,find,ls")
         }
@@ -114,7 +117,12 @@ fn tools_of(call: &AgentCall) -> Option<&'static str> {
         .fence
         .as_ref()
         .is_some_and(|f| !f.write.is_empty());
-    tool_names(call.tools, !call.reach.read.is_empty(), writes)
+    tool_names(
+        call.tools,
+        !call.reach.read.is_empty(),
+        writes,
+        web::loaded(call),
+    )
 }
 
 // The servers the call starts: none for a call with no tools, which could not use them.
@@ -203,7 +211,8 @@ impl Agents for PiCli {
         }
         if let Some(fence) = &call.reach.fence {
             let guard = files.guard();
-            std::fs::write(&guard, guard_extension(fence)).map_err(|e| setup(&guard, e))?;
+            std::fs::write(&guard, guard_extension(fence, web::loaded(call)))
+                .map_err(|e| setup(&guard, e))?;
         }
         // A compact call of any role loads it, the project manager's included.
         if loads_compact(call) {
@@ -231,6 +240,7 @@ impl Agents for PiCli {
                 _ => {}
             },
         }
+        web::write_config(call, &files.home)?;
         mcp::prepare(mcp_config(call), &files)
     }
 
@@ -519,6 +529,7 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
         // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
         ("TMPPREFIX".into(), files.scratch.join("zsh").into()),
     ];
+    vars.extend(web::env(call, &files.scratch));
     if let Some(fence) = &call.reach.fence {
         vars.extend(
             fence
@@ -527,13 +538,16 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
                 .map(|(name, value)| (name.clone(), value.clone().into())),
         );
     }
-    vars.into_iter()
-        .map(|(name, value)| {
-            let mut pair = OsString::from(format!("{name}="));
-            pair.push(value);
-            pair
-        })
-        .collect()
+    // `env` takes its options before the first NAME=VALUE.
+    let unset = web::unset(call)
+        .into_iter()
+        .flat_map(|name| ["-u".into(), name.into()]);
+    let set = vars.into_iter().map(|(name, value)| {
+        let mut pair = OsString::from(format!("{name}="));
+        pair.push(value);
+        pair
+    });
+    unset.chain(set).collect()
 }
 
 // pi loads nothing of the maintainer's or the repo's own: no extensions,
@@ -593,6 +607,7 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if loads_compact(call) {
         argv.extend(["--extension".into(), files.compact().into()]);
     }
+    argv.extend(web::flags(call));
     // The step's skill comes first, so its name wins a collision. Its text is in
     // the prompt, but any other skill needs `read` to open and only costs context.
     if let Some(skill) = skill {
@@ -658,8 +673,9 @@ fn plugin_name(dir: &Path) -> Option<String> {
     manifest["name"].as_str().map(str::to_owned)
 }
 
-/// The guard extension's source for a call fenced by `fence`
-fn guard_extension(fence: &Fence) -> String {
+/// The guard extension's source for a call fenced by `fence`, which lets the web
+/// package's tools through when the call `web` loads it
+fn guard_extension(fence: &Fence, web: bool) -> String {
     let guard = &fence.guard;
     let text = |p: &Path| p.to_string_lossy().into_owned();
     let mut commands = vec![
@@ -693,11 +709,14 @@ fn guard_extension(fence: &Fence) -> String {
         after.push(AFTER_FLAG.to_owned());
         after
     });
+    let pause = Pause::in_build(&guard.build);
     let checks = json!({
         "kelpie": text(&guard.kelpie),
         "confine": confine,
         "guard": commands,
         "after": after,
+        "pause": { "requested": pause.requested_file(), "ended": pause.ended_file() },
+        "web": if web { web::TOOLS.to_vec() } else { Vec::new() },
     });
     GUARD.replace("__CHECKS__", &checks.to_string())
 }
@@ -739,6 +758,7 @@ fn policy(
         .chain(call.plugin_dirs.iter().cloned())
         .chain(call.reach.read.iter().cloned()),
     );
+    web::open(call, &mut policy);
     super::mcp::fence_the_graph(&mut policy, call);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
@@ -811,7 +831,17 @@ pub(super) fn tail(text: &str) -> &str {
 
 // A compact call's output is read for its compaction, any other call's for its turn.
 fn read(call: &AgentCall, output: &Output) -> Result<AgentReply, AgentError> {
-    read_as(call.prompt == COMPACT, output, call.session.id())
+    if call.prompt == COMPACT {
+        return read_as(true, output, call.session.id());
+    }
+    parse_turn(output, call.session.id(), ended_for_pause(call))
+}
+
+// Whether the guard extension aborted the call's turn for a pause: it leaves
+// its marker before it aborts.
+fn ended_for_pause(call: &AgentCall) -> bool {
+    (call.reach.fence.as_deref())
+        .is_some_and(|fence| crate::guard::Pause::in_build(&fence.guard.build).ended_turn())
 }
 
 // The same for a call another image carried, which knows only whether it compacts.
@@ -841,6 +871,11 @@ fn failed(detail: &str) -> AgentError {
 // messages and its own compactions, its context the last request's prompt,
 // and its answer the last message's text. A local model has no price.
 fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentError> {
+    parse_turn(output, asked, false)
+}
+
+// The same for a turn that may have ended because the guard extension aborted it for a pause.
+fn parse_turn(output: &Output, asked: &SessionId, paused: bool) -> Result<AgentReply, AgentError> {
     #[derive(Deserialize)]
     struct Line {
         #[serde(rename = "type")]
@@ -901,7 +936,13 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
             _ => {}
         }
     }
-    if !output.status.success() {
+    // A turn the guard extension aborted for a pause stops with the reason
+    // `aborted`, and is read for its usage like one that ended on its own.
+    let paused = paused
+        && last
+            .as_ref()
+            .is_some_and(|m| m.stop_reason.as_deref() == Some("aborted"));
+    if !paused && !output.status.success() {
         let why = last.as_ref().and_then(|m| m.error_message.clone());
         return Err(failed(why.as_deref().unwrap_or(tail(&stderr))));
     }
@@ -911,6 +952,7 @@ fn parse_result(output: &Output, asked: &SessionId) -> Result<AgentReply, AgentE
     match last.stop_reason.as_deref() {
         Some("stop") => {}
         Some("length") => return Err(failed("the model ran out of output tokens")),
+        Some("aborted") if paused => {}
         Some("error" | "aborted") => {
             let why = last.error_message.as_deref();
             return Err(failed(why.unwrap_or("no reason given")));

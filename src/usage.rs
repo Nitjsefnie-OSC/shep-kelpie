@@ -102,6 +102,8 @@ pub enum Ended {
     TimedOut,
     /// It was ended because the runner was stopping
     Stopped,
+    /// A pause ended its turn at a tool result, to resume at the next start
+    Paused,
 }
 
 /// One account's usage as the pacer last read it

@@ -24,6 +24,7 @@ use super::review::findings;
 use super::rework;
 use super::ruling::park;
 use crate::github::InstallationToken;
+use crate::guard::Pause;
 use crate::pacer::Scope;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, COMPACT, Cost, Issue, Reach, Role, Session, Timestamp, Tools,
@@ -43,6 +44,7 @@ pub(super) use unfinished::{failed, named_files};
 mod budget;
 mod handover;
 pub(super) mod held_up;
+pub(super) mod paused;
 mod unfinished;
 pub(super) mod unreachable;
 
@@ -482,6 +484,8 @@ impl Runner {
             &findings::disputed_path(&item.build),
         );
         write(folder, &instructions, &text)?;
+        // A pause set for an earlier call, or one that ended it, is not this call's.
+        Pause::in_build(&item.build).clear();
         let prompt = match prompt {
             Some(prompt) => prompt,
             None if item.rework => rework::first_prompt(item),
@@ -679,6 +683,10 @@ impl Runner {
         // Its time so far is saved to the worker, which still runs it.
         if matches!(result, Err(AgentError::Stopped)) {
             return self.save_time().map(|()| None);
+        }
+        // A turn a pause ended at a tool result is not a finished one.
+        if let Some(paused) = self.end_paused(&result) {
+            return paused;
         }
         let now = self.ports.clock.now();
         // Whatever the turn left on `origin` is the worker's own. A head

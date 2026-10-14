@@ -82,7 +82,7 @@ goose = { gap = 795 }
 [harness.web-research]
 what = "The researcher searches and fetches the web"
 claude-code = "yes"
-pi = { gap = 767 }
+pi = "yes"
 codex = "yes"
 goose = { gap = 797 }
 
@@ -141,6 +141,13 @@ claude-code = "yes"
 pi = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
 codex = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
 goose = { cannot = "they are Claude Code hooks; the `hooks` setting runs on every harness", doc = "docs/design/workers.md", says = "`guard_hooks` reach Claude Code alone" }
+
+[harness.boundary-pause]
+what = "`shep kelpie pause` ends a worker turn at its next tool result"
+claude-code = "yes"
+pi = "yes"
+codex = { cannot = "Codex has no hook that ends a turn at a tool result", doc = "docs/design/workers.md", says = "a Codex or goose call keeps the old pause" }
+goose = { cannot = "goose has no hook that ends a turn at a tool result", doc = "docs/design/workers.md", says = "a Codex or goose call keeps the old pause" }
 
 [harness.tool-allow-list]
 what = "An agent file's `tools` names the tools a call may use"

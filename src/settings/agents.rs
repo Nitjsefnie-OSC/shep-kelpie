@@ -146,6 +146,18 @@ impl AgentHarness {
         }
     }
 
+    /// Whether a pause ends a turn on it at its next tool result, through
+    /// kelpie's hook or guard extension; a call on any other runs to its end
+    pub fn ends_at_tool(&self) -> bool {
+        // parity: harness.boundary-pause
+        match self {
+            Self::ClaudeCode | Self::Pi(_) => true,
+            Self::Codex | Self::Goose(_) => false,
+            #[cfg(test)]
+            Self::StandIn => true,
+        }
+    }
+
     /// The harness, as settings name it
     pub fn harness(&self) -> Harness {
         match self {

@@ -1,0 +1,18 @@
+# Project manager
+
+The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
+
+- Runner writes `board.md` so PM never runs git or gh (code-written board decides as well). Keeps newest 50 events + PM cursor; issue bodies quoted (600 chars) behind `> `; text naming this machine withheld. #326, `src/runner/briefing.rs`
+- Worker silent 10 min reads as idle (PM told only "busy" misses a hung worker). #326
+- Overlap from `git diff` + pairwise `git merge-tree` (git 2.38+), cached by commit, run without runner lock (trigger never waits on git). #326
+- `agents.pm` opts a project in (`pm`, Opus 5.5 at medium; Sonnet cost about the same here); without one board rule picks and every ruling waits on maintainer. `src/runner/pm.rs`, #327
+- Code wakes it, never a timer: free slot with 2+ choices, new conflict, stuck item, worker question, `shep kelpie tell`. #327
+- Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
+- No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
+- Tools `Read,Glob,Grep,Edit,Write`; writes only to append-only `pm-notes.md` via `kelpie confine --append`. #327
+- Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
+- Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
+- One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327
+- Answers or escalates worker questions, holding the ruling from maintainer one wake (10 min max). #437
+- Decides `follow-up` rulings, filing `ready-for-agent` or `needs-triage`. #510, #511
+- `shep kelpie pm` hands its session to maintainer's terminal like `attach`; no wake runs under them. #327

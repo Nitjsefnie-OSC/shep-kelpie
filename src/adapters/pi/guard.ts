@@ -3,11 +3,21 @@
 // on every command's result when the project has an `after_command` hook. Each
 // reads the call the way Claude Code's PreToolUse hooks hand it over, and exit
 // code 2 refuses. Kelpie fills in CHECKS for each call. Anything that fails refuses.
+// While a pause is set, the turn ends at its next tool result.
 import { spawnSync } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-type Checks = { kelpie: string; confine: string[]; guard: string[]; after: string[] | null };
+// WEB names the tools of the web package: empty unless the call loads it.
+type Checks = {
+	kelpie: string;
+	confine: string[];
+	guard: string[];
+	after: string[] | null;
+	pause: { requested: string; ended: string };
+	web: string[];
+};
 const CHECKS: Checks = __CHECKS__;
 
 // The path pi's write and edit resolve: it folds odd spaces, strips a
@@ -52,6 +62,30 @@ function printed(content: any): string {
 		.join("\n");
 }
 
+// The project's `after_command` hooks on a command's result. A command has run
+// by the time its result is here, so a refusal of it is feedback: the reason
+// joins the result, which the model reads as an error.
+async function afterCommand(event: any, ctx: any) {
+	if (event.toolName !== "bash" || !CHECKS.after) return undefined;
+	const cwd = ctx?.cwd ?? process.cwd();
+	const text = printed(event.content);
+	const exited = /exited with code (\d+)/.exec(text);
+	const why = judged(CHECKS.after, {
+		cwd,
+		tool_name: "Bash",
+		tool_input: { command: String(event.input?.command ?? "") },
+		tool_response: {
+			stdout: text,
+			exit_code: exited ? Number(exited[1]) : event.isError ? 1 : 0,
+		},
+	});
+	if (why === undefined) return undefined;
+	return {
+		content: [...(event.content ?? []), { type: "text", text: `kelpie: ${why}` }],
+		isError: true,
+	};
+}
+
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		const cwd = ctx?.cwd ?? process.cwd();
@@ -73,32 +107,22 @@ export default function (pi: any) {
 							tool_name: event.toolName === "write" ? "Write" : "Edit",
 							tool_input: { file_path: file, content: written(input) },
 						});
-		} else if (!["read", "grep", "find", "ls"].includes(event.toolName)) {
+		} else if (!["read", "grep", "find", "ls", ...CHECKS.web].includes(event.toolName)) {
 			why = `kelpie runs no ${event.toolName} tool for a worker`;
 		}
 		if (why !== undefined) return { block: true, reason: why };
 	});
 
-	// A command has run by the time its result is here, so a refusal of it is
-	// feedback: the reason joins the result, which the model reads as an error.
 	pi.on("tool_result", async (event: any, ctx: any) => {
-		if (event.toolName !== "bash" || !CHECKS.after) return undefined;
-		const cwd = ctx?.cwd ?? process.cwd();
-		const text = printed(event.content);
-		const exited = /exited with code (\d+)/.exec(text);
-		const why = judged(CHECKS.after, {
-			cwd,
-			tool_name: "Bash",
-			tool_input: { command: String(event.input?.command ?? "") },
-			tool_response: {
-				stdout: text,
-				exit_code: exited ? Number(exited[1]) : event.isError ? 1 : 0,
-			},
-		});
-		if (why === undefined) return undefined;
-		return {
-			content: [...(event.content ?? []), { type: "text", text: `kelpie: ${why}` }],
-			isError: true,
-		};
+		const result = await afterCommand(event, ctx);
+		// The result is kept: the turn ends before the next model call, never during one.
+		if (existsSync(CHECKS.pause.requested)) {
+			// Without the marker the runner could not tell the pause, so the turn goes on.
+			try {
+				writeFileSync(CHECKS.pause.ended, "");
+				ctx.abort();
+			} catch {}
+		}
+		return result;
 	});
 }

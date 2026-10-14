@@ -1,6 +1,6 @@
 # Work
 
-Projects, the board, work items, slots, issue writer, project manager.
+Projects, the board, work items, slots, issue writer. The project manager is in `pm.md`.
 
 ## Projects
 
@@ -8,24 +8,25 @@ Projects, the board, work items, slots, issue writer, project manager.
 - `add` refuses a checkout or repo another project's table names, even a broken one (two runners, same issues). `src/flock/verbs.rs`
 - Project runs exactly while its runner's sheep runs; no paused state. #268
 - `finish`: open items end, nothing new picked, then stops the sheep; `finishing` saved so restart keeps finishing. `add`, `adopt`, `rework` refused meanwhile; flag cleared just before stop. #303
-- `get [<key>]` prints the project's table or one dotted key; `set <key> <value>` reads the value as TOML (else a string), checks the whole result as a runner start and reread do (settings, agents, reviewers, rulings, gateways, skills; and for a moved `git.checkout` or `git.remote`, the checkout and `add`'s one-runner-per-checkout-and-repo rule), and only then writes the table back; refusals write nothing. A table written another way (lookout, `shep copy`) gets the same checks at runner start (which refuses, exit 78) and reread, and a refusal alerts. Says whether a running runner takes the change at its next wake or its next start. Not `[kelpie]`. #273, `src/flock/set.rs`
+- `get [<key>]` prints the project's table or one dotted key; `set <key> <value>` reads the value as TOML (else a string), checks the whole result as a runner start and reread do (settings, agents, reviewers, rulings, gateways, skills; and for a moved `git.checkout` or `git.remote`, the checkout and `add`'s one-runner-per-checkout-and-repo rule), and only then writes the table back; refusals write nothing. A table written another way (lookout, `shep copy`) gets the same checks at runner start (refuses, exit 78) and reread, and a refusal alerts. Says whether a running runner takes the change at its next wake or start. Not `[kelpie]`. #273, `src/flock/set.rs`
 - `start`, `pause`, `finish` touch only sheep kelpie started as `runner <project>` (never start one the maintainer stopped); `start` waits 30s for JSON `status`. `src/flock/verbs.rs`
-- `pause`: drain, wait out calls (ceiling + 5 min) and any merge (up to 1h), then stop sheep (stop mid-merge can leave a merged PR's item open); failed wait sends `undrain`. #268
+- `pause`: drain, then wait out calls and any merge (up to 1h), then stop sheep (stop mid-merge can leave a merged PR's item open); failed wait sends `undrain`. A Claude Code or pi worker turn ends at its next tool call (workers.md); `pause` names those items and waits 10 min for it (a full test run is ~6 min), then stops the call as `shep stop` does. Other calls wait ceiling + 5 min. #268, #821
 
 ## Board and items
 
 - Tracker: GitHub Issues + `ready-for-agent`; board of work items lives in kelpie (maintainer triages where they already work). `src/board.rs`
-- Issue writer: `role: issue-writer`, Claude Code only, Opus 5.5 at medium. Splits each request into the smallest pieces that ship alone (default since 2026-10-12), labels `agent:<name>` and priority; each piece has `Touches:`, concrete files, named tests, status label after its links, never mentions cost. No planning call (plans no better, shared plans spread bugs). ADR 0006, #324, `agents/issue-writer.md`
+- Issue writer: `role: issue-writer`, Claude Code only, Opus 5.5 at medium. Splits each request into the smallest pieces that ship alone, labels `agent:<name>` and priority; each piece has `Touches:`, concrete files, named tests, status label after its links, never mentions cost. No planning call (plans no better, shared plans spread bugs). ADR 0006, #324, `agents/issue-writer.md`
 - `shep kelpie issue "<request>"`: headless, fresh `origin/main`, files `ready-for-human`; fails on issue missing criteria or labels; no lamb, unpaced (command waits on it). `src/issues.rs`
-- `--interactive`: `claude` with no `allow` rule (maintainer approves each command outsider issue text could steer), files `ready-for-agent`. Previews each issue's `agent:` label and asks to apply them, none or some; no label = default implementer, so its guard allows zero or one. `src/issues.rs`, `src/issues/prompt.rs`
+- `--interactive`: `claude` with no `allow` rule (maintainer approves each command issue text could steer), files `ready-for-agent`. Previews each issue's `agent:` label and asks to apply them, none or some; no label = default implementer, so its guard allows zero or one. `src/issues.rs`, `src/issues/prompt.rs`
 - Issue-writer guard: allow-list of `gh issue` reads, creates, label/link edits on issues it filed; no shell syntax, no git (git options too wide for deny-list). `src/guard/issues.rs`
 - PostToolUse ledger records filed issues so edits/links reach only those; fails closed; hook seeing `tool_response.stdout` unchecked. `src/guard/issues.rs`
 - Design settled first: interactive runs vendored `grill-with-docs`, headless writes `## Open questions` with recommended answers; facts from repo, never maintainer. #365
 - Interactive docs land on `kelpie/docs-<id>` worktree, writes confined to `GLOSSARY.md` + `docs/adr`, then draft PR with no `Resolves` (checkout untouched, no runner takes it). #365
 - Unlabelled ready issue + several implementers: runner makes pick-only issue-writer call and labels it itself; failure raises `stuck` `unlabelled`. #381, `src/runner/flight/label.rs`
-- Board order: `priority: P0` to `P4`, then unlabelled, oldest first; adoptions and reworks ahead; blocked or skipped issue never holds up next. Keeps an `order`: new or re-prioritised issue goes after last of its priority; labels bump, move verbs fine-tune: `board` lists the ready issues numbered, `board move <issue> <position>` and `board top <issue>` reorder them, and a non-ready issue or a position past the end is refused, changing nothing. #144, #494, #495, `src/board.rs`
+- Board order: `priority: P0` to `P4`, then unlabelled, oldest first; adoptions and reworks ahead; blocked or skipped issue never holds up next. Keeps an `order`: new or re-prioritised issue goes after last of its priority; `board` lists ready issues numbered, `board move <issue> <position>` and `board top <issue>` reorder them; a non-ready issue or position past the end is refused. #144, #494, #495, `src/board.rs`
+- Adopt: `adoptable` refuses a branch a worktree kelpie did not make holds (`git worktree list --porcelain`), naming it, so `adopt` queues nothing that cannot start. A queued PR whose pass fails with `AdoptError::Worktree` raises one `stuck` `adopt-failed` ruling (id is the PR number, no work item), raised again only when the error changes (an answered one included, until a restart), a failure to list the worktrees raises none, cleared when a pass adopts it or it leaves the queue. While any queued PR fails, `status` lists it under `skipped` (`reason: adopt`) with `error` and `since` (in memory, reset on restart). #713, `src/runner/adopt.rs`
 - `agent:<name>` label picks implementer, `!` pins against fallback; unknown or doubled label skipped; kelpie only adds missing `agent:` labels (deleting strips every issue). #381
-- Issue with sub-issues never worked (they are, instead); closed when all sub-issues closed. The sweep also closes an open issue off the ready list once its sub-issues are all closed with one completed (all not planned stays open), from one listing at the board's reread; a sub-issue still open on that read stops the close, and one with none completed is read again when its sub-issue count changes or an hour on. #738, `src/runner/parent.rs`
+- Issue with sub-issues never worked (they are, instead); closed when all sub-issues closed. The sweep also closes an open issue off the ready list once its sub-issues are all closed with one completed (all not planned stays open); a sub-issue still open on the board's reread stops the close, and one with none completed is read again when its count changes or an hour on. #738, `src/runner/parent.rs`
 - Held issue carries `in-progress` (courtesy; refusal only logged). #199
 - Merged issues never retaken until they read closed (`Resolves` close lags merge); `drop` keeps the PR, lists issue `dropped` until it leaves the ready list. #172, #481
 - Kelpie works its own repo from a separate clone, never the session checkout; worker rules in `CLAUDE.md`; merged changes reach runner only on upgrade. #140
@@ -38,23 +39,6 @@ Projects, the board, work items, slots, issue writer, project manager.
 - Issue naming a file a parked branch changes skipped as `overlap` (ruling may still change it). #355
 - Resuming a parked session after 1h repays cache write; accepted. shep-pm/shep#707
 - Bot window grant serves one item, never inherited (would summon twice in a window the dog counted once). #103
-
-## Project manager
-
-- Runner writes `board.md` so PM never runs git or gh (code-written board decides as well). Keeps newest 50 events + PM cursor; issue bodies quoted (600 chars) behind `> `; text naming this machine withheld. #326, `src/runner/briefing.rs`
-- Worker silent 10 min reads as idle (PM told only "busy" misses a hung worker). #326
-- Overlap from `git diff` + pairwise `git merge-tree` (git 2.38+), cached by commit, run without runner lock (trigger never waits on git). #326
-- `agents.pm` opts a project in (`pm`, Opus 5.5 at medium; Sonnet cost about the same here); without one board rule picks and every ruling waits on maintainer. `src/runner/pm.rs`, #327
-- Code wakes it, never a timer: free slot with 2+ choices, new conflict, stuck item, worker question, `shep kelpie tell`. #327
-- Reads project worktrees + each item's diff (messages alone miss defects); secret-shaped files and kelpie secrets stay denied. #413, `src/runner/pm/call.rs`
-- No git or gh: kelpie writes diffs (64 KiB each) + a `still-red` item's CI log. #452
-- Tools `Read,Glob,Grep,Edit,Write`; writes only to append-only `pm-notes.md` via `kelpie confine --append`. #327
-- Answer is one JSON object (`pick`, `hold`, `unstick`, `answer`, `follow_up`, `reply`) checked against the board; anything else dropped + logged. #327
-- Pick of none lasts 30 min with nothing open; hold ends when an item closes. #327
-- One session resumed per wake, compacted past 100k; failed call passed over 10 min, board rule picks meanwhile. #327
-- Answers or escalates worker questions, holding the ruling from maintainer one wake (10 min max). #437
-- Decides `follow-up` rulings, filing `ready-for-agent` or `needs-triage`. #510, #511
-- `shep kelpie pm` hands its session to maintainer's terminal like `attach`; no wake runs under them. #327
 
 ## Not built
 

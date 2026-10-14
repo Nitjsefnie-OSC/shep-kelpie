@@ -72,9 +72,19 @@ pub(super) fn guarded(
     kelpie: &Path,
     events: serde_json::Value,
 ) -> Vec<serde_json::Value> {
+    guarded_with_web(w, kelpie, events, false)
+}
+
+// The same, for a call that does or does not load the web package.
+fn guarded_with_web(
+    w: &World,
+    kelpie: &Path,
+    events: serde_json::Value,
+    web: bool,
+) -> Vec<serde_json::Value> {
     let call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
     let fence = call.reach.fence.as_deref().unwrap();
-    std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
+    std::fs::write(w.path("guard.mts"), guard_extension(fence, web)).unwrap();
     std::fs::write(w.path("run.mjs"), GUARD_RUNNER).unwrap();
     let out = std::process::Command::new("node")
         .arg(w.path("run.mjs"))
@@ -222,7 +232,7 @@ fn after_results(w: &World, kelpie: &Path, events: serde_json::Value) -> Vec<ser
     let mut call = w.fenced(URL, kelpie, Session::New(id(WORKER_ID)));
     call.reach.fence.as_mut().unwrap().guard.hooks = pi_hooks(&[HookPoint::AfterCommand]);
     let fence = call.reach.fence.as_deref().unwrap();
-    std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
+    std::fs::write(w.path("guard.mts"), guard_extension(fence, false)).unwrap();
     std::fs::write(w.path("run.mjs"), RESULT_RUNNER).unwrap();
     let out = std::process::Command::new("node")
         .arg(w.path("run.mjs"))
@@ -334,4 +344,110 @@ fn a_guard_whose_checks_cannot_run_refuses() {
     ]);
     let verdicts = guarded(&w, &w.path("no-such-kelpie"), events);
     assert!(verdicts.iter().all(|v| v["block"] == true), "{verdicts:?}");
+}
+
+// Loads the guard extension as pi does and hands its `tool_result` handler two
+// events, with a context that counts the aborts asked of it.
+const ABORT_RUNNER: &str = r#"
+import { writeFileSync } from "node:fs";
+import guard from "./guard.mts";
+let handler;
+guard({ on: (name, fn) => { if (name === "tool_result") handler = fn; } });
+let aborts = 0;
+const ctx = { cwd: process.argv[2], abort: () => { aborts += 1; } };
+const event = { toolName: "read", input: { path: "a" }, content: [], isError: false };
+const first = (await handler(event, ctx)) ?? null;
+process.stdout.write(JSON.stringify({ aborts_before: aborts }) + "\n");
+writeFileSync(process.argv[3], "");
+const second = (await handler(event, ctx)) ?? null;
+console.log(JSON.stringify({ aborts, first, second }));
+"#;
+
+// Runs the abort script's two tool results in a fenced worker's extension,
+// with the pause set between them, after `before` has prepared the pause
+fn pause_run(before: impl FnOnce(&crate::guard::Pause)) -> Option<(Vec<serde_json::Value>, bool)> {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return None;
+    }
+    let w = World::new();
+    let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let fence = call.reach.fence.as_deref().unwrap();
+    let pause = crate::guard::Pause::in_build(&fence.guard.build);
+    std::fs::create_dir_all(&fence.guard.build).unwrap();
+    before(&pause);
+    std::fs::write(w.path("guard.mts"), guard_extension(fence, false)).unwrap();
+    std::fs::write(w.path("run.mjs"), ABORT_RUNNER).unwrap();
+    // The runner sets the pause between its two results, as `drain pause` does mid-turn.
+    let out = std::process::Command::new("node")
+        .arg(w.path("run.mjs"))
+        .arg(w.path("wt"))
+        .arg(pause.requested_file())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let lines = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    Some((lines, pause.ended_turn()))
+}
+
+#[test]
+fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
+    let Some((lines, ended)) = pause_run(|_| ()) else {
+        return;
+    };
+    assert_eq!(
+        lines[0]["aborts_before"], 0,
+        "no pause is set: the turn goes on"
+    );
+    assert_eq!(lines[1]["aborts"], 1, "the next result ends the turn");
+    assert_eq!(
+        lines[1]["second"],
+        serde_json::Value::Null,
+        "the result is kept"
+    );
+    assert!(ended, "the runner tells a paused turn by this");
+}
+
+#[test]
+fn the_guard_extension_lets_the_turn_go_on_when_it_cannot_leave_its_marker() {
+    // A folder where the marker goes cannot be written as a file.
+    let blocked = |pause: &crate::guard::Pause| std::fs::create_dir(pause.ended_file()).unwrap();
+    let Some((lines, _)) = pause_run(blocked) else {
+        return;
+    };
+    assert_eq!(
+        lines[1]["aborts"], 0,
+        "the runner could not tell the turn was paused, so it does not end"
+    );
+}
+
+// The package's tools are named in the checks, so the guard lets exactly those
+// through. `--tools` decides which call has them.
+#[test]
+fn the_guard_lets_the_web_packages_tools_through_and_no_other_it_does_not_know() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    crate::test::write_script(&w.path("kelpie"), "#!/bin/sh\ncat >/dev/null\n");
+    let events = json!([
+        { "toolName": "web_search", "input": { "query": "rust" } },
+        { "toolName": "fetch_content", "input": { "url": "https://docs.rs" } },
+        { "toolName": "get_search_content", "input": { "responseId": "r" } },
+        { "toolName": "web_enable", "input": {} },
+        { "toolName": "source_check", "input": {} },
+    ]);
+    let refused = |web: bool| -> Vec<bool> {
+        let verdicts = guarded_with_web(&w, &w.path("kelpie"), events.clone(), web);
+        verdicts.iter().map(|v| v["block"] == true).collect()
+    };
+    // A call that loads the package has its three tools, and nothing else it adds.
+    assert_eq!(refused(true), [false, false, false, true, true]);
+    // Any other fenced call has none of them, whatever `--tools` says.
+    assert_eq!(refused(false), [true; 5]);
 }

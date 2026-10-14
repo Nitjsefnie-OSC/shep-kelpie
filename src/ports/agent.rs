@@ -146,6 +146,10 @@ pub struct Reach {
     /// inside the call's sandbox, so the hosts they reach still need the
     /// call's allowed domains.
     pub mcp_servers: BTreeMap<String, serde_json::Value>,
+    /// Extension packages it loads, each a folder under kelpie's tools. Only
+    /// pi has extensions to load, and the researcher's call is the one that
+    /// names one, for its web.
+    pub extensions: Vec<PathBuf>,
 }
 
 /// The code graph of a worktree, served to a session over MCP

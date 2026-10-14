@@ -272,8 +272,11 @@ impl Card {
                 Self {
                     problem: None,
                     title: title.to_owned(),
-                    facts: (!matches!(reason, Stuck::Unlabelled { .. }))
-                        .then(|| stuck_comment(reason)),
+                    facts: (!matches!(
+                        reason,
+                        Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. }
+                    ))
+                    .then(|| stuck_comment(reason)),
                     choices,
                     board: None,
                 }
@@ -453,6 +456,11 @@ fn stuck(reason: &Stuck) -> (&'static str, &'static str, Option<&'static str>) {
             "The work item is over its budget. Raise the cap?",
             "Doubles the work item's cap, and again until it covers the spend, and the worker carries on",
             Some(RAISES),
+        ),
+        Stuck::AdoptFailed { .. } => (
+            "The adopted pull request cannot start",
+            "Kelpie tries again, as it does every poll",
+            None,
         ),
         Stuck::Unlabelled { .. } => (
             "No implementer was picked",

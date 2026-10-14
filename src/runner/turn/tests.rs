@@ -9,6 +9,7 @@ use crate::home::SHEP_SOCKET;
 use crate::ports::{Cost, Usage};
 use crate::profile;
 use crate::runner::step;
+use crate::runner::turn::paused::PAUSED;
 use crate::settings::Effort;
 use crate::test::{Hold, LEFT_BEHIND, Rig, Scripted, git, write_in};
 
@@ -826,81 +827,111 @@ fn a_pull_request_the_turns_end_missed_goes_to_review_instead() {
     assert_eq!(rig.claude.calls().len(), 1, "the worker was not sent back");
 }
 
-const DOLLAR: u64 = 1_000_000_000;
-
-// Issue 7 in flight under `budget.per_item_usd = 5`
-fn with_a_five_dollar_cap(project: &str) -> (Rig, Mutex<Runner>) {
-    let rig = Rig::new(project);
-    rig.edit_settings(|s| s.replace("per_item_usd = 10", "per_item_usd = 5"));
-    let runner = rig.open().unwrap();
-    rig.ask(&runner, "add", Some("7"));
-    (rig, runner)
+// Steps issue 7's turn with a tool call that a `drain pause` lands in, as
+// `shep kelpie pause` sends it while the worker is mid-turn, and the hook
+// then ends the turn at that call's result. `then` is how the turn would
+// have gone on.
+fn step_paused_in_a_tool(rig: &Rig, runner: &Mutex<Runner>, then: Scripted) -> Option<StepReport> {
+    let tool = Hold::default();
+    rig.claude
+        .script([Scripted::AtTool(tool.clone(), Box::new(then))]);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            assert!(
+                tool.entered(crate::test::CALL_PATIENCE),
+                "the tool call never began"
+            );
+            let drained = rig.ask(runner, "drain", Some("pause"));
+            assert_eq!(drained["draining"]["at_tool"], json!([7]), "{drained}");
+            tool.release();
+        });
+        step(runner).unwrap()
+    })
 }
 
 #[test]
-fn a_work_item_past_its_cap_raises_a_ruling_before_the_worker_is_called_again() {
-    let (rig, runner) = with_a_five_dollar_cap("acme");
-    // The first turn costs $6 and stops short, which would send the worker back.
-    rig.claude
-        .script([Scripted::Reply(usage(1), Cost(6 * DOLLAR))]);
-    step(&runner).unwrap();
+fn a_paused_turn_ends_at_its_next_tool_result_and_its_item_keeps_its_stage() {
+    let (rig, runner) = with_issue_7("shep");
+    let before = rig.ask(&runner, "status", None)["work_item"]["phase"].clone();
 
-    let Some(StepReport::Failed {
-        issue: 7,
-        pull_request: None,
-        id: 7,
-        question,
-        ..
-    }) = step(&runner).unwrap()
-    else {
-        panic!("the worker was not parked");
-    };
+    let ended = step_paused_in_a_tool(&rig, &runner, Scripted::Push("a.txt", "a"));
+
     assert_eq!(
-        question,
-        "The work on issue #7 has cost $6.00 against its cap of $5.00: the worker $6.00 and \
-         the reviewers $0.00, so the worker's next turn has not started. \
-         `shep kelpie rule 7 yes` raises the cap to $10.00 and the worker carries on, and \
-         `shep kelpie rule 7 no <note>` sends the worker your note and raises the cap the same."
+        ended, None,
+        "a paused turn reports nothing: it did not finish"
     );
-    assert_eq!(rig.claude.calls().len(), 1, "no call after the cap");
     let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["phase"], before);
     assert_eq!(
-        status["rulings"][0]["kind"],
-        json!({
-            "kind": "stuck",
-            "reason": "over-budget",
-            "phase": { "state": "implement" },
-            "spent": 6 * DOLLAR,
-            "cap": 5 * DOLLAR,
-            "by_role": { "worker": 6 * DOLLAR, "reviewer": 0 },
-        })
+        status["work_item"]["phase"],
+        json!({ "state": "implement" })
+    );
+    assert_eq!(status["work_item"]["turn"]["state"], "next");
+    assert_eq!(status["work_item"]["turn"]["prompt"], PAUSED);
+    assert_eq!(status["rulings"], json!([]));
+    // What the turn would have gone on to push was not pushed: it ended at the tool.
+    let [paused] = rig.claude.calls().try_into().unwrap();
+    assert!(
+        git(&rig.repo(), &["ls-remote", "origin", "kelpie/7"]).is_empty(),
+        "{paused:?}"
     );
 }
 
 #[test]
-fn status_shows_what_a_work_item_has_spent_against_its_cap() {
-    let (rig, runner) = with_a_five_dollar_cap("acme");
-    rig.claude
-        .script([Scripted::Reply(usage(1), Cost(3 * DOLLAR))]);
-    step(&runner).unwrap();
-    let budget = &rig.ask(&runner, "status", None)["work_item"]["budget"];
-    assert_eq!(budget, &json!({ "spent_usd": 3.0, "cap_usd": 5.0 }));
+fn a_paused_turn_runs_no_unpushed_check_and_raises_no_ruling() {
+    let (rig, runner) = with_issue_7("shep");
+    let worktree = rig.home.path().join("shep/kelpie/shep/worktrees/7");
+    assert_eq!(
+        step_paused_in_a_tool(&rig, &runner, Scripted::Say("done")),
+        None
+    );
+    // Work left uncommitted and nothing pushed or opened: a turn that finished
+    // so would be sent back for it, and a second one parked on a ruling.
+    write_in(&worktree, "scratch.txt", "in progress\n");
+
+    for _ in 0..2 {
+        rig.ask(&runner, "undrain", None);
+        let ended = step_paused_in_a_tool(&rig, &runner, Scripted::Say("done"));
+        assert_eq!(ended, None);
+    }
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["rulings"], json!([]), "a pause raises no ruling");
+    assert_eq!(
+        status["work_item"]["phase"],
+        json!({ "state": "implement" })
+    );
+    let calls = rig.claude.calls();
+    assert_eq!(calls.len(), 3);
+    assert!(
+        calls[1..].iter().all(|c| c.prompt == PAUSED),
+        "no unpushed check sent the worker back: {:?}",
+        calls.iter().map(|c| &c.prompt).collect::<Vec<_>>()
+    );
 }
 
 #[test]
-fn a_work_item_under_its_cap_is_left_alone() {
-    let (rig, runner) = with_a_five_dollar_cap("acme");
-    rig.claude.script([
-        Scripted::Reply(usage(1), Cost(5 * DOLLAR)),
-        Scripted::Reply(usage(1), Cost(5 * DOLLAR)),
-    ]);
-    step(&runner).unwrap();
-    step(&runner).unwrap();
-    let [_, again] = rig.claude.calls().try_into().unwrap();
-    assert_eq!(again.prompt, SENT_BACK, "exactly the cap is not over it");
-    assert_eq!(rig.ask(&runner, "status", None)["rulings"], json!([]));
+fn the_turn_after_a_pause_resumes_the_session_with_a_fresh_ceiling() {
+    let (rig, runner) = with_issue_7("shep");
+    let ended = step_paused_in_a_tool(&rig, &runner, Scripted::Say("done"));
+    assert_eq!(ended, None);
+    // The runner stops, and the whole ceiling passes before it starts again.
+    drop(runner);
+    rig.clock.advance(3601);
+    let runner = rig.open().unwrap();
+
+    rig.claude.script([Scripted::Reply(usage(1), Cost(9))]);
+    let resumed = step(&runner).unwrap();
+
+    assert!(
+        matches!(resumed, Some(StepReport::Ended { .. })),
+        "a ceiling from before the pause parked it: {resumed:?}"
+    );
+    let [first, second] = rig.claude.calls().try_into().unwrap();
+    assert_eq!(second.session, Session::Resume(first.session.id().clone()));
+    assert_eq!(second.prompt, PAUSED);
 }
 
-mod held;
-
+mod budget;
 mod hand_over;
+mod held;
