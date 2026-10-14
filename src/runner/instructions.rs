@@ -10,6 +10,7 @@ use std::path::Path;
 
 use super::owner_template::OwnerTemplate;
 use crate::profile;
+use crate::settings::NonBlank;
 use crate::settings::{E2e, Settings, SettingsError};
 use crate::skills::{Skills, Step};
 
@@ -46,6 +47,8 @@ pub(super) struct Extra<'a> {
     /// The template of the repo's owner's `.github` repository, which the
     /// worktree's own template outranks
     pub(super) owner_template: Option<&'a OwnerTemplate>,
+    /// The hosts of the project's browser, when the turn is given one
+    pub(super) browser: Option<&'a [NonBlank]>,
 }
 
 /// The command that runs the project's end-to-end tests, for the prompt of a worker told of it
@@ -102,6 +105,9 @@ pub(super) fn compose(
             e2e.results.as_path().display()
         ));
     }
+    if let Some(hosts) = extra.browser {
+        lines.push(browser_line(hosts));
+    }
     if !lines.is_empty() {
         text.push('\n');
         text.push_str(&lines.concat());
@@ -125,6 +131,24 @@ pub(super) fn compose(
         }
     }
     text
+}
+
+// Told when the turn has a browser, which its sandbox could not start itself
+fn browser_line(hosts: &[NonBlank]) -> String {
+    let hosts = match hosts {
+        [] => "no host, since the project lists none".to_owned(),
+        _ => (hosts.iter())
+            .map(|h| format!("`{}`", h.as_str()))
+            .collect::<Vec<_>>()
+            .join(", "),
+    };
+    format!(
+        "Your sandbox cannot start a browser, so kelpie runs one beside it: the \
+         `browser_*` tools of the `playwright` MCP server open http and https pages on \
+         {hosts}, and every other address fails. They save no file: leave out `filename`, \
+         and a screenshot comes back in the tool's reply. Wait for a page in the \
+         foreground, since a turn that ends on a background task is never woken.\n"
+    )
 }
 
 // Told while the retro runs, so the project manager's batch retro has the
@@ -389,6 +413,40 @@ mod tests {
         let same_build = with.replace(&rig.build_7().display().to_string(), &first_build);
         assert_eq!(same_build.replace(line, ""), without);
         assert!(with.find("/mattpocock:pr").unwrap() < with.find(line).unwrap());
+    }
+
+    #[test]
+    fn a_worker_with_a_browser_is_told_its_hosts_and_to_wait_in_the_foreground() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = Skills::load(&StepSkills::default(), &dir.path().join("skills"));
+        let told = |browser: Option<&[NonBlank]>| {
+            let extra = Extra {
+                browser,
+                ..Extra::default()
+            };
+            compose(
+                extra,
+                dir.path(),
+                &skills,
+                Path::new(Rig::KELPIE),
+                Path::new("deferred-findings.md"),
+                Path::new("disputed-findings.md"),
+            )
+        };
+        let hosts = [
+            NonBlank::try_from("app.example.com".to_owned()).unwrap(),
+            NonBlank::try_from("*.cdn.example.com".to_owned()).unwrap(),
+        ];
+        let text = told(Some(&hosts));
+        assert!(text.contains("`playwright` MCP server"), "{text}");
+        assert!(
+            text.contains("`app.example.com`, `*.cdn.example.com`"),
+            "{text}"
+        );
+        assert!(text.contains("leave out `filename`"), "{text}");
+        assert!(text.contains("in the foreground"), "{text}");
+        assert!(told(Some(&[])).contains("no host, since the project lists none"));
+        assert!(!told(None).contains("playwright"));
     }
 
     #[test]

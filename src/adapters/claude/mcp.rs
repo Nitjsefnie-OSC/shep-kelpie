@@ -171,7 +171,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let settings = dir.path().join("worker/settings.json");
         let reach = Reach {
-            browser: Some(browser()),
+            browser: Some(Box::new(browser())),
             ..Reach::default()
         };
         let with = call(Role::Worker, Tools::Work, &settings, reach);

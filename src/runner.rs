@@ -36,6 +36,7 @@ mod agents_tests;
 mod alert;
 mod attach;
 mod briefing;
+mod browser;
 mod ci_help;
 mod claim;
 mod claude_files;
@@ -339,6 +340,8 @@ pub struct Runner {
     started: Vec<StepReport>,
     // The calls this process has in flight, kept in memory only
     flights: flight::Flights,
+    // The browsers opened for turns about to launch, kept in memory only
+    opened: browser::Opened,
     // Where each call is recorded as it ends
     ledger: crate::usage::Ledger,
     steps: step_log::StepLog,
@@ -601,6 +604,7 @@ impl Runner {
             notes: told,
             started: Vec::new(),
             flights: flight::Flights::default(),
+            opened: browser::Opened::default(),
             ledger: crate::usage::Ledger::in_folder(&paths.folder),
             steps: step_log::StepLog::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),

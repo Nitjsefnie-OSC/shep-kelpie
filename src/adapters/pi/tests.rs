@@ -244,7 +244,7 @@ fn the_sandbox_connects_only_to_the_browsers_socket_when_the_call_has_one() {
     };
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let without = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
-    call.reach.browser = Some(browser.clone());
+    call.reach.browser = Some(Box::new(browser.clone()));
     let with = policy(&call, &Files::of(&call), &upstream, &forwarder, &[]);
 
     assert!(!without.sockets.contains(&browser.socket));

@@ -53,8 +53,8 @@ impl Runner {
     /// # Errors
     ///
     /// Why the handover waits: a call in flight that is not a worker's turn,
-    /// a turn whose process has not started or has just ended, or one a
-    /// handover already carried.
+    /// a turn whose process has not started or has just ended, one that holds
+    /// a browser, or one a handover already carried.
     pub fn carry_calls(&self) -> Result<Vec<CarriedTurn>, String> {
         let flights = &self.flights;
         let others = [
@@ -80,6 +80,12 @@ impl Runner {
             .flying
             .iter()
             .map(|(&issue, flight)| {
+                if flight.browser.is_some() {
+                    return Err(format!(
+                        "#{issue}'s turn drives a browser, whose socket this image holds, \
+                         which the next image would not"
+                    ));
+                }
                 let Some(call) = &flight.watched.call else {
                     return Err(format!(
                         "the call of #{issue} is a review or one the last handover carried, \
@@ -187,6 +193,7 @@ impl Runner {
                 began_at: Some(flying.began),
                 told: None,
                 fallback: waiting::Fallback::Stays,
+                browser: None,
             },
         );
         self.board_changed();

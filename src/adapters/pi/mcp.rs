@@ -321,10 +321,10 @@ mod tests {
     fn a_call_with_a_browser_gets_playwright_in_the_mcp_file_and_its_tools_in_tools() {
         let w = World::new();
         let reach = Reach {
-            browser: Some(Browser {
+            browser: Some(Box::new(Browser {
                 kelpie: "/k/bin/shep-kelpie".into(),
                 socket: "/k/worker/0123456789abcdef0123456789abcdef.sock".into(),
-            }),
+            })),
             ..Reach::default()
         };
         let call = with_reach(&w, reach);

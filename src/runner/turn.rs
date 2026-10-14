@@ -476,6 +476,7 @@ impl Runner {
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
                 owner_template: self.owner_template.as_ref(),
+                browser: self.browser_hosts(&harness),
             },
             &item.worktree,
             &self.skills,
@@ -656,6 +657,7 @@ impl Runner {
             }
         }
         self.with_code_graph(&mut call);
+        self.with_browser(&mut call)?;
         self.ports
             .agents
             .prepare(&call)

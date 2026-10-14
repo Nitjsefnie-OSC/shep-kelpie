@@ -144,7 +144,7 @@ pub struct Reach {
     pub code_graph: Option<CodeGraph>,
     /// The browser it drives, where the project turns it on and the call is a
     /// worker's working turn on Claude Code or pi
-    pub browser: Option<Browser>,
+    pub browser: Option<Box<Browser>>,
     /// The MCP servers of the repo's plugins and of its `.mcp.json`, by the
     /// name their tools are allowed under, each as Claude Code's `mcpServers`
     /// entry, which the pi, Codex and goose adapters turn into their own. A

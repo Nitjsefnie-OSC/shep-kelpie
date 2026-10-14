@@ -27,11 +27,49 @@ pub struct Browser {
     pub domains: Vec<NonBlank>,
 }
 
+impl Browser {
+    /// Whether the machine this runs on can give workers a browser, or the
+    /// table is off
+    ///
+    /// # Errors
+    ///
+    /// The reason, when the table is on and the machine is not a Mac.
+    pub fn supported(&self) -> Result<(), String> {
+        self.supported_on(cfg!(target_os = "macos"))
+    }
+
+    fn supported_on(&self, macos: bool) -> Result<(), String> {
+        match (self.enabled, macos) {
+            (true, false) => Err(
+                "`browser.enabled` is on, but a worker's browser runs outside its sandbox on \
+                 macOS only: turn it off, since Linux waits on shep-pm/shep-kelpie#135"
+                    .to_owned(),
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn an_enabled_browser_is_refused_off_macos_and_named_for_the_linux_issue() {
+        let on = Browser {
+            enabled: true,
+            ..Browser::default()
+        };
+        assert_eq!(on.supported_on(true), Ok(()));
+        let why = on.supported_on(false).unwrap_err();
+        assert!(
+            why.contains("browser.enabled") && why.contains("#135"),
+            "{why}"
+        );
+        assert_eq!(Browser::default().supported_on(false), Ok(()));
+    }
 
     #[test]
     fn the_browser_is_off_headless_and_reaches_nothing_unless_the_project_says() {
