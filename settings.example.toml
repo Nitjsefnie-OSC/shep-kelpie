@@ -23,7 +23,8 @@ channel = true
 shutdown_with_message = true
 
 [app.dogs.kelpie.git]
-checkout = "~/GitHub/shep" # the checkout `shep kelpie add` ran in
+# The checkout `shep kelpie add` ran in.
+checkout = "~/GitHub/shep"
 # The repo on GitHub as `owner/name`. Left out, it is read from the
 # checkout's `origin` when the runner starts, and an `origin` that is not a
 # GitHub repo stops the runner, naming this setting.
@@ -138,6 +139,7 @@ implementers = ["sonnet-high"]
 # more waits up to 20 minutes for the votes, then lists them as the panel.
 # Absent, no panel votes.
 # advisor = "advisor"
+# The researcher's agent file, named as the advisor's is.
 # researcher = "researcher"
 # The issue writer's agent file, which `shep kelpie issue` runs and which
 # labels an unlabelled issue. `issue-writer` when absent.
@@ -324,8 +326,13 @@ compact_window = 200000
 # and `status` say why. Kelpie rewrites `$SHEP_HOME/kelpie/<project>/skills/`
 # at every start, so a folder of your own inside it stops the runner.
 # [app.dogs.kelpie.skills]
+# spec = { kind = "path", path = "~/skills/to-spec" }
+# triage = { kind = "none" }
 # implement = { kind = "path", path = "~/skills/implement" }
+# tests = { kind = "kelpie" }
 # ci_fix = { kind = "plugin", plugin = "~/plugins/house", skill = "debug" }
+# pr = { kind = "none" }
+# reset = { kind = "kelpie" }
 # retro = { kind = "kelpie" }
 
 # Which plugins, and which of the repo's own files, reach which calls. Kelpie
