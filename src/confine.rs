@@ -471,6 +471,43 @@ mod tests {
     }
 
     #[test]
+    fn a_patch_for_a_file_in_the_tests_folder_passes_and_one_for_the_worktree_is_refused() {
+        let w = world();
+        let tests = w.root.join("target/review-tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        // A reviewer's hook names its tests folder as both the worktree and the build.
+        let folders = [tests.clone(), tests.clone()];
+        let judge = |body: String| {
+            let call = json!({
+                "session_id": "s",
+                "cwd": w.root.join("wt"),
+                "hook_event_name": "PreToolUse",
+                "tool_name": "apply_patch",
+                "tool_input": patch(&body),
+            });
+            judge(call.to_string().as_bytes(), &folders)
+        };
+
+        let kept = format!(
+            "*** Add File: {}\n+#[test] fn t() {{}}",
+            tests.join("t.rs").display()
+        );
+        assert_eq!(judge(kept), Verdict::Allow);
+        for body in [
+            format!("*** Add File: {}\n+x", w.path("wt/src/new.rs")),
+            "*** Add File: src/new.rs\n+x".to_owned(),
+            format!(
+                "*** Add File: {}\n+x\n*** Add File: {}\n+x",
+                tests.join("t.rs").display(),
+                w.path("wt/src/new.rs")
+            ),
+        ] {
+            let verdict = judge(body.clone());
+            assert!(matches!(verdict, Verdict::Refuse(_)), "{body}: {verdict:?}");
+        }
+    }
+
+    #[test]
     fn a_codex_patch_is_read_wherever_its_call_carries_it() {
         let w = world();
         let text = "*** Begin Patch\n*** Add File: ../outside/x\n+x\n*** End Patch";

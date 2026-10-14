@@ -45,6 +45,9 @@ mod adopt_tests;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod review_tests;
+
 /// This adapter's harness, as its errors name it
 const CODEX: Harness = Harness::Codex;
 
