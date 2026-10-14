@@ -80,8 +80,8 @@ pub use run::{BranchRun, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};
 pub use talk::{Remark, Standing, Talk, TalkThread};
 pub use test_runner::{CEILING, OUTPUT_KEPT, TestOutcome, TestRun, TestRunner, tail};
-pub use thread::{CommentMarks, PostedComment, ThreadComment, Thumb};
-pub use voice::Voice;
+pub use thread::{CommentMarks, LineComment, PostedComment, ThreadComment, Thumb};
+pub use voice::{UNREAD_ID, Voice};
 
 /// Seconds since the Unix epoch
 // wire format: changing this is a breaking change to the state file

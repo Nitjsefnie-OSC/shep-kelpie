@@ -137,6 +137,17 @@ pub struct Pass {
     /// A review bot's open threads that are nits, kept apart from `findings`
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nits: Vec<Finding>,
+    /// The id of the review kelpie posted on the head for `findings`
+    ///
+    /// Left out until it is posted, and it is posted once: a head with an id
+    /// here is never reviewed on the forge again, and a push clears the pass
+    /// with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<u64>,
+    /// The id of the comment kelpie posted on the head to say the reviewer
+    /// found nothing, as `review` is for findings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<u64>,
 }
 
 /// A pass part way through its reviewers, kept while a review bot's turn

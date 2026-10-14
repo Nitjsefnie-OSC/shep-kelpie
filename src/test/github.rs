@@ -45,6 +45,12 @@ struct Hub {
     comment_ids: u64,
     // Why every comment is refused, while it is
     comments_refused: Option<ApiError>,
+    // Whether a review that carries line comments is refused with 422, as
+    // GitHub does one naming a line the diff does not show
+    line_comments_refused: bool,
+    reviews_refused: bool,
+    // What every review is answered with instead of the recording
+    review_answer: Option<String>,
     // Why every worker's token is refused, while it is
     workers_refused: Option<ApiError>,
     // A permission GitHub grants a worker's token beyond the one asked for
@@ -54,6 +60,22 @@ struct Hub {
     // The review threads a GraphQL write lands on
     threads: Option<FakeCodeRabbit>,
 }
+
+/// A pull request review the App sent
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SentReview {
+    pub(crate) head: String,
+    pub(crate) event: String,
+    pub(crate) body: String,
+    /// The path, line and text of each line comment
+    pub(crate) comments: Vec<(String, u64, String)>,
+}
+
+/// What GitHub answers a review: the shape its documentation gives
+pub(crate) const REVIEW_ANSWER: &str = include_str!("../../fixtures/github-app-review.json");
+
+/// The id [`REVIEW_ANSWER`] holds
+pub(crate) const REVIEW_ID: u64 = 2_718_281_828;
 
 /// GitHub as kelpie's App sees it: one code converts to an App owned by
 /// `owner`, and each token lasts an hour from the clock's now
@@ -106,6 +128,27 @@ impl FakeGithub {
     /// Makes every comment answer `error` from now on, whatever else is asked
     pub(crate) fn refuse_comments(&self, error: ApiError) {
         self.hub.lock().unwrap().comments_refused = Some(error);
+    }
+
+    /// Makes GitHub answer 422 to every review that carries a line comment
+    /// from now on, as it does one naming a line the diff does not show
+    pub(crate) fn refuse_line_comments(&self) {
+        self.hub.lock().unwrap().line_comments_refused = true;
+    }
+
+    /// Makes every review answer 403 from now on, line comments or not
+    pub(crate) fn refuse_reviews(&self) {
+        self.hub.lock().unwrap().reviews_refused = true;
+    }
+
+    /// Makes every review answer `text` from now on, whatever GitHub says
+    pub(crate) fn answer_reviews_with(&self, text: &str) {
+        self.hub.lock().unwrap().review_answer = Some(text.to_owned());
+    }
+
+    /// Takes reviews again after [`Self::refuse_reviews`]
+    pub(crate) fn accept_reviews(&self) {
+        self.hub.lock().unwrap().reviews_refused = false;
     }
 
     /// Makes every worker's token answer `error` from now on, as an App that
@@ -187,6 +230,34 @@ impl FakeGithub {
                 let thread = call.path.strip_suffix("/comments")?.rsplit('/').next()?;
                 let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
                 Some((thread.parse().ok()?, body["body"].as_str()?.to_owned()))
+            })
+            .collect()
+    }
+
+    /// Each review the App posted, in order, as the pull request it went to
+    /// and what was sent
+    pub(crate) fn reviews(&self) -> Vec<(u64, SentReview)> {
+        (self.writes().into_iter())
+            .filter_map(|(_, call)| {
+                let number = call.path.strip_suffix("/reviews")?.rsplit('/').next()?;
+                let sent: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
+                let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_owned();
+                let comments = (sent["comments"].as_array().into_iter().flatten())
+                    .map(|c| {
+                        (
+                            text(&c["path"]),
+                            c["line"].as_u64().unwrap_or(0),
+                            text(&c["body"]),
+                        )
+                    })
+                    .collect();
+                let review = SentReview {
+                    head: text(&sent["commit_id"]),
+                    event: text(&sent["event"]),
+                    body: text(&sent["body"]),
+                    comments,
+                };
+                Some((number.parse().ok()?, review))
             })
             .collect()
     }
@@ -365,6 +436,23 @@ impl GithubApi for FakeGithub {
             let threads = hub.threads.clone();
             drop(hub);
             return Ok(Self::graphql_answer(threads, call));
+        }
+        if call.path.ends_with("/reviews") {
+            let lines = call
+                .body
+                .as_deref()
+                .unwrap_or_default()
+                .contains("\"line\":");
+            if hub.reviews_refused {
+                return Err(ApiError::Refused(403));
+            }
+            if hub.line_comments_refused && lines {
+                return Err(ApiError::Refused(422));
+            }
+            return Ok(hub
+                .review_answer
+                .clone()
+                .unwrap_or_else(|| REVIEW_ANSWER.to_owned()));
         }
         // A comment answers with its id, numbered from 100 and so below any a
         // person writes on the fake forge, and the time the clock says.

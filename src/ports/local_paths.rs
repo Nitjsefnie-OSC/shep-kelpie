@@ -15,9 +15,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue, NewLabel,
-    OpenIssue, PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment,
-    Timestamp, Visibility, Voice, Workflow,
+    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue, LineComment,
+    NewLabel, OpenIssue, PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk,
+    ThreadComment, Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -454,6 +454,27 @@ impl Voice for GuardedVoice {
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
         self.check(repo, "the comment", body)?;
         self.voice.post(repo, thread, body)
+    }
+
+    fn review(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Result<u64, ForgeError> {
+        self.check(repo, "the review", body)?;
+        for comment in comments {
+            self.check(repo, "a line comment of the review", &comment.body)?;
+        }
+        // A forge that refuses the line comments gets the review once more
+        // with them in its body, which is checked as it is sent.
+        if !comments.is_empty() {
+            let body = crate::github::api::with_comments_in_body(body, comments);
+            self.check(repo, "the review with its comments in its body", &body)?;
+        }
+        self.voice.review(repo, number, head, body, comments)
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {

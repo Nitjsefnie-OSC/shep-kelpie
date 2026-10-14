@@ -102,6 +102,8 @@ pub enum Kind {
     AppWorkerToken,
     /// The App's comment, or its post of one
     AppComment,
+    /// A comment-only review the App posted on a pull request
+    AppReview,
     /// A comment the App posted, rewritten
     AppEditComment,
     /// A thumbs up from the App
@@ -214,6 +216,7 @@ impl Kind {
             | Self::ApproveWorkflowRuns
             | Self::AppWorkerToken
             | Self::AppComment
+            | Self::AppReview
             | Self::AppEditComment
             | Self::AppThumbsUp
             | Self::AppCreateIssue

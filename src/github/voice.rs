@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::api::{self, ApiError, Call, GithubApi, ThreadWrite};
 use super::tokens::{GithubApp, InstallationToken, TokenError};
-use crate::ports::{ForgeError, NewLabel, PostedComment, Voice};
+use crate::ports::{ForgeError, LineComment, NewLabel, PostedComment, UNREAD_ID, Voice};
 use crate::settings::ForgeSlug;
 
 /// [`Voice`] as kelpie's App
@@ -114,6 +114,30 @@ impl Voice for AppVoice {
         let (id, created) =
             api::parse_posted(&answer).map_err(|e| ForgeError::App(e.to_string()))?;
         Ok(PostedComment { id, created })
+    }
+
+    fn review(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Result<u64, ForgeError> {
+        let token = self.token(repo)?;
+        let call = Call::review(repo, number, head, body, comments);
+        let answer = match self.api.write(&token, &call) {
+            // GitHub answers 422 to a comment on a line the diff does not
+            // show, so the findings go once more in the body of a review
+            // that holds no comment.
+            Err(ApiError::Refused(422)) if !comments.is_empty() => {
+                let body = api::with_comments_in_body(body, comments);
+                let call = Call::review(repo, number, head, &body, &[]);
+                self.send(&token, &call)?
+            }
+            other => other.map_err(api_error)?,
+        };
+        Ok(api::parse_review(&answer).unwrap_or(UNREAD_ID))
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {

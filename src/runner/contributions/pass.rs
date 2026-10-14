@@ -12,8 +12,8 @@
 //! The pass is a call in flight like the security review, sharing its
 //! one place, and its reviewers read a detached worktree of the fetched
 //! `refs/pull/<n>/head` under the project's folder, with read tools only,
-//! once the agents' own files in it are checked against `main`'s. Nothing is
-//! posted. The worktree stays until the pull request leaves the record.
+//! once the agents' own files in it are checked against `main`'s. A pass is
+//! posted by [`post`](super::post). The worktree stays until the pull request leaves the record.
 //!
 //! A review bot answers on its own clock, so its turn is no call: [`bots`]
 //! steps it each poll. A call reads the reviewers up to the next bot, and
@@ -42,7 +42,7 @@ use crate::worktree::{self, BASE, Linked};
 
 /// The folder under the project's folder where each contribution's pass is
 /// checked out, one folder each
-const FOLDER: &str = "reading";
+pub(super) const FOLDER: &str = "reading";
 
 /// One pass to run, with everything it needs, taken while the runner's lock
 /// was held so that the pass itself runs without it
@@ -413,6 +413,8 @@ impl Job {
                 unread,
                 findings,
                 nits: Vec::new(),
+                review: None,
+                note: None,
             }),
             ..walked
         }

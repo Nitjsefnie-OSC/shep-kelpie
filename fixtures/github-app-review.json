@@ -1,0 +1,26 @@
+{
+  "id": 2718281828,
+  "node_id": "PRR_kwDOAHz1OX6mD8Yk",
+  "user": {
+    "login": "kelpie-shep-pm[bot]",
+    "id": 41898282,
+    "node_id": "BOT_kgDOAqkVTA",
+    "type": "Bot",
+    "site_admin": false
+  },
+  "body": "I read the change and left two notes.",
+  "state": "COMMENTED",
+  "html_url": "https://github.com/shep-pm/koji/pull/30#pullrequestreview-2718281828",
+  "pull_request_url": "https://api.github.com/repos/shep-pm/koji/pulls/30",
+  "author_association": "NONE",
+  "_links": {
+    "html": {
+      "href": "https://github.com/shep-pm/koji/pull/30#pullrequestreview-2718281828"
+    },
+    "pull_request": {
+      "href": "https://api.github.com/repos/shep-pm/koji/pulls/30"
+    }
+  },
+  "submitted_at": "2026-10-14T09:30:00Z",
+  "commit_id": "ecdd80bb57125d7ba9641ffaa4d7d2c19d3f3091"
+}

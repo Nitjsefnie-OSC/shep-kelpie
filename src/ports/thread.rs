@@ -11,6 +11,17 @@ pub struct PostedComment {
     pub created: Timestamp,
 }
 
+/// A comment kelpie puts on one line of a pull request's diff, in a review
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineComment {
+    /// The file it is on, as the diff names it
+    pub path: String,
+    /// The line in the file at the head, which the diff must show
+    pub line: u32,
+    /// What it says
+    pub body: String,
+}
+
 /// A thumbs up or down someone left on a comment
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thumb {

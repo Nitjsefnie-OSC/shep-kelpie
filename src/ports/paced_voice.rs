@@ -8,7 +8,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::rate_limit::{FALLBACK, time_of};
-use super::{Clock, ForgeError, ForgeHold, NewLabel, PostedComment, Say, Voice};
+use super::{Clock, ForgeError, ForgeHold, LineComment, NewLabel, PostedComment, Say, Voice};
 use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
 
@@ -93,6 +93,17 @@ impl Voice for PacedVoice {
 
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
         self.call(|v| v.post(repo, thread, body))
+    }
+
+    fn review(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Result<u64, ForgeError> {
+        self.call(|v| v.review(repo, number, head, body, comments))
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {

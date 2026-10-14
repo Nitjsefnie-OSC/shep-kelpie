@@ -1,6 +1,6 @@
 # Representative
 
-The agent that words what kelpie says to a contributor, in one voice. Code decides what happens and drafts the facts. The representative only puts them into words. Slices 1 and 3 of #616. Nothing posts yet, and #627 and the slices after it wire posts through this call.
+The agent that words what kelpie says to a contributor, in one voice. Code decides what happens and drafts the facts. The representative only puts them into words. Slices 1 and 3 of #616. #627 posts a local reviewer's pass through this call (`contribution-pass.md`), and the slices after it wire the other posts.
 
 - Agent file `representative.md`, role `representative`, `Expert`-shaped frontmatter (harness, model, effort, `usage`, `lease`, `url`, `gateway`, `context`), so it runs on any harness as the advisor and researcher do. Shipped as Opus 5.5 at low effort on Claude Code, written by `add`. `src/agents.rs`, `src/agents/front.rs`, #869
 - `agents.representative` names it, default `representative`, unlike `advisor` and `researcher` which have none. `Settings::representative` checks it apart from `role_agents`, so `contributions.pick = "off"` needs no file. `src/settings/agents.rs`

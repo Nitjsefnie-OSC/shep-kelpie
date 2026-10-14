@@ -15,7 +15,8 @@
 //! contributor's can run ([`ruling`] raises one for a flagged head). A head
 //! that passed, and whose CI is green, is then read by the reviewers
 //! ([`pass`]). A quiet clock runs while the head's results wait on the contributor
-//! ([`clock`]). Nothing is posted and nothing of the contributor's runs here.
+//! ([`clock`]). A local reviewer's pass is posted ([`post`]); nothing of the
+//! contributor's runs here.
 //!
 //! A contribution holds no slot while it waits on its contributor. A call on
 //! it takes one for as long as it runs, starts only where a slot is free, and
@@ -30,6 +31,7 @@ mod ci;
 mod clock;
 mod heard;
 mod pass;
+pub(in crate::runner) mod post;
 mod ruling;
 mod security;
 
@@ -61,7 +63,7 @@ pub(super) enum Reading {
     /// A security review's
     Security(security::Reading),
     /// A pass's
-    Pass(pass::Walked),
+    Pass(Box<pass::Walked>),
 }
 
 impl Job {
@@ -93,7 +95,7 @@ impl Job {
     pub(super) fn unread(&self) -> Reading {
         match self {
             Self::Security(_) => Reading::Security(security::Reading::default()),
-            Self::Pass(_) => Reading::Pass(pass::Walked::default()),
+            Self::Pass(_) => Reading::Pass(Box::default()),
         }
     }
 
@@ -106,7 +108,7 @@ impl Job {
     ) -> Reading {
         match self {
             Self::Security(job) => Reading::Security(job.read(agents, ending)),
-            Self::Pass(job) => Reading::Pass(job.walk(agents, reviewer, ending)),
+            Self::Pass(job) => Reading::Pass(Box::new(job.walk(agents, reviewer, ending))),
         }
     }
 }
@@ -224,6 +226,7 @@ impl Runner {
         }
         self.follow_ci()?;
         self.follow_bots()?;
+        self.follow_posts()?;
         self.follow_clock()
     }
 }
@@ -238,6 +241,8 @@ mod clock_tests;
 mod heard_tests;
 #[cfg(test)]
 pub(in crate::runner) mod pass_tests;
+#[cfg(test)]
+mod post_tests;
 #[cfg(test)]
 mod ruling_tests;
 #[cfg(test)]

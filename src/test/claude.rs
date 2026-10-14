@@ -374,7 +374,11 @@ impl Agents for FakeClaude {
             let queue = kept.iter_mut().find(|(r, _)| *r == call.role);
             queue.and_then(|(_, queue)| queue.pop_front())
         };
-        let next = own.or_else(|| self.script.lock().unwrap().pop_front());
+        // The representative words posts at moments no test scripted its
+        // neighbours for, so it takes only what is queued for its own role
+        // and never an answer meant for a worker or a reviewer.
+        let shared = || self.script.lock().unwrap().pop_front();
+        let next = own.or_else(|| (call.role != Role::Representative).then(shared).flatten());
         let next = match next {
             Some(Scripted::Queued(queue, then)) => {
                 ending.wait(Wait::Lease);

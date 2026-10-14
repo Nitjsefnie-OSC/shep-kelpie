@@ -4,7 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::{Clock, ForgeError, NewLabel, PostedComment, Voice};
+use super::{Clock, ForgeError, LineComment, NewLabel, PostedComment, Voice};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
 use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
@@ -76,6 +76,19 @@ impl Voice for RecordedVoice {
 
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError> {
         self.call(Kind::AppComment, |v| v.post(repo, thread, body))
+    }
+
+    fn review(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Result<u64, ForgeError> {
+        self.call(Kind::AppReview, |v| {
+            v.review(repo, number, head, body, comments)
+        })
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {

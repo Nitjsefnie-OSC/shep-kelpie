@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::github::Verb;
-use crate::ports::{Cooldown, PostedComment, Timestamp};
+use crate::ports::{Cooldown, LineComment, PostedComment, Timestamp};
 use crate::test::{Asked, FakeClock, FakeGithub};
 
 fn slug(s: &str) -> ForgeSlug {
@@ -363,4 +363,127 @@ fn a_thread_is_resolved_with_a_token_that_holds_contents_and_posts_use_one_that_
     let made = writes(&github);
     assert_eq!(made[0].0, "ghs_test1", "the reply uses kelpie's token");
     assert_eq!(made[1].0, "ghs_test2", "the resolve uses its own");
+}
+
+fn line(path: &str, line: u32, body: &str) -> LineComment {
+    LineComment {
+        path: path.to_owned(),
+        line,
+        body: body.to_owned(),
+    }
+}
+
+#[test]
+fn the_app_voice_parses_the_recorded_review_response() {
+    let (voice, github, _home) = voiced();
+
+    let id = voice
+        .review(
+            &slug("shep-pm/koji"),
+            30,
+            "abc123",
+            "I read the change and left two notes.",
+            &[line("src/lib.rs", 4, "This can panic.")],
+        )
+        .unwrap();
+
+    assert_eq!(id, crate::test::REVIEW_ID);
+    let (token, call) = writes(&github).remove(0);
+    assert_eq!(token, "ghs_test1");
+    assert_eq!(call.verb, Verb::Post);
+    assert_eq!(call.path, "/repos/shep-pm/koji/pulls/30/reviews");
+    let sent: serde_json::Value = serde_json::from_str(&call.body.unwrap()).unwrap();
+    assert_eq!(sent["event"], "COMMENT");
+    assert_eq!(sent["commit_id"], "abc123");
+    assert_eq!(sent["comments"][0]["path"], "src/lib.rs");
+    assert_eq!(sent["comments"][0]["line"], 4);
+    assert_eq!(sent["comments"][0]["side"], "RIGHT");
+}
+
+#[test]
+fn an_answer_with_no_review_id_is_unreadable() {
+    for body in ["{}", r#"{"id":"x"}"#, "x"] {
+        assert!(api::parse_review(body).is_err(), "{body}");
+    }
+}
+
+#[test]
+fn a_review_the_forge_took_with_an_answer_naming_no_id_is_not_a_failure() {
+    let (voice, github, _home) = voiced();
+    github.answer_reviews_with("{}");
+
+    let id = voice
+        .review(&slug("shep-pm/koji"), 30, "abc123", "Notes.", &[])
+        .unwrap();
+
+    assert_eq!(id, UNREAD_ID);
+    assert_eq!(github.reviews().len(), 1, "sent once");
+}
+
+#[test]
+fn a_review_the_forge_refuses_for_its_line_comments_is_posted_once_more_in_its_body() {
+    let (voice, github, _home) = voiced();
+    github.refuse_line_comments();
+
+    let id = voice
+        .review(
+            &slug("shep-pm/koji"),
+            30,
+            "abc123",
+            "Two notes.",
+            &[line("src/lib.rs", 4, "This can panic.")],
+        )
+        .unwrap();
+
+    assert_eq!(id, crate::test::REVIEW_ID);
+    let reviews = github.reviews();
+    assert_eq!(reviews.len(), 2, "tried once, then retried once");
+    assert_eq!(reviews[0].1.comments.len(), 1);
+    let (_, retry) = &reviews[1];
+    assert_eq!(retry.comments, []);
+    assert_eq!(retry.event, "COMMENT");
+    assert_eq!(retry.head, "abc123");
+    assert!(retry.body.starts_with("Two notes."), "{}", retry.body);
+    assert!(retry.body.contains("src/lib.rs:4"), "{}", retry.body);
+    assert!(retry.body.contains("This can panic."), "{}", retry.body);
+}
+
+// The token is minted by the first call, so a failure set after it lands on a review.
+fn minted(voice: &AppVoice) {
+    voice.comment(&slug("shep-pm/koji"), 1, "hello").unwrap();
+}
+
+#[test]
+fn a_review_the_retry_does_not_save_fails_and_is_not_tried_a_third_time() {
+    let (voice, github, _home) = voiced();
+    minted(&voice);
+    github.fail_next(ApiError::Refused(422));
+    github.fail_next(ApiError::Refused(422));
+
+    let err = voice
+        .review(
+            &slug("shep-pm/koji"),
+            30,
+            "abc123",
+            "Notes.",
+            &[line("a.rs", 1, "x")],
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, ForgeError::App(_)), "{err:?}");
+    assert_eq!(github.reviews().len(), 2);
+}
+
+#[test]
+fn a_review_with_no_line_comment_is_not_retried_on_a_422() {
+    let (voice, github, _home) = voiced();
+    minted(&voice);
+    github.fail_next(ApiError::Refused(422));
+
+    let err = voice
+        .review(&slug("shep-pm/koji"), 30, "abc123", "Notes.", &[])
+        .unwrap_err();
+
+    assert!(matches!(err, ForgeError::App(_)), "{err:?}");
+    assert_eq!(github.reviews().len(), 1);
 }

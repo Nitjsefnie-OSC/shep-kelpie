@@ -12,8 +12,8 @@
 //! review in two hours, and one that cannot be summoned in two hours are
 //! passed over, and the next reviewer reads. A bot's review of the head ends
 //! the pass. Its open threads above a nit are the contribution's findings,
-//! its nits kept apart, and nothing is posted: the bot's own comments are
-//! the post.
+//! its nits kept apart, and kelpie posts nothing for it: the bot's own
+//! comments are the post.
 
 use super::super::Runner;
 use super::super::review_bot::{
@@ -463,6 +463,8 @@ impl Runner {
             unread: None,
             findings,
             nits,
+            review: None,
+            note: None,
         });
         held.last_answered = Some(reviewer.clone());
         held.walking = None;
@@ -488,6 +490,8 @@ impl Runner {
             unread: Some(unread),
             findings: Vec::new(),
             nits: Vec::new(),
+            review: None,
+            note: None,
         });
         self.save(next)
     }
