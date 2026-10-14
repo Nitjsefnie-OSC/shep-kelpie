@@ -973,3 +973,26 @@ fn rounds_older_than_keep_days_are_removed_and_zero_keeps_them_all() {
     let _runner = rig.open().unwrap();
     assert!(kept_rounds(&rig).contains(&"7-r4-20260101T000000Z".to_owned()));
 }
+
+#[test]
+fn a_round_that_cannot_be_removed_does_not_hold_back_the_other_old_rounds() {
+    use std::os::unix::fs::PermissionsExt;
+    let rig = Rig::new("shep");
+    leave_kept(&rig, "6-r1-20260101T000000Z");
+    let locked = kept_folder(&rig).join("6-r1-20260101T000000Z/raw");
+    std::fs::create_dir_all(&locked).unwrap();
+    std::fs::write(locked.join("reply"), "x").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    for name in [
+        "5-r1-20260101T000000Z",
+        "7-r1-20260101T000000Z",
+        "8-r1-20260101T000000Z",
+    ] {
+        leave_kept(&rig, name);
+    }
+
+    let _runner = rig.open().unwrap();
+
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(kept_rounds(&rig), ["6-r1-20260101T000000Z"]);
+}

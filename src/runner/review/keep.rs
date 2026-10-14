@@ -245,7 +245,8 @@ fn wanted(relative: &Path, round: u32) -> bool {
 
 // Removes `project`'s kept rounds older than `rounds.keep_days` from `folder`.
 // An entry not named as a kept round, or whose `round.json` names another
-// project (several may share a folder), is not one of its own, and stays.
+// project (several may share a folder), is not one of its own, and stays. A
+// round that cannot be removed does not hold back the rest.
 fn prune(folder: &Path, project: &str, rounds: &LocalRounds, now: Timestamp) -> io::Result<()> {
     let days = u64::from(rounds.keep_days.get());
     if days == 0 {
@@ -257,16 +258,32 @@ fn prune(folder: &Path, project: &str, rounds: &LocalRounds, now: Timestamp) -> 
         Err(e) => return Err(e),
     };
     let cutoff = now.0.saturating_sub(days * DAY);
+    let mut failed = Vec::new();
     for entry in entries {
-        let entry = entry?;
-        let old = entry.file_type()?.is_dir()
-            && kept_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at < cutoff)
-            && is_of(&entry.path(), project);
-        if old {
-            std::fs::remove_dir_all(entry.path())?;
-        }
+        let removed = entry.and_then(|entry| {
+            let old = entry.file_type()?.is_dir()
+                && kept_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at < cutoff)
+                && is_of(&entry.path(), project);
+            if old {
+                std::fs::remove_dir_all(entry.path()).map_err(|e| {
+                    io::Error::new(
+                        e.kind(),
+                        format!("{}: {e}", entry.file_name().to_string_lossy()),
+                    )
+                })?;
+            }
+            Ok(())
+        });
+        failed.extend(removed.err());
     }
-    Ok(())
+    match failed.as_slice() {
+        [] => Ok(()),
+        [only] => Err(io::Error::new(only.kind(), only.to_string())),
+        [first, ..] => Err(io::Error::new(
+            first.kind(),
+            format!("{} kept rounds, such as {first}", failed.len()),
+        )),
+    }
 }
 
 // Whether the kept round in `dir` says it is `project`'s
