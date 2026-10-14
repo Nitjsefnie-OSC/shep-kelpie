@@ -47,7 +47,15 @@ goose = { gap = 790 }
 what = "`shep kelpie attach` resumes a worker's session in the terminal"
 methods = ["foreground"]
 claude-code = "yes"
-pi = { gap = 766 }
+pi = "yes"
+codex = { gap = 775 }
+goose = { gap = 796 }
+
+[harness.attach-ends]
+what = "The end of a terminal session drops what the harness kept for it"
+methods = ["foreground_ended"]
+claude-code = { cannot = "its terminal session keeps nothing the runner holds", doc = "docs/design-log.md", says = "a no-op by default" }
+pi = "yes"
 codex = { gap = 775 }
 goose = { gap = 796 }
 
