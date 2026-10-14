@@ -465,7 +465,7 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
         let server = server(call).unwrap();
         let upstream = goose.upstream(server).unwrap();
         let files = Files::of(&call.settings);
-        let vars = env_args(call, server, &files, &upstream);
+        let vars = env_args(call, server, &files, &upstream, None);
         vars.into_iter()
             .map(|v| v.into_string().unwrap())
             .collect::<Vec<_>>()
@@ -583,7 +583,7 @@ fn a_resumed_session_s_hook_and_mode_follow_the_set_it_was_created_with() {
         let server = server(call).unwrap();
         let upstream = goose.upstream(server).unwrap();
         let files = Files::of(&call.settings);
-        let vars = env_args(call, server, &files, &upstream);
+        let vars = env_args(call, server, &files, &upstream, None);
         vars.into_iter()
             .map(|v| v.into_string().unwrap())
             .find(|v| v.starts_with("GOOSE_MODE="))

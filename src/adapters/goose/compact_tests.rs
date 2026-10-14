@@ -27,6 +27,7 @@ const BEFORE: Spent = Spent {
     output_tokens: 400,
     cache_read_input_tokens: 6_000,
     cache_write_input_tokens: 0,
+    rebase: false,
 };
 
 // Every role, so a new one fails to compile here until it is placed.

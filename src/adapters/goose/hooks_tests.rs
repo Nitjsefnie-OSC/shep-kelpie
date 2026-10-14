@@ -42,7 +42,7 @@ pub(super) fn env_vars(call: &AgentCall) -> Vec<String> {
     let server = server(call).unwrap();
     let upstream = goose.upstream(server).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(call, server, &files, &upstream);
+    let vars = env_args(call, server, &files, &upstream, None);
     vars.into_iter().map(|v| v.into_string().unwrap()).collect()
 }
 

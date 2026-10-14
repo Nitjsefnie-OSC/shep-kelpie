@@ -136,7 +136,7 @@ impl GooseCli {
     fn context_of(&self, call: &AgentCall) -> Result<u64, String> {
         let args = ["session", "list", "--format", "json"].map(OsString::from);
         let (mut command, _forwarder) = self
-            .wrapped_command(call, None, args.into())
+            .wrapped_command(call, None, args.into(), None)
             .map_err(|e| e.to_string())?;
         let output = (self.processes)
             .output_within(&mut command, LIST_LIMIT)

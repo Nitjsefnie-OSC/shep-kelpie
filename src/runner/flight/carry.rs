@@ -67,11 +67,13 @@ impl Runner {
                 "{what} is in flight, and only a worker's turn is carried"
             ));
         }
-        if let Some(issue) = self.pi_sessions_attached().first() {
-            return Err(format!(
-                "#{issue} is attached, and the pi session in the maintainer's terminal dials \
-                 a forwarder this image holds, which the next image would not"
-            ));
+        for (harness, name) in [(Harness::Pi, "pi"), (Harness::Goose, "goose")] {
+            if let Some(issue) = self.sessions_attached_on(harness).first() {
+                return Err(format!(
+                    "#{issue} is attached, and the {name} session in the maintainer's terminal \
+                     dials a forwarder this image holds, which the next image would not"
+                ));
+            }
         }
         flights
             .flying
@@ -102,18 +104,17 @@ impl Runner {
             .collect()
     }
 
-    // The work items whose hold stands on a pi worker, whose session in the
+    // The work items whose hold stands on a worker of `harness`, whose session in the
     // maintainer's terminal dials a forwarder only this image holds.
-    // goose has no terminal session to attach, so its turns hold nothing here.
-    pub(in crate::runner) fn pi_sessions_attached(&self) -> Vec<u64> {
+    pub(in crate::runner) fn sessions_attached_on(&self, harness: Harness) -> Vec<u64> {
         let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
-        let on_pi = |item: &&WorkItem| {
+        let on_it = |item: &&WorkItem| {
             // parity: harness.attach-ends
-            (self.worker_agent(item)).is_ok_and(|agent| agent.harness.harness() == Harness::Pi)
+            (self.worker_agent(item)).is_ok_and(|agent| agent.harness.harness() == harness)
         };
         let items = self.state.work_items.iter();
         items
-            .filter(|item| holds(item) && on_pi(item))
+            .filter(|item| holds(item) && on_it(item))
             .map(|item| item.issue)
             .collect()
     }

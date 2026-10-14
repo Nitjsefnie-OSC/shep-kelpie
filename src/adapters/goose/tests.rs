@@ -16,7 +16,7 @@ use crate::tools::Tools as KelpieTools;
 // Written by hand from the event types in goose's source, because the builder
 // had no model to record. #798 replaces them with recordings.
 pub(super) const FRESH: &str = include_str!("../../../fixtures/goose-run-fresh.jsonl");
-const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
+pub(super) const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
 const MAX_TURNS: &str = include_str!("../../../fixtures/goose-run-max-turns.jsonl");
 const REFUSED: &str = include_str!("../../../fixtures/goose-run-refused.jsonl");
 // The one fixture that is goose's own output: goose 1.54.0 with its server at a
@@ -169,7 +169,7 @@ fn the_call_s_environment_relocates_goose_and_closes_every_door() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let mut vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     vars.sort();
     let (root, scratch) = (w.path("settings.goose"), w.path("settings.tmp"));
@@ -351,7 +351,7 @@ fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     assert!(vars.contains(&"FROM_THE_FENCE=1".to_owned()), "{vars:?}");
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");
