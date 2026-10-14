@@ -14,9 +14,11 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use super::output::Spent;
 use super::{Files, GOOSE, GooseCli, server};
 use crate::adapters::forwarder::Forwarder;
 use crate::ports::{AgentCall, AgentError, SessionId};
@@ -24,12 +26,19 @@ use crate::ports::{AgentCall, AgentError, SessionId};
 /// The `GOOSE_MODE` of the terminal, where goose asks before each tool call
 const TERMINAL_MODE: &str = "approve";
 
-/// The forwarder of each terminal session, by session id, until its end
+/// A terminal session until its end: its forwarder, and the settings path its files are beside
+#[derive(Debug)]
+struct Terminal {
+    _forwarder: Forwarder,
+    settings: PathBuf,
+}
+
+/// The terminal sessions, by session id
 #[derive(Debug, Clone, Default)]
-pub(super) struct Terminals(Arc<Mutex<HashMap<String, Forwarder>>>);
+pub(super) struct Terminals(Arc<Mutex<HashMap<String, Terminal>>>);
 
 impl Terminals {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, Forwarder>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Terminal>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -49,16 +58,44 @@ impl GooseCli {
         if Files::of(&call.settings).spent(id)?.is_none() {
             return Err(AgentError::NoSession(GOOSE, id.clone()));
         }
-        let argv: Vec<OsString> = ["session", "--resume", "--session-id", id.0.as_str()]
+        // goose's `--session-id` takes its own id for the session, and kelpie's id is the name
+        // the session was created with, as for `run`.
+        let argv: Vec<OsString> = ["session", "--resume", "--name", id.0.as_str()]
             .into_iter()
             .map(Into::into)
             .collect();
         let (command, forwarder) = self.wrapped(call, None, argv, Some(TERMINAL_MODE))?;
-        self.terminals.lock().insert(id.0.clone(), forwarder);
+        let terminal = Terminal {
+            _forwarder: forwarder,
+            settings: call.settings.clone(),
+        };
+        self.terminals.lock().insert(id.0.clone(), terminal);
         Ok(command)
     }
 
-    pub(super) fn drop_terminal(&self, session: &SessionId) {
-        self.terminals.lock().remove(&session.0);
+    // The terminal session ran on the session's model requests, so goose's totals now hold
+    // tokens kelpie cannot count: they are in goose's database. The record notes that, and
+    // the next headless turn counts from the totals it reports.
+    pub(super) fn terminal_ended(&self, session: &SessionId) {
+        let Some(terminal) = self.terminals.lock().remove(&session.0) else {
+            return;
+        };
+        let files = Files::of(&terminal.settings);
+        let noted = files.spent(session).and_then(|known| {
+            let Some(known) = known else { return Ok(()) };
+            files.keep(
+                session,
+                Spent {
+                    rebase: true,
+                    ..known
+                },
+            )
+        });
+        if let Err(e) = noted {
+            eprintln!(
+                "cannot note what the terminal session of {} spent: {e}",
+                session.0
+            );
+        }
     }
 }

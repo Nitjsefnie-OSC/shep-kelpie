@@ -6,8 +6,9 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::tests::{FRESH_ID, OTHER_ID, URL, World, id};
+use super::tests::{FRESH_ID, OTHER_ID, RESUMED, URL, World, id, output};
 use super::*;
+use crate::ports::Usage;
 use crate::test::{Answer, OpenSandbox, StandInEndpoint};
 
 fn goose_in(world: &World, sandbox: &OpenSandbox) -> GooseCli {
@@ -57,7 +58,7 @@ fn a_goose_session_for_the_terminal_resumes_in_the_workers_sandbox() {
         .expect("goose is run");
     assert_eq!(
         args[at..],
-        ["goose", "session", "--resume", "--session-id", FRESH_ID]
+        ["goose", "session", "--resume", "--name", FRESH_ID]
     );
     let root = w.path("settings.goose");
     for var in [
@@ -136,4 +137,53 @@ fn the_terminal_session_has_a_forwarder_until_foreground_ended() {
 
     goose.foreground_ended(call.session.id());
     assert!(!socket.exists(), "the socket is removed");
+}
+
+// What goose reports after a session the terminal spent tokens in: the totals of
+// `RESUMED`, which are the headless turn's and the terminal's together.
+#[test]
+fn the_first_turn_after_a_terminal_session_is_charged_for_none_of_the_gap() {
+    let before = Spent {
+        input_tokens: 20,
+        output_tokens: 3,
+        rebase: true,
+        ..Spent::default()
+    };
+
+    let read = output::read(
+        &output(0, RESUMED, ""),
+        &Session::Resume(id(FRESH_ID)),
+        before,
+    );
+
+    assert_eq!(read.reply.unwrap().usage, Usage::default());
+    let spent = read.spent.expect("the turn reported totals");
+    assert_eq!((spent.input_tokens, spent.output_tokens), (69, 15));
+    assert!(!spent.rebase, "the next turn counts from these totals");
+}
+
+#[test]
+fn the_end_of_a_terminal_session_leaves_its_totals_to_be_counted_from_again() {
+    let w = World::new();
+    let goose = goose_in(&w, &OpenSandbox::default());
+    let call = resumable(&w, URL);
+    let files = Files::of(&call.settings);
+    let spent = Spent {
+        input_tokens: 20,
+        ..Spent::default()
+    };
+    files.keep(call.session.id(), spent).unwrap();
+    goose.prepare(&call).unwrap();
+    goose.foreground(&call).unwrap();
+
+    goose.foreground_ended(call.session.id());
+
+    let kept = files.spent(call.session.id()).unwrap().unwrap();
+    assert_eq!(
+        kept,
+        Spent {
+            rebase: true,
+            ..spent
+        }
+    );
 }

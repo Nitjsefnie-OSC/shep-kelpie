@@ -16,7 +16,7 @@ use crate::tools::Tools as KelpieTools;
 // Written by hand from the event types in goose's source, because the builder
 // had no model to record. #798 replaces them with recordings.
 pub(super) const FRESH: &str = include_str!("../../../fixtures/goose-run-fresh.jsonl");
-const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
+pub(super) const RESUMED: &str = include_str!("../../../fixtures/goose-run-resumed.jsonl");
 const MAX_TURNS: &str = include_str!("../../../fixtures/goose-run-max-turns.jsonl");
 const REFUSED: &str = include_str!("../../../fixtures/goose-run-refused.jsonl");
 // The one fixture that is goose's own output: goose 1.54.0 with its server at a

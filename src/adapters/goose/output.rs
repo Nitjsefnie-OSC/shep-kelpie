@@ -35,6 +35,10 @@ pub(super) struct Spent {
     pub(super) cache_read_input_tokens: u64,
     /// The input tokens written to the cache
     pub(super) cache_write_input_tokens: u64,
+    /// Whether a terminal session has spent tokens since these were kept, so the next
+    /// call's totals hold more than its own and its usage cannot be told
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(super) rebase: bool,
 }
 
 impl Spent {
@@ -93,6 +97,7 @@ impl Line {
             output_tokens: self.output_tokens.unwrap_or_default(),
             cache_read_input_tokens: self.cache_read_input_tokens.unwrap_or_default(),
             cache_write_input_tokens: self.cache_write_input_tokens.unwrap_or_default(),
+            rebase: false,
         }
     }
 }
@@ -180,10 +185,18 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
         }
         // goose reports a provider's failure as its reply, exits 0 and counts no
         // tokens, so a reply that spent some is not taken for one.
-        let usage = complete.unwrap_or(before).since(before);
-        if text.starts_with(NETWORK_ERROR) && usage == Usage::default() {
+        let counted = complete.unwrap_or(before).since(before);
+        let spent_none = before.rebase || counted == Usage::default();
+        if text.starts_with(NETWORK_ERROR) && spent_none {
             return Err(failed(&text));
         }
+        // After a terminal session the totals hold its tokens too, which kelpie cannot read
+        // back from goose's database, so this call is charged none.
+        let usage = if before.rebase {
+            Usage::default()
+        } else {
+            counted
+        };
         Ok(AgentReply {
             session_id: asked.clone(),
             text,

@@ -248,7 +248,7 @@ impl Agents for GooseCli {
     }
 
     fn foreground_ended(&self, session: &SessionId) {
-        self.drop_terminal(session);
+        self.terminal_ended(session);
     }
 }
 
