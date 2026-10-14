@@ -21,6 +21,13 @@ fn an_absent_triage_table_means_pick_off_wait_7_questions_10_agent_triager() {
     assert_eq!(t.max_questions.get(), 10);
     assert_eq!(t.agent.as_str(), "triager");
     assert_eq!(parse(&with("")).unwrap().triage, t, "an empty table");
+    let partial = parse(&with("pick = \"all\"\n")).unwrap().triage;
+    assert_eq!(
+        partial.wait_days, t.wait_days,
+        "a key left out keeps its default"
+    );
+    assert_eq!(partial.max_questions, t.max_questions);
+    assert_eq!(partial.agent, t.agent);
 }
 
 #[test]
