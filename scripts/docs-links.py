@@ -23,12 +23,14 @@ from urllib.parse import unquote
 
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 ATX = re.compile(r"^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
-CODE_SPAN = re.compile(r"(`+)(?:.|\n)*?(?<!`)\1(?!`)")
+CODE_SPAN = re.compile(r"(`+)(?:(?!\n[ \t]*\n)[\s\S])*?(?<!`)\1(?!`)")
+# Starts at the `](`, so a link inside another link's text, such as a linked
+# image, is found as well as the outer one.
 INLINE_LINK = re.compile(
-    r"\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))*)"
+    r"\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\s]*\))*)"
     r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"
 )
-REFERENCE_DEFINITION = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
+REFERENCE_DEFINITION = re.compile(r"^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
 HTML_LINK = re.compile(r"""<(?:a|img)\b[^>]*?\b(?:href|src)=["']([^"']*)["']""", re.I)
 HTML_ID = re.compile(r"""\b(?:id|name)=["']([^"']+)["']""")
 SCHEME = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
@@ -69,12 +71,19 @@ def links(text):
 
 def heading_text(raw):
     """What a heading renders as, as plain text."""
+    code = []
+
+    def stash(match):
+        code.append(match.group(2))
+        return f"\0{len(code) - 1}\0"
+
+    raw = re.sub(r"(`+)(.*?)\1", stash, raw)
     raw = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", raw)
     raw = re.sub(r"!?\[([^\]]*)\]\[[^\]]*\]", r"\1", raw)
     raw = re.sub(r"<[^>]*>", "", raw)
-    raw = re.sub(r"(`+)(.*?)\1", r"\2", raw)
     raw = raw.replace("*", "")
-    return re.sub(r"(?<!\w)_+(.+?)_+(?!\w)", r"\1", raw)
+    raw = re.sub(r"(?<!\w)_+(.+?)_+(?!\w)", r"\1", raw)
+    return re.sub(r"\0(\d+)\0", lambda m: code[int(m.group(1))], raw)
 
 
 def slug(text):

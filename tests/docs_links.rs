@@ -216,3 +216,50 @@ fn the_links_of_an_unreachable_guide_page_are_checked_too() {
     );
     assert!(out.contains("[../../README.md#nope]"), "{out}");
 }
+
+#[test]
+fn a_link_inside_another_links_text_is_checked() {
+    let (ok, out) = check(&[
+        (
+            "README.md",
+            "# Dog\n\n[![logo](docs/guide/missing.png)](docs/guide/README.md)\n",
+        ),
+        ("docs/guide/README.md", "# Guide\n"),
+    ]);
+    assert!(!ok);
+    assert!(
+        out.contains("README.md:3: [docs/guide/missing.png]: no such file"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_stray_backtick_does_not_hide_the_links_after_it() {
+    let (ok, out) = check(&[(
+        "README.md",
+        "# Dog\n\nPress the ` key.\n\n[gone](gone.md)\n\nA `code` span.\n\nAnother ` stray.\n",
+    )]);
+    assert!(!ok);
+    assert!(
+        out.contains("README.md:5: [gone.md]: no such file"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_heading_keeps_what_its_code_span_holds() {
+    let (ok, out) = check(&[(
+        "README.md",
+        "# Dog\n\n[a](#optiont) [b](#__init__)\n\n## `Option<T>`\n## `__init__`\n",
+    )]);
+    assert!(ok, "{out}");
+}
+
+#[test]
+fn a_footnote_definition_is_not_a_link() {
+    let (ok, out) = check(&[(
+        "README.md",
+        "# Dog\n\nA claim.[^1]\n\n[^1]: See the board.\n",
+    )]);
+    assert!(ok, "{out}");
+}
