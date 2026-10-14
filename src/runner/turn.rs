@@ -489,7 +489,7 @@ impl Runner {
         let handed_over = token
             .is_some()
             .then(|| pull_request_file::path(&item.build));
-        let hosts = self.browser_hosts(&harness).filter(|_| browses);
+        let hosts = (self.browser_hosts(&harness, &session, item.issue)).filter(|_| browses);
         let dev = self.dev_server(item, &reach, hosts);
         let text = instructions::compose(
             instructions::Extra {

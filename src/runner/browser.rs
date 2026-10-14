@@ -13,7 +13,7 @@ use super::Runner;
 use super::code_graph::who;
 use crate::adapters::bridge::{Bridge, Server};
 use crate::bridge::Filter;
-use crate::ports::{AgentCall, Browser, Role, Tools};
+use crate::ports::{AgentCall, Browser, Role, Session, Tools};
 use crate::settings::{AgentHarness, NonBlank};
 
 /// The bridges opened for turns not yet launched, by the issue of their work item
@@ -37,23 +37,46 @@ impl Opened {
     }
 }
 
+/// The file in a work item's browser folder naming the session its browser was opened for
+const SESSION_FILE: &str = "session";
+
 impl Runner {
     /// The hosts a turn on `harness` is told it can open, if it gets the browser
     ///
     /// A turn gets it when the project turned it on, the harness can load
     /// it, this is macOS and the tools are installed. `None` otherwise.
-    pub(super) fn browser_hosts(&self, harness: &AgentHarness) -> Option<&[NonBlank]> {
-        self.may_browse(harness)
+    pub(super) fn browser_hosts(
+        &self,
+        harness: &AgentHarness,
+        session: &Session,
+        issue: u64,
+    ) -> Option<&[NonBlank]> {
+        self.may_browse(harness, session, issue)
             .then_some(self.settings.browser.domains.as_slice())
             .filter(|_| self.paths.tools.has_browser())
     }
 
-    fn may_browse(&self, harness: &AgentHarness) -> bool {
+    fn may_browse(&self, harness: &AgentHarness, session: &Session, issue: u64) -> bool {
         // parity: harness.browser
         let loads = harness.drives_a_browser();
         // Chromium outside the sandbox is a macOS measurement; Linux waits on #135.
         let here = cfg!(any(target_os = "macos", test));
-        self.settings.browser.enabled && loads && here
+        self.settings.browser.enabled
+            && loads
+            && here
+            && self.session_has_it(harness, session, issue)
+    }
+
+    // A session that keeps the servers it began with has the browser only if it began with one:
+    // kelpie noted its id as it opened the browser for the session's first call.
+    fn session_has_it(&self, harness: &AgentHarness, session: &Session, issue: u64) -> bool {
+        match session {
+            Session::Resume(id) if harness.keeps_its_servers() => {
+                let noted = std::fs::read_to_string(self.paths.browser(issue).join(SESSION_FILE));
+                noted.is_ok_and(|noted| noted.trim() == id.0)
+            }
+            Session::New(_) | Session::Resume(_) => true,
+        }
     }
 
     /// Opens the browser for `call` and names its socket in the call's reach,
@@ -70,7 +93,7 @@ impl Runner {
         let turn = (call.role, call.tools) == (Role::Worker, Tools::Work)
             && !call.prompt.is_empty()
             && call.prompt != crate::ports::COMPACT;
-        if !turn || !self.may_browse(&call.harness) {
+        if !turn || !self.may_browse(&call.harness, &call.session, call.issue) {
             return Ok(());
         }
         // A bridge opened for an earlier prepare of this work item's turn goes.
@@ -87,14 +110,23 @@ impl Runner {
         }
         let folder = self.paths.browser(call.issue);
         let server = server(&self.settings.browser, &self.paths.tools, &folder)?;
+        if let (Session::New(id), true) = (&call.session, call.harness.keeps_its_servers()) {
+            std::fs::write(folder.join(SESSION_FILE), &id.0)
+                .map_err(|e| format!("cannot note the session of {}: {e}", who(call)))?;
+        }
         let filter = Filter {
             domains: (self.settings.browser.domains.iter())
                 .map(|d| d.as_str().to_owned())
                 .collect(),
             dev_port: self.dev_gate(call.issue),
         };
-        let bridge = Bridge::open(&self.paths.worker, server, filter)
-            .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
+        let bridge = Bridge::open(
+            &self.paths.worker,
+            &folder.join("socket-name"),
+            server,
+            filter,
+        )
+        .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
         call.reach.browser = Some(Box::new(Browser {
             kelpie: self.kelpie.clone(),
             socket: bridge.socket().to_owned(),
