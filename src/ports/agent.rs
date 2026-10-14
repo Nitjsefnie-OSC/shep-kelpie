@@ -522,6 +522,15 @@ pub trait Agents: Send + Sync {
             call.harness.harness().command()
         )))
     }
+
+    /// The terminal session [`Agents::foreground`] started for `session` has
+    /// ended, so what the harness kept for it can go
+    ///
+    /// The default keeps nothing. Asking again for a session with nothing kept
+    /// does nothing.
+    fn foreground_ended(&self, session: &SessionId) {
+        let _ = session;
+    }
 }
 
 /// Where a harness writes a session's transcript

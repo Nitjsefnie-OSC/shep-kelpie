@@ -203,6 +203,9 @@ pub(crate) struct FakeClaude {
     // The held calls now in flight, by issue, with what the runner noted of
     // each: the calls a handover could carry
     holding: Arc<Mutex<Vec<Holding>>>,
+    // The sessions started for a terminal, and those whose terminal session ended
+    started: Arc<Mutex<Vec<SessionId>>>,
+    ended: Arc<Mutex<Vec<SessionId>>>,
 }
 
 impl FakeClaude {
@@ -237,6 +240,16 @@ impl FakeClaude {
     /// Every call, with the settings file each one saw
     pub(crate) fn all_seen(&self) -> Vec<Seen> {
         self.seen.lock().unwrap().clone()
+    }
+
+    /// The sessions [`Agents::foreground`] started, in order
+    pub(crate) fn terminals_started(&self) -> Vec<SessionId> {
+        self.started.lock().unwrap().clone()
+    }
+
+    /// The sessions [`Agents::foreground_ended`] was told of, in order
+    pub(crate) fn terminals_ended(&self) -> Vec<SessionId> {
+        self.ended.lock().unwrap().clone()
     }
 
     /// Says what every call in flight last showed
@@ -296,6 +309,7 @@ impl Agents for FakeClaude {
 
     // The session as the terminal would resume it, with no sandbox around it.
     fn foreground(&self, call: &AgentCall) -> Result<std::process::Command, AgentError> {
+        self.started.lock().unwrap().push(call.session.id().clone());
         let mut command = std::process::Command::new("claude");
         command
             .arg("--settings")
@@ -303,6 +317,10 @@ impl Agents for FakeClaude {
             .args(["--resume", &call.session.id().0])
             .current_dir(&call.cwd);
         Ok(command)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.ended.lock().unwrap().push(session.clone());
     }
 
     // Beside the settings file, where a test can read what it would watch.

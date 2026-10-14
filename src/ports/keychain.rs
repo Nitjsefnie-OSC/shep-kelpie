@@ -9,7 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Transcript, Voice,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId,
+    Transcript, Voice,
 };
 use crate::settings::ForgeSlug;
 
@@ -74,5 +75,9 @@ impl Agents for KeychainBlocked {
 
     fn foreground(&self, call: &AgentCall) -> Result<std::process::Command, AgentError> {
         self.agents.foreground(&self.blocking(call))
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.agents.foreground_ended(session);
     }
 }
