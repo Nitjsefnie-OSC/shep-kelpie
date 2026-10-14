@@ -23,6 +23,7 @@ pub use table::table_of;
 mod agents;
 mod browser;
 mod budget;
+mod builds;
 mod ci;
 mod code_graph;
 mod contributions;
@@ -46,6 +47,7 @@ pub use agents::{
 };
 pub use browser::Browser;
 pub use budget::{Budget, PerItemUsd};
+pub use builds::Builds;
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use code_graph::CodeGraph;
 pub use contributions::{Contributions, Pick};
@@ -131,6 +133,10 @@ pub struct Settings {
     /// folder when absent.
     #[serde(default)]
     pub local_rounds: LocalRounds,
+    /// How much a work item's build folder may hold, and the free space the
+    /// disk keeps. 20 GB each when absent.
+    #[serde(default)]
+    pub builds: Builds,
     /// The host that runs the project's end-to-end tests for a worker, whose
     /// sandbox cannot. It must be disposable: the project's script runs there
     /// as the ssh alias's account, and a worker edits that script. None when

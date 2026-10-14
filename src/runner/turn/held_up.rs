@@ -32,6 +32,9 @@ pub(in crate::runner) enum Reason {
     Draining,
     /// The maintainer's `attach` holds the work item
     Attached,
+    /// Its build folder or the disk is still past a `builds` limit after the
+    /// turn's cache was pruned, in the reading's words
+    Builds(String),
 }
 
 impl Reason {
@@ -45,6 +48,7 @@ impl Reason {
             Self::Token => "waiting for a GitHub token, which GitHub is not giving just now".into(),
             Self::Draining => "the runner is draining, so no turn starts".into(),
             Self::Attached => "attached by the maintainer, so no turn starts".into(),
+            Self::Builds(why) => format!("held by the `builds` limits: {why}"),
         }
     }
 }

@@ -196,6 +196,10 @@ mod tests {
                 "[app.dogs.kelpie.local_rounds]\nkeep = true\nkeep_days = 30\nfolder =",
             )
             .replace(
+                "# [app.dogs.kelpie.builds]\n# max_gb = 20\n# min_free_gb = 20",
+                "[app.dogs.kelpie.builds]\nmax_gb = 20\nmin_free_gb = 20",
+            )
+            .replace(
                 "# [app.dogs.kelpie.repo_setup]\n# plugins =",
                 "[app.dogs.kelpie.repo_setup]\nplugins =",
             )
