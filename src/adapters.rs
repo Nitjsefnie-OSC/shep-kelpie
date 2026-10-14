@@ -43,6 +43,7 @@ pub(crate) use claude::settings::write_only as claude_write_only;
 pub(crate) use claude::write_settings as write_claude_settings;
 pub use claude::{ClaudeCli, LOGIN_FIX, LOGIN_VAR, LambLabels, LoginToken};
 pub use codex::CodexCli;
+pub(crate) use codex::mcp::refusal as codex_mcp_refusal;
 pub use codex_usage::CodexMeter;
 pub use curl::Curl;
 pub use door_pace::DoorPace;

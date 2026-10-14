@@ -294,6 +294,44 @@ mod tests {
     }
 
     #[test]
+    fn a_codex_worker_and_reviewer_get_the_server_and_an_index() {
+        let rig = Rig::new("shep");
+        turn_on(&rig);
+        install(&rig, INDEXER);
+        let codex = |role: &str| {
+            format!(
+                "---\nrole: {role}\nharness: codex\nmodel: gpt-6-sol\neffort: low\n---\n\
+                 Review the change against {{{{BASE}}}}. Output one finding per line as \
+                 SEVERITY|file:line|what|why, or CLEAN.\n"
+            )
+        };
+        rig.write_agent("codex-box", &codex("implementer"));
+        rig.implementers(&["codex-box"]);
+        rig.write_agent("codex-reviewer", &codex("reviewer"));
+        rig.reviewers(&["codex-reviewer"]);
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, the Codex reviewer
+
+        let index = rig.paths().folder.join("code-graphs/7");
+        let seen = reads_code(&rig);
+        let roles: Vec<Role> = seen.iter().map(|s| s.call.role).collect();
+        assert!(roles.contains(&Role::Worker) && roles.contains(&Role::Reviewer));
+        for seen in &seen {
+            assert_eq!(seen.call.harness, AgentHarness::Codex);
+            let graph = seen.call.reach.code_graph.as_ref().expect("the server");
+            assert_eq!(graph.index, index);
+            assert_eq!(graph.binary, rig.paths().tools.code_graph());
+        }
+        let root = std::fs::read_to_string(index.join("root")).unwrap();
+        assert_eq!(PathBuf::from(root.trim()), seen[0].call.cwd);
+    }
+
+    #[test]
     fn a_project_with_the_graph_off_gets_no_server_and_no_index() {
         let rig = Rig::new("shep");
         install(&rig, INDEXER);

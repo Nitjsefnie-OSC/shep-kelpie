@@ -645,7 +645,7 @@ impl Runner {
                 call.reach
                     .mcp_servers
                     .extend(self.repo_plugins.mcp_servers());
-                self.without_servers_pi_cannot_load(&mut call);
+                self.without_servers_the_harness_cannot_load(&mut call);
             }
         }
         self.with_code_graph(&mut call);
@@ -656,15 +656,17 @@ impl Runner {
         Ok(call)
     }
 
-    // A server pi cannot load is left out, and a note says which and why.
-    fn without_servers_pi_cannot_load(&self, call: &mut AgentCall) {
+    // A server pi or Codex cannot load is left out, and a note says which and why.
+    fn without_servers_the_harness_cannot_load(&self, call: &mut AgentCall) {
         // parity: harness.mcp-servers
-        if !matches!(call.harness, crate::settings::AgentHarness::Pi(_)) {
-            return;
-        }
+        let refusal: fn(&str, &serde_json::Value) -> Option<String> = match call.harness {
+            crate::settings::AgentHarness::Pi(_) => crate::adapters::pi_mcp_refusal,
+            crate::settings::AgentHarness::Codex => crate::adapters::codex_mcp_refusal,
+            _ => return,
+        };
         let who = super::code_graph::who(call);
         call.reach.mcp_servers.retain(|name, entry| {
-            let refused = crate::adapters::pi_mcp_refusal(name, entry);
+            let refused = refusal(name, entry);
             if let Some(why) = &refused {
                 self.notes
                     .push(format!("{who} runs without the MCP server `{name}`: {why}"));
