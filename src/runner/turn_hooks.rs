@@ -17,7 +17,7 @@ use super::claim::Notes;
 use super::points::phase_name;
 use crate::hooks::{Hooks, Role};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Session,
+    AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Session, SessionId,
 };
 use crate::ports::{Role as Recipient, Transcript};
 use crate::settings::HookPoint;
@@ -135,5 +135,9 @@ impl Agents for TurnHooks {
 
     fn foreground(&self, call: &AgentCall) -> Result<std::process::Command, AgentError> {
         self.agents.foreground(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.agents.foreground_ended(session);
     }
 }

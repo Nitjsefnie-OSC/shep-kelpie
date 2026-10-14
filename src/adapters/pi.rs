@@ -43,6 +43,7 @@ use crate::skills::split_command;
 
 mod activity;
 mod adopt;
+mod attach;
 mod compact;
 pub(crate) mod mcp;
 mod web;
@@ -52,6 +53,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod compact_tests;
@@ -144,6 +148,8 @@ pub struct PiCli {
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
+    // The forwarder of each session the maintainer has open in a terminal
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -158,6 +164,7 @@ impl ClaudeCli {
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -294,6 +301,14 @@ impl Agents for PiCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.drop_terminal(session);
+    }
 }
 
 impl PiCli {
@@ -358,6 +373,17 @@ impl PiCli {
             Some(id) => upstream.with_lease(id),
             None => upstream,
         };
+        self.inside_sandbox(call, upstream, argv(call, &Files::of(call)))
+    }
+
+    // `pi` with `argv`, in the call's sandbox and its scratch folder emptied,
+    // with a forwarder to `upstream` that the caller keeps for as long as pi runs.
+    fn inside_sandbox(
+        &self,
+        call: &AgentCall,
+        upstream: Upstream,
+        argv: Vec<OsString>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let files = Files::of(call);
         match std::fs::remove_dir_all(&files.scratch) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -383,7 +409,7 @@ impl PiCli {
         command
             .args(env_args(call, &files))
             .arg(&self.program)
-            .args(argv(call, &files))
+            .args(argv)
             .current_dir(&call.cwd);
         let policy = policy(
             call,
@@ -560,10 +586,21 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         true => (compact::COMMAND.to_owned(), None),
         false => skill_prompt(call),
     };
+    let mut argv = profile(call, files, skill);
+    // The terminal session has no turn for the extension to hand back after a compaction.
+    if loads_compact(call) {
+        argv.extend(["--extension".into(), files.compact().into()]);
+    }
+    argv.extend(["-p".into(), "--mode".into(), "json".into()]);
+    argv.extend(["--session-id".into(), call.session.id().0.as_str().into()]);
+    argv.extend(["--".into(), prompt.into()]);
+    argv
+}
+
+/// What a call's pi has in a terminal and headless alike: its model, tools,
+/// instructions and guard
+fn profile(call: &AgentCall, files: &Files, skill: Option<PathBuf>) -> Vec<OsString> {
     let mut argv: Vec<OsString> = vec![
-        "-p".into(),
-        "--mode".into(),
-        "json".into(),
         "--model".into(),
         format!("{PROVIDER}/{}", call.model).into(),
         "--thinking".into(),
@@ -576,8 +613,6 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
         "--offline".into(),
         "--session-dir".into(),
         files.sessions().into(),
-        "--session-id".into(),
-        call.session.id().0.as_str().into(),
     ];
     let tools = tools_of(call);
     let mcp = mcp_config(call);
@@ -604,21 +639,17 @@ fn argv(call: &AgentCall, files: &Files) -> Vec<OsString> {
     if call.reach.fence.is_some() {
         argv.extend(["--extension".into(), files.guard().into()]);
     }
-    if loads_compact(call) {
-        argv.extend(["--extension".into(), files.compact().into()]);
-    }
     argv.extend(web::flags(call));
     // The step's skill comes first, so its name wins a collision. Its text is in
     // the prompt, but any other skill needs `read` to open and only costs context.
     if let Some(skill) = skill {
         argv.extend(["--skill".into(), skill.into()]);
     }
-    if tools.is_some() && !compacting {
+    if tools.is_some() && call.prompt != COMPACT {
         for dir in skill_dirs(call) {
             argv.extend(["--skill".into(), dir.into()]);
         }
     }
-    argv.extend(["--".into(), prompt.into()]);
     argv
 }
 

@@ -14,10 +14,13 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 
 use super::super::Runner;
+use super::super::attach::live;
 use super::super::briefing::Watched;
 use super::super::in_flight::Open;
 use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
+use crate::settings::Harness;
+use crate::work_item::WorkItem;
 
 /// A worker's turn as it crosses a handover
 // wire format: changing this is a change to the handover's state format
@@ -64,6 +67,12 @@ impl Runner {
                 "{what} is in flight, and only a worker's turn is carried"
             ));
         }
+        if let Some(issue) = self.pi_session_attached() {
+            return Err(format!(
+                "#{issue} is attached, and the pi session in the maintainer's terminal dials \
+                 a forwarder this image holds, which the next image would not"
+            ));
+        }
         flights
             .flying
             .iter()
@@ -91,6 +100,20 @@ impl Runner {
                 })
             })
             .collect()
+    }
+
+    // The work item whose hold stands on a pi worker, whose session in the
+    // maintainer's terminal dials a forwarder only this image holds.
+    fn pi_session_attached(&self) -> Option<u64> {
+        let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
+        let on_pi = |item: &&WorkItem| {
+            // parity: harness.attach-ends
+            (self.worker_agent(item)).is_ok_and(|agent| agent.harness.harness() == Harness::Pi)
+        };
+        let mut items = self.state.work_items.iter();
+        items
+            .find(|item| holds(item) && on_pi(item))
+            .map(|item| item.issue)
     }
 
     /// Takes on `turns` a previous image carried, each finished on its own
@@ -159,3 +182,6 @@ impl Runner {
         self.board_changed();
     }
 }
+
+#[cfg(test)]
+mod tests;
