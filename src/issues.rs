@@ -273,6 +273,7 @@ fn reach(
         fence: Some(Box::new(fence)),
         block_keychain: false,
         code_graph: None,
+        browser: None,
         mcp_servers: BTreeMap::new(),
         extensions: Vec::new(),
     })

@@ -534,6 +534,21 @@ fn a_plain_status_lists_each_contribution_with_its_author_and_head() {
 }
 
 #[test]
+fn a_plain_status_lists_each_bump_with_where_it_stands() {
+    let body = r#"{"project":"koji","work_items":[],"bumps":[
+        {"pull_request":21,"author":"dependabot","head":"9c0d1e2f3a4b",
+         "standing":"a web bump, and the project has no e2e host, so it is not merged"}],
+        "rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..5],
+        [
+            "  bumps: 1",
+            "    PR #21 by dependabot, head 9c0d1e2: a web bump, and the project has no e2e host, so it is not merged",
+        ]
+    );
+}
+
+#[test]
 fn a_plain_status_says_how_long_a_contribution_has_waited_on_its_contributor() {
     let body = r#"{"project":"koji","work_items":[],"contributions":[
         {"pull_request":12,"author":"newcomer","head":"2a8f1e6d0b4c","seen":1,

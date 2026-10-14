@@ -20,7 +20,7 @@ use super::{GPU, GPU_GONE, LeaseKind};
 use crate::{dog, home, shepherd};
 
 pub(crate) mod counted_run;
-mod e2e;
+pub(crate) mod e2e;
 
 /// The usage lines for `shep-kelpie lease`
 pub const USAGE: &str = "\

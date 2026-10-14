@@ -38,6 +38,10 @@ pub(crate) struct FakeForge {
     listed_finished: Arc<Mutex<Vec<u64>>>,
     // The issues kelpie closed
     closings: Arc<Mutex<Vec<u64>>>,
+    // The pull requests kelpie closed unmerged
+    pull_request_closings: Arc<Mutex<Vec<u64>>>,
+    // Whether closing a pull request is refused
+    pull_request_closes_down: Arc<AtomicBool>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
     closes_refused: Arc<AtomicUsize>,
@@ -124,6 +128,8 @@ impl FakeForge {
             sub_issues_down: Arc::default(),
             listed_finished: Arc::default(),
             closings: Arc::default(),
+            pull_request_closings: Arc::default(),
+            pull_request_closes_down: Arc::default(),
             closes_down: Arc::default(),
             closes_refused: Arc::default(),
             open: Arc::default(),
@@ -755,6 +761,11 @@ impl Forge for FakeForge {
         self.closed.lock().unwrap().insert(number);
         self.closings.lock().unwrap().push(number);
         Ok(())
+    }
+
+    fn close_pull_request(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.close_open_pull_request(number)
     }
 
     // Numbers start at 500, clear of every pull request a test opens by hand.

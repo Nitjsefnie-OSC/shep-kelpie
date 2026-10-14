@@ -43,4 +43,4 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 
 - Claude Code through a gateway: needs per-harness forwarding + a pacing decision. Gateways go through a port (`src/ports/gateway.rs`) with paddock and `openai` adapters; `openai` holds no lease and may evict a turn's model. #352
 - Usage calculator handing workers decisions, never cost figures. `docs/design-log.md` Decided, not built
-- Shots and preview: in git history. ADR 0006, #54, #131
+- Shots on the pull request: in git history. ADR 0006, #54, #131. The preview's other half, a live look at the UI, is built as the browser (browser.md). ADR 0011

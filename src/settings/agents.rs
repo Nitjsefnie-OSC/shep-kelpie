@@ -157,6 +157,17 @@ impl AgentHarness {
         }
     }
 
+    /// Whether a worker's turn on it can load the browser's MCP bridge
+    pub fn drives_a_browser(&self) -> bool {
+        // parity: harness.browser
+        match self {
+            Self::ClaudeCode | Self::Pi(_) => true,
+            Self::Codex | Self::Goose(_) => false,
+            #[cfg(test)]
+            Self::StandIn => true,
+        }
+    }
+
     /// The harness, as settings name it
     pub fn harness(&self) -> Harness {
         match self {

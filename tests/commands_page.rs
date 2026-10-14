@@ -35,7 +35,7 @@ const KELPIE: &str = env!("CARGO_BIN_EXE_shep-kelpie");
 
 /// Commands kelpie runs for itself, which no person types. Adding one here
 /// stops the page being asked to name it.
-const INTERNAL: [&str; 3] = ["runner", "guard", "confine"];
+const INTERNAL: [&str; 4] = ["runner", "guard", "confine", "mcp-connect"];
 
 /// Named on the page though the command line has no verb of that name: a
 /// trigger a person sends with `shep trigger`.

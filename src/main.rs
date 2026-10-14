@@ -59,7 +59,12 @@
 //! organization, and opens the page that installs it.
 //!
 //! `shep kelpie tools install`: installs the sandbox runtime every agent runs
-//! in, under kelpie's home.
+//! in, the browser a worker sees the UI through, and the other tools, under
+//! kelpie's home.
+//!
+//! `kelpie mcp-connect <socket>`: carries a worker's MCP stdio to the browser
+//! kelpie runs outside its sandbox. The worker's harness starts it; it is not
+//! for the maintainer.
 //!
 //! `shep kelpie totp [--rotate]`, run as `shep kelpie totp [--rotate]` where kelpie
 //! is not on the PATH: prints the authenticator secret that answers a ruling
@@ -245,6 +250,15 @@ fn main() -> ExitCode {
             hook(judge_with(std::io::stdin().lock(), &folders, &hooks))
         }
         [command, sub] if command == "tools" && sub == "install" => install_tools(),
+        [command, socket] if command == "mcp-connect" => {
+            match shep_kelpie::bridge::connect(Path::new(socket)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(why) => {
+                    eprintln!("{why}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         [command] if command == "totp" => totp(false),
         [command, flag] if command == "totp" && flag == "--rotate" => totp(true),
         [command, flag] if command == "totp" && flag == "--unlock" => unlock(),
@@ -262,7 +276,7 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
             eprintln!(
-                "usage: shep-kelpie add [<project>] | add <issue>\n       shep-kelpie start | pause | finish | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<issue>] | drop [<issue>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie github setup [--org <org>] [--name <app name>] [--replace]\n       shep-kelpie tools install\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
+                "usage: shep-kelpie add [<project>] | add <issue>\n       shep-kelpie start | pause | finish | status\n       shep-kelpie rule [<id> <answer>]\n       shep-kelpie rework <pr> | adopt <pr>\n       shep-kelpie gate [<issue>] | drop [<issue>]\n       shep-kelpie doctor [<project>] [--test-alert]\n       shep-kelpie upgrade [--now] --ref <git ref> | --release <version> | --binary <path> | --rollback\n       shep-kelpie version [--json]\n       shep-kelpie runner <project>\n{}\n       shep-kelpie confine <folder>...\n       shep-kelpie guard <git common dir> <worktree>\n       shep-kelpie github setup [--org <org>] [--name <app name>] [--replace]\n       shep-kelpie tools install\n       shep-kelpie mcp-connect <socket>\n       shep-kelpie totp [--rotate | --unlock]\n\nAdopted as `kelpie`, the same verbs run as `shep kelpie <verb>`, and `--` reaches `lease run`.\n\n{}\n\n{}",
                 shep_kelpie::lease::cli::USAGE,
                 shep_kelpie::flock::USAGE,
                 shep_kelpie::flock::rule::HELP

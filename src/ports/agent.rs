@@ -148,6 +148,9 @@ pub struct Reach {
     /// goose. A goose session is given it, like every server, when it is
     /// created, and a resumed session keeps the set it began with.
     pub code_graph: Option<CodeGraph>,
+    /// The browser it drives, where the project turns it on and the call is a
+    /// worker's working turn on Claude Code or pi
+    pub browser: Option<Box<Browser>>,
     /// The MCP servers of the repo's plugins and of its `.mcp.json`, by the
     /// name their tools are allowed under, each as Claude Code's `mcpServers`
     /// entry, which the pi, Codex and goose adapters turn into their own. A
@@ -171,6 +174,18 @@ pub struct CodeGraph {
     pub binary: PathBuf,
     /// The folder the worktree's index is kept in, under kelpie's home
     pub index: PathBuf,
+}
+
+/// The browser kelpie runs for a call, outside its sandbox, reached over a socket
+///
+/// The socket carries MCP lines to a filter ([`crate::bridge::Filter`]) in front of the
+/// Playwright server. The session starts `kelpie mcp-connect <socket>` as the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Browser {
+    /// The kelpie binary, which carries the session's stdio to the socket
+    pub kelpie: PathBuf,
+    /// The call's socket, which the session's sandbox may connect to
+    pub socket: PathBuf,
 }
 
 /// Where a session may write and connect, and what it may not run

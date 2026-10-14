@@ -7,11 +7,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ports::{Clock, Timestamp};
 
+pub(crate) mod bridge;
 mod claude;
 mod codex;
 mod codex_usage;
 mod curl;
 mod door_pace;
+mod e2e_runner;
 pub(crate) mod forwarder;
 pub(crate) mod gh;
 mod git;
@@ -48,6 +50,7 @@ pub(crate) use codex::mcp::refusal as codex_mcp_refusal;
 pub use codex_usage::CodexMeter;
 pub use curl::Curl;
 pub use door_pace::DoorPace;
+pub use e2e_runner::DogE2e;
 pub use gh::{Etags, Gh, GhApps};
 pub use git::SystemGit;
 pub use github::{CurlGithub, Openssl};

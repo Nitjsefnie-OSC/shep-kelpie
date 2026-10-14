@@ -11,6 +11,8 @@
 pub mod adapters;
 pub mod agents;
 pub mod board;
+pub mod bridge;
+pub mod browse;
 pub mod coderabbit;
 pub mod codex;
 pub mod confine;

@@ -322,6 +322,24 @@ compact_window = 200000
 # quiet_days = 7
 # nudge_days = 3
 
+# Whether kelpie merges the bumps bots open. `pick` is `off` (every bot's pull
+# request is left alone) or `on`. A bump behind `main` is asked to rebase once
+# per head, and is proved only on the latest `main`: its checks must pass, as
+# at the merge gate. A bump that changes a path in `web` (a path ending in `/`
+# is a folder) also needs a passing e2e run through the dog's e2e host, and is
+# never merged without one. A proved bump is merged with a merge commit, with
+# no review. `bots` are the logins whose pull requests are bumps, ignoring case
+# and a `[bot]` suffix. A bump that fails a check or its e2e run, or whose
+# checks are still pending or absent after `wait_hours` (above 0), is red:
+# `on_red = "close"` comments what failed, closes it and files an issue, and
+# `"leave"` logs it and leaves it open.
+# [app.dogs.kelpie.dependencies]
+# pick = "off"
+# bots = ["dependabot"]
+# on_red = "close"
+# web = ["web/", "package.json"]
+# wait_hours = 24
+
 # The skill each step runs. A step left out runs its default from kelpie's
 # own copy of mattpocock/skills, so the project installs nothing;
 # https://github.com/shep-pm/shep-kelpie/blob/main/docs/guide/building.md#skills
@@ -380,6 +398,23 @@ compact_window = 200000
 # The server runs inside the call's sandbox like everything else in it.
 [app.dogs.kelpie.code_graph]
 enabled = false
+
+# A browser for the worker's Claude Code and pi turns, to look at the UI it
+# builds. Chromium cannot start inside the sandbox, so kelpie runs the
+# Playwright MCP server outside it and the worker reaches it over a socket
+# kelpie filters: only the browser tools in its allow-list pass, a URL passes
+# only as `http` or `https` to one of `domains`, and a `filename` never does.
+# Chromium itself resolves only `domains`, so every other host and every IP
+# address fails. `shep kelpie tools install` fetches the server and Chromium,
+# and a project that turns it on without them gets a doctor line. `domains` is
+# a host, or `*.` and a parent for its subdomains. A port, an IP address and
+# `localhost` are refused: Chromium cannot hold a host to one port.
+# With `headed` on, the browser opens a window you can watch. macOS only: on
+# Linux an enabled table stops the runner when it starts.
+[app.dogs.kelpie.browser]
+enabled = false
+headed = false
+domains = []
 
 # A local round (a `command` or `endpoint` reviewer) writes its request and
 # reply under the work item's build folder, which goes when the work item

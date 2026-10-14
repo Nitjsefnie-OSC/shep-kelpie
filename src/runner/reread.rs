@@ -63,6 +63,13 @@ impl Runner {
                 .contributions
                 .clone_from(&self.settings.contributions);
         }
+        // Merging a bot's pull request begins only at a start.
+        if settings.dependencies != self.settings.dependencies {
+            waiting.push("dependencies");
+            settings
+                .dependencies
+                .clone_from(&self.settings.dependencies);
+        }
         // The adapters were built with the gateways at start.
         if !kelpie.gateways().iter().eq(self.gateways.iter()) {
             waiting.push("gateways");
@@ -74,6 +81,14 @@ impl Runner {
             }
             .into());
         }
+        // The start refuses a browser this machine cannot give, so a reread does too.
+        settings
+            .browser
+            .supported()
+            .map_err(|reason| SettingsError::Invalid {
+                setting: "browser.enabled",
+                reason,
+            })?;
         if settings.rulings != self.settings.rulings {
             self.notes.extend(settings.rulings.unused_under_always());
         }
@@ -245,10 +260,12 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         researcher: old_researcher,
         rulings: old_rulings,
         contributions: _, // waits for the next start, when the runner checks it
+        dependencies: _,  // waits for the next start, like `contributions`
         hooks: _,         // waits for the next start, so `reread` keeps the old
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
+        browser: old_browser,
         local_rounds: old_local_rounds,
         e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
@@ -263,10 +280,12 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         researcher: new_researcher,
         rulings: new_rulings,
         contributions: _,
+        dependencies: _,
         hooks: _,
         skills: new_skills,
         repo_setup: new_repo_setup,
         code_graph: new_code_graph,
+        browser: new_browser,
         local_rounds: new_local_rounds,
         e2e: _,
     } = new;
@@ -296,6 +315,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("skills", old_skills != new_skills),
         ("repo_setup", old_repo_setup != new_repo_setup),
         ("code_graph", old_code_graph != new_code_graph),
+        ("browser", old_browser != new_browser),
         ("local_rounds", old_local_rounds != new_local_rounds),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
@@ -569,6 +589,34 @@ mod tests {
 
         let err = rig.open().unwrap_err().to_string();
         assert!(err.contains("contributions.pick"), "{err}");
+    }
+
+    #[test]
+    fn a_changed_dependencies_table_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.dependencies]\npick = \"on\"\n"));
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; dependencies from the runner's next start")
+        );
+        assert!(
+            runner.settings().dependencies.is_off(),
+            "the old pick stays"
+        );
+        drop(runner);
+
+        assert!(
+            !rig.open()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .settings()
+                .dependencies
+                .is_off()
+        );
     }
 
     fn paddock_at(rig: &Rig, url: &str) {

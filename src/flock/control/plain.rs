@@ -19,6 +19,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     adopting(status, &mut lines);
     red_workflows(status, &mut lines);
     contributions(status, &mut lines);
+    bumps(status, &mut lines);
     rulings(status, &mut lines);
     pacer(status, &mut lines);
     lines
@@ -208,6 +209,26 @@ fn contributions(status: &Value, lines: &mut Vec<String>) {
         if let Some(clock) = contribution.get("clock") {
             lines.push(format!("      {}", waiting(clock)));
         }
+    }
+}
+
+// One line for each bump from a bot the board follows, and none when it
+// follows none
+fn bumps(status: &Value, lines: &mut Vec<String>) {
+    let followed = status["bumps"].as_array().map_or(&[][..], Vec::as_slice);
+    if followed.is_empty() {
+        return;
+    }
+    lines.push(format!("  bumps: {}", followed.len()));
+    for bump in followed {
+        let head = bump["head"].as_str().unwrap_or_default();
+        lines.push(format!(
+            "    PR #{} by {}, head {}: {}",
+            bump["pull_request"],
+            bump["author"].as_str().unwrap_or("?"),
+            head.get(..7).unwrap_or(head),
+            bump["standing"].as_str().unwrap_or("?"),
+        ));
     }
 }
 

@@ -171,6 +171,13 @@ pi = "yes"
 codex = { cannot = "Codex has no hook that ends a turn at a tool result", doc = "docs/design/workers.md", says = "a Codex or goose call keeps the old pause" }
 goose = { cannot = "goose has no hook that ends a turn at a tool result", doc = "docs/design/workers.md", says = "a Codex or goose call keeps the old pause" }
 
+[harness.browser]
+what = "A worker's turn drives the project's browser through the filtered `playwright` MCP bridge"
+claude-code = "yes"
+pi = "yes"
+codex = { gap = 863 }
+goose = { gap = 864 }
+
 [harness.tool-allow-list]
 what = "An agent file's `tools` names the tools a call may use"
 claude-code = "yes"

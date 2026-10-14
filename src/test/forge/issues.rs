@@ -3,7 +3,9 @@
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
-use crate::ports::{FinishedParent, ForgeError, OpenIssue, SubIssue, SubIssueState};
+use crate::ports::{
+    FinishedParent, ForgeError, OpenIssue, PullRequestState, SubIssue, SubIssueState,
+};
 
 /// An issue kelpie opened on the fake forge
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,5 +135,31 @@ impl FakeForge {
     /// The issues kelpie closed
     pub(crate) fn closings(&self) -> Vec<u64> {
         self.closings.lock().unwrap().clone()
+    }
+
+    /// The pull requests kelpie closed unmerged
+    pub(crate) fn pull_request_closings(&self) -> Vec<u64> {
+        self.pull_request_closings.lock().unwrap().clone()
+    }
+
+    /// Makes closing a pull request fail, or work again
+    pub(crate) fn set_pull_request_closes_down(&self, down: bool) {
+        self.pull_request_closes_down.store(down, Ordering::SeqCst);
+    }
+
+    pub(super) fn close_open_pull_request(&self, number: u64) -> Result<(), ForgeError> {
+        if self.pull_request_closes_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("closing is refused".into()));
+        }
+        let now = self.read(number)?;
+        if now.state != PullRequestState::Open {
+            return Err(ForgeError::Failed(format!(
+                "cannot close #{number}: it is {:?}",
+                now.state
+            )));
+        }
+        self.set_state(number, PullRequestState::Closed);
+        self.pull_request_closings.lock().unwrap().push(number);
+        Ok(())
     }
 }

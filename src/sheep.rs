@@ -22,8 +22,8 @@ use std::time::Duration;
 use shep_handover::Arrival;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken,
-    Openssl, ShepLeases, SystemClock, SystemGit, stop_calls,
+    ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer,
+    LoginToken, Openssl, ShepLeases, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -178,9 +178,9 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         },
         home.clone(),
     );
-    let loaded = look.read()?;
-    let (settings, kelpie_settings) = (loaded.settings, loaded.kelpie);
+    let (settings, kelpie_settings) = look.read().map(|loaded| (loaded.settings, loaded.kelpie))?;
     unshared(&look, &settings)?;
+    settings.browser.supported().map_err(Exit::Refused)?;
     let codex_home = kelpie_settings
         .codex_home(&home, &kelpie_home)
         .map_err(|e| e.to_string())?;
@@ -246,6 +246,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),
         test_runner: Arc::new(claude.test_runner()),
+        e2e_runner: Arc::new(DogE2e),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
         pace: Arc::new(DoorPace::new(paths.door.clone())),
@@ -268,7 +269,6 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     for notice in runner.skill_notices() {
         eprintln!("{notice}");
     }
-
     if !shepherd.is_active() {
         return Err("no shepherd channel: run it under shep with `channel = true`".into());
     }
