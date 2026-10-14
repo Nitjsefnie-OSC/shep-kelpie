@@ -421,7 +421,11 @@ impl Runner {
                 Begin::Report(failed(names, &mut next, issue, now, reason, restore))
             }
         };
-        self.save(next)?;
+        if let Err(e) = self.save(next) {
+            // No flight will take the bridge this turn's call opened.
+            drop(self.opened.take(issue));
+            return Err(e);
+        }
         if resumed {
             self.note_resumed(issue);
         }
@@ -441,17 +445,24 @@ impl Runner {
         session: Session,
         prompt: Option<String>,
     ) -> Result<AgentCall, String> {
-        let call = self.worker_call(item, session, prompt)?;
+        // A session with no prompt (attach) or only a compaction runs no browser.
+        let browses = prompt
+            .as_deref()
+            .is_none_or(|p| !p.is_empty() && p != COMPACT);
+        let call = self.worker_call(item, session, prompt, browses)?;
         self.prepared(call)
     }
 
     // The worker's call for `item`, with its worktree, build folder, settings
     // path and instructions made, before its harness has written anything.
+    // `browses` is whether its instructions may name a browser, which only a
+    // turn that goes on to open one has.
     pub(super) fn worker_call(
         &self,
         item: &WorkItem,
         session: Session,
         prompt: Option<String>,
+        browses: bool,
     ) -> Result<AgentCall, String> {
         let start = start_of(item);
         let WorkerAgent {
@@ -486,6 +497,7 @@ impl Runner {
                 pull_request_file: handed_over.as_deref(),
                 e2e: self.settings.e2e.as_ref(),
                 owner_template: self.owner_template.as_ref(),
+                browser: self.browser_hosts(&harness).filter(|_| browses),
             },
             &item.worktree,
             &self.skills,
@@ -666,10 +678,12 @@ impl Runner {
             }
         }
         self.with_code_graph(&mut call);
-        self.ports
-            .agents
-            .prepare(&call)
-            .map_err(|e| e.to_string())?;
+        self.with_browser(&mut call)?;
+        if let Err(e) = self.ports.agents.prepare(&call) {
+            // No flight will take the bridge `with_browser` opened.
+            drop(self.opened.take(call.issue));
+            return Err(e.to_string());
+        }
         Ok(call)
     }
 
@@ -928,34 +942,6 @@ impl Runner {
         let mut report = report;
         self.fill_comment_failed(&mut report);
         Ok(Some(report))
-    }
-
-    // A ruling just raised is posted as a comment on its pull request, if it
-    // has one; only these three reports carry a ruling and need the outcome.
-    pub(super) fn fill_comment_failed(&mut self, report: &mut StepReport) {
-        match report {
-            StepReport::Asked {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            }
-            | StepReport::TimedOut {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            }
-            | StepReport::Failed {
-                pull_request,
-                id,
-                comment_failed,
-                ..
-            } => {
-                *comment_failed = self.post_ruling(*pull_request, *id);
-            }
-            _ => {}
-        }
     }
 
     // The open pull request from `branch`. A forge that cannot be asked

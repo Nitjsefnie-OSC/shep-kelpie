@@ -9,11 +9,12 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0003 [Runners live in the maintainer's own shepherd](0003-runners-live-in-the-maintainer-s-own-shepherd.md): runners and the dog are sheep of the maintainer's own shepherd, and kelpie is adopted as a dog.
 - 0004 [The adopted kelpie is the lease dog](0004-the-adopted-kelpie-is-the-lease-dog.md): the adopted `kelpie` holds the leases through the shepherd channel shep 0.12 gives it, and `kelpie-dog` is gone.
 - 0005 [shep stops every lamb](0005-shep-stops-every-lamb.md): shep's stop reaches every lamb in the tree, and kelpie drops its own stop ladder, orphan sweep and pid files.
-- 0006 [One agent builds, reviewers run once in series](0006-one-agent-builds-reviewers-run-once.md): the issue says what done means, one agent builds it, and each listed reviewer reads once with one fix turn, with no loop and no judge.
+- 0006 [One agent builds, reviewers run once in series](0006-one-agent-builds-reviewers-run-once.md): the issue says what done means, one agent builds it, and each listed reviewer reads once with one fix turn, with no loop and no judge. 0011 reopened the parked shots and preview half.
 - 0007 [Review rules for a live pull request](0007-review-rules-for-a-live-pull-request.md): nits and a merge ruling's `no` get a fix turn, a late bot is read, and a parked item frees its slot.
 - 0008 [No reviewer reads a head until CI has passed on it](0008-no-reviewer-reads-a-head-until-ci-has-passed-on-it.md): a reviewer starts, or a bot is summoned, only on a pushed head that is green, and a red run is the worker's CI fix turn first.
 - 0009 [A project's own hooks run at kelpie's points](0009-a-projects-own-hooks-run-at-kelpies-points.md): `hooks` runs a project's commands at `publish`, `commit`, `push`, `handover` and nine points for the events Claude Code and Codex offer (`command`, `write`, `after_command`, `turn_start`, `turn_end`, `reset`, `ruling`, `ci`, `done`), for every harness and role, with `worker.guard_hooks` kept as the Claude Code-only layer.
 - 0010 [Kelpie finishes a contribution on its contributor's branch](0010-kelpie-finishes-a-contribution-on-its-contributors-branch.md): a quiet contributor is asked, a yes or silence is a release, and kelpie then pushes to their branch, never a second pull request.
+- 0011 [A worker sees the UI through a browser outside its sandbox](0011-a-worker-sees-the-ui-through-a-browser-outside-its-sandbox.md): a worker's `Work` turn on Claude Code or pi drives a Playwright MCP server that kelpie runs outside the sandbox, behind a socket that passes only an allow-list of tools and listed domains.
 
 ## Decided against
 
@@ -50,6 +51,11 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - a second pull request from a new branch, for a contribution (0010)
 - adopt a quiet contribution without asking its contributor (0010)
 - wait for a contributor's explicit yes before adopting (0010)
+- Chromium inside `srt` (0011)
+- Claude Code starting the Playwright MCP server unsandboxed (0011)
+- the e2e host alone for a look at the UI (0011)
+- raw CDP from a crate in place of Playwright (0011)
+- shots on the pull request, in place of a live look (0011, and parked in 0006)
 
 ### Decided against without an ADR
 

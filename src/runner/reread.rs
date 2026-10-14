@@ -81,6 +81,14 @@ impl Runner {
             }
             .into());
         }
+        // The start refuses a browser this machine cannot give, so a reread does too.
+        settings
+            .browser
+            .supported()
+            .map_err(|reason| SettingsError::Invalid {
+                setting: "browser.enabled",
+                reason,
+            })?;
         if settings.rulings != self.settings.rulings {
             self.notes.extend(settings.rulings.unused_under_always());
         }
@@ -257,6 +265,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
+        browser: old_browser,
         local_rounds: old_local_rounds,
         builds: old_builds,
         e2e: _, // waits for the next start, when the runner writes it for the dog
@@ -277,6 +286,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         skills: new_skills,
         repo_setup: new_repo_setup,
         code_graph: new_code_graph,
+        browser: new_browser,
         local_rounds: new_local_rounds,
         builds: new_builds,
         e2e: _,
@@ -307,6 +317,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("skills", old_skills != new_skills),
         ("repo_setup", old_repo_setup != new_repo_setup),
         ("code_graph", old_code_graph != new_code_graph),
+        ("browser", old_browser != new_browser),
         ("local_rounds", old_local_rounds != new_local_rounds),
         ("builds", old_builds != new_builds),
         ("researcher", old_researcher != new_researcher),

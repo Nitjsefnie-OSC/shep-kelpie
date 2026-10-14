@@ -497,7 +497,7 @@ fn request(upstream: &Upstream, head: &Head, length: usize) -> Result<Vec<u8>, R
 }
 
 // 128 random bits as hex, from the system's own source.
-fn unguessable() -> Result<String, String> {
+pub(super) fn unguessable() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))

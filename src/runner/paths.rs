@@ -118,12 +118,13 @@ pub struct ProjectPaths {
     worktrees: PathBuf,
     builds: PathBuf,
     graphs: PathBuf,
+    browsers: PathBuf,
     issues: PathBuf,
 }
 
 impl ProjectPaths {
     /// `<kelpie home>/<project>/`, holding the project's state and worker
-    /// files, and its `worktrees`, `builds`, `code-graphs` and `issues` folders, beside
+    /// files, and its `worktrees`, `builds`, `code-graphs`, `browser` and `issues` folders, beside
     /// kelpie's own `totp`, `agents` and `tools`
     pub fn under(kelpie_home: &Path, shep_home: &Path, project: &ProjectName) -> Self {
         let folder = kelpie_home.join(project.as_str());
@@ -149,6 +150,7 @@ impl ProjectPaths {
             worktrees: folder.join("worktrees"),
             builds: folder.join("builds"),
             graphs: folder.join("code-graphs"),
+            browsers: folder.join("browser"),
             issues: folder.join("issues"),
         }
     }
@@ -207,6 +209,12 @@ impl ProjectPaths {
     /// `issue`, which goes when the worktree does
     pub fn code_graph(&self, issue: u64) -> PathBuf {
         self.graphs.join(issue.to_string())
+    }
+
+    /// The folder holding the browser server's config and output for the work
+    /// item that resolves `issue`, which the worker cannot write
+    pub fn browser(&self, issue: u64) -> PathBuf {
+        self.browsers.join(issue.to_string())
     }
 
     /// The folder for the issue writer's settings, prompt and checkouts,

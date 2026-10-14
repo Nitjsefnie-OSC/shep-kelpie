@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::ports::{Clock, Timestamp};
 
+pub(crate) mod bridge;
 mod claude;
 mod codex;
 mod codex_usage;
