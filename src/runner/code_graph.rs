@@ -84,6 +84,7 @@ impl Runner {
             }
             refused.is_none()
         });
+        // parity: harness.mcp-servers
         if matches!(call.harness, AgentHarness::Goose(_)) {
             for (name, entry) in &call.reach.mcp_servers {
                 if let Some(skipped) = crate::adapters::goose_mcp_skipped_env(name, entry) {
