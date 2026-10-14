@@ -4,6 +4,9 @@ use super::{ForgeError, LineComment, NewLabel, PostedComment};
 use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
 
+/// The id [`Voice::review`] gives a review the forge took whose answer named none
+pub const UNREAD_ID: u64 = 0;
+
 /// Kelpie's own voice on the forge: what it writes for the maintainer to
 /// read, made as its GitHub App once one covers the repo
 ///
@@ -56,7 +59,9 @@ pub trait Voice: Send + Sync {
     ///
     /// # Errors
     ///
-    /// [`ForgeError`] when the App cannot post it or its answer names no id.
+    /// [`ForgeError`] when the App cannot post it. A review the forge took
+    /// whose answer names no id is `Ok(UNREAD_ID)`, since posting it again
+    /// would be a second review.
     fn review(
         &self,
         repo: &ForgeSlug,

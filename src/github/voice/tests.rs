@@ -408,6 +408,19 @@ fn an_answer_with_no_review_id_is_unreadable() {
 }
 
 #[test]
+fn a_review_the_forge_took_with_an_answer_naming_no_id_is_not_a_failure() {
+    let (voice, github, _home) = voiced();
+    github.answer_reviews_with("{}");
+
+    let id = voice
+        .review(&slug("shep-pm/koji"), 30, "abc123", "Notes.", &[])
+        .unwrap();
+
+    assert_eq!(id, UNREAD_ID);
+    assert_eq!(github.reviews().len(), 1, "sent once");
+}
+
+#[test]
 fn a_review_the_forge_refuses_for_its_line_comments_is_posted_once_more_in_its_body() {
     let (voice, github, _home) = voiced();
     github.refuse_line_comments();

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::api::{self, ApiError, Call, GithubApi, ThreadWrite};
 use super::tokens::{GithubApp, InstallationToken, TokenError};
-use crate::ports::{ForgeError, LineComment, NewLabel, PostedComment, Voice};
+use crate::ports::{ForgeError, LineComment, NewLabel, PostedComment, UNREAD_ID, Voice};
 use crate::settings::ForgeSlug;
 
 /// [`Voice`] as kelpie's App
@@ -137,7 +137,7 @@ impl Voice for AppVoice {
             }
             other => other.map_err(api_error)?,
         };
-        api::parse_review(&answer).map_err(|e| ForgeError::App(e.to_string()))
+        Ok(api::parse_review(&answer).unwrap_or(UNREAD_ID))
     }
 
     fn edit_comment(&self, repo: &ForgeSlug, comment: u64, body: &str) -> Result<(), ForgeError> {

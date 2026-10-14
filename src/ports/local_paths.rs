@@ -468,6 +468,12 @@ impl Voice for GuardedVoice {
         for comment in comments {
             self.check(repo, "a line comment of the review", &comment.body)?;
         }
+        // A forge that refuses the line comments gets the review once more
+        // with them in its body, which is checked as it is sent.
+        if !comments.is_empty() {
+            let body = crate::github::api::with_comments_in_body(body, comments);
+            self.check(repo, "the review with its comments in its body", &body)?;
+        }
         self.voice.review(repo, number, head, body, comments)
     }
 

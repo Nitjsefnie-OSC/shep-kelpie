@@ -6,9 +6,9 @@ use std::sync::Mutex;
 use super::pass_tests::{listing, poll_through, read_through, write};
 use super::security_tests::{commit_on, contribute, contribution};
 use crate::ports::{CLEAN, Finding, Role, Severity};
-use crate::runner::Runner;
 use crate::runner::coderabbit::tests::now;
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
+use crate::runner::{Runner, step};
 use crate::test::{REVIEW_ID, Rig, Scripted, ScriptedRound, SentReview};
 
 const FILE: &str = "one\ntwo\nthree\n";
@@ -110,15 +110,18 @@ fn a_finding_with_no_line_in_the_diff_goes_in_the_body() {
         review.comments,
         [("one.txt".to_owned(), 2, "On the second.".to_owned())]
     );
-    let asked = &worded(&rig)[0];
-    let (lines, body) = asked
-        .split_once("Findings to say in the body")
-        .expect("a part for the body");
-    assert!(lines.contains("second is wrong"), "{asked}");
-    for aside in ["far is wrong", "gone is wrong", "whole file is wrong"] {
-        assert!(body.contains(aside), "{aside} is for the body: {asked}");
-        assert!(!lines.contains(aside), "{aside} has no comment: {asked}");
+    // The representative's body names none of them, and the review still does.
+    assert!(review.body.starts_with("Body."), "{}", review.body);
+    for aside in [
+        "`one.txt:40`: far is wrong\n\nno such line",
+        "`gone.txt:1`: gone is wrong\n\nno such file",
+        "`one.txt`: whole file is wrong\n\nno line",
+    ] {
+        assert!(review.body.contains(aside), "{aside} in {}", review.body);
     }
+    assert!(!review.body.contains("second is wrong"), "it has a comment");
+    let asked = &worded(&rig)[0];
+    assert!(asked.contains("second is wrong"), "{asked}");
 }
 
 #[test]
@@ -316,4 +319,29 @@ fn a_push_is_read_and_posted_again() {
     poll_through(&rig, &runner);
 
     assert_eq!(rig.github.comments().len(), 2, "one note a head");
+}
+
+#[test]
+fn a_post_the_state_could_not_keep_is_not_posted_again() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (rig, runner, head) = read_with(two_lines(), &[WORDED; 4]);
+    read_through(&rig, &runner, &head);
+    let folder = rig.paths().state.parent().unwrap().to_owned();
+    let open = std::fs::metadata(&folder).unwrap().permissions();
+    let mut shut = open.clone();
+    shut.set_mode(0o555);
+    std::fs::set_permissions(&folder, shut).unwrap();
+
+    let mut failed = 0;
+    for _ in 0..3 {
+        rig.next_look();
+        failed += usize::from(step(&runner).is_err());
+    }
+    assert!(failed > 0, "the state could not be saved");
+    std::fs::set_permissions(&folder, open).unwrap();
+    poll_through(&rig, &runner);
+
+    assert_eq!(rig.github.reviews().len(), 1, "the forge took it once");
+    assert_eq!(contribution(&rig, &runner)["pass"]["review"], REVIEW_ID);
 }

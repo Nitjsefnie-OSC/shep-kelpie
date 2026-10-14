@@ -31,7 +31,8 @@ const REVIEW: &str = "Write a pull request review of the contributor's latest pu
     local reviewer's findings. It is one review: an opening text, and one comment for each line \
     finding. Reply with only JSON of the form {\"body\": \"...\", \"comments\": [\"...\"]}, where \
     \"comments\" holds exactly one string for each line finding, in the order given, and the \
-    body also says each finding listed for the body.";
+    kelpie adds each finding listed for the body under your body in the finding's own words, so do \
+    not repeat those.";
 
 const NOTE: &str = "Tell the contributor that the local reviewer read their latest push and \
     found nothing, and that the pull request is with the maintainer now. Short.";
@@ -52,7 +53,8 @@ struct Work {
 }
 
 // What a post has to keep once the forge has it
-enum Posted {
+#[derive(Debug, Clone, Copy)]
+pub(in crate::runner) enum Posted {
     Review(u64),
     Note(u64),
 }
@@ -72,13 +74,19 @@ impl Runner {
         if self.settings.contributions.is_off() || !self.app_covers() {
             return Ok(());
         }
+        // What the forge took and the state did not keep is kept first, so
+        // it is not posted twice.
+        let unsaved = std::mem::take(&mut *self.post_unsaved.borrow_mut());
+        for (number, head, posted) in unsaved {
+            self.keep_posted(number, &head, posted)?;
+        }
         for work in self.posts_due() {
             let posted = match &work.due {
                 Due::Review(findings) => self.post_review(&work, findings),
                 Due::Note => self.post_note(&work),
             };
             if let Some(posted) = posted {
-                self.keep_posted(&work, posted)?;
+                self.keep_posted(work.number, &work.head, posted)?;
             }
         }
         Ok(())
@@ -99,9 +107,17 @@ impl Runner {
                 }
                 let due = match (pass.findings.is_empty(), pass.review, pass.note) {
                     (false, None, _) => Due::Review(pass.findings.clone()),
-                    (true, _, None) => Due::Note,
+                    (true, None, None) => Due::Note,
                     _ => return None,
                 };
+                let sent = self
+                    .post_unsaved
+                    .borrow()
+                    .iter()
+                    .any(|(n, h, _)| *n == c.pull_request && *h == c.head);
+                if sent {
+                    return None;
+                }
                 Some(Work {
                     number: c.pull_request,
                     head: c.head.clone(),
@@ -133,8 +149,9 @@ impl Runner {
                 return None;
             }
         };
-        let words = read_words(&said, inline.len())
+        let mut words = read_words(&said, inline.len())
             .unwrap_or_else(|| own_words(&work.head, &inline, &aside, &work.author));
+        words.body = with_aside(&words.body, &aside, &work.author);
         let comments: Vec<LineComment> = (inline.iter().zip(words.comments))
             .map(|(f, body)| LineComment {
                 path: f.file.clone(),
@@ -195,10 +212,11 @@ impl Runner {
     }
 
     // Keeps the id of what the forge took in the pass it was posted for.
-    fn keep_posted(&mut self, work: &Work, posted: Posted) -> Result<(), StateError> {
+    // A save that fails leaves the id to be kept at the next poll.
+    fn keep_posted(&mut self, number: u64, head: &str, posted: Posted) -> Result<(), StateError> {
         let mut next = self.state.clone();
-        let held = (next.contributions.iter_mut())
-            .find(|c| c.pull_request == work.number && c.head == work.head);
+        let held =
+            (next.contributions.iter_mut()).find(|c| c.pull_request == number && c.head == head);
         let Some(pass) = held.and_then(|c| c.pass.as_mut()) else {
             return Ok(());
         };
@@ -206,7 +224,11 @@ impl Runner {
             Posted::Review(id) => pass.review = Some(id),
             Posted::Note(id) => pass.note = Some(id),
         }
-        self.save(next)
+        let kept = self.save(next);
+        if kept.is_err() {
+            (self.post_unsaved.borrow_mut()).push((number, head.to_owned(), posted));
+        }
+        kept
     }
 
     // The lines of each file the head's diff shows, which a comment may be
@@ -296,7 +318,7 @@ fn review_facts(head: &str, inline: &[&Finding], aside: &[&Finding]) -> String {
         facts.push_str(&format!("{}. {}\n", i + 1, each(f)));
     }
     if !aside.is_empty() {
-        facts.push_str("\nFindings to say in the body, which have no line in the diff:\n");
+        facts.push_str("\nFindings with no line in the diff, which kelpie adds under your body in their own words:\n");
         for f in aside {
             facts.push_str(&format!("- {}\n", each(f)));
         }
@@ -318,24 +340,32 @@ fn read_words(said: &str, count: usize) -> Option<Words> {
 // The review in the findings' own words, with every mention but the
 // contributor's put in code as the representative's are
 fn own_words(head: &str, inline: &[&Finding], aside: &[&Finding], contributor: &str) -> Words {
-    let mut body = format!(
+    let body = format!(
         "The local reviewer read `{}` and found {} things.",
         short(head),
         inline.len() + aside.len()
     );
-    for f in aside {
-        let place = match f.line {
-            0 => f.file.clone(),
-            line => format!("{}:{line}", f.file),
-        };
-        body.push_str(&format!("\n\n`{place}`: {}", said(f)));
-    }
     Words {
         body: neutered(&body, contributor),
         comments: (inline.iter())
             .map(|f| neutered(&said(f), contributor))
             .collect(),
     }
+}
+
+// `body` with each finding that has no line in the diff under it, in the
+// finding's own words, so no wording of the representative can leave one out
+fn with_aside(body: &str, aside: &[&Finding], contributor: &str) -> String {
+    let mut body = body.to_owned();
+    for f in aside {
+        let place = match f.line {
+            0 => f.file.clone(),
+            line => format!("{}:{line}", f.file),
+        };
+        let text = neutered(&said(f), contributor);
+        body.push_str(&format!("\n\n`{place}`: {text}"));
+    }
+    body
 }
 
 // The lines of the new file each file's hunks show, context included, which

@@ -31,7 +31,7 @@ mod ci;
 mod clock;
 mod heard;
 mod pass;
-mod post;
+pub(in crate::runner) mod post;
 mod ruling;
 mod security;
 

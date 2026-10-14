@@ -49,6 +49,8 @@ struct Hub {
     // GitHub does one naming a line the diff does not show
     line_comments_refused: bool,
     reviews_refused: bool,
+    // What every review is answered with instead of the recording
+    review_answer: Option<String>,
     // Why every worker's token is refused, while it is
     workers_refused: Option<ApiError>,
     // A permission GitHub grants a worker's token beyond the one asked for
@@ -137,6 +139,11 @@ impl FakeGithub {
     /// Makes every review answer 403 from now on, line comments or not
     pub(crate) fn refuse_reviews(&self) {
         self.hub.lock().unwrap().reviews_refused = true;
+    }
+
+    /// Makes every review answer `text` from now on, whatever GitHub says
+    pub(crate) fn answer_reviews_with(&self, text: &str) {
+        self.hub.lock().unwrap().review_answer = Some(text.to_owned());
     }
 
     /// Takes reviews again after [`Self::refuse_reviews`]
@@ -442,7 +449,10 @@ impl GithubApi for FakeGithub {
             if hub.line_comments_refused && lines {
                 return Err(ApiError::Refused(422));
             }
-            return Ok(REVIEW_ANSWER.to_owned());
+            return Ok(hub
+                .review_answer
+                .clone()
+                .unwrap_or_else(|| REVIEW_ANSWER.to_owned()));
         }
         // A comment answers with its id, numbered from 100 and so below any a
         // person writes on the fake forge, and the time the clock says.
