@@ -108,6 +108,7 @@ impl Runner {
         worktree: &Path,
         build: &Path,
     ) -> Result<Option<Reach>, String> {
+        // parity: harness.reviewer-reads-repo
         if model.harness.harness() != Harness::Codex {
             return Ok(None);
         }
