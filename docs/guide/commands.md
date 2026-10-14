@@ -18,7 +18,18 @@ shep kelpie tools install
 shep kelpie github setup   # once per repo owner, with --org <org> for an organization
 shep kelpie totp       # once, to answer rulings from ntfy
 shep kelpie lease status
+shep kelpie get git.merging        # one setting of the project's table, or all of it with no key
+shep kelpie set git.merging auto   # changes one setting
+shep kelpie version    # this build and the shep it is made with, or --json for one line
 ```
+
+The verbs with flags of their own:
+
+- `upgrade` takes `--ref <git ref>`, `--release <version>`, `--binary <path>` or `--rollback`, and `--now` to restart the runners with no handover or drain: see [Upgrading](upgrading.md#upgrading)
+- `github setup` takes `--org <org>` for an organization's App, `--name <app name>` for the App's name (`kelpie-<owner>` when left out) and `--replace` to register a new App in place of the one kept for the owner
+- `totp --rotate` draws a new secret, and `totp --unlock` turns answers from ntfy back on after too many wrong codes
+- `lease run <kind> -- <command>` waits for a lease, runs the command and returns the lease when it exits. `lease take <kind>` holds one until `lease return <kind>`. `lease e2e` runs the project's end-to-end tests on its host: see [Leases and end-to-end tests](leases-and-e2e.md)
+- `get [<key>]` and `set <key> <value>` read and change the project's settings: see [Settings](settings.md)
 
 `status` prints a short block per project: its run state, each work item with its phase, turn and pull request, the rulings waiting, and the pacer.
 
@@ -38,7 +49,7 @@ koji (finishing)
 
 `status --json`, before or after `-p`, prints each runner's whole object on one line, which the rest of this README names its fields from (`work_items`, `pacer`, `forge_held_until` and the others). Read it with `shep kelpie status -p koji --json | jq .pacer`, or `shep trigger koji status`. Without `-p`, a project that is not running, or still starting, is one line either way.
 
-Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `board`, `board move <issue> <position>`, `board top <issue>`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works. `add <issue>`, `gate`, `drop`, `timings`, `board`, `tell`, `drain`, `undrain` and `finish` print plain text, and the runner's JSON with `--json`, as `status` does; a refused answer prints its reason and fails either way. Where the runner gave no object to print, a `finish` on a stopped runner or a `tell` that timed out, `--json` prints `{"sheep": ..., "message": ...}` with the sentence the plain form prints.
+Every trigger a person sends the runner is also a verb: `add <issue>`, `rework <pr>`, `adopt <pr>`, `gate [<issue>]`, `drop [<issue>]`, `timings [<n>]`, `board`, `board move <issue> <position>`, `board top <issue>`, `tell "<note>"`, `pm`, `rule`, `drain`, `undrain` and `finish`. Each reaches the project whose repo holds the folder you run it in, a worktree of it included, or the one `-p <project>` (or `--project <project>`) names anywhere in the line. Run from your own clone of a project's repo, it finds the project whose `git.remote` is that clone's `origin`; two projects sharing one `origin` are named and `-p` is asked for. From anywhere else it lists the projects and guesses nothing. `shep trigger` still works. `add <issue>`, `gate`, `drop`, `timings`, `board`, `tell`, `drain`, `undrain` and `finish` print plain text, and the runner's JSON with `--json`, as `status` does; a refused answer prints its reason and fails either way. Where the runner gave no object to print, a `finish` on a stopped runner or a `tell` that timed out, `--json` prints `{"sheep": ..., "message": ...}` with the sentence the plain form prints.
 
 - `drain` holds back every call the runner would start next, and answers the status with the calls still running under `draining`. `undrain`, or a restart, lets calls start again. `shep kelpie upgrade` drains each runner itself: see [Upgrading](upgrading.md#upgrading)
 - `drop [<issue>]` ends a work item without merging it. Its worktree, local branch and build folder go, and its pull request stays, labelled `ready-for-human`. The board leaves the dropped issue be while it is labelled `ready-for-agent`, and says in its briefing and in `status` that it was dropped. Once the runner has read the issue without the label (at most once a minute, even while the board is shut), putting the label back returns it to the board; `shep kelpie add <issue>` takes it back at once
