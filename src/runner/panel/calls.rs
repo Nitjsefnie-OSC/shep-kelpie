@@ -100,6 +100,7 @@ impl Runner {
     // On pi, which has no web tool, the package that gives the researcher
     // one. A package that is not installed leaves it reading only, and a note says so.
     fn with_web(&self, harness: &AgentHarness, reach: &mut Reach) {
+        // parity: harness.web-research
         if !matches!(harness, AgentHarness::Pi(_)) {
             return;
         }
