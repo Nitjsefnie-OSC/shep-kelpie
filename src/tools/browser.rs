@@ -36,18 +36,33 @@ impl Tools {
         chromium && self.playwright_mcp().is_file()
     }
 
-    /// The newest Chromium build folder in [`Tools::browsers`], such as `chromium-1200`
-    pub(super) fn chromium_build(&self) -> Option<String> {
-        let entries = std::fs::read_dir(self.browsers()).ok()?;
-        entries
+    /// The Chromium build folder the server's `playwright-core` pins, such as `chromium-1200`
+    ///
+    /// # Errors
+    ///
+    /// Why `browsers.json` could not be read as expected, or that the build is not in
+    /// [`Tools::browsers`].
+    pub(super) fn chromium_build(&self) -> Result<String, String> {
+        let list = self.playwright_cli().with_file_name("browsers.json");
+        let text = std::fs::read_to_string(&list)
+            .map_err(|e| format!("cannot read {}: {e}", list.display()))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("{} is not JSON: {e}", list.display()))?;
+        let revision = json["browsers"]
+            .as_array()
+            .into_iter()
             .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                let number: u64 = name.strip_prefix("chromium-")?.parse().ok()?;
-                Some((number, name))
-            })
-            .max()
-            .map(|(_, name)| name)
+            .find(|b| b["name"] == "chromium")
+            .and_then(|b| b["revision"].as_str())
+            .ok_or_else(|| format!("{} names no chromium revision", list.display()))?;
+        let build = format!("chromium-{revision}");
+        if !self.browsers().join(&build).is_dir() {
+            return Err(format!(
+                "playwright installed no {build} in {}",
+                self.browsers().display()
+            ));
+        }
+        Ok(build)
     }
 
     /// Fetches Chromium into [`Tools::browsers`], with the server's `playwright-core`
@@ -109,18 +124,21 @@ mod tests {
     }
 
     #[test]
-    fn the_chromium_build_is_the_newest_chromium_folder_and_not_the_headless_shell() {
+    fn the_chromium_build_is_the_one_playwright_pins_even_beside_a_newer_stale_one() {
         let dir = tempfile::tempdir().unwrap();
         let tools = fake(dir.path());
-        assert_eq!(tools.chromium_build(), None);
-        for name in [
-            "chromium-998",
-            "chromium-1200",
-            "chromium_headless_shell-1300",
-            "ffmpeg-1011",
-        ] {
-            std::fs::create_dir_all(tools.browsers().join(name)).unwrap();
-        }
-        assert_eq!(tools.chromium_build().as_deref(), Some("chromium-1200"));
+        let list = tools.playwright_cli().with_file_name("browsers.json");
+        std::fs::create_dir_all(list.parent().unwrap()).unwrap();
+        std::fs::write(
+            &list,
+            r#"{"browsers":[{"name":"firefox","revision":"1549"},{"name":"chromium","revision":"1200"}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(tools.browsers().join("chromium-1300")).unwrap();
+        let err = tools.chromium_build().unwrap_err();
+        assert!(err.contains("chromium-1200"), "{err}");
+
+        std::fs::create_dir_all(tools.browsers().join("chromium-1200")).unwrap();
+        assert_eq!(tools.chromium_build().unwrap(), "chromium-1200");
     }
 }

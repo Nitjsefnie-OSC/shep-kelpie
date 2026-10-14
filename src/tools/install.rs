@@ -109,8 +109,12 @@ impl Tools {
             conclude(report, 2, KEYCHAIN, copy)?;
         } else {
             let why = "only macOS has a keychain";
-            report.start(2, &format!("{KEYCHAIN}: skipped, {why}"));
-            report.finish(2, &Outcome::Skipped(why.to_owned()));
+            report.start(2, KEYCHAIN);
+            let skipped = Done {
+                outcome: Outcome::Skipped(why.to_owned()),
+                note: format!("skipped, {why}"),
+            };
+            conclude(report, 2, KEYCHAIN, Ok(skipped))?;
         }
 
         report.start(
@@ -121,12 +125,7 @@ impl Tools {
             ),
         );
         let browser = self.install_browser().and_then(|()| {
-            let build = self.chromium_build().ok_or_else(|| {
-                format!(
-                    "playwright installed no chromium build in {}",
-                    self.browsers().display()
-                )
-            })?;
+            let build = self.chromium_build()?;
             report.learned(3, CHROMIUM, &build);
             Ok(Done::ok(format!("done: {build}")))
         });
@@ -240,6 +239,7 @@ const lines = [
     'kept',
 ];
 JS
+echo '{"browsers":[{"name":"chromium","revision":"1200"}]}' > node_modules/playwright-core/browsers.json
 cat > node_modules/playwright-core/cli.js <<'JS'
 const fs = require('fs');
 const path = require('path');
@@ -372,6 +372,7 @@ cp "$0.body" "$out"
         );
 
         let keychain = step(&lines, 2);
+        assert!(keychain.len() >= 2, "no end line: {keychain:?}");
         assert!(
             keychain[0].contains("sandbox without the keychain"),
             "{keychain:?}"
