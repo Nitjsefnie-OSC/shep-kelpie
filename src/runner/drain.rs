@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use super::Runner;
 use crate::guard::Pause;
+use crate::ports::Tools;
 
 /// What `status` shows while the runner drains
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -92,9 +93,13 @@ impl Runner {
     // Sets the pause for each worker turn in flight that a tool result can end.
     fn pause_turns(&self) {
         for item in &self.state.work_items {
+            // Only a call whose harness has the hook, and whose settings carry it.
             let ends = (self.flights.turn_call(item.issue))
-                .is_some_and(|(call, ..)| call.harness.ends_at_tool());
-            if let (true, Err(e)) = (ends, Pause::in_build(&item.build).request()) {
+                .is_some_and(|(call, ..)| call.harness.ends_at_tool() && call.tools == Tools::Work);
+            if !ends {
+                continue;
+            }
+            if let Err(e) = Pause::in_build(&item.build).request() {
                 eprintln!(
                     "cannot pause issue #{}'s turn at a tool call: {e}",
                     item.issue

@@ -83,11 +83,12 @@ impl Pause {
 
     /// Records that the turn ended for the pause, and answers with what
     /// Claude Code's hook prints to end it
-    pub fn end_turn(&self) -> String {
-        // A marker that cannot be written leaves the turn to end as one
-        // that failed, and the work item resumes all the same.
-        let _ = fs::write(&self.ended, "");
-        json!({ "continue": false, "stopReason": REASON }).to_string()
+    ///
+    /// None when the marker cannot be written: the runner could not tell the
+    /// turn was paused, so it goes on to its next tool call and tries again.
+    pub fn end_turn(&self) -> Option<String> {
+        fs::write(&self.ended, "").ok()?;
+        Some(json!({ "continue": false, "stopReason": REASON }).to_string())
     }
 
     /// Whether the turn ended for the pause
@@ -114,5 +115,5 @@ impl Pause {
 /// answer that ends the turn while a pause is set, else nothing
 pub fn judge_pause(build: &Path) -> Option<String> {
     let pause = Pause::in_build(build);
-    pause.is_requested().then(|| pause.end_turn())
+    pause.is_requested().then(|| pause.end_turn()).flatten()
 }

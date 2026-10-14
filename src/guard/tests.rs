@@ -951,6 +951,20 @@ fn the_post_tool_hook_ends_the_turn_while_a_pause_is_set() {
 }
 
 #[test]
+fn the_post_tool_hook_lets_the_turn_go_on_when_it_cannot_leave_its_marker() {
+    let build = TempDir::new().unwrap();
+    let pause = Pause::in_build(build.path());
+    pause.request().unwrap();
+    // A folder where the marker goes cannot be written as a file.
+    std::fs::create_dir(pause.ended_file()).unwrap();
+    assert_eq!(
+        judge_pause(build.path()),
+        None,
+        "the runner could not tell the turn was paused, so it does not end"
+    );
+}
+
+#[test]
 fn the_pause_flag_is_taken_out_of_the_rest() {
     let args = ["--folder=/k".to_owned(), format!("{PAUSE_FLAG}/b")];
     let (build, rest) = pause_flag(&args);

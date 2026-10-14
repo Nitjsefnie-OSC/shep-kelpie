@@ -115,8 +115,11 @@ export default function (pi: any) {
 		const result = await afterCommand(event, ctx);
 		// The result is kept: the turn ends before the next model call, never during one.
 		if (existsSync(CHECKS.pause.requested)) {
-			writeFileSync(CHECKS.pause.ended, "");
-			ctx.abort();
+			// Without the marker the runner could not tell the pause, so the turn goes on.
+			try {
+				writeFileSync(CHECKS.pause.ended, "");
+				ctx.abort();
+			} catch {}
 		}
 		return result;
 	});

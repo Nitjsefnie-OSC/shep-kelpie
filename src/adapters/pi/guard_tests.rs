@@ -353,17 +353,19 @@ const second = (await handler(event, ctx)) ?? null;
 console.log(JSON.stringify({ aborts, first, second }));
 "#;
 
-#[test]
-fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
+// Runs the abort script's two tool results in a fenced worker's extension,
+// with the pause set between them, after `before` has prepared the pause
+fn pause_run(before: impl FnOnce(&crate::guard::Pause)) -> Option<(Vec<serde_json::Value>, bool)> {
     if !has_node() {
         eprintln!("skipped: needs node, which loads pi's extensions");
-        return;
+        return None;
     }
     let w = World::new();
     let call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let fence = call.reach.fence.as_deref().unwrap();
     let pause = crate::guard::Pause::in_build(&fence.guard.build);
     std::fs::create_dir_all(&fence.guard.build).unwrap();
+    before(&pause);
     std::fs::write(w.path("guard.mts"), guard_extension(fence)).unwrap();
     std::fs::write(w.path("run.mjs"), ABORT_RUNNER).unwrap();
     // The runner sets the pause between its two results, as `drain pause` does mid-turn.
@@ -374,12 +376,19 @@ fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{out:?}");
-    let lines: Vec<serde_json::Value> = String::from_utf8(out.stdout)
+    let lines = String::from_utf8(out.stdout)
         .unwrap()
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
+    Some((lines, pause.ended_turn()))
+}
 
+#[test]
+fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
+    let Some((lines, ended)) = pause_run(|_| ()) else {
+        return;
+    };
     assert_eq!(
         lines[0]["aborts_before"], 0,
         "no pause is set: the turn goes on"
@@ -390,5 +399,18 @@ fn the_guard_extension_aborts_after_a_tool_result_while_a_pause_is_set() {
         serde_json::Value::Null,
         "the result is kept"
     );
-    assert!(pause.ended_turn(), "the runner tells a paused turn by this");
+    assert!(ended, "the runner tells a paused turn by this");
+}
+
+#[test]
+fn the_guard_extension_lets_the_turn_go_on_when_it_cannot_leave_its_marker() {
+    // A folder where the marker goes cannot be written as a file.
+    let blocked = |pause: &crate::guard::Pause| std::fs::create_dir(pause.ended_file()).unwrap();
+    let Some((lines, _)) = pause_run(blocked) else {
+        return;
+    };
+    assert_eq!(
+        lines[1]["aborts"], 0,
+        "the runner could not tell the turn was paused, so it does not end"
+    );
 }
