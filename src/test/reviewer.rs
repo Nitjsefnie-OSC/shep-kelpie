@@ -2,10 +2,11 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::Hold;
+use super::{FakeClock, Hold};
 use crate::adapters::LocalReviewer;
 use crate::adapters::paddock::Timing;
 use crate::ports::{Finding, Reviewer, ReviewerError, RoundStage};
@@ -22,6 +23,12 @@ pub(crate) enum ScriptedRound {
     /// Queues for the GPU until `queued` is released, then runs until
     /// `running` is released, then answers clean
     Queued { queued: Hold, running: Hold },
+    /// Takes `seconds` on `clock`, then answers as `then`
+    Takes {
+        clock: FakeClock,
+        seconds: u64,
+        then: Box<ScriptedRound>,
+    },
 }
 
 /// One round as the stand-in reviewer saw it
@@ -44,6 +51,7 @@ pub(crate) struct FakeReviewer {
     seen: Arc<Mutex<Vec<SeenRound>>>,
     script: Arc<Mutex<VecDeque<ScriptedRound>>>,
     real: Arc<Mutex<Option<LocalReviewer>>>,
+    unchecked: Arc<AtomicBool>,
 }
 
 impl FakeReviewer {
@@ -70,6 +78,12 @@ impl FakeReviewer {
         *self.real.lock().unwrap() = Some(real);
     }
 
+    /// Makes its start check pass for any round, so a test can name an endpoint
+    /// that nothing answers for
+    pub(crate) fn skip_check(&self) {
+        self.unchecked.store(true, Ordering::SeqCst);
+    }
+
     /// Queues answers for its next rounds, oldest first
     pub(crate) fn script(&self, rounds: impl IntoIterator<Item = ScriptedRound>) {
         self.script.lock().unwrap().extend(rounds);
@@ -78,6 +92,9 @@ impl FakeReviewer {
 
 impl Reviewer for FakeReviewer {
     fn check(&self, local: &LocalRound) -> Result<(), String> {
+        if self.unchecked.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         match &*self.real.lock().unwrap() {
             Some(real) => real.check(local),
             None => LocalReviewer::default().check(local),
@@ -117,7 +134,18 @@ impl Reviewer for FakeReviewer {
         if let Some(real) = &*self.real.lock().unwrap() {
             return real.round_watched(local, worktree, base, out, round, criteria, watch);
         }
-        match self.script.lock().unwrap().pop_front() {
+        leave_files(out, round);
+        let mut next = self.script.lock().unwrap().pop_front();
+        while let Some(ScriptedRound::Takes {
+            clock,
+            seconds,
+            then,
+        }) = next
+        {
+            clock.advance(seconds);
+            next = Some(*then);
+        }
+        match next {
             Some(ScriptedRound::Findings(findings)) => Ok(findings),
             Some(ScriptedRound::Fail(e)) => Err(e),
             Some(ScriptedRound::Queued { queued, running }) => {
@@ -127,7 +155,16 @@ impl Reviewer for FakeReviewer {
                 running.block();
                 Ok(Vec::new())
             }
+            Some(ScriptedRound::Takes { .. }) => unreachable!("the loop above took it"),
             None => Ok(Vec::new()),
         }
     }
+}
+
+// What an endpoint round leaves under `out`: the reply it was sent, and its report.
+fn leave_files(out: &Path, round: u32) {
+    let folder = out.join(format!("round-{round}"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("reply-0.json"), "{\"scripted\":true}").unwrap();
+    std::fs::write(out.join(format!("round-{round}.txt")), "scripted\n").unwrap();
 }

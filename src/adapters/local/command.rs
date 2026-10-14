@@ -363,6 +363,39 @@ mod tests {
         );
     }
 
+    // A retried round runs under the same folder: what the last attempt left
+    // beside its findings is not this attempt's.
+    #[test]
+    fn a_round_clears_the_last_runs_requests_and_hunks() {
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("review");
+        write_script(
+            &script,
+            "#!/bin/sh\nmkdir -p \"$QWEN_REVIEW_OUT\"\nprintf '' > \"$QWEN_REVIEW_OUT/round-1.txt\"\n: > \"$QWEN_REVIEW_OUT/round-1.txt.done\"\n",
+        );
+        let wt = crate::test::linked_worktree(home.path());
+        let out = home.path().join("out");
+        for old in [
+            "round-1/request-0.json",
+            "hunks/1/big.rs",
+            "hunks/1-out-0/round-1.txt",
+            "hunks/2/other.rs",
+        ] {
+            std::fs::create_dir_all(out.join(old).parent().unwrap()).unwrap();
+            std::fs::write(out.join(old), "old").unwrap();
+        }
+        LocalReviewer::default()
+            .round(&local(&script), linked(&wt), "origin/main", &out, 1, "")
+            .unwrap();
+        assert!(!out.join("round-1").exists());
+        assert!(!out.join("hunks/1").exists());
+        assert!(!out.join("hunks/1-out-0").exists());
+        assert!(
+            out.join("hunks/2/other.rs").exists(),
+            "another round's stays"
+        );
+    }
+
     // A fake script whose main round reports one file as skipped for size,
     // and whose hunk round (given `--files`) reports one real finding
     // against whatever path it was handed. Proves the hunk's own finding is
