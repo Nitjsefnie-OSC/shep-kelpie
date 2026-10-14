@@ -94,8 +94,13 @@ impl Runner {
                 .map(|d| d.as_str().to_owned())
                 .collect(),
         };
-        let bridge = Bridge::open(&self.paths.worker, server, filter)
-            .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
+        let bridge = Bridge::open(
+            &self.paths.worker,
+            &folder.join("socket-name"),
+            server,
+            filter,
+        )
+        .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;
         call.reach.browser = Some(Box::new(Browser {
             kelpie: self.kelpie.clone(),
             socket: bridge.socket().to_owned(),

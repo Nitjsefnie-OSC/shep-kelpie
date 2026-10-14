@@ -176,7 +176,7 @@ fn a_reread_that_turns_the_browser_on_is_checked_as_the_start_checks_it() {
 }
 
 #[test]
-fn a_turn_retried_after_its_host_was_down_gets_a_browser_of_its_own() {
+fn a_turn_retried_after_its_host_was_down_gets_a_browser_of_its_own_on_the_same_socket() {
     let rig = Rig::new("shep");
     turn_on(&rig);
     install(&rig);
@@ -205,7 +205,8 @@ fn a_turn_retried_after_its_host_was_down_gets_a_browser_of_its_own() {
             .clone()
     };
     let (first, retry) = (socket(workers[0]), socket(workers[1]));
-    assert_ne!(first, retry, "the retry reused a socket that was gone");
+    // A session started on the first call keeps the command that names this path.
+    assert_eq!(first, retry, "the retry moved the socket its session names");
     let config = fs::read_to_string(workers[1].call.settings.with_extension("mcp.json")).unwrap();
     assert!(config.contains(&retry.display().to_string()), "{config}");
 }
