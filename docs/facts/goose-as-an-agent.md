@@ -7,7 +7,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - `goose run --no-profile --output-format stream-json --text=<prompt>`
   - `--text=<prompt>` is one argument, so a prompt that starts with `-` is not read as a flag.
   - `--system=<text>` carries the text of the call's instructions file. goose takes text, not a path. It is sent on every call, a resumed one too, since goose builds its system prompt afresh each time.
-  - No `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool.
+  - A researcher gets no `--with-builtin`, `--with-extension` or `--recipe`: the model is offered no tool. A worker gets `--with-builtin developer` (see A worker inside the fence).
 - `call.effort` is not passed. goose's openai provider has no reasoning-effort flag or variable.
 - Session identity: goose picks its own session ids and `stream-json` never prints one.
   - A name set with `--name` is kept as given (`user_provided_name` in `crates/goose-cli/src/cli.rs`), and `--resume --name` finds the session whose name or id matches.
@@ -29,7 +29,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 | `TMPDIR` | the call's scratch folder | the one temporary folder the sandbox lets it write |
 | `GOOSE_MODE` | `chat` | see below |
 
-- `GOOSE_MODE=chat`, not `auto`, for this slice. A call that loads no extension has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. #788 sets `auto` for the worker.
+- `GOOSE_MODE=chat`, not `auto`, for this slice. A call that loads no extension has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker runs in `auto` (see A worker inside the fence).
 - `GOOSE_SLASH_COMMANDS_ENABLED` is left unset. It is not read on 1.54.0's default reply loop, and #792 and #793 use goose's commands.
   - goose reads a first message that starts with `/` as one of its own commands (`execute_command` in `crates/goose/src/agents/execute_commands.rs`).
   - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. So the adapter adds no prefix. Not checked: a prompt that names a goose command or a skill goose has. None is loaded here.
@@ -37,7 +37,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 ## Project files goose loads whatever `--no-profile` says
 
 - goose discovers project plugins from `.agents/plugins` and their settings from `.config/goose` in the working folder, and `settings.local.json` there can disable any plugin by name.
-- The adapter refuses a call whose working folder holds either, naming the folder. #788 relies on this for the worker.
+- The adapter refuses a call whose working folder holds either, naming the folder. The worker's fence relies on this.
 
 ## The sandbox
 
@@ -70,10 +70,38 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 - A message that starts "I've reached the maximum number of actions" means goose hit its turn limit and exited 0. The adapter returns `Failed` saying so. Not run: the message text on a real turn limit.
 - Output that cannot be read, or an exit 0 with no assistant message, is `Unreadable`.
 
+## A worker inside the fence
+
+Written 2026-10-14 for #788, from goose's v1.54.0 source and docs. No model turn was run: what follows about how goose behaves is read, not measured, and #798 runs a fenced worker live.
+
+- goose has no sandbox rules for a tool call of its own. It runs `PreToolUse` command hooks from plugins before every call and refuses the call when a hook exits 2. The reason is the hook's stderr, shown to the model as "Tool call denied by policy hook".
+  - The payload on stdin has `event`, `session_id`, `matcher_context`, `tool_name`, `tool_input` and `working_dir`. The `developer` extension's tools are named bare: `shell` (`command`), `write` (`path`, `content`), `edit` (`path`, `before`, `after`), `tree` and `read_image`. goose has no file-read tool.
+  - A hook that allows prints nothing on stdout.
+  - `timeout` is in seconds (default 30). The command runs through `sh -c`.
+- `"on_failure": "block"` makes a hook that cannot run (missing program, crash, timeout) refuse the call, goose 1.48 and later. Without it a failing hook lets the call through. That is the fail-closed finding ADR 0006 needs.
+  - A `hooks.json` goose cannot parse is skipped without an error, which fails open. The plugin's file is written by kelpie, and the test reads it back as JSON.
+- In `GOOSE_MODE=auto` goose ignores `permission.yaml`, so the hook is the only gate. The worker runs in `auto` with `--with-builtin developer`, which is safe on a resumed call. A repeated `--with-extension` name ends the run, so a resume passes none.
+- Plugins load from `<GOOSE_PATH_ROOT>/.agents/plugins/<name>` (user) and `<working folder>/.agents/plugins/<name>` (project). A project plugin wins over a user one of the same name.
+  - `<root>/config/config.yaml` has `plugins: {<absolute plugin path>: {enabled: bool}}`, and an `enabled: false` entry drops the plugin.
+  - `disabledPlugins` in the working folder's `.config/goose/settings.local.json` or `settings.json`, or the root's `.config/goose/settings.json`, disables a plugin by name.
+- So the worker is kept from dropping the plugin three ways:
+  - the plugin's name is fixed (`kelpie-fence`) and a call refuses to start when the root's `.agents/plugins` holds any other entry, or the worktree holds `.agents/plugins` or `.config/goose`
+  - `.config/goose` in the worktree is fenced as a harness folder at any depth, as `.agents` already is
+  - the root's `.agents`, `.config` and `config` are outside the sandbox's `policy.write`, so the call's own `shell` cannot write them. `data`, `state` and the scratch folder stay writable.
+- The guard (`kelpie guard ... --goose=<build folder>`) judges `shell` as Claude Code's `Bash`, `write` and `edit` as `Write` and `Edit` held to the worktree and the build folder (a relative `path` is the working folder's), and allows `tree`. `read_image` and every other name, `delegate` and `load` included, are refused, and so is a payload it cannot read.
+- goose cannot run an `after_command` hook. Its `PostToolUse` payload names the tool and its input but not the result, and a hook's output is never read back by the model, so `kelpie guard --after` has nothing to judge and nowhere to report. A goose worker beside one is refused at load.
+- A vote resumes a worker's session under another settings file (`vote-settings-<n>.json`). goose's files are keyed on the settings path, so the resume finds a root with no session and returns `NoSession`, as pi and Codex do. Retro is refused on goose until #789.
+
+### Risks for #798 to measure
+
+- `config.yaml` is read only to the sandbox, and written by `prepare` with the plugin already on. Not run: whether goose starts, or later writes the file back (a first-run setup, a migration), under a read-only config. If it cannot, the file alone becomes writable and the risk moves to the fence: a write there could switch the plugin off.
+- Not run: the hook as goose runs it. The plugin's `hooks.json` shape and the exit-2 refusal are read from the source. #798 records a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused.
+- Not run: `CONTEXT_FILE_NAMES=["AGENTS.md","CLAUDE.md"]` loading the repo's `CLAUDE.md`.
+
 ## Fixtures
 
 - `fixtures/goose-run-unreachable.jsonl` is goose's own output from the closed-port run, the temporary folder renamed.
-- `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. #798 replaces all four with recordings, made by the ignored test `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server`.
+- `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. `fixtures/goose-run-refused.jsonl` is a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused, also by hand, with the shape of a tool request and its response read from the source. #798 replaces them with recordings, made by the ignored tests `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server` and `record_a_worker_whose_write_and_shell_the_fence_refuses`.
 
 ## Not run yet (for #798)
 
