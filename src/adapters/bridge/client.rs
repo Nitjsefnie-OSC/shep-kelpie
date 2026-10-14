@@ -66,14 +66,19 @@ impl<R: BufRead, W: Write> Client<R, W> {
     ///
     /// # Errors
     ///
-    /// The reason, when the call could not be made or answered. A page that
-    /// does not load is [`Navigation::Failed`], not an error.
+    /// The reason, when the call could not be made or answered, or the browser
+    /// failed in a way that says nothing of the page. A page that does not
+    /// load, by a network error or a timeout, is [`Navigation::Failed`].
     pub(crate) fn navigate(&mut self, url: &str) -> Result<Navigation, String> {
         let reply = self.call("browser_navigate", json!({ "url": url }))?;
-        Ok(match reply.failed {
-            true => Navigation::Failed(error_of(&reply.text)),
-            false => Navigation::Loaded,
-        })
+        match (reply.failed, unloadable(&reply.text)) {
+            (false, _) => Ok(Navigation::Loaded),
+            (true, true) => Ok(Navigation::Failed(error_of(&reply.text))),
+            (true, false) => Err(format!(
+                "browser_navigate failed: {}",
+                error_of(&reply.text)
+            )),
+        }
     }
 
     /// Waits `seconds` for the page's requests to settle
@@ -96,13 +101,14 @@ impl<R: BufRead, W: Write> Client<R, W> {
         error_count(&text)
     }
 
-    /// The requests the page made that did not succeed, and its fetches
+    /// Every request the page made, static ones too, since the server leaves
+    /// out the successful ones otherwise
     ///
     /// # Errors
     ///
     /// The reason, when the call failed.
     pub(crate) fn requests(&mut self) -> Result<Vec<PageRequest>, String> {
-        let text = self.read_call("browser_network_requests", json!({}))?;
+        let text = self.read_call("browser_network_requests", json!({ "static": true }))?;
         Ok(section(&text, "Result")
             .lines()
             .filter_map(request)
@@ -188,6 +194,15 @@ fn section<'a>(text: &'a str, title: &str) -> &'a str {
     let body = &text[start + heading.len()..];
     let end = body.find("\n### ").unwrap_or(body.len());
     &body[..end]
+}
+
+// Whether a failed navigation's error says the page could not be loaded, as a
+// network error or a timeout does, rather than that the browser or its server
+// failed, as a closed tab or a missing browser does.
+fn unloadable(text: &str) -> bool {
+    let said = section(text, "Error");
+    let said = if said.is_empty() { text } else { said };
+    said.contains("net::ERR_") || said.contains("Timeout")
 }
 
 // A failed call's reason: the server's `Error` section, else all it said.

@@ -46,7 +46,9 @@ fn a_navigation_the_console_and_the_requests_read_as_the_server_sent_them() {
         got,
         [
             ("GET", "http://localhost:5173/api/items", Some(503)),
+            ("GET", "http://localhost:5173/app.js", Some(200)),
             ("GET", "http://localhost:5173/api/ok", Some(200)),
+            ("GET", "http://localhost:5173/logo.png", Some(502)),
             ("GET", "http://localhost:5173/missing.css", Some(404)),
             ("GET", "https://fonts.example.com/f.woff2", None),
             ("POST", "http://localhost:5173/api/ping", None),
@@ -113,4 +115,21 @@ fn a_message_the_server_sends_on_its_own_does_not_stand_in_for_the_reply() {
     let mut client = Client::open(Cursor::new(heard), Vec::new()).unwrap();
 
     assert_eq!(client.console_errors().unwrap(), 1);
+}
+
+#[test]
+fn a_navigation_that_fails_for_the_browser_and_not_the_page_is_an_error() {
+    let init = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+    let closed = r####"{"jsonrpc":"2.0","id":2,"result":{"isError":true,"content":[{"type":"text","text":"### Error\nError: page.goto: Target page, context or browser has been closed\n"}]}}"####;
+    let slow = r####"{"jsonrpc":"2.0","id":3,"result":{"isError":true,"content":[{"type":"text","text":"### Error\nError: page.goto: Timeout 60000ms exceeded.\n"}]}}"####;
+    let heard = Cursor::new(format!("{init}\n{closed}\n{slow}\n"));
+    let mut client = Client::open(heard, Vec::new()).unwrap();
+
+    let error = client.navigate("http://localhost:1/").unwrap_err();
+    assert!(error.contains("has been closed"), "{error}");
+    // A page that never answers is the page's failure.
+    assert!(matches!(
+        client.navigate("http://localhost:1/").unwrap(),
+        Navigation::Failed(_)
+    ));
 }

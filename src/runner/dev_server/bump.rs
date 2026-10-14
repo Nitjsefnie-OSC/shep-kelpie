@@ -224,15 +224,21 @@ fn judge(route: &str, port: u16, visit: &Visit) -> Vec<String> {
     why
 }
 
-// Whether `url` is on the dev server's origin: either loopback name, on its port.
+// Whether `url` is on the dev server's origin: either loopback name, on its port. A URL
+// the browser reports with no port is on its scheme's default one.
 fn from_dev_server(url: &str, port: u16) -> bool {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    [
-        format!("localhost:{port}"),
-        format!("127.0.0.1:{port}"),
-        format!("[::1]:{port}"),
-    ]
-    .iter()
-    .any(|origin| authority.eq_ignore_ascii_case(origin))
+    let default = match scheme.to_ascii_lowercase().as_str() {
+        "https" | "wss" => 443,
+        _ => 80,
+    };
+    ["localhost", "127.0.0.1", "[::1]"].iter().any(|host| {
+        let named = format!("{host}:{port}");
+        authority.eq_ignore_ascii_case(&named)
+            || (port == default && authority.eq_ignore_ascii_case(host))
+    })
 }
+
+#[cfg(test)]
+mod tests;
