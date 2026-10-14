@@ -223,9 +223,14 @@ impl Asker {
     /// A run that goes on from what the dog's saved `book` says of run
     /// `epoch` of `sheep`, or a fresh one when the book knows no such run
     ///
-    /// For a handover from a build that carried no totals.
+    /// For a handover from a build that carried no totals. The dog ignores
+    /// the metrics of a sheep that is no project name, so the book holds no
+    /// run of one, and it too starts fresh.
     pub fn from_book(epoch: Epoch, sheep: &str, book: &SavedBook) -> Self {
         let mut asker = Self::new(epoch);
+        let Ok(project) = ProjectName::try_from(sheep) else {
+            return asker;
+        };
         let Some(run) = book
             .runs
             .iter()
@@ -240,13 +245,11 @@ impl Asker {
             };
             asker.totals.insert(t.kind.clone(), totals);
         }
-        if let Ok(project) = ProjectName::try_from(sheep) {
-            let me = Holder::Runner { project, epoch };
-            for lease in &book.leases {
-                let holds = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
-                if holds.as_ref() == Some(&me) {
-                    asker.held.push(lease.kind.clone());
-                }
+        let me = Holder::Runner { project, epoch };
+        for lease in &book.leases {
+            let holds = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
+            if holds.as_ref() == Some(&me) {
+                asker.held.push(lease.kind.clone());
             }
         }
         asker

@@ -2,10 +2,14 @@
 
 use super::*;
 use crate::adapters::ShepLeases;
-use crate::lease::saved::{BookFile, SavedBook, SavedRun, SavedTotals};
+use crate::lease::saved::{
+    BookFile, SavedBook, SavedHeld, SavedHolder, SavedLease, SavedRun, SavedTotals,
+};
 use crate::lease::wire::grant_params;
 use crate::lease::{Epoch, LeaseKind};
 use crate::ports::Leases;
+use crate::ports::Timestamp;
+use crate::runner::ProjectName;
 use crate::test::{DogStandIn, short_tempdir};
 
 const EPOCH: Epoch = Epoch(4242);
@@ -129,4 +133,39 @@ fn a_book_that_knows_another_run_starts_the_totals_at_0() {
         asker.want(&stand_in()),
         ("lease.stand-in.want.4242".into(), 1.0)
     );
+}
+
+#[test]
+fn a_lease_the_dogs_book_gives_this_run_is_held_after_a_handover_from_a_build_without_totals() {
+    let folder = short_tempdir();
+    let book = book_in(folder.path());
+    let run = SavedRun {
+        sheep: "koji".into(),
+        epoch: EPOCH,
+        totals: vec![SavedTotals {
+            kind: stand_in(),
+            want: 1,
+            give_back: 0,
+        }],
+    };
+    let held = SavedHeld {
+        holder: SavedHolder::Runner {
+            project: ProjectName::try_from("koji").unwrap(),
+            epoch: EPOCH,
+        },
+        since: Timestamp(1_000),
+    };
+    let lease = SavedLease {
+        kind: stand_in(),
+        held: Some(held),
+        queue: Vec::new(),
+        window: None,
+    };
+    book.save(&SavedBook::new(vec![lease], vec![run], Vec::new()))
+        .unwrap();
+    let carry: Carry = serde_json::from_value(serde_json::json!({ "turns": [] })).unwrap();
+
+    let asker = carry.asker(EPOCH, "koji", &book);
+
+    assert!(asker.holds(&stand_in()));
 }
