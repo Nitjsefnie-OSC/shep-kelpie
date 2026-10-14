@@ -3,8 +3,8 @@
 //! Each agent is `<name>.md` in the `agents` folder of kelpie's home: YAML
 //! frontmatter naming what it is for and what runs it, then a Markdown body.
 //! An implementer's body is added to kelpie's own instructions, and a
-//! reviewer's, the issue writer's, the project manager's, the advisor's or
-//! the researcher's is its prompt.
+//! reviewer's, the issue writer's, the project manager's, the advisor's, the
+//! researcher's or the representative's is its prompt.
 //! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
 //! missing. A file with `extends: <name>` builds on another agent, setting
 //! only the keys it changes. A file that cannot be read or used stops the runner, naming the
@@ -57,6 +57,10 @@ pub const ADVISOR: &str = "advisor";
 /// The researcher kelpie ships, which a project runs with `agents.researcher`
 pub const RESEARCHER: &str = "researcher";
 
+/// The representative kelpie ships, which a project runs with
+/// `agents.representative`
+pub const REPRESENTATIVE: &str = "representative";
+
 /// The maintainer's qwen-review script, which the `qwen` reviewer runs
 pub const QWEN_REVIEW: &str = "~/.claude/scripts/qwen-review.sh";
 
@@ -70,7 +74,7 @@ enum Written {
 
 // Kelpie's own agents, by name: what `add` writes out, and what a missing
 // file falls back to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 14] = [
+const DEFAULTS: [(&str, &str, Written); 15] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../agents/sonnet-high.md"),
@@ -125,6 +129,11 @@ const DEFAULTS: [(&str, &str, Written); 14] = [
         include_str!("../agents/researcher.md"),
         Written::Always,
     ),
+    (
+        REPRESENTATIVE,
+        include_str!("../agents/representative.md"),
+        Written::Always,
+    ),
 ];
 
 /// What an agent is for
@@ -146,6 +155,9 @@ pub enum Role {
     /// It votes on each ruling from everything outside the codebase, once a
     /// project names it in `agents.researcher`
     Researcher,
+    /// It words the facts kelpie drafted into a post to a contributor, once a
+    /// project names it in `agents.representative`
+    Representative,
 }
 
 impl Role {
@@ -158,6 +170,7 @@ impl Role {
             Self::Pm => "pm",
             Self::Advisor => "advisor",
             Self::Researcher => "researcher",
+            Self::Representative => "representative",
         }
     }
 }

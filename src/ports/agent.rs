@@ -36,6 +36,9 @@ pub enum Role {
     Advisor,
     /// The researcher's one-shot session, which votes on a ruling
     Researcher,
+    /// The representative's one-shot session, which words a post to a
+    /// contributor and reads and runs nothing
+    Representative,
 }
 
 #[cfg(test)]
@@ -53,6 +56,8 @@ mod role_tests {
         assert_eq!(Role::IssueWriter.as_str(), "issue-writer");
         assert_eq!(name(Role::Advisor), "advisor");
         assert_eq!(name(Role::Researcher), "researcher");
+        assert_eq!(name(Role::Representative), "representative");
+        assert_eq!(Role::Representative.as_str(), "representative");
     }
 }
 
@@ -66,6 +71,7 @@ impl Role {
             Self::Pm => "pm",
             Self::Advisor => "advisor",
             Self::Researcher => "researcher",
+            Self::Representative => "representative",
         }
     }
 }

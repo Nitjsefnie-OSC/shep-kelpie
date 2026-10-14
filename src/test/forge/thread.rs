@@ -175,6 +175,11 @@ impl FakeThreads {
             return None;
         }
         let mut marks = threads.marks.get(&comment).cloned().unwrap_or_default();
+        // An unedited comment says what was written.
+        if marks.body.is_empty() {
+            let written = threads.comments.iter().find(|c| c.id == comment);
+            marks.body = written.map_or_else(String::new, |c| c.body.clone());
+        }
         // The App wrote it, and GraphQL names an App's login without `[bot]`.
         marks.author = "kelpie-octocat".to_owned();
         Some(marks)
