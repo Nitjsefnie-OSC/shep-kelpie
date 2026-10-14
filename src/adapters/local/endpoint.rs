@@ -71,9 +71,6 @@ const BYTES_PER_TOKEN: usize = 3;
 /// Tokens a chat request spends on its own framing
 const FRAMING_TOKENS: usize = 64;
 
-/// The share of the context kept for the reply, which a thinking model fills
-const REPLY_SHARE: usize = 4;
-
 // A local model can queue behind another round for its whole run. This is
 // the qwen-review script's own per-call timeout.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(1800);
@@ -192,7 +189,7 @@ impl LocalReviewer {
         let diff = diff(worktree, base)?;
         let system = system_prompt(endpoint.prompt.as_deref(), criteria);
         let context = endpoint.context.get() as usize;
-        let reply = context / REPLY_SHARE;
+        let reply = endpoint.reply_tokens() as usize;
         let prompt = system.len().div_ceil(BYTES_PER_TOKEN) + FRAMING_TOKENS;
         let budget = context.saturating_sub(reply + prompt) * BYTES_PER_TOKEN;
         let folder = out.join(format!("round-{round}"));
@@ -298,13 +295,13 @@ impl LocalReviewer {
             .map_err(|e| match e {
                 RunError::Io(e) => ReviewerError::Spawn(format!("curl: {e}")),
                 RunError::Stopped => ReviewerError::Stopped,
-                RunError::TimedOut => ReviewerError::Failed(format!(
+                RunError::TimedOut => ReviewerError::Unreachable(format!(
                     "{url} gave no reply in {}s",
                     REQUEST_TIMEOUT.as_secs()
                 )),
             })?;
         if !output.status.success() {
-            return Err(ReviewerError::Failed(format!(
+            return Err(ReviewerError::Unreachable(format!(
                 "cannot reach {url}: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
             )));
@@ -317,11 +314,11 @@ impl LocalReviewer {
         };
         let status = String::from_utf8_lossy(&output.stdout);
         if !status.trim().starts_with('2') {
-            return Err(ReviewerError::Failed(format!(
-                "{url} answered HTTP {}: {}",
-                status.trim(),
-                quote(&body)
-            )));
+            let why = format!("{url} answered HTTP {}: {}", status.trim(), quote(&body));
+            return Err(match status.trim() {
+                "429" | "503" => ReviewerError::Busy(why),
+                _ => ReviewerError::Failed(why),
+            });
         }
         let value: Value =
             serde_json::from_str(&body).map_err(|_| ReviewerError::Unreadable(quote(&body)))?;
@@ -335,7 +332,7 @@ impl LocalReviewer {
                 Some(n) => n.to_string(),
                 None => "an unknown number of".to_owned(),
             };
-            return Err(ReviewerError::Failed(format!(
+            return Err(ReviewerError::CutOff(format!(
                 "{}'s reply was cut off (finish_reason \"length\") after {} completion tokens \
                  of the {asked} asked for, with {} in the prompt, and {held}",
                 route.base.as_str(),
@@ -350,7 +347,7 @@ impl LocalReviewer {
         // lines. One cut off inside it reviewed nothing, which is not clean.
         match content.rsplit_once("</think>") {
             Some((_, answer)) => Ok(answer.to_owned()),
-            None if content.contains("<think>") => Err(ReviewerError::Failed(format!(
+            None if content.contains("<think>") => Err(ReviewerError::CutOff(format!(
                 "{url}'s reply ended inside its thinking, so nothing was reviewed"
             ))),
             None => Ok(content.to_owned()),

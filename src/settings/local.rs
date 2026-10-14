@@ -39,6 +39,14 @@ pub struct Endpoint {
     pub prompt: Option<String>,
 }
 
+impl Endpoint {
+    /// The `max_tokens` a round asks the model for: a quarter of its context
+    /// is kept for the reply, which a thinking model fills
+    pub fn reply_tokens(&self) -> u32 {
+        self.context.get() / 4
+    }
+}
+
 /// A command run for each local round
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalCommand {

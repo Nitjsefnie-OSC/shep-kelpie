@@ -20,6 +20,10 @@ mod axes;
 pub(super) mod calls;
 mod checks;
 mod criteria;
+mod keep;
+mod ran;
+pub(in crate::runner) use keep::prune_at_start;
+pub(in crate::runner) use ran::{record_spent, run_review_call};
 pub(super) mod disputes;
 pub(super) mod findings;
 #[cfg(test)]
@@ -44,21 +48,18 @@ mod unread;
 use std::path::Path;
 
 use super::Runner;
-use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
+use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, StepReport};
 use super::retro::journal::{Entry, Held};
 use super::review_bot::Answered;
 use super::talk::At;
 use super::voice::Round;
 use crate::agents::{DEFECT_HUNTER, QWEN};
 use crate::pacer::Scope;
-use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CLEAN, Ending, Finding, Reviewer, ReviewerError,
-    RoundStage, Timestamp, read_review,
-};
+use crate::ports::{Finding, RoundEnd};
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Fix, StateError, Stuck};
 use crate::work_item::{CallKind, Phase, Review, ReviewCallState, ReviewStage, Turn, WorkItem};
-use crate::worktree::{self, Linked, Remote};
+use crate::worktree::{self, Remote};
 
 // A reviewer whose call fails this many times in a row is passed over for
 // the rest of its pass: a reply it cannot give would otherwise stall the
@@ -619,7 +620,11 @@ impl Runner {
         &mut self,
         reviewed: Reviewed,
     ) -> Result<Option<StepReport>, StateError> {
-        let Reviewed { result, spent } = reviewed;
+        let Reviewed {
+            result,
+            spent,
+            ended: how,
+        } = reviewed;
         // A call stopped with the runner saves nothing, the same as a turn
         // in `end_turn`: its round is still due, and runs again once a
         // restart clears `review_call`.
@@ -653,6 +658,10 @@ impl Runner {
         // is silently discarded rather than panicking the runner.
         let Some(item) = self.current_in(&mut next) else {
             return Ok(None);
+        };
+        let started = match item.review_call {
+            ReviewCallState::Running { since } => since,
+            ReviewCallState::Idle => now,
         };
         record_spent(item, spent, now);
         // What the call cost and that it ended are kept whatever became of its answer.
@@ -706,6 +715,22 @@ impl Runner {
             .unwrap_or_else(|| AgentName::kelpies(if local_round { QWEN } else { DEFECT_HUNTER }));
         let unreviewed: Vec<String> = unreviewed.into_iter().map(|f: Finding| f.file).collect();
         let reviewer_name = reviewer.as_str().to_owned();
+        let kept_reviewer = reviewer.clone();
+        let finished = local_round.then(|| {
+            let sent = result.as_ref().map_or(0, Vec::len);
+            let (ended, reason) = match (&result, how) {
+                (Ok(found), _) if found.is_empty() && !unreviewed.is_empty() => (
+                    RoundEnd::Failed,
+                    Some(format!(
+                        "every file went unreviewed: {}",
+                        unreviewed.join(", ")
+                    )),
+                ),
+                (Ok(_), _) => (RoundEnd::Answered, None),
+                (Err(reason), how) => (how.unwrap_or(RoundEnd::Failed), Some(reason.clone())),
+            };
+            (ended, reason, sent)
+        });
         // A test a reviewer attached is kept only once its file has been checked.
         let asked = self.round_asked_tests(&reviewer);
         let result =
@@ -839,6 +864,18 @@ impl Runner {
             }
         };
         self.save(next)?;
+        if let Some((how, reason, findings)) = finished {
+            self.keep_round(&keep::Finished {
+                reviewer: &kept_reviewer,
+                round,
+                ended: how,
+                reason,
+                findings,
+                started,
+                finished: now,
+                head: started_at.as_deref(),
+            });
+        }
         if let Some(findings) = ended {
             self.post_round(&Round {
                 number,
@@ -877,113 +914,6 @@ fn both_looks(first: Vec<Finding>, more: Vec<Finding>) -> Vec<Finding> {
     }
     all.sort_by_key(|f| std::cmp::Reverse(f.severity));
     all
-}
-
-/// Runs `action` to its end on its own thread: a local round, or a fresh
-/// session of a reviewer, which `ending` can end
-///
-/// A call stopped with the runner comes back as [`ReviewResult::Stopped`]
-/// rather than an error, so `end_review` can tell it from a failed gate.
-pub(super) fn run_review_call(
-    claude: &dyn Agents,
-    reviewer: &dyn Reviewer,
-    action: ReviewCall,
-    ending: &Ending,
-    watch: &(dyn Fn(RoundStage) + Sync),
-) -> Reviewed {
-    match action {
-        ReviewCall::Local {
-            local,
-            repo,
-            worktree,
-            base,
-            out,
-            round,
-            criteria,
-        } => {
-            let worktree = Linked {
-                repo: &repo,
-                worktree: &worktree,
-            };
-            match reviewer.round_watched(&local, worktree, &base, &out, round, &criteria, watch) {
-                Err(ReviewerError::Stopped) => stopped(),
-                result => Reviewed {
-                    result: ReviewResult::Findings(result.map_err(|e| e.to_string())),
-                    spent: Some(Spent::Local),
-                },
-            }
-        }
-        ReviewCall::Session(call) => {
-            let (reply, spent) = run_claude(claude, &call, ending);
-            match reply {
-                Err(AgentError::Stopped) => stopped(),
-                reply => Reviewed {
-                    result: ReviewResult::Findings(reply.map_err(|e| e.to_string()).and_then(
-                        |reply| {
-                            read_review(&reply.text).map_err(|text| {
-                                format!(
-                                    "the reviewer's reply is neither findings nor {CLEAN}: {text}"
-                                )
-                            })
-                        },
-                    )),
-                    spent,
-                },
-            }
-        }
-    }
-}
-
-/// Adds what a review call spent to the work item's record, and marks no
-/// call in flight
-///
-/// A local round's time runs from when the call was marked running.
-pub(super) fn record_spent(item: &mut WorkItem, spent: Option<Spent>, now: Timestamp) {
-    match spent {
-        Some(Spent::Claude {
-            role,
-            session,
-            usage,
-            session_cost,
-        }) => {
-            item.record_call(role, now, session, usage, session_cost);
-        }
-        Some(Spent::Local) => {
-            item.qwen.rounds += 1;
-            if let ReviewCallState::Running { since } = item.review_call {
-                item.qwen.seconds += now.0.saturating_sub(since.0);
-            }
-        }
-        Some(Spent::Unanswered(_)) | None => {}
-    }
-    item.call_ended();
-}
-
-fn stopped() -> Reviewed {
-    Reviewed {
-        result: ReviewResult::Stopped,
-        spent: None,
-    }
-}
-
-// A reply that came back cost something even if what it said is unusable.
-fn run_claude(
-    claude: &dyn Agents,
-    call: &AgentCall,
-    ending: &Ending,
-) -> (Result<AgentReply, AgentError>, Option<Spent>) {
-    let reply = claude.run(call, ending);
-    let spent = match &reply {
-        Ok(reply) => Some(Spent::Claude {
-            role: call.role,
-            session: call.session.id().clone(),
-            usage: reply.usage,
-            session_cost: reply.session_cost,
-        }),
-        // Its settings, harness or session never got as far as a model.
-        Err(_) => crate::usage::ended(&reply).map(Spent::Unanswered),
-    };
-    (reply, spent)
 }
 
 #[cfg(test)]

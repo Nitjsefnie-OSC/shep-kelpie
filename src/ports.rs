@@ -64,7 +64,7 @@ pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, say
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
-pub use reviewer::{Reviewer, ReviewerError, RoundStage};
+pub use reviewer::{Reviewer, ReviewerError, RoundEnd, RoundStage};
 pub use routed::Routed;
 pub use run::{BranchRun, Workflow, WorkflowState};
 pub use sandbox::{Forward, Policy, Sandbox, SandboxError, Unreadable};

@@ -737,10 +737,7 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
     let reason = format!("cannot start a thread for the call: {e}");
     match harness {
         Some(harness) => End::Turn(Err(AgentError::Spawn(harness, reason))),
-        None => End::Review(Reviewed {
-            result: ReviewResult::Findings(Err(reason)),
-            spent: None,
-        }),
+        None => End::Review(Reviewed::failed(reason)),
     }
 }
 

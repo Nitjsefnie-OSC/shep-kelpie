@@ -112,3 +112,9 @@ It writes `round-<n>.txt` in that folder, one finding per line as `SEVERITY|path
 Kelpie holds no lock around a round, and a `lease` key in an agent file is refused. A server shared with other callers goes behind a `gateway`, which queues its rounds. A command that needs the GPU to itself takes its turn from paddock, with `shep paddock run --model <model> -- <command>`.
 
 Kelpie reads no `/api/ps`: a model that spilled to the CPU is no longer checked or parked on a ruling.
+
+### Kept rounds
+
+A local round's files go with its work item's build folder, so kelpie copies them out when the round ends, however it ends: to `local-rounds/<issue>-r<round>-<UTC time>/` in the project's kelpie folder, beside a `round.json` with the pull request, the base and head commits, the reviewer, its model, the `max_tokens` asked for, the start and end times, how it ended (`answered`, `cut_off`, `unreadable`, `busy`, `unreachable` or `failed`) with the reason, and how many findings went to the worker. A round is about 250 KB.
+
+Kept rounds older than 30 days are removed when the runner starts and after each kept round, and nothing else in the folder is touched. Three keys in `local_rounds` change it: `keep = false` keeps nothing, `keep_days` sets the days (0 keeps every round), and `folder` is an absolute path to keep them in instead. `shep kelpie set local_rounds.keep false` turns it off.

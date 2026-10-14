@@ -31,6 +31,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | handover.md | a runner handing its in-flight worker turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
 | waits-and-spend.md | a turn waiting for its model or host, `usage`, spend by role | `src/runner/turn/unreachable.rs`, `src/adapters/unreachable.rs`, `src/adapters/codex.rs`, `src/usage.rs`, `src/settings/agents.rs` |
 | review.md | review, bots, rulings | `src/runner/review/`, `src/runner/ruling.rs`, `src/webhook.rs` |
+| local-review.md | local reviewers (`command`, `endpoint`), their lock, the rounds kept after a work item ends | `src/runner/review/keep.rs`, `src/settings/local_rounds.rs`, `src/adapters/local/`, `src/settings/local.rs` |
 | merge.md | CI, catching up, merge, after the merge | `src/runner/gate.rs`, `src/runner/merge.rs`, `src/runner/close_merged.rs`, `src/runner/main_ci.rs` |
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
 | contributions.md | other people's pull requests: `contributions` settings, detection | `src/settings/contributions.rs`, `src/settings/reviewers.rs`, `src/runner/contributions.rs`, `src/state/contributions.rs` |

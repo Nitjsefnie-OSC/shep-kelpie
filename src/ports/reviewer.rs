@@ -84,13 +84,56 @@ pub enum ReviewerError {
     Stopped,
     /// The endpoint answered with something other than a chat completion
     Unreadable(String),
+    /// The model stopped at its token limit before it finished, or inside its
+    /// thinking, with the reason
+    CutOff(String),
+    /// The server or its gateway turned the round away as busy, with the reason
+    Busy(String),
+    /// The server did not answer, with the reason
+    Unreachable(String),
+}
+
+/// How a local round ended, as a kept round records it
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoundEnd {
+    /// The round came back with its answer
+    Answered,
+    /// The model stopped at its token limit
+    CutOff,
+    /// The server answered with something that is not a chat completion
+    Unreadable,
+    /// The server turned the round away as busy
+    Busy,
+    /// The server did not answer
+    Unreachable,
+    /// Anything else that stopped the round
+    Failed,
+}
+
+impl ReviewerError {
+    /// How a round that ended with this error is recorded
+    pub fn ended(&self) -> RoundEnd {
+        match self {
+            Self::CutOff(_) => RoundEnd::CutOff,
+            Self::Unreadable(_) => RoundEnd::Unreadable,
+            Self::Busy(_) => RoundEnd::Busy,
+            Self::Unreachable(_) => RoundEnd::Unreachable,
+            Self::Spawn(_) | Self::Failed(_) | Self::Incomplete | Self::Stopped => RoundEnd::Failed,
+        }
+    }
 }
 
 impl fmt::Display for ReviewerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Spawn(error) => write!(f, "cannot run the local round: {error}"),
-            Self::Failed(stderr) => write!(f, "the local round failed: {}", stderr.trim()),
+            Self::Failed(stderr)
+            | Self::CutOff(stderr)
+            | Self::Busy(stderr)
+            | Self::Unreachable(stderr) => {
+                write!(f, "the local round failed: {}", stderr.trim())
+            }
             Self::Incomplete => f.write_str("the local round left no completion marker"),
             Self::Stopped => f.write_str("the local round was stopped with the runner"),
             Self::Unreadable(reply) => write!(f, "the local round's reply is unreadable: {reply}"),
@@ -99,3 +142,28 @@ impl fmt::Display for ReviewerError {
 }
 
 impl core::error::Error for ReviewerError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_way_a_round_fails_is_recorded_as_one_ending() {
+        let why = || "why".to_owned();
+        for (error, ended) in [
+            (ReviewerError::CutOff(why()), RoundEnd::CutOff),
+            (ReviewerError::Unreadable(why()), RoundEnd::Unreadable),
+            (ReviewerError::Busy(why()), RoundEnd::Busy),
+            (ReviewerError::Unreachable(why()), RoundEnd::Unreachable),
+            (ReviewerError::Failed(why()), RoundEnd::Failed),
+            (ReviewerError::Spawn(why()), RoundEnd::Failed),
+            (ReviewerError::Incomplete, RoundEnd::Failed),
+        ] {
+            assert_eq!(error.ended(), ended, "{error}");
+        }
+        assert_eq!(
+            serde_json::to_value(RoundEnd::CutOff).unwrap(),
+            serde_json::json!("cut_off")
+        );
+    }
+}

@@ -1,7 +1,8 @@
 use serde_json::json;
 
 use super::*;
-use crate::ports::{CLEAN, Cost, Role, Session, SessionId, Severity, Usage};
+use crate::ports::{AgentError, CLEAN, Cost, Role, Session, SessionId, Severity, Timestamp, Usage};
+use crate::runner::report::Spent;
 use crate::runner::step;
 use crate::test::{Rig, Scripted, ScriptedRound};
 
@@ -19,6 +20,7 @@ fn end_review_tolerates_a_work_item_that_is_gone() {
         .end_review(Reviewed {
             result: ReviewResult::Findings(Ok(vec![])),
             spent: None,
+            ended: None,
         })
         .unwrap();
     assert_eq!(report, None);
@@ -752,4 +754,188 @@ fn a_linked_test_file_is_refused() {
     assert!(!kept_tests(&rig).join("tests/flag.rs").exists());
     let notes = runner.lock().unwrap().take_notes().join("\n");
     assert!(notes.contains("tests/flag.rs"), "{notes}");
+}
+
+// The folder the rig's kept local rounds go to, when the project names none
+fn kept_folder(rig: &Rig) -> std::path::PathBuf {
+    rig.paths().folder.join("local-rounds")
+}
+
+// The names of the rounds kept so far, oldest first
+fn kept_rounds(rig: &Rig) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(kept_folder(rig)) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+fn round_json(rig: &Rig, name: &str) -> serde_json::Value {
+    let text = std::fs::read_to_string(kept_folder(rig).join(name).join("round.json")).unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+const ENDPOINT_REVIEWER: &str = "---\nrole: reviewer\nharness: endpoint\n\
+    url: http://stand-in.invalid:8080\nmodel: iq3-xxs\ncontext: 262144\n---\n";
+
+#[test]
+fn a_local_round_is_kept_after_its_work_item_ends() {
+    let (rig, runner) = at_round_1("shep");
+    rig.reviewer
+        .script([ScriptedRound::Findings(vec![Finding::new(
+            Severity::Medium,
+            "work.txt",
+            1,
+            "leftover text",
+            "ships",
+        )])]);
+    step(&runner).unwrap(); // round 1, qwen: one finding
+    std::fs::remove_dir_all(rig.build_7()).unwrap(); // the work item ends
+
+    assert_eq!(kept_rounds(&rig), ["7-r1-20260921T141320Z"]);
+    let kept = kept_folder(&rig).join("7-r1-20260921T141320Z");
+    let report = std::fs::read_to_string(kept.join("round-1.txt")).unwrap();
+    assert_eq!(
+        report, "scripted\n",
+        "the files are as the round wrote them"
+    );
+    let reply = std::fs::read_to_string(kept.join("round-1/reply-0.json")).unwrap();
+    assert_eq!(reply, "{\"scripted\":true}");
+}
+
+#[test]
+fn a_kept_round_records_its_pull_request_head_model_and_how_it_ended() {
+    let rig = Rig::new("shep");
+    rig.reviewers(&["mine", "claude"]);
+    rig.write_agent("mine", ENDPOINT_REVIEWER);
+    rig.reviewer.skip_check();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    let head = rig.forge.head_of("kelpie/7").unwrap();
+    let base = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(rig.worktree_7())
+        .args(["rev-parse", "origin/main"])
+        .output()
+        .unwrap();
+    let base = String::from_utf8(base.stdout).unwrap().trim().to_owned();
+    let findings = vec![Finding::new(Severity::Medium, "work.txt", 1, "a", "b")];
+    rig.reviewer.script([ScriptedRound::Takes {
+        clock: rig.clock.clone(),
+        seconds: 270,
+        then: Box::new(ScriptedRound::Findings(findings)),
+    }]);
+
+    step(&runner).unwrap(); // round 1, the endpoint
+
+    assert_eq!(
+        round_json(&rig, "7-r1-20260921T141750Z"),
+        json!({
+            "project": "shep",
+            "issue": 7,
+            "pull_request": 71,
+            "round": 1,
+            "reviewer": "mine",
+            "harness": "endpoint",
+            "model": "iq3-xxs",
+            "max_tokens": 65536,
+            "base": base,
+            "head": head,
+            "started": "2026-09-21T14:13:20Z",
+            "ended": "2026-09-21T14:17:50Z",
+            "seconds": 270,
+            "outcome": "answered",
+            "reason": null,
+            "findings": 1,
+        })
+    );
+}
+
+#[test]
+fn a_failed_local_round_is_kept_with_its_reason() {
+    let (rig, runner) = at_round_1("shep");
+    rig.reviewer
+        .script([ScriptedRound::Fail(crate::ports::ReviewerError::Failed(
+            "the GPU is gone".into(),
+        ))]);
+
+    step(&runner).unwrap(); // round 1, qwen: fails
+
+    let [name] = kept_rounds(&rig).try_into().unwrap();
+    let record = round_json(&rig, &name);
+    assert_eq!(record["outcome"], "failed");
+    assert_eq!(
+        record["reason"], "the local round failed: the GPU is gone",
+        "{record}"
+    );
+    assert_eq!(record["findings"], 0);
+    assert_eq!(record["harness"], "command");
+    assert_eq!(record["model"], json!(null));
+    assert!(kept_folder(&rig).join(&name).join("round-1.txt").is_file());
+}
+
+#[test]
+fn with_keep_off_no_round_is_kept() {
+    let (rig, runner) = at_round_1("shep");
+    rig.edit_settings(|s| s + "\n[app.dogs.kelpie.local_rounds]\nkeep = false\n");
+    drop(runner);
+    let runner = rig.open().unwrap();
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    step(&runner).unwrap(); // round 1, qwen
+    assert_eq!(rig.reviewer.seen().len(), 1);
+    assert_eq!(kept_rounds(&rig), Vec::<String>::new());
+    assert!(!kept_folder(&rig).exists());
+}
+
+// Leaves a kept round named `name` in the rig's folder, holding one file
+fn leave_kept(rig: &Rig, name: &str) {
+    let folder = kept_folder(rig).join(name);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("round.json"), "{}").unwrap();
+}
+
+#[test]
+fn rounds_older_than_keep_days_are_removed_and_zero_keeps_them_all() {
+    let rig = Rig::new("shep");
+    // The rig's clock reads 2026-09-21, so 30 days back is 2026-08-22.
+    for name in ["7-r1-20260101T000000Z", "9-r2-20260821T235959Z"] {
+        leave_kept(&rig, name);
+    }
+    for name in ["8-r1-20260823T000000Z", "keep-me", "notes.txt"] {
+        leave_kept(&rig, name);
+    }
+    let runner = rig.open().unwrap();
+    assert_eq!(
+        kept_rounds(&rig),
+        ["8-r1-20260823T000000Z", "keep-me", "notes.txt"],
+        "the runner's start removes the old rounds, and nothing else"
+    );
+
+    leave_kept(&rig, "7-r3-20260101T000000Z");
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: kept, and the old round goes
+    assert_eq!(
+        kept_rounds(&rig),
+        [
+            "7-r1-20260921T141320Z",
+            "8-r1-20260823T000000Z",
+            "keep-me",
+            "notes.txt"
+        ]
+    );
+    drop(runner);
+
+    rig.edit_settings(|s| s + "\n[app.dogs.kelpie.local_rounds]\nkeep_days = 0\n");
+    leave_kept(&rig, "7-r4-20260101T000000Z");
+    let _runner = rig.open().unwrap();
+    assert!(kept_rounds(&rig).contains(&"7-r4-20260101T000000Z".to_owned()));
 }

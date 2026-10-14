@@ -31,6 +31,7 @@ mod gateway;
 mod git;
 mod hooks;
 mod local;
+mod local_rounds;
 mod removed;
 mod repo_setup;
 mod reviewers;
@@ -52,6 +53,7 @@ pub use gateway::{
 pub use git::{Filing, Git, GithubLogin, Merging};
 pub use hooks::{HookPoint, PointKind, ProjectHook};
 pub use local::{ContextSize, Endpoint, EndpointUrl, LocalCommand, LocalRound};
+pub use local_rounds::{KeepDays, LocalRounds, RoundsFolder};
 pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
@@ -112,6 +114,11 @@ pub struct Settings {
     /// when absent.
     #[serde(default)]
     pub code_graph: CodeGraph,
+    /// Whether each local round is kept after its work item ends, for how
+    /// long, and where. Kept for 30 days in `local-rounds` in the project's
+    /// folder when absent.
+    #[serde(default)]
+    pub local_rounds: LocalRounds,
     /// The host that runs the project's end-to-end tests for a worker, whose
     /// sandbox cannot. It must be disposable: the project's script runs there
     /// as the ssh alias's account, and a worker edits that script. None when
@@ -747,6 +754,12 @@ impl Settings {
         [self.worker.instructions_file.as_mut()]
             .into_iter()
             .flatten()
+            .chain(
+                self.local_rounds
+                    .folder
+                    .as_mut()
+                    .map(RoundsFolder::path_mut),
+            )
             .chain(self.researcher.transcripts.iter_mut())
             .chain(self.skills.paths_mut())
     }
