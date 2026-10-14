@@ -53,7 +53,8 @@ fn each_step_runs_its_default_skill_from_kelpies_own_copy() {
     let (implement, first) = ("/mattpocock:implement", "Your work item is issue #7: ");
     assert_invoked(&worker.prompt, implement, first);
     assert!(worker.prompt.contains("Run no /code-review"));
-    assert_eq!(worker.plugin_dirs, std::slice::from_ref(&plugin));
+    let wording = rig.paths().skills.join("kelpie-wording");
+    assert_eq!(worker.plugin_dirs, [plugin.clone(), wording]);
     // A reviewer's prompt is its agent file's body, which runs no skill.
     let reviewer = call_of(&rig, Role::Reviewer);
     assert!(
@@ -306,4 +307,80 @@ fn a_projects_plugin_may_not_take_kelpies_own_names() {
         let fallback = status["skills"][4]["fallback"].as_str().unwrap();
         assert!(fallback.ends_with(&format!("is named {name}, which is kelpie's own")));
     }
+}
+
+#[test]
+fn the_wording_skill_reaches_a_worker_call_as_a_plugin_beside_the_vendored_one() {
+    let (rig, _runner, _) = Rig::with_pull_request("shep");
+    let worker = call_of(&rig, Role::Worker);
+    let wording = rig.paths().skills.join("kelpie-wording");
+    assert!(
+        worker.plugin_dirs.contains(&wording),
+        "{:?}",
+        worker.plugin_dirs
+    );
+    let text = fs::read_to_string(wording.join("skills/wording/SKILL.md")).unwrap();
+    assert!(text.starts_with("---\nname: wording\n"), "{text}");
+    let manifest = fs::read_to_string(wording.join(".claude-plugin/plugin.json")).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&manifest).unwrap()["name"],
+        "kelpie-wording"
+    );
+    // The reviewer's call loads no plugin.
+    assert!(call_of(&rig, Role::Reviewer).plugin_dirs.is_empty());
+}
+
+#[test]
+fn a_replaced_pr_skill_keeps_the_wording_skill_and_a_pr_set_to_none_drops_it() {
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        let folder = rig.home.path().join("house/body");
+        skill_folder(&folder, "---\nname: body\n---\nWrite it.\n");
+        choose(
+            rig,
+            &format!(
+                "pr = {{ kind = \"path\", path = \"{}\" }}\n",
+                folder.display()
+            ),
+        );
+    });
+    let wording = rig.paths().skills.join("kelpie-wording");
+    let worker = call_of(&rig, Role::Worker);
+    assert!(
+        worker.plugin_dirs.contains(&wording),
+        "{:?}",
+        worker.plugin_dirs
+    );
+
+    let (rig, _runner, _) = Rig::with_pull_request_set("shep", |rig| {
+        choose(rig, "pr = { kind = \"none\" }\n");
+    });
+    let worker = call_of(&rig, Role::Worker);
+    assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
+    assert!(!rig.paths().skills.join("kelpie-wording").exists());
+}
+
+#[test]
+fn a_worker_with_only_the_wording_skill_still_gets_the_headless_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("gone");
+    let chosen = |table: &str| -> crate::settings::StepSkills { toml::from_str(table).unwrap() };
+    let only_wording = chosen(&format!(
+        "tests = {{ kind = \"none\" }}\npr = {{ kind = \"path\", path = \"{}\" }}\n",
+        gone.display()
+    ));
+    let skills = Skills::load(&only_wording, &dir.path().join("skills"));
+    assert_eq!(skills.command(Step::Tests), None);
+    assert_eq!(skills.command(Step::Pr), None);
+    assert!(skills.wording().is_some());
+    let rules = skills
+        .worker_rules()
+        .expect("the wording skill runs headless too");
+    assert!(
+        rules.starts_with("Kelpie runs this skill headless."),
+        "{rules}"
+    );
+
+    let none = chosen("tests = { kind = \"none\" }\npr = { kind = \"none\" }\n");
+    let skills = Skills::load(&none, &dir.path().join("skills"));
+    assert_eq!(skills.worker_rules(), None);
 }

@@ -114,6 +114,23 @@ fn every_plugin_s_skills_are_linked_into_the_call_s_config_skills_folder_with_th
 }
 
 #[test]
+fn the_wording_skill_is_linked_with_the_step_skills_on_a_worker_call() {
+    let w = World::new();
+    let skills =
+        crate::skills::Skills::load(&crate::settings::StepSkills::default(), &w.path("skills"));
+    let call = with_plugins(&w, skills.plugin_dirs().to_vec());
+
+    stand_in(&w, FRESH).prepare(&call).unwrap();
+
+    let linked = linked(&w);
+    assert_eq!(
+        linked.get("wording"),
+        Some(&w.path("skills/kelpie-wording/skills/wording"))
+    );
+    assert!(linked.contains_key("implement"), "{linked:?}");
+}
+
+#[test]
 fn two_skills_with_one_name_are_linked_once_and_the_first_plugin_wins() {
     let w = World::new();
     // The folder names differ from the `name` lines, which are what goose lists.
