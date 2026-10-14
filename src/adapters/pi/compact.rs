@@ -7,18 +7,80 @@
 //! prints a `compaction_end` event for it, and for each of its own threshold
 //! compactions in a turn.
 
+use std::num::NonZeroU32;
+use std::path::Path;
 use std::process::Output;
 
 use serde::Deserialize;
+use serde_json::{Value, json};
 
-use super::{PI, failed, tail};
-use crate::ports::{AgentError, AgentReply, SessionId, Usage};
+use super::{PI, StepSkill, failed, step_skill, tail};
+use crate::ports::{AgentCall, AgentError, AgentReply, SessionId, Usage};
 
 /// What a compact call sends in place of `COMPACT`
 pub(super) const COMMAND: &str = "/kelpie-compact";
 
-/// The extension that registers `COMMAND`
-pub(super) const EXTENSION: &str = include_str!("compact.ts");
+/// The extension that registers `COMMAND` and hands a turn's prompt back, with
+/// `__PROMPT_FILE__` to fill in
+const EXTENSION: &str = include_str!("compact.ts");
+
+/// The tokens pi keeps free of the context window unless told otherwise
+const DEFAULT_RESERVE: u32 = 16_384;
+
+/// The extension's source, handing back the prompt in `prompt_file` after a
+/// compaction pi starts itself
+///
+/// A call with no file only registers `COMMAND`.
+pub(super) fn extension(prompt_file: Option<&Path>) -> String {
+    let file = prompt_file.map(|p| p.to_string_lossy().into_owned());
+    EXTENSION.replace("__PROMPT_FILE__", &json!(file).to_string())
+}
+
+/// pi's `settings.json` for a call bounded to `window` tokens of a `context`-token model
+///
+/// pi compacts when the context passes the window less `reserveTokens`, so the
+/// reserve is the difference. A window at or past the context, or within pi's
+/// default reserve of it, is later than pi compacts already, and gets no file.
+pub(super) fn settings(context: u32, window: NonZeroU32) -> Option<Value> {
+    let reserve = context.checked_sub(window.get())?;
+    (reserve > DEFAULT_RESERVE).then(|| json!({ "compaction": { "reserveTokens": reserve } }))
+}
+
+/// What a compaction pi starts itself hands back: the turn's prompt again
+///
+/// A step's prompt is the text of its skill, as pi expands the command
+/// `argv` gives it, since pi expands no command inside a message.
+pub(super) fn handed_back(call: &AgentCall) -> String {
+    let prompt = match step_skill(call) {
+        Some(step) => skill_text(&step),
+        None => call.prompt.clone(),
+    };
+    format!(
+        "pi compacted your session partway through this turn, so what came before is \
+         a summary, and the prompt may have been cut from it. This is the prompt again:\n\n\
+         {prompt}\n"
+    )
+}
+
+// The step's skill without its front matter, then the rest of the prompt.
+fn skill_text(step: &StepSkill) -> String {
+    let file = step.dir.join("SKILL.md");
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let body = match text
+        .strip_prefix("---\n")
+        .and_then(|t| t.split_once("\n---\n"))
+    {
+        Some((_, body)) => body,
+        None => &text,
+    };
+    format!(
+        "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>\n\n{}",
+        step.name,
+        file.display(),
+        body.trim(),
+        step.rest
+    )
+}
 
 /// The tokens of one request, as pi counts them
 #[derive(Default, Deserialize)]
