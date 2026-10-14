@@ -41,6 +41,7 @@ jobs:
     permissions:
       contents: read
       issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal
@@ -50,6 +51,7 @@ jobs:
       - run: scripts/parity-gaps.sh
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
       - run: cargo doc --no-deps --locked
     env:
       RUSTDOCFLAGS: -D warnings
