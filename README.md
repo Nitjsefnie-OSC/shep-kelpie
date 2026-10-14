@@ -51,7 +51,7 @@ You need these on your machine:
 - `git`, and `gh` signed in to the account that opens the pull requests
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
 - `pi`, `codex` or `goose`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))
-  - On Codex and goose, a reviewer, advisor and retro read the repo through a read-only shell (`kelpie guard --read-only`: `cat`, `head`, `tail`, `ls`, `tree`, `grep`, `rg`, `find`, `wc`, `file`, `stat`, `nl`, no git, no redirects). goose's `tree` is allowed, and its `write` and `edit` are refused
+  - On Codex and goose, a reviewer, advisor and retro read the repo through a read-only shell (`kelpie guard --read-only`: `cat`, `head`, `tail`, `ls`, `tree`, `grep`, `rg`, `find`, `wc`, `file`, `stat`, `nl`, no git, no redirects). goose's `tree` is allowed, and its `edit` is refused. Its `write` is refused too, unless the reviewer is asked for a failing test (`ci.test_command`), when it writes the reviewer's tests folder and nothing else
 - a GitHub repo whose default branch is `main`, and a checkout of it
 
 A runner is a sheep, so it gets the `PATH` your shepherd was started with, and it needs `claude`, `node`, `gh` and `git` on it. `shep kelpie doctor` runs in your shell, not the shepherd's, so it can pass while a runner fails to find one. Start the shepherd from a shell where `command -v claude node gh git` finds all four.
@@ -151,7 +151,7 @@ shep kelpie doctor
 ok       claude: installed and logged in
 ok       gh: logged in as <you>
 ok       sandbox: the sandbox runtime can run
-ok       shepherd: shep 0.13.0 at /path/to/.shep
+ok       shepherd: shep 0.14.0 at /path/to/.shep
 ok       dog: kelpie's dog is running and has named itself
 ok       scratch: checkout: /path/to/checkout is a git checkout with an origin
 ok       scratch: implementers: an issue with no `agent:` label runs on sonnet-high

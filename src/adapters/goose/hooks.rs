@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::files::Files;
 use crate::adapters::claude::settings::shell_quote;
-use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, GOOSE_SERVER_FLAG, READ_ONLY_FLAG};
+use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, GOOSE_SERVER_FLAG, GOOSE_WRITE_FLAG, READ_ONLY_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentError, Fence, Guard};
 
@@ -64,14 +64,25 @@ pub(super) fn only_ours(files: &Files) -> Result<(), AgentError> {
     Ok(())
 }
 
+/// What the hook of a call lets it do
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Judging<'a> {
+    /// A worker's: its shell and its file tools, held to its folders
+    Work,
+    /// The read-only guard's: the call writes no file
+    Reading,
+    /// The read-only guard's, and a `write` into this folder alone: a reviewer asked for tests
+    Tests(&'a Path),
+}
+
 /// Writes the plugin and the config that turns it on, for a call held by `fence`
 ///
-/// With `read_only`, the hook is the read-only guard's: the call writes no file. The hook lets
-/// through the tools of each MCP server in `servers`, which are the keys goose names them by.
+/// `judging` says what the hook lets the call do. The hook lets through the tools of each MCP
+/// server in `servers`, which are the keys goose names them by.
 pub(super) fn write(
     files: &Files,
     fence: &Fence,
-    read_only: bool,
+    judging: Judging<'_>,
     servers: &[String],
 ) -> Result<(), AgentError> {
     let plugin = folder(files);
@@ -96,7 +107,7 @@ pub(super) fn write(
     put(&plugin.join("plugin.json"), &manifest)?;
     put(
         &hooks.join("hooks.json"),
-        &hooks_json(&fence.guard, read_only, servers),
+        &hooks_json(&fence.guard, judging, servers),
     )?;
     put(&files.config_file(), &config(files, &plugin)?)
 }
@@ -150,13 +161,13 @@ pub(super) fn no_settings_in_root(files: &Files) -> Result<(), AgentError> {
 }
 
 // One `PreToolUse` hook with no matcher, so it runs for every tool.
-fn hooks_json(guard: &Guard, read_only: bool, servers: &[String]) -> serde_json::Value {
+fn hooks_json(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> serde_json::Value {
     json!({
         "hooks": {
             "PreToolUse": [{
                 "hooks": [{
                     "type": "command",
-                    "command": command(guard, read_only, servers),
+                    "command": command(guard, judging, servers),
                     "on_failure": "block",
                     // The guard's own budget ends first, and refuses.
                     "timeout": GUARD_BUDGET.as_secs() + 5,
@@ -170,10 +181,12 @@ fn hooks_json(guard: &Guard, read_only: bool, servers: &[String]) -> serde_json:
 /// worker's folders, the project's hooks, the build folder it may write and
 /// the MCP servers whose tools it lets through
 ///
-/// With `read_only` it leaves out the folders, which only the worker's command
+/// When reading it leaves out the folders, which only the worker's command
 /// guard reads, and asks for the read-only guard after the build folder:
-/// `--goose=<build> --read-only`.
-fn command(guard: &Guard, read_only: bool, servers: &[String]) -> String {
+/// `--goose=<build> --read-only`. For a reviewer asked for tests, the folder
+/// its `write` may fill follows, as `--goose-write=<folder>`.
+fn command(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> String {
+    let read_only = judging != Judging::Work;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
     let folders = (guard.folders.iter())
         .filter(|_| !read_only)
@@ -192,6 +205,13 @@ fn command(guard: &Guard, read_only: bool, servers: &[String]) -> String {
         guard.build.display()
     ))])
     .chain(read_only.then(|| shell_quote(READ_ONLY_FLAG)))
+    .chain(match judging {
+        Judging::Tests(folder) => Some(shell_quote(&format!(
+            "{GOOSE_WRITE_FLAG}{}",
+            folder.display()
+        ))),
+        _ => None,
+    })
     .chain(
         servers
             .iter()

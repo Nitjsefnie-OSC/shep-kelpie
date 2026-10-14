@@ -9,7 +9,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - Kelpie controls each agent's context growth. `src/runner/turn.rs`
 - Naming: dog = adopted `kelpie` (lease dog); project = sheep (`runner <project>`); agent calls = lambs. One kelpie for all projects (bot windows, pacer are machine/account-wide). ADR 0001 to 0004
 - Binary is the dog only with no args + `SHEP_DOG_NAME` and `SHEP_NAME` set; needs shepherd channel from `shep adopt`; names itself in handshake so shep never lists it `silent`. `src/sheep.rs`, shep-pm/shep#656
-- Needs shep 0.13.0+ in 0.13; `upgrade` refuses a build its shepherd would refuse. shep-pm/shep#688, #319, #656
+- Needs shep 0.14.0+ in 0.14; `upgrade` refuses a build its shepherd would refuse. shep-pm/shep#688, #319, #656
 - Home: `$SHEP_HOME/kelpie` (`KELPIE_HOME` overrides), shep plugin, folder per project (no project may take a shared name); dog files stay under `$SHEP_HOME`. #253
 - The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket, and tests dial `FakeShepherd`, which answers in memory and binds nothing. A test binds a real socket only to prove the socket itself; the sandbox-red list names those. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
@@ -25,6 +25,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | work.md | projects, board, adoption, slots, issue writer | `src/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns, fence | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/hooks.rs` |
+| compaction.md | when a session compacts, `worker.compact_window` per harness, the `COMPACT` call | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how each harness loads them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
 | handover.md | a runner handing its in-flight worker turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |

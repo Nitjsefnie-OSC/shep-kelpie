@@ -15,7 +15,8 @@
 //! A goose reviewer, advisor or retro has the read-only guard instead,
 //! [`judge_goose_reading`]: its `shell` runs only what [`judge_reading`] lists,
 //! its `tree` is the `ls` of its folder, and every other tool is refused, since
-//! the call writes no file.
+//! the call writes no file. A reviewer asked for tests has [`judge_goose_writing`]:
+//! the same, and its `write` goes to `kelpie confine` held to its tests folder.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,23 @@ use crate::local_paths::LocalPaths;
 /// How the hook's command line names the worker's build folder, and asks for
 /// the goose worker's `PreToolUse` guard
 pub const GOOSE_FLAG: &str = "--goose=";
+
+/// How the read-only hook of a goose reviewer asked for tests names the one
+/// folder its `write` tool may write
+pub const GOOSE_WRITE_FLAG: &str = "--goose-write=";
+
+/// The folder `args` name for [`GOOSE_WRITE_FLAG`], and the rest of them
+pub fn goose_write_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
+    let mut folder = None;
+    let mut rest = Vec::new();
+    for arg in args {
+        match arg.strip_prefix(GOOSE_WRITE_FLAG) {
+            Some(path) => folder = Some(PathBuf::from(path)),
+            None => rest.push(arg.clone()),
+        }
+    }
+    (folder, rest)
+}
 
 /// How the hook's command line names an MCP server whose tools it lets through, once for each
 pub const GOOSE_SERVER_FLAG: &str = "--goose-server=";
@@ -72,6 +90,27 @@ struct Call {
     working_dir: PathBuf,
 }
 
+// A `write` or an `edit` of `call` as Claude Code's `Write` or `Edit`, judged by
+// `kelpie confine` against `folders`. goose resolves the path as `confine` does:
+// an absolute path as it is, a relative one from the call's working folder, and
+// a `~` not at all.
+fn judge_file(call: &Call, tool: &str, hooks: &Hooks, folders: &[PathBuf]) -> Verdict {
+    let (name, key, field) = match tool {
+        "write" => ("Write", "content", "content"),
+        _ => ("Edit", "after", "new_string"),
+    };
+    let text = |key: &str| call.tool_input[key].as_str();
+    let (Some(path), Some(content)) = (text("path"), text(key)) else {
+        return Verdict::Refuse(format!("kelpie cannot read this {} call", call.tool_name));
+    };
+    let file = json!({
+        "tool_name": name,
+        "cwd": call.working_dir,
+        "tool_input": { "file_path": path, field: content },
+    });
+    confine::judge_with(file.to_string().as_bytes(), folders, hooks)
+}
+
 /// Judges goose's `PreToolUse` payload in `input`
 ///
 /// `home` and `local` are what the command guard keeps off the forge, and
@@ -107,20 +146,8 @@ pub fn judge_goose(
             super::judge_with(bash.to_string().as_bytes(), home, local, hooks, checkout)
         }
         tool @ ("write" | "edit") => {
-            let (name, key, field) = match tool {
-                "write" => ("Write", "content", "content"),
-                _ => ("Edit", "after", "new_string"),
-            };
-            let (Some(path), Some(content)) = (text("path"), text(key)) else {
-                return unreadable();
-            };
-            let file = json!({
-                "tool_name": name,
-                "cwd": cwd,
-                "tool_input": { "file_path": path, field: content },
-            });
             let folders = [checkout.worktree.to_owned(), build.to_owned()];
-            confine::judge_with(file.to_string().as_bytes(), &folders, hooks)
+            judge_file(&call, tool, hooks, &folders)
         }
         "tree" => {
             // A tree lists a folder, so the command guard judges it as the `ls`
@@ -165,29 +192,63 @@ fn of_server(tool: &str, key: &str) -> bool {
 /// `<key>__<tool>` for a `key` in `servers` is an MCP server's, which goes through as in
 /// [`judge_goose`].
 pub fn judge_goose_reading(input: impl Read, hooks: &Hooks, servers: &[String]) -> Verdict {
+    judge_reading_with(input, hooks, servers, None)
+}
+
+/// Judges goose's `PreToolUse` payload in `input` for a reviewer asked for tests
+///
+/// As [`judge_goose_reading`], except that a `write` goes to `kelpie confine`
+/// with `folder` as both its worktree and its build folder, so it can write
+/// that folder and nothing else, and the project's `write` hooks see its text.
+/// An `edit` and every other tool stay refused.
+pub fn judge_goose_writing(
+    input: impl Read,
+    hooks: &Hooks,
+    servers: &[String],
+    folder: &Path,
+) -> Verdict {
+    judge_reading_with(input, hooks, servers, Some(folder))
+}
+
+fn judge_reading_with(
+    input: impl Read,
+    hooks: &Hooks,
+    servers: &[String],
+    writes: Option<&Path>,
+) -> Verdict {
     let call: Call = match serde_json::from_reader(input) {
         Ok(call) => call,
         Err(e) => return Verdict::Refuse(format!("kelpie cannot read this tool call: {e}")),
     };
-    let command = match call.tool_name.as_str() {
-        "shell" => match call.tool_input["command"].as_str() {
+    let command = match (call.tool_name.as_str(), writes) {
+        ("shell", _) => match call.tool_input["command"].as_str() {
             Some(command) => command.to_owned(),
             None => {
                 return Verdict::Refuse(format!("kelpie cannot read this {} call", call.tool_name));
             }
         },
-        "tree" => match &call.tool_input["path"] {
+        ("tree", _) => match &call.tool_input["path"] {
             Value::Null => "ls -- .".to_owned(),
             Value::String(path) => format!("ls -- {}", shell_quote(path)),
             _ => return Verdict::Refuse("kelpie cannot read this tree call".to_owned()),
         },
-        tool if servers.iter().any(|key| of_server(tool, key)) => return Verdict::Allow,
-        tool => {
+        ("write", Some(folder)) => {
+            let folders = [folder.to_owned(), folder.to_owned()];
+            return judge_file(&call, "write", hooks, &folders);
+        }
+        (tool, _) if servers.iter().any(|key| of_server(tool, key)) => return Verdict::Allow,
+        (tool, _) => {
             let shown: String = tool.chars().take(SHOWN_CHARS).collect();
-            return Verdict::Refuse(format!(
-                "this call writes no file: it reads the repo with `shell` and `tree` alone, and \
-                 `{shown}` is not one of them"
-            ));
+            return Verdict::Refuse(match writes {
+                Some(_) => format!(
+                    "this call reads the repo with `shell` and `tree` and writes its tests \
+                     folder with `write` alone, and `{shown}` is not one of them"
+                ),
+                None => format!(
+                    "this call writes no file: it reads the repo with `shell` and `tree` \
+                     alone, and `{shown}` is not one of them"
+                ),
+            });
         }
     };
     let bash = json!({

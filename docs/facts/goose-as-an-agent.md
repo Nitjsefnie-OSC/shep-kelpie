@@ -57,7 +57,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
   - Kelpie keeps the totals in `<root>/spent/<session id>.json`. A missing file is zero, and a new session resets it to zero.
   - Cached input is counted within the input, as OpenAI counts it, so the cache fields are taken out of `input` and reported as `cache_read` and `cache_write`.
   - Not measured: the cumulative nature of `complete` and whether `input_tokens` includes the cached tokens, both read from the source only.
-- No price (`session_cost: None`) and no context figure (`context: None`).
+- No price (`session_cost: None`). A worker's context figure is read apart (see Context and compaction).
 
 ## Errors
 
@@ -171,10 +171,29 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - An `error` event has no time, so the watch gives it the time of the line before it in the file, or the call's start when it is the first. It is shown as a `result` line `error: <text>`.
 - `transcripts::format_of(Harness::Goose)` stays `None`. No file holds a whole session, since the stdout file is emptied per call, so the researcher's panel gets no worker-session text on goose.
 
+## Context and compaction
+
+Written for #792, from goose's v1.54.0 source. No model turn was run: all of this is read, not measured. #798 runs it.
+
+- The legacy reply loop is the default (`GOOSE_STATE_MACHINE` opts into a newer one), so `crates/goose/src/agents/agent.rs` and `execute_commands.rs` are the code that runs.
+- Auto-compaction is checked once, at the start of each turn, by `check_if_compaction_needed` in `crates/goose/src/context_mgmt/mod.rs`. It fires when the session's last request total divided by the context limit passes `GOOSE_AUTO_COMPACT_THRESHOLD`. The default is 0.8, and a value of 0 or of 1 and above turns it off.
+  - The context limit is `GOOSE_CONTEXT_LIMIT` when set, else the model's catalogue value, else 128000. Every call sets it to the server's `context`, so the arithmetic is on the real window.
+  - Kelpie sets the threshold to `compact_window / context` rounded up to four decimals, only when that is under 0.8, and never to 1 or more. Context 262144 with window 200000 gives 0.7630, and with 100000 gives 0.3815.
+  - goose compares the last request's total, completion included, so it compacts up to one completion past the window.
+- Inside one turn goose compacts only after the provider answers context-length-exceeded, at most twice, then stops with "Unable to continue". There is no compaction inside a long first turn short of that. Not run: how a local server's overflow error is classified (#798).
+- A compaction keeps the latest text-only user message after the summary (`compact_messages` with `manual_compact` false), so a compacted turn still holds its prompt. Kelpie hands nothing back.
+- `--text=/compact` is a slash command: `Agent::execute_command` runs `handle_compact_command`, compacts with `manual_compact` true, and answers with the assistant text `Compaction complete`. A failure answers with the error text instead. Either way the process exits 0, so the adapter reads the text: that text is a success, any other text is `Failed` carrying it, and no assistant message is `Unreadable`.
+- `message` events carry no token usage: goose attaches usage to a message after it has been printed, and the CLI ignores the `MessageUsage` event. The `complete` event is the only place tokens appear, and it is the session's running total across calls, a compaction's request included. So a call's usage is the totals after it less the totals before, and a compact call's usage is the compaction's request.
+- `goose session list --format json` prints each session with a `usage` object, which holds the last request's `input_tokens` (all prompt tokens, cached ones included) or, right after a compaction, the retained estimate. The list reads the `usage` columns without the conversation. That is a worker's context.
+  - goose picks its own session id and kelpie's id is the session's `name`, so the adapter finds the entry whose `id` is the call's session id, else the first whose `name` is.
+  - Unchecked guess: that `list` fills `usage` with a `GOOSE_PATH_ROOT` that holds one session. If it does not, the fallback is `goose session export --session-id <id> --format json`, which prints the same object with the conversation.
+  - The read runs after the call's process ends, in the call's sandbox and with its variables, and is bounded to 30 seconds. A failure of any kind is logged and leaves the context unset.
+  - A turn another image of the runner adopts after a handover reports no context: the new image holds no call to run the list for.
+
 ## Fixtures
 
 - `fixtures/goose-run-unreachable.jsonl` is goose's own output from the closed-port run, the temporary folder renamed.
-- `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. `fixtures/goose-run-refused.jsonl` is a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused, also by hand, with the shape of a tool request and its response read from the source. #798 replaces them with recordings, made by the ignored tests `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server` and `record_a_worker_whose_write_and_shell_the_fence_refuses`.
+- `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. `fixtures/goose-run-refused.jsonl` is a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused, also by hand, with the shape of a tool request and its response read from the source. `goose-compact.jsonl` (a `/compact` that compacted), `goose-compact-failed.jsonl` (one that printed an error), `goose-auto-compacted.jsonl` (a turn with three `systemNotification` messages and a `complete` total that includes the compaction) and `goose-session-list.json` are by hand too, from the source's shapes. #798 replaces them with recordings, made by the ignored tests `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server` and `record_a_worker_whose_write_and_shell_the_fence_refuses`.
 
 ## Not run yet (for #798)
 
@@ -187,3 +206,4 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - That goose starts without writing `<root>/config`.
 - Which session `--resume --name` picks when two share a name.
 - The retry delay on a refused connection and on a 502 or 503.
+- `/compact`'s answer and its failure text, the shape of the `systemNotification` messages, and the `usage` object `session list` prints, with the fallback above if it holds none.

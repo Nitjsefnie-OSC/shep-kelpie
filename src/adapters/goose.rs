@@ -37,13 +37,14 @@ use crate::fence;
 use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Kept,
-    Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Forward,
+    Kept, Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
 mod adopt;
+mod compact;
 mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
@@ -55,6 +56,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod compact_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -70,6 +74,9 @@ mod reading_tests;
 
 #[cfg(test)]
 mod escapes;
+
+#[cfg(test)]
+mod review_tests;
 
 #[cfg(test)]
 mod tests;
@@ -164,7 +171,8 @@ impl Agents for GooseCli {
         // worker is.
         match &call.reach.fence {
             Some(fence) if has_shell(call) || mcp::loads(call, &files) => {
-                hooks::write(&files, fence, reads(call), &mcp::held(call, &files)?)
+                let judging = judging(call, fence);
+                hooks::write(&files, fence, judging, &mcp::held(call, &files)?)
             }
             _ => Ok(()),
         }
@@ -209,12 +217,12 @@ impl Agents for GooseCli {
                     RunError::TimedOut => AgentError::TimedOut(GOOSE),
                 })
         })??;
-        let read = output::read(&output, &call.session, before);
+        let read = compact::read(call.prompt == COMPACT, &output, &call.session, before);
         // The session's totals grow whatever the call's reply was.
         if let Some(spent) = read.spent {
             files.keep(id, spent)?;
         }
-        read.reply
+        read.reply.map(|reply| self.with_context(call, reply))
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
@@ -298,6 +306,16 @@ impl GooseCli {
         call: &AgentCall,
         lease: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
+        self.wrapped_command(call, lease, argv(call)?)
+    }
+
+    // `goose` with `args`, in the call's sandbox and with its variables
+    fn wrapped_command(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+        args: Vec<OsString>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let server = server(call)?;
         let upstream = self.upstream(server)?;
         let upstream = match lease.filter(|_| call.role == Role::Worker) {
@@ -329,7 +347,7 @@ impl GooseCli {
         command
             .args(env_args(call, server, &files, &upstream))
             .arg(&self.program)
-            .args(argv(call)?)
+            .args(args)
             .current_dir(&call.cwd);
         let policy = policy(
             call,
@@ -453,6 +471,17 @@ fn reads(call: &AgentCall) -> bool {
         )
 }
 
+// What the call's hook lets it do. A reviewer whose fence has a folder to write was
+// asked for tests, and writes that folder alone. A retro's and an advisor's fence
+// can write too, which their hook must not use.
+fn judging<'a>(call: &AgentCall, fence: &'a crate::ports::Fence) -> hooks::Judging<'a> {
+    match (reads(call), call.tools, fence.write.first()) {
+        (false, _, _) => hooks::Judging::Work,
+        (true, Tools::Review, Some(folder)) => hooks::Judging::Tests(folder),
+        (true, _, _) => hooks::Judging::Reading,
+    }
+}
+
 // Whether goose offers the call its `developer` tools, behind the hook plugin.
 fn has_shell(call: &AgentCall) -> bool {
     works(call) || reads(call)
@@ -527,6 +556,7 @@ fn env_args(
         ));
     }
     vars.extend(web::env(call));
+    vars.extend(compact::threshold_var(call, server.context.get()));
     // The fence adds its variables, and none replaces one that closes a door.
     if let Some(fence) = &call.reach.fence {
         let own: Vec<String> = vars.iter().map(|(name, _)| name.clone()).collect();
@@ -549,6 +579,9 @@ fn env_args(
 // advisor or retro is given it on a new session ([`offers_developer`]), and only
 // a new session is given its servers.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
+    if let Some(compact) = compact::argv(call) {
+        return Ok(compact);
+    }
     let mut argv: Vec<OsString> = vec![
         "run".into(),
         "--no-profile".into(),

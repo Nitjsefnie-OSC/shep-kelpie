@@ -1,0 +1,8 @@
+    __( O)>  ● resuming · openai qwen3.8:27b
+   \____)    20261013_3 · /tmp/kelpie-goose
+     L L     goose is ready
+{"type":"message","message":{"id":"msg_e6a2c071-9d48-4b3f-a15e-2f0b8c7d3a96","role":"assistant","created":1791932400,"content":[{"type":"systemNotification","notificationType":"inlineMessage","msg":"Exceeded auto-compact threshold of 80%. Performing auto-compaction..."}],"metadata":{"userVisible":true,"agentVisible":false}}}
+{"type":"message","message":{"id":"msg_1d5f8b34-a7c0-4e92-9b16-d3e40a7c5f81","role":"assistant","created":1791932401,"content":[{"type":"systemNotification","notificationType":"thinkingMessage","msg":"goose is compacting the conversation..."}],"metadata":{"userVisible":true,"agentVisible":false}}}
+{"type":"message","message":{"id":"msg_8f3a6e10-5b2d-4c79-a0e4-7c19d2b6f053","role":"assistant","created":1791932419,"content":[{"type":"systemNotification","notificationType":"inlineMessage","msg":"Compaction complete"}],"metadata":{"userVisible":true,"agentVisible":false}}}
+{"type":"message","message":{"id":"msg_b92c4d78-0e16-4a3b-8f57-e1a6d30c9b24","role":"assistant","created":1791932440,"content":[{"type":"text","text":"The tests pass and the change is pushed."}],"metadata":{"userVisible":true,"agentVisible":true}}}
+{"type":"complete","total_tokens":47530,"input_tokens":45200,"output_tokens":2330,"cache_read_input_tokens":6000,"cache_write_input_tokens":0}

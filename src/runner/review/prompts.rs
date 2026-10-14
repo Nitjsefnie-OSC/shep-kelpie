@@ -203,6 +203,23 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
             paragraph.contains("`cargo test --test {name}`"),
             "{paragraph}"
         );
+
+        // A goose reviewer writes with `write`, the tool of its `developer` extension.
+        let tool = super::super::attached::writing_tool(crate::settings::Harness::Goose);
+        assert_eq!(tool, Some("write"));
+        let goose = reviewer_prompt(
+            &body,
+            "origin/main",
+            "D",
+            "#7 the issue",
+            None,
+            Some(("cargo test --test {name}", folder, tool.unwrap())),
+        );
+        assert!(
+            goose.contains("per finding with the write tool."),
+            "{goose}"
+        );
+        assert!(goose.contains("/k/targets/shep/7/review-tests"), "{goose}");
     }
 
     #[test]
