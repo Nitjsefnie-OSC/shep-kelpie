@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::board::READY;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::lease::LeaseKind;
-use crate::lease::wire::WindowFact;
+use crate::lease::wire::{AskerCarry, WindowFact};
 use crate::review_bot::{Activity, Login, Profile, ReviewWindow};
 use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
@@ -766,6 +766,12 @@ pub trait Leases: Send + Sync {
 
     /// Whether this run holds `kind`
     fn holds(&self, kind: &LeaseKind) -> bool;
+
+    /// What a handover carries so the next image counts on from this one's
+    /// totals, or `None` for a book that keeps none
+    fn keep(&self) -> Option<AskerCarry> {
+        None
+    }
 
     /// Gives `kind` back, or withdraws the ask
     fn give_back(&self, kind: &LeaseKind);

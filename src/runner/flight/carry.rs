@@ -18,6 +18,7 @@ use super::super::attach::live;
 use super::super::briefing::Watched;
 use super::super::in_flight::Open;
 use super::{End, Flight, News, Tell, unstarted, waiting};
+use crate::lease::wire::AskerCarry;
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
 use crate::settings::Harness;
 use crate::work_item::WorkItem;
@@ -102,6 +103,12 @@ impl Runner {
                 })
             })
             .collect()
+    }
+
+    /// The lease totals as the next image takes them up, if this runner's
+    /// leases keep any
+    pub fn carry_leases(&self) -> Option<AskerCarry> {
+        self.ports.leases.keep()
     }
 
     // The work items whose hold stands on a worker of `harness`, whose session in the

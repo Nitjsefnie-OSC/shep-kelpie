@@ -27,7 +27,10 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
-use crate::adapters::ClaudeCli;
+use crate::adapters::{ClaudeCli, ShepLeases};
+use crate::lease::Epoch;
+use crate::lease::saved::BookFile;
+use crate::lease::wire::{Asker, AskerCarry};
 use crate::runner::{CarriedTurn, Runner};
 
 /// The trigger that asks for a handover
@@ -50,14 +53,69 @@ const CHECK_WITHIN: Duration = Duration::from_secs(20);
 /// How often a handover held for a stdin feed looks again
 pub(super) const HOLD_POLL: Duration = Duration::from_millis(200);
 
-/// What crosses a handover: the worker turns in flight
+/// What crosses a handover: the worker turns in flight and the runner's
+/// lease totals
 // wire format: changing this is a change to the handover's state format
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Carry {
     turns: Vec<CarriedTurn>,
+    // Absent from a build that carried only the turns.
+    #[serde(default)]
+    leases: Option<AskerCarry>,
+}
+
+/// The lease side of a runner `epoch` of `sheep`, from the `Carry` it took
+/// over with if it took one
+pub(super) fn asker(carry: Option<&Carry>, epoch: Epoch, sheep: &str, book: &BookFile) -> Asker {
+    carry.map_or_else(|| Asker::new(epoch), |c| c.asker(epoch, sheep, book))
+}
+
+/// Takes up what the dog's book says a runner that took over holds, once it
+/// takes `grant` triggers
+///
+/// The dog saves a grant before it delivers one and never retries, so one
+/// that came after the book was read and before the handler was up is only
+/// in the book.
+pub(super) fn reconcile_grants(
+    handed_over: bool,
+    leases: &ShepLeases,
+    sheep: &str,
+    wake: &Sender<()>,
+) {
+    if handed_over {
+        leases.reconcile(sheep);
+        let _ = wake.send(());
+    }
 }
 
 impl Carry {
+    /// The lease side of the runner `epoch` of `sheep` in the new image: the
+    /// old image's totals, or for a build that carried none, the dog's saved
+    /// `book` for this run
+    ///
+    /// A grant can reach the old image after its totals were taken, so what
+    /// the book says the run holds is taken up either way.
+    pub(super) fn asker(&self, epoch: Epoch, sheep: &str, book: &BookFile) -> Asker {
+        let saved = match book.load() {
+            Ok(saved) => saved,
+            Err(e) => {
+                eprintln!("handover: not reading the dog's book for the lease totals, since {e}");
+                None
+            }
+        };
+        match (&self.leases, saved) {
+            (Some(carried), saved) => {
+                let mut asker = Asker::resume(epoch, carried.clone());
+                if let Some(saved) = saved {
+                    asker.reconcile(sheep, &saved);
+                }
+                asker
+            }
+            (None, Some(saved)) => Asker::from_book(epoch, sheep, &saved),
+            (None, None) => Asker::new(epoch),
+        }
+    }
+
     pub(super) fn into_turns(self) -> Vec<CarriedTurn> {
         self.turns
     }
@@ -69,7 +127,12 @@ impl Carry {
 }
 
 impl State for Carry {
-    const FORMAT: u32 = 4;
+    const FORMAT: u32 = 5;
+
+    // Format 4 is the same turns without the totals.
+    fn reads(format: u32) -> bool {
+        matches!(format, 4 | 5)
+    }
 }
 
 /// Replaces this image with the installed build carrying `carry`, and
@@ -211,7 +274,10 @@ impl Handing {
             return;
         }
         match held.carry_calls() {
-            Ok(turns) => refuse((self.exec)(&Carry { turns })),
+            Ok(turns) => {
+                let leases = held.carry_leases();
+                refuse((self.exec)(&Carry { turns, leases }))
+            }
             Err(why) => refuse(why),
         }
     }

@@ -3,14 +3,17 @@
 use std::sync::{Arc, Mutex};
 
 use super::{DONE_SETTLE, HEARD_WAIT};
-use crate::lease::LeaseKind;
-use crate::lease::wire::WindowFact;
+use crate::adapters::ShepLeases;
+use crate::lease::saved::BookFile;
+use crate::lease::wire::{Asker, WindowFact};
+use crate::lease::{Epoch, LeaseKind};
+use crate::ports::Leases;
 use crate::ports::{CLEAN, Finding, Severity, Timestamp};
 use crate::review_bot::{Activity, Bot, Comment, Login, Profile, Reading, Review, Status, Thread};
 use crate::runner::coderabbit::tests::now;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::AgentName;
-use crate::test::{Rig, Scripted, Told};
+use crate::test::{DogStandIn, Rig, Scripted, Told};
 
 const LABEL: &str = "stand-in please";
 const LOGIN: &str = "stand-in[bot]";
@@ -141,7 +144,10 @@ fn read_as_stand_in(rig: &Rig) {
 // rounds, which read it clean, the draft marked ready, and the stand-in
 // summoned.
 fn summoned(project: &str) -> (Rig, Mutex<Runner>, String) {
-    let rig = Rig::new(project);
+    summoned_in(Rig::new(project))
+}
+
+fn summoned_in(rig: Rig) -> (Rig, Mutex<Runner>, String) {
     rig.coderabbit_on();
     let runner = rig.open_with(vec![Arc::new(StandIn)]).unwrap();
     rig.ask(&runner, "add", Some("7"));
@@ -163,6 +169,30 @@ fn summoned(project: &str) -> (Rig, Mutex<Runner>, String) {
     assert_eq!(labels(&rig), [(71, LABEL.to_owned(), true)]);
     assert!(rig.leases.held(&stand_in()));
     (rig, runner, head)
+}
+
+// The runner's second image after a handover, whose first asked for the
+// stand-in's lease twice, so its dog has heard two. The dog acts only on a
+// total above the last it heard.
+#[test]
+fn a_bot_round_after_a_handover_gets_its_lease_and_summons() {
+    let rig = Rig::new("shep");
+    let (dog, epoch) = (Arc::new(DogStandIn::default()), Epoch(4242));
+    let book = BookFile::new(rig.home.path().join("book.json"));
+    let before = ShepLeases::new(dog.clone(), Asker::new(epoch), book.clone());
+    for _ in 0..2 {
+        before.want(&stand_in());
+        before.give_back(&stand_in());
+    }
+    // Its grants went to the first image.
+    dog.take_grants();
+    let asker = Asker::resume(epoch, before.keep());
+    let after = ShepLeases::new(dog.clone(), asker, book);
+    rig.leases.behind_a_dog(dog, Arc::new(after));
+
+    let (rig, _runner, _head) = summoned_in(rig);
+
+    assert!(rig.leases.held(&stand_in()), "the dog granted the lease");
 }
 
 #[test]
