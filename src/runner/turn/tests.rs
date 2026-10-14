@@ -934,6 +934,7 @@ fn the_turn_after_a_pause_resumes_the_session_with_a_fresh_ceiling() {
 
 mod browser;
 mod budget;
+mod dev_server;
 mod hand_over;
 mod held;
 mod pause_log;

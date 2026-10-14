@@ -409,12 +409,19 @@ enabled = false
 # and a project that turns it on without them gets a doctor line. `domains` is
 # a host, or `*.` and a parent for its subdomains. A port, an IP address and
 # `localhost` are refused: Chromium cannot hold a host to one port.
+# Kelpie also starts the project's dev server for each such turn, from
+# `.claude/launch.json` as `main` has it, in a sandbox of its own that reaches
+# `domains`, and stops it when the turn ends. The browser opens it at
+# `http://localhost:<port>` and no other local address. `configuration` names
+# the launch configuration to start, else the first one; a project with no
+# launch file on `main` gets none.
 # With `headed` on, the browser opens a window you can watch. macOS only: on
 # Linux an enabled table stops the runner when it starts.
 [app.dogs.kelpie.browser]
 enabled = false
 headed = false
 domains = []
+# configuration = "web"
 
 # A local round (a `command` or `endpoint` reviewer) writes its request and
 # reply under the work item's build folder, which goes when the work item

@@ -103,6 +103,12 @@ pub(crate) fn srt_settings(policy: &Policy) -> Value {
     if !policy.sockets.is_empty() {
         network["allowUnixSockets"] = json!(policy.sockets);
     }
+    if policy.listen {
+        network["allowLocalBinding"] = json!(true);
+    }
+    if !policy.services.is_empty() {
+        network["allowMachLookup"] = json!(policy.services);
+    }
     json!({
         "network": network,
         "filesystem": {
@@ -168,6 +174,21 @@ mod tests {
         assert_eq!(network["deniedResolvedAddresses"], json!(["192.0.2.9"]));
         let plain = &srt_settings(&Policy::default())["network"];
         assert!(plain.get("mitmProxy").is_none());
+    }
+
+    #[test]
+    fn a_policy_that_listens_binds_a_local_port_and_looks_up_its_services() {
+        let listening = Policy {
+            listen: true,
+            services: vec!["com.apple.FSEvents".into()],
+            ..Policy::default()
+        };
+        let network = &srt_settings(&listening)["network"];
+        assert_eq!(network["allowLocalBinding"], json!(true));
+        assert_eq!(network["allowMachLookup"], json!(["com.apple.FSEvents"]));
+        let plain = &srt_settings(&Policy::default())["network"];
+        assert!(plain.get("allowLocalBinding").is_none(), "{plain}");
+        assert!(plain.get("allowMachLookup").is_none(), "{plain}");
     }
 
     // A tools folder with the runtime, and with its keychain-free copy when `blocked`.

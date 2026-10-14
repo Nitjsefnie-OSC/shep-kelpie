@@ -74,7 +74,7 @@ impl Bridge {
     pub(crate) fn open(folder: &Path, mut server: Server, filter: Filter) -> Result<Self, String> {
         let socket = folder.join(format!("{}.sock", unguessable()?));
         crate::home::socket_fits(&socket)?;
-        let proxy = Proxy::open(Origins::new(&filter.domains))?;
+        let proxy = Proxy::open(Origins::new(&filter.domains).with_local(filter.dev_port))?;
         let config = server.cwd.join("config.json");
         std::fs::write(&config, launch(&filter.domains, &proxy).to_string())
             .map_err(|e| format!("cannot write {}: {e}", config.display()))?;

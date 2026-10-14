@@ -23,10 +23,17 @@ pub struct Browser {
     /// The hosts the browser may reach: a host, or `*.` and a parent for its
     /// subdomains. Every other host, and every IP address, fails to resolve.
     /// A port, an IP address and `localhost` are refused, since Chromium's
-    /// resolver cannot hold a host to one port and `localhost` waits on
-    /// shep-pm/shep-kelpie#861. Empty when absent, so the browser opens nothing.
+    /// resolver cannot hold a host to one port. The project's dev server is
+    /// reached on its own address, which is not listed here. Empty when
+    /// absent, so the browser opens nothing.
     #[serde(default, deserialize_with = "hosts")]
     pub domains: Vec<NonBlank>,
+    /// The name of the launch configuration in `.claude/launch.json` on `main`
+    /// that kelpie starts as the project's dev server for each worker turn
+    /// that has the browser. The first one when absent. Nothing starts when
+    /// `main` has no launch file.
+    #[serde(default)]
+    pub configuration: Option<NonBlank>,
 }
 
 // Reads `domains` as `worker.allowed_domains` is, then refuses what the browser's
@@ -56,7 +63,7 @@ fn hosts<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<NonBlank>, D:
         }
         if host == "localhost" || host.ends_with(".localhost") {
             return Err(refuse(
-                "the browser does not reach this machine yet (shep-pm/shep-kelpie#861)",
+                "the browser reaches the project's dev server on its own address, and no other local host",
             ));
         }
     }
@@ -121,6 +128,18 @@ mod tests {
         assert!(on.enabled && on.headed);
         let listed: Vec<&str> = on.domains.iter().map(NonBlank::as_str).collect();
         assert_eq!(listed, ["app.example.com", "*.example.com"]);
+    }
+
+    #[test]
+    fn the_launch_configuration_is_named_or_left_to_the_first() {
+        let none: Browser = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(none.configuration, None);
+        let named: Browser = serde_json::from_value(json!({ "configuration": "web" })).unwrap();
+        assert_eq!(
+            named.configuration.as_ref().map(NonBlank::as_str),
+            Some("web")
+        );
+        assert!(serde_json::from_value::<Browser>(json!({ "configuration": " " })).is_err());
     }
 
     #[test]

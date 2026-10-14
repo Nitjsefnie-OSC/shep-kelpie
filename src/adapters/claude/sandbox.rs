@@ -116,6 +116,8 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
         // Without it, `gh` fails TLS verification on macOS: x509 OSStatus -26276.
         verify_tls: true,
         no_keychain: false,
+        listen: false,
+        services: Vec::new(),
     }
 }
 

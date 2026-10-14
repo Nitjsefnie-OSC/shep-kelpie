@@ -66,6 +66,15 @@ impl World {
 // `local.example.test`, which resolves to this machine. `answer` is what the
 // origin the dials land on says to what it hears.
 fn world(limits: Limits, answer: fn(&[u8]) -> Vec<u8>) -> (World, thread::JoinHandle<Vec<u8>>) {
+    world_local(limits, answer, None)
+}
+
+// The same, for a turn whose dev server is on `local`.
+fn world_local(
+    limits: Limits,
+    answer: fn(&[u8]) -> Vec<u8>,
+    local: Option<u16>,
+) -> (World, thread::JoinHandle<Vec<u8>>) {
     let origin = TcpListener::bind((HOST, 0)).unwrap();
     let names = HashMap::from([
         ("app.example.test".to_owned(), vec![PUBLIC.parse().unwrap()]),
@@ -91,7 +100,7 @@ fn world(limits: Limits, answer: fn(&[u8]) -> Vec<u8>) -> (World, thread::JoinHa
         "*.cdn.example.test",
         "local.example.test",
     ];
-    let origins = Origins::new(&listed.map(str::to_owned));
+    let origins = Origins::new(&listed.map(str::to_owned)).with_local(local);
     let proxy =
         Proxy::open_with(origins, Arc::clone(&outside) as Arc<dyn Outside>, limits).unwrap();
     // Hears one connection until it ends, answers once, and returns what it heard.
@@ -169,6 +178,74 @@ fn another_port_on_a_listed_host_is_refused_and_never_dialed() {
 fn localhost_on_an_unlisted_port_is_refused() {
     let (world, _origin) = world(limits(), pong);
     let reply = world.ask(b"CONNECT localhost:3000 HTTP/1.1\r\n\r\n");
+    assert!(status(&reply).contains("403"), "{reply}");
+    assert!(world.dialed().is_empty());
+}
+
+#[test]
+fn the_dev_servers_address_is_dialed_on_the_loopback_on_its_port_only() {
+    let (world, origin) = world_local(limits(), pong, Some(4421));
+    let mut stream = world.connect();
+    stream
+        .write_all(b"CONNECT localhost:4421 HTTP/1.1\r\nHost: localhost:4421\r\n\r\n")
+        .unwrap();
+    let mut established = String::new();
+    let mut lines = BufReader::new(stream.try_clone().unwrap());
+    while !established.ends_with("\r\n\r\n") {
+        lines.read_line(&mut established).unwrap();
+    }
+    assert!(established.starts_with("HTTP/1.1 200"), "{established}");
+    stream.write_all(b"ping").unwrap();
+    let mut back = [0u8; 4];
+    lines.read_exact(&mut back).unwrap();
+    assert_eq!(&back, b"pong");
+    assert_eq!(origin.join().unwrap(), b"ping");
+    assert_eq!(
+        world.dialed(),
+        [SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 4421)],
+        "no lookup, and the loopback only"
+    );
+}
+
+#[test]
+fn a_request_to_the_dev_server_is_sent_on_in_its_own_form() {
+    let (world, origin) = world_local(
+        limits(),
+        |_| b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi".to_vec(),
+        Some(4421),
+    );
+    let reply =
+        world.ask(b"GET http://127.0.0.1:4421/app?x=1 HTTP/1.1\r\nAccept: text/html\r\n\r\n");
+    assert!(reply.starts_with("HTTP/1.1 200 OK"), "{reply}");
+    let heard = String::from_utf8(origin.join().unwrap()).unwrap();
+    assert!(heard.starts_with("GET /app?x=1 HTTP/1.1\r\n"), "{heard}");
+    assert!(heard.contains("Host: 127.0.0.1:4421\r\n"), "{heard}");
+}
+
+#[test]
+fn every_other_local_address_and_port_is_refused_beside_the_dev_server() {
+    let (world, _origin) = world_local(limits(), pong, Some(4421));
+    for target in [
+        "localhost:3000",
+        "localhost:443",
+        "127.0.0.1:3000",
+        "[::1]:4421",
+        "0.0.0.0:4421",
+        "10.0.0.5:4421",
+        "local.example.test:4421",
+        "evil.localhost:4421",
+    ] {
+        let request = format!("CONNECT {target} HTTP/1.1\r\n\r\n");
+        let reply = world.ask(request.as_bytes());
+        assert!(status(&reply).contains("403"), "{target}: {reply}");
+    }
+    assert!(world.dialed().is_empty(), "{:?}", world.dialed());
+}
+
+#[test]
+fn a_turn_without_a_dev_server_dials_no_local_address() {
+    let (world, _origin) = world(limits(), pong);
+    let reply = world.ask(b"CONNECT localhost:4421 HTTP/1.1\r\n\r\n");
     assert!(status(&reply).contains("403"), "{reply}");
     assert!(world.dialed().is_empty());
 }

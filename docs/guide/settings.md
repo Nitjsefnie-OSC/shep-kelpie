@@ -37,11 +37,13 @@ A project can let its worker look at the UI it builds. Kelpie runs a browser out
 enabled = true
 headed = false
 domains = ["pokemon-go-api.github.io", "*.leekduck.com"]
+configuration = "web"   # optional: the launch configuration to start
 ```
 
 - `shep kelpie tools install` installs the Playwright MCP server and Chromium under `<kelpie home>/tools`, and a project that turns the browser on without them gets a MISSING `browser` line in `doctor`.
 - The worker's working turns on Claude Code and pi have it, as the `playwright` server. A reviewer, the project manager, the advisor, the researcher and `attach` do not, and Codex and goose do not yet.
-- Chromium resolves only `domains`. Every other host and every IP address fails to resolve, and the filter refuses a URL that is not `http` or `https` to one of them. An entry with a port, an IP address or `localhost` is refused when the settings load: Chromium's resolver rules name hosts and cannot hold one to a port, and `localhost` waits on shep-pm/shep-kelpie#861. A tool call that names a `filename` is refused, and a screenshot comes back in the tool's reply.
+- Chromium resolves only `domains`. Every other host and every IP address fails to resolve, and the filter refuses a URL that is not `http` or `https` to one of them. An entry with a port, an IP address or `localhost` is refused when the settings load: Chromium's resolver rules name hosts and cannot hold one to a port. A tool call that names a `filename` is refused, and a screenshot comes back in the tool's reply.
+- Kelpie starts the project's dev server for each such turn from `.claude/launch.json` as `main` has it, never the worktree's copy, and stops it when the turn ends. `configuration` names the launch configuration, else the first one. The server runs in a sandbox of its own that reaches `domains`, on the configured `port` when it is free or a picked one under `autoPort`. The browser opens it at `http://localhost:<port>` and no other local address. A project with no launch file on `main` gets no server, and a server that does not answer in 60 seconds leaves the turn running, with its log in the work item's build folder.
 - `headed = true` opens a window you can watch.
 - macOS only. On Linux an enabled table stops the runner when it starts, naming shep-pm/shep-kelpie#135.
 - A handover waits while a worker's turn holds a browser, since the browser lives in the running image.

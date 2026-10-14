@@ -19,6 +19,7 @@ use std::time::Duration;
 use super::Runner;
 use super::alert::post_due;
 use super::briefing::{Watched, brief};
+use super::dev_server;
 use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
@@ -599,12 +600,20 @@ impl Runner {
         let held = flight.ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
         let notes = self.notes.clone();
+        let servers = Arc::clone(&self.ports.dev_servers);
+        let dev = match &launch {
+            Launch::Turn { call, .. } => self.dev_run(call),
+            Launch::Review(_) => None,
+        };
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| match launch {
                 // A covered worker's token lasts an hour, a call may not.
                 Launch::Turn { mut call, .. } => {
                     // Here, with the runner's lock let go, since an index takes a while.
                     super::code_graph::indexed(&mut call, &notes, &held);
+                    // Started here too, and stopped when the call returns, however it ends.
+                    let _server = (dev.as_ref())
+                        .and_then(|run| dev_server::started(servers.as_ref(), run, &call, &notes));
                     let build = login_refresh::covered_build(&call);
                     End::Turn(login_refresh::while_running(
                         voice.as_ref(),

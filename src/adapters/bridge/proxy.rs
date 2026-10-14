@@ -12,7 +12,9 @@
 
 use std::collections::HashMap;
 use std::io::{self, BufReader, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs,
+};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -50,6 +52,8 @@ const HOST_QUOTED: usize = 100;
 pub(crate) struct Origins {
     // As `browser.domains` lists them: a host, or `*.` and a parent, in lower case.
     domains: Vec<String>,
+    // The one port of the turn's dev server, on this machine's loopback.
+    local: Option<u16>,
 }
 
 impl Origins {
@@ -57,7 +61,25 @@ impl Origins {
     pub(crate) fn new(domains: &[String]) -> Self {
         Self {
             domains: domains.iter().map(|d| d.to_ascii_lowercase()).collect(),
+            local: None,
         }
+    }
+
+    /// The same, and `localhost` and `127.0.0.1` on `port`, which are dialed on
+    /// the loopback without a lookup
+    pub(crate) fn with_local(self, port: Option<u16>) -> Self {
+        Self {
+            local: port,
+            ..self
+        }
+    }
+
+    // Whether `host` on `port` is the dev server's address. The name is read,
+    // never resolved, so no lookup can send it elsewhere.
+    fn is_local(&self, host: &str, port: u16) -> bool {
+        let host = host.to_ascii_lowercase();
+        let host = host.strip_suffix('.').unwrap_or(&host);
+        self.local == Some(port) && crate::browse::LOCAL.contains(&host)
     }
 
     // Whether `host` on `port` is listed. A host that is not plain letters, digits,
@@ -319,10 +341,13 @@ fn exchange(client: &mut TcpStream, shared: &Shared, id: u64) -> Result<(), Repl
     let mut reader = BufReader::new(timed);
     let head = Head::read(&mut reader)?;
     let (host, port, ask) = aim(&head)?;
-    if !shared.origins.lists(&host, port) {
+    let mut upstream = if shared.origins.is_local(&host, port) {
+        dial_local(shared, port)?
+    } else if shared.origins.lists(&host, port) {
+        dial(shared, &host, port)?
+    } else {
         return Err(refused(shared, &host, port, "not a listed origin"));
-    }
-    let mut upstream = dial(shared, &host, port)?;
+    };
     // Listed under the lock a stop takes, so a stop either sees this stream or is seen here.
     {
         let mut listed = shared.open.lock().unwrap_or_else(PoisonError::into_inner);
@@ -427,6 +452,24 @@ fn authority(text: &str, default: Option<u16>) -> Option<(String, u16)> {
         (None, Some(port)) => (text, port),
     };
     (!host.is_empty() && !host.contains(['[', ']', '@', ':'])).then(|| (host.to_owned(), port))
+}
+
+// Connects to the dev server on this machine's loopback, on either address it may listen on.
+fn dial_local(shared: &Shared, port: u16) -> Result<TcpStream, Reply> {
+    let mut last = io::Error::from(io::ErrorKind::NotFound);
+    for address in [
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ] {
+        match shared.outside.connect(SocketAddr::new(address, port)) {
+            Ok(stream) => return Ok(stream),
+            Err(e) => last = e,
+        }
+    }
+    Err(Reply::new(
+        502,
+        format!("kelpie could not reach the dev server: {}", last.kind()),
+    ))
 }
 
 // Resolves `host`, refusing a name that reaches this machine or its network, and

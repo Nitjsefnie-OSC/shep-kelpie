@@ -6,7 +6,7 @@
 //! instructions, read once when the runner starts.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::owner_template::OwnerTemplate;
 use crate::profile;
@@ -49,6 +49,17 @@ pub(super) struct Extra<'a> {
     pub(super) owner_template: Option<&'a OwnerTemplate>,
     /// The hosts of the project's browser, when the turn is given one
     pub(super) browser: Option<&'a [NonBlank]>,
+    /// The project's dev server kelpie runs for the turn, or why it runs none
+    pub(super) dev_server: Option<&'a DevServer>,
+}
+
+/// What a worker with a browser is told of the project's dev server
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum DevServer {
+    /// Kelpie runs it on `port` for this turn, and its output goes to `log`
+    At { port: u16, log: PathBuf },
+    /// Kelpie runs none, for this reason
+    Without(String),
 }
 
 /// The command that runs the project's end-to-end tests, for the prompt of a worker told of it
@@ -107,6 +118,9 @@ pub(super) fn compose(
     }
     if let Some(hosts) = extra.browser {
         lines.push(browser_line(hosts));
+        if let Some(server) = extra.dev_server {
+            lines.push(dev_server_line(server));
+        }
     }
     if !lines.is_empty() {
         text.push('\n');
@@ -149,6 +163,23 @@ fn browser_line(hosts: &[NonBlank]) -> String {
          and a screenshot comes back in the tool's reply. Wait for a page in the \
          foreground, since a turn that ends on a background task is never woken.\n"
     )
+}
+
+// Told when the turn has a browser and the project has a dev server to look at
+fn dev_server_line(server: &DevServer) -> String {
+    match server {
+        DevServer::At { port, log } => format!(
+            "Your sandbox cannot run a dev server either, so kelpie runs the project's for this \
+             turn and stops it when the turn ends. The browser opens it at \
+             `http://localhost:{port}` and no other local address. Its output is in `{}`: read \
+             it if a page does not load.\n",
+            log.display()
+        ),
+        DevServer::Without(why) => format!(
+            "Kelpie runs no dev server for this turn: {why}. The browser opens no local \
+             address.\n"
+        ),
+    }
 }
 
 // Told while the retro runs, so the project manager's batch retro has the
