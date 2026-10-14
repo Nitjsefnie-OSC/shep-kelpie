@@ -4,7 +4,8 @@
 //! the sandbox may connect to that path alone. Connections are served one at
 //! a time, each by a fresh server that stops when it ends. Every line goes
 //! through the [`Filter`] on its way in and out. Dropping the [`Bridge`] stops
-//! the server and removes the socket.
+//! the server and removes the socket. What a server prints on stderr, and why
+//! one could not start, go to `server.log` in its folder.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -21,6 +22,9 @@ use std::time::Duration;
 use super::forwarder::unguessable;
 use super::process::stop_child;
 use crate::bridge::{Filter, Passage};
+
+/// The file in a server's folder that its stderr and failures to start are appended to
+const LOG: &str = "server.log";
 
 /// How long a server gets to end on SIGTERM before its group is killed
 const GRACE: Duration = Duration::from_secs(5);
@@ -112,16 +116,32 @@ fn serve(
     serving: &Mutex<Option<UnixStream>>,
     stopping: &AtomicBool,
 ) {
+    let log = server.cwd.join(LOG);
+    let appending = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log);
     let spawned = crate::spawn::command(&server.command)
         .args(&server.args)
         .envs(&server.env)
         .current_dir(&server.cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(appending.map_or_else(|_| Stdio::null(), Stdio::from))
         .process_group(0)
         .spawn();
-    let Ok(mut child) = spawned else { return };
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(e) => {
+            let said = format!("cannot start {}: {e}\n", server.command.display());
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log)
+                .and_then(|mut file| file.write_all(said.as_bytes()));
+            return;
+        }
+    };
     let (Ok(back), Ok(held)) = (stream.try_clone(), stream.try_clone()) else {
         stop_child(&mut child, GRACE);
         return;

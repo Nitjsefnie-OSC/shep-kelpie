@@ -116,3 +116,21 @@ fn a_project_whose_tools_lack_the_browser_runs_without_one_and_a_note_says_to_in
     assert!(note.contains("issue #7's worker"), "{note}");
     assert!(note.contains("shep kelpie tools install"), "{note}");
 }
+
+#[test]
+fn a_turn_whose_call_cannot_be_prepared_leaves_no_socket_behind() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    // A folder where the call's settings file goes, so writing it fails.
+    fs::create_dir_all(rig.paths().worker.join("settings-7.json")).unwrap();
+    let _ = step(&runner);
+
+    let sockets = fs::read_dir(rig.paths().worker).unwrap();
+    let left: Vec<_> = (sockets.flatten().map(|e| e.file_name()))
+        .filter(|name| name.to_string_lossy().ends_with(".sock"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}

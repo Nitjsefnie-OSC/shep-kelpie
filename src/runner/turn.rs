@@ -663,10 +663,11 @@ impl Runner {
         }
         self.with_code_graph(&mut call);
         self.with_browser(&mut call)?;
-        self.ports
-            .agents
-            .prepare(&call)
-            .map_err(|e| e.to_string())?;
+        if let Err(e) = self.ports.agents.prepare(&call) {
+            // No flight will take the bridge `with_browser` opened.
+            drop(self.opened.take(call.issue));
+            return Err(e.to_string());
+        }
         Ok(call)
     }
 

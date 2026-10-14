@@ -134,3 +134,38 @@ fn dropping_the_bridge_stops_the_server_and_removes_the_socket() {
     assert!(!running(&pid), "the server outlived the bridge");
     assert!(!socket.exists());
 }
+
+// Serves one connection of `server` over a pair of sockets, which binds nothing.
+fn served_once(server: &Server) {
+    let (near, far) = UnixStream::pair().unwrap();
+    drop(far);
+    let held = Mutex::new(None);
+    serve(
+        near,
+        server,
+        &Filter::default(),
+        &held,
+        &AtomicBool::new(false),
+    );
+}
+
+#[test]
+fn a_server_that_cannot_start_is_named_in_its_log() {
+    let (dir, mut server) = world();
+    server.command = dir.path().join("no-such-node");
+    served_once(&server);
+    let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
+    assert!(log.contains("cannot start"), "{log}");
+    assert!(log.contains("no-such-node"), "{log}");
+}
+
+#[test]
+fn what_a_server_prints_on_stderr_is_kept_in_its_log() {
+    let (dir, mut server) = world();
+    let script = dir.path().join("crashes");
+    crate::test::write_script(&script, "#!/bin/sh\necho 'Error: no browser' >&2\nexit 1\n");
+    server.command = script;
+    served_once(&server);
+    let log = std::fs::read_to_string(server.cwd.join("server.log")).unwrap();
+    assert!(log.contains("Error: no browser"), "{log}");
+}
