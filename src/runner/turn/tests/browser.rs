@@ -98,6 +98,27 @@ fn a_codex_worker_turn_on_a_project_with_the_browser_on_gets_one_and_is_told_of_
 }
 
 #[test]
+fn a_goose_worker_turn_on_a_project_with_the_browser_on_gets_one_and_is_told_of_it() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let agent = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                 url: http://box:11434/v1\ncontext: 65536\n---\nWork.\n";
+    rig.write_agent("goose-box", agent);
+    rig.implementers(&["goose-box"]);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+
+    let seen = rig.claude.all_seen();
+    let worker = seen.iter().find(|s| s.call.role == Role::Worker).unwrap();
+    assert!(matches!(worker.call.harness, AgentHarness::Goose(_)));
+    assert!(worker.call.reach.browser.is_some());
+    assert!(instructions_of(worker).contains("`playwright` MCP server"));
+}
+
+#[test]
 fn a_project_whose_tools_lack_the_browser_runs_without_one_and_a_note_says_to_install() {
     let rig = Rig::new("shep");
     turn_on(&rig);

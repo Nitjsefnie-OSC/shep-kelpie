@@ -161,8 +161,7 @@ impl AgentHarness {
     pub fn drives_a_browser(&self) -> bool {
         // parity: harness.browser
         match self {
-            Self::ClaudeCode | Self::Pi(_) | Self::Codex => true,
-            Self::Goose(_) => false,
+            Self::ClaudeCode | Self::Pi(_) | Self::Codex | Self::Goose(_) => true,
             #[cfg(test)]
             Self::StandIn => true,
         }

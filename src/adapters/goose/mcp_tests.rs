@@ -13,7 +13,7 @@ use super::*;
 use crate::guard::{Checkout, GOOSE_SERVER_FLAG, goose_server_flags, judge_goose};
 use crate::hooks::Hooks;
 use crate::local_paths::LocalPaths;
-use crate::ports::{CodeGraph, Reach};
+use crate::ports::{Browser, CodeGraph, Reach};
 
 fn graph() -> CodeGraph {
     CodeGraph {
@@ -528,6 +528,48 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
     let plain = policy_of(&call);
     assert_eq!(plain.write, without.write);
     assert_eq!(plain.read, without.read);
+}
+
+#[test]
+fn a_new_session_with_a_browser_loads_playwright_and_the_sandbox_connects_only_to_its_socket() {
+    let w = World::new();
+    let socket = w.path("0123456789abcdef0123456789abcdef.sock");
+    let policy_of = |call: &AgentCall| {
+        let goose = ClaudeCli::default().goose();
+        let upstream = goose.upstream(server(call).unwrap()).unwrap();
+        let files = Files::of(&call.settings);
+        policy(call, &files, &upstream, &w.path("forwarder.sock"), &[])
+    };
+    let mut call = worker(&w, Session::New(id(FRESH_ID)), json!({}), None);
+    let without = policy_of(&call);
+    let argv_without = strings(&call);
+    call.reach.browser = Some(Box::new(Browser {
+        kelpie: "/k/kelpie".into(),
+        socket: socket.clone(),
+    }));
+    let with = policy_of(&call);
+    let argv_with = strings(&call);
+
+    assert!(!without.sockets.contains(&socket));
+    assert!(server_flags(&argv_without).is_empty(), "{argv_without:?}");
+    let new: Vec<_> = with
+        .sockets
+        .iter()
+        .filter(|s| !without.sockets.contains(s))
+        .collect();
+    assert_eq!(new, [&socket]);
+    // Read back the way goose reads it, the server carries the socket the sandbox allows.
+    let flags = server_flags(&argv_with);
+    assert_eq!(flags.len(), 1, "{argv_with:?}");
+    assert_eq!(flags[0].0, "--with-extension");
+    let (name, _, command, args) = goose_reads(&flags[0].1);
+    assert_eq!(name.as_deref(), Some("playwright"));
+    assert_eq!(command, "/k/kelpie");
+    assert_eq!(args, ["mcp-connect", socket.to_str().unwrap()]);
+
+    // A resumed session keeps the set it began with.
+    call.session = Session::Resume(id(FRESH_ID));
+    assert!(server_flags(&strings(&call)).is_empty());
 }
 
 #[test]

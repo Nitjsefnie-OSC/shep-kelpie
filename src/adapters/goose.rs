@@ -674,6 +674,7 @@ fn policy(
             .chain(call.reach.read.iter().cloned()),
     );
     crate::adapters::mcp::fence_the_graph(&mut policy, call);
+    crate::adapters::mcp::fence_the_browser(&mut policy, call);
     web::open(call, &mut policy);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
