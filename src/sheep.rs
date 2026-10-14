@@ -171,7 +171,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let mut look = Look::new(
         Arc::clone(&dial),
         shep_home.clone(),
-        sheep,
+        sheep.clone(),
         look::Sources {
             folder: paths.folder.clone(),
             agents: paths.agents.clone(),
@@ -207,7 +207,11 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
     let reviewer = LocalReviewer::default().with_gateways(gateways.clone());
     let epoch = Epoch(u64::from(std::process::id()));
     let book = BookFile::new(kelpie_home.join(crate::dog::BOOK));
-    let leases = Arc::new(ShepLeases::new(shepherd.clone(), Asker::new(epoch), book));
+    let asker = match &arrival {
+        Some(arrival) => arrival.state.asker(epoch, &sheep, &book),
+        None => Asker::new(epoch),
+    };
+    let leases = Arc::new(ShepLeases::new(Arc::new(shepherd.clone()), asker, book));
     let app_tokens = Arc::new(AppTokens::new(
         Apps::under(&kelpie_home),
         Box::new(CurlGithub),

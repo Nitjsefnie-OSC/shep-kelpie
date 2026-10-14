@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::FakeClock;
+use crate::adapters::{Metrics, ShepLeases};
 use crate::lease::book::LeaseBook;
-use crate::lease::wire::WindowFact;
+use crate::lease::wire::{MetricName, Total, WindowFact, grant_params};
 use crate::lease::{Epoch, Holder, LeaseKind};
 use crate::ports::{Leases, Timestamp};
 use crate::review_bot::{ReviewWindow, Reviewers};
@@ -25,8 +26,61 @@ pub(crate) enum Told {
     Window(WindowFact, u64),
 }
 
+/// The dog as the desk plays it: it acts on a total only when it is above the
+/// last it saw from that run, and grants a kind that a run asks for
+#[derive(Debug, Default)]
+pub(crate) struct DogStandIn {
+    seen: Mutex<BTreeMap<(LeaseKind, Epoch, u8), u64>>,
+    grants: Mutex<Vec<(LeaseKind, Epoch)>>,
+}
+
+impl DogStandIn {
+    /// Whether the dog takes `epoch` to be asking for `kind`
+    pub(crate) fn asking(&self, kind: &LeaseKind, epoch: Epoch) -> bool {
+        let seen = self.seen.lock().unwrap();
+        let total = |t: Total| seen.get(&(kind.clone(), epoch, t as u8)).copied();
+        total(Total::Want) > total(Total::Return)
+    }
+
+    /// The grants the dog made since they were last taken, which it delivers
+    /// to the runner they were for
+    pub(crate) fn take_grants(&self) -> Vec<(LeaseKind, Epoch)> {
+        std::mem::take(&mut *self.grants.lock().unwrap())
+    }
+}
+
+impl Metrics for DogStandIn {
+    fn metric(&self, name: String, value: f64) {
+        let Some(metric) = MetricName::parse(&name) else {
+            return;
+        };
+        let value = value as u64;
+        let key = (metric.kind.clone(), metric.epoch, metric.total as u8);
+        let mut seen = self.seen.lock().unwrap();
+        if seen.get(&key).is_some_and(|last| value <= *last) {
+            return;
+        }
+        seen.insert(key, value);
+        drop(seen);
+        if metric.total == Total::Want && self.asking(&metric.kind, metric.epoch) {
+            self.grants
+                .lock()
+                .unwrap()
+                .push((metric.kind, metric.epoch));
+        }
+    }
+}
+
+// The runner's real lease adapter over a dog stand-in.
+#[derive(Debug, Clone)]
+struct BehindADog {
+    dog: Arc<DogStandIn>,
+    leases: Arc<ShepLeases>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FakeLeases {
+    behind: Arc<Mutex<Option<BehindADog>>>,
     told: Arc<Mutex<Vec<Told>>>,
     held: Arc<Mutex<BTreeSet<LeaseKind>>>,
     withheld: Arc<AtomicBool>,
@@ -36,6 +90,16 @@ pub(crate) struct FakeLeases {
 }
 
 impl FakeLeases {
+    /// Answers through `leases`, the runner's real adapter, raising its
+    /// metrics to `dog` and taking the grants the dog makes at once
+    pub(crate) fn behind_a_dog(&self, dog: Arc<DogStandIn>, leases: Arc<ShepLeases>) {
+        *self.behind.lock().unwrap() = Some(BehindADog { dog, leases });
+    }
+
+    fn dog(&self) -> Option<BehindADog> {
+        self.behind.lock().unwrap().clone()
+    }
+
     /// Everything the runner told the dog, oldest first
     pub(crate) fn told(&self) -> Vec<Told> {
         self.told.lock().unwrap().clone()
@@ -84,6 +148,9 @@ impl FakeLeases {
 
     /// Whether the runner holds `kind` now
     pub(crate) fn held(&self, kind: &LeaseKind) -> bool {
+        if let Some(behind) = self.dog() {
+            return behind.leases.holds(kind);
+        }
         if let Some((book, me)) = self.book.lock().unwrap().as_ref() {
             return book.holder(kind) == Some(me);
         }
@@ -94,6 +161,13 @@ impl FakeLeases {
 impl Leases for FakeLeases {
     fn want(&self, kind: &LeaseKind) {
         self.told.lock().unwrap().push(Told::Want(kind.clone()));
+        if let Some(BehindADog { dog, leases }) = self.dog() {
+            leases.want(kind);
+            for (kind, epoch) in dog.take_grants() {
+                let _ = leases.grant(&grant_params(&kind, epoch));
+            }
+            return;
+        }
         if let Some((book, me)) = self.book.lock().unwrap().as_mut() {
             book.ask(kind, me.clone());
             book.tick();
@@ -110,6 +184,13 @@ impl Leases for FakeLeases {
     }
 
     fn give_back(&self, kind: &LeaseKind) {
+        if let Some(BehindADog { leases, .. }) = self.dog() {
+            if leases.holds(kind) {
+                self.told.lock().unwrap().push(Told::Return(kind.clone()));
+            }
+            leases.give_back(kind);
+            return;
+        }
         let returned = match self.book.lock().unwrap().as_mut() {
             Some((book, me)) => {
                 let held = book.holder(kind) == Some(&*me);
@@ -124,6 +205,9 @@ impl Leases for FakeLeases {
     }
 
     fn window(&self, kind: &LeaseKind, fact: WindowFact, value: u64) {
+        if let Some(BehindADog { leases, .. }) = self.dog() {
+            leases.window(kind, fact, value);
+        }
         if let Some((book, _)) = self.book.lock().unwrap().as_mut() {
             let at = Timestamp(value);
             let _ = match fact {

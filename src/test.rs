@@ -54,7 +54,7 @@ pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use home::Home;
-pub(crate) use leases::{FakeLeases, Told};
+pub(crate) use leases::{DogStandIn, FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};

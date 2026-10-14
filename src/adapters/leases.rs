@@ -1,15 +1,28 @@
 //! The runner's side of the dog's leases, raised as channel metrics
 
-use std::sync::{Mutex, PoisonError};
+use std::fmt;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use shep_channel::Shepherd;
 
 use crate::lease::LeaseKind;
 use crate::lease::saved::BookFile;
 use crate::lease::window::Window;
-use crate::lease::wire::{Asker, GrantError, WindowFact};
+use crate::lease::wire::{Asker, AskerCarry, GrantError, WindowFact};
 use crate::ports::{Leases, Timestamp};
 use crate::review_bot::ReviewWindow;
+
+/// Where a runner raises its metrics
+pub trait Metrics: fmt::Debug + Send + Sync {
+    /// Raises one metric
+    fn metric(&self, name: String, value: f64);
+}
+
+impl Metrics for Shepherd {
+    fn metric(&self, name: String, value: f64) {
+        Shepherd::metric(self, name, value);
+    }
+}
 
 /// Leases asked for over this runner's shepherd channel
 ///
@@ -18,7 +31,7 @@ use crate::review_bot::ReviewWindow;
 /// book file, which the dog saves after every change.
 #[derive(Debug)]
 pub struct ShepLeases {
-    shepherd: Shepherd,
+    shepherd: Arc<dyn Metrics>,
     asker: Mutex<Asker>,
     book: BookFile,
 }
@@ -26,7 +39,7 @@ pub struct ShepLeases {
 impl ShepLeases {
     /// This run's side, raising its metrics through `shepherd`, and reading
     /// the dog's `book`
-    pub fn new(shepherd: Shepherd, asker: Asker, book: BookFile) -> Self {
+    pub fn new(shepherd: Arc<dyn Metrics>, asker: Asker, book: BookFile) -> Self {
         Self {
             shepherd,
             asker: Mutex::new(asker),
@@ -42,6 +55,12 @@ impl ShepLeases {
     /// a kind this run is not asking for.
     pub fn grant(&self, params: &str) -> Result<LeaseKind, GrantError> {
         self.asker().grant(params)
+    }
+
+    /// What the next image of this runner takes up to go on from where this
+    /// one left off
+    pub fn keep(&self) -> AskerCarry {
+        self.asker().keep()
     }
 
     // Nothing holding the asker can leave it half changed.
@@ -66,6 +85,10 @@ impl Leases for ShepLeases {
 
     fn holds(&self, kind: &LeaseKind) -> bool {
         self.asker().holds(kind)
+    }
+
+    fn keep(&self) -> Option<AskerCarry> {
+        Some(ShepLeases::keep(self))
     }
 
     fn give_back(&self, kind: &LeaseKind) {

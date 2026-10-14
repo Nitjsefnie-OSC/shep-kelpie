@@ -28,6 +28,9 @@ use serde::{Deserialize, Serialize};
 use shep_handover::{Handover, State, Verdict};
 
 use crate::adapters::ClaudeCli;
+use crate::lease::Epoch;
+use crate::lease::saved::BookFile;
+use crate::lease::wire::{Asker, AskerCarry};
 use crate::runner::{CarriedTurn, Runner};
 
 /// The trigger that asks for a handover
@@ -50,14 +53,35 @@ const CHECK_WITHIN: Duration = Duration::from_secs(20);
 /// How often a handover held for a stdin feed looks again
 pub(super) const HOLD_POLL: Duration = Duration::from_millis(200);
 
-/// What crosses a handover: the worker turns in flight
+/// What crosses a handover: the worker turns in flight and the runner's
+/// lease totals
 // wire format: changing this is a change to the handover's state format
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Carry {
     turns: Vec<CarriedTurn>,
+    // Absent from a build that carried only the turns.
+    #[serde(default)]
+    leases: Option<AskerCarry>,
 }
 
 impl Carry {
+    /// The lease side of the runner `epoch` of `sheep` in the new image: the
+    /// old image's totals, or for a build that carried none, the dog's saved
+    /// `book` for this run
+    pub(super) fn asker(&self, epoch: Epoch, sheep: &str, book: &BookFile) -> Asker {
+        if let Some(carried) = &self.leases {
+            return Asker::resume(epoch, carried.clone());
+        }
+        match book.load() {
+            Ok(Some(saved)) => Asker::from_book(epoch, sheep, &saved),
+            Ok(None) => Asker::new(epoch),
+            Err(e) => {
+                eprintln!("handover: starting the lease totals at 0, since {e}");
+                Asker::new(epoch)
+            }
+        }
+    }
+
     pub(super) fn into_turns(self) -> Vec<CarriedTurn> {
         self.turns
     }
@@ -69,7 +93,12 @@ impl Carry {
 }
 
 impl State for Carry {
-    const FORMAT: u32 = 4;
+    const FORMAT: u32 = 5;
+
+    // Format 4 is the same turns without the totals.
+    fn reads(format: u32) -> bool {
+        matches!(format, 4 | 5)
+    }
 }
 
 /// Replaces this image with the installed build carrying `carry`, and
@@ -211,7 +240,10 @@ impl Handing {
             return;
         }
         match held.carry_calls() {
-            Ok(turns) => refuse((self.exec)(&Carry { turns })),
+            Ok(turns) => {
+                let leases = held.carry_leases();
+                refuse((self.exec)(&Carry { turns, leases }))
+            }
             Err(why) => refuse(why),
         }
     }

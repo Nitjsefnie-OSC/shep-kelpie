@@ -10,7 +10,11 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use super::{Epoch, LeaseKind};
+use serde::{Deserialize, Serialize};
+
+use super::saved::SavedBook;
+use super::{Epoch, Holder, LeaseKind};
+use crate::runner::ProjectName;
 
 /// The trigger the dog grants a lease with
 pub const GRANT: &str = "grant";
@@ -155,7 +159,8 @@ pub fn grant_params(kind: &LeaseKind, epoch: Epoch) -> String {
 }
 
 /// One run's two running totals for one kind
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Totals {
     /// How many times it has asked
     pub want: u64,
@@ -168,6 +173,17 @@ impl Totals {
     pub fn asking(self) -> bool {
         self.want > self.give_back
     }
+}
+
+/// What an [`Asker`] hands to the next image of its runner across a handover
+///
+/// The dog acts only on a total above the last it saw from a run, and a
+/// handover keeps the run, so the next image must count on from here.
+// wire format: changing this is a change to the handover's state format
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskerCarry {
+    totals: Vec<(LeaseKind, Totals)>,
+    held: Vec<LeaseKind>,
 }
 
 /// A runner's side of its book leases: its totals and what it holds
@@ -191,6 +207,56 @@ impl Asker {
             totals: BTreeMap::new(),
             held: Vec::new(),
             seen: BTreeMap::new(),
+        }
+    }
+
+    /// A run that goes on from what the previous image of the runner kept
+    pub fn resume(epoch: Epoch, carried: AskerCarry) -> Self {
+        Self {
+            epoch,
+            totals: carried.totals.into_iter().collect(),
+            held: carried.held,
+            seen: BTreeMap::new(),
+        }
+    }
+
+    /// A run that goes on from what the dog's saved `book` says of run
+    /// `epoch` of `sheep`, or a fresh one when the book knows no such run
+    ///
+    /// For a handover from a build that carried no totals.
+    pub fn from_book(epoch: Epoch, sheep: &str, book: &SavedBook) -> Self {
+        let mut asker = Self::new(epoch);
+        let Some(run) = book
+            .runs
+            .iter()
+            .find(|run| run.sheep == sheep && run.epoch == epoch)
+        else {
+            return asker;
+        };
+        for t in &run.totals {
+            let totals = Totals {
+                want: t.want,
+                give_back: t.give_back,
+            };
+            asker.totals.insert(t.kind.clone(), totals);
+        }
+        if let Ok(project) = ProjectName::try_from(sheep) {
+            let me = Holder::Runner { project, epoch };
+            for lease in &book.leases {
+                let holds = lease.held.as_ref().map(|h| Holder::from(h.holder.clone()));
+                if holds.as_ref() == Some(&me) {
+                    asker.held.push(lease.kind.clone());
+                }
+            }
+        }
+        asker
+    }
+
+    /// What the next image of this runner takes up with [`Asker::resume`]
+    pub fn keep(&self) -> AskerCarry {
+        AskerCarry {
+            totals: self.totals.iter().map(|(k, t)| (k.clone(), *t)).collect(),
+            held: self.held.clone(),
         }
     }
 
