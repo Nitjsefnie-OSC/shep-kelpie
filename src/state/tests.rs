@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 55);
+    assert_eq!(VERSION, 56);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -136,6 +136,34 @@ fn a_file_saved_before_pacing_loads_with_none() {
     fs::write(dir.path().join(STATE_FILE), old).unwrap();
     let state = store.load().unwrap().unwrap();
     assert_eq!(state.pacing, None);
+}
+
+#[test]
+fn a_file_saved_before_bumps_loads_with_none_and_a_bump_round_trips() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let old =
+        r#"{"version":55,"run":"running","since":7,"work_item":null,"rulings":[],"leases":[]}"#;
+    fs::write(dir.path().join(STATE_FILE), old).unwrap();
+    let mut state = store.load().unwrap().unwrap();
+    assert_eq!(state.bumps, []);
+
+    let mut bump = Bump::new(
+        40,
+        "dependabot".into(),
+        "dependabot/cargo/serde-1.0.230".into(),
+        "3b9e2f7".into(),
+        Timestamp(9),
+    );
+    bump.red = Some(Red {
+        head: "3b9e2f7".into(),
+        why: vec!["check `test` failed".into()],
+        step: RedStep::Close,
+    });
+    state.bumps.push(bump);
+    store.save(&state).unwrap();
+
+    assert_eq!(store.load().unwrap().unwrap().bumps, state.bumps);
 }
 
 #[test]

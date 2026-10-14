@@ -548,3 +548,13 @@ async fn a_live_door_is_never_taken_over_and_a_dead_one_is() {
 
 mod e2e;
 mod forge;
+
+#[test]
+fn a_lease_is_logged_as_granted_only_when_the_ask_had_to_wait() {
+    let line = || "cargo-test: granted to pid 9 running cargo test".to_owned();
+    assert_eq!(granted_after_wait(Taken::Granted, line()), None);
+    assert_eq!(
+        granted_after_wait(Taken::Queued { ahead: 2 }, line()).as_deref(),
+        Some("cargo-test: granted to pid 9 running cargo test, after 2 ahead of it")
+    );
+}

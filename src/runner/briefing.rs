@@ -422,7 +422,7 @@ impl Runner {
 
 // Why the board passes over an issue, and whether the board may still take
 // it later, so its body is worth quoting.
-fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) {
+pub(super) fn passed_over(skip: &Skip, shown: &dyn Fn(String) -> String) -> (String, bool) {
     match skip {
         Skip::PullRequest { pull_request, .. } => {
             (format!("PR #{pull_request} is open for it"), false)

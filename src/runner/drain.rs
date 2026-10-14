@@ -75,6 +75,8 @@ pub enum CallRole {
     Panel,
     /// The project manager's agent, running a batch retro
     Retro,
+    /// The e2e run of a dependency bump's head, on the project's e2e host
+    E2e,
     /// A pi session in the maintainer's terminal, whose forwarder a restart
     /// would take with it
     PiSession,
@@ -112,11 +114,30 @@ impl Runner {
         }
     }
 
-    // Sets the pause for each worker turn in flight that a tool result can end.
+    // Sets the pause for each worker turn in flight that a tool result can end,
+    // and says which.
     fn pause_turns(&self) {
+        let (mut asked, mut refused) = (Vec::new(), Vec::new());
         for item in &self.state.work_items {
-            self.pause_turn(item);
+            match self.pause_turn(item) {
+                Pausing::AtTool => asked.push(format!("#{}", item.issue)),
+                Pausing::AtEnd => {}
+                Pausing::Failed => refused.push(format!("#{}", item.issue)),
+            }
         }
+        let mut line = if !asked.is_empty() {
+            let turns = asked.join(", ");
+            format!("drain pause: turns asked to end at their next tool call: {turns}")
+        } else if refused.is_empty() {
+            "drain pause: no worker turn in flight can end at a tool call".to_owned()
+        } else {
+            "drain pause: no turn was asked to end at a tool call".to_owned()
+        };
+        if !refused.is_empty() {
+            let turns = refused.join(", ");
+            line.push_str(&format!("; the pause could not be written for {turns}"));
+        }
+        self.notes.push(line);
     }
 
     // Sets the pause for `item`'s worker turn in flight. A tool result can end

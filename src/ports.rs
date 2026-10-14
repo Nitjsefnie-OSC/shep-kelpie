@@ -21,6 +21,7 @@ use crate::webhook::Webhook;
 
 mod agent;
 mod disk;
+mod e2e_runner;
 mod findings;
 mod forge_error;
 mod gateway;
@@ -51,6 +52,7 @@ pub use agent::{
     Tools, Transcript, Usage, Wait, written_at,
 };
 pub use disk::Disk;
+pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
 pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
@@ -62,7 +64,9 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
-pub use rate_limit::{AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, says_used_up};
+pub use rate_limit::{
+    AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, Warnings, says_used_up,
+};
 pub use recorded_voice::RecordedVoice;
 pub use revalidated::Revalidated;
 pub use reviewed::{MaintainerReview, ReviewComment, Reviewed};
@@ -316,6 +320,13 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Closes pull request `number` without merging it, with no comment
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
     /// Opens a draft pull request on `repo` from branch `head` into `base`,
     /// as the account kelpie acts as, and returns its number
@@ -818,6 +829,8 @@ pub struct Ports {
     pub alerts: Arc<dyn Alerts>,
     /// Runs a reviewer's test, inside the worker's sandbox
     pub test_runner: Arc<dyn TestRunner>,
+    /// Runs a bump's e2e tests on the dog's host
+    pub e2e_runner: Arc<dyn E2eRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold

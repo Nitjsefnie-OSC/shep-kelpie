@@ -31,6 +31,7 @@ mod coderabbit;
 mod codex;
 mod cubic;
 mod disk;
+mod e2e_runner;
 mod elsewhere;
 mod endpoint;
 mod forge;
@@ -50,6 +51,7 @@ mod test_runner;
 pub(crate) use alerts::FakeAlerts;
 pub(crate) use claude::{FakeClaude, Hold, LEFT_BEHIND, Scripted, Seen};
 pub(crate) use disk::{FakeDisk, GB};
+pub(crate) use e2e_runner::FakeE2e;
 pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
@@ -278,6 +280,7 @@ pub(crate) struct Rig {
     pub(crate) disk: FakeDisk,
     pub(crate) leases: FakeLeases,
     pub(crate) tests: FakeTests,
+    pub(crate) e2e: FakeE2e,
     pub(crate) clock: FakeClock,
     /// The login's forge hold and pace, which no test's calls reach the cap of
     /// until it swaps in a pacer with one
@@ -733,6 +736,7 @@ impl Rig {
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
             test_runner: Arc::new(self.tests.clone()),
+            e2e_runner: Arc::new(self.e2e.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),
             flock: Vec::new(),

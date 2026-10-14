@@ -57,6 +57,8 @@ pub(super) struct Looks {
     dropped_read: Option<Timestamp>,
     // When the contributions were last followed
     contributions_read: Option<Timestamp>,
+    // When the bumps were last followed
+    dependencies_read: Option<Timestamp>,
     // Each failing step by its slot: its failures in a row, and when it runs again
     retries: BTreeMap<Slot, (u32, Timestamp)>,
     // How many writes of kelpie's the forge had taken when the last pass began
@@ -113,6 +115,26 @@ impl Looks {
     pub(super) fn contributions_wait(&self, now: Timestamp) -> Option<Duration> {
         let at = self
             .contributions_read?
+            .0
+            .saturating_add(BOARD_POLL.as_secs());
+        (now.0 < at).then(|| Duration::from_secs(at - now.0))
+    }
+
+    /// Whether the bumps are due to be followed at `now`, which records the
+    /// read: at most one in each [`BOARD_POLL`]
+    pub(super) fn dependencies_due(&mut self, now: Timestamp) -> bool {
+        if self.dependencies_wait(now).is_some() {
+            return false;
+        }
+        self.dependencies_read = Some(now);
+        true
+    }
+
+    /// How long until the bumps are next followed, or `None` when they are
+    /// due now
+    pub(super) fn dependencies_wait(&self, now: Timestamp) -> Option<Duration> {
+        let at = self
+            .dependencies_read?
             .0
             .saturating_add(BOARD_POLL.as_secs());
         (now.0 < at).then(|| Duration::from_secs(at - now.0))
@@ -242,8 +264,13 @@ impl Runner {
                 .unwrap_or_default()
                 .max(DUE_FLOOR)
         });
+        let bumps = (!self.settings.dependencies.is_off()).then(|| {
+            (self.looks.dependencies_wait(now))
+                .unwrap_or_default()
+                .max(DUE_FLOOR)
+        });
         let builds = self.next_build_look();
-        [looks, host, wrote, followed, builds]
+        [looks, host, wrote, followed, bumps, builds]
             .into_iter()
             .flatten()
             .min()

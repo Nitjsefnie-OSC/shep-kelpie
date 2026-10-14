@@ -313,6 +313,8 @@ pub(super) fn closed_here(closes: Vec<Closes>, repo: &ForgeSlug) -> Vec<u64> {
 mod tests {
     use super::*;
     use crate::ports::Checks;
+    use crate::runner::is_bump;
+    use crate::settings::Dependencies;
 
     // Recorded from gh 2.96 on this repo with the `ready_issues` arguments.
     const READY_LIST: &str = include_str!("../../../fixtures/gh-issue-list.json");
@@ -491,6 +493,16 @@ mod tests {
             ]
         );
         assert_eq!(page.pull_requests[2].head, "kelpie/5");
+    }
+
+    #[test]
+    fn the_recorded_listing_has_one_bump_for_the_default_bots() {
+        let page = parse_pull_requests(CONTRIBUTIONS.as_bytes(), &kelpie()).unwrap();
+        let bumps: Vec<_> = (page.pull_requests.iter())
+            .filter(|pr| is_bump(&Dependencies::default(), pr))
+            .map(|pr| (pr.number, pr.head.as_str()))
+            .collect();
+        assert_eq!(bumps, [(103, "dependabot/cargo/serde-1.0.230")]);
     }
 
     #[test]

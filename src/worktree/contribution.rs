@@ -107,6 +107,39 @@ pub fn change(
     Ok(Change { diff, cut, opaque })
 }
 
+/// The paths pull request `pull_request`'s `head` changes from `origin/main`,
+/// as git names them in the head's tree
+///
+/// Fetches `refs/pull/<n>/head` and `main` first, and checks nothing out. A
+/// list longer than `limit` bytes is an error, since a partial list would let
+/// a path through unlisted.
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed, or the commit the
+/// fetch did not bring, or saying the list was too long to read.
+pub fn changed_paths(
+    repo: &Path,
+    pull_request: u64,
+    head: &str,
+    limit: usize,
+) -> Result<Vec<String>, WorktreeError> {
+    fetch(repo, pull_request, head)?;
+    let since = format!("origin/{BASE}...{head}");
+    let (names, cut) = diff_of(repo, &["--name-only", "-z"], &since, limit)?;
+    if cut {
+        return Err(WorktreeError::Git {
+            args: format!("diff --name-only {since}"),
+            stderr: format!("the list of changed paths is longer than {limit} bytes"),
+        });
+    }
+    Ok(names
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 /// Makes `path` a detached worktree of `repo` at contribution
 /// `pull_request`'s `head`, fetched from `refs/pull/<n>/head`, for a reader
 /// that opens its files and changes nothing

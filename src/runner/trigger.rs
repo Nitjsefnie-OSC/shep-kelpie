@@ -84,11 +84,19 @@ pub struct Status<'a> {
     /// left out when it follows none
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub contributions: Vec<super::contributions::Followed<'a>>,
+    /// The bumps from bots the board follows, oldest first, with where each
+    /// stands; left out when it follows none
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bumps: Vec<super::dependencies::BumpStatus>,
     /// The first issues in the order the board takes the ready ones, which
     /// holds those it would pass over too
     pub order: &'a [u64],
     /// Ready issues the board passed over on its last poll, and why
     pub skipped: &'a [Skip],
+    /// The warnings that stand now, each told once in the log, such as a
+    /// code graph server that is not installed; left out while none does
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub standing: Vec<String>,
     /// The workflows whose latest completed run on `main` failed, in the
     /// order they went red; left out while none is
     #[serde(skip_serializing_if = "Vec::is_empty")]

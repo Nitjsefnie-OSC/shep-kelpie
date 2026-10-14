@@ -19,7 +19,6 @@ use std::time::Duration;
 use super::Runner;
 use super::alert::post_due;
 use super::briefing::{Watched, brief};
-use super::drain::{CallRole, CallRunning};
 use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
@@ -55,6 +54,8 @@ pub(super) struct Flights {
     labelling: Option<label::Labelling>,
     // The security review of a contribution's head
     securing: Option<security::Securing>,
+    // The e2e run of a bump's head
+    proving: proving::Proving,
     // The contributions a security review started on since the last poll, which
     // are not tried again before the next
     security_tried: Vec<u64>,
@@ -78,6 +79,7 @@ impl Default for Flights {
             pm: None,
             labelling: None,
             securing: None,
+            proving: proving::Proving::default(),
             security_tried: Vec::new(),
             panel: None,
             retro: None,
@@ -90,17 +92,6 @@ impl Default for Flights {
 }
 
 impl Flights {
-    /// Whether no call is in flight, the project manager's included
-    #[cfg(test)]
-    fn idle(&self) -> bool {
-        self.flying.is_empty()
-            && self.pm.is_none()
-            && self.labelling.is_none()
-            && self.securing.is_none()
-            && self.panel.is_none()
-            && self.retro.is_none()
-    }
-
     /// The issue the issue writer is labelling, while it is
     pub(super) fn labelling(&self) -> Option<u64> {
         self.labelling.as_ref().map(|l| l.issue)
@@ -166,42 +157,6 @@ impl Flights {
         if let Some(flight) = self.flying.get(&issue) {
             flight.ending.end();
         }
-    }
-
-    /// Every call in flight: each work item's by its issue, then the
-    /// project manager's
-    pub(super) fn running(&self) -> Vec<CallRunning> {
-        let items = self.flying.iter().map(|(&issue, flight)| CallRunning {
-            issue: Some(issue),
-            role: match flight.deadline {
-                Some(_) => CallRole::Worker,
-                None => CallRole::Reviewer,
-            },
-        });
-        let pm = self.pm.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Pm,
-        });
-        let labelling = self.labelling.iter().map(|l| CallRunning {
-            issue: Some(l.issue),
-            role: CallRole::IssueWriter,
-        });
-        let securing = self.securing.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Security,
-        });
-        let panel = self.panel.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Panel,
-        });
-        let retro = self.retro.iter().map(|_| CallRunning {
-            issue: None,
-            role: CallRole::Retro,
-        });
-        (items.chain(pm).chain(labelling).chain(securing))
-            .chain(panel)
-            .chain(retro)
-            .collect()
     }
 
     /// The calls in flight as the usage ledger knows them
@@ -274,6 +229,8 @@ enum News {
         issue: u64,
         end: End,
     },
+    // The e2e run of a bump's head ended
+    Proved(proving::Proof),
     // A contribution's head was read for security, to a verdict or to none
     Secured {
         pull_request: u64,
@@ -644,7 +601,7 @@ impl Runner {
                 Launch::Turn { mut call, .. } => {
                     // Here, with the runner's lock let go, since an index takes a while.
                     super::code_graph::indexed(&mut call, &notes, &held);
-                    let build = covered_build(&call);
+                    let build = login_refresh::covered_build(&call);
                     End::Turn(login_refresh::while_running(
                         voice.as_ref(),
                         &remote,
@@ -722,15 +679,6 @@ impl Runner {
     }
 }
 
-// The build folder of a worker whose login kelpie wrote, when `call` is one
-fn covered_build(call: &AgentCall) -> Option<std::path::PathBuf> {
-    let fence = call.reach.fence.as_deref()?;
-    fence
-        .env
-        .contains_key("GH_CONFIG_DIR")
-        .then(|| fence.guard.build.clone())
-}
-
 // The end of a call whose thread could not start: a turn on `harness`, or a
 // review call.
 fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
@@ -778,7 +726,8 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
             let woke = lock(runner).wake_pm();
             let asked = lock(runner).panel_launched();
             let looked = !woke && lock(runner).retro_launched();
-            Ok(if woke || asked || looked {
+            let proved = lock(runner).proofs_launched();
+            Ok(if woke || asked || looked || proved {
                 Pass::Started
             } else {
                 Pass::Idle
@@ -866,6 +815,10 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             reading,
         } => {
             runner.security_heard(pull_request, &head, reading)?;
+            return Ok(None);
+        }
+        News::Proved(proof) => {
+            runner.proof_heard(proof)?;
             return Ok(None);
         }
         News::Paneled { id, ends } => return runner.panel_ended(id, ends),
@@ -985,9 +938,11 @@ fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
     }
 }
 
+mod calls;
 mod carry;
 pub(super) mod label;
 pub(super) mod panel;
+mod proving;
 pub(super) mod retro;
 pub(super) mod security;
 #[cfg(test)]

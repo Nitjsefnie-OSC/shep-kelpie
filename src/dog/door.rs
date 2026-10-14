@@ -213,13 +213,30 @@ async fn visit(stream: UnixStream, mut place: Place, fresh_from: tokio::time::In
             _ = heard(&mut reader) => return,
         }
     }
-    println!("{CARGO_TEST}: granted to pid {pid} running {what}");
+    let waited = matches!(taken, Taken::Queued { .. });
+    if let Some(line) = granted_after_wait(
+        taken,
+        format!("{CARGO_TEST}: granted to pid {pid} running {what}"),
+    ) {
+        println!("{line}");
+    }
     say(&mut write, &Answer::Granted).await;
     // Only the connection's end gives it back: a descendant of the command
     // holds the connection too, and a line from it is not the command ending.
     // What it writes is dropped as it arrives, never kept.
     while heard(&mut reader).await {}
-    println!("{CARGO_TEST}: pid {pid} gave it back");
+    if waited {
+        println!("{CARGO_TEST}: pid {pid} gave it back");
+    }
+}
+
+// The line for a lease granted, when the ask had to wait for it: one granted
+// at once says nothing new, and the book holds the rest.
+pub(super) fn granted_after_wait(taken: Taken, line: String) -> Option<String> {
+    match taken {
+        Taken::Queued { ahead } => Some(format!("{line}, after {ahead} ahead of it")),
+        Taken::Granted => None,
+    }
 }
 
 // Whether the connection sent anything, which it discards: a fixed buffer

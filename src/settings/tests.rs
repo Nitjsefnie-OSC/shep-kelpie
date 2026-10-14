@@ -2,6 +2,7 @@ use super::*;
 
 mod builds;
 mod contributions;
+mod dependencies;
 mod e2e;
 mod gateway_kind;
 mod repo_setup;

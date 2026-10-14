@@ -130,6 +130,7 @@ impl Runner {
         }
         self.recheck_dropped()?;
         self.follow_contributions()?;
+        self.follow_dependencies()?;
         let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
         self.held_up.keep_only(&open);
@@ -382,6 +383,7 @@ impl Runner {
         self.token_wait.begins();
         let prepared = self.prepare(item, session, prompt);
         let mut next = self.state.clone();
+        let mut resumed = false;
         let mut begin = match prepared {
             // A covered worker never runs as the maintainer, so a token that
             // passes waits here and is tried again, not parked on a ruling.
@@ -394,6 +396,7 @@ impl Runner {
             }
             Ok(call) => {
                 self.token_wait.ends();
+                resumed = !compacting && paused::resumes_pause(item);
                 self.builds_turn_begins();
                 let item = self
                     .current_in(&mut next)
@@ -419,6 +422,9 @@ impl Runner {
             }
         };
         self.save(next)?;
+        if resumed {
+            self.note_resumed(issue);
+        }
         if let Begin::Report(report) = &mut begin {
             self.fill_comment_failed(report);
         }

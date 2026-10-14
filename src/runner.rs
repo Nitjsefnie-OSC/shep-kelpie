@@ -47,6 +47,7 @@ mod code_graph;
 mod coderabbit;
 mod compact;
 mod contributions;
+mod dependencies;
 mod dispatch;
 mod drain;
 mod e2e;
@@ -108,6 +109,7 @@ mod rework;
 mod ruling;
 #[cfg(test)]
 mod several;
+mod skip_log;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
@@ -130,6 +132,8 @@ pub use crate::coderabbit::LABEL as SUMMON_LABEL;
 pub use adopt::AdoptError;
 pub use attach::{AttachError, Attaching};
 pub use claim::IN_PROGRESS;
+#[cfg(test)]
+pub(crate) use dependencies::is_bump;
 pub use drain::{CallRole, CallRunning, Draining};
 pub use finishing::{Run, StartError};
 #[cfg(test)]
@@ -388,6 +392,8 @@ pub struct Runner {
     unmentioned_told: std::cell::Cell<bool>,
     // Whether a worker's turn waits for a token GitHub is not giving, in memory only
     token_wait: token_wait::TokenWait,
+    // When each work item began waiting for a bot's lease, in memory only
+    lease_waits: review_bot::lease_wait::LeaseWaits,
     // The turns waiting for a model host that cannot be reached, in memory only
     unreachable: turn::unreachable::Unreachable,
     // Why each work item's due turn did not start on its last step, in memory only
@@ -500,7 +506,9 @@ impl Runner {
         .counting(ports.revalidated.clone())
         .paced_for(project.as_str());
         if let Some(app_reads) = ports.app_reads.take() {
-            rate_held = rate_held.with_app_reads(app_reads);
+            rate_held = rate_held
+                .with_app_reads(app_reads)
+                .with_standing(Arc::new(told.clone()));
         }
         let held: Arc<dyn Forge> = Arc::new(rate_held);
         let recorded =
@@ -626,6 +634,7 @@ impl Runner {
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
             token_wait: token_wait::TokenWait::default(),
+            lease_waits: review_bot::lease_wait::LeaseWaits::default(),
             unreachable: turn::unreachable::Unreachable::default(),
             held_up: turn::held_up::HeldUps::default(),
             builds: builds::BuildWatch::default(),
@@ -699,8 +708,10 @@ impl Runner {
             pending_rulings: self.settings.concurrency.pending_rulings,
             adopted: &self.state.adopted,
             contributions: self.followed_status(now),
+            bumps: self.bumps_status(),
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
+            standing: self.notes.standing_lines(),
             red_workflows: self.red_status(now),
             rulings: (self.state.rulings.iter())
                 .map(trigger::RulingStatus)

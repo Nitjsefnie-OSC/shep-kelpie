@@ -25,7 +25,8 @@ pub use cache::{Pruned, TurnMark, prune};
 pub use catch_up::{Rebase, rebase};
 pub use changed::changed_files;
 pub use contribution::{
-    Change, Opaque, Touched, change as contribution_change, checkout as contribution_checkout,
+    Change, Opaque, Touched, change as contribution_change, changed_paths,
+    checkout as contribution_checkout,
 };
 pub use remote::Remote;
 

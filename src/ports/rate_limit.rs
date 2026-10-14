@@ -97,12 +97,24 @@ impl ForgeHold {
 /// Where [`RateHeld`] says a hold began, once for each
 pub type Say = Box<dyn Fn(String) + Send + Sync>;
 
+/// Where [`RateHeld`] tells a warning that stands while its cause does
+pub trait Warnings: Send + Sync {
+    /// Tells `line`, unless the warning under `key`, which names its cause,
+    /// stands already
+    fn stands(&self, key: &str, line: String);
+
+    /// The cause under `key` is gone, so the warning is told again if it returns
+    fn ends(&self, key: &str);
+}
+
 /// A forge whose calls are held while its rate limit is used up
 pub struct RateHeld {
     forge: Arc<dyn Forge>,
     clock: Arc<dyn Clock>,
     hold: ForgeHold,
     say: Say,
+    // Where a warning that stands is told, instead of `say`
+    standing: Option<Arc<dyn Warnings>>,
     ledger: Option<Arc<Ledger>>,
     // The project whose calls these are, when they are spaced by the hold's pace
     project: Option<String>,
@@ -121,6 +133,7 @@ impl RateHeld {
             clock,
             hold,
             say,
+            standing: None,
             ledger: None,
             project: None,
             app: None,
@@ -133,6 +146,14 @@ impl RateHeld {
     #[must_use]
     pub fn paced_for(mut self, project: &str) -> Self {
         self.project = Some(project.to_owned());
+        self
+    }
+
+    /// Tells a warning that stands while its cause does to `standing`, with
+    /// its key, in place of `say`
+    #[must_use]
+    pub fn with_standing(mut self, standing: Arc<dyn Warnings>) -> Self {
+        self.standing = Some(standing);
         self
     }
 
@@ -398,6 +419,12 @@ impl Forge for RateHeld {
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(Kind::CloseIssue, |f| f.close_issue(repo, number))
+    }
+
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.call(Kind::ClosePullRequest, |f| {
+            f.close_pull_request(repo, number)
+        })
     }
 
     fn create_pull_request(

@@ -134,6 +134,11 @@ pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeErro
     gh(&["issue", "close", &number, "--repo", repo.as_str()]).map(drop)
 }
 
+pub(super) fn close_pull_request(repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+    let number = number.to_string();
+    gh(&["pr", "close", &number, "--repo", repo.as_str()]).map(drop)
+}
+
 // GitHub allows a parent 100 sub-issues, so one page lists them all.
 pub(super) fn sub_issues(repo: &ForgeSlug, parent: u64) -> Result<Vec<SubIssue>, ForgeError> {
     let path = format!(

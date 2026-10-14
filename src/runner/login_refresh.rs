@@ -10,12 +10,21 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
 
-use crate::ports::Voice;
+use crate::ports::{AgentCall, Voice};
 use crate::profile;
 use crate::settings::ForgeSlug;
 
 /// How long after the last write the next is made: half a token's hour
 pub(super) const EVERY: Duration = Duration::from_secs(30 * 60);
+
+/// The build folder of a worker whose login kelpie wrote, when `call` is one
+pub(super) fn covered_build(call: &AgentCall) -> Option<std::path::PathBuf> {
+    let fence = call.reach.fence.as_deref()?;
+    fence
+        .env
+        .contains_key("GH_CONFIG_DIR")
+        .then(|| fence.guard.build.clone())
+}
 
 /// Runs `run`, and while it does writes a fresh login into `build` every
 /// `every`, when there is a `build` whose worker holds one
