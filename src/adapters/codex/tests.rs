@@ -54,7 +54,7 @@ pub(super) fn strings(
 
 // A stand-in for codex that keeps its arguments and `CODEX_HOME`, and
 // prints `stdout`.
-fn stand_in(world: &World, stdout: &str) -> CodexCli {
+pub(super) fn stand_in(world: &World, stdout: &str) -> CodexCli {
     std::fs::write(world.path("stdout.jsonl"), stdout).unwrap();
     let script = format!(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s' \"$CODEX_HOME\" > {}\nprintf '%s' \"$TMPPREFIX\" > {}\ncat {}\n",
@@ -226,6 +226,8 @@ fn a_resumed_session_names_codexs_own_id_after_the_options() {
     let thread = Thread {
         id: "019a0000-0000-7000-8000-000000000001".into(),
         spent: Spent::default(),
+        context: None,
+        compact: false,
     };
     let argv = strings(&call, Some(&thread), None);
     assert_eq!(argv[..2], ["exec", "resume"]);
@@ -876,6 +878,8 @@ fn record_a_turn_a_resumed_turn_and_three_refusals() {
         serde_json::to_string(&Thread {
             id: turn.thread,
             spent: turn.spent,
+            context: None,
+            compact: false,
         })
         .unwrap(),
     )
