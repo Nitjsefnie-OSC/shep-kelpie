@@ -15,12 +15,12 @@ Whether kelpie merges the bumps bots open (Dependabot), and what it does with on
 ## Detection
 
 - A bump is an open pull request, not a draft, from a branch of the repo itself, whose author is a listed bot. `is_bump`, `src/runner/dependencies.rs`. A bump takes no slot, no ruling and no model call.
-- `ProjectState.bumps` holds `Bump { pull_request, author, branch, head, seen, rebase_asked, e2e, standing, red }`, oldest first. A new head replaces `head` and `seen` and clears `rebase_asked` and `e2e`. `src/state/bumps.rs`
-- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless it is closed and still owes its issue. `pick = "off"` forgets all.
+- `ProjectState.bumps` holds `Bump { pull_request, author, branch, head, seen, rebase_asked, e2e, standing, red }`, oldest first. A new head replaces `head` and `seen` and clears `e2e`; `rebase_asked` names the head last asked, so the new head is asked afresh. `src/state/bumps.rs`
+- `Runner::follow_dependencies` runs once a `BOARD_POLL` after `follow_contributions`, off the same listing. A bump that left the board is dropped, unless kelpie had decided to close it and still owes its issue. One closed by someone else before kelpie's comment or close skips them and gets the issue. `pick = "off"` forgets all.
 
 ## Proving a head
 
-- Behind or conflicting with `origin/main` (`worktree::base_of`): `@<author> rebase` is posted once per head (`rebase_asked`), as the maintainer's `gh` login, and nothing else is proved on that head. A conflicting bump is asked the same way: Dependabot decides whether it can.
+- Behind or conflicting with `origin/main` (`worktree::base_of`): `@<author> rebase` (the login without a `[bot]` suffix, which a mention does not resolve) is posted once per head (`rebase_asked`), as the maintainer's `gh` login, and nothing else is proved on that head. A conflicting bump is asked the same way: Dependabot decides whether it can.
 - On `main`: wait `CHECKS_SETTLE` (120 s) from `seen`, as the gate does, then read the checks. `Passed` and `Skipped` are green. Failed is red.
 - Pending or absent checks are red once `wait_hours` have passed since `seen`.
 - A web bump (`changed_paths` of the head against `origin/main` meets `web`) also needs a passing e2e run. `src/runner/flight/proving.rs`

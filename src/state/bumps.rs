@@ -153,12 +153,12 @@ impl Bump {
         }
     }
 
-    /// Whether the issue for a closed bump is still to be filed, which keeps
-    /// the record after the pull request has left the board
+    /// Whether kelpie decided to close this bump, so its issue is still to be
+    /// filed, which keeps the record after the pull request has left the board
     pub fn issue_owed(&self) -> bool {
         self.red
             .as_ref()
-            .is_some_and(|red| red.step == RedStep::File)
+            .is_some_and(|red| red.step != RedStep::Left)
     }
 }
 

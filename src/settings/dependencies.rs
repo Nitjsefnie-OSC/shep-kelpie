@@ -84,6 +84,12 @@ impl Dependencies {
         self.pick == DependencyPick::Off
     }
 
+    /// The name a comment mentions `login` by: the login without a `[bot]`
+    /// suffix, which GitHub does not resolve in a mention
+    pub fn mention(login: &str) -> &str {
+        bare(login)
+    }
+
     /// Whether `login` is one of the listed bots, ignoring case and a `[bot]`
     /// suffix on either side
     pub fn lists(&self, login: &str) -> bool {

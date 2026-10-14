@@ -116,7 +116,7 @@ impl Runner {
                 ),
             });
         }
-        // A bump kelpie closed has left the board but is owed its issue.
+        // A red bump that left the board is still owed its issue.
         let owed = (self.state.bumps.iter())
             .filter(|b| b.issue_owed() && open.iter().all(|pr| pr.number != b.pull_request));
         followed.extend(owed.cloned());
@@ -142,7 +142,16 @@ impl Runner {
         let Some(bump) = self.bump(number) else {
             return Ok(());
         };
+        let on_board = open.iter().any(|pr| pr.number == number);
         if bump.red.is_some() {
+            // Someone else closed it first, so only its issue is left to file.
+            if !on_board && bump.issue_owed() {
+                self.amend(number, |b| {
+                    if let Some(red) = b.red.as_mut() {
+                        red.step = RedStep::File;
+                    }
+                })?;
+            }
             return self.finish_red(number);
         }
         let Some(pr) = open.iter().find(|pr| pr.number == number) else {
@@ -227,7 +236,7 @@ impl Runner {
         if bump.rebase_asked.as_deref() == Some(&bump.head) {
             return Next::Waiting("behind main: asked to rebase, and has not pushed yet".into());
         }
-        let ask = format!("@{} rebase", bump.author);
+        let ask = format!("@{} rebase", Dependencies::mention(&bump.author));
         if let Err(e) = self.comment_as_gh(bump.pull_request, &ask) {
             return Next::Waiting(format!("behind main, and cannot ask for a rebase: {e}"));
         }

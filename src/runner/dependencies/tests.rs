@@ -181,6 +181,21 @@ fn a_bump_behind_main_is_asked_to_rebase_once_for_each_head() {
 }
 
 #[test]
+fn a_rebase_is_asked_of_the_bots_name_without_its_bot_suffix() {
+    let (rig, runner) = bumping("");
+    let head = opened_by(&rig, 40, "dependabot[bot]", "Cargo.lock");
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.land("main.txt", "main moved on\n");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.forge.comments(),
+        [(40, "@dependabot rebase".to_owned())]
+    );
+}
+
+#[test]
 fn a_rebased_bump_is_proved_afresh_on_its_new_head() {
     let (rig, runner) = bumping("");
     let stale = bump(&rig, 40, "Cargo.lock");
@@ -503,6 +518,31 @@ fn a_closed_bump_is_owed_its_issue_until_it_is_filed() {
 
     assert_eq!(rig.forge.created().len(), 1);
     assert_eq!(rig.forge.comments().len(), 1);
+    assert!(bumps(&rig, &runner).is_empty());
+}
+
+#[test]
+fn a_bump_closed_by_someone_else_before_kelpie_closed_it_is_still_filed() {
+    let (rig, runner) = bumping("");
+    let head = bump(&rig, 40, "Cargo.lock");
+    rig.forge
+        .set_checks(&head, Checks::Failed(vec!["test".into()]));
+    rig.forge.set_pull_request_closes_down(true);
+    settle(&rig, &runner);
+    assert!(rig.forge.created().is_empty());
+
+    rig.forge
+        .set_state(40, crate::ports::PullRequestState::Closed);
+    rig.forge.set_pull_request_closes_down(false);
+    poll(&rig, &runner);
+
+    assert!(
+        rig.forge.pull_request_closings().is_empty(),
+        "already closed"
+    );
+    let made = rig.forge.created();
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0].labels, ["needs-triage", "dependencies"]);
     assert!(bumps(&rig, &runner).is_empty());
 }
 
