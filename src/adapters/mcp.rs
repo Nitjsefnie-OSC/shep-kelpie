@@ -1,19 +1,19 @@
 //! The MCP servers a call loads, whichever harness runs it
 //!
 //! A call loads the servers of the repo's `.mcp.json` and its enabled plugins, and the code graph
-//! where the call has one. Each harness writes them in its own file and shape.
+//! and the browser where the call has them. Each harness writes them in its own file and shape.
 
 use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::ports::{AgentCall, CodeGraph, Policy};
+use crate::ports::{AgentCall, Browser, CodeGraph, Policy};
 
 /// The name the code graph server is known by, which its tools are named after
 pub(crate) const SERVER: &str = "codebase-memory-mcp";
 
-/// The servers the call loads, by name: the repo's, then the code graph, which a repo's server of
-/// the same name does not replace
+/// The servers the call loads, by name: the repo's, then the code graph and the browser, which a
+/// repo's server of the same name does not replace
 pub(crate) fn servers(call: &AgentCall) -> serde_json::Map<String, Value> {
     let mut servers: serde_json::Map<String, Value> = (call.reach.mcp_servers.iter())
         .map(|(name, entry)| (name.clone(), entry.clone()))
@@ -21,12 +21,19 @@ pub(crate) fn servers(call: &AgentCall) -> serde_json::Map<String, Value> {
     if let Some(code_graph) = &call.reach.code_graph {
         servers.insert(SERVER.to_owned(), entry(code_graph, &call.cwd));
     }
+    if let Some(browser) = &call.reach.browser {
+        servers.insert(crate::bridge::SERVER.to_owned(), browser_entry(browser));
+    }
     servers
 }
 
 /// Whether the call loads any server
 pub(crate) fn loads(call: &AgentCall) -> bool {
-    call.reach.code_graph.is_some() || !call.reach.mcp_servers.is_empty()
+    let (graph, browser) = (
+        call.reach.code_graph.is_some(),
+        call.reach.browser.is_some(),
+    );
+    graph || browser || !call.reach.mcp_servers.is_empty()
 }
 
 /// The code graph server as a Claude-shaped `mcpServers` entry: it starts over `graph`'s index, held to the call's folder
@@ -40,6 +47,23 @@ pub(crate) fn entry(graph: &CodeGraph, cwd: &Path) -> Value {
             "CBM_ALLOWED_ROOT": cwd,
         },
     })
+}
+
+/// The browser as a Claude-shaped `mcpServers` entry: `kelpie mcp-connect` carries the session to
+/// the call's socket
+pub(crate) fn browser_entry(browser: &Browser) -> Value {
+    json!({
+        "type": "stdio",
+        "command": browser.kelpie,
+        "args": ["mcp-connect", browser.socket],
+    })
+}
+
+/// Lets the sandbox connect to the browser's socket, where the call has one
+pub(crate) fn fence_the_browser(policy: &mut Policy, call: &AgentCall) {
+    if let Some(browser) = &call.reach.browser {
+        policy.sockets.push(browser.socket.clone());
+    }
 }
 
 /// Lets the sandbox read the code graph's binary and index and write its index, where the call has one

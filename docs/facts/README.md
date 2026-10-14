@@ -46,3 +46,4 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [GitHub's rate limit](githubs-rate-limit.md)
 - [A worker's session grows past what its turns need](a-workers-session-grows-past-what-its-turns-need.md)
 - [codebase-memory-mcp](codebase-memory-mcp.md)
+- [The browser](the-browser.md)

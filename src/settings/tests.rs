@@ -84,7 +84,7 @@ fn the_previews_settings_are_refused_by_name() {
         assert!(
             err.contains(
                 "`preview` is no longer a setting, because shots and the preview are parked: \
-                 delete it"
+                 a worker looks at the UI through the `[app.dogs.kelpie.browser]` table instead"
             ),
             "{err}"
         );

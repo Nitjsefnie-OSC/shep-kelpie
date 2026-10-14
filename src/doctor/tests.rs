@@ -969,6 +969,7 @@ async fn a_project_folder_left_in_the_old_home_is_missing_for_that_project_alone
     assert!(!report.passed());
 }
 
+mod browser;
 mod e2e;
 mod github;
 mod harnesses;

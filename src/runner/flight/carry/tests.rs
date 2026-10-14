@@ -1,6 +1,7 @@
 use std::process::{Child, Command, Stdio};
 
-use crate::test::Rig;
+use crate::runner::{Pass, advance};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 const PI: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
                   url: http://box:11434/v1\ncontext: 65536\n---\n";
@@ -125,4 +126,31 @@ fn a_drain_waits_while_a_goose_session_is_attached() {
     rig.ask(&runner, "detach", Some(&format!("7 {pid}")));
     let draining = rig.ask(&runner, "drain", None)["draining"]["calls"].clone();
     assert_eq!(draining, serde_json::json!([]));
+}
+
+// The bridge's socket and the Chromium behind it live in this image, so the next could not take the turn.
+#[test]
+fn a_handover_waits_while_a_worker_turn_holds_a_browser() {
+    let rig = Rig::new("rotom");
+    let off = "[app.dogs.kelpie.browser]\nenabled = false";
+    rig.edit_settings(|s| {
+        assert!(s.contains(off), "the example's browser moved");
+        s.replace(off, "[app.dogs.kelpie.browser]\nenabled = true")
+    });
+    let tools = rig.paths().tools;
+    std::fs::create_dir_all(tools.playwright_mcp().parent().unwrap()).unwrap();
+    std::fs::write(tools.playwright_mcp(), "").unwrap();
+    std::fs::create_dir_all(tools.browsers().join("chromium-1200")).unwrap();
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
+
+    let why = runner.lock().unwrap().carry_calls().unwrap_err();
+    assert!(why.starts_with("#7's turn drives a browser"), "{why}");
+
+    hold.release();
+    assert!(hold.answered(CALL_PATIENCE), "the call never answered");
 }

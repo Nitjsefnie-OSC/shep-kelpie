@@ -737,6 +737,7 @@ fn policy(
     );
     web::open(call, &mut policy);
     super::mcp::fence_the_graph(&mut policy, call);
+    super::mcp::fence_the_browser(&mut policy, call);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
         host: WORKER_HOST.to_owned(),

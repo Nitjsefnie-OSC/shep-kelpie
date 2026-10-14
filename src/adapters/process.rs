@@ -527,7 +527,7 @@ fn group_running(pgid: u32) -> bool {
 // leader is reaped on the way since a zombie still counts as a member.
 // `child.kill()` also runs as a fallback for a system with no `pkill` on
 // `PATH`, though that alone would miss anything the child had spawned.
-fn stop_child(child: &mut Child, grace: Duration) {
+pub(super) fn stop_child(child: &mut Child, grace: Duration) {
     let pid = child.id();
     signal_group(pid, "TERM");
     let deadline = Instant::now() + grace;

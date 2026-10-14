@@ -21,6 +21,7 @@ mod table;
 
 pub use table::table_of;
 mod agents;
+mod browser;
 mod budget;
 mod ci;
 mod code_graph;
@@ -43,6 +44,7 @@ pub use agents::{
     Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
     PmAgent, RoleAgentNames, RoleAgents, UsageReader,
 };
+pub use browser::Browser;
 pub use budget::{Budget, PerItemUsd};
 pub use ci::{Ci, Concurrency, FixAttempts, TestCommand};
 pub use code_graph::CodeGraph;
@@ -120,6 +122,10 @@ pub struct Settings {
     /// when absent.
     #[serde(default)]
     pub code_graph: CodeGraph,
+    /// Whether a worker drives a browser to see the UI it builds, which
+    /// hosts it reaches, and whether it is headed. Off when absent.
+    #[serde(default)]
+    pub browser: Browser,
     /// Whether each local round is kept after its work item ends, for how
     /// long, and where. Kept for 30 days in `local-rounds` in the project's
     /// folder when absent.
@@ -220,7 +226,7 @@ const REMOVED: &[Removed] = &[
     Removed {
         key: "preview",
         because: SHOTS,
-        fix: DELETE,
+        fix: "a worker looks at the UI through the `[app.dogs.kelpie.browser]` table instead",
     },
     Removed {
         key: "agents.worker",

@@ -27,3 +27,21 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
 
 The checkout is the project's repo, and shep-kelpie runs `git fetch`, `git worktree` and `git branch` against its `.git`. Its worktrees, build folders and state go under `$SHEP_HOME/kelpie/<project>`, never inside it. Add from a clone you don't work in if you'd rather keep your own checkout out of it.
+
+## Browser
+
+A project can let its worker look at the UI it builds. Kelpie runs a browser outside the worker's sandbox, where Chromium cannot start, and the worker reaches it over a socket kelpie filters. It is off unless the project turns it on:
+
+```toml
+[app.dogs.kelpie.browser]
+enabled = true
+headed = false
+domains = ["pokemon-go-api.github.io", "*.leekduck.com"]
+```
+
+- `shep kelpie tools install` installs the Playwright MCP server and Chromium under `<kelpie home>/tools`, and a project that turns the browser on without them gets a MISSING `browser` line in `doctor`.
+- The worker's working turns on Claude Code and pi have it, as the `playwright` server. A reviewer, the project manager, the advisor, the researcher and `attach` do not, and Codex and goose do not yet.
+- Chromium resolves only `domains`. Every other host and every IP address fails to resolve, and the filter refuses a URL that is not `http` or `https` to one of them. An entry with a port, an IP address or `localhost` is refused when the settings load: Chromium's resolver rules name hosts and cannot hold one to a port, and `localhost` waits on shep-pm/shep-kelpie#861. A tool call that names a `filename` is refused, and a screenshot comes back in the tool's reply.
+- `headed = true` opens a window you can watch.
+- macOS only. On Linux an enabled table stops the runner when it starts, naming shep-pm/shep-kelpie#135.
+- A handover waits while a worker's turn holds a browser, since the browser lives in the running image.

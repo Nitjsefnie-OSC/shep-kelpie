@@ -122,6 +122,9 @@ pub(super) fn checks(
     if settings.code_graph.enabled {
         lines.push(code_graph(at("code graph"), &paths));
     }
+    if settings.browser.enabled {
+        lines.push(browser(at("browser"), &paths));
+    }
     lines.extend(repo_plugins(at("repo plugins"), &settings, here));
     lines.extend(super::mcp::hosts(at("repo mcp servers"), &settings, here));
     let (book, line) = implementers(at("implementers"), &settings, &paths);
@@ -418,6 +421,29 @@ fn code_graph(subject: String, paths: &ProjectPaths) -> Line {
                 binary.display()
             ),
             "run `shep kelpie tools install`, or turn `code_graph.enabled` off",
+        ),
+    }
+}
+
+// A runner whose browser is missing goes on without one, but the project turned it on.
+fn browser(subject: String, paths: &ProjectPaths) -> Line {
+    let tools = paths.tools.dir();
+    match paths.tools.has_browser() {
+        true => Line::ok(
+            subject,
+            format!(
+                "the Playwright server and Chromium are under {}",
+                tools.display()
+            ),
+        ),
+        false => Line::missing(
+            subject,
+            format!(
+                "the Playwright server or Chromium is not under {}, so the project's workers run \
+                 without a browser",
+                tools.display()
+            ),
+            "run `shep kelpie tools install`, or turn `browser.enabled` off",
         ),
     }
 }

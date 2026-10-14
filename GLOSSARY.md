@@ -314,6 +314,13 @@ What a worker's call may write, read and reach, which kelpie's OS
 **sandbox** enforces around the whole call, with **confine** (on every file
 write) and **guard** (on every command) as kelpie's own checks inside it.
 
+**Browser**:
+The Playwright MCP server a worker's `Work` turn drives to look at the UI it
+builds, when the project turns on `browser`. It runs outside the worker's
+sandbox, since Chromium cannot start inside it, and the worker reaches it
+over a socket kelpie filters: only a list of tools passes, and a URL only to
+the project's `browser.domains`.
+
 **Hook**:
 A project's own command, which kelpie runs itself at one of its points for
 every harness and role: `publish` (text bound for the forge), `commit`,

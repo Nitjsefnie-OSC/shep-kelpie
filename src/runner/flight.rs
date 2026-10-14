@@ -26,6 +26,7 @@ use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport
 use super::review::run_review_call;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
+use crate::adapters::bridge::Bridge;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Ending, Flying, RoundStage, Timestamp, Wait,
 };
@@ -199,6 +200,8 @@ struct Flight {
     told: Option<(Timestamp, Wait)>,
     // Where a first turn that waited too long moves
     fallback: waiting::Fallback,
+    // The browser the turn drives, which lasts as long as the turn does
+    browser: Option<Bridge>,
 }
 
 impl Flight {
@@ -587,6 +590,7 @@ impl Runner {
             began_at: None,
             told: None,
             fallback: waiting::Fallback::Stays,
+            browser: deadline.and_then(|_| self.opened.take(issue)),
         };
         // Only a turn has a ceiling to carry, for its record on disk.
         if flight.deadline.is_some() {
@@ -891,52 +895,6 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
     }
 }
 
-/// Runs one pass, and waits for any call it starts to end and be recorded
-///
-/// What a test steps with: a pass that starts a call returns what its end
-/// reports, as the loop would on the wake that brings it.
-///
-/// # Errors
-///
-/// [`StateError`] as [`advance`].
-#[cfg(test)]
-pub fn step(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
-    let stepped = step_once(runner);
-    brief(runner);
-    // A notice hook runs off the runner's lock, so a test waits for what it told.
-    lock(runner).settle_notices();
-    stepped
-}
-
-#[cfg(test)]
-fn step_once(runner: &Mutex<Runner>) -> Result<Option<StepReport>, StateError> {
-    // A step waits on each call it starts in turn, so it keeps the loosest
-    // ceiling the tests had before they shared `CALL_PATIENCE`.
-    const PATIENCE: Duration = Duration::from_secs(120);
-    let (wake, woken) = mpsc::channel();
-    lock(runner).wake_with(wake);
-    match advance(runner)? {
-        Pass::Idle => return Ok(None),
-        Pass::Report(report) => return Ok(Some(report)),
-        Pass::Started => {}
-    }
-    loop {
-        let news = lock(runner).next_news();
-        match news {
-            Some(news) => {
-                if let Some(report) = hear(runner, news)? {
-                    lock(runner).journal_report(&report);
-                    return Ok(Some(report));
-                }
-            }
-            None if lock(runner).flights.idle() => return Ok(None),
-            None => woken
-                .recv_timeout(PATIENCE)
-                .expect("a call in flight never ended"),
-        }
-    }
-}
-
 mod calls;
 mod carry;
 pub(super) mod label;
@@ -945,8 +903,12 @@ mod proving;
 pub(super) mod retro;
 pub(super) mod security;
 #[cfg(test)]
+mod step;
+#[cfg(test)]
 mod tests;
 mod waiting;
 
 pub use carry::CarriedTurn;
+#[cfg(test)]
+pub use step::step;
 pub(super) use waiting::Waiting;

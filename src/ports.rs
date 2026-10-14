@@ -46,9 +46,9 @@ mod thread;
 mod voice;
 
 pub use agent::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, CodeGraph, Cost,
-    Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session, SessionId,
-    Tools, Transcript, Usage, Wait, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, Browser, COMPACT, CallActivity, CodeGraph,
+    Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
+    SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
 pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
