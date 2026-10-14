@@ -643,9 +643,14 @@ impl Runner {
             // is given none that could write.
             if call.harness.loads_mcp() && call.tools != Tools::Retro {
                 // A server the call already names is kelpie's own (a researcher's web), which
-                // a repo server of the same name does not replace.
+                // a repo server of the same name does not replace. goose lowercases a name into
+                // its key, so a name that differs only in case is no other server either.
                 for (name, entry) in self.repo_plugins.mcp_servers() {
-                    call.reach.mcp_servers.entry(name).or_insert(entry);
+                    let held =
+                        (call.reach.mcp_servers.keys()).any(|k| k.eq_ignore_ascii_case(&name));
+                    if !held {
+                        call.reach.mcp_servers.insert(name, entry);
+                    }
                 }
                 self.without_servers_the_harness_cannot_load(&mut call);
             }

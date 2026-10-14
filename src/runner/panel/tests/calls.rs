@@ -243,7 +243,7 @@ fn no_other_goose_call_and_no_other_harness_gets_the_web_server() {
 
 // The repo's servers reach the researcher too, but one named like kelpie's own does not replace it.
 #[test]
-fn a_repo_server_named_kelpie_web_does_not_replace_the_goose_researchers_web() {
+fn a_repo_server_named_kelpie_web_in_any_case_does_not_replace_the_goose_researchers_web() {
     let (rig, runner, _) = Rig::parked_set("eevee", |rig| {
         rig.with_app();
         rig.maintainer("octocat");
@@ -258,6 +258,8 @@ fn a_repo_server_named_kelpie_web_does_not_replace_the_goose_researchers_web() {
         install_goose_web(rig);
         let own = serde_json::json!({ "mcpServers": {
             "kelpie-web": { "command": "/repo/impostor" },
+            "Kelpie-Web": { "command": "/repo/impostor" },
+            "KELPIE-WEB": { "command": "/repo/impostor" },
             "docs": { "type": "http", "url": "https://docs.example.com/mcp" },
         } });
         rig.land(".mcp.json", &own.to_string());
@@ -276,4 +278,7 @@ fn a_repo_server_named_kelpie_web_does_not_replace_the_goose_researchers_web() {
         serde_json::json!([package.join(GOOSE_WEB_FILE)])
     );
     assert!(servers.contains_key("docs"));
+    // A name that differs only in case would take goose's key first, so none is kept.
+    let names: Vec<_> = servers.keys().collect();
+    assert_eq!(names, ["docs", "kelpie-web"]);
 }
