@@ -20,6 +20,11 @@ use crate::worker_folder;
 /// The folder in the build folder where a reviewer writes its tests
 pub(in crate::runner) const TESTS_FOLDER: &str = "review-tests";
 
+/// The folder in the build folder a Codex reviewer with no tests to write is fenced to
+///
+/// It stays empty: the reviewer reads the worktree and writes nothing.
+pub(in crate::runner) const READING_FOLDER: &str = "review-read";
+
 /// The tool a reviewer on `harness` writes its test with, or `None` when the
 /// fence cannot hold that harness's writes to a folder
 pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> {
@@ -55,6 +60,10 @@ impl Runner {
     /// Readies the folders for a session round, and gives a reviewer asked for
     /// tests the reach that lets it write its own folder alone
     ///
+    /// A Codex reviewer not asked for tests gets a fence too, with no write
+    /// folder, since its only way to read the worktree is a shell that the
+    /// fence's guard judges. A reviewer on any other harness has none.
+    ///
     /// A first look of a reviewer asked for tests starts its own folder empty. A
     /// second look finds the first's files where they are. The checked copies
     /// stay across reviewers and passes: a held finding still names its file,
@@ -70,7 +79,7 @@ impl Runner {
         first_look: bool,
     ) -> Result<Option<Reach>, String> {
         if self.test_command_for(model).is_none() {
-            return Ok(None);
+            return self.begin_reading(model, worktree, build);
         }
         let written = tests_folder(build);
         if first_look {
@@ -88,6 +97,28 @@ impl Runner {
             &written,
             &code,
             vec![written.clone()],
+            Vec::new(),
+        )))
+    }
+
+    // The reach of a Codex reviewer that only reads, with an empty folder of its own.
+    fn begin_reading(
+        &self,
+        model: &RoleModel,
+        worktree: &Path,
+        build: &Path,
+    ) -> Result<Option<Reach>, String> {
+        if model.harness.harness() != Harness::Codex {
+            return Ok(None);
+        }
+        let folder = build.join(READING_FOLDER);
+        std::fs::create_dir_all(&folder)
+            .map_err(|e| format!("cannot make {}: {e}", folder.display()))?;
+        let code = [worktree.to_owned()];
+        Ok(Some(self.fenced_reach(
+            &folder,
+            &code,
+            Vec::new(),
             Vec::new(),
         )))
     }

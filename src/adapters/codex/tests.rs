@@ -271,22 +271,25 @@ fn only_a_worker_runs_commands_and_a_call_with_no_fence_writes_no_file() {
 }
 
 #[test]
-fn a_retro_has_no_shell_and_no_apply_patch_even_inside_a_fence() {
+fn a_retro_has_a_read_only_shell_and_no_apply_patch_inside_a_fence() {
     let w = World::new();
     let mut retro = w.fenced(Path::new("/k/kelpie"), Session::Resume(id(WORKER_ID)));
     retro.tools = Tools::Retro;
     let argv = strings(&retro, None, None);
-    assert!(argv.windows(2).any(|w| w == ["--disable", "shell_tool"]));
+    assert!(!argv.windows(2).any(|w| w == ["--disable", "shell_tool"]));
     let hooks = argv
         .iter()
         .find_map(|a| a.strip_prefix("hooks.PreToolUse="))
         .unwrap();
     let hooks: toml::Value = toml::from_str(&format!("h = {hooks}")).unwrap();
     let hooks = hooks["h"].as_array().unwrap();
-    assert_eq!(hooks.len(), 1);
+    assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0]["matcher"].as_str(), Some("^apply_patch$"));
     let refuse = hooks[0]["hooks"][0]["command"].as_str().unwrap();
     assert!(refuse.contains("this call writes no files"), "{refuse}");
+    assert_eq!(hooks[1]["matcher"].as_str(), Some("^Bash$"));
+    let shell = hooks[1]["hooks"][0]["command"].as_str().unwrap();
+    assert!(shell.contains("'--read-only'"), "{shell}");
 }
 
 #[test]

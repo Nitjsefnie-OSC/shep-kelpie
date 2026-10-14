@@ -44,6 +44,8 @@
 //! the commands it lists. With `--record` too it is the PostToolUse hook
 //! that records what the session filed and read in that ledger. With `--after`
 //! it is the PostToolUse hook that runs the project's `after_command` hooks.
+//! With `--read-only` it is a Codex reviewer's, advisor's and retro's hook,
+//! which runs only the commands that read the repo.
 //!
 //! `shep kelpie github setup [--org <org>] [--name <app name>] [--replace]`:
 //! registers kelpie's GitHub App for the maintainer's account or an
@@ -99,11 +101,21 @@ fn main() -> ExitCode {
             let (pin, local) = guard::pin_flag(&local);
             let (here, local) = guard::here_flag(&local);
             let (after, local) = guard::after_flag(&local);
+            let (reading, local) = guard::reading_flag(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
                 Err(why) => return hook(Verdict::Refuse(why)),
             };
+            if reading {
+                let mut input = Vec::new();
+                if let Err(e) = std::io::stdin().lock().read_to_end(&mut input) {
+                    return hook(Verdict::Refuse(format!(
+                        "kelpie cannot read this tool call: {e}"
+                    )));
+                }
+                return hook(guard::judge_reading(&input[..], &hooks));
+            }
             let paths = match guard::local_paths(home.as_deref(), &folders) {
                 Ok(paths) => paths,
                 Err(why) => return hook(Verdict::Refuse(why)),

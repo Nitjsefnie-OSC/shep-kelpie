@@ -2,7 +2,8 @@
 //!
 //! It is not the worker's: it draws a fresh session id and runs under its
 //! own throwaway settings, never the worker's own. It keeps its read tools,
-//! to check its own work against the worktree, and runs no command.
+//! to check its own work against the worktree, and runs no command, but on
+//! Codex, whose only read tool is a shell that kelpie's guard holds to reading.
 
 use std::path::Path;
 use std::process::Stdio;
@@ -18,6 +19,8 @@ use crate::work_item::new_session_id;
 /// With `tests`, the fenced reach of a reviewer that may write a failing test
 /// for a finding, it also has `Write` on Claude Code, and on pi `write` and on
 /// Codex `apply_patch` by the reach alone, which holds each to that folder.
+/// A Codex reviewer with no tests to write gets a reach with no write folder,
+/// which gives it a shell that only reads.
 pub(super) fn reviewer_call(
     issue: u64,
     worktree: &Path,
@@ -269,5 +272,60 @@ mod tests {
         let asked = &reviewer.call.prompt;
         assert!(asked.contains("with the write tool"), "{asked}");
         assert!(asked.contains(&folder.display().to_string()), "{asked}");
+    }
+
+    // A reviewer of `harness`'s first round, on a project with no test command.
+    fn reviewer_of(harness: &str) -> (Rig, PathBuf, crate::test::Seen) {
+        let rig = Rig::new("shep");
+        let agent = format!(
+            "---\nrole: reviewer\nharness: {harness}\nmodel: m\neffort: low\n{}---\n\
+             Review the change against {{{{BASE}}}}. Output one finding per line as \
+             SEVERITY|file:line|what|why, or CLEAN.\n",
+            match harness {
+                "pi" => "url: http://box:11434/v1\ncontext: 65536\n",
+                _ => "",
+            }
+        );
+        rig.write_agent("the-reviewer", &agent);
+        rig.reviewers(&["the-reviewer"]);
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, the reviewer: scripted clean above
+
+        let build = runner.lock().unwrap().current().unwrap().build.clone();
+        let seen = rig
+            .claude
+            .all_seen()
+            .into_iter()
+            .find(|s| s.call.role == Role::Reviewer)
+            .expect("a reviewer round ran");
+        (rig, build, seen)
+    }
+
+    #[test]
+    fn a_codex_reviewer_gets_a_fence_with_no_write_folder() {
+        let (_rig, build, seen) = reviewer_of("codex");
+
+        let fence = seen.call.reach.fence.as_deref().expect("a fence");
+        assert!(fence.write.is_empty(), "{:?}", fence.write);
+        let own = &fence.guard.worktree;
+        assert!(own.is_dir(), "kelpie made its empty folder");
+        assert_eq!(std::fs::read_dir(own).unwrap().count(), 0);
+        assert!(own.starts_with(&build), "{}", own.display());
+        assert!(!own.starts_with(&seen.call.cwd), "{}", own.display());
+        assert_eq!(seen.call.reach.read, std::slice::from_ref(&seen.call.cwd));
+    }
+
+    #[test]
+    fn a_claude_code_or_pi_reviewer_gets_no_fence_without_a_test_command() {
+        for harness in ["claude-code", "pi"] {
+            let (_rig, _, seen) = reviewer_of(harness);
+
+            assert_eq!(seen.call.reach.fence, None, "{harness}");
+        }
     }
 }

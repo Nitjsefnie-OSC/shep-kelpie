@@ -1,6 +1,6 @@
 //! A Codex reviewer asked for a failing test: `apply_patch`, held to its tests folder
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::tests::{WORKER_ID, World, codex_hooks, id, strings};
 use super::*;
@@ -8,7 +8,7 @@ use crate::ports::Role;
 
 // A reviewer's call as the runner shapes it: the fence it gets with a tests
 // folder, whose write folder, guard worktree and guard build are that folder.
-fn reviewer(w: &World, tests: Option<&Path>) -> AgentCall {
+pub(super) fn reviewer(w: &World, tests: Option<&Path>) -> AgentCall {
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     call.role = Role::Reviewer;
     call.tools = Tools::Review;
@@ -22,37 +22,6 @@ fn reviewer(w: &World, tests: Option<&Path>) -> AgentCall {
         None => call.reach.fence = None,
     }
     call
-}
-
-#[test]
-fn a_codex_reviewer_asked_for_tests_may_patch_its_tests_folder_alone() {
-    let w = World::new();
-    let folder = w.path("build/review-tests");
-    let call = reviewer(&w, Some(&folder));
-
-    let argv = strings(&call, None, None);
-
-    assert!(argv.windows(2).any(|a| a == ["--disable", "shell_tool"]));
-    let hooks = codex_hooks(&argv, "PreToolUse").unwrap();
-    let patch = hooks
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|h| h["matcher"].as_str() == Some("^apply_patch$"))
-        .expect("a hook holds apply_patch");
-    let folder_arg = format!("'{}'", folder.display());
-    assert_eq!(
-        patch["hooks"][0]["command"].as_str().unwrap(),
-        format!("'/k/kelpie' 'confine' {folder_arg} {folder_arg}")
-    );
-
-    let policy = policy(&call, &w.path("login"), &Files::of(&call), &[]);
-    assert!(policy.write.contains(&folder), "{:?}", policy.write);
-    let worktree = w.path("wt");
-    let in_worktree: Vec<&PathBuf> = (policy.write.iter())
-        .filter(|p| p.starts_with(&worktree) || worktree.starts_with(p))
-        .collect();
-    assert!(in_worktree.is_empty(), "{in_worktree:?}");
 }
 
 #[test]
