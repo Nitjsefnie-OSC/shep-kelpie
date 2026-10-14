@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::tokens::{InstallationToken, Jwt};
-use crate::ports::{Cooldown, NewLabel, Timestamp};
+use crate::ports::{Cooldown, LineComment, NewLabel, Timestamp};
 use crate::settings::ForgeSlug;
 
 /// An App's private key in PEM, as the conversion hands it back
@@ -204,6 +204,37 @@ impl Call {
         )
     }
 
+    /// A review of pull request `number` at `head` that only comments, with
+    /// a comment on each line of `comments`,
+    /// `POST /repos/{owner}/{repo}/pulls/{number}/reviews`
+    pub fn review(
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Self {
+        let comments: Vec<Value> = (comments.iter())
+            .map(|c| {
+                serde_json::json!({
+                    "path": c.path,
+                    "line": c.line,
+                    "side": "RIGHT",
+                    "body": c.body,
+                })
+            })
+            .collect();
+        Self::post(
+            format!("/repos/{}/pulls/{number}/reviews", repo.as_str()),
+            serde_json::json!({
+                "commit_id": head,
+                "body": body,
+                "event": "COMMENT",
+                "comments": comments,
+            }),
+        )
+    }
+
     /// Comment `comment` rewritten to say `body`,
     /// `PATCH /repos/{owner}/{repo}/issues/comments/{comment}`
     pub fn edit_comment(repo: &ForgeSlug, comment: u64, body: &str) -> Self {
@@ -326,6 +357,26 @@ fn path_segment(text: &str) -> String {
 pub fn parse_number(body: &str) -> Result<u64, ApiError> {
     let v: Value = serde_json::from_str(body).map_err(|_| ApiError::Unreadable("number"))?;
     v["number"].as_u64().ok_or(ApiError::Unreadable("number"))
+}
+
+/// `body` with each of `comments` added after it as a line naming its place,
+/// for a review that GitHub refused with comments and is posted without them
+pub fn with_comments_in_body(body: &str, comments: &[LineComment]) -> String {
+    let mut text = body.to_owned();
+    for c in comments {
+        text.push_str(&format!("\n\n`{}:{}`: {}", c.path, c.line, c.body));
+    }
+    text
+}
+
+/// The id of the review a post's answer describes
+///
+/// # Errors
+///
+/// [`ApiError::Unreadable`] when the answer has no id.
+pub fn parse_review(body: &str) -> Result<u64, ApiError> {
+    let v: Value = serde_json::from_str(body).map_err(|_| ApiError::Unreadable("id"))?;
+    v["id"].as_u64().ok_or(ApiError::Unreadable("id"))
 }
 
 /// The id and creation time of the comment a post's answer describes

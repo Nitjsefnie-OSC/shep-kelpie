@@ -42,6 +42,8 @@ fn an_older_state_file_loads() {
         unread: None,
         findings: Vec::new(),
         nits: Vec::new(),
+        review: None,
+        note: None,
     });
     store.save(&state).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -88,6 +90,8 @@ fn a_walk_at_a_bots_turn_and_its_nits_are_kept() {
         unread: None,
         findings: Vec::new(),
         nits: vec![nit],
+        review: None,
+        note: None,
     };
     state.contributions[0].pass = Some(pass);
     state.contributions[0].walking = None;

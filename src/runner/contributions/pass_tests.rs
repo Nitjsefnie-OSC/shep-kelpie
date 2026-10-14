@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::budget_tests::settle;
 use super::security_tests::{commit_on, contribute, contribution};
-use super::tests::{poll, posts};
+use super::tests::poll;
 use crate::ports::{
     AgentError, CLEAN, Checks, Cost, Finding, PullRequestState, ReviewerError, Role, Severity,
     Tools,
@@ -375,7 +375,7 @@ fn a_head_that_changes_agents_own_files_is_read_by_no_one() {
 }
 
 #[test]
-fn findings_are_recorded_on_the_contribution_and_nothing_is_posted() {
+fn findings_are_recorded_on_the_contribution() {
     let (rig, runner) = listing(&["mine"]);
     rig.claude.script([Scripted::Text(CLEAN)]);
     rig.reviewer
@@ -389,8 +389,6 @@ fn findings_are_recorded_on_the_contribution_and_nothing_is_posted() {
     assert_eq!(finding["line"], 1);
     assert_eq!(finding["what"], "leftover placeholder");
     assert_eq!(finding["why"], "it ships to users");
-    assert_eq!(posts(&rig), Vec::<String>::new());
-    assert_eq!(rig.forge.comments(), []);
     assert_eq!(rig.forge.merges(), []);
 }
 

@@ -398,6 +398,8 @@ pub struct Runner {
     gh_login: std::cell::OnceCell<String>,
     // Whether a ruling posted with no one to mention has been told, in memory only
     unmentioned_told: std::cell::Cell<bool>,
+    // The posts to a contribution that failed and were told, until one works, in memory only
+    post_told: std::cell::RefCell<std::collections::BTreeSet<String>>,
     // Whether a worker's turn waits for a token GitHub is not giving, in memory only
     token_wait: token_wait::TokenWait,
     // When each work item began waiting for a bot's lease, in memory only
@@ -644,6 +646,7 @@ impl Runner {
             forge_ledger,
             gh_login: std::cell::OnceCell::new(),
             unmentioned_told: std::cell::Cell::new(false),
+            post_told: std::cell::RefCell::default(),
             token_wait: token_wait::TokenWait::default(),
             lease_waits: review_bot::lease_wait::LeaseWaits::default(),
             unreachable: turn::unreachable::Unreachable::default(),

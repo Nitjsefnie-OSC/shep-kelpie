@@ -285,7 +285,7 @@ fn unremoved(settings: &Path) -> Option<String> {
 // that renders it. Backticks that close nothing are plain text, so a mention
 // after them is still put in code, and so is one in a fence that never
 // closes, which a reader may not see as code.
-fn neutered(text: &str, contributor: &str) -> String {
+pub(in crate::runner) fn neutered(text: &str, contributor: &str) -> String {
     let mut out = String::with_capacity(text.len());
     // The open fence's mark and length, and its lines so far
     let mut fence: Option<(char, usize, String)> = None;

@@ -1,6 +1,6 @@
 //! Kelpie's own voice on the forge, made as its GitHub App
 
-use super::{ForgeError, NewLabel, PostedComment};
+use super::{ForgeError, LineComment, NewLabel, PostedComment};
 use crate::github::InstallationToken;
 use crate::settings::ForgeSlug;
 
@@ -44,6 +44,27 @@ pub trait Voice: Send + Sync {
     ///
     /// [`ForgeError`] when the App cannot post it or its answer cannot be read.
     fn post(&self, repo: &ForgeSlug, thread: u64, body: &str) -> Result<PostedComment, ForgeError>;
+
+    /// Posts a review of pull request `number` at `head` that only comments:
+    /// `body`, and a comment on each line in `comments`. Returns the review's id.
+    ///
+    /// The review never approves and never asks for changes. A line the diff
+    /// does not show, or one the forge refuses for another reason, makes the
+    /// forge refuse the comments, in which case the review is posted once
+    /// more with the comments' text added to `body`, since a reader still
+    /// wants the findings.
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot post it or its answer names no id.
+    fn review(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        head: &str,
+        body: &str,
+        comments: &[LineComment],
+    ) -> Result<u64, ForgeError>;
 
     /// Rewrites comment `comment`, one the App posted, to say `body`
     ///

@@ -121,7 +121,7 @@ impl Runner {
         self.flights.securing = None;
         match reading {
             Reading::Security(reading) => self.record_security(pull_request, head, reading),
-            Reading::Pass(walked) => self.record_pass(pull_request, head, walked),
+            Reading::Pass(walked) => self.record_pass(pull_request, head, *walked),
         }
     }
 }

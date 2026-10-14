@@ -58,7 +58,7 @@ pub(crate) use elsewhere::Elsewhere;
 pub(crate) use endpoint::{Answer, StandInEndpoint, Take, unreachable_url};
 pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
-pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
+pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM, REVIEW_ID, SentReview};
 pub(crate) use home::Home;
 pub(crate) use leases::{DogStandIn, FakeLeases, Told};
 pub(crate) use memory::Memory;

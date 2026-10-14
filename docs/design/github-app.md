@@ -7,19 +7,19 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - Rulings, notices, rounds move to GitHub via an App each user registers (GitHub never notifies of your own comments); ntfy stays optional. One App per owner via manifest flow (shared App would need key shipped or hosted). #395
 - App holds contents, workflows, issues, pull requests write + checks, statuses, metadata read; merging stays on user's `gh`, App never merges. Kelpie's own token: issues + PRs only, can't push. #395, #396
 - Covered worker call gets a token for one repo, `contents` (and `workflows`) only; refused if GitHub grants more (guard parsing can't be complete; credential is the boundary). #420, #462
-- Token reaches worker as a `gh` config file, not a variable (every process shows those); git credential helpers emptied (keychain never asked). #420, #429
-- Covered worker writes `pull-request.md`; kelpie opens and edits the PR (worker's token can't). Worker files read/written without following links (planted link could leak a secret). #420, #439, `src/worker_folder.rs`
-- Workers can push any branch: `doctor` says protect `main`. Kelpie reads covered workers' failed CI logs (3 runs, 6000 bytes each, after cargo's progress lines and GitHub's timestamps are dropped) rather than widen token. #420
+- Token reaches worker as a `gh` config file, not a variable (every process shows those); git credential helpers emptied. #420, #429
+- Covered worker writes `pull-request.md`; kelpie opens and edits the PR (worker's token can't). Worker files are read and written without following links. #420, #439, `src/worker_folder.rs`
+- Workers can push any branch: `doctor` says protect `main`. Kelpie reads covered workers' failed CI logs (3 runs, 6000 bytes each, noise dropped) rather than widen token. #420
 - Worker token refreshed every 30 min during a call (lasts 1h). `src/runner/login_refresh.rs`
 - `shep kelpie github setup` registers an App from 127.0.0.1 with random `state`, refusing other hosts. #396
 - App under `<kelpie home>/github/<owner>/`, key 0600, never in argument or variable (like TOTP secret). #396
 - JWTs signed with `openssl`, sent by `curl` config on stdin (not in process list, no RSA crate). #396
-- Tokens cached per repo until 5 min before expiry; one mint flight per repo (slow mint stalls no other repo). #397
+- Tokens cached per repo until 5 min before expiry; one mint flight per repo. #397
 - `doctor` checks each repo's token; no App = `unsure`. #396
 
 ## Reading
 
-- Board, PR, review and check reads (`issue`, `ready_issues`, `open_pull_requests`, `pull_request`, `reviewed`, `review_bot`) go through the App's reading token where it covers the repo: the App's own rate budget takes them off the login's. Viewer, access checks, `sub_issues`, `comments_since`, `thread_replies_since`, failed run logs and every write stay on the login. `sub_issues` stays because the token reaches one repo and a parent's sub-issues can sit in another, so a list from the App could be short and `close_merged` would close the parent early. #582
+- Board, PR, review and check reads (`issue`, `ready_issues`, `open_pull_requests`, `pull_request`, `reviewed`, `review_bot`) go through the App's reading token where it covers the repo: the App's own rate budget takes them off the login's. Viewer, access checks, `sub_issues`, `comments_since`, `thread_replies_since`, failed run logs and every write stay on the login. `sub_issues` stays: a parent's sub-issues can sit in another repo, and a short list would close the parent early. #582
 - Same `gh` commands as the login's, run with `GH_CONFIG_DIR` on a folder of kelpie's own (`<kelpie home>/reads/<owner>--<repo>/gh`) holding the token, and `GH_TOKEN` and its kin unset (an environment token would win). Not curl/GraphQL: custom queries can't be checked live from a worker. `src/adapters/gh/app.rs`. #582
 - Reading token is its own grant (`Grant::Reader`: issues, pull requests, checks, statuses read), kept apart from the posting token; an App without checks/statuses 422s and falls back to `ReaderCore`. The token's returned `permissions` say what it holds. `src/github/tokens.rs`. #582
 - `RateHeld` routes (`src/ports/rate_limit/app_reads.rs`): a read the token lacks a permission for, or that answers "Resource not accessible by integration", goes to the login and says the permission, once per repo and read. App reads take no turn in the login's pace; the App's used-up answer sends its reads to the login until it resets and holds nothing else. #582
@@ -33,6 +33,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - Ruling comments share one card format so reactions and ticks read same options. #464, `src/runner/voice/card.rs`
 - Ruling settled elsewhere has its comment edited. #472
 - Worker posts no comment (as maintainer it could answer a ruling). Guard reads `gh` as gh does, refuses shell expansion. #418, `src/guard/gh.rs`
+- Findings post as one comment-only review (`Voice::review`) with a comment per line, once per head; `publish` hooks see body and every comment. A bot's findings never post. #627, `contribution-pass.md`
 
 ## Answering on GitHub
 
