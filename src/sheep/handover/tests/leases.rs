@@ -47,6 +47,7 @@ fn the_lease_totals_cross_a_handover() {
     let carry = across_the_wire(&Carry {
         turns: Vec::new(),
         leases: Some(old.keep()),
+        build: None,
     });
     let new = ShepLeases::new(dog.clone(), carry.asker(EPOCH, "koji", &book), book);
     new.want(&stand_in());
@@ -68,6 +69,7 @@ fn what_the_runner_holds_crosses_a_handover() {
     let carry = across_the_wire(&Carry {
         turns: Vec::new(),
         leases: Some(old.keep()),
+        build: None,
     });
     let new = ShepLeases::new(dog.clone(), carry.asker(EPOCH, "koji", &book), book);
 
@@ -179,6 +181,7 @@ fn a_grant_that_landed_after_the_totals_were_taken_is_held_in_the_new_image() {
     let carry = across_the_wire(&Carry {
         turns: Vec::new(),
         leases: Some(old.keep()),
+        build: None,
     });
     // The dog's grant reached the old image after that, and the book has it.
     let held = SavedHeld {
@@ -252,6 +255,7 @@ fn a_book_that_has_not_heard_the_runners_latest_totals_gives_it_no_hold() {
     let carry = across_the_wire(&Carry {
         turns: Vec::new(),
         leases: Some(old.keep()),
+        build: None,
     });
     // The dog has heard the first ask only, and still has the run holding.
     save_book_with_the_run_holding(&book, 1, 0);
@@ -270,6 +274,7 @@ fn a_grant_the_dog_saved_before_the_handler_was_up_is_held_when_the_runner_looks
     let carry = across_the_wire(&Carry {
         turns: Vec::new(),
         leases: Some(old.keep()),
+        build: None,
     });
     let new = ShepLeases::new(dog.clone(), carry.asker(EPOCH, "koji", &book), book.clone());
     assert!(!new.holds(&stand_in()), "the book had no grant yet");

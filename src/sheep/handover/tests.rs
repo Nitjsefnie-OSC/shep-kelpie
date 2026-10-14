@@ -362,6 +362,41 @@ fn a_carry_holding_a_goose_turn() -> Carry {
     .expect("the goose turn is a `Carry` as the wire has it")
 }
 
+#[test]
+fn the_new_image_says_it_took_over_from_a_handover_with_both_builds() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    let carry: Carry = serde_json::from_value(serde_json::json!({
+        "turns": [], "build": "0.3.1",
+    }))
+    .unwrap();
+
+    let line = carry.took_over_line(&runner.lock().unwrap());
+
+    assert_eq!(
+        line,
+        format!(
+            "took over: shep, from kelpie 0.3.1 to kelpie {}, 0 turns carried, \
+             0 work items open, 0 rulings waiting",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
+fn a_handover_from_an_image_that_named_no_build_says_an_earlier_one() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    let carry: Carry = serde_json::from_value(serde_json::json!({ "turns": [] })).unwrap();
+
+    let line = carry.took_over_line(&runner.lock().unwrap());
+
+    assert!(
+        line.starts_with("took over: shep, from an earlier build to kelpie "),
+        "{line}"
+    );
+}
+
 mod codex;
 mod exec;
 mod goose;

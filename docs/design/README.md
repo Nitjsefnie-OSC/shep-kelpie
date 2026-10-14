@@ -39,6 +39,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | contribution-security.md | a contribution's security review, slots and budget | `src/runner/contributions/`, `src/runner/flight/security.rs`, `src/worktree/contribution.rs` |
 | contribution-pass.md | the reviewers' pass over a green contribution head, rotation, the record | `src/runner/contributions/pass.rs`, `src/worktree/contribution.rs`, `src/state/contributions.rs` |
 | contribution-talk.md | what contributors say: hearing, the record, the quiet clock | `src/runner/contributions/heard.rs`, `src/runner/contributions/clock.rs`, `src/runner/thread_replies.rs`, `src/state/contributions.rs` |
+| log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, board skips, standing warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
 Each file stays under 8 KB, and a changed decision updates its bullet in the same PR. An area past 8 KB splits in two, with a new row here. `scripts/design-size.sh` checks both, in CI too.

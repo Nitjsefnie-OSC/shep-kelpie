@@ -936,3 +936,4 @@ mod browser;
 mod budget;
 mod hand_over;
 mod held;
+mod pause_log;

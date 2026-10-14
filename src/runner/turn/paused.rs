@@ -12,7 +12,7 @@ use crate::guard::Pause;
 use crate::ports::{AgentError, AgentReply, Role};
 use crate::runner::Runner;
 use crate::state::StateError;
-use crate::work_item::Turn;
+use crate::work_item::{Turn, WorkItem};
 
 use crate::runner::report::StepReport;
 
@@ -53,6 +53,20 @@ impl Runner {
         item.turn = Turn::Next {
             prompt: PAUSED.to_owned(),
         };
-        Some(self.save(next).map(|()| None))
+        let saved = self.save(next);
+        if saved.is_ok() {
+            self.notes.push(format!("#{issue} paused-at-tool"));
+        }
+        Some(saved.map(|()| None))
     }
+
+    // Says that the turn that just started resumed one a pause ended
+    pub(in crate::runner) fn note_resumed(&self, issue: u64) {
+        self.notes.push(format!("#{issue} resumed-after-pause"));
+    }
+}
+
+// Whether the turn about to start resumes one a pause ended
+pub(in crate::runner) fn resumes_pause(item: &WorkItem) -> bool {
+    matches!(&item.turn, Turn::Next { prompt } if prompt == PAUSED)
 }

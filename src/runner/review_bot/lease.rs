@@ -18,7 +18,13 @@ impl Runner {
     pub(super) fn lease_granted(&self, bot: Bot) -> bool {
         let lease = self.profile(bot).lease();
         self.ports.leases.want(&lease);
-        self.ports.leases.holds(&lease) && !self.lease_held_elsewhere(bot)
+        let granted = self.ports.leases.holds(&lease) && !self.lease_held_elsewhere(bot);
+        if granted {
+            self.lease_wait_ends(bot, "granted");
+        } else {
+            self.lease_waits(bot);
+        }
+        granted
     }
 
     // What a summon's answer tells the dog: the window runs from `at`.
@@ -46,6 +52,7 @@ impl Runner {
     /// back for an item that never took the lease would cancel a sibling's
     /// place in the dog's queue, or a grant it has yet to take up.
     pub(super) fn release(&mut self, bot: Bot) -> Result<(), StateError> {
+        self.lease_wait_forgotten(bot);
         let this = self.current().map(|item| item.issue);
         let mine = |l: &LeaseHeld| l.resource == bot.resource() && l.issue == this;
         let held = self.state.leases.iter().any(mine);

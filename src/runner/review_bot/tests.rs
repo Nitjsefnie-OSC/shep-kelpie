@@ -361,3 +361,76 @@ fn an_owed_stand_in_summon_marked_done_is_answered_not_summoned_again() {
     assert_eq!(rig.forge.comments(), []);
     read_as_stand_in(&rig);
 }
+
+fn notes(runner: &Mutex<Runner>) -> Vec<String> {
+    runner.lock().unwrap().take_notes()
+}
+
+// Pull request 71 with the stand-in listed after the qwen and Claude rounds,
+// the draft marked ready, and the dog granting no lease.
+fn ready_without_a_lease(rig: &Rig) -> Mutex<Runner> {
+    rig.coderabbit_on();
+    let runner = rig.open_with(vec![Arc::new(StandIn)]).unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude
+        .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+    for _ in 0..4 {
+        step(&runner).unwrap(); // the worker, qwen, Claude, then the draft marked ready
+    }
+    rig.leases.withhold(true);
+    notes(&runner);
+    runner
+}
+
+#[test]
+fn a_round_waiting_for_a_lease_says_so_once_and_says_the_wait_when_it_is_granted() {
+    let rig = Rig::new("shep");
+    let runner = ready_without_a_lease(&rig);
+
+    for _ in 0..3 {
+        assert_eq!(step(&runner).unwrap(), None, "no lease, no summon");
+        rig.clock.advance(60);
+    }
+    assert_eq!(
+        notes(&runner),
+        ["#7 lease-wait kind=stand-in reviewer=coderabbit"]
+    );
+
+    rig.leases.withhold(false);
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::Summoned { .. })
+    ));
+    assert_eq!(
+        notes(&runner),
+        ["#7 lease-granted kind=stand-in reviewer=coderabbit waited=180s"]
+    );
+}
+
+#[test]
+fn a_lease_granted_at_the_first_ask_says_nothing() {
+    let (_rig, runner, _head) = summoned("shep");
+
+    assert_eq!(notes(&runner), Vec::<String>::new());
+}
+
+#[test]
+fn a_round_that_gives_up_on_the_lease_says_the_wait_it_gave_up_after() {
+    let rig = Rig::new("shep");
+    let runner = ready_without_a_lease(&rig);
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.clock.advance(2 * 60 * 60);
+
+    assert!(matches!(
+        step(&runner).unwrap(),
+        Some(StepReport::ReviewerSkipped { .. })
+    ));
+    assert_eq!(
+        notes(&runner),
+        [
+            "#7 lease-wait kind=stand-in reviewer=coderabbit",
+            "#7 lease-refused kind=stand-in reviewer=coderabbit waited=7200s",
+        ]
+    );
+}
