@@ -358,3 +358,29 @@ fn a_replaced_pr_skill_keeps_the_wording_skill_and_a_pr_set_to_none_drops_it() {
     assert_eq!(worker.plugin_dirs, [rig.paths().skills.join("mattpocock")]);
     assert!(!rig.paths().skills.join("kelpie-wording").exists());
 }
+
+#[test]
+fn a_worker_with_only_the_wording_skill_still_gets_the_headless_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let gone = dir.path().join("gone");
+    let chosen = |table: &str| -> crate::settings::StepSkills { toml::from_str(table).unwrap() };
+    let only_wording = chosen(&format!(
+        "tests = {{ kind = \"none\" }}\npr = {{ kind = \"path\", path = \"{}\" }}\n",
+        gone.display()
+    ));
+    let skills = Skills::load(&only_wording, &dir.path().join("skills"));
+    assert_eq!(skills.command(Step::Tests), None);
+    assert_eq!(skills.command(Step::Pr), None);
+    assert!(skills.wording().is_some());
+    let rules = skills
+        .worker_rules()
+        .expect("the wording skill runs headless too");
+    assert!(
+        rules.starts_with("Kelpie runs this skill headless."),
+        "{rules}"
+    );
+
+    let none = chosen("tests = { kind = \"none\" }\npr = { kind = \"none\" }\n");
+    let skills = Skills::load(&none, &dir.path().join("skills"));
+    assert_eq!(skills.worker_rules(), None);
+}

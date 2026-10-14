@@ -150,6 +150,12 @@ enum Wording {
     Failed(String),
 }
 
+impl Wording {
+    fn is_loaded(&self) -> bool {
+        matches!(self, Self::Loaded)
+    }
+}
+
 impl Skills {
     /// Loads each step's skill, writing the plugins it needs under `folder`
     ///
@@ -245,16 +251,16 @@ impl Skills {
     /// The headless rules for the skills a worker runs inside its turn, if
     /// it has any
     pub fn worker_rules(&self) -> Option<String> {
-        [Step::Tests, Step::Pr]
+        let skill = [Step::Tests, Step::Pr]
             .into_iter()
-            .any(|step| self.command(step).is_some())
-            .then(|| rules(Step::Tests))
+            .any(|step| self.command(step).is_some());
+        (skill || self.wording.is_loaded()).then(|| rules(Step::Tests))
     }
 
     /// The slash command of kelpie's writing skill for a pull request's body,
     /// unless `pr` is set to `none` or the skill could not be written
     pub fn wording(&self) -> Option<String> {
-        matches!(self.wording, Wording::Loaded).then(wording::command)
+        self.wording.is_loaded().then(wording::command)
     }
 
     /// Whether the project set `step` to `none`, so it runs no skill and no
