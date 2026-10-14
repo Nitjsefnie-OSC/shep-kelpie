@@ -35,6 +35,24 @@ impl Runner {
         }
         self.skipped = skipped;
     }
+
+    // Takes `failed` as the skips of a pass that began a call before the board
+    // was read: the board's skips stand as they were, so the pass neither
+    // clears nor repeats them
+    pub(super) fn set_failed_skips(&mut self, failed: Vec<Skip>) {
+        let mut skipped: Vec<Skip> = (self.skipped.iter())
+            .filter(|skip| {
+                !matches!(
+                    skip,
+                    Skip::Failed { .. } | Skip::Rework { .. } | Skip::Adopt { .. }
+                )
+            })
+            .cloned()
+            .collect();
+        skipped.extend(failed);
+        skipped.sort_by_key(Skip::issue);
+        self.set_skipped(skipped);
+    }
 }
 
 #[cfg(test)]
@@ -87,5 +105,30 @@ mod tests {
                 "#8 skipped reason=blocked by #32, #33"
             ]
         );
+    }
+
+    #[test]
+    fn a_pass_that_begins_a_call_before_the_board_is_read_leaves_the_skips_standing() {
+        let rig = Rig::new("shep");
+        rig.ci_on();
+        let runner = rig.open().unwrap();
+        rig.forge.list_ready(8, false);
+        rig.forge.block(8, 32);
+        step(&runner).unwrap();
+        assert_eq!(notes(&runner), ["#8 skipped reason=blocked by #32"]);
+
+        rig.push_by_hand("fix/timeline", "work.txt");
+        rig.forge.open_pull_request(80, "fix/timeline", &[5]);
+        rig.ask(&runner, "adopt", Some("80"));
+        rig.next_look();
+        assert!(matches!(
+            step(&runner).unwrap(),
+            Some(StepReport::Adopted { .. })
+        ));
+        rig.ask(&runner, "drop", None);
+        rig.next_look();
+        step(&runner).unwrap();
+
+        assert_eq!(notes(&runner), Vec::<String>::new());
     }
 }

@@ -13,4 +13,4 @@ What the runner's out log (stdout and stderr) and the dog's log say about what k
 ## Dog
 
 - A grant of a build, test or e2e lease is logged only when the ask had to queue, with how many were ahead; a refusal is always logged. `src/dog/door.rs`
-- An ask the dog does not act on is logged once for each kind, direction and total in a run: `ignored <kind> want|return total <n> from <sheep> run <epoch>: the dog recorded <m> for this run`. The runner re-sends its total each pass while it waits, and an equal total while the dog has it asking is the normal case, so it is silent. `src/dog/desk.rs`
+- An ask the dog does not act on is logged once for each kind, direction and total in a run: `ignored <kind> want|return total <n> from <sheep> run <epoch>: the dog recorded <m> for this run`. The runner re-sends every kind's totals each pass while any one kind waits, so an equal total is the normal case and is silent; a total below the recorded one is not. `src/dog/desk.rs`

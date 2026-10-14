@@ -251,17 +251,11 @@ impl Desk {
                 totals.give_back = value;
                 grants.extend(self.book.give_back(&kind, &holder));
             }
-            // A want repeated while the ask stands is how a runner asks again.
-            Total::Want if value == totals.want && totals.asking() => {}
+            // A runner sends every kind's totals again while any one of its asks
+            // stands, so a want equal to the recorded one is no mismatch.
+            Total::Want if value == totals.want => {}
             Total::Want => {
-                let recorded = totals.want;
-                let why = match value == recorded {
-                    true => format!(
-                        "the dog recorded {recorded} for this run, and {} given back",
-                        totals.give_back
-                    ),
-                    false => format!("the dog recorded {recorded} for this run"),
-                };
+                let why = format!("the dog recorded {} for this run", totals.want);
                 ignored = Some((kind, true, value, why));
             }
             Total::Return if value == totals.give_back => {}
@@ -545,19 +539,13 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_repeated_want_after_the_return_is_said_to_be_ignored() {
+    fn a_want_sent_again_after_the_return_is_not_said_to_be_ignored() {
         let mut w = world();
         let mut koji = Asker::new(Epoch(101));
         let want = koji.want(&stand_in());
         w.raise("koji", want.clone());
         w.raise("koji", koji.give_back(&stand_in()));
-        assert_eq!(
-            w.ignored("koji", want).as_deref(),
-            Some(
-                "ignored stand-in want total 1 from koji run 101: \
-                 the dog recorded 1 for this run, and 1 given back"
-            )
-        );
+        assert_eq!(w.ignored("koji", want), None);
     }
 
     #[test]

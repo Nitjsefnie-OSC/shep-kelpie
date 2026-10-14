@@ -45,19 +45,19 @@ impl Runner {
         // any ready issue, and one that cannot start is passed over like one.
         let (begin, mut failed) = self.adopt_waiting(&open)?;
         if let Some(begin) = begin {
-            self.set_skipped(failed);
+            self.set_failed_skips(failed);
             return Ok(begin);
         }
         let (begin, reworks) = self.rework_asked(&open)?;
         failed.extend(reworks);
         if let Some(begin) = begin {
-            self.set_skipped(failed);
+            self.set_failed_skips(failed);
             return Ok(begin);
         }
         // A contribution's call goes before any new issue, and takes the slot
         // the board would have.
         if let Some(begin) = self.contribution_due()? {
-            self.set_skipped(failed);
+            self.set_failed_skips(failed);
             return Ok(begin);
         }
         // One whose paths a parked item's branch touches would build on code

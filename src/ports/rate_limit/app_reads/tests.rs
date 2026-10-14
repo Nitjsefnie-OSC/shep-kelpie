@@ -234,6 +234,20 @@ fn a_missing_permission_stands_until_the_token_holds_it() {
 }
 
 #[test]
+fn a_later_read_says_only_the_permissions_not_said_before() {
+    let standing = Arc::new(Standing::default());
+    let rig = Rig::watched(Some(&["issues"]), Some(standing.clone()));
+
+    rig.held.open_pull_requests(&repo()).unwrap();
+    rig.held.pull_request(&repo(), 7).unwrap();
+
+    let lines: Vec<String> = standing.0.lock().unwrap().values().cloned().collect();
+    assert_eq!(lines.len(), 2, "{lines:#?}");
+    let later = lines.iter().find(|l| l.contains("checks")).unwrap();
+    assert!(!later.contains("pull_requests"), "{later}");
+}
+
+#[test]
 fn a_read_the_app_is_refused_for_want_of_a_permission_falls_to_the_login_and_says_which() {
     let rig = Rig::new(Some(&ALL));
     rig.app

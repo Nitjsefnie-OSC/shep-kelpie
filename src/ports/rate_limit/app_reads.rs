@@ -193,40 +193,39 @@ impl RateHeld {
             self.holds_again(repo, read.needs());
             return Some(reads);
         }
-        self.tell_once(
-            Cause::Lacks,
-            repo,
-            &lacking,
+        self.tell_once(Cause::Lacks, repo, &lacking, |new| {
             format!(
-                "the App's token for {} lacks the {} permission to read, which the {} read \
-                 needs, so the login reads it: add it in the App's settings, then accept it on \
-                 the installation",
+                "the App's token for {} lacks the {new} permission to read, which the {} \
+                     read needs, so the login reads it: add it in the App's settings, then \
+                     accept it on the installation",
                 repo.as_str(),
-                lacking.join(" and "),
                 read.kind().name(),
-            ),
-        );
+            )
+        });
         None
     }
 
     fn told_lacking(&self, repo: &ForgeSlug, read: Read, error: &ForgeError) {
-        self.tell_once(
-            Cause::Refused,
-            repo,
-            read.needs(),
+        self.tell_once(Cause::Refused, repo, read.needs(), |new| {
             format!(
-                "the App was refused the {} read of {} ({error}); it needs the {} permission to \
-                 read, so the login reads it",
+                "the App was refused the {} read of {} ({error}); it needs the {new} \
+                     permission to read, so the login reads it",
                 read.kind().name(),
                 repo.as_str(),
-                read.needs().join(" and "),
-            ),
-        );
+            )
+        });
     }
 
     // Told once for each permission a repo's reads lack, whichever read met
-    // it: a read that lacks only permissions told already says nothing.
-    fn tell_once(&self, cause: Cause, repo: &ForgeSlug, permissions: &[&str], line: String) {
+    // it: a read that lacks only permissions told already says nothing, and
+    // one that lacks more says only the new ones, as `line` words them.
+    fn tell_once(
+        &self,
+        cause: Cause,
+        repo: &ForgeSlug,
+        permissions: &[&str],
+        line: impl FnOnce(&str) -> String,
+    ) {
         let Some(reader) = &self.app else { return };
         let mut told = reader.told.lock().unwrap_or_else(PoisonError::into_inner);
         let new: Vec<&str> = (permissions.iter().copied())
@@ -235,7 +234,9 @@ impl RateHeld {
         if new.is_empty() {
             return;
         }
-        let key = warning_key(cause, repo, &new.join(" and "));
+        let named = new.join(" and ");
+        let key = warning_key(cause, repo, &named);
+        let line = line(&named);
         for permission in &new {
             told.insert(warning_key(cause, repo, permission), key.clone());
         }
