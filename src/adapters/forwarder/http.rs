@@ -1,36 +1,37 @@
-//! Reading one HTTP/1 request from a worker, every read bounded in bytes and in time
+//! Reading one HTTP/1 request from a worker or its browser, every read bounded in bytes and in time
 
 use std::io::{self, BufRead, Read, Write};
+use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
 /// The most a request's head may take, in bytes
-pub(super) const HEAD_MAX: usize = 64 * 1024;
+pub(in crate::adapters) const HEAD_MAX: usize = 64 * 1024;
 
 /// The most a request's body may take, in bytes: a chat call carries its whole context
-pub(super) const BODY_MAX: u64 = 64 << 20;
+pub(in crate::adapters) const BODY_MAX: u64 = 64 << 20;
 
 /// The most a chunk's size line may take, in bytes
 const LINE_MAX: usize = 1024;
 
 /// A refusal or failure, as the reply the worker's harness reads
 #[derive(Debug)]
-pub(super) struct Reply {
-    pub(super) status: u16,
+pub(in crate::adapters) struct Reply {
+    pub(in crate::adapters) status: u16,
     text: String,
 }
 
 impl Reply {
-    pub(super) fn new(status: u16, text: impl Into<String>) -> Self {
+    pub(in crate::adapters) fn new(status: u16, text: impl Into<String>) -> Self {
         Self {
             status,
             text: text.into(),
         }
     }
 
-    pub(super) fn write(&self, to: &mut impl Write) -> io::Result<()> {
+    pub(in crate::adapters) fn write(&self, to: &mut impl Write) -> io::Result<()> {
         let reason = match self.status {
             400 => "Bad Request",
             403 => "Forbidden",
@@ -53,21 +54,39 @@ impl Reply {
     }
 }
 
-/// A client's stream that gives up at a deadline, however slowly it is fed
-#[derive(Debug)]
-pub(super) struct Timed {
-    pub(super) stream: UnixStream,
-    pub(super) deadline: Instant,
+/// A stream whose next read can be given a time limit
+pub(in crate::adapters) trait Limited: Read {
+    /// Makes a read fail with a timeout once `within` has passed
+    fn limit_read(&self, within: Duration) -> io::Result<()>;
 }
 
-impl Read for Timed {
+impl Limited for UnixStream {
+    fn limit_read(&self, within: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(within))
+    }
+}
+
+impl Limited for TcpStream {
+    fn limit_read(&self, within: Duration) -> io::Result<()> {
+        self.set_read_timeout(Some(within))
+    }
+}
+
+/// A client's stream that gives up at a deadline, however slowly it is fed
+#[derive(Debug)]
+pub(in crate::adapters) struct Timed<S> {
+    pub(in crate::adapters) stream: S,
+    pub(in crate::adapters) deadline: Instant,
+}
+
+impl<S: Limited> Read for Timed<S> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let left = self
             .deadline
             .checked_duration_since(Instant::now())
             .filter(|left| !left.is_zero())
             .ok_or(io::ErrorKind::TimedOut)?;
-        self.stream.set_read_timeout(Some(left))?;
+        self.stream.limit_read(left)?;
         self.stream.read(buf)
     }
 }
@@ -119,14 +138,14 @@ fn is_token(name: &str) -> bool {
 
 /// A request's line and headers, names in lower case
 #[derive(Debug)]
-pub(super) struct Head {
-    pub(super) method: String,
-    pub(super) target: String,
-    pub(super) headers: Vec<(String, String)>,
+pub(in crate::adapters) struct Head {
+    pub(in crate::adapters) method: String,
+    pub(in crate::adapters) target: String,
+    pub(in crate::adapters) headers: Vec<(String, String)>,
 }
 
 impl Head {
-    pub(super) fn read(reader: &mut impl BufRead) -> Result<Self, Reply> {
+    pub(in crate::adapters) fn read(reader: &mut impl BufRead) -> Result<Self, Reply> {
         let mut left = HEAD_MAX;
         let mut lines = Vec::new();
         loop {
@@ -175,14 +194,14 @@ impl Head {
             .map(|(_, v)| v.as_str())
     }
 
-    pub(super) fn expects_continue(&self) -> bool {
+    pub(in crate::adapters) fn expects_continue(&self) -> bool {
         self.values("expect")
             .any(|v| v.eq_ignore_ascii_case("100-continue"))
     }
 
     // The body, whole: counted by its length or decoded from its chunks. A
     // request that says both is the shape of a smuggled one and is refused.
-    pub(super) fn body(&self, reader: &mut impl BufRead) -> Result<Vec<u8>, Reply> {
+    pub(in crate::adapters) fn body(&self, reader: &mut impl BufRead) -> Result<Vec<u8>, Reply> {
         let encodings: Vec<_> = self.values("transfer-encoding").collect();
         let lengths: Vec<_> = self.values("content-length").collect();
         match (encodings.as_slice(), lengths.as_slice()) {
@@ -216,7 +235,7 @@ impl Head {
 }
 
 // Decodes a chunked body, its trailers read and dropped.
-pub(super) fn chunked(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
+pub(in crate::adapters) fn chunked(reader: &mut impl BufRead) -> io::Result<Vec<u8>> {
     let invalid = || io::Error::from(io::ErrorKind::InvalidData);
     let mut body = Vec::new();
     loop {
