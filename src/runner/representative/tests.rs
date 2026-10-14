@@ -259,9 +259,26 @@ fn a_settings_file_that_cannot_be_removed_is_noted_and_one_never_written_is_not(
 }
 
 #[test]
-fn a_backslash_escapes_a_mention_only_in_an_odd_run() {
+fn a_mention_after_a_backslash_is_put_in_backticks_whatever_the_run() {
     let (rig, runner) = running();
-    let said = "Escaped \\@a-user, but \\\\@b-user and \\\\\\@c-user and \\\\\\\\@d-user.";
+    let said = "Escaped \\@a-user, but \\\\@b-user and \\\\\\@c-user and \\@newcomer.";
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(said)]);
+
+    let words = represent(&runner, &post(&[], "Hello")).unwrap();
+
+    // An odd run loses its last backslash, which would escape the backtick.
+    assert_eq!(
+        words,
+        "Escaped `@a-user`, but \\\\`@b-user` and \\\\`@c-user` and \\@newcomer."
+    );
+}
+
+#[test]
+fn a_backtick_does_not_pair_across_a_line_or_a_fence_line_with_a_backtick_after_it() {
+    let (rig, runner) = running();
+    let said =
+        "- see `x\n- ask @one about `y\n\n## a `b\n@two `c\n\n```x``` then\n@three look\n```";
     rig.claude
         .script_for(Role::Representative, [Scripted::Say(said)]);
 
@@ -269,7 +286,7 @@ fn a_backslash_escapes_a_mention_only_in_an_odd_run() {
 
     assert_eq!(
         words,
-        "Escaped \\@a-user, but \\\\`@b-user` and \\\\\\@c-user and \\\\\\\\`@d-user`."
+        "- see `x\n- ask `@one` about `y\n\n## a `b\n`@two` `c\n\n```x``` then\n`@three` look\n```"
     );
 }
 

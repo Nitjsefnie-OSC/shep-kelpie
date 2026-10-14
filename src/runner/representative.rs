@@ -197,12 +197,13 @@ fn unremoved(settings: &Path) -> Option<String> {
 
 // `text` with every `@login` that is not `contributor`'s inside backticks.
 // Code the reply already has is left as it is: a fenced block that closes,
-// and an inline span whose closing backticks are there. Backticks that close
-// nothing are plain text, so a mention after them is still put in code, and
-// so is one in a fence that never closes, which a reader may not see as code.
+// and an inline span whose closing backticks are on its line. A span is
+// paired within a line, since a list item or a heading ends one in a reader
+// that renders it. Backticks that close nothing are plain text, so a mention
+// after them is still put in code, and so is one in a fence that never
+// closes, which a reader may not see as code.
 fn neutered(text: &str, contributor: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut paragraph = String::new();
     // The open fence's mark and length, and its lines so far
     let mut fence: Option<(char, usize, String)> = None;
     for line in text.split_inclusive('\n') {
@@ -212,24 +213,17 @@ fn neutered(text: &str, contributor: &str) -> String {
                 out.push_str(held);
                 fence = None;
             }
-            continue;
-        }
-        if let Some((mark, len)) = opens_fence(line) {
-            out.push_str(&outside_spans(&paragraph, contributor));
-            paragraph.clear();
+        } else if let Some((mark, len)) = opens_fence(line) {
             fence = Some((mark, len, line.to_owned()));
-            continue;
-        }
-        paragraph.push_str(line);
-        if line.trim().is_empty() {
-            out.push_str(&outside_spans(&paragraph, contributor));
-            paragraph.clear();
+        } else {
+            out.push_str(&outside_spans(line, contributor));
         }
     }
     if let Some((_, _, held)) = fence {
-        paragraph.push_str(&held);
+        for line in held.split_inclusive('\n') {
+            out.push_str(&outside_spans(line, contributor));
+        }
     }
-    out.push_str(&outside_spans(&paragraph, contributor));
     out
 }
 
@@ -238,7 +232,10 @@ fn opens_fence(line: &str) -> Option<(char, usize)> {
     let line = line.trim_start();
     let mark = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
     let len = line.chars().take_while(|&c| c == mark).count();
-    (len >= 3).then_some((mark, len))
+    // A backtick fence's info string holds no backtick, or the line is a span.
+    let info = line.trim_start_matches(mark);
+    let spans = mark == '`' && info.contains('`');
+    (len >= 3 && !spans).then_some((mark, len))
 }
 
 // Whether `line` ends a fence of `len` `mark`s
@@ -247,10 +244,10 @@ fn closes_fence(line: &str, mark: char, len: usize) -> bool {
     line.chars().count() >= len && line.chars().all(|c| c == mark)
 }
 
-// `paragraph` with its mentions outside inline code put in backticks
-fn outside_spans(paragraph: &str, contributor: &str) -> String {
-    let chars: Vec<char> = paragraph.chars().collect();
-    let mut out = String::with_capacity(paragraph.len());
+// `text` with its mentions outside inline code put in backticks
+fn outside_spans(text: &str, contributor: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
     let mut at = 0;
     while at < chars.len() {
         let here = chars[at];
@@ -269,7 +266,14 @@ fn outside_spans(paragraph: &str, contributor: &str) -> String {
             let name: String = chars[at..at + len].iter().collect();
             match name[1..].eq_ignore_ascii_case(contributor) {
                 true => out.push_str(&name),
-                false => out.push_str(&format!("`{name}`")),
+                false => {
+                    // A backslash that escapes the `@` would escape the backtick instead.
+                    let slashes = chars[..at].iter().rev().take_while(|&&c| c == '\\').count();
+                    if slashes % 2 == 1 {
+                        out.pop();
+                    }
+                    out.push_str(&format!("`{name}`"));
+                }
             }
             at += len;
         } else {
@@ -314,12 +318,11 @@ fn closing_run(chars: &[char], from: usize, run: usize) -> Option<usize> {
     None
 }
 
-// Whether an `@` at `at` could ping: an email's does not, and neither does one
-// an odd number of backslashes escapes (an even number escape each other)
+// Whether an `@` at `at` could ping: an email's does not. A backslash before
+// it is no help, since a reader may drop the backslash and then see a mention.
 fn can_ping(chars: &[char], at: usize) -> bool {
-    let slashes = chars[..at].iter().rev().take_while(|&&c| c == '\\').count();
     match at.checked_sub(1).map(|before| chars[before]) {
-        Some(before) => !before.is_alphanumeric() && slashes % 2 == 0,
+        Some(before) => !before.is_alphanumeric(),
         None => true,
     }
 }
