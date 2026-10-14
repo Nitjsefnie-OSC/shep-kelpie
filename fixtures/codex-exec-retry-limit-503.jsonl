@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a0f7fd-4ed5-7773-80ea-165edc292d8d"}
+{"type":"turn.started"}
+{"type":"error","message":"exceeded retry limit, last status: 503 Service Unavailable, request id: 9f3c1e7a2b4d5c60-AMS"}
+{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 503 Service Unavailable, request id: 9f3c1e7a2b4d5c60-AMS"}}
