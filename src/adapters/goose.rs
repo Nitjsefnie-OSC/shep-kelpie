@@ -310,8 +310,7 @@ fn server(call: &AgentCall) -> Result<&ModelServer, AgentError> {
 
 // What goose cannot give a call. The agent files already refuse a role goose
 // does not take, so this is the second line.
-// parity: harness.reviewer, harness.advisor, harness.retro, harness.issue-writer,
-// parity: harness.pm, harness.guard-hooks
+// parity: harness.issue-writer, harness.pm, harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     let refused = match (call.role, call.tools) {
         (Role::Researcher, _) => None,
