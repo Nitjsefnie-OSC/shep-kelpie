@@ -25,6 +25,7 @@ pub(super) fn file(files: &Files) -> PathBuf {
 pub(super) fn config(call: &AgentCall) -> Option<Value> {
     let loaded: Map<String, Value> = servers(call)
         .into_iter()
+        .filter(|(name, entry)| refusal(name, entry).is_none())
         .filter_map(|(name, entry)| Some((name, converted(&entry).ok()?)))
         .collect();
     (!loaded.is_empty()).then(|| json!({ "mcpServers": loaded }))
@@ -276,8 +277,13 @@ mod tests {
         loaded
             .mcp_servers
             .insert("fine".into(), json!({ "command": "/k/s" }));
-        let config = config(&with_reach(&w, loaded)).unwrap();
+        loaded
+            .mcp_servers
+            .insert("a name".into(), json!({ "command": "/k/s" }));
+        let call = with_reach(&w, loaded);
+        let config = config(&call).unwrap();
         let names: Vec<_> = config["mcpServers"].as_object().unwrap().keys().collect();
         assert_eq!(names, ["fine"]);
+        assert_eq!(tool_names(&call), ["mcp__fine__*"]);
     }
 }
