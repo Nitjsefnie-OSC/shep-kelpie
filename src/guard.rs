@@ -41,7 +41,7 @@ mod shell;
 mod wrap;
 
 pub use after::{AFTER_FLAG, after_flag, judge_after};
-pub use goose::{GOOSE_FLAG, goose_flag, judge_goose};
+pub use goose::{GOOSE_FLAG, GOOSE_SERVER_FLAG, goose_flag, goose_server_flags, judge_goose};
 pub use issues::{
     AGENT_FLAG, ISSUES_FLAG, IssueRules, LEDGER_FLAG, RECORD_FLAG, filed_in, issue_rules,
     judge_issues, judge_issues_with, record_issues,

@@ -109,6 +109,7 @@ fn main() -> ExitCode {
             let (reading, local) = guard::reading_flag(&local);
             let (pause, local) = guard::pause_flag(&local);
             let (goose, local) = guard::goose_flag(&local);
+            let (servers, local) = guard::goose_server_flags(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -142,6 +143,7 @@ fn main() -> ExitCode {
                     &hooks,
                     checkout,
                     &build,
+                    &servers,
                 ));
             }
             if let Some(build) = pause {

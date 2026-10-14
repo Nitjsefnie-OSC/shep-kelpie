@@ -344,3 +344,94 @@ fn a_server_codex_cannot_load_is_dropped_with_a_note() {
     assert!(notes.contains("the MCP server `old`"), "{notes}");
     assert!(notes.contains("SSE"), "{notes}");
 }
+
+const GOOSE_IMPLEMENTER: &str = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                                 url: http://box:11434/v1\ncontext: 65536\n---\n";
+
+const GOOSE_RESEARCHER: &str = "---\nrole: researcher\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                                url: http://box:11434/v1\ncontext: 65536\nusage: none\n---\nVote.\n";
+
+// A parked ruling on a repo with those servers, whose worker and researcher run on goose, with
+// every call of the panel made
+fn settled_on_goose(own: Option<Value>) -> (Rig, std::sync::Mutex<crate::runner::Runner>) {
+    let (rig, runner, _) = Rig::parked_set("koji", |rig| {
+        rig.with_app();
+        rig.maintainer("octocat");
+        land_servers(rig);
+        if let Some(own) = own {
+            rig.land(".mcp.json", &own.to_string());
+        }
+        super::name_panel(rig, true);
+        rig.write_agent("goose-box", GOOSE_IMPLEMENTER);
+        rig.implementers(&["goose-box"]);
+        rig.write_agent("goose-researcher", GOOSE_RESEARCHER);
+        rig.edit_settings(|s| {
+            s.replace(
+                "researcher = \"researcher\"",
+                "researcher = \"goose-researcher\"",
+            )
+        });
+    });
+    script_all(&rig, true);
+    settle(&rig, &runner);
+    (rig, runner)
+}
+
+#[test]
+fn a_goose_researcher_gets_the_repos_servers_and_a_goose_retro_vote_gets_none() {
+    let (rig, _runner) = settled_on_goose(None);
+
+    let researchers = seen(&rig, Role::Researcher);
+    assert!(!researchers.is_empty());
+    for call in researchers {
+        assert!(matches!(call.call.harness, AgentHarness::Goose(_)));
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search"]);
+    }
+    let (works, votes): (Vec<_>, Vec<_>) =
+        (seen(&rig, Role::Worker).into_iter()).partition(|c| c.call.tools != Tools::Retro);
+    assert!(!works.is_empty() && !votes.is_empty());
+    for call in works {
+        assert!(matches!(call.call.harness, AgentHarness::Goose(_)));
+        assert_eq!(call.call.reach.mcp_servers.len(), 2);
+    }
+    for vote in votes {
+        assert!(matches!(vote.call.harness, AgentHarness::Goose(_)));
+        assert!(vote.call.reach.mcp_servers.is_empty());
+    }
+}
+
+#[test]
+fn a_server_goose_cannot_load_is_dropped_with_a_note() {
+    let own = json!({ "mcpServers": {
+        "docs": { "type": "http", "url": "https://docs.example.com/mcp" },
+        "keyed": { "type": "http", "url": "https://keyed.example.com/mcp",
+                   "headers": { "Authorization": "Bearer x" } },
+        "old": { "type": "sse", "url": "https://old.example.com/sse" },
+        "quoted": { "command": "/bin/sh", "args": ["-c", "echo \"hi\""] },
+        "skips": { "command": "/bin/true", "env": { "PATH": "/x", "TOKEN": "t" } },
+    } });
+    let (rig, runner) = settled_on_goose(Some(own));
+
+    for call in seen(&rig, Role::Researcher) {
+        let names: Vec<_> = call.call.reach.mcp_servers.keys().collect();
+        assert_eq!(names, ["docs", "plugin_style_search", "skips"]);
+    }
+    let notes = runner.lock().unwrap().take_notes().join("\n");
+    for (name, why) in [
+        ("keyed", "`headers`"),
+        ("old", "SSE"),
+        ("quoted", "double quote"),
+    ] {
+        assert!(
+            notes.contains(&format!("the MCP server `{name}`")),
+            "{notes}"
+        );
+        assert!(notes.contains(why), "{why}: {notes}");
+    }
+    // A server whose only trouble is a skipped env key stays, and the note says what it loses.
+    assert!(
+        notes.contains("the MCP server `skips` without the env keys `PATH`"),
+        "{notes}"
+    );
+}

@@ -29,7 +29,7 @@ Written 2026-10-13 for #787 (slice 3 of #784) against goose 1.54.0, the version 
 | `TMPDIR` | the call's scratch folder | the one temporary folder the sandbox lets it write |
 | `GOOSE_MODE` | `chat` | see below |
 
-- `GOOSE_MODE=chat`, not `auto`, for this slice. A call that loads no extension has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker runs in `auto` (see A worker inside the fence).
+- `GOOSE_MODE=chat` for a call that loads no extension: it has nothing for `auto` to allow, and `chat` makes goose reject a tool call that appears anyway, from an extension `--no-profile` still loaded. A worker, and any call that loads an MCP server, runs in `auto` behind the hook (see A worker inside the fence and MCP servers).
 - `GOOSE_SLASH_COMMANDS_ENABLED` is left unset. It is not read on 1.54.0's default reply loop, and #792 and #793 use goose's commands.
   - goose reads a first message that starts with `/` as one of its own commands (`execute_command` in `crates/goose/src/agents/execute_commands.rs`).
   - A prompt of `/<plugin>:<skill> rest`, run against the unreachable server, reached the model call: goose passes a slash prompt that names no command of its own on to the model as text. So the adapter adds no prefix. Not checked: a prompt that names a goose command or a skill goose has. None is loaded here.
@@ -98,6 +98,25 @@ Written 2026-10-14 for #788, from goose's v1.54.0 source and docs. No model turn
 - Not run: the hook as goose runs it. The plugin's `hooks.json` shape and the exit-2 refusal are read from the source. #798 records a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused.
 - Not run: `CONTEXT_FILE_NAMES=["AGENTS.md","CLAUDE.md"]` loading the repo's `CLAUDE.md`.
 
+## MCP servers
+
+Written for #794, from goose's v1.54.0 source. No model turn was run: #798 runs a real server.
+
+- goose reads no `.mcp.json` from the repo. A plugin root's `.mcp.json` is read on a new session without `--no-profile` only, so kelpie passes every server as a flag (`src/adapters/goose/mcp.rs`).
+  - stdio: `--with-extension "<name>:KEY=value command args"`, with the server's name as Claude Code names it.
+  - HTTP with no headers: `--with-streamable-http-extension <url>`. The flag takes no header and no env, and goose has no SSE type.
+- The string is split like a shell (`split_command_args` in `crates/goose/src/utils.rs`): double quotes group, a single quote counts only at the start of a word, and there is no escape.
+  - A word with whitespace, or one that starts with `'`, is written in double quotes. A value holding a double quote cannot be written, so the entry is dropped with a note.
+  - An env pair is `KEY=value` before the command. A command holding `=` would read as one, so it is refused.
+- An explicit name needs two or more of `A-Za-z0-9_-`. The name `developer` is the builtin's, so a server of that name is refused. An HTTP server is named from its URL (host, `_port` if not the scheme's default, `_path`) and cannot be renamed. The module computes that key (`name_to_key` in `crates/goose/src/config/extensions.rs`) because the hook needs it, and refuses a URL whose key it cannot be sure of (userinfo, IPv6, an odd host, dot segments).
+- Tools are named `<name lowercased>__<tool>`, hyphens kept. The hook (`kelpie guard ... --goose-server=<key>`, once per loaded server) lets through a name that is a key, `__`, and a tool. The name Claude Code gives an HTTP server is not goose's, so the hook is handed goose's key.
+- goose skips an env key such as `PATH`, `LD_PRELOAD` or `NODE_OPTIONS` with a warning (`Envs::DISALLOWED_KEYS` in `crates/goose/src/agents/extension.rs`). kelpie leaves those keys out of the string and notes them, and the server is kept.
+- A session stores its extension set. A resumed run starts from the stored set, then adds the flags again (`collect_extension_configs` in `crates/goose-cli/src/session/builder.rs`), and the same explicit name twice ends the run with exit 1. So a new session passes the flags and a resumed one passes none.
+  - The set is fixed when the session is created. A server added after the session began is not seen by it, and goose cannot remove one.
+- Two servers whose keys are alike (`Docs` and `docs`, or a URL's key and a stdio name) would end the run. Only the first loads, in the order of the flags with the code graph last, and a repo server of the code graph's name never replaces it.
+- The sandbox reads the code graph's binary and index and writes only its index (`fence_the_graph`), as for the other harnesses. A host a server reaches is still named in `worker.allowed_domains`, or `researcher.allowed_domains`.
+- Not run: the flags against a real server, the `tool_name` in the hook's payload (read as `<key>__<tool>` from goose's source), and whether goose warns, not fails, on a skipped env key.
+
 ## The idle watch and the watch
 
 Written for #790. The event shapes are from goose's source, not a recorded turn. #798 checks them.
@@ -118,6 +137,7 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 
 ## Not run yet (for #798)
 
+- An MCP server's flags and tool names, as in MCP servers above.
 - A model turn: the reply text, the `complete` totals and the shape of an `error` event.
 - That `complete` is cumulative across `--resume`, and whether its input includes the cache.
 - The turn-limit message.

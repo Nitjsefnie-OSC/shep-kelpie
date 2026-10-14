@@ -51,6 +51,7 @@ pub use door_pace::DoorPace;
 pub use gh::{Etags, Gh, GhApps};
 pub use git::SystemGit;
 pub use github::{CurlGithub, Openssl};
+pub(crate) use goose::mcp::{refusal as goose_mcp_refusal, skipped_env as goose_mcp_skipped_env};
 pub use goose::{GOOSE_MINIMUM, GooseCli};
 pub use gpu::GpuCurl;
 pub use host::SystemHost;

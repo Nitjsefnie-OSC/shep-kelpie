@@ -7,8 +7,9 @@
 //! the command guard as Claude Code's `Bash` would, and a `write` or an
 //! `edit` goes to `kelpie confine` as a `Write` or an `Edit`, held to the
 //! worktree and the build folder, with the project's `write` hooks seeing the
-//! text. A tree is judged as the `ls` of its folder. Any other tool is
-//! refused, and so is a payload this cannot read, a name it does not know
+//! text. A tree is judged as the `ls` of its folder. A tool of an MCP server the
+//! call loads is let through, the sandbox being the boundary for a server. Any
+//! other tool is refused, and so is a payload this cannot read, a name it does not know
 //! being no reason to let a call by.
 
 use std::io::Read;
@@ -28,6 +29,22 @@ use crate::local_paths::LocalPaths;
 /// the goose worker's `PreToolUse` guard
 pub const GOOSE_FLAG: &str = "--goose=";
 
+/// How the hook's command line names an MCP server whose tools it lets through, once for each
+pub const GOOSE_SERVER_FLAG: &str = "--goose-server=";
+
+/// The servers `args` name for [`GOOSE_SERVER_FLAG`], and the rest of them
+pub fn goose_server_flags(args: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut servers = Vec::new();
+    let mut rest = Vec::new();
+    for arg in args {
+        match arg.strip_prefix(GOOSE_SERVER_FLAG) {
+            Some(key) => servers.push(key.to_owned()),
+            None => rest.push(arg.clone()),
+        }
+    }
+    (servers, rest)
+}
+
 /// The build folder `args` names for [`GOOSE_FLAG`], and the rest of them
 pub fn goose_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
     let mut build = None;
@@ -45,7 +62,8 @@ pub fn goose_flag(args: &[String]) -> (Option<PathBuf>, Vec<String>) {
 ///
 /// `home` and `local` are what the command guard keeps off the forge, and
 /// `hooks` the project's own. A file tool is held to `checkout`'s worktree and
-/// `build`.
+/// `build`. A tool named `<key>__<tool>` for a `key` in `servers` is an MCP server's, which the
+/// sandbox holds and this lets through.
 pub fn judge_goose(
     input: impl Read,
     home: Option<&Path>,
@@ -53,6 +71,7 @@ pub fn judge_goose(
     hooks: &Hooks,
     checkout: Checkout<'_>,
     build: &Path,
+    servers: &[String],
 ) -> Verdict {
     #[derive(Deserialize)]
     struct Call {
@@ -112,6 +131,7 @@ pub fn judge_goose(
             super::judge_with(bash.to_string().as_bytes(), home, local, hooks, checkout)
         }
         tool if TOOLS.contains(&tool) => Verdict::Allow,
+        tool if servers.iter().any(|key| of_server(tool, key)) => Verdict::Allow,
         tool => {
             let shown: String = tool.chars().take(SHOWN_CHARS).collect();
             Verdict::Refuse(format!(
@@ -120,4 +140,10 @@ pub fn judge_goose(
             ))
         }
     }
+}
+
+// Whether `tool` is named `<key>__<tool>`, as goose names the tools of the server `key`.
+fn of_server(tool: &str, key: &str) -> bool {
+    tool.strip_prefix(key)
+        .is_some_and(|rest| rest.starts_with("__") && rest.len() > 2)
 }

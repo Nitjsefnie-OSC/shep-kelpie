@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use super::Runner;
 use super::claim::Notes;
 use crate::ports::{AgentCall, CodeGraph, Ending, Role, Tools};
+use crate::settings::AgentHarness;
 
 // An index that takes longer is not worth holding a turn for.
 const INDEX_LIMIT: Duration = Duration::from_secs(300);
@@ -61,6 +62,36 @@ impl Runner {
                 Err(format!("cannot remove {}: {e}", folder.display()))
             }
             _ => Ok(()),
+        }
+    }
+
+    // A server pi, Codex or goose cannot load is left out, and a note says which and why. goose
+    // loads one with env keys it skips, without them, and a note says which.
+    pub(super) fn without_servers_the_harness_cannot_load(&self, call: &mut AgentCall) {
+        // parity: harness.mcp-servers
+        let refusal: fn(&str, &serde_json::Value) -> Option<String> = match call.harness {
+            AgentHarness::Pi(_) => crate::adapters::pi_mcp_refusal,
+            AgentHarness::Codex => crate::adapters::codex_mcp_refusal,
+            AgentHarness::Goose(_) => crate::adapters::goose_mcp_refusal,
+            _ => return,
+        };
+        let who = who(call);
+        call.reach.mcp_servers.retain(|name, entry| {
+            let refused = refusal(name, entry);
+            if let Some(why) = &refused {
+                self.notes
+                    .push(format!("{who} runs without the MCP server `{name}`: {why}"));
+            }
+            refused.is_none()
+        });
+        if matches!(call.harness, AgentHarness::Goose(_)) {
+            for (name, entry) in &call.reach.mcp_servers {
+                if let Some(skipped) = crate::adapters::goose_mcp_skipped_env(name, entry) {
+                    self.notes.push(format!(
+                        "{who} runs the MCP server `{name}` without {skipped}"
+                    ));
+                }
+            }
         }
     }
 }
@@ -291,6 +322,60 @@ mod tests {
         }
         let root = std::fs::read_to_string(index.join("root")).unwrap();
         assert_eq!(PathBuf::from(root.trim()), seen[0].call.cwd);
+    }
+
+    #[test]
+    fn a_goose_worker_and_reviewer_get_the_server_and_an_index() {
+        let rig = Rig::new("shep");
+        turn_on(&rig);
+        install(&rig, INDEXER);
+        // A goose reviewer cannot be named in an agent file yet (#789), so the worker is run
+        // and the reviewer's call is asked about directly.
+        let goose = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                     url: http://box:11434/v1\ncontext: 65536\n---\n";
+        rig.write_agent("goose-box", goose);
+        rig.implementers(&["goose-box"]);
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+        step(&runner).unwrap(); // the worker's first turn
+
+        let index = rig.paths().folder.join("code-graphs/7");
+        let seen: Vec<_> = (rig.claude.all_seen().into_iter())
+            .filter(|s| s.call.role == Role::Worker)
+            .collect();
+        assert!(!seen.is_empty());
+        for seen in &seen {
+            assert!(matches!(seen.call.harness, AgentHarness::Goose(_)));
+            let graph = seen.call.reach.code_graph.as_ref().expect("the server");
+            assert_eq!(graph.index, index);
+            assert_eq!(graph.binary, rig.paths().tools.code_graph());
+        }
+        let root = std::fs::read_to_string(index.join("root")).unwrap();
+        assert_eq!(PathBuf::from(root.trim()), seen[0].call.cwd);
+
+        let server = crate::settings::ModelServer {
+            host: crate::settings::ModelHost::Url(
+                "http://box:11434/v1".to_owned().try_into().unwrap(),
+            ),
+            context: 65_536_i64.try_into().unwrap(),
+        };
+        let call = |role, tools| {
+            AgentCall::new(
+                role,
+                tools,
+                AgentHarness::Goose(server.clone()),
+                "qwen3.8:27b",
+                crate::settings::Effort::Low,
+                crate::ports::Session::New(crate::work_item::new_session_id().unwrap()),
+                "/wt".into(),
+                "go",
+            )
+        };
+        assert!(super::reads_code(&call(Role::Reviewer, Tools::Review)));
+        assert!(!super::reads_code(&call(Role::Worker, Tools::Retro)));
+        assert!(!super::reads_code(&call(Role::Researcher, Tools::Research)));
     }
 
     #[test]
