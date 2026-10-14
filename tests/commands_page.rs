@@ -157,6 +157,10 @@ impl Cli {
         })
     }
 
+    fn takes(&self, verb: &str, flag: &str) -> bool {
+        self.anywhere.contains(flag) || self.verbs.get(verb).is_some_and(|f| f.contains(flag))
+    }
+
     fn defines_flag(&self, flag: &str) -> bool {
         self.anywhere.contains(flag) || self.verbs.values().any(|flags| flags.contains(flag))
     }
@@ -167,17 +171,19 @@ impl Cli {
             .map(String::as_str)
             .take_while(|w| word_shaped(w))
             .collect();
-        for len in (1..=words.len()).rev() {
-            let path = words[..len].join(" ");
-            if self.verbs.contains_key(&path) {
-                return Reading::Verb(path);
-            }
-        }
         let group = |first: &str| {
             self.verbs
                 .keys()
                 .any(|path| path.split_once(' ').is_some_and(|(head, _)| head == first))
         };
+        for len in (1..=words.len()).rev() {
+            let path = words[..len].join(" ");
+            // A verb that has verbs under it (`board`) is not read for a
+            // second word it lacks (`board top`).
+            if self.verbs.contains_key(&path) && !(len == 1 && words.len() > 1 && group(&path)) {
+                return Reading::Verb(path);
+            }
+        }
         match words.as_slice() {
             [first, second, ..] if group(first) => Reading::Unknown(format!("{first} {second}")),
             [first] if group(first) => Reading::Group,
@@ -375,8 +381,18 @@ fn problems(usage: &str, page: &str) -> Vec<String> {
             stale.insert(format!("stale verb `{verb}`"));
         }
         if command || span.opens_with_flag {
-            for flag in span.flags.iter().filter(|f| !cli.defines_flag(f)) {
-                stale.insert(format!("stale flag `{flag}`"));
+            match cli.reading(&span.words) {
+                // A verb takes its own flags and the ones every verb takes.
+                Reading::Verb(path) if !span.opens_with_flag => {
+                    for flag in span.flags.iter().filter(|f| !cli.takes(&path, f)) {
+                        stale.insert(format!("stale flag `{path} {flag}`"));
+                    }
+                }
+                _ => {
+                    for flag in span.flags.iter().filter(|f| !cli.defines_flag(f)) {
+                        stale.insert(format!("stale flag `{flag}`"));
+                    }
+                }
             }
         }
     }
@@ -516,14 +532,15 @@ Every trigger is a verb: `add <issue>`, `board move <issue> <position>`, `board 
     }
 
     #[test]
-    fn a_flag_named_only_beside_another_verb_is_missing() {
+    fn a_flag_named_only_beside_another_verb_is_missing_for_its_own_verb_and_stale_there() {
         let page =
             without("or --rollback, ").replace("`lease run` waits", "`add --rollback` waits");
         assert_eq!(
             problems(USAGE, &page),
             [
                 "missing verb `lease run`",
-                "missing flag `upgrade --rollback`"
+                "missing flag `upgrade --rollback`",
+                "stale flag `add --rollback`"
             ]
         );
     }
@@ -562,7 +579,7 @@ Every trigger is a verb: `add <issue>`, `board move <issue> <position>`, `board 
     #[test]
     fn a_flag_the_cli_lacks_is_stale_in_any_span_that_names_a_verb() {
         let page = format!("{PAGE}\nSee `add <issue>` and `upgrade --bogus`.\n");
-        assert_eq!(problems(USAGE, &page), ["stale flag `--bogus`"]);
+        assert_eq!(problems(USAGE, &page), ["stale flag `upgrade --bogus`"]);
     }
 
     #[test]
@@ -578,6 +595,19 @@ Every trigger is a verb: `add <issue>`, `board move <issue> <position>`, `board 
     fn a_nested_verb_the_cli_lacks_is_stale_without_a_placeholder() {
         let page = format!("{PAGE}\n`lease take` holds one.\n");
         assert_eq!(problems(USAGE, &page), ["stale verb `lease take`"]);
+    }
+
+    #[test]
+    fn a_flag_that_belongs_to_another_verb_is_stale_for_this_one() {
+        let page = format!("{PAGE}\n`add --rollback` is not a thing.\n");
+        assert_eq!(problems(USAGE, &page), ["stale flag `add --rollback`"]);
+    }
+
+    #[test]
+    fn a_nested_verb_the_cli_lacks_is_stale_under_a_verb_that_stands_alone() {
+        let usage = USAGE.replace(" | board top <issue>", "") + "\n       shep-kelpie board";
+        let page = format!("{PAGE}`board`, `board move <issue> <position>`\n");
+        assert_eq!(problems(&usage, &page), ["stale verb `board top`"]);
     }
 
     #[test]
