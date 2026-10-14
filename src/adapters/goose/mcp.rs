@@ -88,18 +88,24 @@ pub(super) fn loads(call: &AgentCall) -> bool {
     !loaded(call).is_empty()
 }
 
-// The servers goose can load, in the order of their flags. The code graph is last, and a repo
-// server of the same name has already lost to it. goose ends the run over a key used twice, so
-// the later of two servers that share one is left out.
+// The servers goose can load, in the order of their flags. The code graph is last and wins a key
+// it shares with a repo server, whatever that server is named. goose ends the run over a key
+// used twice, so the later of two other servers that share one is left out.
 pub(super) fn loaded(call: &AgentCall) -> Vec<Loaded> {
     let mut all = servers(call);
-    let graph = all.remove(SERVER).map(|entry| (SERVER.to_owned(), entry));
-    let mut taken = HashSet::new();
-    all.into_iter()
-        .chain(graph)
+    let graph = match call.reach.code_graph {
+        Some(_) => all
+            .remove(SERVER)
+            .and_then(|entry| converted(SERVER, &entry).ok()),
+        None => None,
+    };
+    let mut taken: HashSet<String> = graph.iter().map(|g| g.key.clone()).collect();
+    let mut loaded: Vec<Loaded> = (all.into_iter())
         .filter_map(|(name, entry)| converted(&name, &entry).ok())
         .filter(|server| taken.insert(server.key.clone()))
-        .collect()
+        .collect();
+    loaded.extend(graph);
+    loaded
 }
 
 /// Why goose cannot load a Claude-shaped `mcpServers` entry, if it cannot
@@ -209,6 +215,11 @@ fn http(entry: &Value) -> Result<Loaded, String> {
     let key = derived_key(url).ok_or_else(|| {
         "kelpie cannot tell the name goose would give a server at this `url`".to_owned()
     })?;
+    if key == BUILTIN {
+        return Err(
+            "goose runs its own `developer` extension under the name this `url` gets".to_owned(),
+        );
+    }
     Ok(Loaded {
         flag: [
             "--with-streamable-http-extension".to_owned(),

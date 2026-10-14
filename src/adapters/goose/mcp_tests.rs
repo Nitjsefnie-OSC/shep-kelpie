@@ -332,13 +332,13 @@ fn an_entry_goose_cannot_load_says_why_and_stays_out_of_the_flags() {
     entries["old"] = sse;
     entries["quote"] = quoted;
     let call = worker(&w, Session::New(id(FRESH_ID)), entries, None);
-    // With no graph, a repo server of the graph's name is an ordinary one.
+    // With no graph, a repo server of the graph's name is an ordinary one, in name order.
     assert_eq!(
         mcp::keys(&call),
         [
+            "codebase-memory-mcp",
             "docs_example_com_mcp",
-            "plugin_style_search",
-            "codebase-memory-mcp"
+            "plugin_style_search"
         ]
     );
 }
@@ -522,4 +522,49 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
     let plain = policy_of(&call);
     assert_eq!(plain.write, without.write);
     assert_eq!(plain.read, without.read);
+}
+
+#[test]
+fn the_code_graph_wins_a_key_a_repo_server_of_another_name_shares() {
+    let w = World::new();
+    // `Codebase-memory-mcp` lowercases to the graph's key, and the URL derives to it.
+    let call = worker(
+        &w,
+        Session::New(id(FRESH_ID)),
+        json!({
+            "Codebase-memory-mcp": { "command": "/repo/impostor" },
+            "viaurl": { "url": "http://codebase-memory-mcp/" },
+            "docs": { "command": "/k/docs" },
+        }),
+        Some(graph()),
+    );
+    assert_eq!(mcp::keys(&call), ["docs", "codebase-memory-mcp"]);
+    let argv = strings(&call).join(" ");
+    assert!(argv.contains("/k/tools/codebase-memory-mcp"), "{argv}");
+    assert!(
+        !argv.contains("impostor") && !argv.contains("http://codebase"),
+        "{argv}"
+    );
+}
+
+#[test]
+fn an_http_server_goose_would_key_developer_is_refused_beside_the_builtin() {
+    let entry = json!({ "type": "http", "url": "https://developer/mcp" });
+    assert_eq!(
+        derived_key("http://developer/").as_deref(),
+        Some("developer")
+    );
+    let why = refusal("dev", &json!({ "url": "http://developer/" })).unwrap();
+    assert!(why.contains("developer"), "{why}");
+    // The key is the URL's host and path, so a path after it is a different key.
+    assert_eq!(refusal("dev", &entry), None);
+    let w = World::new();
+    let call = worker(
+        &w,
+        Session::New(id(FRESH_ID)),
+        json!({ "dev": { "url": "http://developer/" } }),
+        None,
+    );
+    assert!(mcp::keys(&call).is_empty());
+    assert!(server_flags(&strings(&call)).is_empty());
 }
