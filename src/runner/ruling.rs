@@ -337,6 +337,7 @@ impl Runner {
         }
         let worktree = parked.map(|item| item.worktree.clone());
         contributions::trust(&mut next, &answer, &ruling)?;
+        contributions::keep_answer(&mut next, &answer, &ruling);
         // A contribution's cap lifts, and its next call may start at the next look.
         let per_item = self.settings.budget.per_item_usd;
         if contributions::raise_budget(&mut next, &answer, &ruling, per_item) {
@@ -771,7 +772,12 @@ fn decide(
                 force,
             });
         }
-        (_, RulingKind::Question { .. }) => return Err(RuleError::WantsAnswer(id)),
+        // No work item is parked on it, so an answer only clears it. The
+        // representative words the text for the contributor.
+        (Answer::Text(_), RulingKind::Contribution(Held::Question { .. })) => Phase::Implement,
+        (_, RulingKind::Question { .. } | RulingKind::Contribution(Held::Question { .. })) => {
+            return Err(RuleError::WantsAnswer(id));
+        }
         (Answer::Text(_), _) => return Err(RuleError::NotAQuestion(id)),
         // A merge ruling's no is a fix of what the maintainer read, which
         // goes to CI and back to this ruling. A rework is a change that needs

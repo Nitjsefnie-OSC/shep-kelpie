@@ -58,7 +58,8 @@ fn a_contributors_reply_in_a_review_thread_is_heard() {
         listed(&rig, &runner, "heard"),
         [json!({"kind": "reply", "id": id, "at": at.0})]
     );
-    assert_eq!(rig.forge.threads.review_reads().len(), 1);
+    // One read to hear it, one to give its words to the answer.
+    assert_eq!(rig.forge.threads.review_reads().len(), 2);
     assert_eq!(rig.forge.comments(), []);
 }
 

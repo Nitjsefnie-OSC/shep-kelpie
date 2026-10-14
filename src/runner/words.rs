@@ -2,12 +2,12 @@
 //!
 //! `shep kelpie rule` and replies on ntfy read an answer this way: `yes`, or
 //! `no <note>`, for a ruling that asks yes or no, those or `rework <note>`
-//! for a merge ruling, and any text at all for the worker's question, a lone
-//! `yes` included. What they read goes to the runner as `rule`'s own `<id>
+//! for a merge ruling, and any text at all for the worker's question or a
+//! contributor's request for a decision, a lone `yes` included. What they read goes to the runner as `rule`'s own `<id>
 //! yes`, `<id> no <note>`, `<id> rework <note>` or `<id> answer <text>`.
 
 use super::{Action, Answer};
-use crate::state::RulingKind;
+use crate::state::{Held, RulingKind};
 
 /// The note a worker gets from a no or a rework that was given by a reaction
 /// or a tick, which carries none
@@ -17,7 +17,8 @@ pub const NO_NOTE: &str = "The maintainer gave no note: read the pull request, i
 /// Which answer a ruling takes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wants {
-    /// A worker's question, answered with `<id> answer <text>`
+    /// A worker's question, or a contributor's request for a decision,
+    /// answered with `<id> answer <text>`
     Answer,
     /// The merge ruling: `<id> yes`, `<id> no <note>` or `<id> rework <note>`
     Merge,
@@ -29,7 +30,9 @@ impl Wants {
     /// What a ruling of `kind` takes
     pub fn of(kind: &RulingKind) -> Self {
         match kind {
-            RulingKind::Question { .. } => Self::Answer,
+            RulingKind::Question { .. } | RulingKind::Contribution(Held::Question { .. }) => {
+                Self::Answer
+            }
             RulingKind::Merge { .. } => Self::Merge,
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }

@@ -235,7 +235,7 @@ One page for each topic, indexed in [docs/guide/README.md](docs/guide/README.md)
 
 - [Writing issues](docs/guide/issues.md): the issue writer, `shep kelpie issue` and the `agent:` label
 - [The board and the project manager](docs/guide/board.md): what decides whether and when an issue starts, the briefing and the project manager
-- [Contributions](docs/guide/contributions.md): pull requests from other people, and their security review
+- [Contributions](docs/guide/contributions.md): pull requests from other people, their security review and the answers to what they ask
 - [Building](docs/guide/building.md): the worker, skills, repo plugins, `repo_setup`, the repo's own files, MCP servers, the code graph and retros
 - [The review](docs/guide/review.md): the reviewers, review bots, comments from people and local reviewers
 - [CI and the merge](docs/guide/ci-and-merge.md): red runs, the merge gate and what `auto` does

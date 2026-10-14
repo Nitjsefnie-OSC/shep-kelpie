@@ -107,6 +107,36 @@ pub struct Contribution {
     /// waits on no one, and after a push.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_since: Option<Timestamp>,
+    /// What the contributor said that the representative has dealt with,
+    /// oldest first, the last [`KEPT`]
+    ///
+    /// A comment or reply is answered in a comment, or handed to the
+    /// maintainer as a ruling, and either way it is not looked at again. Ids,
+    /// kinds and times only. Left out until there is something.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answered: Vec<Said>,
+    /// The decision the contributor asked for, while it waits on the
+    /// maintainer's answer and then on the representative to word it
+    ///
+    /// Left out when no decision is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deciding: Option<Deciding>,
+}
+
+/// A contributor's request for a decision, handed to the maintainer as a
+/// ruling, and the answer it is waiting for
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Deciding {
+    /// The comment or reply that asked, read again for the wording
+    pub said: Said,
+    /// The question put to the maintainer
+    pub asked: String,
+    /// The maintainer's answer, once given. The representative words it for
+    /// the contributor and posts it, which ends this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -247,6 +277,8 @@ impl Contribution {
             context: Vec::new(),
             reviews_from: None,
             waiting_since: None,
+            answered: Vec::new(),
+            deciding: None,
         }
     }
 
@@ -327,6 +359,26 @@ impl Contribution {
     /// same terms as [`Self::hear`]
     pub fn overhear(&mut self, said: Said) -> bool {
         keep(&mut self.context, said)
+    }
+
+    /// What the contributor said that no answer or ruling has taken up yet,
+    /// oldest first: comments and review replies, never a push
+    pub fn unanswered(&self) -> Vec<Said> {
+        let taken = |said: &&Said| !self.answered.iter().any(|a| a.same_as(said));
+        let asks = |said: &&Said| !matches!(said, Said::Push { .. });
+        (self.heard.iter().filter(asks).filter(taken))
+            .cloned()
+            .collect()
+    }
+
+    /// Records that `said` was answered, or handed to the maintainer,
+    /// keeping the last [`KEPT`]
+    pub fn answer(&mut self, said: Said) {
+        if !self.answered.iter().any(|a| a.same_as(&said)) {
+            self.answered.push(said);
+        }
+        let over = self.answered.len().saturating_sub(KEPT);
+        self.answered.drain(..over);
     }
 
     /// When the latest thing on record happened: the place a read of the
@@ -512,6 +564,13 @@ pub enum Held {
         /// The cap it was over: `budget.per_item_usd`, doubled once for each
         /// ruling like this one that was answered
         cap: Cost,
+    },
+    /// The contributor asked for a decision, which the representative does
+    /// not make. The maintainer's answer is worded for the contributor and
+    /// posted; nothing is posted until then.
+    Question {
+        /// What the representative asks the maintainer
+        asked: String,
     },
 }
 
