@@ -331,6 +331,7 @@ fn is_codex(call: &AgentCall) -> Result<(), AgentError> {
 }
 
 // What a worker on Claude Code has and Codex here does not give it.
+// parity: harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     if call
         .reach

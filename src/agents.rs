@@ -210,6 +210,7 @@ impl Runs {
                     host: ModelHost::Gateway(name),
                     ..
                 }) => Some((name, model.model.as_str())),
+                // parity: harness.local-model
                 _ => None,
             },
             Self::Endpoint(Endpoint {
