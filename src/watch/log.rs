@@ -36,6 +36,7 @@ pub(crate) enum Format {
     Claude,
     Codex,
     Pi,
+    Goose,
 }
 
 /// A session a call started in, and where its transcript is
@@ -116,6 +117,7 @@ impl Step {
             "claude-code" => Format::Claude,
             "codex" => Format::Codex,
             "pi" => Format::Pi,
+            "goose" => Format::Goose,
             _ => return None,
         };
         let transcript = self.fields.get("transcript")?;

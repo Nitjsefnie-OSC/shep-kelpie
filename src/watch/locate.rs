@@ -27,6 +27,13 @@ pub(super) fn find(started: &Started) -> Option<PathBuf> {
             })
         }
         Format::Codex => codex(started),
+        // The logged folder is the call's goose root, `<stem>.goose`, and the
+        // call's stdout file is `<stem>.stdout.jsonl`. Every call at one
+        // settings path writes the same file, emptied as each starts.
+        Format::Goose => {
+            let file = started.folder.with_extension("stdout.jsonl");
+            file.is_file().then_some(file)
+        }
     }
 }
 
