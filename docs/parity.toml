@@ -25,7 +25,7 @@ methods = ["adoption", "adopt"]
 claude-code = "yes"
 pi = "yes"
 codex = "yes"
-goose = { gap = 791 }
+goose = "yes"
 
 [harness.watch]
 what = "`shep kelpie watch` follows a call's transcript"
