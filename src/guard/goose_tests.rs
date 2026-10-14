@@ -44,6 +44,11 @@ impl Worker {
     }
 
     fn judge_raw(&self, payload: &[u8], hooks: &Hooks) -> Verdict {
+        self.judge_loaded(payload, hooks, &[])
+    }
+
+    // The verdict when the call loaded the MCP servers with these keys.
+    fn judge_loaded(&self, payload: &[u8], hooks: &Hooks, servers: &[String]) -> Verdict {
         let checkout = Checkout {
             git_common_dir: Path::new("/nowhere"),
             worktree: self.worktree.path(),
@@ -55,6 +60,7 @@ impl Worker {
             hooks,
             checkout,
             self.build.path(),
+            servers,
         )
     }
 
@@ -286,12 +292,45 @@ fn the_projects_command_and_write_hooks_judge_what_goose_runs() {
 }
 
 #[test]
+fn a_tool_of_a_loaded_server_goes_through_and_a_look_alike_does_not() {
+    let w = Worker::new();
+    let keys = ["search".to_owned(), "codebase-memory-mcp".to_owned()];
+    let judge = |tool: &str| {
+        let payload = Worker::payload(tool, json!({}), w.worktree.path());
+        w.judge_loaded(payload.to_string().as_bytes(), &Hooks::default(), &keys)
+    };
+    assert_eq!(judge("search__find"), Verdict::Allow);
+    assert_eq!(judge("codebase-memory-mcp__search_graph"), Verdict::Allow);
+    for tool in [
+        "search",
+        "search__",
+        "searcher__find",
+        "Search__find",
+        "other__find",
+    ] {
+        assert!(matches!(judge(tool), Verdict::Refuse(_)), "{tool}");
+    }
+    // With no server loaded the same name is refused.
+    let payload = Worker::payload("search__find", json!({}), w.worktree.path());
+    let verdict = w.judge_raw(payload.to_string().as_bytes(), &Hooks::default());
+    assert!(matches!(verdict, Verdict::Refuse(_)));
+}
+
+#[test]
+fn the_server_flags_are_taken_out_of_the_arguments() {
+    let args = ["--goose=/b", "--goose-server=a", "--goose-server=b_c"].map(String::from);
+    let (servers, rest) = goose_server_flags(&args);
+    assert_eq!(servers, ["a", "b_c"]);
+    assert_eq!(rest, ["--goose=/b"]);
+}
+
+#[test]
 fn the_read_only_flag_allows_a_listed_command_and_refuses_write_edit_and_any_other_tool() {
     let w = Worker::new();
     let tree = w.worktree.path();
     let judge = |tool: &str, input: Value| {
         let payload = Worker::payload(tool, input, tree);
-        judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default())
+        judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default(), &[])
     };
 
     // A listed command runs, and a pipe between listed commands.
@@ -340,15 +379,43 @@ fn the_read_only_flag_allows_a_listed_command_and_refuses_write_edit_and_any_oth
     // Whatever cannot be read refuses.
     let unreadable: [&[u8]; 3] = [b"", b"not json", b"{}"];
     for payload in unreadable {
-        refusal(judge_goose_reading(payload, &Hooks::default()));
+        refusal(judge_goose_reading(payload, &Hooks::default(), &[]));
     }
 
     // The project's `command` hooks judge what the list lets through.
     let keep = hooks(&[(HookPoint::Command, REFUSE_WORD)]);
     let named = Worker::payload("shell", json!({ "command": "cat Acme" }), tree);
-    let why = refusal(judge_goose_reading(named.to_string().as_bytes(), &keep));
+    let why = refusal(judge_goose_reading(
+        named.to_string().as_bytes(),
+        &keep,
+        &[],
+    ));
     assert!(why.contains("the `command` hook `if` refused"), "{why}");
     let named = Worker::payload("tree", json!({ "path": "Acme" }), tree);
-    let why = refusal(judge_goose_reading(named.to_string().as_bytes(), &keep));
+    let why = refusal(judge_goose_reading(
+        named.to_string().as_bytes(),
+        &keep,
+        &[],
+    ));
     assert!(why.contains("the `command` hook `if` refused"), "{why}");
+}
+
+#[test]
+fn the_read_only_guard_lets_a_loaded_server_s_tools_through_and_refuses_the_rest() {
+    let w = Worker::new();
+    let tree = w.worktree.path();
+    let servers = ["codebase-memory-mcp".to_owned()];
+    let judge = |tool: &str| {
+        let payload = Worker::payload(tool, json!({}), tree);
+        judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default(), &servers)
+    };
+    assert_eq!(judge("codebase-memory-mcp__search_graph"), Verdict::Allow);
+    for tool in [
+        "codebase-memory-mcp_x",
+        "write",
+        "edit",
+        "other__search_graph",
+    ] {
+        refusal(judge(tool));
+    }
 }

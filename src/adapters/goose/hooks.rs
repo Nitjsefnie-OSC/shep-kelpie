@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::files::Files;
 use crate::adapters::claude::settings::shell_quote;
-use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, GOOSE_WRITE_FLAG, READ_ONLY_FLAG};
+use crate::guard::{FOLDER_FLAG, GOOSE_FLAG, GOOSE_SERVER_FLAG, GOOSE_WRITE_FLAG, READ_ONLY_FLAG};
 use crate::hooks::GUARD_BUDGET;
 use crate::ports::{AgentError, Fence, Guard};
 
@@ -76,7 +76,15 @@ pub(super) enum Judging<'a> {
 }
 
 /// Writes the plugin and the config that turns it on, for a call held by `fence`
-pub(super) fn write(files: &Files, fence: &Fence, judging: Judging<'_>) -> Result<(), AgentError> {
+///
+/// `judging` says what the hook lets the call do. The hook lets through the tools of each MCP
+/// server in `servers`, which are the keys goose names them by.
+pub(super) fn write(
+    files: &Files,
+    fence: &Fence,
+    judging: Judging<'_>,
+    servers: &[String],
+) -> Result<(), AgentError> {
     let plugin = folder(files);
     // A link there would take the files below somewhere else.
     match std::fs::symlink_metadata(&plugin) {
@@ -99,7 +107,7 @@ pub(super) fn write(files: &Files, fence: &Fence, judging: Judging<'_>) -> Resul
     put(&plugin.join("plugin.json"), &manifest)?;
     put(
         &hooks.join("hooks.json"),
-        &hooks_json(&fence.guard, judging),
+        &hooks_json(&fence.guard, judging, servers),
     )?;
     put(&files.config_file(), &config(files, &plugin)?)
 }
@@ -153,13 +161,13 @@ pub(super) fn no_settings_in_root(files: &Files) -> Result<(), AgentError> {
 }
 
 // One `PreToolUse` hook with no matcher, so it runs for every tool.
-fn hooks_json(guard: &Guard, judging: Judging<'_>) -> serde_json::Value {
+fn hooks_json(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> serde_json::Value {
     json!({
         "hooks": {
             "PreToolUse": [{
                 "hooks": [{
                     "type": "command",
-                    "command": command(guard, judging),
+                    "command": command(guard, judging, servers),
                     "on_failure": "block",
                     // The guard's own budget ends first, and refuses.
                     "timeout": GUARD_BUDGET.as_secs() + 5,
@@ -170,13 +178,14 @@ fn hooks_json(guard: &Guard, judging: Judging<'_>) -> serde_json::Value {
 }
 
 /// The command goose runs for each tool call: `kelpie guard` with the
-/// worker's folders, the project's hooks and the build folder it may write
+/// worker's folders, the project's hooks, the build folder it may write and
+/// the MCP servers whose tools it lets through
 ///
 /// When reading it leaves out the folders, which only the worker's command
 /// guard reads, and asks for the read-only guard after the build folder:
 /// `--goose=<build> --read-only`. For a reviewer asked for tests, the folder
 /// its `write` may fill follows, as `--goose-write=<folder>`.
-fn command(guard: &Guard, judging: Judging<'_>) -> String {
+fn command(guard: &Guard, judging: Judging<'_>, servers: &[String]) -> String {
     let read_only = judging != Judging::Work;
     let quoted = |p: &Path| shell_quote(&p.to_string_lossy());
     let folders = (guard.folders.iter())
@@ -203,6 +212,11 @@ fn command(guard: &Guard, judging: Judging<'_>) -> String {
         ))),
         _ => None,
     })
+    .chain(
+        servers
+            .iter()
+            .map(|key| shell_quote(&format!("{GOOSE_SERVER_FLAG}{key}"))),
+    )
     .collect::<Vec<_>>()
     .join(" ")
 }

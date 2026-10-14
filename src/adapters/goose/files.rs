@@ -87,6 +87,39 @@ impl Files {
         std::fs::write(&path, text).map_err(|e| setup("write", &path, e))
     }
 
+    /// The keys of the MCP servers session `id` was created with, or `None` when kelpie never
+    /// recorded any for it
+    pub(super) fn servers(&self, id: &SessionId) -> Result<Option<Vec<String>>, AgentError> {
+        let path = self.servers_file(id)?;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(setup("read", &path, e)),
+        };
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| AgentError::Setup(format!("cannot read {}: {e}", path.display())))
+    }
+
+    /// Notes that session `id` was created with the servers `keys`
+    pub(super) fn keep_servers(&self, id: &SessionId, keys: &[String]) -> Result<(), AgentError> {
+        let path = self.servers_file(id)?;
+        let folder = self.root.join("servers");
+        std::fs::create_dir_all(&folder).map_err(|e| setup("write", &folder, e))?;
+        let text = serde_json::to_string(keys).expect("keys are JSON");
+        std::fs::write(&path, text).map_err(|e| setup("write", &path, e))
+    }
+
+    fn servers_file(&self, id: &SessionId) -> Result<PathBuf, AgentError> {
+        Ok(self
+            .spent_file(id)?
+            .parent()
+            .and_then(Path::parent)
+            .expect("the spent file is two folders under the root")
+            .join("servers")
+            .join(format!("{}.json", id.0)))
+    }
+
     fn spent_file(&self, id: &SessionId) -> Result<PathBuf, AgentError> {
         let plain = !id.0.is_empty()
             && (id.0.chars()).all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');

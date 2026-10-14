@@ -10,7 +10,9 @@
 //! plugin that kelpie writes into the root, [`hooks`]. So is a reviewer, an
 //! advisor and a retro in a fence, with the plugin's read-only guard: goose has
 //! no read tool, so they read the repo through a `shell` that runs only what
-//! reads, and they write no file. The sandbox
+//! reads, and they write no file. A call also loads the MCP servers of the repo,
+//! its plugins and the code graph, as flags of a new session ([`mcp`]), and its
+//! hook lets those servers' tools through. The sandbox
 //! allows no model host: goose's calls go to a forwarder outside it, which
 //! passes the server only the chat completions call. A model behind a gateway
 //! gets the gateway's key from the forwarder, and each call on one holds the
@@ -43,6 +45,7 @@ mod activity;
 mod adopt;
 mod files;
 pub(crate) mod hooks;
+pub(crate) mod mcp;
 mod output;
 
 #[cfg(test)]
@@ -56,6 +59,9 @@ mod gateway_tests;
 
 #[cfg(test)]
 mod hooks_tests;
+
+#[cfg(test)]
+mod mcp_tests;
 
 #[cfg(test)]
 mod reading_tests;
@@ -144,8 +150,18 @@ impl Agents for GooseCli {
         hooks::only_ours(&files)?;
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
+        // A new session records the servers it is created with, since a resumed one holds those
+        // and not what the call loads by then.
+        if let Session::New(id) = &call.session {
+            files.keep_servers(id, &mcp::keys(call))?;
+        }
+        // A call whose session holds a server runs in `auto` too, so it is held by the hook as a
+        // worker is.
         match &call.reach.fence {
-            Some(fence) if has_shell(call) => hooks::write(&files, fence, judging(call, fence)),
+            Some(fence) if has_shell(call) || mcp::loads(call, &files) => {
+                let judging = judging(call, fence);
+                hooks::write(&files, fence, judging, &mcp::held(call, &files)?)
+            }
             _ => Ok(()),
         }
     }
@@ -479,8 +495,8 @@ fn told(call: &AgentCall, prompt: String) -> String {
 // The variables that move goose into the call's own root and point it at the
 // forwarder. `GOOSE_MODE` is `chat` for a call with no extension: there is no
 // tool for `auto` to allow, and goose rejects one that appears anyway. A
-// worker's is `auto`, which ignores goose's own `permission.yaml`, so the
-// hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
+// worker's, a reader's and a call's that loads an MCP server is `auto`, which ignores
+// goose's own `permission.yaml`, so the hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
 // `CLAUDE.md`, as pi does, and never `.goosehints`.
 fn env_args(
     call: &AgentCall,
@@ -498,7 +514,12 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if has_shell(call) { "auto" } else { "chat" }.into(),
+            if has_shell(call) || mcp::loads(call, files) {
+                "auto"
+            } else {
+                "chat"
+            }
+            .into(),
         ),
         ("OPENAI_BASE_URL".into(), upstream.worker_url().into()),
         ("OPENAI_API_KEY".into(), PLACEHOLDER_KEY.into()),
@@ -528,10 +549,11 @@ fn env_args(
 }
 
 // The prompt is one `--text=` argument, so one that starts with `-` is not read
-// as a flag. A researcher is given no extension, and so no tool. A worker is
+// as a flag. A researcher is given no extension but its MCP servers. A worker is
 // given the `developer` builtin on a resumed call too: goose de-duplicates a
 // builtin, where a repeated `--with-extension` name ends the run. A reviewer,
-// advisor or retro is given it on a new session ([`offers_developer`]).
+// advisor or retro is given it on a new session ([`offers_developer`]), and only
+// a new session is given its servers.
 fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     let mut argv: Vec<OsString> = vec![
         "run".into(),
@@ -543,6 +565,7 @@ fn argv(call: &AgentCall) -> Result<Vec<OsString>, AgentError> {
     if offers_developer(call) {
         argv.extend(["--with-builtin".into(), "developer".into()]);
     }
+    argv.extend(mcp::flags(call));
     // goose builds its system prompt afresh on every call, a resumed one too.
     if let Some(text) = system_text(call)? {
         argv.push(format!("--system={text}").into());
@@ -588,6 +611,7 @@ fn policy(
             .chain(call.plugin_dirs.iter().cloned())
             .chain(call.reach.read.iter().cloned()),
     );
+    crate::adapters::mcp::fence_the_graph(&mut policy, call);
     deny_the_server(&mut policy, upstream);
     policy.forward = Some(Forward {
         host: WORKER_HOST.to_owned(),

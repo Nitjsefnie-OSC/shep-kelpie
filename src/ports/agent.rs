@@ -138,11 +138,14 @@ pub struct Reach {
     /// on a repo kelpie's App covers, which the runner sets on each call
     pub block_keychain: bool,
     /// The code graph server it is given, where the project turns it on and
-    /// the call is a worker's or a reviewer's on Claude Code, pi or Codex
+    /// the call is a worker's or a reviewer's on Claude Code, pi, Codex or
+    /// goose. A goose session is given it, like every server, when it is
+    /// created, and a resumed session keeps the set it began with.
     pub code_graph: Option<CodeGraph>,
     /// The MCP servers of the repo's plugins and of its `.mcp.json`, by the
     /// name their tools are allowed under, each as Claude Code's `mcpServers`
-    /// entry, which the pi and Codex adapters turn into their own. They run
+    /// entry, which the pi, Codex and goose adapters turn into their own. A
+    /// server added after a goose session began is not seen by it. They run
     /// inside the call's sandbox, so the hosts they reach still need the
     /// call's allowed domains.
     pub mcp_servers: BTreeMap<String, serde_json::Value>,

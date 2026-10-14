@@ -249,6 +249,22 @@ fn a_pi_implementer_may_not_be_allowed_the_model_host_or_the_loopback() {
     assert!(settings.role_agents(&book()).is_ok());
 }
 
+#[test]
+fn goose_loads_mcp() {
+    let server = ModelServer {
+        host: ModelHost::Url("http://box:11434/v1".to_owned().try_into().unwrap()),
+        context: 65_536_i64.try_into().unwrap(),
+    };
+    for harness in [
+        AgentHarness::ClaudeCode,
+        AgentHarness::Codex,
+        AgentHarness::Pi(server.clone()),
+        AgentHarness::Goose(server),
+    ] {
+        assert!(harness.loads_mcp(), "{harness:?}");
+    }
+}
+
 // An agent file cannot name goose as an implementer yet, so the model is built directly.
 #[test]
 fn a_goose_implementer_beside_guard_hooks_or_the_model_hosts_domain_is_refused() {

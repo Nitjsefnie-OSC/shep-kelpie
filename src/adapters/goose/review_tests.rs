@@ -10,7 +10,9 @@ use super::hooks_tests::{plugin, policy_of, worker};
 use super::tests::{FRESH, FRESH_ID, World, id, stand_in};
 use super::*;
 use crate::confine::Verdict;
-use crate::guard::{goose_write_flag, judge_goose_reading, judge_goose_writing};
+use crate::guard::{
+    goose_server_flags, goose_write_flag, judge_goose_reading, judge_goose_writing,
+};
 use crate::hooks::Hooks;
 
 // A reviewer's call as the runner shapes it: with a tests folder, the fence's
@@ -68,11 +70,12 @@ fn payload(tool: &str, input: Value, working_dir: &Path) -> String {
 // The verdict of the hook the call was given, as `kelpie guard` reads its arguments.
 fn judged(args: &[String], tool: &str, input: Value, working_dir: &Path) -> Verdict {
     let (_, rest) = crate::guard::goose_flag(args);
-    let (folder, _) = goose_write_flag(&rest);
+    let (folder, rest) = goose_write_flag(&rest);
+    let (servers, _) = goose_server_flags(&rest);
     let text = payload(tool, input, working_dir);
     match folder {
-        Some(folder) => judge_goose_writing(text.as_bytes(), &Hooks::default(), &folder),
-        None => judge_goose_reading(text.as_bytes(), &Hooks::default()),
+        Some(folder) => judge_goose_writing(text.as_bytes(), &Hooks::default(), &servers, &folder),
+        None => judge_goose_reading(text.as_bytes(), &Hooks::default(), &servers),
     }
 }
 

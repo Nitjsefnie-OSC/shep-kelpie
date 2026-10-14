@@ -112,6 +112,7 @@ fn main() -> ExitCode {
             let (pause, local) = guard::pause_flag(&local);
             let (goose, local) = guard::goose_flag(&local);
             let (goose_write, local) = guard::goose_write_flag(&local);
+            let (servers, local) = guard::goose_server_flags(&local);
             // `local` keeps the hooks' flag, which a pinned command judges with again.
             let (hooks, folders) = match Hooks::take(&local) {
                 Ok(taken) => taken,
@@ -128,9 +129,9 @@ fn main() -> ExitCode {
                 // reads goose's own payload.
                 return hook(match (goose, goose_write) {
                     (Some(_), Some(folder)) => {
-                        guard::judge_goose_writing(&input[..], &hooks, &folder)
+                        guard::judge_goose_writing(&input[..], &hooks, &servers, &folder)
                     }
-                    (Some(_), None) => guard::judge_goose_reading(&input[..], &hooks),
+                    (Some(_), None) => guard::judge_goose_reading(&input[..], &hooks, &servers),
                     (None, _) => guard::judge_reading(&input[..], &hooks),
                 });
             }
@@ -153,6 +154,7 @@ fn main() -> ExitCode {
                     &hooks,
                     checkout,
                     &build,
+                    &servers,
                 ));
             }
             if let Some(build) = pause {
