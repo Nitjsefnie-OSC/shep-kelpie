@@ -31,6 +31,7 @@ mod skills;
 mod srt;
 mod stop;
 mod test_runner;
+mod unreachable;
 mod usage;
 
 #[cfg(test)]

@@ -28,6 +28,7 @@ use super::claude::{ClaudeCli, LambLabels};
 use super::pi::step_skill;
 use super::process::record::CallFiles;
 use super::process::{Processes, RunError};
+use super::unreachable::reaches_no_host;
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
@@ -55,6 +56,9 @@ mod tests;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod unreachable_tests;
 
 /// This adapter's harness, as its errors name it
 const CODEX: Harness = Harness::Codex;
@@ -761,6 +765,33 @@ fn tail(text: &str) -> &str {
     &text[start..]
 }
 
+// An error for a turn that failed with `detail`, unreachable where Codex says
+// its provider could not be reached or is overloaded.
+fn failed(detail: &str) -> AgentError {
+    // Codex words a status as "exceeded retry limit, last status: 503 ..." or
+    // "unexpected status 400 ...", so the status leads from there.
+    let status = STATUS_MARKERS
+        .iter()
+        .find_map(|marker| detail.split_once(marker))
+        .map_or(detail, |(_, status)| status);
+    if reaches_no_host(status, &["502", "503", "504"], &UNREACHABLE) {
+        AgentError::Unreachable(CODEX, detail.to_owned())
+    } else {
+        AgentError::Failed(CODEX, detail.to_owned())
+    }
+}
+
+/// What Codex puts before the status of a response it gave up on
+const STATUS_MARKERS: [&str; 2] = ["last status: ", "unexpected status "];
+
+/// What Codex prints, in lower case, when its provider cannot be reached or
+/// is overloaded, beyond a refused or reset connection
+const UNREACHABLE: [&str; 3] = [
+    "stream disconnected before completion",
+    "error sending request",
+    "currently experiencing high demand",
+];
+
 /// One `codex exec` turn, read from what it printed
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Turn {
@@ -855,7 +886,6 @@ fn parse_result(output: &Output, known: Option<&Thread>) -> Result<Turn, AgentEr
             _ => {}
         }
     }
-    let failed = |detail: &str| AgentError::Failed(CODEX, detail.to_owned());
     // A turn that ended well is a success whatever retries came before it.
     if let Some(why) = failure.or(usage.is_none().then_some(error).flatten()) {
         return Err(failed(&why));
