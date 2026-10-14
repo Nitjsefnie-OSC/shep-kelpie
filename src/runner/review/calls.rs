@@ -294,9 +294,14 @@ mod tests {
         rig.claude
             .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn
+
+        // A file an earlier run left in the reviewer's own folder.
+        let build = runner.lock().unwrap().current().unwrap().build.clone();
+        let stale = build.join(crate::runner::review::attached::READING_FOLDER);
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("stale.txt"), "left over\n").unwrap();
         step(&runner).unwrap(); // round 1, the reviewer: scripted clean above
 
-        let build = runner.lock().unwrap().current().unwrap().build.clone();
         let seen = rig
             .claude
             .all_seen()

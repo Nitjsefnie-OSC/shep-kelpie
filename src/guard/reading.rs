@@ -148,7 +148,11 @@ fn refused_flag<'a>(arg: &str, flags: &[&'a str]) -> Option<&'a str> {
         .iter()
         .copied()
         .find(|flag| match flag.strip_prefix("--") {
-            Some(_) => arg == *flag || arg.starts_with(&format!("{flag}=")),
+            // GNU `file` takes an unambiguous prefix of a long flag (`--comp`).
+            Some(_) => {
+                let name = arg.split('=').next().unwrap_or(arg);
+                name.len() > 2 && name.starts_with("--") && flag.starts_with(name)
+            }
             // `find`'s one-dash flags are whole words; a short flag is a letter in a cluster.
             None if flag.len() == 2 => {
                 arg.starts_with('-') && !arg.starts_with("--") && arg.contains(&flag[1..])

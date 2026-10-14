@@ -113,6 +113,13 @@ impl Runner {
             return Ok(None);
         }
         let folder = build.join(READING_FOLDER);
+        // Empty, whatever an earlier look left: the reviewer reads this as its own.
+        match std::fs::remove_dir_all(&folder) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(format!("cannot clear {}: {e}", folder.display()));
+            }
+            _ => {}
+        }
         std::fs::create_dir_all(&folder)
             .map_err(|e| format!("cannot make {}: {e}", folder.display()))?;
         let code = [worktree.to_owned()];

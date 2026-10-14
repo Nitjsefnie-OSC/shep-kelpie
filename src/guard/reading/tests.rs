@@ -138,6 +138,9 @@ fn redirects_substitution_and_exec_flags_are_refused() {
     refused("find . -fprintf out.txt x", "`find -fprintf`");
     refused("find . -fls out.txt", "`find -fls`");
     allowed("rg --pre-glob '*.gz' x");
+    refused("file --comp magic", "`file --compile`");
+    refused("file --compile magic", "`file --compile`");
+    refused("rg --pr=cat x", "`rg --pre`");
     refused("rg --pre ./script x", "`rg --pre`");
     refused("rg --pre=./script x", "`rg --pre`");
     refused("rg --hostname-bin ./script x", "`rg --hostname-bin`");
