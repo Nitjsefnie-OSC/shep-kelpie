@@ -429,3 +429,15 @@ domains = []
 # keep = true
 # keep_days = 30
 # folder = "~/kelpie-local-rounds"
+
+# A work item's build folder (`CARGO_TARGET_DIR`) is removed only when the work
+# item ends, and one turn can fill a disk. While a turn runs, kelpie measures
+# the folder and the disk's free space once a minute. Past `max_gb` in the
+# folder, or under `min_free_gb` free on the disk that holds kelpie's home, the
+# turn is paused at its next tool call (a harness with no pause hook, at its
+# end). Kelpie then removes the cargo cache the ended turn did not touch
+# (`incremental/` and `deps/` under each profile folder) and resumes the turn.
+# Still over a limit, the turn is held and `status` says why. 0 turns a limit off.
+# [app.dogs.kelpie.builds]
+# max_gb = 20
+# min_free_gb = 20

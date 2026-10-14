@@ -126,6 +126,10 @@ pub struct Status<'a> {
     /// name one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpu: Option<GpuStatus>,
+    /// The free space on the disk holding kelpie's home when last measured,
+    /// in bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_free_bytes: Option<u64>,
     /// Who holds the gateway's lease on each model a local agent calls, by
     /// the model's name, or null while it is free
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -195,6 +199,9 @@ pub struct WorkItemStatus<'a> {
     /// unstarted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub held_up: Option<super::turn::held_up::HeldUp>,
+    /// What its build folder held when last measured, in bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_bytes: Option<u64>,
     /// The worker's session, which the maintainer can resume by hand
     pub session: &'a SessionId,
     /// Where the worker's turn stands
@@ -266,6 +273,7 @@ impl<'a> WorkItemStatus<'a> {
             pinned: item.pinned,
             waiting: None,
             held_up: None,
+            build_bytes: None,
             session: &item.session,
             turn: &item.turn,
             phase: &item.phase,
