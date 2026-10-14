@@ -139,6 +139,7 @@ implementers = ["sonnet-high"]
 # more waits up to 20 minutes for the votes, then lists them as the panel.
 # Absent, no panel votes.
 # advisor = "advisor"
+# The researcher's agent file, named as the advisor's is.
 # researcher = "researcher"
 # The issue writer's agent file, which `shep kelpie issue` runs and which
 # labels an unlabelled issue. `issue-writer` when absent.

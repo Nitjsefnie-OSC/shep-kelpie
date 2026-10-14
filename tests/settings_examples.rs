@@ -141,10 +141,24 @@ struct Entry {
     commented_above: bool,
 }
 
+// A key has a comment above it when prose sits directly over it, or when it is
+// in the run of keys that opens its table and prose sits directly over the
+// table's header. A blank line, or a key further down the table, ends the walk.
+fn commented_above(lines: &[Line], key: usize) -> bool {
+    let mut past_header = false;
+    for row in (0..key).rev() {
+        match &lines[row] {
+            Line::Prose => return past_header || row + 1 == key,
+            Line::Header(_) if !past_header => past_header = true,
+            Line::Key(_) | Line::Other if !past_header => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
 // Every key line of a file, set or commented out, under the table header
-// before it, or in the root table when none came. A key has a comment above it when prose sits directly over it, or
-// over the keys and the header it opens its table with, with no blank line
-// between.
+// before it, or in the root table when none came.
 fn entries(text: &str) -> Vec<Entry> {
     let lines: Vec<Line> = text.lines().map(classify).collect();
     let mut table: &[String] = &[];
@@ -153,16 +167,7 @@ fn entries(text: &str) -> Vec<Entry> {
         match line {
             Line::Header(path) => table = path,
             Line::Key(name) => {
-                let mut above = lines[..index].iter().rev();
-                let mut in_header = false;
-                let commented_above = loop {
-                    match above.next() {
-                        Some(Line::Prose) => break true,
-                        Some(Line::Header(_)) if !in_header => in_header = true,
-                        Some(Line::Key(_) | Line::Other) if !in_header => {}
-                        _ => break false,
-                    }
-                };
+                let commented_above = commented_above(&lines, index);
                 let mut path = table.to_vec();
                 path.push(name.clone());
                 found.push(Entry {
@@ -389,5 +394,14 @@ fn a_key_before_any_table_is_outside_the_section() {
     assert_eq!(
         small_problems(&text),
         ["small.toml:1 holds `stray`, outside `app`"]
+    );
+}
+
+#[test]
+fn a_key_under_another_key_does_not_share_the_comment_over_that_key() {
+    let text = SMALL_EXAMPLE.replace("# The roles.\n", "");
+    assert_eq!(
+        small_problems(&text),
+        ["small.toml has no comment above `roles`"]
     );
 }
