@@ -91,7 +91,7 @@ impl Runner {
             domains: (self.settings.browser.domains.iter())
                 .map(|d| d.as_str().to_owned())
                 .collect(),
-            dev_port: self.dev_port(call.issue),
+            dev_port: self.dev_gate(call.issue),
         };
         let bridge = Bridge::open(&self.paths.worker, server, filter)
             .map_err(|e| format!("cannot open the browser for {}: {e}", who(call)))?;

@@ -2,6 +2,7 @@ use std::io::{BufRead, Read};
 use std::net::TcpListener;
 
 use super::*;
+use crate::ports::DevPort;
 
 const PUBLIC: &str = "93.184.216.34";
 
@@ -65,15 +66,22 @@ impl World {
 // A proxy listing `app.example.test`, which resolves to a public address, and
 // `local.example.test`, which resolves to this machine. `answer` is what the
 // origin the dials land on says to what it hears.
-fn world(limits: Limits, answer: fn(&[u8]) -> Vec<u8>) -> (World, thread::JoinHandle<Vec<u8>>) {
-    world_local(limits, answer, None)
+// A port the browser may open.
+fn open_on(port: u16) -> DevPort {
+    let gate = DevPort::default();
+    gate.open(port);
+    gate
 }
 
-// The same, for a turn whose dev server is on `local`.
+fn world(limits: Limits, answer: fn(&[u8]) -> Vec<u8>) -> (World, thread::JoinHandle<Vec<u8>>) {
+    world_local(limits, answer, DevPort::default())
+}
+
+// The same, for a turn whose dev server's port is `local`.
 fn world_local(
     limits: Limits,
     answer: fn(&[u8]) -> Vec<u8>,
-    local: Option<u16>,
+    local: DevPort,
 ) -> (World, thread::JoinHandle<Vec<u8>>) {
     let origin = TcpListener::bind((HOST, 0)).unwrap();
     let names = HashMap::from([
@@ -184,7 +192,7 @@ fn localhost_on_an_unlisted_port_is_refused() {
 
 #[test]
 fn the_dev_servers_address_is_dialed_on_the_loopback_on_its_port_only() {
-    let (world, origin) = world_local(limits(), pong, Some(4421));
+    let (world, origin) = world_local(limits(), pong, open_on(4421));
     let mut stream = world.connect();
     stream
         .write_all(b"CONNECT localhost:4421 HTTP/1.1\r\nHost: localhost:4421\r\n\r\n")
@@ -212,7 +220,7 @@ fn a_request_to_the_dev_server_is_sent_on_in_its_own_form() {
     let (world, origin) = world_local(
         limits(),
         |_| b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi".to_vec(),
-        Some(4421),
+        open_on(4421),
     );
     let reply =
         world.ask(b"GET http://127.0.0.1:4421/app?x=1 HTTP/1.1\r\nAccept: text/html\r\n\r\n");
@@ -224,7 +232,7 @@ fn a_request_to_the_dev_server_is_sent_on_in_its_own_form() {
 
 #[test]
 fn every_other_local_address_and_port_is_refused_beside_the_dev_server() {
-    let (world, _origin) = world_local(limits(), pong, Some(4421));
+    let (world, _origin) = world_local(limits(), pong, open_on(4421));
     for target in [
         "localhost:3000",
         "localhost:443",
@@ -242,6 +250,29 @@ fn every_other_local_address_and_port_is_refused_beside_the_dev_server() {
     let reply = world.ask(b"CONNECT [::1]:4421 HTTP/1.1\r\n\r\n");
     assert!(status(&reply).contains("400"), "{reply}");
     assert!(world.dialed().is_empty(), "{:?}", world.dialed());
+}
+
+#[test]
+fn a_dev_port_is_dialed_only_while_it_is_open() {
+    let gate = DevPort::default();
+    let (world, _origin) = world_local(
+        limits(),
+        |_| b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi".to_vec(),
+        gate.clone(),
+    );
+    let ask = || world.ask(b"GET http://localhost:4421/ HTTP/1.1\r\n\r\n");
+    assert!(
+        status(&ask()).contains("403"),
+        "shut until the server answers"
+    );
+    assert!(world.dialed().is_empty());
+    gate.open(4421);
+    assert!(status(&ask()).contains("200"), "open once it answers");
+    gate.shut();
+    assert!(
+        status(&ask()).contains("403"),
+        "shut again when it is stopped"
+    );
 }
 
 #[test]

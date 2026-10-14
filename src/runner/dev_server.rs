@@ -19,7 +19,7 @@ use super::Runner;
 use super::claim::Notes;
 use super::code_graph::who;
 use super::instructions::DevServer;
-use crate::ports::{AgentCall, DevRun, DevServers, Policy, READY_WITHIN, Reach, Started};
+use crate::ports::{AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Started};
 use crate::settings::NonBlank;
 use crate::work_item::WorkItem;
 
@@ -121,6 +121,7 @@ impl Runner {
             settings: (self.paths.worker).join(format!("dev-server-{}.srt.json", item.issue)),
             log: log.clone(),
             ready_within: READY_WITHIN,
+            gate: DevPort::default(),
         };
         self.planned.hold(item.issue, Some(plan));
         Some(DevServer::At { port, log })
@@ -132,7 +133,10 @@ impl Runner {
         let servers = &self.ports.dev_servers;
         let free = |port: u16| servers.free(port);
         match (configuration.port, configuration.auto_port) {
-            (Some(port), _) if free(port) => Ok((port, false)),
+            (Some(port), _) if port != 0 && free(port) => Ok((port, false)),
+            (Some(0), false) => {
+                Err("the launch configuration's `port` is 0, which is no port".to_owned())
+            }
             (Some(port), false) => Err(format!(
                 "port {port} is taken, and the launch configuration has no `autoPort`"
             )),
@@ -143,10 +147,15 @@ impl Runner {
         }
     }
 
-    /// The port of the dev server planned for `issue`'s turn, which its
-    /// browser may open
-    pub(super) fn dev_port(&self, issue: u64) -> Option<u16> {
-        self.planned.get(issue).map(|plan| plan.port)
+    /// The gate on the port of the dev server planned for `issue`'s turn
+    ///
+    /// It is shut until the server answers, so the browser opens no port that
+    /// kelpie has not seen its own server answer on.
+    pub(super) fn dev_gate(&self, issue: u64) -> DevPort {
+        self.planned
+            .get(issue)
+            .map(|plan| plan.gate)
+            .unwrap_or_default()
     }
 
     /// The dev server to start on the thread of `call`, if one is planned and
@@ -164,6 +173,20 @@ impl Runner {
     }
 }
 
+/// A dev server that answered, and the browser's right to open its port
+///
+/// The port shuts, and then the server stops, when this is dropped.
+pub(super) struct Served {
+    _started: Started,
+    gate: DevPort,
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        self.gate.shut();
+    }
+}
+
 /// Starts `run` on the call's thread, and says what the worker should know
 /// if it does not answer
 ///
@@ -175,15 +198,23 @@ pub(super) fn started(
     run: &DevRun,
     call: &AgentCall,
     notes: &Notes,
-) -> Option<Started> {
+) -> Option<Served> {
     let log = run.log.display();
+    let served = |started| Served {
+        _started: started,
+        gate: run.gate.clone(),
+    };
     let (started, line) = match servers.start(run) {
-        Ok(started) if started.answered => return Some(started),
+        Ok(started) if started.answered => {
+            run.gate.open(run.port);
+            return Some(served(started));
+        }
         Ok(started) => (
-            Some(started),
+            Some(served(started)),
             format!(
                 "The dev server on port {} had not answered after {} seconds: it may still be \
-                 starting, or it failed. Its output is in `{log}`.",
+                 starting, or it failed. The browser does not open it this turn. Its output is \
+                 in `{log}`.",
                 run.port,
                 run.ready_within.as_secs()
             ),

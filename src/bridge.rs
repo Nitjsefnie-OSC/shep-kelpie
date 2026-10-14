@@ -53,8 +53,8 @@ pub const TOOLS: [&str; 19] = [
 pub struct Filter {
     /// The project's `browser.domains`, which a URL argument may name
     pub domains: Vec<String>,
-    /// The port of the turn's dev server, which a URL on `localhost` may name
-    pub dev_port: Option<u16>,
+    /// The port of the turn's dev server once it answers, which a URL on `localhost` may name
+    pub dev_port: crate::ports::DevPort,
 }
 
 /// What becomes of one message on its way to the server
@@ -128,7 +128,7 @@ impl Filter {
             Value::Null => json!({}),
             other => other.clone(),
         };
-        crate::browse::judge(&arguments, &self.domains, self.dev_port)
+        crate::browse::judge(&arguments, &self.domains, self.dev_port.get())
     }
 }
 

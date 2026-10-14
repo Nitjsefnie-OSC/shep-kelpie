@@ -52,8 +52,8 @@ const HOST_QUOTED: usize = 100;
 pub(crate) struct Origins {
     // As `browser.domains` lists them: a host, or `*.` and a parent, in lower case.
     domains: Vec<String>,
-    // The one port of the turn's dev server, on this machine's loopback.
-    local: Option<u16>,
+    // The one port of the turn's dev server, on this machine's loopback, once open.
+    local: crate::ports::DevPort,
 }
 
 impl Origins {
@@ -61,13 +61,13 @@ impl Origins {
     pub(crate) fn new(domains: &[String]) -> Self {
         Self {
             domains: domains.iter().map(|d| d.to_ascii_lowercase()).collect(),
-            local: None,
+            local: crate::ports::DevPort::default(),
         }
     }
 
     /// The same, and `localhost` and `127.0.0.1` on `port`, which are dialed on
     /// the loopback without a lookup
-    pub(crate) fn with_local(self, port: Option<u16>) -> Self {
+    pub(crate) fn with_local(self, port: crate::ports::DevPort) -> Self {
         Self {
             local: port,
             ..self
@@ -79,7 +79,7 @@ impl Origins {
     fn is_local(&self, host: &str, port: u16) -> bool {
         let host = host.to_ascii_lowercase();
         let host = host.strip_suffix('.').unwrap_or(&host);
-        self.local == Some(port) && crate::browse::LOCAL.contains(&host)
+        self.local.get() == Some(port) && crate::browse::LOCAL.contains(&host)
     }
 
     // Whether `host` on `port` is listed. A host that is not plain letters, digits,

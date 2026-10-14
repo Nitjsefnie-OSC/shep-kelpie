@@ -8,12 +8,46 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use super::Policy;
 
 /// How long a dev server gets to answer on its port once started
 pub const READY_WITHIN: Duration = Duration::from_secs(60);
+
+/// The port the browser may open on this machine, shut until the turn's dev server answers
+///
+/// The browser's filter and its proxy read it for each request, so a port
+/// stays closed while another process might hold it. Clones share the one port.
+#[derive(Debug, Clone, Default)]
+pub struct DevPort(Arc<AtomicU16>);
+
+impl DevPort {
+    /// The browser may open `port`, which a port of zero does not open
+    pub fn open(&self, port: u16) {
+        self.0.store(port, Ordering::SeqCst);
+    }
+
+    /// The browser may open no port
+    pub fn shut(&self) {
+        self.0.store(0, Ordering::SeqCst);
+    }
+
+    /// The port the browser may open, if any
+    pub fn get(&self) -> Option<u16> {
+        Some(self.0.load(Ordering::SeqCst)).filter(|&port| port != 0)
+    }
+}
+
+impl PartialEq for DevPort {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for DevPort {}
 
 /// One dev server to start
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +70,8 @@ pub struct DevRun {
     pub log: PathBuf,
     /// How long it gets to answer on `port`
     pub ready_within: Duration,
+    /// Opened for the browser once it answers, and shut when it is stopped
+    pub gate: DevPort,
 }
 
 /// A dev server that was started, stopped by being dropped

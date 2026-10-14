@@ -52,7 +52,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
-pub use dev_server::{DevRun, DevServers, READY_WITHIN, Started};
+pub use dev_server::{DevPort, DevRun, DevServers, READY_WITHIN, Started};
 pub use disk::Disk;
 pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};

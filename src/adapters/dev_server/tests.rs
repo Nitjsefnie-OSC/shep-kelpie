@@ -31,6 +31,7 @@ fn run_of(dir: &Path, script: &str, port: u16, wait: Duration) -> DevRun {
         settings: dir.join("dev.sandbox.json"),
         log: dir.join("dev-server.log"),
         ready_within: wait,
+        gate: crate::ports::DevPort::default(),
     }
 }
 

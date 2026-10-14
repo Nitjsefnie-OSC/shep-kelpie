@@ -48,10 +48,8 @@ fn try_planned(rig: &Rig, edit: impl FnOnce(&Path)) -> Result<(Option<DevRun>, S
     let session = Session::Resume(item.session.clone());
     let call = runner.worker_call(&item, session, Some("again".into()), true)?;
     let told = fs::read_to_string(call.instructions.as_ref().unwrap()).unwrap();
-    assert_eq!(
-        runner.dev_port(7),
-        runner.planned.get(7).map(|run| run.port)
-    );
+    // The browser may open nothing until the server answers.
+    assert_eq!(runner.dev_gate(7).get(), None);
     // The keychain is blocked as the worker's own call blocks it.
     let blocked = runner.planned.get(7).map(|run| run.policy.no_keychain);
     assert!(blocked.is_none_or(|blocked| blocked == runner.app_covers()));
@@ -318,4 +316,57 @@ fn a_project_without_a_launch_file_starts_nothing_during_the_turn() {
 
     assert!(rig.dev_servers.started().is_empty());
     assert!(watching.live.lock().unwrap().iter().all(|&n| n == 0));
+}
+
+// What the browser may open before, while and after the planned server is served.
+fn gate_around_serving(rig: &Rig) -> [Option<u16>; 3] {
+    let runner = rig.open().unwrap();
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    rig.ask(&runner, "add", Some("7"));
+    let _ = step(&runner);
+    let runner = runner.lock().unwrap();
+    let item = runner.current().expect("an item").clone();
+    let session = Session::Resume(item.session.clone());
+    let call = runner
+        .worker_call(&item, session, Some("again".into()), true)
+        .unwrap();
+    let run = runner.planned.get(7).expect("a plan");
+    let before = runner.dev_gate(7).get();
+    let served = crate::runner::dev_server::started(&rig.dev_servers, &run, &call, &runner.notes);
+    let during = runner.dev_gate(7).get();
+    drop(served);
+    [before, during, runner.dev_gate(7).get()]
+}
+
+#[test]
+fn the_browser_may_open_the_port_only_while_the_server_kelpie_started_answers() {
+    let rig = project(Some(SHEP));
+    assert_eq!(gate_around_serving(&rig), [None, Some(4421), None]);
+}
+
+#[test]
+fn the_browser_may_not_open_the_port_of_a_server_that_never_answered_or_never_started() {
+    let silent = project(Some(SHEP));
+    silent.dev_servers.never_answer();
+    assert_eq!(gate_around_serving(&silent), [None, None, None]);
+
+    let broken = project(Some(SHEP));
+    broken.dev_servers.cannot_start("the port is taken");
+    assert_eq!(gate_around_serving(&broken), [None, None, None]);
+}
+
+#[test]
+fn port_zero_is_replaced_under_auto_port_and_refused_without_it() {
+    let auto =
+        r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":0,"autoPort":true}]}"#;
+    let rig = project(Some(auto));
+    rig.dev_servers.pick_next(5302);
+    rig.dev_servers.pick_next(5302);
+    let (run, _) = planned(&rig, |_| {});
+    assert_eq!(run.expect("a plan").port, 5302);
+
+    let fixed = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":0}]}"#;
+    let (run, told) = planned(&project(Some(fixed)), |_| {});
+    assert_eq!(run, None);
+    assert!(told.contains("`port` is 0"), "{told}");
 }
