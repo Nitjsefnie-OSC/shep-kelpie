@@ -10,8 +10,9 @@ use super::line::{Event, Kind, text_of, tool_line};
 
 /// What a stdout line records, if it records anything worth a line
 ///
-/// An `error` event carries no time, so it is stamped as it is read.
-pub(super) fn events(line: &str) -> Vec<Event> {
+/// An `error` event carries no time, so it is stamped `since`: the time of the
+/// line before it.
+pub(super) fn events(line: &str, since: Timestamp) -> Vec<Event> {
     let Ok(entry) = serde_json::from_str::<Value>(line) else {
         return Vec::new();
     };
@@ -21,7 +22,7 @@ pub(super) fn events(line: &str) -> Vec<Event> {
             let said =
                 (entry["error"].as_str()).map_or_else(|| entry["error"].to_string(), str::to_owned);
             vec![Event {
-                at: Timestamp::now(),
+                at: since,
                 kind: Kind::Result,
                 text: format!("error: {said}"),
             }]

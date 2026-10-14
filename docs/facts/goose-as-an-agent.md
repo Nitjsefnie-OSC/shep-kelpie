@@ -80,7 +80,7 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - The watch finds the file through the `session-started` step's `transcript.folder`, which for goose is the call's goose root (`<settings>.goose`). The stdout file is the root's sibling with `.stdout.jsonl` for the extension. The step keeps its shape, so an older log reads. Chosen over scanning the settings folder because that folder holds every role's calls and names no session.
 - A settings path is reused by every call of its role and issue, so a watch on an older session of that path reads the newer call's lines. The file is not a session's history.
 - A `message` line has `message.created` in seconds, which is its time. Its content blocks the watch renders: `text` (said, or prompt for a `user` message), `thinking`, `toolRequest` (`toolCall.value.name` and `arguments`) and `toolResponse` (`toolResult.value.content`, with `isError` or `status: "error"` shown as `error: ...`).
-- An `error` event has no time, so the watch stamps it when it reads it. It is shown as a `result` line `error: <text>`.
+- An `error` event has no time, so the watch gives it the time of the line before it in the file, or the call's start when it is the first. It is shown as a `result` line `error: <text>`.
 - `transcripts::format_of(Harness::Goose)` stays `None`. No file holds a whole session, since the stdout file is emptied per call, so the researcher's panel gets no worker-session text on goose.
 
 ## Fixtures

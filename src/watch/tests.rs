@@ -516,10 +516,23 @@ fn a_goose_session_shows_from_the_stdout_file_of_its_call() {
         "12:00:02 #7 researcher (qwen) result fn main() {}"
     );
     assert_eq!(lines[4], "12:00:03 #7 researcher (qwen) said CLEAN");
-    // goose stamps an error with no time, so the watch stamps it as it reads it.
-    assert!(
-        lines[5].ends_with("#7 researcher (qwen) result error: model host went away"),
-        "{lines:#?}"
+    // goose gives an error no time, so it takes the time of the line before.
+    assert_eq!(
+        lines[5],
+        "12:00:03 #7 researcher (qwen) result error: model host went away"
+    );
+}
+
+#[test]
+fn a_goose_error_with_nothing_before_it_takes_the_time_its_call_started() {
+    let rig = Rig::new();
+    let (step, stdout) = goose_started(&rig);
+    rig.step("2026-10-10T12:00:00.000+00:00", &step);
+    rig.append(&stdout, &[r#"{"type":"error","error":"no route to host"}"#]);
+    let (_watch, lines) = Watch::start(rig.folder(), rig.options(Scope::Project, 100));
+    assert_eq!(
+        shown(&lines)[1],
+        "12:00:00 #7 researcher (qwen) result error: no route to host"
     );
 }
 
