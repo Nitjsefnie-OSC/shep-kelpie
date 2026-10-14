@@ -247,7 +247,8 @@ fn now_is_read_first_or_last_and_once() {
 #[test]
 fn a_draining_answer_names_each_call() {
     let body = r#"{"draining":{"calls":[{"issue":7,"role":"worker"},
-        {"issue":8,"role":"reviewer"},{"role":"pm"}],"ceiling":3600}}"#;
+        {"issue":8,"role":"reviewer"},{"role":"pm"},{"issue":9,"role":"pi_session"}],
+        "ceiling":3600}}"#;
     assert_eq!(
         drained(body),
         Some(Drained {
@@ -255,6 +256,7 @@ fn a_draining_answer_names_each_call() {
                 "#7's worker turn".into(),
                 "#8's review".into(),
                 "the project manager's wake".into(),
+                "#9's attached pi session".into(),
             ],
             ceiling: 3600,
         })

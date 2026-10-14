@@ -52,6 +52,9 @@ pub enum CallRole {
     Panel,
     /// The project manager's agent, running a batch retro
     Retro,
+    /// A pi session in the maintainer's terminal, whose forwarder a restart
+    /// would take with it
+    PiSession,
 }
 
 impl Runner {
@@ -89,8 +92,12 @@ impl Runner {
             .max(securing.unwrap_or(0))
             .max(retro.unwrap_or(0))
             .max(panel.unwrap_or(0));
+        let attached = (self.pi_sessions_attached().into_iter()).map(|issue| CallRunning {
+            issue: Some(issue),
+            role: CallRole::PiSession,
+        });
         Some(Draining {
-            calls: self.flights.running(),
+            calls: self.flights.running().into_iter().chain(attached).collect(),
             ceiling,
         })
     }

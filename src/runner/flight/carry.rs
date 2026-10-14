@@ -67,7 +67,7 @@ impl Runner {
                 "{what} is in flight, and only a worker's turn is carried"
             ));
         }
-        if let Some(issue) = self.pi_session_attached() {
+        if let Some(issue) = self.pi_sessions_attached().first() {
             return Err(format!(
                 "#{issue} is attached, and the pi session in the maintainer's terminal dials \
                  a forwarder this image holds, which the next image would not"
@@ -102,18 +102,19 @@ impl Runner {
             .collect()
     }
 
-    // The work item whose hold stands on a pi worker, whose session in the
+    // The work items whose hold stands on a pi worker, whose session in the
     // maintainer's terminal dials a forwarder only this image holds.
-    fn pi_session_attached(&self) -> Option<u64> {
+    pub(in crate::runner) fn pi_sessions_attached(&self) -> Vec<u64> {
         let holds = |item: &&WorkItem| item.attached.as_ref().is_some_and(live);
         let on_pi = |item: &&WorkItem| {
             // parity: harness.attach-ends
             (self.worker_agent(item)).is_ok_and(|agent| agent.harness.harness() == Harness::Pi)
         };
-        let mut items = self.state.work_items.iter();
+        let items = self.state.work_items.iter();
         items
-            .find(|item| holds(item) && on_pi(item))
+            .filter(|item| holds(item) && on_pi(item))
             .map(|item| item.issue)
+            .collect()
     }
 
     /// Takes on `turns` a previous image carried, each finished on its own
