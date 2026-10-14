@@ -36,6 +36,20 @@ impl Tools {
         chromium && self.playwright_mcp().is_file()
     }
 
+    /// The newest Chromium build folder in [`Tools::browsers`], such as `chromium-1200`
+    pub(super) fn chromium_build(&self) -> Option<String> {
+        let entries = std::fs::read_dir(self.browsers()).ok()?;
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let number: u64 = name.strip_prefix("chromium-")?.parse().ok()?;
+                Some((number, name))
+            })
+            .max()
+            .map(|(_, name)| name)
+    }
+
     /// Fetches Chromium into [`Tools::browsers`], with the server's `playwright-core`
     ///
     /// # Errors
@@ -92,5 +106,21 @@ mod tests {
         tools.install_browser().unwrap();
         let asked = std::fs::read_to_string(tools.browsers().join("asked.txt")).unwrap();
         assert_eq!(asked, "install chromium");
+    }
+
+    #[test]
+    fn the_chromium_build_is_the_newest_chromium_folder_and_not_the_headless_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = fake(dir.path());
+        assert_eq!(tools.chromium_build(), None);
+        for name in [
+            "chromium-998",
+            "chromium-1200",
+            "chromium_headless_shell-1300",
+            "ffmpeg-1011",
+        ] {
+            std::fs::create_dir_all(tools.browsers().join(name)).unwrap();
+        }
+        assert_eq!(tools.chromium_build().as_deref(), Some("chromium-1200"));
     }
 }
