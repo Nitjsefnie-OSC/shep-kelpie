@@ -29,7 +29,7 @@ pub(crate) async fn run(socket: &Path, worktree: PathBuf) -> u8 {
 }
 
 // `run`, printing the command's lines to `out`.
-async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> u8 {
+pub(crate) async fn run_printing(socket: &Path, worktree: PathBuf, out: &mut impl Write) -> u8 {
     let visit = match Visit::knock(socket, &ask(worktree)).await {
         Ok(visit) => visit,
         Err(why) => return failed(&unreached(&why), NO_LEASE),

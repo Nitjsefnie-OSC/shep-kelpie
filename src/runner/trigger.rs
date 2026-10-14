@@ -84,6 +84,10 @@ pub struct Status<'a> {
     /// left out when it follows none
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub contributions: Vec<super::contributions::Followed<'a>>,
+    /// The bumps from bots the board follows, oldest first, with where each
+    /// stands; left out when it follows none
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bumps: Vec<super::dependencies::BumpStatus>,
     /// The first issues in the order the board takes the ready ones, which
     /// holds those it would pass over too
     pub order: &'a [u64],

@@ -20,6 +20,7 @@ use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod e2e_runner;
 mod findings;
 mod forge_error;
 mod gateway;
@@ -49,6 +50,7 @@ pub use agent::{
     Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session, SessionId,
     Tools, Transcript, Usage, Wait, written_at,
 };
+pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
 pub use findings::{CLEAN, Finding, Severity, is_test_path, parse_findings, read_review};
 pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
@@ -314,6 +316,13 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Closes pull request `number` without merging it, with no comment
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
 
     /// Opens a draft pull request on `repo` from branch `head` into `base`,
     /// as the account kelpie acts as, and returns its number
@@ -814,6 +823,8 @@ pub struct Ports {
     pub alerts: Arc<dyn Alerts>,
     /// Runs a reviewer's test, inside the worker's sandbox
     pub test_runner: Arc<dyn TestRunner>,
+    /// Runs a bump's e2e tests on the dog's host
+    pub e2e_runner: Arc<dyn E2eRunner>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold

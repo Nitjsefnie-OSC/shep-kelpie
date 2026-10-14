@@ -245,7 +245,8 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         researcher: old_researcher,
         rulings: old_rulings,
         contributions: _, // waits for the next start, when the runner checks it
-        hooks: _,         // waits for the next start, so `reread` keeps the old
+        dependencies: old_dependencies,
+        hooks: _, // waits for the next start, so `reread` keeps the old
         skills: old_skills,
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
@@ -263,6 +264,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         researcher: new_researcher,
         rulings: new_rulings,
         contributions: _,
+        dependencies: new_dependencies,
         hooks: _,
         skills: new_skills,
         repo_setup: new_repo_setup,
@@ -298,6 +300,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("code_graph", old_code_graph != new_code_graph),
         ("local_rounds", old_local_rounds != new_local_rounds),
         ("researcher", old_researcher != new_researcher),
+        ("dependencies", old_dependencies != new_dependencies),
         ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),
     ]
