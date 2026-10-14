@@ -56,11 +56,11 @@ const COMMANDS: [&str; 14] = [
 const STUBS: [(&str, &str); 2] = [
     (
         "web-search",
-        "Not available in this run: the sandbox reaches no website and has no search tool.",
+        "Not available in this run. The sandbox reaches no website and has no search tool.",
     ),
     (
         "goose-doc-guide",
-        "Not available in this run: goose's documentation cannot be fetched from the sandbox.",
+        "Not available in this run. goose's documentation cannot be fetched from the sandbox.",
     ),
 ];
 
@@ -147,8 +147,8 @@ pub(super) fn link(call: &AgentCall, files: &Files) -> Result<(), AgentError> {
 /// holds a placeholder, and a quote in it that never closes ends the turn with
 /// no model call. Such a skill keeps the prompt as written, and the model loads
 /// it with `load_skill`, when the call `offers_tools`. A call that offers none
-/// cannot load it, so its prompt is the skill's text, then `ARGUMENTS: <rest>`,
-/// as goose would give it without the split.
+/// cannot load it, so its prompt is the skill's text with the placeholders filled
+/// in as goose fills them, then `ARGUMENTS: <rest>`.
 ///
 /// `None` leaves the prompt as it is, as it does for a skill no plugin holds
 /// and for a skill named like one of goose's own commands ([`COMMANDS`]), which
@@ -166,12 +166,107 @@ pub(super) fn prompt(call: &AgentCall, offers_tools: bool) -> Option<String> {
     if offers_tools {
         return None;
     }
-    let body = body_of(&text);
+    let body = with_arguments(body_of(&text), &step.rest);
     Some(
         format!("{body}\n\nARGUMENTS: {}", step.rest)
             .trim_end()
             .to_owned(),
     )
+}
+
+// `text` with goose's placeholders filled in: `$ARGUMENTS` is `rest` whole, and
+// `$ARGUMENTS[n]` and `$n` are its nth word (from 0), split like a shell, or
+// nothing past the last. A quote that never closes splits `rest` at blanks, where
+// goose ends the turn.
+fn with_arguments(text: &str, rest: &str) -> String {
+    let words =
+        shell_words(rest).unwrap_or_else(|| rest.split_whitespace().map(str::to_owned).collect());
+    let nth = |digits: &str| {
+        digits
+            .parse()
+            .ok()
+            .and_then(|n: usize| words.get(n))
+            .cloned()
+    };
+    let mut out = String::new();
+    let mut tail = text;
+    while let Some(at) = tail.find('$') {
+        out.push_str(&tail[..at]);
+        tail = &tail[at..];
+        if let Some(after) = tail.strip_prefix("$ARGUMENTS") {
+            let index = after
+                .strip_prefix('[')
+                .and_then(|inner| inner.split_once(']'))
+                .filter(|(digits, _)| {
+                    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+                });
+            match index {
+                Some((digits, more)) => {
+                    out.push_str(&nth(digits).unwrap_or_default());
+                    tail = more;
+                }
+                None => {
+                    out.push_str(rest);
+                    tail = after;
+                }
+            }
+            continue;
+        }
+        let digits = tail[1..].bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            out.push('$');
+            tail = &tail[1..];
+        } else {
+            out.push_str(&nth(&tail[1..=digits]).unwrap_or_default());
+            tail = &tail[1 + digits..];
+        }
+    }
+    out.push_str(tail);
+    out
+}
+
+// `text` split into words like a POSIX shell: blanks separate, single quotes
+// keep what is in them, double quotes keep it too but for a backslash before
+// `"` or `\`, and a backslash outside quotes keeps the next character. `None`
+// if a quote never closes.
+fn shell_words(text: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => words.extend(word.take()),
+            '\'' => {
+                let word = word.get_or_insert_with(String::new);
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => word.push(c),
+                    }
+                }
+            }
+            '"' => {
+                let word = word.get_or_insert_with(String::new);
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => match chars.next()? {
+                            c @ ('"' | '\\') => word.push(c),
+                            c => {
+                                word.push('\\');
+                                word.push(c);
+                            }
+                        },
+                        c => word.push(c),
+                    }
+                }
+            }
+            '\\' => word.get_or_insert_with(String::new).push(chars.next()?),
+            c => word.get_or_insert_with(String::new).push(c),
+        }
+    }
+    words.extend(word);
+    Some(words)
 }
 
 // The text of a `SKILL.md` after its front matter

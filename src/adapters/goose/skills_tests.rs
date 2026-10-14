@@ -269,7 +269,15 @@ fn a_step_skill_with_a_placeholder_is_sent_as_its_text_to_a_call_with_no_tool_to
 
     assert_eq!(
         text_of(&call),
-        "Do this: $ARGUMENTS\n\nARGUMENTS: Fix it, it's \"broken"
+        "Do this: Fix it, it's \"broken\n\nARGUMENTS: Fix it, it's \"broken"
+    );
+    // The words are split like a shell's, and one past the last is nothing.
+    let text = "---\nname: implement\n---\nCompare $0 to $ARGUMENTS[1], not $2$. Cost $ 5.\n";
+    call.plugin_dirs = vec![implement(&w, text)];
+    call.prompt = "/mattpocock:implement 'old one' \"new\\\" one\"".into();
+    assert_eq!(
+        text_of(&call),
+        "Compare old one to new\" one, not $. Cost $ 5.\n\nARGUMENTS: 'old one' \"new\\\" one\""
     );
     // A call with a shell loads the skill itself and keeps the prompt as written.
     call.tools = Tools::Work;
@@ -510,5 +518,7 @@ fn goose_s_two_builtin_skills_are_shadowed_by_stubs() {
             "{text}"
         );
         assert_eq!(lines[3], "---");
+        // A `: ` in a plain YAML value makes goose skip the skill, and so the shadow.
+        assert!(!lines[2]["description: ".len()..].contains(": "), "{text}");
     }
 }
