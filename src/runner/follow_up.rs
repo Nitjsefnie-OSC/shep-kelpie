@@ -43,7 +43,7 @@ const MIN_BODY_MATCH: usize = 12;
 
 // Made on a repo that lacks it before the first follow-up filed with it,
 // since the forge refuses an issue that names a label the repo does not have.
-const TRIAGE_LABEL: NewLabel<'static> = NewLabel {
+pub(super) const TRIAGE_LABEL: NewLabel<'static> = NewLabel {
     name: TRIAGE,
     color: "d876e3",
     description: "Kelpie filed this follow-up unread; it waits on the maintainer",

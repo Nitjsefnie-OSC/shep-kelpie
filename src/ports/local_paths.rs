@@ -260,6 +260,10 @@ impl Forge for Guarded {
         self.forge.close_issue(repo, number)
     }
 
+    fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
+        self.forge.close_pull_request(repo, number)
+    }
+
     fn create_pull_request(
         &self,
         repo: &ForgeSlug,
