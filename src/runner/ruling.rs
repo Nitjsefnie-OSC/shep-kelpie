@@ -726,6 +726,7 @@ pub(super) fn stuck_comment(reason: &Stuck) -> String {
             "The work on this pull request ran too long and was stopped.".to_owned()
         }
         Stuck::Unlabelled { .. } => "No implementer was picked for this issue.".to_owned(),
+        Stuck::AdoptFailed { .. } => "This pull request could not be adopted.".to_owned(),
         Stuck::TurnFailed { .. } => {
             "The work on this pull request hit an error and stopped.".to_owned()
         }
@@ -820,7 +821,10 @@ fn decide(
             head: None,
             since: now,
         },
-        (Answer::No(_), RulingKind::Stuck(Stuck::Unlabelled { .. })) => {
+        (
+            Answer::No(_),
+            RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. }),
+        ) => {
             return Err(RuleError::YesOnly(id));
         }
         // A fix turn resumes in its round, which checks it pushed.
@@ -929,7 +933,9 @@ fn decide(
             closed: false,
         },
         // No work item is parked on it, so an answer only clears it.
-        (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. })) => Phase::Implement,
+        (Answer::Yes, RulingKind::Stuck(Stuck::Unlabelled { .. } | Stuck::AdoptFailed { .. })) => {
+            Phase::Implement
+        }
         // The turn ends under the same round, which checks the worktree again.
         (
             Answer::Yes,

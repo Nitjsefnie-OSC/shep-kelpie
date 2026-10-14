@@ -82,6 +82,8 @@ pub enum RulingName {
     TurnFailed,
     /// No implementer was picked
     Unlabelled,
+    /// An adopted pull request could not start
+    AdoptFailed,
     /// A work item or a contribution is over its budget
     OverBudget,
     /// The security review flagged a contribution's head. The panel never
@@ -117,6 +119,7 @@ impl RulingName {
                 Stuck::TurnTimeout { .. } => Self::TurnTimeout,
                 Stuck::TurnFailed { .. } => Self::TurnFailed,
                 Stuck::Unlabelled { .. } => Self::Unlabelled,
+                Stuck::AdoptFailed { .. } => Self::AdoptFailed,
                 Stuck::OverBudget { .. } => Self::OverBudget,
             },
         }
@@ -140,6 +143,7 @@ impl RulingName {
             Self::TurnTimeout => "turn-timeout",
             Self::TurnFailed => "turn-failed",
             Self::Unlabelled => "unlabelled",
+            Self::AdoptFailed => "adopt-failed",
             Self::OverBudget => "over-budget",
             Self::Security => "security",
             Self::LocalModelSpilled => "local-model-spilled",
