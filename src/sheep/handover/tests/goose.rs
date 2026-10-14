@@ -190,13 +190,14 @@ fn gateways(host: &str) -> Gateways {
 }
 
 // goose as a script that waits for `go`, asks the gateway through its
-// forwarder, and prints the recorded turn.
+// forwarder, and prints the recorded turn. The forwarder's socket is the
+// newest in the call's folder, since it binds just before goose starts.
 fn goose_script(folder: &Path) {
     write(folder, "fresh.jsonl", FRESH);
     let script = format!(
         "#!/bin/sh\n\
          shared={shared}\n\
-         ls \"$(dirname \"$GOOSE_PATH_ROOT\")\"/*.sock > \"$shared/socket\"\n\
+         ls -t \"$(dirname \"$GOOSE_PATH_ROOT\")\"/*.sock | head -n 1 > \"$shared/socket\"\n\
          echo \"${{GOOSE_PATH_ROOT%.goose}}.call.json\" > \"$shared/record\"\n\
          touch \"$shared/started\"\n\
          while [ ! -e \"$shared/go\" ]; do sleep 0.02; done\n\

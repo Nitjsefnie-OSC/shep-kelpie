@@ -51,12 +51,10 @@ impl GooseCli {
         };
         let files = Files::beside(&adopted.record);
         // The totals the call began with, which `run` kept before it spawned.
+        // A file that is gone is no reason to end a turn that is running: the
+        // session counts from nothing, as a new one does.
         let before = match files.spent(&kept.session) {
-            Ok(Some(before)) => before,
-            Ok(None) => {
-                let why = format!("goose session {} has no token totals", kept.session.0);
-                return self.unserved(adopted, ending, why);
-            }
+            Ok(before) => before.unwrap_or_default(),
             Err(e) => return self.unserved(adopted, ending, e.to_string()),
         };
         let served = host_of(&kept.server).and_then(|host| {
