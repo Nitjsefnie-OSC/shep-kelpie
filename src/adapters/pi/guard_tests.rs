@@ -335,3 +335,25 @@ fn a_guard_whose_checks_cannot_run_refuses() {
     let verdicts = guarded(&w, &w.path("no-such-kelpie"), events);
     assert!(verdicts.iter().all(|v| v["block"] == true), "{verdicts:?}");
 }
+
+// The package's tools are named in the checks, so the guard lets exactly those
+// through. `--tools` decides which call has them.
+#[test]
+fn the_guard_lets_the_web_packages_tools_through_and_no_other_it_does_not_know() {
+    if !has_node() {
+        eprintln!("skipped: needs node, which loads pi's extensions");
+        return;
+    }
+    let w = World::new();
+    crate::test::write_script(&w.path("kelpie"), "#!/bin/sh\ncat >/dev/null\n");
+    let events = json!([
+        { "toolName": "web_search", "input": { "query": "rust" } },
+        { "toolName": "fetch_content", "input": { "url": "https://docs.rs" } },
+        { "toolName": "get_search_content", "input": { "responseId": "r" } },
+        { "toolName": "web_enable", "input": {} },
+        { "toolName": "source_check", "input": {} },
+    ]);
+    let verdicts = guarded(&w, &w.path("kelpie"), events);
+    let refused: Vec<bool> = verdicts.iter().map(|v| v["block"] == true).collect();
+    assert_eq!(refused, [false, false, false, true, true]);
+}
