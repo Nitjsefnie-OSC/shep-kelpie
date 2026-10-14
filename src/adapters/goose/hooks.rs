@@ -85,7 +85,7 @@ pub(super) fn write(files: &Files, fence: &Fence, read_only: bool) -> Result<(),
     let manifest = json!({
         "name": PLUGIN,
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Kelpie's fence: judges every tool call of a worker before it runs",
+        "description": "Kelpie's fence: judges every tool call of a worker, reviewer, advisor or retro before it runs",
     });
     put(&plugin.join("plugin.json"), &manifest)?;
     put(

@@ -395,9 +395,15 @@ fn works(call: &AgentCall) -> bool {
 
 // Whether `call` reads the repo through the read-only shell: a reviewer, an
 // advisor or a retro with a fence to hold it. One with no fence is offered no
-// tool. The researcher is never one.
+// tool. The researcher is never one, whatever tools it is paired with.
 fn reads(call: &AgentCall) -> bool {
-    call.reach.fence.is_some() && matches!(call.tools, Tools::Review | Tools::Advise | Tools::Retro)
+    call.reach.fence.is_some()
+        && matches!(
+            (call.role, call.tools),
+            (Role::Worker, Tools::Retro)
+                | (Role::Reviewer, Tools::Review)
+                | (Role::Advisor, Tools::Advise)
+        )
 }
 
 // Whether goose offers the call its `developer` tools, behind the hook plugin.

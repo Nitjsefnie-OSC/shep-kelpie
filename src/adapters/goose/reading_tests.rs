@@ -176,6 +176,20 @@ fn the_researcher_has_no_shell() {
 }
 
 #[test]
+fn a_researcher_given_reading_tools_is_still_no_reader() {
+    for tools in [Tools::Review, Tools::Advise, Tools::Retro] {
+        let w = World::new();
+        let call = fenced(&w, Role::Researcher, tools, Session::New(id(FRESH_ID)));
+
+        stand_in(&w, FRESH).prepare(&call).unwrap();
+
+        assert!(!strings(&call).iter().any(|a| a.starts_with("--with-")));
+        assert!(runs_in("chat", &call), "{tools:?}");
+        assert!(!plugin(&w).exists(), "{tools:?}");
+    }
+}
+
+#[test]
 fn a_resumed_session_is_held_by_the_hook_whatever_its_stored_extensions_are() {
     let w = World::new();
     let call = fenced(
