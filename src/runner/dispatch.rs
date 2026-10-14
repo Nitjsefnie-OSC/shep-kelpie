@@ -45,19 +45,19 @@ impl Runner {
         // any ready issue, and one that cannot start is passed over like one.
         let (begin, mut failed) = self.adopt_waiting(&open)?;
         if let Some(begin) = begin {
-            self.skipped = failed;
+            self.set_skipped(failed);
             return Ok(begin);
         }
         let (begin, reworks) = self.rework_asked(&open)?;
         failed.extend(reworks);
         if let Some(begin) = begin {
-            self.skipped = failed;
+            self.set_skipped(failed);
             return Ok(begin);
         }
         // A contribution's call goes before any new issue, and takes the slot
         // the board would have.
         if let Some(begin) = self.contribution_due()? {
-            self.skipped = failed;
+            self.set_skipped(failed);
             return Ok(begin);
         }
         // One whose paths a parked item's branch touches would build on code
@@ -108,7 +108,7 @@ impl Runner {
                     })
                     .collect::<Vec<_>>()
                     .join("; ");
-                self.skipped = skipped;
+                self.set_skipped(skipped);
                 return Ok(if failed.is_empty() {
                     Begin::Idle
                 } else {
@@ -117,7 +117,7 @@ impl Runner {
             };
             if !paced {
                 if let Some(held) = self.pace_dispatch()?.holds() {
-                    self.skipped = skipped;
+                    self.set_skipped(skipped);
                     return Ok(held);
                 }
                 paced = true;
@@ -126,7 +126,7 @@ impl Runner {
                 Choice::Take(n) => n,
                 Choice::Rule => issue,
                 Choice::Wait => {
-                    self.skipped = skipped;
+                    self.set_skipped(skipped);
                     return Ok(Begin::Idle);
                 }
             };
@@ -147,16 +147,16 @@ impl Runner {
                     continue;
                 }
                 if let Some(held) = self.pace_writer()?.holds() {
-                    self.skipped = skipped;
+                    self.set_skipped(skipped);
                     return Ok(held);
                 }
                 let found = found.clone();
-                self.skipped = skipped;
+                self.set_skipped(skipped);
                 return Ok(Begin::Label(found));
             }
             match self.add(issue) {
                 Ok(agent) => {
-                    self.skipped.clone_from(&skipped);
+                    self.set_skipped(skipped.clone());
                     return Ok(Begin::Report(StepReport::Dispatched {
                         issue,
                         agent,
@@ -172,7 +172,7 @@ impl Runner {
                 }
                 Err(super::AddError::State(e)) => return Err(e),
                 Err(e) => {
-                    self.skipped = skipped;
+                    self.set_skipped(skipped);
                     return Ok(Begin::Report(StepReport::BoardFailed {
                         reason: format!("cannot dispatch #{issue}: {e}"),
                     }));

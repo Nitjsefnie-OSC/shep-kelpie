@@ -107,6 +107,7 @@ mod rework;
 mod ruling;
 #[cfg(test)]
 mod several;
+mod skip_log;
 mod slots;
 #[cfg(test)]
 mod slots_tests;
