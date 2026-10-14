@@ -266,14 +266,13 @@ impl Runner {
             let why = error.to_string();
             // An answered ruling is gone, so what was raised is also kept here.
             let known = failing.raised.as_ref() == Some(&why);
-            failing.raised = Some(why.clone());
             let saved = self
                 .adopt_ruling(number)
                 .is_some_and(|r| failed_with(r, &why));
             if !known && !saved {
                 let mut next = self.state.clone();
                 next.rulings.retain(|r| !failed_on(r, number));
-                let kind = RulingKind::Stuck(Stuck::AdoptFailed { why });
+                let kind = RulingKind::Stuck(Stuck::AdoptFailed { why: why.clone() });
                 let question = super::ruling::question(number, Some(number), &kind);
                 next.rulings.push(Ruling {
                     pull_request: Some(number),
@@ -281,6 +280,10 @@ impl Runner {
                     ..Ruling::new(number, question, kind)
                 });
                 self.save(next)?;
+            }
+            // Only once saved, so a save that failed is tried again.
+            if let Some(failing) = self.adopt_failing.get_mut(&number) {
+                failing.raised = Some(why);
             }
         }
         Ok(Skip::Adopt {
