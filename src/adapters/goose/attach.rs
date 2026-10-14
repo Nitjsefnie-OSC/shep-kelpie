@@ -62,7 +62,7 @@ impl GooseCli {
             .into_iter()
             .map(Into::into)
             .collect();
-        let (command, forwarder) = self.wrapped(call, None, argv, Some(TERMINAL_MODE))?;
+        let (command, forwarder) = self.wrapped_command(call, None, argv, Some(TERMINAL_MODE))?;
         // The terminal session runs on the session's model requests, so goose's totals will
         // hold tokens kelpie cannot count: they are in goose's database. The record notes that
         // when the session starts, not when it ends, since the hold outlives a runner that

@@ -214,7 +214,7 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
 
 // An error the model host did not answer is the host's, and passes. Any other
 // is the call's own.
-fn failed(detail: &str) -> AgentError {
+pub(super) fn failed(detail: &str) -> AgentError {
     // Read whole: the sign may come before the end the error keeps.
     let unreachable = reaches_no_host(detail);
     let detail = tail(detail).to_owned();

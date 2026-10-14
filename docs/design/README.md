@@ -25,6 +25,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | work.md | projects, board, adoption, slots, issue writer | `src/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns, fence | `src/runner/turn.rs`, `src/profile.rs`, `src/guard.rs`, `src/hooks.rs` |
+| compaction.md | when a session compacts, `worker.compact_window` per harness, the `COMPACT` call | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
 | skills.md | step skills, repo plugins, how each harness loads them | `src/skills.rs`, `src/skills/`, `src/adapters/skills.rs`, `src/runner/turn.rs` (`prepared`) |
 | agents.md | agent files, harnesses, gateways | `src/agents/`, `src/adapters/`, `src/settings/agents.rs`, `src/spawn.rs` |
 | handover.md | a runner handing its in-flight worker turns to a new image, `upgrade` | `src/sheep/handover.rs`, `src/runner/flight/carry.rs`, `src/adapters/process/adopt.rs`, `src/upgrade/handover.rs` |
