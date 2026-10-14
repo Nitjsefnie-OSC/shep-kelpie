@@ -3,7 +3,7 @@
 use std::process::Command as Process;
 
 use super::hooks_tests::{env_vars, json_in, plugin, policy_of, worker};
-use super::tests::{FRESH, FRESH_ID, OTHER_ID, URL, World, id, stand_in, strings};
+use super::tests::{FRESH, FRESH_ID, OTHER_ID, URL, World, id, only_skills, stand_in, strings};
 use super::*;
 use crate::confine::Verdict;
 use crate::guard::judge_goose_reading;
@@ -149,7 +149,7 @@ fn a_call_with_no_fence_loads_no_extension_and_runs_in_chat_mode() {
 
         stand_in(&w, FRESH).prepare(&call).unwrap();
 
-        assert!(!strings(&call).iter().any(|a| a.starts_with("--with-")));
+        assert!(only_skills(&call));
         assert!(runs_in("chat", &call), "{tools:?}");
         assert!(!plugin(&w).exists(), "{tools:?}: no hook to write");
         let vars = env_vars(&call);
@@ -170,7 +170,7 @@ fn the_researcher_has_no_shell() {
 
     stand_in(&w, FRESH).prepare(&call).unwrap();
 
-    assert!(!strings(&call).iter().any(|a| a.starts_with("--with-")));
+    assert!(only_skills(&call));
     assert!(runs_in("chat", &call));
     assert!(!plugin(&w).exists());
 }
@@ -183,7 +183,7 @@ fn a_researcher_given_reading_tools_is_still_no_reader() {
 
         stand_in(&w, FRESH).prepare(&call).unwrap();
 
-        assert!(!strings(&call).iter().any(|a| a.starts_with("--with-")));
+        assert!(only_skills(&call));
         assert!(runs_in("chat", &call), "{tools:?}");
         assert!(!plugin(&w).exists(), "{tools:?}");
     }

@@ -26,7 +26,7 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 
 ## Fence
 
-- Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load. #98, `src/profile.rs`
+- Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load (on goose, the call's plugins' skills are linked into its own `config/skills`, `skills.md`). #98, `src/profile.rs`
 - Kelpie's guard in every worker's settings; `worker.guard_hooks` adds Claude Code hooks; an unresolvable hook stops the runner at start. #108, `src/runner/guard_hooks.rs`
 - Project `hooks` run own commands at `publish`, `commit`, `push`, `handover`, `command`, `write`, `turn_start`, `turn_end`, notices on every harness (`guard_hooks` reach Claude Code alone). ADR 0009, #454, `src/hooks.rs`
 - Workers run `bypassPermissions` over `main` ruleset + OS sandbox + `kelpie guard` denylist; no auto mode (classifier outages blocked work). `src/profile.rs`
