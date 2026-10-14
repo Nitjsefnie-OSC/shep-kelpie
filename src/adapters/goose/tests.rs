@@ -157,7 +157,7 @@ fn the_call_s_environment_relocates_goose_and_closes_every_door() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let mut vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     vars.sort();
     let (root, scratch) = (w.path("settings.goose"), w.path("settings.tmp"));
@@ -339,7 +339,7 @@ fn a_fence_adds_variables_but_replaces_none_of_the_calls() {
     goose.prepare(&call).unwrap();
     let upstream = goose.upstream(server(&call).unwrap()).unwrap();
     let files = Files::of(&call.settings);
-    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream);
+    let vars = env_args(&call, server(&call).unwrap(), &files, &upstream, None);
     let vars: Vec<String> = vars.into_iter().map(|v| v.into_string().unwrap()).collect();
     assert!(vars.contains(&"FROM_THE_FENCE=1".to_owned()), "{vars:?}");
     assert!(vars.contains(&"GOOSE_MODE=chat".to_owned()), "{vars:?}");

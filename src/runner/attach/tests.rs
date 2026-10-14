@@ -18,6 +18,15 @@ fn on_pi(rig: &Rig) {
     rig.implementers(&["pi-box"]);
 }
 
+const GOOSE: &str = "---\nrole: implementer\nharness: goose\nmodel: qwen3.8:27b\neffort: low\n\
+                    url: http://box:11434/v1\ncontext: 65536\n---\n";
+
+// Settings that run issue 7 on goose
+fn on_goose(rig: &Rig) {
+    rig.write_agent("goose-box", GOOSE);
+    rig.implementers(&["goose-box"]);
+}
+
 const CODEX: &str =
     "---\nrole: implementer\nharness: codex\nmodel: gpt-6-sol\neffort: medium\n---\n";
 
@@ -530,6 +539,78 @@ fn attach_waits_for_a_pi_call_in_flight_and_no_call_starts_after_it() {
 #[test]
 fn a_pi_worker_is_attached_and_its_end_drops_the_forwarder() {
     let (rig, runner, _) = Rig::with_pull_request_set("chelone", on_pi);
+    let session = rig.claude.calls()[0].session.id().clone();
+    let me = Live::new();
+    let answer = attach(&rig, &runner, me.pid());
+    assert_eq!(answer["attach"], "ready", "{answer}");
+    assert_eq!(
+        rig.claude.terminals_started(),
+        std::slice::from_ref(&session)
+    );
+    assert!(
+        rig.claude.terminals_ended().is_empty(),
+        "the session runs on"
+    );
+
+    detach(&rig, &runner, me.pid());
+    assert_eq!(rig.claude.terminals_ended(), std::slice::from_ref(&session));
+
+    let gone = Live::new();
+    assert_eq!(attach(&rig, &runner, gone.pid())["attach"], "ready");
+    drop(gone);
+    step(&runner).unwrap();
+    assert_eq!(attached(&rig, &runner), Value::Null);
+    assert_eq!(
+        rig.claude.terminals_ended(),
+        [session.clone(), session],
+        "a hold whose process is gone ends the terminal session too"
+    );
+}
+
+#[test]
+fn attach_waits_for_a_goose_call_in_flight_and_no_call_starts_after_it() {
+    let rig = Rig::new("rotom");
+    on_goose(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    rig.claude
+        .script([Scripted::Hold(hold.clone()), Scripted::Say("done")]);
+    let (wake, woken) = mpsc::channel();
+    runner.lock().unwrap().wake_with(wake);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the first turn began");
+
+    let me = Live::new();
+    assert_eq!(
+        attach(&rig, &runner, me.pid()),
+        json!({ "attach": "waiting", "issue": 7 })
+    );
+    assert_eq!(attached(&rig, &runner)["by"]["pid"], me.pid());
+    assert!(
+        rig.claude.terminals_started().is_empty(),
+        "no terminal session starts while the flight stands"
+    );
+    hold.release();
+    woken.recv_timeout(CALL_PATIENCE).expect("the turn ended");
+    advance(&runner).unwrap();
+    assert_eq!(attach(&rig, &runner, me.pid())["attach"], "ready");
+    assert_eq!(rig.claude.terminals_started().len(), 1);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Idle));
+    assert_eq!(rig.claude.calls().len(), 1, "the hold starts no turn");
+
+    detach(&rig, &runner, me.pid());
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.claude.calls().len(),
+        2,
+        "the next turn runs once let go"
+    );
+}
+
+#[test]
+fn a_goose_worker_is_attached_and_its_end_drops_the_forwarder() {
+    let (rig, runner, _) = Rig::with_pull_request_set("chelone", on_goose);
     let session = rig.claude.calls()[0].session.id().clone();
     let me = Live::new();
     let answer = attach(&rig, &runner, me.pid());

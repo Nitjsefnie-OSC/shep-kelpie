@@ -37,12 +37,13 @@ use crate::forwarder::{Upstream, WORKER_HOST};
 use crate::guard::READ_ONLY_COMMANDS;
 use crate::ports::{
     Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Forward, Kept,
-    Policy, Role, Sandbox, Session, Stand, Taking, Tools, Transcript, Unheld, Wait,
+    Policy, Role, Sandbox, Session, SessionId, Stand, Taking, Tools, Transcript, Unheld, Wait,
 };
 use crate::settings::{AgentHarness, Gateways, Harness, ModelHost, ModelServer};
 
 mod activity;
 mod adopt;
+mod attach;
 mod files;
 pub(crate) mod hooks;
 pub(crate) mod mcp;
@@ -53,6 +54,9 @@ mod activity_tests;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod attach_tests;
 
 #[cfg(test)]
 mod gateway_tests;
@@ -106,6 +110,8 @@ pub struct GooseCli {
     gateways: Gateways,
     // What each running call keeps in memory that a handover must carry
     carried: Carried,
+    // The forwarder of each terminal session, until its end
+    terminals: attach::Terminals,
 }
 
 impl ClaudeCli {
@@ -120,6 +126,7 @@ impl ClaudeCli {
             unfenced_no_read: self.unfenced_no_read.clone(),
             gateways: Gateways::default(),
             carried: Carried::default(),
+            terminals: attach::Terminals::default(),
         }
     }
 }
@@ -235,6 +242,14 @@ impl Agents for GooseCli {
     fn last_active(&self, call: &AgentCall) -> CallActivity {
         activity::of_stdout(&CallFiles::of(call).stdout)
     }
+
+    fn foreground(&self, call: &AgentCall) -> Result<Command, AgentError> {
+        self.terminal_command(call)
+    }
+
+    fn foreground_ended(&self, session: &SessionId) {
+        self.drop_terminal(session);
+    }
 }
 
 impl GooseCli {
@@ -294,6 +309,18 @@ impl GooseCli {
         call: &AgentCall,
         lease: Option<&str>,
     ) -> Result<(Command, Forwarder), AgentError> {
+        self.wrapped(call, lease, argv(call)?, None)
+    }
+
+    // goose run with `argv` inside the call's sandbox. `mode` is the `GOOSE_MODE` the call is
+    // given in place of its headless one.
+    fn wrapped(
+        &self,
+        call: &AgentCall,
+        lease: Option<&str>,
+        argv: Vec<OsString>,
+        mode: Option<&str>,
+    ) -> Result<(Command, Forwarder), AgentError> {
         let server = server(call)?;
         let upstream = self.upstream(server)?;
         let upstream = match lease.filter(|_| call.role == Role::Worker) {
@@ -323,9 +350,9 @@ impl GooseCli {
         // `env` runs inside the sandbox, after the sandbox has set its own variables.
         let mut command = crate::spawn::command("env");
         command
-            .args(env_args(call, server, &files, &upstream))
+            .args(env_args(call, server, &files, &upstream, mode))
             .arg(&self.program)
-            .args(argv(call)?)
+            .args(argv)
             .current_dir(&call.cwd);
         let policy = policy(
             call,
@@ -497,12 +524,13 @@ fn told(call: &AgentCall, prompt: String) -> String {
 // tool for `auto` to allow, and goose rejects one that appears anyway. A
 // worker's, a reader's and a call's that loads an MCP server is `auto`, which ignores
 // goose's own `permission.yaml`, so the hook plugin is the only gate. A call with a shell reads the repo's `AGENTS.md` and
-// `CLAUDE.md`, as pi does, and never `.goosehints`.
+// `CLAUDE.md`, as pi does, and never `.goosehints`. A `mode` replaces that `GOOSE_MODE`.
 fn env_args(
     call: &AgentCall,
     server: &ModelServer,
     files: &Files,
     upstream: &Upstream,
+    mode: Option<&str>,
 ) -> Vec<OsString> {
     let mut vars: Vec<(String, OsString)> = vec![
         ("GOOSE_PATH_ROOT".into(), files.root.clone().into()),
@@ -514,10 +542,10 @@ fn env_args(
         ),
         (
             "GOOSE_MODE".into(),
-            if has_shell(call) || mcp::loads(call, files) {
-                "auto"
-            } else {
-                "chat"
+            match mode {
+                Some(mode) => mode,
+                None if has_shell(call) || mcp::loads(call, files) => "auto",
+                None => "chat",
             }
             .into(),
         ),

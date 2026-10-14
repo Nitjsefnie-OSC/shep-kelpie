@@ -149,6 +149,18 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - `fixtures/goose-run-unreachable.jsonl` is goose's own output from the closed-port run, the temporary folder renamed.
 - `fixtures/goose-run-fresh.jsonl`, `goose-run-resumed.jsonl` and `goose-run-max-turns.jsonl` are written by hand from the event types, shaped after that output. `fixtures/goose-run-refused.jsonl` is a worker whose `write` into `.claude/` and `shell` of `gh pr merge 1` are refused, also by hand, with the shape of a tool request and its response read from the source. #798 replaces them with recordings, made by the ignored tests `adapters::goose::tests::record_a_turn_a_resumed_turn_and_an_unreachable_server` and `record_a_worker_whose_write_and_shell_the_fence_refuses`.
 
+## The terminal session
+
+Written for #796. Read from goose 1.54.0's source and not run. #798 confirms it live.
+
+- `goose session --resume --session-id <id>` resumes a session in the terminal. `--session-id` without `--resume` is an error, and `session` has no flag for a first message.
+- A resumed session uses the extension set it stored, so the command passes no `--with-*` flag and no `--no-profile`.
+- The session's permission mode is set again from `GOOSE_MODE` at every start, so the terminal can run in a different mode than the headless calls. Kelpie runs it in `approve`, where goose asks before each tool call. The `PreToolUse` hook runs in any mode.
+- The telemetry consent dialog is skipped when `GOOSE_TELEMETRY_OFF` is set, so no prompt blocks the start.
+- If the terminal's folder is not the session's, goose asks on the terminal whether to switch, so the command runs in the worktree.
+- goose keeps its sessions in SQLite with no per-session lock. Attach's wait for a call in flight and its hold keep a headless call and the terminal apart.
+- Not run: that interactive goose runs inside kelpie's sandbox with a terminal, and which paths its history file needs. Its history goes under the session's `GOOSE_PATH_ROOT`; a path the sandbox refuses goes in `policy.write`.
+
 ## Not run yet (for #798)
 
 - An MCP server's flags and tool names, as in MCP servers above.
@@ -160,3 +172,4 @@ Written for #790. The event shapes are from goose's source, not a recorded turn.
 - That goose starts without writing `<root>/config`.
 - Which session `--resume --name` picks when two share a name.
 - The retry delay on a refused connection and on a 502 or 503.
+- That `goose session --resume` starts under the sandbox with a terminal, as in The terminal session above.
