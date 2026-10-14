@@ -70,3 +70,26 @@ fn read_back(dir: &std::path::Path) -> serde_json::Value {
     let text = fs::read_to_string(dir.join(STATE_FILE)).unwrap();
     serde_json::from_str(&text).unwrap()
 }
+
+// A push starts the asking over, but not the maintainer's close: the thanks
+// and the close still follow, whatever the contributor pushes meanwhile.
+#[test]
+fn a_push_drops_an_ask_but_not_the_maintainers_close() {
+    let ask = |closing| Asked {
+        comment: 7000,
+        at: Timestamp(60),
+        asks: 1,
+        nos: 0,
+        read: Vec::new(),
+        closing,
+    };
+    let mut held = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
+
+    held.asked = Some(ask(false));
+    let pushed = held.pushed("9c0ffee".into(), Timestamp(70));
+    assert_eq!(pushed.asked, None);
+
+    held.asked = Some(ask(true));
+    let pushed = held.pushed("9c0ffee".into(), Timestamp(70));
+    assert_eq!(pushed.asked, Some(ask(true)));
+}

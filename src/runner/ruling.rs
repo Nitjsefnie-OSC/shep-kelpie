@@ -717,8 +717,9 @@ fn decide(
                 force,
             });
         }
-        // No work item is parked on it, so an answer only clears it. The
-        // representative words the text for the contributor.
+        // No work item is parked on it, so an answer only clears it. For a
+        // decision the representative words the text for the contributor; a
+        // waiting ruling's text is a choice that kelpie carries out.
         (Answer::Text(_), RulingKind::Contribution(Held::Question { .. } | Held::Waiting)) => {
             Phase::Implement
         }

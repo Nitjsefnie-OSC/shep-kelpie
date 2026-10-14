@@ -409,9 +409,10 @@ impl Contribution {
             pass: None,
             walking: None,
             // The head's own results start it again, and the contributor
-            // who pushed has been heard: the asking starts over with it.
+            // who pushed has been heard: the asking starts over with it, but
+            // the maintainer's close is still to be carried out.
             waiting_since: None,
-            asked: None,
+            asked: self.asked.clone().filter(|a| a.closing),
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
