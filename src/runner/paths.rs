@@ -203,6 +203,16 @@ impl ProjectPaths {
         self.worktrees.join(format!("bump-{pull_request}"))
     }
 
+    /// The build folder of a bump's browser proof: the dev server's log goes there
+    pub fn bump_build(&self, pull_request: u64) -> PathBuf {
+        self.builds.join(format!("bump-{pull_request}"))
+    }
+
+    /// The folder holding the browser server's config and output for a bump's proof
+    pub fn bump_browser(&self, pull_request: u64) -> PathBuf {
+        self.browsers.join(format!("bump-{pull_request}"))
+    }
+
     /// The build folder for the work item that resolves `issue`
     pub fn build(&self, issue: u64) -> PathBuf {
         self.builds.join(issue.to_string())

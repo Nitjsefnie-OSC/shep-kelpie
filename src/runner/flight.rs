@@ -911,6 +911,8 @@ mod carry;
 pub(super) mod label;
 pub(super) mod panel;
 mod proving;
+
+pub(in crate::runner) use proving::Verdict;
 pub(super) mod retro;
 pub(super) mod security;
 #[cfg(test)]

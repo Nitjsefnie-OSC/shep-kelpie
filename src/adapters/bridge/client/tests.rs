@@ -31,7 +31,10 @@ fn a_navigation_the_console_and_the_requests_read_as_the_server_sent_them() {
     let mut wrote = Vec::new();
     let mut client = Client::open(Cursor::new(heard), &mut wrote).unwrap();
 
-    assert_eq!(client.navigate("http://localhost:5173/").unwrap(), Navigation::Loaded);
+    assert_eq!(
+        client.navigate("http://localhost:5173/").unwrap(),
+        Navigation::Loaded
+    );
     client.settle(2).unwrap();
     assert_eq!(client.console_errors().unwrap(), 2);
     let requests = client.requests().unwrap();
@@ -73,7 +76,10 @@ fn a_navigation_the_console_and_the_requests_read_as_the_server_sent_them() {
 fn a_server_that_closes_before_it_answers_is_an_error() {
     let heard = Cursor::new(String::new());
     let error = Client::open(heard, Vec::new()).unwrap_err();
-    assert!(error.contains("closed before it answered initialize"), "{error}");
+    assert!(
+        error.contains("closed before it answered initialize"),
+        "{error}"
+    );
 }
 
 #[test]

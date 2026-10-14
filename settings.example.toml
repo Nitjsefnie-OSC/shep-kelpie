@@ -417,11 +417,17 @@ enabled = false
 # launch file on `main` gets none.
 # With `headed` on, the browser opens a window you can watch. macOS only: on
 # Linux an enabled table stops the runner when it starts.
+# A web bump (`dependencies.web`) on a project with the browser is also proved
+# here: kelpie starts the dev server in the bump's checkout, headless whatever
+# `headed` says, and opens each of `routes` (each starting with `/`, `["/"]` by
+# default). A route fails when the page does not load, a request to the dev
+# server answers 5xx, or the console logs an error.
 [app.dogs.kelpie.browser]
 enabled = false
 headed = false
 domains = []
 # configuration = "web"
+# routes = ["/"]
 
 # A local round (a `command` or `endpoint` reviewer) writes its request and
 # reply under the work item's build folder, which goes when the work item

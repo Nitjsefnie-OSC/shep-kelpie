@@ -46,17 +46,34 @@ impl FakePages {
             url: "dev-origin/api/items".to_owned(),
             status: Some(status),
         };
-        self.script(path, Visit { requests: vec![request], ..clean() });
+        self.script(
+            path,
+            Visit {
+                requests: vec![request],
+                ..clean()
+            },
+        );
     }
 
     /// Has the page at `path` log `count` console errors
     pub(crate) fn logs_errors(&self, path: &str, count: u32) {
-        self.script(path, Visit { console_errors: count, ..clean() });
+        self.script(
+            path,
+            Visit {
+                console_errors: count,
+                ..clean()
+            },
+        );
     }
 
     /// Has every later ask fail for `why`, as a browser that cannot be driven
     pub(crate) fn cannot_open(&self, why: &str) {
         self.state.lock().unwrap().unopenable = Some(why.to_owned());
+    }
+
+    /// Has later asks open again
+    pub(crate) fn can_open(&self) {
+        self.state.lock().unwrap().unopenable = None;
     }
 
     /// Every ask, oldest first
@@ -94,7 +111,11 @@ impl Pages for FakePages {
         Ok(urls
             .iter()
             .map(|url| {
-                let mut visit = state.by_path.get(path_of(url)).cloned().unwrap_or_else(clean);
+                let mut visit = state
+                    .by_path
+                    .get(path_of(url))
+                    .cloned()
+                    .unwrap_or_else(clean);
                 // A scripted request names the dev server's origin as "dev-origin".
                 let origin = url.strip_suffix(path_of(url)).unwrap_or(url);
                 for request in &mut visit.requests {

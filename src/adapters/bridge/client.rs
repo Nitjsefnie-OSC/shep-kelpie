@@ -103,7 +103,10 @@ impl<R: BufRead, W: Write> Client<R, W> {
     /// The reason, when the call failed.
     pub(crate) fn requests(&mut self) -> Result<Vec<PageRequest>, String> {
         let text = self.read_call("browser_network_requests", json!({}))?;
-        Ok(section(&text, "Result").lines().filter_map(request).collect())
+        Ok(section(&text, "Result")
+            .lines()
+            .filter_map(request)
+            .collect())
     }
 
     // The text of a call that read something, which is an error if the call failed.
@@ -142,7 +145,11 @@ impl<R: BufRead, W: Write> Client<R, W> {
         loop {
             line.clear();
             match self.from.read_line(&mut line) {
-                Ok(0) => return Err(format!("the browser's server closed before it answered {method}")),
+                Ok(0) => {
+                    return Err(format!(
+                        "the browser's server closed before it answered {method}"
+                    ));
+                }
                 Ok(_) => {}
                 Err(e) => return Err(format!("cannot read the browser's server: {e}")),
             }
@@ -195,7 +202,15 @@ fn error_count(text: &str) -> Result<u32, String> {
     section(text, "Result")
         .lines()
         .find_map(|line| line.strip_prefix("Total messages: "))
-        .and_then(|counts| counts.split_once("(Errors: ")?.1.split_once(',')?.0.parse().ok())
+        .and_then(|counts| {
+            counts
+                .split_once("(Errors: ")?
+                .1
+                .split_once(',')?
+                .0
+                .parse()
+                .ok()
+        })
         .ok_or_else(|| "the console's answer has no count of errors".to_owned())
 }
 
