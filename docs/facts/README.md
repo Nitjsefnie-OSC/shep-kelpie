@@ -42,6 +42,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [The board briefing](the-board-briefing.md)
 - [The project manager](the-project-manager.md)
 - [The panel](the-panel.md)
+- [The representative wording test](the-representative-wording-test.md)
 - [The state file](the-state-file.md)
 - [GitHub's rate limit](githubs-rate-limit.md)
 - [A worker's session grows past what its turns need](a-workers-session-grows-past-what-its-turns-need.md)

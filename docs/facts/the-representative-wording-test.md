@@ -1,0 +1,7 @@
+# The representative wording test
+
+- Measured 2026-10-14 on Claude Code 2.1.299 with Opus 5.5, in a fresh `claude -p` with `--tools ""`, `--strict-mcp-config`, `--setting-sources project` and `--no-session-persistence`, run in an empty folder (`docs/specs/wording-results.md`). Claude Code's own system prompt with no tools came to about 5k tokens. A post cost $0.032 to $0.118 at medium effort, and the guide's size set most of the spread: `humanizer`, at 5,157 words, put 14.6k input tokens into each call.
+- Opus 5.5 kept to the house prose rules with or without a guide. None of the 49 posts had a dash, bold, a semicolon, a stock AI word, "not X but Y", a stock opener or closer, or a link. What changed between guides was length, cost and value judgements about the contributor's work that the facts didn't give.
+- Low effort wrote 37% fewer output tokens than medium on the same guide (188 against 297 a post), and the maintainer's blind picks preferred it 4 to 3.
+- A smoke test before the runs planted `@alice` in a contributor's text, with an instruction to mention only the contributor. One Haiku 5.5 call at low effort mentioned `@alice` anyway. None of the 49 Opus posts named anyone but the contributor, but the corpus held no such injection.
+- Given bare dates in its facts, the model either repeats the stamp ("by 2024-11-03") or pairs it with a gap ("2024-10-27, three days ago"). Both read as cold to the maintainer, which is why #871 has kelpie's code word time instead.
