@@ -1,0 +1,5 @@
+    __( O)>  ● resuming · openai qwen3.8:27b
+   \____)    20261013_3 · /tmp/kelpie-goose
+     L L     goose is ready
+{"type":"message","message":{"id":"msg_7b04d9a6-e2c1-4f58-8d3a-60c5b1e97f32","role":"assistant","created":1791932160,"content":[{"type":"text","text":"Error compacting conversation: the provider ended the summary request with a context length error"}],"metadata":{"userVisible":true,"agentVisible":true}}}
+{"type":"complete","total_tokens":9400,"input_tokens":9000,"output_tokens":400,"cache_read_input_tokens":6000,"cache_write_input_tokens":0}
