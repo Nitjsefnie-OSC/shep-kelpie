@@ -66,6 +66,9 @@ const PLAIN: &str = "kelpie runs a command here only as plain words: no redirect
 const EXPANDS: &str = "kelpie cannot check a `$` or backtick the shell expands: write each \
     value out, or hold a pattern's `$` in single quotes";
 
+const GLOBS: &str = "kelpie cannot check a brace or glob the shell expands into other words: \
+    write each word out, or hold a pattern in single quotes";
+
 /// Judges the tool call in `input`: a shell command that reads and writes
 /// nothing is allowed, and the project's `hooks` judge it too
 pub fn judge_reading(input: impl Read, hooks: &Hooks) -> Verdict {
@@ -116,27 +119,38 @@ fn judge(command: &Command) -> Result<(), String> {
     if !READ_ONLY_COMMANDS.contains(&name.as_str()) {
         return Err(format!("{}.", only()));
     }
-    if (command.words.iter().zip(&command.quoting)).any(|(w, q)| holds(w, &q.quoted, ['<', '>'])) {
+    let syntax = |chars: &[char]| {
+        (command.words.iter().zip(&command.quoting)).any(|(w, q)| holds(w, &q.quoted, chars))
+    };
+    if syntax(&['<', '>']) {
         return Err(format!("{PLAIN}."));
     }
-    if (command.words.iter().zip(&command.quoting)).any(|(w, q)| holds(w, &q.quoted, ['$', '`'])) {
+    if syntax(&['$', '`']) {
         return Err(format!("{EXPANDS}."));
     }
-    let flags = FLAGS
-        .iter()
-        .find(|(n, _)| n == name)
-        .map_or(&[][..], |f| f.1);
-    match args.iter().find_map(|a| refused_flag(a, flags)) {
-        Some(flag) => Err(format!(
+    let flagged = FLAGS.iter().find(|(n, _)| n == name);
+    let flags = flagged.map_or(&[][..], |f| f.1);
+    if let Some(flag) = args.iter().find_map(|a| refused_flag(a, flags)) {
+        return Err(format!(
             "`{name} {flag}` writes a file or runs a program, so it is refused: leave it out."
-        )),
-        None => Ok(()),
+        ));
+    }
+    // A brace or glob the shell expands could spell a refused flag out of words
+    // that are not one as written: `{-exec,sh}`, or `-exe?` beside a file named `-exec`.
+    // Only a command with refused flags is read for a glob, so `cat src/*.rs` stays.
+    let expands: &[char] = match flagged {
+        Some(_) => &['{', '*', '?', '['],
+        None => &['{'],
+    };
+    match syntax(expands) {
+        true => Err(format!("{GLOBS}.")),
+        false => Ok(()),
     }
 }
 
 // Whether `word` holds one of `chars` the shell reads as syntax: one no
 // quote or backslash holds literal.
-fn holds(word: &str, quoted: &[bool], chars: [char; 2]) -> bool {
+fn holds(word: &str, quoted: &[bool], chars: &[char]) -> bool {
     word.chars()
         .zip(quoted)
         .any(|(c, quoted)| chars.contains(&c) && !quoted)

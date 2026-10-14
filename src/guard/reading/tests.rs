@@ -138,6 +138,15 @@ fn redirects_substitution_and_exec_flags_are_refused() {
     refused("find . -fprintf out.txt x", "`find -fprintf`");
     refused("find . -fls out.txt", "`find -fls`");
     allowed("rg --pre-glob '*.gz' x");
+    refused("find . {-exec,sh} -c id {} \\;", "brace or glob");
+    refused("rg {--pre=sh,x} pat", "brace or glob");
+    refused("tree {-o,out.txt}", "brace or glob");
+    refused("find . -exe? sh -c id", "brace or glob");
+    refused("cat {a,b}", "brace or glob");
+    allowed("cat src/*.rs");
+    allowed("find . -name '*.rs'");
+    allowed("rg 'a{2}' src");
+    allowed("grep -E \"x[0-9]\" src");
     refused("file --comp magic", "`file --compile`");
     refused("file --compile magic", "`file --compile`");
     refused("rg --pr=cat x", "`rg --pre`");
