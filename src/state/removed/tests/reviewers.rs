@@ -74,6 +74,7 @@ fn a_claude_round_s_last_reviewer_and_its_ruling_name_defect_hunter() {
                 ..Review::first()
             }),
             prompt: "p".into(),
+            said: None,
         })
     );
 }

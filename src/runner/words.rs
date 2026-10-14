@@ -123,6 +123,7 @@ mod tests {
             note_fix: false,
             late_fix: false,
             nits: None,
+            disputes: None,
         };
         assert_eq!(Wants::of(&merge), Wants::Merge);
         assert_eq!(Wants::of(&Stuck::Closed.into()), Wants::YesOrNo);

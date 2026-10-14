@@ -9,6 +9,7 @@ use std::path::Path;
 
 use super::calls::severity_tag;
 use crate::ports::{CLEAN, Finding};
+use crate::work_item::Dispute;
 
 /// `body` with `base` and `diff` in their places
 fn filled(body: &str, base: &str, diff: &str) -> String {
@@ -67,6 +68,25 @@ pub(in crate::runner) fn reviewer_prompt(
         ));
     }
     prompt
+}
+
+/// What a reader is told of the findings the worker disputed, to add after
+/// its prompt: each finding with the worker's reason, indented under it, and
+/// nothing when there are none
+pub(in crate::runner) fn disputes_note(disputes: &[Dispute]) -> String {
+    if disputes.is_empty() {
+        return String::new();
+    }
+    let lines: String = (disputes.iter())
+        .map(|d| format!("{}  {}\n", line(&d.finding), d.reason))
+        .collect();
+    format!(
+        "\n\nThe worker disputed these findings of an earlier reader on this pull \
+         request, saying each is wrong and why: each finding is followed by the \
+         worker's reason, indented. Check the reason against the code. Raise a finding \
+         again, in the same format, only if the reason is wrong; leave out one whose \
+         reason holds.\n\n--- the disputed findings ---\n{lines}--- end ---"
+    )
 }
 
 // One finding as the readers write it, its test as a fifth field.
@@ -197,6 +217,23 @@ SEVERITY|file:line|what is wrong, and its trigger|what goes wrong, and who sees 
         assert!(pi.contains("per finding with the write tool."), "{pi}");
         assert!(!pi.contains("Write tool"), "{pi}");
         assert!(ask("Write").contains("per finding with the Write tool."));
+    }
+
+    #[test]
+    fn the_prompt_names_apply_patch_for_codex() {
+        let folder = Path::new("/k/targets/shep/7/review-tests");
+        let tests = Some(("cargo test --test {name}", folder, "apply_patch"));
+
+        let prompt = reviewer_prompt(&defect_hunter(), "origin/main", "D", "", None, tests);
+
+        assert!(
+            prompt.contains("per finding with the apply_patch tool."),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("/k/targets/shep/7/review-tests"),
+            "{prompt}"
+        );
     }
 
     #[test]

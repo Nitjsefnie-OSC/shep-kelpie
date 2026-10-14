@@ -613,6 +613,21 @@ pub enum StepReport {
         /// How many findings it deferred
         deferred: usize,
     },
+    /// The worker's fix turn pushed nothing, having shown every finding sent
+    /// that was not a nit to be wrong or deferred it, so the next reviewer
+    /// is shown its reasons and reads the pull request as it stands
+    FindingsDisputed {
+        /// The work item's issue
+        issue: u64,
+        /// Its pull request
+        pull_request: u64,
+        /// The round whose findings it disputed
+        round: u32,
+        /// How many findings it disputed, each with a reason
+        disputed: usize,
+        /// How many it deferred as out of scope
+        deferred: usize,
+    },
     /// The worker's fix turn was sent only nits and pushed nothing, which
     /// declines them, so the next reviewer reads the pull request as it stands
     NitsDeclined {
