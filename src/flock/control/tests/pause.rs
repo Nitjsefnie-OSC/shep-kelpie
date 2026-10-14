@@ -310,3 +310,25 @@ async fn a_runner_from_before_drain_pause_is_drained_plainly() {
         "the refused params are sent again as a plain drain"
     );
 }
+
+// A turn in a long tool call is waited on for the tool limit, not the shorter
+// ceiling the runner gives (a turn timeout under the limit, no PM or other call)
+#[tokio::test]
+async fn a_pause_waits_out_the_tool_limit_even_when_the_ceiling_is_shorter() {
+    let mut shepherd = FakeShepherd::new();
+    runner(&shepherd, "koji", Path::new("/src/koji"), true);
+    let short = IN_TOOL_7.replace("\"ceiling\":3600", "\"ceiling\":0");
+    shepherd.says("koji", &[&short]);
+    let patience = Patience {
+        margin: Duration::ZERO,
+        tool: Duration::from_millis(200),
+        ..FAST
+    };
+    let (ran, said) = paused(&shepherd, patience, Interrupt::Never).await;
+    assert_eq!(
+        ran.unwrap(),
+        ["koji's runner is stopped: `shep kelpie start koji` runs it again"],
+        "{said:?}"
+    );
+    assert_eq!(asked(&shepherd.writes()).last().unwrap(), "stop");
+}

@@ -179,6 +179,8 @@ pub async fn drain(
     let mut params = purpose.params();
     let mut cut = false;
     loop {
+        // Set while only turns that end at a tool call are waited on, which `patience.tool` bounds.
+        let mut tool_only = false;
         let Some(answer) = asked(client, name, "drain", params).await? else {
             return predates(name, purpose, say);
         };
@@ -205,6 +207,7 @@ pub async fn drain(
                     // A tool call is waited on for `patience.tool` only. Past
                     // it the stop cuts the call short, as `shep stop` does.
                     let past = waited.elapsed() >= patience.tool;
+                    tool_only = drained.calls.is_empty();
                     let mut busy: Vec<String> = drained.calls.into_iter().map(running).collect();
                     if past && !drained.at_tool.is_empty() && !cut {
                         cut = true;
@@ -234,7 +237,7 @@ pub async fn drain(
         if busy.is_empty() {
             return Ok(());
         }
-        if waited.elapsed() >= limit {
+        if !tool_only && waited.elapsed() >= limit {
             return Err(format!(
                 "{} after {}s, so {}",
                 busy.join(" and "),
