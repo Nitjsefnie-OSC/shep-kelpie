@@ -22,6 +22,8 @@
 //! again.
 
 use super::Runner;
+use super::dev_server::Browsed;
+use super::flight::Verdict;
 use super::follow_up::TRIAGE_LABEL;
 use super::gate::{settled, short};
 use crate::board::{OpenPullRequest, TRIAGE};
@@ -263,7 +265,7 @@ impl Runner {
             }
             Checks::Passed | Checks::Skipped => {}
         }
-        self.prove_e2e(bump)
+        self.prove_web(bump)
     }
 
     // A bump behind `main` is asked to rebase once for each head.
@@ -288,8 +290,9 @@ impl Runner {
         }
     }
 
-    // A web bump also needs a passing e2e run on this head.
-    fn prove_e2e(&mut self, bump: &Bump) -> Next {
+    // A web bump also needs its proof on this head: its routes opened in the local
+    // browser where the project has one, and a passing e2e run where it has a host.
+    fn prove_web(&mut self, bump: &Bump) -> Next {
         let number = bump.pull_request;
         if bump.e2e_failure().is_some() {
             return Next::Red(vec!["its e2e run failed".into()]);
@@ -298,10 +301,10 @@ impl Runner {
             return Next::Merge;
         }
         if self.flights.proving(number, &bump.head) {
-            return Next::Waiting("running the e2e tests".into());
+            return Next::Waiting("proving it: running the browser and e2e tests".into());
         }
-        if self.flights.declined(number, &bump.head) {
-            return Next::Waiting(NO_HOST.into());
+        if let Some(why) = self.flights.declined(number, &bump.head) {
+            return Next::Waiting(why.to_owned());
         }
         if self.settings.dependencies.web.is_empty() {
             return Next::Merge;
@@ -318,23 +321,56 @@ impl Runner {
         if self.draining {
             return Next::Waiting("a web bump, waiting for the runner to stop draining".into());
         }
-        if self.flights.proof_running() || !self.launch_proof(number, &bump.head) {
+        if self.flights.proof_running() {
             return Next::Waiting("a web bump, waiting for the e2e host".into());
         }
-        Next::Waiting("running the e2e tests".into())
+        let browser = match self.browser_proof(number) {
+            Ok(browser) => browser,
+            Err(why) => return Next::Waiting(why),
+        };
+        if !self.launch_proof(number, &bump.head, browser) {
+            self.release_proof_port(number);
+            return Next::Waiting("a web bump, waiting for the e2e host".into());
+        }
+        Next::Waiting("proving it: running the browser and e2e tests".into())
     }
 
-    // Records how the e2e run of `head` ended, if the bump is still at it.
+    // Records how the proof of `head` ended, if the bump is still at it.
     pub(super) fn record_proof(
         &mut self,
         number: u64,
         head: &str,
-        outcome: E2eOutcome,
+        verdict: Verdict,
     ) -> Result<(), StateError> {
         if self.bump(number).is_none_or(|b| b.head != head) {
             return Ok(());
         }
         let at = short(head);
+        let (outcome, browsed) = match verdict {
+            Verdict::E2e { outcome, browsed } => (outcome, browsed),
+            Verdict::Browser(Browsed::Failed(why)) => {
+                self.notes
+                    .push(format!("bump #{number}: browser proof failed at {at}"));
+                return self.go_red(number, head, why);
+            }
+            Verdict::Browser(Browsed::Unavailable(why)) => {
+                self.flights.decline(number, head, &why);
+                self.notes.push(format!(
+                    "bump #{number}: cannot be proved in the browser: {why}"
+                ));
+                return self.stand(number, why, false);
+            }
+            Verdict::Browser(Browsed::NotRun(reason)) => {
+                let why = format!("the browser proof did not happen: {reason}");
+                return self.stand(number, why, true);
+            }
+            // A pass goes on to the e2e run, so the thread never ends on one.
+            Verdict::Browser(Browsed::Passed) => return Ok(()),
+        };
+        if browsed {
+            self.notes
+                .push(format!("bump #{number}: browser passed at {at}"));
+        }
         let state = match outcome {
             E2eOutcome::Passed => {
                 self.notes
@@ -347,8 +383,10 @@ impl Runner {
                     .push(format!("bump #{number}: e2e failed at {at}: {last}"));
                 E2eState::Failed(output)
             }
+            // The browser proof stands where the dog has no host to add to it.
+            E2eOutcome::NoHost if browsed => E2eState::Passed,
             E2eOutcome::NoHost => {
-                self.flights.decline(number, head);
+                self.flights.decline(number, head, NO_HOST);
                 self.notes
                     .push(format!("bump #{number}: the project has no e2e host"));
                 return self.stand(number, NO_HOST.into(), false);
@@ -517,5 +555,7 @@ pub struct BumpStatus {
     pub standing: String,
 }
 
+#[cfg(test)]
+mod browser_tests;
 #[cfg(test)]
 mod tests;

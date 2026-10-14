@@ -8,7 +8,10 @@
 //! thread's call returns, whatever ended it. It is a child of the runner, so
 //! shep's stop reaches it (ADR 0005).
 
+mod bump;
 mod launch;
+
+pub(super) use bump::{Browsed, BrowserProof};
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -33,12 +36,16 @@ const FS_EVENTS: &str = "com.apple.FSEvents";
 
 /// The dev servers planned for turns not yet over, by the issue of their work item
 #[derive(Debug, Default)]
-pub(super) struct Planned(Mutex<BTreeMap<u64, DevRun>>);
+pub(super) struct Planned {
+    turns: Mutex<BTreeMap<u64, DevRun>>,
+    // The ports of the servers a bump's proof runs, by the bump's pull request
+    proofs: Mutex<BTreeMap<u64, u16>>,
+}
 
 impl Planned {
     // Replaces the plan held for `issue`, or drops it.
     pub(super) fn hold(&self, issue: u64, plan: Option<DevRun>) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
         match plan {
             Some(plan) => held.insert(issue, plan),
             None => held.remove(&issue),
@@ -47,13 +54,25 @@ impl Planned {
 
     // The ports the plans held name, which no other plan may take though nothing listens yet.
     fn claimed(&self) -> Vec<u16> {
-        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        held.values().map(|plan| plan.port).collect()
+        let turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
+        let proofs = self.proofs.lock().unwrap_or_else(PoisonError::into_inner);
+        (turns.values().map(|plan| plan.port))
+            .chain(proofs.values().copied())
+            .collect()
     }
 
     pub(super) fn get(&self, issue: u64) -> Option<DevRun> {
-        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
         held.get(&issue).cloned()
+    }
+
+    // Holds `port` for the proof of bump `pull_request`, or lets it go.
+    pub(super) fn hold_proof(&self, pull_request: u64, port: Option<u16>) {
+        let mut held = self.proofs.lock().unwrap_or_else(PoisonError::into_inner);
+        match port {
+            Some(port) => held.insert(pull_request, port),
+            None => held.remove(&pull_request),
+        };
     }
 }
 
@@ -98,18 +117,7 @@ impl Runner {
             Ok(port) => port,
             Err(why) => return without(why),
         };
-        let mut args = configuration.runtime_args.clone();
-        let mut env = BTreeMap::from([("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned())]);
-        if picked {
-            env.insert("PORT".to_owned(), port.to_string());
-            let configured = (configuration.port.filter(|&p| p != 0)).map(|p| p.to_string());
-            for arg in args
-                .iter_mut()
-                .filter(|a| Some(&**a) == configured.as_ref())
-            {
-                *arg = port.to_string();
-            }
-        }
+        let (args, env) = command_of(&configuration, port, picked);
         let log = item.build.join("dev-server.log");
         let plan = DevRun {
             program: configuration.runtime_executable,
@@ -193,6 +201,28 @@ impl Runner {
             self.planned.hold(issue, None);
         }
     }
+}
+
+// The arguments and variables that start `configuration`'s server on `port`, which kelpie
+// `picked` when the file's own was taken.
+fn command_of(
+    configuration: &launch::Configuration,
+    port: u16,
+    picked: bool,
+) -> (Vec<String>, BTreeMap<String, String>) {
+    let mut args = configuration.runtime_args.clone();
+    let mut env = BTreeMap::from([("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned())]);
+    if picked {
+        env.insert("PORT".to_owned(), port.to_string());
+        let configured = (configuration.port.filter(|&p| p != 0)).map(|p| p.to_string());
+        for arg in args
+            .iter_mut()
+            .filter(|a| Some(&**a) == configured.as_ref())
+        {
+            *arg = port.to_string();
+        }
+    }
+    (args, env)
 }
 
 /// A dev server that answered, and the browser's right to open its port

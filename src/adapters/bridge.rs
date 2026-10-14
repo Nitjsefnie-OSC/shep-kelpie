@@ -31,8 +31,10 @@ use serde_json::json;
 use super::forwarder::unguessable;
 use super::process::stop_child;
 use crate::bridge::{Filter, Passage};
+pub(crate) use client::{Client, Navigation};
 use proxy::{Origins, Proxy};
 
+mod client;
 mod proxy;
 
 /// The file in a server's folder that its stderr and failures to start are appended to
@@ -52,6 +54,52 @@ pub(crate) struct Server {
     pub(crate) env: BTreeMap<String, String>,
     /// The folder it starts in, where the bridge writes its config
     pub(crate) cwd: PathBuf,
+}
+
+impl Server {
+    /// The Playwright MCP server at `mcp`, which launches the Chromium in `browsers`
+    ///
+    /// It writes its output under `folder`, which is made if it is not there. Headless
+    /// unless `headed`.
+    ///
+    /// # Errors
+    ///
+    /// The reason, when `folder` or its output folder is not a real folder kelpie made, or
+    /// cannot be made. A link a worker could have put there would write anywhere.
+    pub(crate) fn playwright(
+        mcp: &Path,
+        browsers: &Path,
+        folder: &Path,
+        headed: bool,
+    ) -> Result<Self, String> {
+        let output = folder.join("output");
+        for dir in [folder, output.as_path()] {
+            match std::fs::symlink_metadata(dir) {
+                Ok(found) if found.is_dir() => {}
+                Ok(_) => return Err(format!("{} is not a folder kelpie made", dir.display())),
+                Err(_) => std::fs::create_dir_all(dir)
+                    .map_err(|e| format!("cannot make {}: {e}", dir.display()))?,
+            }
+        }
+        let mut args = vec![
+            mcp.display().to_string(),
+            "--isolated".to_owned(),
+            "--output-dir".to_owned(),
+            output.display().to_string(),
+        ];
+        if !headed {
+            args.push("--headless".to_owned());
+        }
+        Ok(Self {
+            command: "node".into(),
+            args,
+            env: BTreeMap::from([(
+                "PLAYWRIGHT_BROWSERS_PATH".to_owned(),
+                browsers.display().to_string(),
+            )]),
+            cwd: folder.to_owned(),
+        })
+    }
 }
 
 /// The socket one call reaches its browser through, open until dropped

@@ -34,6 +34,7 @@ mod leased;
 mod local_paths;
 mod pace;
 mod paced_voice;
+mod pages;
 mod rate_limit;
 mod recorded_voice;
 mod revalidated;
@@ -66,6 +67,7 @@ pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
+pub use pages::{ConsoleError, PageRequest, PageSession, Pages, Visit};
 pub use rate_limit::{
     AppForges, AppReads, ForgeHold, RateHeld, Reading, Say, Warnings, says_used_up,
 };
@@ -835,6 +837,8 @@ pub struct Ports {
     pub dev_servers: Arc<dyn DevServers>,
     /// Runs a bump's e2e tests on the dog's host
     pub e2e_runner: Arc<dyn E2eRunner>,
+    /// Opens a web bump's pages in the local browser
+    pub pages: Arc<dyn Pages>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
     /// The clock, shared with the forge's rate-limit hold

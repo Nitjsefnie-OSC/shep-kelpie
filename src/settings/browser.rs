@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer};
 use super::{NonBlank, domains};
 
 /// Whether the project's workers are given a browser outside their sandbox
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "Browser")]
 pub struct Browser {
@@ -34,6 +34,47 @@ pub struct Browser {
     /// `main` has no launch file.
     #[serde(default)]
     pub configuration: Option<NonBlank>,
+    /// The paths kelpie opens on the dev server to prove a web bump
+    /// (`dependencies.web`) in the browser: each must load, no request to the
+    /// dev server may answer 5xx, and the console may log no error. Each starts
+    /// with `/`. `["/"]` when absent.
+    #[serde(default = "root", deserialize_with = "paths")]
+    pub routes: Vec<String>,
+}
+
+impl Default for Browser {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            headed: false,
+            domains: Vec::new(),
+            configuration: None,
+            routes: root(),
+        }
+    }
+}
+
+fn root() -> Vec<String> {
+    vec!["/".to_owned()]
+}
+
+// Reads `routes`, which must be paths on the dev server: a list with at least one, each
+// starting with `/`.
+fn paths<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    let routes = Vec::<String>::deserialize(deserializer)?;
+    if routes.is_empty() {
+        return Err(D::Error::custom(
+            "`routes` is empty, so a web bump would open nothing: list a path, or leave it out for `/`",
+        ));
+    }
+    for route in &routes {
+        if !route.starts_with('/') {
+            return Err(D::Error::custom(format!(
+                "`{route}` is refused: a route is a path on the dev server and starts with `/`"
+            )));
+        }
+    }
+    Ok(routes)
 }
 
 // Reads `domains` as `worker.allowed_domains` is, then refuses what the browser's
@@ -140,6 +181,22 @@ mod tests {
             Some("web")
         );
         assert!(serde_json::from_value::<Browser>(json!({ "configuration": " " })).is_err());
+    }
+
+    #[test]
+    fn routes_default_to_the_root_and_each_must_start_with_a_slash() {
+        let none: Browser = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(none.routes, ["/"]);
+        let listed: Browser =
+            serde_json::from_value(json!({ "routes": ["/", "/about", "/map?layer=1"] })).unwrap();
+        assert_eq!(listed.routes, ["/", "/about", "/map?layer=1"]);
+        for bad in ["about", "", "http://localhost:5173/", "?q=1", " /"] {
+            let error = serde_json::from_value::<Browser>(json!({ "routes": ["/", bad] }));
+            let why = error.unwrap_err().to_string();
+            assert!(why.contains(&format!("`{bad}`")), "{bad:?}: {why}");
+        }
+        let empty = serde_json::from_value::<Browser>(json!({ "routes": [] }));
+        assert!(empty.unwrap_err().to_string().contains("routes"));
     }
 
     #[test]
