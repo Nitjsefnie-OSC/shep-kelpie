@@ -11,13 +11,19 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
 
 use super::Runner;
 use super::untrusted::fenced;
-use crate::ports::{AgentCall, AgentError, Cost, Ending, Role, Session, Tools};
+use crate::ports::{AgentCall, AgentError, AgentReply, Cost, Ending, Role, Session, Tools};
 use crate::settings::SettingsError;
 use crate::usage::{CallKind, Draft, Line, Spent, ended};
 use crate::work_item::new_session_id;
+
+/// How long a call may run before it is ended, as the issue writer's is
+const CEILING: Duration = Duration::from_secs(15 * 60);
 
 /// What one post is made from
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +81,15 @@ impl Runner {
     /// [`RepresentError`] when the agent is not usable, the call cannot be
     /// set up, fails or is ended, or answers with nothing.
     pub fn represent(&mut self, post: &Post<'_>) -> Result<String, RepresentError> {
+        self.represent_within(post, CEILING)
+    }
+
+    // `represent`, with the call ended once it has run for `ceiling`
+    fn represent_within(
+        &mut self,
+        post: &Post<'_>,
+        ceiling: Duration,
+    ) -> Result<String, RepresentError> {
         let agent = (self.settings.representative(&self.book)).map_err(RepresentError::Agent)?;
         let folder = &self.paths.representative;
         fs::create_dir_all(folder).map_err(|e| {
@@ -104,7 +119,7 @@ impl Runner {
         let started = self.ports.clock.now();
         let ran = (self.ports.agents)
             .prepare(&call)
-            .and_then(|()| self.ports.agents.run(&call, &Ending::default()));
+            .and_then(|()| self.run_within(&call, ceiling));
         if let Some(note) = unremoved(&call.settings) {
             self.notes.push(note);
         }
@@ -123,6 +138,25 @@ impl Runner {
             true => Err(RepresentError::Empty),
             false => Ok(neutered(words, post.contributor)),
         }
+    }
+
+    // Runs `call` and waits for it, asking it to end once it has run for
+    // `ceiling`. Nothing else holds this call, so a stalled model would
+    // block the runner for good without it.
+    fn run_within(&self, call: &AgentCall, ceiling: Duration) -> Result<AgentReply, AgentError> {
+        let ending = Ending::default();
+        let (done, finished) = mpsc::channel::<()>();
+        thread::scope(|scope| {
+            let held = ending.clone();
+            scope.spawn(move || {
+                if finished.recv_timeout(ceiling) == Err(RecvTimeoutError::Timeout) {
+                    held.end();
+                }
+            });
+            let ran = self.ports.agents.run(call, &ending);
+            drop(done);
+            ran
+        })
     }
 
     // What the call is asked: the kind of post, the facts, the earlier posts
@@ -280,10 +314,12 @@ fn closing_run(chars: &[char], from: usize, run: usize) -> Option<usize> {
     None
 }
 
-// Whether an `@` at `at` could ping: an email's or an escaped one does not
+// Whether an `@` at `at` could ping: an email's does not, and neither does one
+// an odd number of backslashes escapes (an even number escape each other)
 fn can_ping(chars: &[char], at: usize) -> bool {
+    let slashes = chars[..at].iter().rev().take_while(|&&c| c == '\\').count();
     match at.checked_sub(1).map(|before| chars[before]) {
-        Some(before) => !before.is_alphanumeric() && before != '\\',
+        Some(before) => !before.is_alphanumeric() && slashes % 2 == 0,
         None => true,
     }
 }

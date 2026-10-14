@@ -1,11 +1,12 @@
 use std::fs;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use super::{Post, RepresentError, unremoved};
 use crate::ports::{AgentError, Cost, Reach, Role, Session, Timestamp, Tools, Usage};
 use crate::runner::Runner;
 use crate::settings::Harness;
-use crate::test::{CLAUDE_REVIEWER, Rig, Scripted, Seen};
+use crate::test::{CLAUDE_REVIEWER, Hold, Rig, Scripted, Seen};
 use crate::usage::{self, CallKind, Line};
 
 const CONTRIBUTOR: &str = "newcomer";
@@ -255,6 +256,50 @@ fn a_settings_file_that_cannot_be_removed_is_noted_and_one_never_written_is_not(
     let note = unremoved(&stuck).expect("a file that stays is noted");
     assert!(note.starts_with("cannot remove "), "{note}");
     assert!(note.contains("stuck.json"), "{note}");
+}
+
+#[test]
+fn a_backslash_escapes_a_mention_only_in_an_odd_run() {
+    let (rig, runner) = running();
+    let said = "Escaped \\@a-user, but \\\\@b-user and \\\\\\@c-user and \\\\\\\\@d-user.";
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(said)]);
+
+    let words = represent(&runner, &post(&[], "Hello")).unwrap();
+
+    assert_eq!(
+        words,
+        "Escaped \\@a-user, but \\\\`@b-user` and \\\\\\@c-user and \\\\\\\\`@d-user`."
+    );
+}
+
+#[test]
+fn a_call_that_runs_past_its_ceiling_is_ended_and_is_an_error() {
+    let (rig, runner) = running();
+    let hold = Hold::default();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Hold(hold)]);
+
+    let failed = runner
+        .lock()
+        .unwrap()
+        .represent_within(&post(&[], "Hello"), Duration::from_millis(50));
+
+    assert!(matches!(failed, Err(RepresentError::Call(_))), "{failed:?}");
+}
+
+#[test]
+fn a_call_that_answers_within_its_ceiling_is_not_ended() {
+    let (rig, runner) = running();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say("Ok.")]);
+
+    let words = runner
+        .lock()
+        .unwrap()
+        .represent_within(&post(&[], "Hello"), Duration::from_secs(60));
+
+    assert_eq!(words.unwrap(), "Ok.");
 }
 
 #[test]
