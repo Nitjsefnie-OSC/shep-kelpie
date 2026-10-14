@@ -122,8 +122,7 @@ impl From<&str> for Exit {
     }
 }
 
-// Refuses the start of a runner whose checkout or repo another project runs: two
-// runners would take the same issues.
+// Refuses a start beside a project that runs its checkout or repo, which two would share.
 fn unshared(look: &Look, settings: &Settings) -> Result<(), Exit> {
     let Some(taken) = look.taken(settings)? else {
         return Ok(());
@@ -588,9 +587,13 @@ mod tests {
     use crate::ports::ReviewerError;
     use crate::test::{CALL_PATIENCE, FakeShepherd, Hold, Rig, Scripted, ScriptedRound};
 
-    // A shepherd that holds a project `older` whose table is the rig's, less what
+    // A shepherd that holds a project `older`, running or not, whose table is the rig's, less what
     // `edit` changes, and a look at it from the rig's own project.
-    fn beside_older(rig: &Rig, edit: impl FnOnce(&mut serde_json::Value)) -> (Look, FakeShepherd) {
+    fn beside_older(
+        rig: &Rig,
+        online: bool,
+        edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+    ) -> (Look, FakeShepherd) {
         let shepherd = FakeShepherd::new();
         let launch = crate::flock::Launch {
             kelpie: "/opt/kelpie".into(),
@@ -598,13 +601,10 @@ mod tests {
             kelpie_home: None,
         };
         let entry = std::fs::read_to_string(rig.settings_file()).unwrap();
-        let mut table = serde_json::Value::Object(crate::test::project_table(&entry));
+        let mut table = crate::test::project_table(&entry);
         edit(&mut table);
         let older = ProjectName::try_from("older").unwrap();
-        let serde_json::Value::Object(table) = table else {
-            unreachable!("a table is an object")
-        };
-        shepherd.holds(launch.runner(&older, table), true);
+        shepherd.holds(launch.runner(&older, table), online);
         let paths = rig.paths();
         let look = Look::new(
             shepherd.dial(),
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn a_runner_whose_checkout_another_project_runs_refuses_to_start_and_names_it() {
         let rig = Rig::new("shep");
-        let (look, _shepherd) = beside_older(&rig, |table| {
+        let (look, _shepherd) = beside_older(&rig, true, |table| {
             table["git"]["remote"] = "someone/else".into();
         });
         let Err(Exit::Refused(why)) = unshared(&look, &rig.settings()) else {
@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn a_runner_whose_repo_another_project_runs_refuses_to_start_and_names_it() {
         let rig = Rig::new("shep");
-        let (look, _shepherd) = beside_older(&rig, |table| {
+        let (look, _shepherd) = beside_older(&rig, true, |table| {
             table["git"]["checkout"] = "/src/elsewhere".into();
         });
         let Err(Exit::Refused(why)) = unshared(&look, &rig.settings()) else {
@@ -646,12 +646,9 @@ mod tests {
     }
 
     #[test]
-    fn a_runner_with_a_checkout_and_repo_of_its_own_starts() {
+    fn a_runner_starts_beside_a_stopped_project_with_its_checkout_and_repo() {
         let rig = Rig::new("shep");
-        let (look, _shepherd) = beside_older(&rig, |table| {
-            table["git"]["checkout"] = "/src/elsewhere".into();
-            table["git"]["remote"] = "someone/else".into();
-        });
+        let (look, _shepherd) = beside_older(&rig, false, |_| {});
         assert_eq!(unshared(&look, &rig.settings()), Ok(()));
     }
 

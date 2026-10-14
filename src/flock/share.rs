@@ -9,6 +9,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 use shep_client::shep_core::protocol::request::ProcessInfo;
+use shep_client::shep_core::status::ProcStatus;
 
 use crate::settings::Settings;
 use crate::shepherd::Connection;
@@ -87,6 +88,11 @@ pub(crate) fn share_none(
 /// Whether another project runs the checkout or repo `settings` name, asking
 /// the shepherd for the flock and its tables
 ///
+/// A project that is stopped runs nothing, so it does not hold the checkout
+/// here, though `add` and `set` leave it to the one who starts it. A copy
+/// that was refused at its start and stayed stopped so cannot take the
+/// original's restart from it.
+///
 /// Settings whose checkout is no git checkout are not taken by anyone: the
 /// start's own checks refuse them.
 ///
@@ -102,7 +108,8 @@ pub(crate) async fn check(
     let Ok(remote) = crate::runner::check_checkout(settings) else {
         return Ok(None);
     };
-    let (rows, others) = (super::flock(client).await?, super::tables(client).await?);
+    let (mut rows, others) = (super::flock(client).await?, super::tables(client).await?);
+    rows.retain(|row| row.status == ProcStatus::Online);
     let root = &settings.git.checkout;
     Ok(share_none(&rows, &others, name, home, root, remote.as_str()).err())
 }
