@@ -16,7 +16,6 @@ use std::time::{Duration, Instant};
 use super::Runner;
 use super::claim::Notes;
 use crate::ports::{AgentCall, CodeGraph, Ending, Role, Tools};
-use crate::settings::AgentHarness;
 
 // An index that takes longer is not worth holding a turn for.
 const INDEX_LIMIT: Duration = Duration::from_secs(300);
@@ -67,22 +66,16 @@ impl Runner {
 }
 
 // The worker's turns and the reviewers read the code. The retro, the advisors and
-// the project manager do not, and a harness that loads no MCP config cannot use it.
+// the project manager do not, and a harness that loads no MCP servers cannot use it.
 fn reads_code(call: &AgentCall) -> bool {
-    let harness = match call.harness {
-        AgentHarness::ClaudeCode => true,
-        AgentHarness::Pi(_) | AgentHarness::Codex | AgentHarness::Goose(_) => false,
-        #[cfg(test)]
-        AgentHarness::StandIn => true,
-    };
-    harness
+    call.harness.loads_mcp()
         && matches!(
             (call.role, call.tools),
             (Role::Worker, Tools::Work) | (Role::Reviewer, Tools::Review)
         )
 }
 
-fn who(call: &AgentCall) -> String {
+pub(super) fn who(call: &AgentCall) -> String {
     format!("issue #{}'s {}", call.issue, name(call.role))
 }
 
@@ -171,6 +164,7 @@ mod tests {
     use super::*;
     use crate::ports::CLEAN;
     use crate::runner::{CHECKS_SETTLE, step};
+    use crate::settings::AgentHarness;
     use crate::test::{Rig, Scripted, write_script};
 
     // A server that indexes by writing a file into its cache folder.
@@ -259,6 +253,44 @@ mod tests {
             seen[0].call.cwd,
             "the server is held to the worktree"
         );
+    }
+
+    #[test]
+    fn a_pi_worker_and_reviewer_get_the_server_and_an_index() {
+        let rig = Rig::new("shep");
+        turn_on(&rig);
+        install(&rig, INDEXER);
+        let pi = |role: &str| {
+            format!(
+                "---\nrole: {role}\nharness: pi\nmodel: qwen3.8:27b\neffort: low\n\
+                 url: http://box:11434/v1\ncontext: 65536\n---\nReview the change against \
+                 {{{{BASE}}}}. Output one finding per line as SEVERITY|file:line|what|why, or CLEAN.\n"
+            )
+        };
+        rig.write_agent("pi-box", &pi("implementer"));
+        rig.implementers(&["pi-box"]);
+        rig.write_agent("pi-reviewer", &pi("reviewer"));
+        rig.reviewers(&["pi-reviewer"]);
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, the pi reviewer
+
+        let index = rig.paths().folder.join("code-graphs/7");
+        let seen = reads_code(&rig);
+        let roles: Vec<Role> = seen.iter().map(|s| s.call.role).collect();
+        assert!(roles.contains(&Role::Worker) && roles.contains(&Role::Reviewer));
+        for seen in &seen {
+            assert!(matches!(seen.call.harness, AgentHarness::Pi(_)));
+            let graph = seen.call.reach.code_graph.as_ref().expect("the server");
+            assert_eq!(graph.index, index);
+            assert_eq!(graph.binary, rig.paths().tools.code_graph());
+        }
+        let root = std::fs::read_to_string(index.join("root")).unwrap();
+        assert_eq!(PathBuf::from(root.trim()), seen[0].call.cwd);
     }
 
     #[test]

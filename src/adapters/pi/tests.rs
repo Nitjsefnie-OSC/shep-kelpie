@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::*;
 use crate::adapters::SandboxRuntime;
 use crate::adapters::skills;
-use crate::ports::Role;
+use crate::ports::{CodeGraph, Role};
 use crate::profile::WorkerProfile;
 use crate::settings::{ContextSize, Effort, EndpointUrl, ModelHost};
 use crate::test::OpenSandbox;
@@ -115,6 +115,7 @@ fn a_new_worker_session_carries_its_model_tools_and_guard() {
             WORKER_ID,
             "--tools",
             "read,bash,edit,write,grep,find,ls",
+            "--no-mcp",
             "--append-system-prompt",
             "/k/worker/instructions.md",
             "--extension",
@@ -158,6 +159,75 @@ fn each_kind_of_call_gets_its_own_tools() {
     let argv = strings(&review);
     let at = argv.iter().position(|a| a == "--tools").unwrap();
     assert_eq!(argv[at + 1], "read");
+
+    // A call with servers names each server's tools after its own, and one with none to use them
+    // loads no server.
+    let mut served = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
+    served.tools = Tools::Review;
+    served.reach.mcp_servers = [(
+        "docs".to_owned(),
+        json!({ "url": "https://d.example.com/mcp" }),
+    )]
+    .into();
+    let argv = strings(&served);
+    let at = argv.iter().position(|a| a == "--tools").unwrap();
+    assert_eq!(argv[at + 1], "read,grep,find,ls,mcp__docs__*");
+    served.tools = Tools::Pm;
+    let argv = strings(&served);
+    assert!(argv.iter().any(|a| a == "--no-tools"));
+    assert!(argv.iter().any(|a| a == "--no-mcp"));
+    assert!(!argv.iter().any(|a| a == "builtin:mcp"));
+}
+
+#[test]
+fn a_call_still_trusts_no_project_with_servers_loaded() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    call.reach.mcp_servers = [(
+        "docs".to_owned(),
+        json!({ "url": "https://d.example.com/mcp" }),
+    )]
+    .into();
+    let argv = strings(&call);
+    assert!(argv.iter().any(|a| a == "--no-approve"), "{argv:?}");
+    assert!(!argv.iter().any(|a| a == "--approve"), "{argv:?}");
+    assert!(argv.iter().any(|a| a == "--no-extensions"), "{argv:?}");
+    assert_eq!(
+        values(&argv, "--extension").len(),
+        2,
+        "the guard and the MCP client"
+    );
+    assert!(values(&argv, "--extension").contains(&"builtin:mcp"));
+    assert!(!argv.iter().any(|a| a == "--no-mcp"), "{argv:?}");
+}
+
+#[test]
+fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
+    let w = World::new();
+    let upstream = ClaudeCli::default()
+        .pi()
+        .upstream(&World::server(URL))
+        .unwrap();
+    let socket = w.path("forwarder.sock");
+    let graph = CodeGraph {
+        binary: PathBuf::from("/k/tools/codebase-memory-mcp"),
+        index: PathBuf::from("/k/graphs/7"),
+    };
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    let without = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+    call.reach.code_graph = Some(graph.clone());
+    let with = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
+
+    assert!(with.read.contains(&graph.binary) && with.read.contains(&graph.index));
+    assert!(with.write.contains(&graph.index));
+    assert!(!with.write.contains(&graph.binary));
+    assert!(!without.read.contains(&graph.binary) && !without.write.contains(&graph.index));
+    let granted: Vec<_> = with
+        .write
+        .iter()
+        .filter(|p| !without.write.contains(p))
+        .collect();
+    assert_eq!(granted, [&graph.index]);
 }
 
 #[test]

@@ -31,16 +31,20 @@ use super::process::{Processes, RunError};
 use crate::fence;
 use crate::guard::{AFTER_FLAG, FOLDER_FLAG, PIN_FLAG};
 use crate::ports::{
-    Adopted, AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Fence, Policy,
-    Sandbox, Session, SessionId, Tools, Transcript, Usage, written_at,
+    Adopted, AgentCall, AgentError, AgentReply, Agents, COMPACT, CallActivity, Ending, Fence,
+    Policy, Sandbox, Session, SessionId, Tools, Transcript, Usage, written_at,
 };
 use crate::settings::{AgentHarness, Harness, HookPoint};
 
 mod adopt;
+mod context;
 mod skills;
 
 #[cfg(test)]
 mod adopt_tests;
+
+#[cfg(test)]
+mod context_tests;
 
 #[cfg(test)]
 mod tests;
@@ -182,6 +186,9 @@ impl Agents for CodexCli {
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
+        if call.prompt == COMPACT {
+            return self.compact(call);
+        }
         let files = Files::of(call);
         let mut command = self.sandboxed_command(call)?;
         let label = call.label();
@@ -235,25 +242,20 @@ fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, 
     let known = thread(files, id).map_err(ran)?;
     let turn = parse_result(output, known.as_ref())?;
     let before = known.map(|k| k.spent).unwrap_or_default();
+    let context = context::last_request_input(&files.home, &turn.thread);
     let record = Thread {
         id: turn.thread,
         spent: turn.spent,
+        context,
+        compact: false,
     };
-    let path = files.thread(id);
-    let text = serde_json::to_string(&record).expect("a thread is JSON");
-    std::fs::write(&path, text).map_err(|e| {
-        ran(AgentError::Setup(format!(
-            "cannot write {}: {}",
-            path.display(),
-            e.kind()
-        )))
-    })?;
+    save_thread(files, id, &record).map_err(ran)?;
     Ok(AgentReply {
         session_id: id.clone(),
         text: turn.text,
         usage: turn.spent.since(before),
         session_cost: None,
-        context: None,
+        context,
     })
 }
 
@@ -329,6 +331,7 @@ fn is_codex(call: &AgentCall) -> Result<(), AgentError> {
 }
 
 // What a worker on Claude Code has and Codex here does not give it.
+// parity: harness.guard-hooks
 fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
     if call
         .reach
@@ -409,6 +412,14 @@ struct Thread {
     /// turn's report runs on from
     #[serde(default)]
     spent: Spent,
+    /// The input tokens of the session's last model request, where the
+    /// rollout told them
+    #[serde(default)]
+    context: Option<u64>,
+    /// Whether a `COMPACT` call came after that turn, so the next one
+    /// compacts before it runs
+    #[serde(default)]
+    compact: bool,
 }
 
 /// A Codex session's tokens so far, as its last turn reported them
@@ -446,6 +457,13 @@ impl Spent {
             output: less(self.output_tokens, before.output_tokens),
         }
     }
+}
+
+fn save_thread(files: &Files, id: &SessionId, record: &Thread) -> Result<(), AgentError> {
+    let path = files.thread(id);
+    let text = serde_json::to_string(record).expect("a thread is JSON");
+    std::fs::write(&path, text)
+        .map_err(|e| AgentError::Setup(format!("cannot write {}: {}", path.display(), e.kind())))
 }
 
 /// The Codex session kelpie started as `id`, if any
@@ -534,6 +552,7 @@ fn argv(
     if let Some(text) = instructions {
         argv.extend(["-c".into(), config("developer_instructions", text)]);
     }
+    argv.extend(context::limit_args(call.compact_window, resumed));
     let mut off: Vec<&str> = FEATURES_OFF.into();
     // Only a worker runs commands. A review round reads what
     // its prompt holds, as Claude Code's do, with no command to run.
