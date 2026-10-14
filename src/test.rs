@@ -41,6 +41,7 @@ mod github;
 mod home;
 mod leases;
 mod memory;
+mod pages;
 mod reads;
 mod reviewer;
 mod sandbox;
@@ -60,6 +61,7 @@ pub(crate) use forge::{FakeForge, VIEWER};
 pub(crate) use git::{FakeGit, Synced};
 pub(crate) use github::{Asked, FakeGithub, FakeSigner, PEM};
 pub(crate) use home::Home;
+pub(crate) use pages::{FakePages, PagesAsked, clean as clean_visit};
 pub(crate) use leases::{DogStandIn, FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
@@ -284,6 +286,7 @@ pub(crate) struct Rig {
     pub(crate) tests: FakeTests,
     pub(crate) dev_servers: FakeDevServers,
     pub(crate) e2e: FakeE2e,
+    pub(crate) pages: FakePages,
     pub(crate) clock: FakeClock,
     /// The login's forge hold and pace, which no test's calls reach the cap of
     /// until it swaps in a pacer with one
@@ -741,6 +744,7 @@ impl Rig {
             test_runner: Arc::new(self.tests.clone()),
             dev_servers: Arc::new(self.dev_servers.clone()),
             e2e_runner: Arc::new(self.e2e.clone()),
+            pages: Arc::new(self.pages.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),
             flock: Vec::new(),

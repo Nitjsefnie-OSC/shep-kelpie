@@ -46,6 +46,7 @@ impl Rig {
             tests: FakeTests::default(),
             dev_servers: FakeDevServers::default(),
             e2e: FakeE2e::default(),
+            pages: FakePages::default(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
             pace: Arc::new(LocalPace::with(CallPacer::new(usize::MAX, usize::MAX))),
             clock,

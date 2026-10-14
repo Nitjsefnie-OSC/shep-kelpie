@@ -23,7 +23,7 @@ use shep_handover::Arrival;
 
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer,
-    LoginToken, Openssl, ShepLeases, StatDisk, SystemClock, SystemGit, stop_calls,
+    LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -248,6 +248,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         test_runner: Arc::new(claude.test_runner()),
         dev_servers: Arc::new(claude.dev_servers()),
         e2e_runner: Arc::new(DogE2e),
+        pages: Arc::new(PlaywrightPages),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         clock: Arc::new(SystemClock),
         pace: Arc::new(DoorPace::new(paths.door.clone())),
