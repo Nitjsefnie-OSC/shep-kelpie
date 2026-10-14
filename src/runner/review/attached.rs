@@ -32,7 +32,7 @@ pub(in crate::runner) fn writing_tool(harness: Harness) -> Option<&'static str> 
         Harness::ClaudeCode => Some("Write"),
         Harness::Pi => Some("write"),
         Harness::Codex => Some("apply_patch"),
-        Harness::Goose => None,
+        Harness::Goose => Some("write"),
         #[cfg(test)]
         Harness::StandIn => None,
     }
@@ -227,9 +227,16 @@ mod tests {
         })
     }
 
+    fn goose() -> AgentHarness {
+        AgentHarness::Goose(ModelServer {
+            host: ModelHost::Url(EndpointUrl::try_from("http://box:11434/v1".to_owned()).unwrap()),
+            context: ContextSize::try_from(65_536).unwrap(),
+        })
+    }
+
     #[test]
-    fn a_reviewer_is_asked_for_tests_on_every_harness() {
-        let harnesses = || [AgentHarness::ClaudeCode, pi(), AgentHarness::Codex];
+    fn a_reviewer_is_asked_for_tests_on_claude_code_pi_and_goose() {
+        let harnesses = || [AgentHarness::ClaudeCode, pi(), AgentHarness::Codex, goose()];
 
         let plain = Rig::new("shep");
         let runner = plain.open().unwrap();

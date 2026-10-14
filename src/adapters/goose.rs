@@ -56,6 +56,9 @@ mod hooks_tests;
 mod reading_tests;
 
 #[cfg(test)]
+mod review_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
@@ -134,7 +137,7 @@ impl Agents for GooseCli {
         hooks::no_settings_in_root(&files)?;
         files.prepare()?;
         match &call.reach.fence {
-            Some(fence) if has_shell(call) => hooks::write(&files, fence, reads(call)),
+            Some(fence) if has_shell(call) => hooks::write(&files, fence, judging(call, fence)),
             _ => Ok(()),
         }
     }
@@ -404,6 +407,17 @@ fn reads(call: &AgentCall) -> bool {
                 | (Role::Reviewer, Tools::Review)
                 | (Role::Advisor, Tools::Advise)
         )
+}
+
+// What the call's hook lets it do. A reviewer whose fence has a folder to write was
+// asked for tests, and writes that folder alone. A retro's and an advisor's fence
+// can write too, which their hook must not use.
+fn judging<'a>(call: &AgentCall, fence: &'a crate::ports::Fence) -> hooks::Judging<'a> {
+    match (reads(call), call.tools, fence.write.first()) {
+        (false, _, _) => hooks::Judging::Work,
+        (true, Tools::Review, Some(folder)) => hooks::Judging::Tests(folder),
+        (true, _, _) => hooks::Judging::Reading,
+    }
 }
 
 // Whether goose offers the call its `developer` tools, behind the hook plugin.
