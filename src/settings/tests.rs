@@ -1,5 +1,6 @@
 use super::*;
 
+mod builds;
 mod contributions;
 mod e2e;
 mod gateway_kind;

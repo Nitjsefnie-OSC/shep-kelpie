@@ -296,6 +296,9 @@ impl Runner {
         if due && let Some(parked) = self.park_over_budget()? {
             return Ok(parked);
         }
+        if due && let Some(why) = self.builds_hold() {
+            return Ok(self.idle(why));
+        }
         if due {
             let pace = self.pace_worker(Scope::Turn)?;
             if let Pace::StillHeld(hold) | Pace::Held(hold) = &pace {
@@ -391,6 +394,7 @@ impl Runner {
             }
             Ok(call) => {
                 self.token_wait.ends();
+                self.builds_turn_begins();
                 let item = self
                     .current_in(&mut next)
                     .expect("the work item checked above");
@@ -672,6 +676,7 @@ impl Runner {
         if matches!(result, Err(AgentError::Stopped)) {
             return self.save_time().map(|()| None);
         }
+        self.builds_turn_ended();
         // A turn a pause ended at a tool result is not a finished one.
         if let Some(paused) = self.end_paused(&result) {
             return paused;

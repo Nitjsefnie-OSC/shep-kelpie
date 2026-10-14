@@ -250,6 +250,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         repo_setup: old_repo_setup,
         code_graph: old_code_graph,
         local_rounds: old_local_rounds,
+        builds: old_builds,
         e2e: _, // waits for the next start, when the runner writes it for the dog
     } = old;
     let Settings {
@@ -268,6 +269,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         repo_setup: new_repo_setup,
         code_graph: new_code_graph,
         local_rounds: new_local_rounds,
+        builds: new_builds,
         e2e: _,
     } = new;
     let Git {
@@ -297,6 +299,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         ("repo_setup", old_repo_setup != new_repo_setup),
         ("code_graph", old_code_graph != new_code_graph),
         ("local_rounds", old_local_rounds != new_local_rounds),
+        ("builds", old_builds != new_builds),
         ("researcher", old_researcher != new_researcher),
         ("rulings", old_rulings != new_rulings),
         ("webhook", was != now),

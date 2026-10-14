@@ -242,7 +242,11 @@ impl Runner {
                 .unwrap_or_default()
                 .max(DUE_FLOOR)
         });
-        [looks, host, wrote, followed].into_iter().flatten().min()
+        let builds = self.next_build_look();
+        [looks, host, wrote, followed, builds]
+            .into_iter()
+            .flatten()
+            .min()
     }
 }
 

@@ -33,6 +33,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [Review bots and the GitHub App](review-bots-and-the-github-app.md)
 - [The deep review round](the-deep-review-round.md)
 - [Builds and plans](builds-and-plans.md)
+- [A build folder fills the disk](a-build-folder-fills-the-disk.md)
 - [The maintainer's reviews](the-maintainers-reviews.md)
 - [The first hands-on run](the-first-hands-on-run.md)
 - [The shep surface kelpie leans on](the-shep-surface-kelpie-leans-on.md)

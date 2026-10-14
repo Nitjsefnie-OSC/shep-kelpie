@@ -23,7 +23,7 @@ use shep_handover::Arrival;
 
 use crate::adapters::{
     ClaudeCli, Curl, CurlGithub, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer, LoginToken,
-    Openssl, ShepLeases, SystemClock, SystemGit, stop_calls,
+    Openssl, ShepLeases, StatDisk, SystemClock, SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -242,6 +242,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         reviewer: Arc::new(reviewer.clone()),
         git: Arc::new(SystemGit),
         gpu: Arc::new(GpuCurl),
+        disk: Arc::new(StatDisk),
         local_leases: Arc::new(reviewer.clone()),
         review_bots: vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)],
         alerts: Arc::new(Curl),

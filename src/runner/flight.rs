@@ -809,6 +809,7 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
         }
     }
     lock(runner).end_overdue();
+    super::builds::watch(runner);
     // Before any turn is chosen, so none resumes a session a vote still counts in.
     lock(runner).panel_settle_worker();
     lock(runner).fall_back();
