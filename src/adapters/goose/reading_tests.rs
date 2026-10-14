@@ -48,7 +48,7 @@ fn judged(tool: &str, input: serde_json::Value) -> Verdict {
         "tool_input": input,
         "working_dir": "/k/wt",
     });
-    judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default())
+    judge_goose_reading(payload.to_string().as_bytes(), &Hooks::default(), &[])
 }
 
 #[test]
