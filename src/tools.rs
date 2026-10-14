@@ -3,14 +3,17 @@
 //! `shep kelpie tools install` fills the folder with the sandbox runtime every
 //! agent runs in, at the version [`PACKAGE`] pins, and on macOS a copy of it
 //! with the keychain's services cut from its profile. It also fetches the code
-//! graph server, at the release [`graph::RELEASE`] pins.
+//! graph server, at the release [`graph::RELEASE`] pins. The packages pi loads
+//! as extensions come with the runtime, from the same `package.json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod graph;
+mod pi_packages;
 
 pub use graph::RELEASE as CODE_GRAPH_RELEASE;
+pub use pi_packages::WEB_ACCESS as PI_WEB_ACCESS;
 
 /// Kelpie's own copy of the sandbox runtime, under `<kelpie home>/tools`
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,6 +299,22 @@ const lines = [
         tools.install_with(npm.to_str().unwrap()).unwrap_err();
         assert!(!tools.keychain_blocked());
         assert!(!tools.sandbox_without_keychain().exists());
+    }
+
+    // The install is of the exact version measured, not of a range a new
+    // release of a package that reaches the web could move.
+    #[test]
+    fn the_install_writes_the_pinned_web_package_into_package_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = Tools::at(dir.path().join("tools"));
+        let npm = dir.path().join("failing-npm");
+        crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
+        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+
+        let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["dependencies"][PI_WEB_ACCESS], "0.40.0", "{text}");
+        assert_eq!(json["dependencies"][PACKAGE_NAME], "0.0.77", "{text}");
     }
 
     #[test]
