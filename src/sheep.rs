@@ -178,8 +178,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         },
         home.clone(),
     );
-    let loaded = look.read()?;
-    let (settings, kelpie_settings) = (loaded.settings, loaded.kelpie);
+    let (settings, kelpie_settings) = look.read().map(|loaded| (loaded.settings, loaded.kelpie))?;
     unshared(&look, &settings)?;
     settings.browser.supported().map_err(Exit::Refused)?;
     let codex_home = kelpie_settings
