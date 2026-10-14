@@ -116,10 +116,8 @@ fn converted(entry: &Value) -> Result<Value, String> {
     }
     // pi runs a value of `env` or `headers` that starts with `!` as a command.
     for field in ["env", "headers"] {
-        let values = entry[field].as_object().into_iter().flatten();
-        if let Some((key, _)) = values
-            .filter(|(_, v)| v.as_str().is_some_and(|v| v.starts_with('!')))
-            .next()
+        let mut values = entry[field].as_object().into_iter().flatten();
+        if let Some((key, _)) = values.find(|(_, v)| v.as_str().is_some_and(|v| v.starts_with('!')))
         {
             return Err(format!(
                 "its `{field}` value `{key}` starts with `!`, which pi runs as a command"
