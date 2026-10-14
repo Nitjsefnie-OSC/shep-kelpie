@@ -103,7 +103,7 @@ fn converted(entry: &Value) -> Result<Value, String> {
         (None, false, false) => return Err("it names neither a `command` nor a `url`".to_owned()),
     };
     let (required, copied): (&str, &[&str]) = match kind {
-        "stdio" => ("command", &["command", "args", "env"]),
+        "stdio" => ("command", &["command", "args", "env", "cwd"]),
         _ => ("url", &["url", "headers"]),
     };
     if !entry[required].is_string() {
@@ -149,7 +149,7 @@ mod tests {
                 (
                     "plugin_style_search".to_owned(),
                     json!({ "command": "/k/search", "args": ["--stdio"],
-                            "env": { "INDEX": "/k/index" } }),
+                            "env": { "INDEX": "/k/index" }, "cwd": "/k/tools" }),
                 ),
             ]
             .into(),
@@ -179,6 +179,7 @@ mod tests {
                 "command": "/k/search",
                 "args": ["--stdio"],
                 "env": { "INDEX": "/k/index" },
+                "cwd": "/k/tools",
                 "exposure": "direct",
             })
         );
