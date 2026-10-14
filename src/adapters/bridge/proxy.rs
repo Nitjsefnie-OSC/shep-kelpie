@@ -462,26 +462,37 @@ fn dial(shared: &Shared, host: &str, port: u16) -> Result<TcpStream, Reply> {
     ))
 }
 
-// Whether `address` is outside this machine and its networks.
+// Whether `address` is globally routable. Every special-purpose range of the IANA
+// registries is refused, not only the loopback, private and link-local ones, since an
+// address under a listed domain's wildcard can name any of them. IPv6 is held to
+// global unicast (2000::/3) less its special-purpose blocks, which leaves out
+// NAT64 and 6to4 addresses that embed an IPv4 one.
 fn is_public(address: IpAddr) -> bool {
     match address.to_canonical() {
         IpAddr::V4(v4) => {
-            let [first, second, ..] = v4.octets();
-            let shared_space = first == 100 && second & 0xc0 == 64;
-            !(first == 0
-                || v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_multicast()
-                || shared_space)
+            let [a, b, c, _] = v4.octets();
+            let special = matches!(
+                (a, b, c),
+                (0 | 10 | 127 | 224..=255, ..)
+                    | (100, 64..=127, _)
+                    | (169, 254, _)
+                    | (192, 168, _)
+                    | (172, 16..=31, _)
+                    | (198, 18..=19, _)
+                    | (192, 0, 0 | 2)
+                    | (192, 88, 99)
+                    | (198, 51, 100)
+                    | (203, 0, 113)
+            );
+            !special
         }
         IpAddr::V6(v6) => {
-            !(v6.is_unspecified()
-                || v6.is_loopback()
-                || v6.is_multicast()
-                || v6.is_unique_local()
-                || v6.is_unicast_link_local())
+            let [first, second, ..] = v6.segments();
+            let global = first & 0xe000 == 0x2000;
+            let special = (first == 0x2001 && (second < 0x0200 || second == 0x0db8))
+                || first == 0x2002
+                || (first == 0x3fff && second & 0xf000 == 0);
+            global && !special
         }
     }
 }
