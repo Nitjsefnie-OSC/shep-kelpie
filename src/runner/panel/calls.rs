@@ -7,16 +7,19 @@
 //! is the vote. The advisor reads the worktrees and the checkout too, and
 //! reaches no host but the model's. The researcher reads nothing of the
 //! code, and reaches the web, read only, plus the hosts the project names
-//! in `researcher.allowed_domains`.
+//! in `researcher.allowed_domains`. On pi, which has no web tool, the web is
+//! the `pi-web-access` package, which the call's reach names when `tools
+//! install` has put it there.
 //!
 //! The worker's vote is its own session resumed once, with the tools of a
 //! retro: it reads its worktree and changes nothing.
 
 use super::ask;
-use crate::ports::{AgentCall, Role, Session, Tools};
+use crate::ports::{AgentCall, Reach, Role, Session, Tools};
 use crate::runner::Runner;
-use crate::settings::ExpertAgent;
+use crate::settings::{AgentHarness, ExpertAgent};
 use crate::state::Ruling;
+use crate::tools::PI_WEB_ACCESS;
 use crate::work_item::new_session_id;
 
 impl Runner {
@@ -80,7 +83,8 @@ impl Runner {
         let hosts = (self.settings.researcher.allowed_domains.iter())
             .map(|d| d.as_str().to_owned())
             .collect();
-        let reach = self.fenced_reach(&folder, &[], Vec::new(), hosts);
+        let mut reach = self.fenced_reach(&folder, &[], Vec::new(), hosts);
+        self.with_web(&agent.model.harness, &mut reach);
         let prompt = ask::researcher(ruling.id, ruling.issue, brief, &files);
         self.expert_call(
             agent,
@@ -91,6 +95,26 @@ impl Runner {
             prompt,
             reach,
         )
+    }
+
+    // On pi, which has no web tool, the package that gives the researcher
+    // one. A package that is not installed leaves it reading only, and a note says so.
+    fn with_web(&self, harness: &AgentHarness, reach: &mut Reach) {
+        // parity: harness.web-research
+        if !matches!(harness, AgentHarness::Pi(_)) {
+            return;
+        }
+        let tools = &self.paths.tools;
+        let package = tools.pi_package(PI_WEB_ACCESS);
+        if !tools.has_pi_package(PI_WEB_ACCESS) {
+            self.notes.push(format!(
+                "the researcher runs without the web: {} is not there, so run \
+                 `shep kelpie tools install`",
+                package.display()
+            ));
+            return;
+        }
+        reach.extensions.push(package);
     }
 
     /// The call that resumes the worker's session to vote on `ruling`, which
