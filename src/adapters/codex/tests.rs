@@ -293,7 +293,17 @@ fn a_call_with_a_browser_loads_playwright_and_the_sandbox_connects_only_to_its_s
         .position(|a| a.starts_with("mcp_servers.playwright="))
         .expect("the override");
     assert_eq!(argv_with[at - 1], "-c");
-    assert!(argv_with[at].contains("mcp-connect"), "{argv_with:?}");
+    // Read back the way Codex reads `-c`: the server must carry the socket the sandbox allows.
+    let line: toml::Table = toml::from_str(&argv_with[at]).unwrap();
+    let server = &line["mcp_servers"]["playwright"];
+    assert_eq!(server["command"].as_str(), Some("/k/kelpie"));
+    let args: Vec<_> = server["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap())
+        .collect();
+    assert_eq!(args, ["mcp-connect", browser.socket.to_str().unwrap()]);
 }
 
 #[test]
