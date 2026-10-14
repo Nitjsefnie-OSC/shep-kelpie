@@ -792,6 +792,9 @@ fn a_local_round_is_kept_after_its_work_item_ends() {
             "leftover text",
             "ships",
         )])]);
+    let stray = rig.build_7().join("qwen-review/request-9.json");
+    std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+    std::fs::write(&stray, "{}").unwrap();
     step(&runner).unwrap(); // round 1, qwen: one finding
     std::fs::remove_dir_all(rig.build_7()).unwrap(); // the work item ends
 
@@ -804,6 +807,10 @@ fn a_local_round_is_kept_after_its_work_item_ends() {
     );
     let reply = std::fs::read_to_string(kept.join("round-1/reply-0.json")).unwrap();
     assert_eq!(reply, "{\"scripted\":true}");
+    assert!(
+        !kept.join("request-9.json").exists(),
+        "a file that is no part of the round is left"
+    );
 }
 
 #[test]
@@ -895,9 +902,15 @@ fn with_keep_off_no_round_is_kept() {
 
 // Leaves a kept round named `name` in the rig's folder, holding one file
 fn leave_kept(rig: &Rig, name: &str) {
+    leave_kept_of(rig, name, "shep");
+}
+
+// Leaves a kept round of project `project`
+fn leave_kept_of(rig: &Rig, name: &str, project: &str) {
     let folder = kept_folder(rig).join(name);
     std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(folder.join("round.json"), "{}").unwrap();
+    let record = json!({ "project": project });
+    std::fs::write(folder.join("round.json"), record.to_string()).unwrap();
 }
 
 #[test]
@@ -910,11 +923,17 @@ fn rounds_older_than_keep_days_are_removed_and_zero_keeps_them_all() {
     for name in ["8-r1-20260823T000000Z", "keep-me", "notes.txt"] {
         leave_kept(&rig, name);
     }
+    leave_kept_of(&rig, "5-r1-20260101T000000Z", "another");
     let runner = rig.open().unwrap();
     assert_eq!(
         kept_rounds(&rig),
-        ["8-r1-20260823T000000Z", "keep-me", "notes.txt"],
-        "the runner's start removes the old rounds, and nothing else"
+        [
+            "5-r1-20260101T000000Z",
+            "8-r1-20260823T000000Z",
+            "keep-me",
+            "notes.txt"
+        ],
+        "the runner's start removes the project's old rounds, and nothing else"
     );
 
     leave_kept(&rig, "7-r3-20260101T000000Z");
@@ -926,6 +945,7 @@ fn rounds_older_than_keep_days_are_removed_and_zero_keeps_them_all() {
     assert_eq!(
         kept_rounds(&rig),
         [
+            "5-r1-20260101T000000Z",
             "7-r1-20260921T141320Z",
             "8-r1-20260823T000000Z",
             "keep-me",

@@ -116,12 +116,22 @@ impl Runner {
         };
         let out = item.build.join("qwen-review");
         let kept = keep(&folder, &out, &record, issue, finished.finished);
-        let rounds = &self.settings.local_rounds;
-        let pruned = prune(&folder, rounds, finished.finished);
-        for failed in [kept.err(), pruned.err()].into_iter().flatten() {
+        let pruned = prune(
+            &folder,
+            &project,
+            &self.settings.local_rounds,
+            finished.finished,
+        );
+        if let Err(e) = kept {
             self.notes.push(format!(
-                "cannot keep local round {} of #{issue}: {failed}",
+                "cannot keep local round {} of #{issue}: {e}",
                 finished.round
+            ));
+        }
+        if let Err(e) = pruned {
+            self.notes.push(format!(
+                "cannot remove old local rounds from {}: {e}",
+                folder.display()
             ));
         }
     }
@@ -131,6 +141,7 @@ impl Runner {
 /// runner starts, as a note where that fails
 pub(in crate::runner) fn prune_at_start(
     rounds: &LocalRounds,
+    project: &str,
     project_folder: &Path,
     now: Timestamp,
 ) -> Option<String> {
@@ -141,7 +152,7 @@ pub(in crate::runner) fn prune_at_start(
         Some(folder) => folder.as_path().to_owned(),
         None => project_folder.join("local-rounds"),
     };
-    prune(&folder, rounds, now).err().map(|e| {
+    prune(&folder, project, rounds, now).err().map(|e| {
         format!(
             "cannot remove old local rounds from {}: {e}",
             folder.display()
@@ -204,9 +215,9 @@ fn copy(from: &Path, to: &Path, relative: &Path, round: u32) -> io::Result<()> {
     Ok(())
 }
 
-// Whether `relative`, a path under the build folder's `qwen-review`, was
-// written by round `round`: the files named for another round, and a hunk
-// folder of another round, belong to that round's own copy.
+// Whether `relative`, a path under the build folder's `qwen-review`, is a file
+// round `round` wrote: its own reply folder and report, its hunks, and the
+// criteria a command was given. Anything else there is not the round's.
 fn wanted(relative: &Path, round: u32) -> bool {
     let mut parts = relative
         .components()
@@ -217,16 +228,18 @@ fn wanted(relative: &Path, round: u32) -> bool {
         return number.parse() == Ok(round);
     }
     match (top.as_ref(), parts.next()) {
+        ("criteria.md", None) | ("hunks", None) => true,
         ("hunks", Some(child)) => {
             child == round.to_string() || child.starts_with(&format!("{round}-out-"))
         }
-        _ => true,
+        _ => false,
     }
 }
 
-// Removes the kept rounds older than `rounds.keep_days` from `folder`. An
-// entry not named as a kept round is not one, and stays.
-fn prune(folder: &Path, rounds: &LocalRounds, now: Timestamp) -> io::Result<()> {
+// Removes `project`'s kept rounds older than `rounds.keep_days` from `folder`.
+// An entry not named as a kept round, or whose `round.json` names another
+// project (several may share a folder), is not one of its own, and stays.
+fn prune(folder: &Path, project: &str, rounds: &LocalRounds, now: Timestamp) -> io::Result<()> {
     let days = u64::from(rounds.keep_days.get());
     if days == 0 {
         return Ok(());
@@ -240,12 +253,21 @@ fn prune(folder: &Path, rounds: &LocalRounds, now: Timestamp) -> io::Result<()> 
     for entry in entries {
         let entry = entry?;
         let old = entry.file_type()?.is_dir()
-            && kept_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at < cutoff);
+            && kept_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at < cutoff)
+            && is_of(&entry.path(), project);
         if old {
             std::fs::remove_dir_all(entry.path())?;
         }
     }
     Ok(())
+}
+
+// Whether the kept round in `dir` says it is `project`'s
+fn is_of(dir: &Path, project: &str) -> bool {
+    std::fs::read_to_string(dir.join("round.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|record| record["project"] == project)
 }
 
 // When a kept round named `<issue>-r<round>-<UTC time>`, with a `-<n>` where

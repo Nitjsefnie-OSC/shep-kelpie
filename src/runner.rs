@@ -432,6 +432,7 @@ impl Runner {
         let now = ports.clock.now();
         notes.extend(review::prune_at_start(
             &settings.local_rounds,
+            &paths.name(),
             &paths.folder,
             now,
         ));
