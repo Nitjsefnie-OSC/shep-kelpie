@@ -98,6 +98,7 @@ mod question;
 mod refused;
 mod replies;
 mod report;
+mod representative;
 mod reread;
 mod retro;
 mod review;
@@ -150,6 +151,7 @@ pub use pm::{PmAttaching, PmError, PmStatus};
 pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
+pub use representative::{Post, RepresentError};
 pub(crate) use reread::check_gateways;
 use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
@@ -480,6 +482,7 @@ impl Runner {
             }
             contribution_lineup = settings.contribution_lineup(&book, home)?;
             settings.security_reviewer(&book)?;
+            settings.representative(&book)?;
         }
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
