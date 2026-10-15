@@ -634,7 +634,7 @@ impl Runner {
                     super::code_graph::indexed(&mut call, &notes, &metrics, &held);
                     // Started here too, and stopped when the call returns, however it ends.
                     let _server = (dev.as_ref()).and_then(|run| {
-                        dev_server::started(servers.as_ref(), run, &mut call, &notes)
+                        dev_server::started(servers.as_ref(), run, &mut call, &notes, &metrics)
                     });
                     let build = login_refresh::covered_build(&call);
                     End::Turn(login_refresh::while_running(

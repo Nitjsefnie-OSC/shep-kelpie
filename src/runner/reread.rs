@@ -159,7 +159,7 @@ impl Runner {
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
         self.settings = settings;
-        self.metrics.features(&self.settings);
+        self.refresh_features();
         self.lineup = lineup;
         self.agents = agents;
         if new_implementers {
@@ -203,6 +203,12 @@ impl Runner {
 }
 
 impl Runner {
+    // Sets which features the settings and `main`'s launch file turn on.
+    fn refresh_features(&self) {
+        let dev_server = super::dev_server::is_on(&self.settings);
+        self.metrics.features(&self.settings, dev_server);
+    }
+
     /// Loads the repo's plugins again if its default branch moved since they
     /// were read, which settings of kelpie's own do not announce
     ///
@@ -221,6 +227,8 @@ impl Runner {
         );
         // The plan fetched the branch, so this is the commit it read.
         self.plugins_head = default_head(checkout);
+        // A launch file the branch gained or lost turns the dev server on or off.
+        self.refresh_features();
         if planned == self.repo_plugins {
             return None;
         }

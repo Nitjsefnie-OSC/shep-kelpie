@@ -35,8 +35,12 @@ Work items:
 
 Features: whether what a project turned on runs.
 
-- `kelpie_feature_enabled{feature}` gauge (1 or 0) at open and each reread: `code_graph`, `browser`, `hooks`
+- `kelpie_feature_enabled{feature}` gauge (1 or 0) at open and each reread: `code_graph`, `browser`, `dev_server` (browser on and `main`'s launch file selects a configuration), `hooks`
 - `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `src/runner/code_graph.rs`
+- `browser`: the bridge opened for a turn `ok`, `failed`, `skipped` (tools not installed). `src/runner/browser.rs`
+- `dev_server`: `ok` (answered within `READY_WITHIN`), `failed` (could not be planned or started, or silent), `skipped` (no launch file on `main`, or none configured). `src/runner/dev_server.rs`
+- `hooks`: each hook the runner runs, `ok` (exit 0 or a deliberate exit 2) or `failed`; no label per hook or point. The hooks carry the recorder (`Hooks::counted_by`); a `kelpie guard` or `kelpie confine` process has none, so the worker's own `commit`, `push` and `command` hooks are not counted. `src/hooks.rs`
+- `KelpieFeatureNeverWorks` only counts a feature while `kelpie_feature_enabled` is 1.
 
 MCP servers, read from a call's transcript once it ends: the agents a call runs on are wrapped (`src/runner/mcp_count.rs`), which find the session's file through `Agents::transcript` and parse it (`src/mcp_use.rs`). A call that wrote nothing to it counts nothing.
 
@@ -60,7 +64,7 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 ## Not built
 
 - MCP servers and tool calls for Codex (#757) and goose (#784).
-- Feature runs of the browser, dev server and hooks. #923
+- Feature runs of the hooks `kelpie guard` and `kelpie confine` run inside a worker's sandbox: another process, with no recorder.
 - Request context sizes (`kelpie_request_context_tokens` buckets) and cache writes after a gap: need per-request usage from transcripts, not per-call totals. #924
 - The dog's series: leases held, waits, summons, forge holds. #925
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927

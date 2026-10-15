@@ -25,12 +25,13 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::metrics::{Feature, Recorder};
 use crate::settings::{HookPoint, ProjectHook};
 use crate::worktree::{BASE, WorktreeError};
 
@@ -91,7 +92,22 @@ pub struct Hooks {
     /// When all hooks must be done, set for a guard process by [`Hooks::take`]
     #[serde(skip)]
     deadline: Option<Instant>,
+    /// Where each run is counted, set in the runner by [`Hooks::counted_by`]
+    #[serde(skip)]
+    counted: Counted,
 }
+
+// The recorder a hook's runs go to, which no two hooks differ by.
+#[derive(Debug, Clone, Default)]
+struct Counted(Option<Arc<Recorder>>);
+
+impl PartialEq for Counted {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Counted {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry {
@@ -112,6 +128,7 @@ impl Default for Hooks {
             folder: None,
             timeout: TIMEOUT,
             deadline: None,
+            counted: Counted::default(),
         }
     }
 }
@@ -133,6 +150,20 @@ impl Hooks {
             folder: Some(folder.to_owned()),
             timeout: TIMEOUT,
             deadline: None,
+            counted: Counted::default(),
+        }
+    }
+
+    /// These hooks, each run of which `metrics` counts as `ok` or `failed`
+    ///
+    /// A hook that refuses on purpose ran as it should and is `ok`. Hooks run
+    /// by `kelpie guard` or `kelpie confine` are in another process and are
+    /// not counted.
+    #[must_use]
+    pub fn counted_by(self, metrics: Arc<Recorder>) -> Self {
+        Self {
+            counted: Counted(Some(metrics)),
+            ..self
         }
     }
 
@@ -279,6 +310,10 @@ impl Hooks {
                 "the guard's time for hooks ran out before it could run".to_owned(),
             )),
         };
+        if let Some(metrics) = &self.counted.0 {
+            let failed = matches!(ran, Err((true, _)));
+            metrics.feature_ran(Feature::Hooks, if failed { "failed" } else { "ok" });
+        }
         ran.map_err(|(failed, reason)| Refusal {
             point: entry.point,
             program: program_of(&entry.command),
