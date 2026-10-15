@@ -8,7 +8,7 @@ Per-user App: tokens, posting, answering rulings on GitHub, ruling panel.
 - App holds contents, workflows, issues, pull requests write + checks, statuses, metadata read; merging stays on user's `gh`, App never merges. Kelpie's own token: issues + PRs only, can't push. #395, #396
 - Covered worker call gets a token for one repo, `contents` (and `workflows`) only; refused if GitHub grants more (guard parsing can't be complete; credential is the boundary). #420, #462
 - Token reaches worker as a `gh` config file, not a variable (every process shows those); git credential helpers emptied. #420, #429
-- Covered worker writes `pull-request.md`; kelpie opens and edits the PR (worker's token can't). Worker files are read and written without following links. #420, #439, `src/worker_folder.rs`
+- Covered worker writes `pull-request.md`; kelpie opens and edits the PR, refusing a non-conventional title. Files read/written without following links. #420, #439, #898, `src/worker_folder.rs`
 - Workers can push any branch: `doctor` says protect `main`. Kelpie reads covered workers' failed CI logs (3 runs, 6000 bytes each, noise dropped) rather than widen token. #420
 - Worker token refreshed every 30 min during a call (lasts 1h). `src/runner/login_refresh.rs`
 - `shep kelpie github setup` registers an App from 127.0.0.1 with random `state`, refusing other hosts. #396

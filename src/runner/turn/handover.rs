@@ -57,19 +57,18 @@ impl Refused {
         }
     }
 
-    /// A `publish` hook refused the title and body the worker changed in
-    /// `pull-request.md`
+    /// Kelpie refused the title and body the worker changed in
+    /// `pull-request.md`, or a `publish` hook did
     pub(super) fn pull_request_file(refusal: &str) -> Self {
         Self {
             prompt: format!(
                 "Kelpie could not set the pull request's title and body from \
-                 `pull-request.md`: {refusal}. Change the file so the hook accepts it, and \
-                 end your turn. If only the maintainer can unblock you, end your reply with \
+                 `pull-request.md`: {refusal}. Then end your turn. If only the maintainer can unblock you, end your reply with \
                  a <kelpie-question> block."
             ),
             parked: format!(
-                "the project's publish hook refused the pull request's text, after the worker \
-                 was sent back once already: {refusal}"
+                "kelpie could not set the pull request's text from `pull-request.md`, after \
+                 the worker was sent back once already: {refusal}"
             ),
         }
     }
