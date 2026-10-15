@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::ports::{Cost, Usage};
-use crate::runner::{CHECKS_SETTLE, StepReport, step};
+use crate::ports::{CLEAN, Cost, Usage};
+use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{RecordedSink, Rig, Scripted, write_script};
 
 const COUNTER: Family = Family {
@@ -235,4 +235,73 @@ fn an_indexed_code_graph_counts_as_ok() {
         Rig::parked_set("shep", |rig| turn_on_the_code_graph(rig, Some(indexer)));
     let ok = [("feature", "code_graph"), ("outcome", "ok")];
     assert!(rig.samples.value("kelpie_feature_runs_total", &ok) >= Some(1.0));
+}
+
+// A worker's session whose code graph failed to connect in its first call, which the last of its
+// four calls found connected. From Claude Code 2.1.300.
+const FAILED: &str = include_str!("../../fixtures/claude-transcript-mcp-failed.jsonl");
+
+// The recorded session's first call, as its transcript stood when it ended
+fn failed_call() -> String {
+    FAILED
+        .lines()
+        .take(3)
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+// Issue 7's worker turn and a Claude reviewer's round, with the code graph, each call writing its
+// transcript as given
+fn worker_and_reviewer(worker: String, reviewer: String) -> (Rig, Mutex<Runner>) {
+    let rig = Rig::new("shep");
+    turn_on_the_code_graph(&rig, Some("#!/bin/sh\nexit 0\n"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+    rig.claude.script([
+        Scripted::Transcribed(worker, Box::new(Scripted::Push("work.txt", "work\n"))),
+        Scripted::Transcribed(reviewer, Box::new(Scripted::Text(CLEAN))),
+    ]);
+    step(&runner).unwrap(); // the worker's first turn
+    step(&runner).unwrap(); // round 1, qwen: clean by default
+    step(&runner).unwrap(); // round 2, claude: scripted clean above
+    (rig, runner)
+}
+
+#[test]
+fn a_server_that_failed_to_connect_is_counted_failed_and_noted_once_while_it_stands() {
+    let (rig, runner) = worker_and_reviewer(failed_call(), failed_call());
+    let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
+    assert_eq!(
+        rig.samples.value("kelpie_mcp_servers_total", &failed),
+        Some(2.0)
+    );
+    let graph = [("server", "codebase-memory-mcp")];
+    assert_eq!(
+        rig.samples.value("kelpie_mcp_tool_calls_total", &graph),
+        Some(0.0),
+        "a server given and never called reads 0"
+    );
+    let notes = runner.lock().unwrap().take_notes();
+    let said: Vec<_> = (notes.iter())
+        .filter(|n| n.contains("`codebase-memory-mcp`"))
+        .collect();
+    assert_eq!(said.len(), 1, "{notes:#?}");
+    assert!(said[0].contains("issue #7's worker"), "{}", said[0]);
+    assert!(said[0].contains("CONNECTION_CLOSED"), "{}", said[0]);
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["standing"], serde_json::json!([said[0]]));
+}
+
+#[test]
+fn a_failed_server_that_connects_in_a_later_call_ends_its_standing_note() {
+    let (rig, runner) = worker_and_reviewer(failed_call(), FAILED.to_owned());
+    let outcome = |outcome| {
+        let labels = [("outcome", outcome), ("server", "codebase-memory-mcp")];
+        rig.samples.value("kelpie_mcp_servers_total", &labels)
+    };
+    assert_eq!(outcome("failed"), Some(1.0));
+    assert_eq!(outcome("connected"), Some(1.0));
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["standing"], serde_json::Value::Null, "none stands");
 }

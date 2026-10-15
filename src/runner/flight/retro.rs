@@ -52,12 +52,12 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = TurnHooks::around(
+        let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
             &self.notes,
             None,
-        );
+        ));
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);

@@ -49,3 +49,4 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [A worker's session grows past what its turns need](a-workers-session-grows-past-what-its-turns-need.md)
 - [codebase-memory-mcp](codebase-memory-mcp.md)
 - [The browser](the-browser.md)
+- [MCP servers in a call's transcript](mcp-servers.md)

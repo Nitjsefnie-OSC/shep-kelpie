@@ -57,8 +57,9 @@ pub(super) fn tool_names(call: &AgentCall) -> Vec<String> {
         .collect()
 }
 
-// pi names a tool `mcp__<server>__<tool>`, with every character but letters, digits and `_` as `_`.
-fn tool_prefix(server: &str) -> String {
+/// The part of a tool's name pi gives `server`: pi names a tool `mcp__<server>__<tool>`, with
+/// every character but letters, digits and `_` as `_`
+pub(crate) fn tool_prefix(server: &str) -> String {
     let safe = |c: char| if c.is_ascii_alphanumeric() { c } else { '_' };
     server.chars().map(safe).collect()
 }

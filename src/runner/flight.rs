@@ -443,12 +443,12 @@ impl Runner {
             compact: false,
         });
         let held = ending.clone();
-        let agents = TurnHooks::around(
+        let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
             &self.notes,
             None,
-        );
+        ));
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| End::Turn(agents.run(&call, &held))));
             let end = ran.unwrap_or_else(End::Panicked);
@@ -593,12 +593,12 @@ impl Runner {
         }
         let ledger = self.flights.ledger.clone();
         let item = self.state.work_items.iter().find(|i| i.issue == issue);
-        let agents = TurnHooks::around(
+        let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
             &self.notes,
             item,
-        );
+        ));
         let reviewer = Arc::clone(&self.ports.reviewer);
         let left = deadline.map_or(0, |deadline| deadline.0.saturating_sub(now.0));
         let flight = Flight {

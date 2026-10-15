@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
+mod mcp;
 mod series;
 
+pub(crate) use mcp::OWN_SERVERS;
 pub use series::{FEATURE_RUNS, Feature};
 
 /// The most series a runner sends, under the metrics dog's 256 a sender
