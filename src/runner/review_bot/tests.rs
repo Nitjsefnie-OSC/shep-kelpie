@@ -195,6 +195,34 @@ fn a_bot_round_after_a_handover_gets_its_lease_and_summons() {
     assert!(rig.leases.held(&stand_in()), "the dog granted the lease");
 }
 
+// The runner tells the dog of its ask, its summons and its return as
+// notes, which shep's metrics dog never reads, under the names the dog
+// reads.
+#[test]
+fn a_bot_round_s_ask_summons_and_return_reach_the_dog_as_notes() {
+    let rig = Rig::new("shep");
+    let (dog, epoch) = (Arc::new(DogStandIn::default()), Epoch(4242));
+    let book = BookFile::new(rig.home.path().join("book.json"));
+    let leases = ShepLeases::new(dog.clone(), Asker::new(epoch), book);
+    rig.leases.behind_a_dog(dog.clone(), Arc::new(leases));
+    let (rig, runner, head) = summoned_in(rig);
+    let summon = now(&rig);
+    rig.forge.coderabbit.post_as(71, LOGIN, |seen| {
+        seen.reviews.push(review(&head, summon + 60));
+    });
+    rig.clock.advance(60);
+    rig.threads_read(&runner);
+
+    assert_eq!(
+        dog.notes(),
+        [
+            ("lease.stand-in.want.4242".to_owned(), 1.0),
+            ("window.stand-in.summoned.4242".to_owned(), summon as f64),
+            ("lease.stand-in.return.4242".to_owned(), 1.0),
+        ]
+    );
+}
+
 #[test]
 fn a_stand_in_bot_runs_a_whole_round_through_to_the_worker() {
     let (rig, runner, head) = summoned("shep");

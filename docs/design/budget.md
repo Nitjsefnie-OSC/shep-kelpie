@@ -15,7 +15,7 @@ Pacing, leases, forge limits, time, usage, settings.
 
 ## Dog, leases, forge limits
 
-- Runners talk to kelpie through shep: triggers down, `channel.metric` up as running totals (metrics drop under backpressure). `src/sheep.rs`
+- Runners talk to kelpie through shep: triggers down, notes (`channel.note`) up as running totals (notes drop under backpressure). ADR 0013
 - Runner asks dog's book for lease via `lease.<kind>.want.<epoch>`, epoch = its pid (dog reclaims a dead run's leases without racing the new one); bot window = `reviews` in `hours` from its file. `src/dog/mod.rs`
 - Dog saves book to `<kelpie home>/dog/book.json` on every change (restart grants no second summon in a window); unreadable book starts CodeRabbit closed 1h. #19
 - `cargo-test`: the one worker lease, 3 holders default, held while a connection to dog's `lease.sock` is open (nothing polls a pid; worker never reaches shep socket). #218, `src/dog/mod.rs`

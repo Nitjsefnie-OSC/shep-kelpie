@@ -20,7 +20,11 @@ pub const BUDGET: Duration = Duration::from_secs(30);
 const RETRY: Duration = Duration::from_millis(250);
 
 /// The bus topics the dog listens to
-const TOPICS: [&str; 2] = ["channel.metric", "process.*"];
+///
+/// Runners send their lease and window totals as notes. `channel.metric`
+/// carries them from a runner still on a build from before notes, during
+/// the upgrade that restarts the dog first, and goes in a later release.
+const TOPICS: [&str; 3] = ["channel.note", "channel.metric", "process.*"];
 
 /// Connects as the dog the shepherd named in `SHEP_DOG_NAME`
 ///
@@ -144,6 +148,30 @@ mod tests {
         let unnamed = DogIdentity::from_env(&|_| None, "kelpie");
         connect(&socket, &unnamed, "for events").await.unwrap();
         assert_eq!(shepherd.hellos()[0].dog_name, None);
+    }
+
+    // A runner sends its lease totals as notes, and one still on an older
+    // build as metric samples, so the dog hears both.
+    #[tokio::test]
+    async fn the_dog_listens_for_runners_notes_and_older_builds_samples() {
+        use shep_client::shep_core::protocol::Request;
+        let dir = tempfile::tempdir().unwrap();
+        let socket = control_address(dir.path());
+        let shepherd = fake_daemon_across_handovers(&socket, vec![Handshake::Accept(sample_ack())]);
+        let listener = connect(&socket, &named(), "for events").await.unwrap();
+        subscribe(&listener, BUDGET).await.unwrap();
+        let topics: Vec<Vec<String>> = shepherd
+            .envelopes()
+            .into_iter()
+            .filter_map(|(_, envelope)| match envelope.body {
+                Request::Subscribe { topics } => Some(topics),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            topics,
+            [["channel.note", "channel.metric", "process.*"].map(String::from)]
+        );
     }
 
     // A restarted shepherd gets the name again, and the bus stream is

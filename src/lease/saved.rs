@@ -36,7 +36,7 @@ pub struct SavedBook {
     /// Each runner's current run and the totals it has raised, by sheep
     #[serde(default)]
     pub runs: Vec<SavedRun>,
-    /// Runs already replaced, whose late metrics change nothing
+    /// Runs already replaced, whose late notes change nothing
     #[serde(default)]
     pub retired: Vec<SavedRunId>,
 }

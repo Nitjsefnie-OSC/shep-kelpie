@@ -1,11 +1,13 @@
 //! How a runner and the dog talk about book leases, through shep
 //!
-//! A runner raises two running totals per kind as channel metrics,
-//! `lease.<kind>.want.<epoch>` and `lease.<kind>.return.<epoch>`. Totals
-//! survive a dropped metric, since the next one carries the count. The
+//! A runner sends two running totals per kind as notes on its shepherd
+//! channel, `lease.<kind>.want.<epoch>` and `lease.<kind>.return.<epoch>`.
+//! Totals survive a dropped note, since the next one carries the count. The
 //! epoch in the name ties each total to one run of the runner. The dog
 //! grants with a `grant` trigger whose params are `<kind> <epoch>`. What a
 //! runner sees of a review window goes up as `window.<kind>.<fact>.<epoch>`.
+//! A runner on a build from before notes sent the same names as metric
+//! samples, which the dog still reads for one release.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -19,7 +21,7 @@ use crate::runner::ProjectName;
 /// The trigger the dog grants a lease with
 pub const GRANT: &str = "grant";
 
-/// Which of a runner's two totals a metric carries
+/// Which of a runner's two totals a note carries
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Total {
     /// How many times this run has asked for the kind
@@ -37,9 +39,9 @@ impl Total {
     }
 }
 
-/// A lease metric's name, read back
+/// A lease total's name, read back
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetricName {
+pub struct TotalName {
     /// The kind it is about
     pub kind: LeaseKind,
     /// Which total it carries
@@ -48,9 +50,9 @@ pub struct MetricName {
     pub epoch: Epoch,
 }
 
-impl MetricName {
+impl TotalName {
     /// Reads `lease.<kind>.<want|return>.<epoch>`, or `None` for any other
-    /// metric
+    /// name
     pub fn parse(name: &str) -> Option<Self> {
         let rest = name.strip_prefix("lease.")?;
         let (rest, epoch) = rest.rsplit_once('.')?;
@@ -68,7 +70,7 @@ impl MetricName {
     }
 }
 
-impl fmt::Display for MetricName {
+impl fmt::Display for TotalName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { kind, total, epoch } = self;
         write!(f, "lease.{kind}.{}.{}", total.as_str(), epoch.0)
@@ -110,9 +112,9 @@ impl WindowFact {
     }
 }
 
-/// A window metric's name, read back
+/// A window fact's name, read back
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WindowMetric {
+pub struct WindowName {
     /// The kind whose window it is about
     pub kind: LeaseKind,
     /// What was seen
@@ -121,8 +123,8 @@ pub struct WindowMetric {
     pub epoch: Epoch,
 }
 
-impl WindowMetric {
-    /// Reads `window.<kind>.<fact>.<epoch>`, or `None` for any other metric
+impl WindowName {
+    /// Reads `window.<kind>.<fact>.<epoch>`, or `None` for any other name
     pub fn parse(name: &str) -> Option<Self> {
         let rest = name.strip_prefix("window.")?;
         let (rest, epoch) = rest.rsplit_once('.')?;
@@ -146,7 +148,7 @@ impl WindowMetric {
     }
 }
 
-impl fmt::Display for WindowMetric {
+impl fmt::Display for WindowName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self { kind, fact, epoch } = self;
         write!(f, "window.{kind}.{}.{}", fact.name(), epoch.0)
@@ -188,9 +190,9 @@ pub struct AskerCarry {
 
 /// A runner's side of its book leases: its totals and what it holds
 ///
-/// A runner waiting on a grant may raise [`Asker::metrics`] again at any
+/// A runner waiting on a grant may send [`Asker::notes`] again at any
 /// time: the dog reads totals, so repeats change nothing, and they cover
-/// a metric shep dropped.
+/// a note shep dropped.
 #[derive(Debug, Clone)]
 pub struct Asker {
     epoch: Epoch,
@@ -224,7 +226,7 @@ impl Asker {
     /// `epoch` of `sheep`, or a fresh one when the book knows no such run
     ///
     /// For a handover from a build that carried no totals. The dog ignores
-    /// the metrics of a sheep that is no project name, so the book holds no
+    /// the totals of a sheep that is no project name, so the book holds no
     /// run of one, and it too starts fresh.
     pub fn from_book(epoch: Epoch, sheep: &str, book: &SavedBook) -> Self {
         let mut asker = Self::new(epoch);
@@ -296,15 +298,15 @@ impl Asker {
         }
     }
 
-    /// Tells the dog what this run saw of `kind`'s window: the metric to raise
-    #[must_use = "the dog hears of the window only through this metric"]
+    /// Tells the dog what this run saw of `kind`'s window: the note to send
+    #[must_use = "the dog hears of the window only through this note"]
     pub fn window(&mut self, kind: &LeaseKind, fact: WindowFact, value: u64) -> (String, f64) {
         self.seen.insert((kind.clone(), fact.sort()), (fact, value));
-        self.window_metric(kind, fact, value)
+        self.window_note(kind, fact, value)
     }
 
-    fn window_metric(&self, kind: &LeaseKind, fact: WindowFact, value: u64) -> (String, f64) {
-        let name = WindowMetric {
+    fn window_note(&self, kind: &LeaseKind, fact: WindowFact, value: u64) -> (String, f64) {
+        let name = WindowName {
             kind: kind.clone(),
             fact,
             epoch: self.epoch,
@@ -314,21 +316,21 @@ impl Asker {
         (name.to_string(), value as f64)
     }
 
-    /// Asks for `kind`: the metric to raise, and its value
-    #[must_use = "the dog hears of the ask only through this metric"]
+    /// Asks for `kind`: the note to send, and its value
+    #[must_use = "the dog hears of the ask only through this note"]
     pub fn want(&mut self, kind: &LeaseKind) -> (String, f64) {
         let entry = self.totals.entry(kind.clone()).or_default();
         entry.want += 1;
-        self.metric(kind, Total::Want)
+        self.total_note(kind, Total::Want)
     }
 
-    /// Gives `kind` back, or withdraws the ask: the metric to raise
-    #[must_use = "the dog hears of the return only through this metric"]
+    /// Gives `kind` back, or withdraws the ask: the note to send
+    #[must_use = "the dog hears of the return only through this note"]
     pub fn give_back(&mut self, kind: &LeaseKind) -> (String, f64) {
         self.held.retain(|k| k != kind);
         let entry = self.totals.entry(kind.clone()).or_default();
         entry.give_back += 1;
-        self.metric(kind, Total::Return)
+        self.total_note(kind, Total::Return)
     }
 
     /// Takes a `grant` trigger's params, and says which kind is now held
@@ -364,27 +366,27 @@ impl Asker {
         self.totals.get(kind).is_some_and(|t| t.asking())
     }
 
-    /// Every metric this run has raised, at its current value
-    pub fn metrics(&self) -> Vec<(String, f64)> {
+    /// Every note this run has sent, at its current value
+    pub fn notes(&self) -> Vec<(String, f64)> {
         let both = [Total::Want, Total::Return];
         let totals = self
             .totals
             .keys()
-            .flat_map(|kind| both.map(|total| self.metric(kind, total)));
+            .flat_map(|kind| both.map(|total| self.total_note(kind, total)));
         let seen = self
             .seen
             .iter()
-            .map(|((kind, _), (fact, at))| self.window_metric(kind, *fact, *at));
+            .map(|((kind, _), (fact, at))| self.window_note(kind, *fact, *at));
         totals.chain(seen).collect()
     }
 
-    fn metric(&self, kind: &LeaseKind, total: Total) -> (String, f64) {
+    fn total_note(&self, kind: &LeaseKind, total: Total) -> (String, f64) {
         let totals = self.totals.get(kind).copied().unwrap_or_default();
         let value = match total {
             Total::Want => totals.want,
             Total::Return => totals.give_back,
         };
-        let name = MetricName {
+        let name = TotalName {
             kind: kind.clone(),
             total,
             epoch: self.epoch,
@@ -443,7 +445,7 @@ mod tests {
             ("lease.stand-in.want.4242".into(), 2.0)
         );
         assert_eq!(
-            asker.metrics(),
+            asker.notes(),
             [
                 ("lease.stand-in.want.4242".into(), 2.0),
                 ("lease.stand-in.return.4242".into(), 1.0)
@@ -452,10 +454,10 @@ mod tests {
     }
 
     #[test]
-    fn a_metric_name_reads_back() {
+    fn a_total_s_name_reads_back() {
         assert_eq!(
-            MetricName::parse("lease.stand-in.return.7"),
-            Some(MetricName {
+            TotalName::parse("lease.stand-in.return.7"),
+            Some(TotalName {
                 kind: stand_in(),
                 total: Total::Return,
                 epoch: Epoch(7)
@@ -469,7 +471,7 @@ mod tests {
             "lease.Stand.want.7",
             "lease.stand-in.want.-7",
         ] {
-            assert_eq!(MetricName::parse(other), None, "{other}");
+            assert_eq!(TotalName::parse(other), None, "{other}");
         }
     }
 
@@ -518,7 +520,7 @@ mod tests {
         asker.grant("other 9").unwrap();
         assert!(asker.holds(&other) && !asker.holds(&stand_in()));
         assert_eq!(
-            asker.metrics(),
+            asker.notes(),
             [
                 ("lease.other.want.9".into(), 2.0),
                 ("lease.other.return.9".into(), 0.0),
@@ -549,7 +551,7 @@ mod tests {
         let _ = asker.window(&coderabbit, WindowFact::Quota(1), EPOCH + 100);
         let _ = asker.window(&coderabbit, WindowFact::Quota(10), EPOCH + 200);
         assert_eq!(
-            asker.metrics(),
+            asker.notes(),
             [
                 ("window.coderabbit.summoned.9".into(), EPOCH as f64),
                 ("window.coderabbit.quota-10.9".into(), (EPOCH + 200) as f64),
@@ -559,17 +561,17 @@ mod tests {
     }
 
     #[test]
-    fn a_window_metric_name_reads_back() {
+    fn a_window_fact_s_name_reads_back() {
         assert_eq!(
-            WindowMetric::parse("window.coderabbit.opens.7"),
-            Some(WindowMetric {
+            WindowName::parse("window.coderabbit.opens.7"),
+            Some(WindowName {
                 kind: LeaseKind::coderabbit(),
                 fact: WindowFact::Opens,
                 epoch: Epoch(7)
             })
         );
         assert_eq!(
-            WindowMetric::parse("window.coderabbit.quota-10.7").map(|m| m.fact),
+            WindowName::parse("window.coderabbit.quota-10.7").map(|m| m.fact),
             Some(WindowFact::Quota(10))
         );
         for other in [
@@ -582,7 +584,7 @@ mod tests {
             "window.coderabbit.quota-+1.7",
             "window.coderabbit.quota-x.7",
         ] {
-            assert_eq!(WindowMetric::parse(other), None, "{other}");
+            assert_eq!(WindowName::parse(other), None, "{other}");
         }
     }
 
