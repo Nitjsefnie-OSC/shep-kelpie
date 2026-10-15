@@ -8,3 +8,8 @@
   - Codex: `response_item` lines, whose payload is a `message`, `reasoning`, `function_call` with its arguments as a JSON string, `custom_tool_call` or an output, and `event_msg` lines that repeat them.
   - pi: `message` entries whose role is `user`, `assistant` (text, thinking and `toolCall` blocks) or `toolResult`.
   - A line either parser cannot read is passed over, so a format that differs costs lines, not the stream. A recorded rollout and session file belong in `fixtures/` the first time a codex or pi worker runs.
+- A Claude Code request is several lines, which `usage --context` counts once (read from a worker's own transcript on 2026-10-15, Claude Code 2.1.x, for #926).
+  - Every `assistant` line a request wrote carries the request's `message.id` and the same `message.usage`: in a session of 43 requests, none had lines whose usage differed. A request's context is `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
+  - A subagent's lines carry `isSidechain: true` and are not the session's requests.
+  - `fixtures/claude-transcript-requests.jsonl` is a trimmed excerpt of it: seven requests, two reads and the edits after them, long inputs and results cut, the home folder written as `/Users/me`.
+- pi writes one `message` entry per request, with `message.usage` as `input`, `output`, `cacheRead` and `cacheWrite`, and its tool calls as `toolCall` blocks named `read`, `edit` and `write` whose `arguments.path` may start with `@` (`fixtures/pi-session-mcp.jsonl`, `src/adapters/pi/guard_tests.rs`).

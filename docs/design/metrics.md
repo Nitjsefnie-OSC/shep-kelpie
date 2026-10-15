@@ -39,8 +39,12 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 The dog's: it sends through the same `Recorder` on its own `Shepherd` (`src/metrics/dog.rs`), labelled `dog` and `source` by the metrics dog.
 
 - `kelpie_leases_held{kind}`, `kelpie_lease_waiting{kind}` gauges, `kelpie_lease_grants_total{kind}` and `kelpie_lease_wait_seconds_total{kind}`: the desk looks at every lease after each change (`Desk::look`, `src/dog/watch.rs`). A grant is a holder not there at the last look, so the book's, the maintainer's and `cargo-test`'s are counted by one rule; the wait is from when the dog first saw the waiter queued, and a waiter that leaves is not counted. `e2e` is one kind for every host, as a host name is not a bounded label. A command seated for a run under the last dog is held but not a grant.
-- `kelpie_summons_total{bot,outcome}`: `accepted` or `refused`, counted when the book had not heard that summon time or refusal quote yet, so the runners' repeated totals count once. The maintainer's grants count as summons in the window, not here.
+- `kelpie_summons_total{bot,outcome}`: `accepted` or `refused`, counted once per bot and time (or quoted opening) by the watch, not the window, so the runners' repeated totals count once, also after the window forgot a summon or the dog restarted (the saved windows seed the watch). A summon older than its span, or a refusal whose opening has passed, is not news when heard. The maintainer's grants count as summons in the window, not here.
 - `kelpie_forge_holds_total{login_kind}` and `kelpie_forge_held`: a hold begins when a runner reports one and none stands. `login_kind` is always `login`: the dog's hold is the login's, as the App's used-up answer holds only its own reads. The hold ends on its own, so the dog's tick (`Kept::tick`) sets the gauge and sends every series again each minute.
+
+## Reports from transcripts
+
+- `shep kelpie usage <project> --item|--context|--reads` (`--json` too) join the ledger to transcripts by its `session` field, with no shepherd. A transcript is found through the `session-started` steps in `steps.jsonl`, never a guessed folder. Requests are read for Claude Code (one per `message.id`, subagent lines left out) and pi; Codex is found, not read (#757). `src/usage/session.rs`, `src/usage/requests.rs`, #926
 
 ## Alerts and dashboard
 
@@ -53,5 +57,4 @@ The dog's: it sends through the same `Recorder` on its own `Shepherd` (`src/metr
 - MCP servers and tool calls for Codex (#757) and goose (#784).
 - Feature runs of the browser, dev server and hooks. #923
 - Request context sizes (`kelpie_request_context_tokens` buckets) and cache writes after a gap: need per-request usage from transcripts, not per-call totals. #924
-- `shep kelpie` reports replacing the maintainer's scripts: by item, context sources, reads. #926
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927
