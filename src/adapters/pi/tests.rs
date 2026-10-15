@@ -237,6 +237,14 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_
         [&graph.runtime],
         "its daemon's socket, and no other"
     );
+    // pi's model traffic goes through a forwarder, and the daemon's socket must still reach srt.
+    let network = &crate::adapters::srt::srt_settings(&with)["network"];
+    assert!(network["mitmProxy"].is_object(), "{network}");
+    assert!(
+        (network["allowUnixSockets"].as_array().unwrap().iter())
+            .any(|s| s == graph.runtime.to_str().unwrap()),
+        "{network}"
+    );
 }
 
 #[test]
