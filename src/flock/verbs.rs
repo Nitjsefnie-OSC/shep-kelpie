@@ -24,10 +24,10 @@ use crate::upgrade::restart::{Interrupt, Patience};
 /// here, `usage`, which reads the usage ledger here, `watch`, which
 /// follows the runner's log and the sessions' transcripts here, and `set` and
 /// `get`, which change and read one setting of the project's table here
-pub const VERBS: [&str; 22] = [
+pub const VERBS: [&str; 23] = [
     "add", "start", "pause", "finish", "status", "rule", "rework", "adopt", "gate", "drop",
     "timings", "issue", "attach", "tell", "pm", "drain", "undrain", "usage", "watch", "board",
-    "set", "get",
+    "set", "get", "triage",
 ];
 
 /// The verbs that print the runner's JSON instead of plain text with `--json`
@@ -46,6 +46,7 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
        shep kelpie rule [<id> <answer>]
        shep kelpie rework <pr> | adopt <pr>
        shep kelpie gate [<issue>] | drop [<issue>]
+       shep kelpie triage <issue>        triages an issue next, past the pick rule
        shep kelpie board                 the ready issues in the order the board takes them
        shep kelpie board move <issue> <position> | board top <issue>
                                          puts an issue at a place in that list, or first
@@ -239,7 +240,7 @@ async fn run(
                 _ => answer,
             })
         }
-        ("rework" | "adopt", [number]) => change(command, Some(number)).await,
+        ("rework" | "adopt" | "triage", [number]) => change(command, Some(number)).await,
         ("gate" | "drop", []) => change(command, None).await,
         ("gate" | "drop", [issue]) => change(command, Some(issue)).await,
         ("board", []) => print("board", None).await,

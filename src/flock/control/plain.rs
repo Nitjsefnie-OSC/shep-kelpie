@@ -233,11 +233,23 @@ fn bumps(status: &Value, lines: &mut Vec<String>) {
     }
 }
 
-// One line for each issue triage would pick up, and none when it has none
+// The call in flight, one line for each issue triage would pick up and one for
+// each it commented on, and nothing when it has none of them
 fn triage(status: &Value, lines: &mut Vec<String>) {
-    let due = status["triage"]["due"]
-        .as_array()
-        .map_or(&[][..], Vec::as_slice);
+    let triage = &status["triage"];
+    if let Some(issue) = triage["running"].as_u64() {
+        lines.push(format!("  triage running: #{issue}"));
+    }
+    let records = triage["issues"].as_array().map_or(&[][..], Vec::as_slice);
+    for record in records {
+        lines.push(format!(
+            "  triaged #{}: comment {}, {}",
+            record["issue"],
+            record["comment"],
+            record["step"].as_str().unwrap_or("?"),
+        ));
+    }
+    let due = triage["due"].as_array().map_or(&[][..], Vec::as_slice);
     if due.is_empty() {
         return;
     }

@@ -46,6 +46,8 @@ pub enum Kind {
     CommentsSince,
     /// The comments in a pull request's review threads since a time
     ThreadReplies,
+    /// Every comment on one issue
+    IssueComments,
     /// Whether a login may write to the repo
     CanWrite,
     /// The reactions on a comment
@@ -149,6 +151,7 @@ impl Kind {
                 | Self::Viewer
                 | Self::CommentsSince
                 | Self::ThreadReplies
+                | Self::IssueComments
                 | Self::CanWrite
                 | Self::CommentMarks
                 | Self::OpenIssues
@@ -203,6 +206,7 @@ impl Kind {
             | Self::ReviewBotSeen
             | Self::Viewer
             | Self::CommentsSince
+            | Self::IssueComments
             | Self::CanWrite
             | Self::Comment
             | Self::CreatePullRequest

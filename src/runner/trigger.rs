@@ -22,9 +22,9 @@ use crate::work_item::{
 };
 
 /// The triggers a runner answers
-pub const ACTIONS: [&str; 18] = [
+pub const ACTIONS: [&str; 19] = [
     "status", "add", "rework", "adopt", "rule", "gate", "drop", "timings", "attach", "detach",
-    "tell", "pm", "drain", "undrain", "finish", "start", "pausing", "board",
+    "tell", "pm", "drain", "undrain", "finish", "start", "pausing", "board", "triage",
 ];
 
 /// How many finished work items `timings` totals when given no count
@@ -334,12 +334,14 @@ enum Request {
     Start,
     Pausing,
     Board(Option<(u64, u64)>),
+    Triage(u64),
 }
 
 /// Answers one trigger with a JSON body: the status, or `{"error": ...}`
 ///
 /// Blank params count as none. `add` takes an issue number, `rework` and
-/// `adopt` a pull request number, `rule` takes `<id> yes`, `<id> no <note>`,
+/// `adopt` a pull request number, `triage` an issue number, `rule` takes
+/// `<id> yes`, `<id> no <note>`,
 /// `<id> rework <note>` or `<id> answer <text>`, `gate` and `drop` take the
 /// issue of the work item they are about when more than one is open,
 /// `timings` takes how many finished work items to total (ten when left
@@ -413,6 +415,7 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
         Request::Rule(id, answer) => runner.rule(id, answer).map_err(|e| e.to_string()),
         Request::Gate(issue) => runner.gate(issue).map_err(|e| e.to_string()),
         Request::Drop(issue) => runner.drop_work_item(issue).map_err(|e| e.to_string()),
+        Request::Triage(issue) => runner.triage_ask(issue),
     };
     match (changed, totals_of) {
         (Ok(()), Some(last)) => {
@@ -448,6 +451,10 @@ fn read(action: &str, params: Option<&str>) -> Result<Request, String> {
             .map(Request::Adopt)
             .ok_or_else(|| format!("{p:?} is not a pull request number")),
         ("adopt", None) => Err("`adopt` takes a pull request number".into()),
+        ("triage", Some(p)) => number(p)
+            .map(Request::Triage)
+            .ok_or_else(|| format!("{p:?} is not an issue number")),
+        ("triage", None) => Err("`triage` takes an issue number".into()),
         ("gate", Some(p)) => number(p)
             .map(|issue| Request::Gate(Some(issue)))
             .ok_or_else(|| format!("{p:?} is not an issue number")),
@@ -760,6 +767,7 @@ mod tests {
         for action in ACTIONS.into_iter().filter(|a| {
             ![
                 "rework", "adopt", "rule", "gate", "drop", "attach", "detach", "tell", "pm",
+                "triage",
             ]
             .contains(a)
         }) {

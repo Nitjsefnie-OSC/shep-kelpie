@@ -271,6 +271,17 @@ pub trait Forge: Send + Sync {
         since: Timestamp,
     ) -> Result<Vec<ThreadComment>, ForgeError>;
 
+    /// Every comment on issue `number` of `repo`, oldest first
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer read.
+    fn issue_comments(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+    ) -> Result<Vec<ThreadComment>, ForgeError>;
+
     /// Whether `login` has write access to `repo`
     ///
     /// # Errors

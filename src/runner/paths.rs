@@ -122,6 +122,7 @@ pub struct ProjectPaths {
     graphs: PathBuf,
     browsers: PathBuf,
     issues: PathBuf,
+    triage: PathBuf,
 }
 
 impl ProjectPaths {
@@ -155,6 +156,7 @@ impl ProjectPaths {
             graphs: folder.join("code-graphs"),
             browsers: folder.join("browser"),
             issues: folder.join("issues"),
+            triage: folder.join("triage"),
         }
     }
 
@@ -208,6 +210,12 @@ impl ProjectPaths {
         self.builds.join(format!("bump-{pull_request}"))
     }
 
+    /// The folder holding the code graph index of the view the triager reads
+    /// for `issue`, which goes when its call ends
+    pub fn triage_graph(&self, issue: u64) -> PathBuf {
+        self.graphs.join(format!("triage-{issue}"))
+    }
+
     /// The folder holding the browser server's config and output for a bump's proof
     pub fn bump_browser(&self, pull_request: u64) -> PathBuf {
         self.browsers.join(format!("bump-{pull_request}"))
@@ -228,6 +236,12 @@ impl ProjectPaths {
     /// item that resolves `issue`, which the worker cannot write
     pub fn browser(&self, issue: u64) -> PathBuf {
         self.browsers.join(issue.to_string())
+    }
+
+    /// The view of `origin/main` the triager researches issue `issue` in,
+    /// which is removed when the call ends
+    pub fn triage(&self, issue: u64) -> PathBuf {
+        self.triage.join(issue.to_string())
     }
 
     /// The folder for the issue writer's settings, prompt and checkouts,

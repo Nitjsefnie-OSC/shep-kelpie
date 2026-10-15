@@ -27,6 +27,19 @@ pub(super) fn comments_since(
     parse_comments(format!("[{}]", join(&pages)).as_bytes())
 }
 
+pub(super) fn issue_comments(
+    etags: &Etags,
+    repo: &ForgeSlug,
+    number: u64,
+) -> Result<Vec<ThreadComment>, ForgeError> {
+    let path = format!(
+        "repos/{}/issues/{number}/comments?{PER_PAGE}",
+        repo.as_str()
+    );
+    let pages = etags.pages(&GhApi, None, &path)?;
+    parse_comments(format!("[{}]", join(&pages)).as_bytes())
+}
+
 // The first 100 review threads of a pull request with the first 100 comments
 // of each, as the conversation read for a worker is (`talk`). A pull request
 // past those is not expected; GraphQL has no `since` for a thread's

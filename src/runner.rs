@@ -304,6 +304,10 @@ pub struct Runner {
     skipped: Vec<Skip>,
     // The issues triage found untouched on its last poll, kept in memory only
     triage_due: Vec<triage::DueStatus>,
+    // Issues the verb queued for triage, ahead of `triage_due`, kept in memory only
+    triage_queue: Vec<u64>,
+    // What keeps each issue's triage from finishing, kept in memory only
+    triage_tries: BTreeMap<u64, triage::comment::Tries>,
     // Each adopted pull request that keeps failing to start, kept in memory only
     adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
@@ -599,6 +603,8 @@ impl Runner {
             pacing: BTreeMap::new(),
             skipped: Vec::new(),
             triage_due: Vec::new(),
+            triage_queue: Vec::new(),
+            triage_tries: BTreeMap::new(),
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),

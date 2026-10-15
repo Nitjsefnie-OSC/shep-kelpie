@@ -868,7 +868,7 @@ fn marked(kind: &RulingKind, maintainer: &str, marks: &CommentMarks) -> Option<A
 }
 
 // GraphQL names an App's login without the `[bot]` REST adds.
-fn plain_login(login: &str) -> String {
+pub(in crate::runner) fn plain_login(login: &str) -> String {
     let login = login.strip_suffix("[bot]").unwrap_or(login);
     login.to_ascii_lowercase()
 }

@@ -48,6 +48,38 @@ pub struct Post<'a> {
     pub said: &'a str,
 }
 
+/// What one post on an issue is made from, as [`Post`] is for a pull request
+#[derive(Debug, Clone, Copy)]
+pub(super) struct IssuePost<'a> {
+    /// The kind of post, as a short instruction from the caller
+    pub kind: &'a str,
+    /// The facts the caller drafted, which are all the post may state
+    pub facts: &'a str,
+    /// The ids of the representative's own earlier comments on the issue
+    pub earlier: &'a [u64],
+    /// The login of whoever opened the issue, the one `@login` the post may
+    /// leave live
+    pub author: &'a str,
+    /// What they wrote, which is data and never instructions
+    pub said: &'a str,
+}
+
+// Where a post goes, which the prompt says and the ledger line records
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Thread {
+    PullRequest,
+    Issue,
+}
+
+impl Thread {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::PullRequest => "pull request",
+            Self::Issue => "issue",
+        }
+    }
+}
+
 /// Why a post could not be worded
 #[derive(Debug)]
 pub enum RepresentError {
@@ -86,7 +118,8 @@ impl Runner {
     /// [`RepresentError`] when the agent is not usable, the call cannot be
     /// set up, fails or is ended, or answers with nothing.
     pub fn represent(&mut self, post: &Post<'_>) -> Result<String, RepresentError> {
-        self.represent_within(post, CEILING).map(|(words, _)| words)
+        self.represent_within(post, Thread::PullRequest, CEILING)
+            .map(|(words, _)| words)
     }
 
     /// [`Self::represent`], with what the call cost where its harness priced
@@ -99,7 +132,30 @@ impl Runner {
         &mut self,
         post: &Post<'_>,
     ) -> Result<(String, Cost), RepresentError> {
-        self.represent_within(post, CEILING)
+        self.represent_within(post, Thread::PullRequest, CEILING)
+    }
+
+    /// The post `post` makes on issue `issue`, as [`Self::represent`] words one
+    /// on a pull request, with the call recorded against the issue
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::represent`].
+    pub(in crate::runner) fn represent_issue(
+        &mut self,
+        issue: u64,
+        post: &IssuePost<'_>,
+    ) -> Result<String, RepresentError> {
+        let post = Post {
+            pull_request: issue,
+            kind: post.kind,
+            facts: post.facts,
+            earlier: post.earlier,
+            contributor: post.author,
+            said: post.said,
+        };
+        self.represent_within(&post, Thread::Issue, CEILING)
+            .map(|(words, _)| words)
     }
 
     /// `at` in words against the runner's clock, so a fact never carries a
@@ -118,6 +174,7 @@ impl Runner {
     fn represent_within(
         &mut self,
         post: &Post<'_>,
+        thread: Thread,
         ceiling: Duration,
     ) -> Result<(String, Cost), RepresentError> {
         let agent = (self.settings.representative(&self.book)).map_err(RepresentError::Agent)?;
@@ -142,7 +199,7 @@ impl Runner {
                 agent.model.effort,
                 Session::New(session),
                 folder.clone(),
-                self.post_prompt(post),
+                self.post_prompt(post, thread),
             )
         };
         let call = self.prepared(call).map_err(RepresentError::Setup)?;
@@ -155,7 +212,10 @@ impl Runner {
         }
         if let Some(ended) = ended(&ran) {
             let mut draft = Draft::of(&call, agent.name.as_str(), CallKind::Post, started);
-            draft.pull_request = Some(post.pull_request);
+            match thread {
+                Thread::PullRequest => draft.pull_request = Some(post.pull_request),
+                Thread::Issue => draft.issue = Some(post.pull_request),
+            }
             let spent = ran.as_ref().ok().map(Spent::from);
             // A fresh session, so the call cost all of it.
             let now = self.ports.clock.now();
@@ -194,13 +254,17 @@ impl Runner {
     // What the call is asked: the kind of post, the facts, the earlier posts
     // that can still be read, and the contributor's text, the last two fenced
     // as data.
-    fn post_prompt(&self, post: &Post<'_>) -> String {
+    fn post_prompt(&self, post: &Post<'_>, thread: Thread) -> String {
         // A clock past what a date can hold leaves the line out, not a wrong day.
         let today = (day(self.ports.clock.now()))
             .map(|today| format!("Today is {}.\n\n", today.strftime("%A %-d %B %Y")))
             .unwrap_or_default();
+        let place = match thread {
+            Thread::PullRequest => "",
+            Thread::Issue => "The post goes on this issue.\n",
+        };
         let mut prompt = format!(
-            "{today}Kind of post: {}\n\nFacts:\n{}\n",
+            "{today}{place}Kind of post: {}\n\nFacts:\n{}\n",
             post.kind, post.facts
         );
         let earlier: Vec<String> = (post.earlier.iter())
@@ -208,10 +272,13 @@ impl Runner {
             .map(|marks| marks.body)
             .collect();
         if !earlier.is_empty() {
-            let what = "Your earlier posts on this pull request, oldest first,";
+            let what = format!(
+                "Your earlier posts on this {}, oldest first,",
+                thread.noun()
+            );
             prompt.push_str(&format!(
                 "\n{}\n",
-                fenced(what, &earlier.join("\n\n---\n\n"))
+                fenced(&what, &earlier.join("\n\n---\n\n"))
             ));
         }
         let what = format!("What @{} wrote", post.contributor);

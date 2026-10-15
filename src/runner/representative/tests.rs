@@ -2,7 +2,7 @@ use std::fs;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use super::{Post, RepresentError, moment, unremoved};
+use super::{IssuePost, Post, RepresentError, Thread, moment, unremoved};
 use crate::ports::{AgentError, Clock, Cost, Reach, Role, Session, Timestamp, Tools, Usage};
 use crate::runner::Runner;
 use crate::settings::Harness;
@@ -297,10 +297,11 @@ fn a_call_that_runs_past_its_ceiling_is_ended_and_is_an_error() {
     rig.claude
         .script_for(Role::Representative, [Scripted::Hold(hold)]);
 
-    let failed = runner
-        .lock()
-        .unwrap()
-        .represent_within(&post(&[], "Hello"), Duration::from_millis(50));
+    let failed = runner.lock().unwrap().represent_within(
+        &post(&[], "Hello"),
+        Thread::PullRequest,
+        Duration::from_millis(50),
+    );
 
     assert!(matches!(failed, Err(RepresentError::Call(_))), "{failed:?}");
 }
@@ -311,10 +312,11 @@ fn a_call_that_answers_within_its_ceiling_is_not_ended() {
     rig.claude
         .script_for(Role::Representative, [Scripted::Say("Ok.")]);
 
-    let words = runner
-        .lock()
-        .unwrap()
-        .represent_within(&post(&[], "Hello"), Duration::from_secs(60));
+    let words = runner.lock().unwrap().represent_within(
+        &post(&[], "Hello"),
+        Thread::PullRequest,
+        Duration::from_secs(60),
+    );
 
     assert_eq!(words.unwrap().0, "Ok.");
 }
@@ -371,6 +373,49 @@ fn its_spend_is_recorded_under_the_representative_role() {
     assert_eq!(line.pull_request, Some(9));
     assert_eq!(line.agent.as_deref(), Some("representative"));
     assert_eq!(line.issue, None);
+}
+
+#[test]
+fn an_issue_post_says_issue_and_records_the_issue_on_its_ledger_line() {
+    let (rig, runner) = running();
+    let before = rig
+        .forge
+        .threads
+        .write(9, "kelpie-octocat", "I asked which file.", Timestamp(1));
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say("Thanks @Newcomer, cc @other.")],
+    );
+    let post = IssuePost {
+        kind: "Write the triage comment",
+        facts: "It is a bug.",
+        earlier: &[before],
+        author: CONTRIBUTOR,
+        said: "It crashes",
+    };
+
+    let words = runner.lock().unwrap().represent_issue(9, &post).unwrap();
+
+    assert_eq!(words, "Thanks @Newcomer, cc `@other`.");
+    let prompt = calls(&rig).remove(0).call.prompt;
+    assert!(prompt.contains("The post goes on this issue."), "{prompt}");
+    assert!(
+        prompt.contains("Your earlier posts on this issue, oldest first,"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("I asked which file."), "{prompt}");
+    assert!(!prompt.contains("pull request"), "{prompt}");
+    let lines = usage::read(&rig.paths().folder.join(usage::FILE)).unwrap();
+    let mine: Vec<_> = (lines.into_iter())
+        .filter_map(|line| match line {
+            Line::Call(call) if call.role == Role::Representative => Some(call),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(mine.len(), 1, "{mine:?}");
+    assert_eq!(mine[0].kind, CallKind::Post);
+    assert_eq!(mine[0].issue, Some(9));
+    assert_eq!(mine[0].pull_request, None);
 }
 
 // Wednesday 14 October 2026, midday in UTC

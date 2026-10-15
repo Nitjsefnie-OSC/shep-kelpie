@@ -207,6 +207,15 @@ impl FakeThreads {
         read
     }
 
+    /// Every comment on issue `number`, oldest first
+    pub(super) fn on(&self, number: u64) -> Vec<ThreadComment> {
+        let threads = self.threads.lock().unwrap();
+        (threads.comments.iter())
+            .filter(|c| c.thread == number)
+            .cloned()
+            .collect()
+    }
+
     /// The comments on conversation `number`, oldest first, as the forge's
     /// GraphQL tells them: kelpie's own login and the logins given write
     /// access are writers

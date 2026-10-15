@@ -61,16 +61,19 @@ impl Runner {
     }
 
     // The open work items that hold a slot or wait for one, then the
-    // pull request of the contribution a call runs on
+    // pull request of the contribution a call runs on, then the issue the
+    // triager researches
     pub(super) fn slot_issues(&self) -> Vec<u64> {
         let mut held = self.issues_where(|i| !i.parked() && i.seat != Seat::Without);
         held.extend(self.flights.securing_pull_request());
+        held.extend(self.flights.triaging());
         held
     }
 
-    // How many slots a call on a contribution holds now
+    // How many slots a call on a contribution or an issue under triage holds now
     fn contribution_slots(&self) -> usize {
         usize::from(self.flights.securing_pull_request().is_some())
+            + usize::from(self.flights.triaging().is_some())
     }
 
     // The slots the work items share: `concurrency.active_items`, less those

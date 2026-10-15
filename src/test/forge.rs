@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::coderabbit::FakeCodeRabbit;
-use crate::board::{Blocker, OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
+use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
     MaintainerReview, NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed,
@@ -410,40 +410,6 @@ impl FakeForge {
         self.calls.load(Ordering::SeqCst)
     }
 
-    fn labels_of(&self, number: u64) -> Vec<String> {
-        let labels = self.labels.lock().unwrap();
-        labels.get(&number).cloned().unwrap_or_default()
-    }
-
-    fn blockers_of(&self, number: u64) -> Vec<Blocker> {
-        let blockers = self.blockers.lock().unwrap();
-        let closed = self.closed.lock().unwrap();
-        let by = blockers.get(&number).map(Vec::as_slice).unwrap_or_default();
-        by.iter()
-            .map(|&number| Blocker {
-                number,
-                open: !closed.contains(&number),
-            })
-            .collect()
-    }
-
-    fn parent_of(&self, number: u64) -> Option<u64> {
-        let links = self.sub_issues.lock().unwrap();
-        links
-            .iter()
-            .find(|(_, children)| children.contains(&number))
-            .map(|(&parent, _)| parent)
-    }
-
-    fn count_sub_issues(&self, parent: u64) -> SubIssues {
-        let children = self.sub_issues_of(parent);
-        let closed = self.closed.lock().unwrap();
-        SubIssues {
-            total: children.len() as u64,
-            closed: children.iter().filter(|c| closed.contains(c)).count() as u64,
-        }
-    }
-
     fn issues_up(&self) -> Result<(), ForgeError> {
         match &*self.issues_down.lock().unwrap() {
             Some(why) => Err(ForgeError::Failed(why.clone())),
@@ -644,6 +610,15 @@ impl Forge for FakeForge {
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.ask()?;
         Ok(self.threads.read(since))
+    }
+
+    fn issue_comments(
+        &self,
+        _repo: &ForgeSlug,
+        number: u64,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.ask()?;
+        Ok(self.threads.on(number))
     }
 
     fn thread_replies_since(
@@ -988,6 +963,7 @@ mod authors;
 mod down;
 mod handed;
 mod issues;
+mod lookup;
 mod queue;
 mod reads;
 mod repo;

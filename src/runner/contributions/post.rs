@@ -399,13 +399,13 @@ fn post_key(work: &Work, what: &str) -> String {
 }
 
 // Whether kelpie refused to send the text, as a hook or a local path does
-pub(super) fn refused_text(e: &ForgeError) -> bool {
+pub(in crate::runner) fn refused_text(e: &ForgeError) -> bool {
     matches!(e, ForgeError::LocalPath { .. } | ForgeError::Hook { .. })
 }
 
 // Whether the forge could not be asked just now, so that asking again later
 // may work
-pub(super) fn forge_is_busy(e: &ForgeError) -> bool {
+pub(in crate::runner) fn forge_is_busy(e: &ForgeError) -> bool {
     matches!(
         e,
         ForgeError::AppBusy(_) | ForgeError::Held(_) | ForgeError::Limited { .. }
