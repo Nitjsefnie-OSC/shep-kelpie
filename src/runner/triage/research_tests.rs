@@ -13,7 +13,7 @@ use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
 use crate::runner::{Pass, Runner, advance, step};
 use crate::settings::Harness;
 use crate::state::StateStore;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git, write_script};
 use crate::usage::{self, CallKind, Line};
 
 // How the forge names the App's comments: the rig's owner, as a bot
@@ -123,9 +123,14 @@ fn restart(rig: &Rig, runner: Mutex<Runner>) -> Mutex<Runner> {
 
 // Sets the triage record of `issue` as a crash at `step` leaves it
 fn crashed_at(rig: &Rig, issue: u64, step: &str) {
+    crashed_with(rig, json!({ "issue": issue, "comment": 101, "step": step }));
+}
+
+// Sets the triage record of an issue as `record` says
+fn crashed_with(rig: &Rig, record: Value) {
     let store = StateStore::new(rig.paths().state);
     let mut saved = serde_json::to_value(store.load().unwrap().unwrap()).unwrap();
-    saved["triage"]["issues"] = json!([{ "issue": issue, "comment": 101, "step": step }]);
+    saved["triage"]["issues"] = json!([record]);
     let state = serde_json::from_value(saved).unwrap();
     store.save(&state).unwrap();
 }
@@ -680,4 +685,68 @@ fn a_comment_found_by_its_marker_after_a_failed_post_is_not_posted_again() {
     let triaged = triage(&rig, &runner);
     assert_eq!(triaged["issues"][0]["comment"], comment);
     assert_eq!(triaged["issues"][0]["step"], "done");
+}
+
+#[test]
+fn the_code_graph_index_of_the_view_goes_when_the_call_ends() {
+    let rig = rig_with("pick = \"all\"");
+    let off = "[app.dogs.kelpie.code_graph]\nenabled = false";
+    rig.edit_settings(|s| s.replace(off, "[app.dogs.kelpie.code_graph]\nenabled = true"));
+    let binary = rig.paths().tools.code_graph();
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    write_script(
+        &binary,
+        "#!/bin/sh\necho indexed > \"$CBM_CACHE_DIR/indexed\"\n",
+    );
+    let runner = rig.open().unwrap();
+    list(&rig, crash(&rig, "It crashes when I run it."));
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let asked = calls(&rig, Role::Triager);
+    let graph = asked[0]
+        .call
+        .reach
+        .code_graph
+        .as_ref()
+        .expect("the graph reached it");
+    assert_eq!(graph.index, rig.paths().triage_graph(30));
+    assert_ne!(
+        graph.index,
+        rig.paths().code_graph(30),
+        "apart from a work item's"
+    );
+    assert!(!graph.index.exists(), "removed with the view");
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}
+
+#[test]
+fn a_restart_at_commented_still_puts_on_the_type_and_priority_the_comment_named() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    let record = json!({
+        "issue": 30, "comment": 101, "step": "commented", "labels": ["bug", "P2"],
+    });
+    crashed_with(&rig, record);
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        [
+            "label bug",
+            "label P2",
+            "make needs-triage",
+            "label needs-triage"
+        ]
+    );
+    assert_eq!(rig.github.comments(), []);
+    assert_eq!(rig.claude.all_seen().len(), 0);
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["step"], "done");
+    assert!(triaged["issues"][0].get("labels").is_none(), "{triaged}");
 }

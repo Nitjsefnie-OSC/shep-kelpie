@@ -49,6 +49,12 @@ pub struct Triaged {
     pub comment: u64,
     /// How far the issue has got
     pub step: TriageStep,
+    /// The labels the research asked for that are not all on yet, so that a
+    /// restart at `commented` puts them on
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
 }
 
 /// How far an issue's triage has got, saved before the next write to the forge

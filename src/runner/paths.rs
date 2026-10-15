@@ -210,6 +210,12 @@ impl ProjectPaths {
         self.builds.join(format!("bump-{pull_request}"))
     }
 
+    /// The folder holding the code graph index of the view the triager reads
+    /// for `issue`, which goes when its call ends
+    pub fn triage_graph(&self, issue: u64) -> PathBuf {
+        self.graphs.join(format!("triage-{issue}"))
+    }
+
     /// The folder holding the browser server's config and output for a bump's proof
     pub fn bump_browser(&self, pull_request: u64) -> PathBuf {
         self.browsers.join(format!("bump-{pull_request}"))

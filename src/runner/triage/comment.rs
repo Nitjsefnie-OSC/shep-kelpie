@@ -60,7 +60,8 @@ pub(in crate::runner) struct Tries {
     pub(super) waiting: Option<Waiting>,
     // The comment as worded, kept until the forge takes it
     pub(super) body: Option<String>,
-    // The labels the research asked for that the repo has, put on after the comment
+    // The labels the research asked for that the repo has, put on after the
+    // comment; the record keeps them from there
     labels: Vec<String>,
 }
 
@@ -241,10 +242,12 @@ impl Runner {
             return Ok(());
         };
         triage.issues.retain(|t| t.issue != issue);
+        let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
         triage.issues.push(Triaged {
             issue,
             comment,
             step: TriageStep::Commented,
+            labels,
         });
         self.save(next)?;
         self.triage_due.retain(|d| d.issue != issue);
@@ -266,6 +269,7 @@ impl Runner {
             return Ok(());
         };
         held.step = step;
+        held.labels.clear();
         if step == TriageStep::Done
             && let Some(triage) = next.triage.as_mut()
         {
@@ -284,9 +288,9 @@ impl Runner {
             match step {
                 TriageStep::Done => return Ok(()),
                 TriageStep::Commented => {
-                    // A restart forgets which labels the research asked for.
-                    let labels =
-                        (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
+                    let labels = self
+                        .triage_record(issue)
+                        .map_or_else(Vec::new, |t| t.labels.clone());
                     for label in labels {
                         if let Err(e) = self.label_issue(issue, &label, true) {
                             let why = format!("cannot label it `{label}`: {e}");

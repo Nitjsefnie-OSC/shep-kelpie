@@ -2,7 +2,8 @@
 //!
 //! A project that turns it on in `code_graph` has each worker turn and each
 //! reviewer indexed before the call starts. The index is kept under kelpie's
-//! home per work item, and goes with the work item's worktree.
+//! home per work item, and goes with the work item's worktree. A triage view's
+//! index goes when its call ends.
 //!
 //! The call is prepared with the runner's lock held, and indexing takes
 //! seconds to minutes, so it runs on the call's own thread, where a stop
@@ -52,9 +53,14 @@ impl Runner {
             return;
         }
         self.notes.ends(NOT_INSTALLED);
+        // A work item of the same number would share the index of a triage view.
+        let index = match call.role {
+            Role::Triager => self.paths.triage_graph(call.issue),
+            _ => self.paths.code_graph(call.issue),
+        };
         call.reach.code_graph = Some(CodeGraph {
             binary: tools.code_graph(),
-            index: self.paths.code_graph(call.issue),
+            index,
         });
     }
 

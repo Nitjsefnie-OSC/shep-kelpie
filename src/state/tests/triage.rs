@@ -66,6 +66,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         issue: 12,
         comment: 5001,
         step: TriageStep::Labelled,
+        labels: Vec::new(),
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -85,6 +86,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         issue,
         comment: issue + 1_000,
         step,
+        labels: Vec::new(),
     };
     let mut triage = TriageState {
         since: Timestamp(1),

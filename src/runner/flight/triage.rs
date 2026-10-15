@@ -7,6 +7,7 @@
 //! it came to comes back as news, and only then is anything posted.
 
 use std::fs;
+use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -118,6 +119,12 @@ impl Runner {
         let held = ending.clone();
         let agents = Arc::clone(&self.ports.agents);
         let notes = self.notes.clone();
+        let index = research
+            .call
+            .reach
+            .code_graph
+            .as_ref()
+            .map(|g| g.index.clone());
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
                 researched(agents.as_ref(), &mut research, &notes, &held)
@@ -126,6 +133,12 @@ impl Runner {
                 eprintln!("triage #{issue}: cannot remove its view of main: {e}");
             }
             let _ = fs::remove_file(&research.call.settings);
+            if let Some(index) = index
+                && let Err(e) = fs::remove_dir_all(&index)
+                && e.kind() != io::ErrorKind::NotFound
+            {
+                eprintln!("triage #{issue}: cannot remove its code graph index: {e}");
+            }
             let (end, found) = ran.unwrap_or_else(|panic| (End::Panicked(panic), None));
             if end.reached_no_model() {
                 ledger.no_model(key);
