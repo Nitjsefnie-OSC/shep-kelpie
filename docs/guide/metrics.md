@@ -43,6 +43,8 @@ Every series carries `sheep`, the project's name, as well as `id` and `fold`, wh
 | `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total` | | Review rounds, fix turns and rulings of the finished work items |
 | `kelpie_feature_enabled` | `feature` | 1 when the project's settings turn the feature on: `code_graph`, `browser`, `hooks` |
 | `kelpie_feature_runs_total` | `feature`, `outcome` | Times a feature ran for a call. The code graph's index: `ok`, `failed`, `skipped` (no server installed), `ended` (the call ended first) |
+| `kelpie_mcp_servers_total` | `server`, `outcome` | MCP servers given to calls, read from each call's transcript once it ends: `connected` or `failed`. `server` is `codebase-memory-mcp` or `playwright` for kelpie's own, and `repo` for any your project names. Claude Code calls only: pi does not record a server that failed |
+| `kelpie_mcp_tool_calls_total` | `server` | Tool calls a call made to each server, from Claude Code's and pi's transcripts. A server given and never called reads 0 |
 | `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 200 it sends |
 
 A runner's counters start at zero when it starts, as Prometheus expects of a restart: read them with `rate` or `increase`. When a runner stops, its series go from the endpoint until it starts again.
@@ -51,6 +53,7 @@ A runner's counters start at zero when it starts, as Prometheus expects of a res
 
 - **KelpieFeatureNeverWorks**: a feature has failed or been skipped since the runner started and has never worked once. Its calls run without it. The runner's log says why, in a line with `runs without`.
 - **KelpieFeatureFailing**: a feature failed in over half its runs in the last 6 hours.
+- **KelpieMcpServerFailing**: an MCP server failed to connect in over half the calls given it in the last 6 hours, so those calls ran without its tools. The runner's log names the server, the call and the error code, in a line with `failed to connect`, and `shep kelpie status` lists it under `standing` until a call finds it connected.
 - **KelpieCallsFailing**: over a quarter of a role's calls in 6 hours failed, timed out or came back unreadable.
 - **KelpieSeriesDropped**: a runner holds back series past its cap, so some panels miss data. Its log names the series.
 

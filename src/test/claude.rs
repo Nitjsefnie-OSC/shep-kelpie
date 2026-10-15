@@ -98,6 +98,10 @@ pub(crate) enum Scripted {
     /// Waits for a lease on its model until the test releases the hold, as a
     /// call queued at a gateway does, then goes on as the second does
     Queued(Hold, Box<Scripted>),
+    /// Appends these lines to its session's transcript, in the folder its
+    /// `transcript` names, as Claude Code writes them, then goes on as the
+    /// second does
+    Transcribed(String, Box<Scripted>),
 }
 
 /// A held call's issue, and what the runner noted of it
@@ -380,6 +384,19 @@ impl Agents for FakeClaude {
         let shared = || self.script.lock().unwrap().pop_front();
         let next = own.or_else(|| (call.role != Role::Representative).then(shared).flatten());
         let next = match next {
+            Some(Scripted::Transcribed(lines, then)) => {
+                let folder = call.settings.with_extension("transcripts");
+                std::fs::create_dir_all(&folder).unwrap();
+                let file = folder.join(format!("{}.jsonl", call.session.id().0));
+                let mut transcript = (std::fs::OpenOptions::new().create(true).append(true))
+                    .open(file)
+                    .unwrap();
+                std::io::Write::write_all(&mut transcript, lines.as_bytes()).unwrap();
+                Some(*then)
+            }
+            other => other,
+        };
+        let next = match next {
             Some(Scripted::Queued(queue, then)) => {
                 ending.wait(Wait::Lease);
                 self.hold(&queue, call, ending)?;
@@ -466,7 +483,9 @@ impl Agents for FakeClaude {
                 Ok(said(text))
             }
             Some(Scripted::Queued(..)) => unreachable!("turned into its second above"),
-            Some(Scripted::AtTool(..)) => unreachable!("turned into its second above"),
+            Some(Scripted::AtTool(..) | Scripted::Transcribed(..)) => {
+                unreachable!("turned into its second above")
+            }
             Some(Scripted::HoldThenFail(hold, error)) => {
                 hold.block();
                 Err(error)

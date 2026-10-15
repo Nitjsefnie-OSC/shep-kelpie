@@ -351,12 +351,12 @@ impl Runner {
             running.push((voter, call, ending, done));
         }
         let calls = called;
-        let agents = TurnHooks::around(
+        let agents = self.counted(TurnHooks::around(
             Arc::clone(&self.ports.agents),
             &self.hooks,
             &self.notes,
             None,
-        );
+        ));
         let names: Vec<Voter> = running.iter().map(|(voter, ..)| *voter).collect();
         let worker_result = Arc::new(Mutex::new(None));
         let kept_result = Arc::clone(&worker_result);

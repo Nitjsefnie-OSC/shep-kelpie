@@ -67,7 +67,7 @@ pub use host::SystemHost;
 pub use leases::{Notes, ShepLeases};
 pub use local::LocalReviewer;
 pub use pages::PlaywrightPages;
-pub(crate) use pi::mcp::refusal as pi_mcp_refusal;
+pub(crate) use pi::mcp::{refusal as pi_mcp_refusal, tool_prefix as pi_tool_prefix};
 pub use pi::{PI_MINIMUM, PiCli};
 pub use process::{Sealed, end_groups, feeding};
 pub use srt::SandboxRuntime;

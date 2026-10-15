@@ -82,6 +82,7 @@ mod lineup;
 mod login_refresh;
 mod looks;
 mod main_ci;
+mod mcp_count;
 mod merge;
 mod older_bots;
 mod open_checks;

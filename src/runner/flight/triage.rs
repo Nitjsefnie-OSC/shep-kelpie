@@ -121,7 +121,7 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = Arc::clone(&self.ports.agents);
+        let agents = self.counted(Arc::clone(&self.ports.agents));
         let (notes, metrics) = (self.notes.clone(), Arc::clone(&self.metrics));
         let graph = research
             .call
