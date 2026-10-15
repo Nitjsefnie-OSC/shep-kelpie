@@ -32,7 +32,10 @@ pub(super) struct Seen {
 ///
 /// A call with no session, and a local round, has none to find.
 pub(super) fn seen(calls: &[&CallLine], steps: &str) -> Vec<Seen> {
-    let places = crate::watch::transcripts_of(steps);
+    let wanted: BTreeSet<String> = (calls.iter())
+        .filter_map(|call| call.session.clone())
+        .collect();
+    let places = crate::watch::transcripts_of(steps, &wanted);
     let mut known = BTreeSet::new();
     let mut out = Vec::new();
     for call in calls {

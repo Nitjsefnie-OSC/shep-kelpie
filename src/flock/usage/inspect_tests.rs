@@ -386,6 +386,59 @@ fn reads_split_what_a_worker_read_before_its_first_edit() {
 }
 
 #[test]
+fn reads_count_one_file_spelt_relative_and_absolute_as_one() {
+    let rig = Rig::new();
+    rig.call(Some(7), "worker", "claude-code", "s-paths", 0);
+    let mut lines = Vec::new();
+    for (n, block) in [
+        tool("Read", "./src/a.rs"),
+        tool("Read", "/repo/src/../src/b.rs"),
+        tool("Read", "/repo/docs//guide.md"),
+        tool("Edit", "src/a.rs"),
+        tool("Edit", "/repo/src/b.rs"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut request = claude_request(&format!("m{n}"), [1, 1, 1, 1], &[block]);
+        for line in &mut request {
+            line["cwd"] = json!("/repo");
+        }
+        lines.extend(request);
+    }
+    rig.transcript("claude-code", "s-paths", &lines);
+
+    let out = rig.ask(&["koji", "--reads", "--json"]).unwrap();
+    let json: Value = serde_json::from_str(&out.join("\n")).unwrap();
+
+    let group = &json["groups"][0];
+    assert_eq!(group["edited"], 2);
+    assert_eq!(group["docs"], 1);
+    assert_eq!(group["neighbours"], 0);
+    assert_eq!(group["other_code"], 0);
+}
+
+#[test]
+fn only_the_sessions_asked_for_are_looked_for() {
+    let rig = Rig::new();
+    let lines = claude_request("m", [1, 1, 1, 1], &[thought()]);
+    let wanted = rig.transcript("claude-code", "s-wanted", &lines);
+    rig.transcript("claude-code", "s-other", &lines);
+    let steps =
+        std::fs::read_to_string(rig.home.path().join("koji").join(crate::runner::STEPS_FILE))
+            .unwrap();
+
+    let wanted_only = std::collections::BTreeSet::from(["s-wanted".to_owned()]);
+    let found = crate::watch::transcripts_of(&steps, &wanted_only);
+
+    assert_eq!(
+        found.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["s-wanted"]
+    );
+    assert_eq!(found["s-wanted"].1, wanted);
+}
+
+#[test]
 fn reads_reads_pis_session_files() {
     let rig = Rig::new();
     rig.call(Some(7), "worker", "pi", "s-pi", 0);

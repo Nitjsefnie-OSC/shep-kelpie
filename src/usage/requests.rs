@@ -78,6 +78,7 @@ fn claude(text: &str) -> Parsed {
     let mut parsed = Parsed::default();
     // The index in `requests` of each message id seen
     let mut ids: Vec<(String, usize)> = Vec::new();
+    let mut cwd = String::new();
     for entry in text
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -87,11 +88,15 @@ fn claude(text: &str) -> Parsed {
         if entry["type"] != "assistant" || entry["isSidechain"] == true {
             continue;
         }
+        if let Some(dir) = entry["cwd"].as_str() {
+            dir.clone_into(&mut cwd);
+        }
         for block in message["content"].as_array().into_iter().flatten() {
             if block["type"] == "tool_use"
                 && let Some(touch) = touch_of(
                     block["name"].as_str().unwrap_or_default(),
                     &block["input"],
+                    &cwd,
                     &["file_path", "notebook_path"],
                     &["Read"],
                     &["Edit", "MultiEdit", "Write", "NotebookEdit"],
@@ -137,10 +142,17 @@ fn claude(text: &str) -> Parsed {
 
 fn pi(text: &str) -> Parsed {
     let mut parsed = Parsed::default();
+    let mut cwd = String::new();
     for entry in text
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
     {
+        // pi names the working directory once, in its session header.
+        if entry["type"] == "session"
+            && let Some(dir) = entry["cwd"].as_str()
+        {
+            dir.clone_into(&mut cwd);
+        }
         let message = &entry["message"];
         if entry["type"] != "message" || message["role"] != "assistant" {
             continue;
@@ -150,6 +162,7 @@ fn pi(text: &str) -> Parsed {
                 && let Some(touch) = touch_of(
                     block["name"].as_str().unwrap_or_default(),
                     &block["arguments"],
+                    &cwd,
                     &["path"],
                     &["read"],
                     &["edit", "write"],
@@ -178,17 +191,19 @@ fn pi(text: &str) -> Parsed {
 }
 
 // The file a tool call named `name` with `input` reads or changes, under
-// whichever of `keys` it names the file by
+// whichever of `keys` it names the file by, made absolute against `cwd` and
+// tidied, so one file spelt two ways is one file
 fn touch_of(
     name: &str,
     input: &Value,
+    cwd: &str,
     keys: &[&str],
     reads: &[&str],
     edits: &[&str],
 ) -> Option<Touch> {
     let path = keys.iter().find_map(|key| input[key].as_str())?;
     // pi writes a path given with `@` for a file.
-    let path = path.strip_prefix('@').unwrap_or(path).to_owned();
+    let path = normalize(cwd, path.strip_prefix('@').unwrap_or(path));
     if reads.contains(&name) {
         Some(Touch::Read(path))
     } else if edits.contains(&name) {
@@ -196,4 +211,29 @@ fn touch_of(
     } else {
         None
     }
+}
+
+// `path`, joined to `cwd` when relative, with `.` and `..` folded away and no
+// trailing or doubled slash. A `..` above the root of a path stays, and a
+// relative path with no `cwd` stays relative.
+fn normalize(cwd: &str, path: &str) -> String {
+    let joined = if path.starts_with('/') || cwd.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{cwd}/{path}")
+    };
+    let rooted = joined.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            ".." if rooted => {}
+            _ => parts.push(part),
+        }
+    }
+    let rest = parts.join("/");
+    if rooted { format!("/{rest}") } else { rest }
 }
