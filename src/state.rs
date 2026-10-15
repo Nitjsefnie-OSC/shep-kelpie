@@ -26,7 +26,7 @@ pub use projects::Projects;
 pub use red::RedWorkflow;
 pub use removed::OldWorker;
 pub use ruling::Ruling;
-pub use triage::{TriageState, TriageStep, Triaged};
+pub use triage::{TRIAGED_KEPT, TriageState, TriageStep, Triaged};
 
 use std::collections::BTreeMap;
 use std::fmt;

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use super::comment::MARKER;
 use super::pick_tests::{issue, list, rig_with, status};
+use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
 use crate::runner::{Pass, Runner, advance, step};
 use crate::settings::Harness;
@@ -277,6 +278,9 @@ fn a_p0_is_dropped_and_asked_as_an_open_question() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
+    // The call is told it may answer P0, or the question could never come up.
+    let asked = calls(&rig, Role::Triager);
+    assert!(asked[0].call.prompt.contains("\"P0\" | \"P1\""));
     assert!(
         !moves(&rig).contains(&"label P0".to_owned()),
         "{:?}",
@@ -629,4 +633,51 @@ fn a_drain_lists_the_call_and_waits_for_it() {
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
     assert_eq!(calls(&rig, Role::Triager).len(), 2);
+}
+
+#[test]
+fn a_comment_the_forge_refused_is_posted_at_the_next_poll_without_another_call() {
+    let (rig, runner) = untouched();
+    rig.github.refuse_comments(ApiError::Refused(502));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+    // The refused try is the one on record.
+    assert_eq!(rig.github.comments().len(), 1);
+
+    rig.github.accept_comments();
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "researched once");
+    assert_eq!(calls(&rig, Role::Representative).len(), 1, "worded once");
+    let tried = rig.github.comments();
+    assert_eq!(tried.len(), 2, "the same wording, posted again");
+    assert_eq!(tried[0], tried[1]);
+    assert_eq!(
+        moves(&rig).last().map(String::as_str),
+        Some("label needs-triage")
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}
+
+#[test]
+fn a_comment_found_by_its_marker_after_a_failed_post_is_not_posted_again() {
+    let (rig, runner) = untouched();
+    rig.github.refuse_comments(ApiError::Refused(502));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    assert_eq!(step(&runner).unwrap(), None);
+
+    // The forge took the post whose answer was lost.
+    let marked = format!("{WORDS}\n\n{MARKER}");
+    let comment = rig.forge.threads.write(30, APP, &marked, Timestamp(1));
+    rig.github.accept_comments();
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 1);
+    assert_eq!(rig.github.comments().len(), 1, "only the refused try");
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["comment"], comment);
+    assert_eq!(triaged["issues"][0]["step"], "done");
 }

@@ -38,14 +38,26 @@ const KIND: &str = "Write the first triage comment on this issue, from what kelp
     repo. Greet the author, say what was found, and ask only the questions listed. It is a \
     comment, not a review: no verdict, and nothing promised.";
 
+/// A research that read, whose comment is not yet on the issue
+#[derive(Debug)]
+pub(super) struct Waiting {
+    pub(super) author: String,
+    pub(super) said: String,
+    pub(super) found: Found,
+}
+
 /// What the runner keeps of one issue's triage that has not gone through, in
 /// memory only
 #[derive(Debug, Default)]
 pub(in crate::runner) struct Tries {
     failures: u32,
     told: bool,
-    // Whether its comments were read for the App's marker
+    // Whether its comments were read for the App's marker; a post that may have
+    // gone up unrecorded clears it
     pub(super) read: bool,
+    // What the research found, kept until the comment is recorded so that a
+    // failed post is tried again without another call
+    pub(super) waiting: Option<Waiting>,
     // The comment as worded, kept until the forge takes it
     pub(super) body: Option<String>,
     // The labels the research asked for that the repo has, put on after the comment
@@ -118,6 +130,42 @@ impl Runner {
         said: &str,
         found: &Found,
     ) -> Result<(), StateError> {
+        let tries = self.triage_tries.entry(issue).or_default();
+        tries.waiting = Some(Waiting {
+            author: author.to_owned(),
+            said: said.to_owned(),
+            found: found.clone(),
+        });
+        self.say_triage(issue)
+    }
+
+    // Retries the comment of an issue whose research read: the wording kept is
+    // posted, or else it is worded again from what the research found
+    pub(super) fn retry_triage(&mut self, issue: u64) -> Result<(), StateError> {
+        let Some(tries) = self.triage_tries.get(&issue) else {
+            return Ok(());
+        };
+        if tries.body.is_some() {
+            return self.send_triage(issue);
+        }
+        self.say_triage(issue)
+    }
+
+    // Words the comment from the waiting research and posts it
+    fn say_triage(&mut self, issue: u64) -> Result<(), StateError> {
+        let Some(waiting) = self
+            .triage_tries
+            .get(&issue)
+            .and_then(|t| t.waiting.as_ref())
+        else {
+            return Ok(());
+        };
+        let (author, said, found) = (
+            waiting.author.clone(),
+            waiting.said.clone(),
+            waiting.found.clone(),
+        );
+        let (author, said, found) = (author.as_str(), said.as_str(), &found);
         let have = match self.ports.forge.repo_labels(&self.remote) {
             Ok(have) => have,
             Err(e) => {
@@ -162,6 +210,10 @@ impl Runner {
         let Some(body) = self.triage_tries.get(&issue).and_then(|t| t.body.clone()) else {
             return Ok(());
         };
+        // The forge may take a post whose answer is lost, so the marker is read again.
+        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+            tries.read = false;
+        }
         match self.ports.voice.post(&self.remote, issue, &body) {
             Ok(posted) => {
                 self.record_triage(issue, posted.id)?;
@@ -199,6 +251,7 @@ impl Runner {
         self.triage_queue.retain(|&n| n != issue);
         if let Some(tries) = self.triage_tries.get_mut(&issue) {
             tries.body = None;
+            tries.waiting = None;
         }
         Ok(())
     }
@@ -213,6 +266,11 @@ impl Runner {
             return Ok(());
         };
         held.step = step;
+        if step == TriageStep::Done
+            && let Some(triage) = next.triage.as_mut()
+        {
+            triage.prune();
+        }
         self.save(next)
     }
 

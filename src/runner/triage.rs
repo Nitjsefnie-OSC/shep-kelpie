@@ -180,6 +180,15 @@ impl Runner {
             if !asked && self.triage_settled(issue)? {
                 continue;
             }
+            // A research that read but could not be posted is posted again, not redone.
+            if self
+                .triage_tries
+                .get(&issue)
+                .is_some_and(|t| t.waiting.is_some())
+            {
+                self.retry_triage(issue)?;
+                continue;
+            }
             if let Some(job) = self.triage_job(issue) {
                 return Ok(Some(Begin::Triage(job)));
             }

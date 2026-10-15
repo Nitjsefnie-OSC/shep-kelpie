@@ -76,3 +76,29 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
+
+// Past `TRIAGED_KEPT` finished records the oldest go, and a record still short
+// of `done` stays whatever its age.
+#[test]
+fn the_oldest_finished_records_go_past_the_cap() {
+    let record = |issue: u64, step: TriageStep| Triaged {
+        issue,
+        comment: issue + 1_000,
+        step,
+    };
+    let mut triage = TriageState {
+        since: Timestamp(1),
+        issues: vec![record(1, TriageStep::Commented)],
+    };
+    let cap = TRIAGED_KEPT as u64;
+    triage
+        .issues
+        .extend((2..cap + 5).map(|n| record(n, TriageStep::Done)));
+
+    triage.prune();
+
+    assert_eq!(triage.issues.len(), TRIAGED_KEPT + 1);
+    assert_eq!(triage.issues[0].issue, 1, "an unfinished record stays");
+    assert_eq!(triage.issues[1].issue, 5, "the oldest finished ones went");
+    assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 4));
+}

@@ -38,7 +38,7 @@ Never write a path on this machine, such as a home folder, into the report: writ
 How to reply: exactly one JSON object and nothing else, no code fence, with these keys. Kelpie parses it and checks what it can, so a number not in the list or a path not in the repo is dropped, and a reply that does not parse is thrown away.
 
 - `type`: `"bug"`, `"enhancement"` or `null`.
-- `priority`: `"P1"`, `"P2"`, `"P3"`, `"P4"` or `null`. Kelpie never sets `P0`: if you think it is, say `"P0"` and kelpie asks the author how urgent it is.
+- `priority`: `"P0"`, `"P1"`, `"P2"`, `"P3"`, `"P4"` or `null`. Kelpie never sets `P0`: if you think it is, answer `"P0"` and kelpie asks the author how urgent it is.
 - `related`: the numbers of the related open issues.
 - `files`: the repo paths the work would touch.
 - `tests`: the test names it would add or change.

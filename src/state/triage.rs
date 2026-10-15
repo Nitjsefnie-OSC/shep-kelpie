@@ -12,11 +12,30 @@ pub struct TriageState {
     /// When `triage.pick` went past `off`: only an issue opened after it is
     /// triaged
     pub since: Timestamp,
-    /// The issues triaged or being triaged, oldest first
+    /// The issues triaged or being triaged, oldest first, the last [`TRIAGED_KEPT`]
+    /// finished ones
     ///
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<Triaged>,
+}
+
+/// How many finished records are kept, the oldest going first. An issue whose
+/// record went is told apart from an untouched one by its `needs-triage` label
+/// and, if that is taken off, by the marker in its comments.
+pub const TRIAGED_KEPT: usize = 200;
+
+impl TriageState {
+    /// Drops the oldest records at `done` past [`TRIAGED_KEPT`]
+    pub fn prune(&mut self) {
+        let done = self.issues.iter().filter(|t| t.step == TriageStep::Done);
+        let mut extra = done.count().saturating_sub(TRIAGED_KEPT);
+        self.issues.retain(|t| {
+            let drop = extra > 0 && t.step == TriageStep::Done;
+            extra -= usize::from(drop);
+            !drop
+        });
+    }
 }
 
 /// An issue whose triage comment kelpie has posted

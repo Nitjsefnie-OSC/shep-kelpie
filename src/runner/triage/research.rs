@@ -88,9 +88,10 @@ pub(super) fn prompt(
          instructions say. Read the repo as you need to, and change nothing.\n\n\
          {}\n\n{}\n\n\
          The open issues are listed above so you can tell a duplicate; you cannot list them \
-         yourself. Ask at most {max_questions} questions in `open`.\n\n\
+         yourself. Ask at most {max_questions} questions in `open`. Kelpie never sets `P0`: answer it if you \
+         think the issue is one, and the author is asked how urgent it is.\n\n\
          Reply with exactly one JSON object and nothing else: {{\"type\": \"bug\" | \
-         \"enhancement\" | null, \"priority\": \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \
+         \"enhancement\" | null, \"priority\": \"P0\" | \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \
          \"related\": [issue numbers], \"files\": [repo paths], \"tests\": [test names], \
          \"criteria\": [strings], \"open\": [{{\"question\": \"...\", \"recommended\": \"...\"}}], \
          \"body\": null}}",
