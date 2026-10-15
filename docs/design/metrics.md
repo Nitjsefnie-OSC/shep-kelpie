@@ -43,6 +43,10 @@ Requests, read from the same file by the same wrapper (`src/request_use.rs`, `do
 - A request is one however many lines Claude Code wrote it as; a reply that sent nothing is none.
 - A worker's turn carried through a handover is counted by the image that adopts it. `CarriedTurn` holds a `Mark` (the transcript's folder, the session and its length as the turn began), and the image counts the requests past it when the turn ends. Its MCP servers and tool calls are not counted, since the mark holds no servers.
 
+## Reports from transcripts
+
+- `shep kelpie usage <project> --item|--context|--reads` (`--json` too) join the ledger to transcripts by its `session` field, with no shepherd. A transcript is found through the `session-started` steps in `steps.jsonl`, never a guessed folder. Requests are read for Claude Code (one per `message.id`, subagent lines left out) and pi; Codex is found, not read (#757). `src/usage/session.rs`, `src/usage/requests.rs`, #926
+
 ## Alerts and dashboard
 
 - `assets/prometheus/kelpie-rules.yml`: a feature failed or skipped since the runner started with no `ok` run (30m); a feature failing in over half its runs in 6h; an MCP server failing to connect in over half its calls in 6h; a role's calls `failed`, `timed-out` or `unreadable` in over a quarter of 6h's calls; a runner's series dropped.
@@ -55,5 +59,4 @@ Requests, read from the same file by the same wrapper (`src/request_use.rs`, `do
 - Feature runs of the browser, dev server and hooks. #923
 - Requests for Codex (#757) and goose (#784).
 - The dog's series: leases held, waits, summons, forge holds. #925
-- `shep kelpie` reports replacing the maintainer's scripts: by item, context sources, reads. #926
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927

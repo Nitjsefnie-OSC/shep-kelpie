@@ -9,7 +9,7 @@ What Claude Code and pi write down of each request a call made to its model, whi
 - A line's `timestamp` is when its block was written, a fraction of a second to some seconds into the reply. The first line of a request is the closest the transcript has to when it was sent. A newer line of type `api-request` holds the send time, and older versions have none, so kelpie reads the first line.
 - A reply Claude Code makes itself, with `model` `<synthetic>`, holds zero in every usage field. 15 of 29,825 assistant lines in 400 of the maintainer's transcripts. None of the 29,825 was a sidechain (`isSidechain` true), and kelpie skips one if it meets it, since its context is not the session's.
 - A resumed call appends to the session's file. The request before a resumed call's first one is in the same file, from the call before, so a gap between calls reads as a gap: `fixtures/claude-transcript-mcp-failed.jsonl` is three calls an hour or more apart, whose requests wrote 13,152, 63,745 and 70,796 tokens, the second and third after a gap.
-- `fixtures/claude-transcript-requests.jsonl` is 12 lines of 6 requests from a kelpie worker's session on Claude Code 2.1.301, with the content of every block and every field but the request's own left out.
+- `fixtures/claude-transcript-request-sizes.jsonl` is 12 lines of 6 requests from a kelpie worker's session on Claude Code 2.1.301, with the content of every block and every field but the request's own left out.
 
 ## pi (1.1.0, 2026-10-15)
 

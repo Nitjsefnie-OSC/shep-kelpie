@@ -9,7 +9,9 @@
 //! `usage`: a project in the maintainer's own flock, the one `-p` names or
 //! whose repo holds the folder it runs in. `usage` with no project reports
 //! every project that has a usage ledger instead, and `usage --forge` reports
-//! the forge ledger, which every project shares.
+//! the forge ledger, which every project shares. `usage <project> --item`,
+//! `--context` and `--reads` join a project's ledger to the transcripts of
+//! its sessions.
 //!
 //! `shep kelpie watch [<issue> | pm] [--back <n>] [--full]`: the runner's
 //! log and the transcripts of the sessions it names, followed live. Run as

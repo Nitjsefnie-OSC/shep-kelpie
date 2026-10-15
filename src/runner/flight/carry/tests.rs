@@ -162,7 +162,7 @@ fn a_carried_turn_s_requests_are_counted_when_the_next_image_adopts_it() {
     let runner = rig.open().unwrap();
     rig.ask(&runner, "add", Some("7"));
     let hold = Hold::default();
-    let lines = include_str!("../../../../fixtures/claude-transcript-requests.jsonl");
+    let lines = include_str!("../../../../fixtures/claude-transcript-request-sizes.jsonl");
     rig.claude.script([Scripted::Transcribed(
         lines.to_owned(),
         Box::new(Scripted::Hold(hold.clone())),

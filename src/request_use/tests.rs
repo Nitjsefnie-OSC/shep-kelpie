@@ -8,7 +8,7 @@ const SPACED: &str = include_str!("../../fixtures/claude-transcript-mcp-failed.j
 const CLOSE: &str = include_str!("../../fixtures/claude-transcript-mcp-tool-calls.jsonl");
 // Six requests of one call from Claude Code 2.1.301, a line for each block of a reply: twelve
 // lines, content left out.
-const BLOCKS: &str = include_str!("../../fixtures/claude-transcript-requests.jsonl");
+const BLOCKS: &str = include_str!("../../fixtures/claude-transcript-request-sizes.jsonl");
 // A pi 1.1.0 session of two requests, a second apart.
 const PI: &str = include_str!("../../fixtures/pi-session-mcp.jsonl");
 
