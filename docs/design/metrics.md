@@ -43,6 +43,10 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 - `kelpie_mcp_servers_total{server,outcome}`: each server in the call's reach, `connected` or `failed`. Claude Code writes how its servers stand only when that changes, so the transcript's last such line is how they stood; `needsAuth` is `failed`, `pending` is not counted. A failed server is a standing warning naming the call and its error code, ended when a later call finds it connected. Claude Code only: pi records no failure (`docs/facts/mcp-servers.md`).
 - `kelpie_mcp_tool_calls_total{server}`: the call's own `mcp__<server>__<tool>` calls, from where its file stood when it began; each server it was given is sent, at 0 if never called. Claude Code and pi.
 
+## Reports from transcripts
+
+- `shep kelpie usage <project> --item|--context|--reads` (`--json` too) join the ledger to transcripts by its `session` field, with no shepherd. A transcript is found through the `session-started` steps in `steps.jsonl`, never a guessed folder. Requests are read for Claude Code (one per `message.id`, subagent lines left out) and pi; Codex is found, not read (#757). `src/usage/session.rs`, `src/usage/requests.rs`, #926
+
 ## Alerts and dashboard
 
 - `assets/prometheus/kelpie-rules.yml`: a feature failed or skipped since the runner started with no `ok` run (30m); a feature failing in over half its runs in 6h; an MCP server failing to connect in over half its calls in 6h; a plan's week over 0.9 used with over a day to its reset (15m); a role's calls `failed`, `timed-out` or `unreadable` in over a quarter of 6h's calls; a runner's series dropped.
@@ -59,5 +63,4 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 - Feature runs of the browser, dev server and hooks. #923
 - Request context sizes (`kelpie_request_context_tokens` buckets) and cache writes after a gap: need per-request usage from transcripts, not per-call totals. #924
 - The dog's series: leases held, waits, summons, forge holds. #925
-- `shep kelpie` reports replacing the maintainer's scripts: by item, context sources, reads. #926
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927
