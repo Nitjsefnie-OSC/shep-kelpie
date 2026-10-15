@@ -1,6 +1,6 @@
 //! The dog's desk: what it makes of what shep tells it
 //!
-//! Pure. Runner metrics and runner processes go in, and the grants the
+//! Pure. Runner notes and runner processes go in, and the grants the
 //! dog must deliver come out. The maintainer's triggers are answered in
 //! [`super::triggers`]. The shell in [`super`] feeds it from shep and
 //! delivers its grants as triggers.
@@ -191,15 +191,16 @@ impl Desk {
         SavedBook::new(self.book.saved(), runs, retired.collect())
     }
 
-    /// Takes one channel metric from sheep `sheep`
+    /// Takes one lease or window total from sheep `sheep`, sent as a note,
+    /// or as a metric sample by a runner on a build from before notes
     ///
-    /// Anything that is not a lease metric from a runner is ignored. A new
+    /// Anything that is not a lease total from a runner is ignored. A new
     /// epoch reclaims what the runner's earlier run held.
     pub fn metric(&mut self, sheep: &str, name: &str, value: f64) -> Vec<Delivery> {
         self.heard(sheep, name, value).grants
     }
 
-    /// Takes one channel metric as [`Desk::metric`] does, and says which a
+    /// Takes one total as [`Desk::metric`] does, and says which a
     /// run's ask or return it did not act on
     pub fn heard(&mut self, sheep: &str, name: &str, value: f64) -> Heard {
         let (Ok(project), Some(value)) = (ProjectName::try_from(sheep), count(value)) else {
