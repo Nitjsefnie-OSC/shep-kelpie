@@ -1,7 +1,11 @@
 //! `shep kelpie usage [<project>] [--since <date>]`,
-//! `shep kelpie usage <project> --import <log file>` and
-//! `shep kelpie usage --forge [--since <date>]`: the usage ledger and the
-//! forge ledger, read here with no shepherd asked
+//! `shep kelpie usage <project> --import <log file>`,
+//! `shep kelpie usage <project> --item <issue>`,
+//! `shep kelpie usage <project> --context [--since <date>]`,
+//! `shep kelpie usage <project> --reads [--since <date>]` and
+//! `shep kelpie usage --forge [--since <date>]`: the usage ledger, the
+//! transcripts it names and the forge ledger, read here with no shepherd
+//! asked
 
 use std::path::Path;
 
@@ -15,6 +19,9 @@ enum Ask<'a> {
     Report { since: Option<&'a str> },
     Import { log: &'a str },
     Forge { since: Option<&'a str> },
+    Item { issue: u64, json: bool },
+    Context { since: Option<&'a str>, json: bool },
+    Reads { since: Option<&'a str>, json: bool },
 }
 
 /// Runs `usage` with `args`, the project `named` or taken first from them,
@@ -40,6 +47,20 @@ pub(super) fn usage(
             let lines = forge_ledger::read(&path)
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             Ok(forge_ledger::report(&lines, since))
+        }
+        Ask::Item { issue, json } => {
+            let (project, lines, steps) = own_files(kelpie_home, project, "--item")?;
+            Ok(usage::item(&project, &lines, &steps, issue, json))
+        }
+        Ask::Context { since, json } => {
+            let since = since.map(since_date).transpose()?;
+            let (project, lines, steps) = own_files(kelpie_home, project, "--context")?;
+            Ok(usage::context(&project, &lines, &steps, since, json))
+        }
+        Ask::Reads { since, json } => {
+            let since = since.map(since_date).transpose()?;
+            let (project, lines, steps) = own_files(kelpie_home, project, "--reads")?;
+            Ok(usage::reads(&project, &lines, &steps, since, json))
         }
         Ask::Import { log } => {
             let project = project.ok_or("`usage --import` takes the project to import into")?;
@@ -82,17 +103,39 @@ fn read_args<'a>(
     named: Option<ProjectName>,
     args: &[&'a str],
 ) -> Result<(Option<ProjectName>, Ask<'a>), String> {
-    let (positional, ask) = match args {
-        [] => (None, Ask::Report { since: None }),
-        ["--forge"] => (None, Ask::Forge { since: None }),
-        ["--forge", "--since", date] => (None, Ask::Forge { since: Some(date) }),
-        ["--since", date] => (None, Ask::Report { since: Some(date) }),
-        ["--import", log] => (None, Ask::Import { log }),
-        [name] if !name.starts_with('-') => (Some(*name), Ask::Report { since: None }),
-        [name, "--since", date] if !name.starts_with('-') => {
-            (Some(*name), Ask::Report { since: Some(date) })
+    let mut positional = None;
+    let (mut since, mut import, mut item) = (None, None, None);
+    let (mut forge, mut context, mut reads, mut json) = (false, false, false, false);
+    let mut words = args.iter().copied();
+    while let Some(word) = words.next() {
+        match word {
+            "--since" => since = Some(words.next().ok_or(super::USAGE)?),
+            "--import" => import = Some(words.next().ok_or(super::USAGE)?),
+            "--item" => {
+                let issue = words.next().ok_or(super::USAGE)?;
+                let number = issue.parse::<u64>().ok().filter(|&n| n > 0);
+                item = Some(number.ok_or_else(|| format!("{issue:?} is not an issue number"))?);
+            }
+            "--forge" => forge = true,
+            "--context" => context = true,
+            "--reads" => reads = true,
+            "--json" => json = true,
+            name if !name.starts_with('-') && positional.is_none() => positional = Some(name),
+            _ => return Err(super::USAGE.to_owned()),
         }
-        [name, "--import", log] if !name.starts_with('-') => (Some(*name), Ask::Import { log }),
+    }
+    let modes = [import.is_some(), forge, item.is_some(), context, reads];
+    if modes.into_iter().filter(|&on| on).count() > 1 {
+        return Err(super::USAGE.to_owned());
+    }
+    // Only these three have a JSON form; `--since` goes with every report but an import and an item.
+    let ask = match (import, forge, item, context, reads) {
+        (Some(log), ..) if since.is_none() && !json => Ask::Import { log },
+        (_, true, ..) if !json => Ask::Forge { since },
+        (_, _, Some(issue), ..) if since.is_none() => Ask::Item { issue, json },
+        (_, _, _, true, _) => Ask::Context { since, json },
+        (.., true) => Ask::Reads { since, json },
+        (None, false, None, false, false) if !json => Ask::Report { since },
         _ => return Err(super::USAGE.to_owned()),
     };
     let project = match (positional, named) {
@@ -101,6 +144,23 @@ fn read_args<'a>(
         (None, named) => named,
     };
     Ok((project, ask))
+}
+
+// The ledger and the steps file of the project that `flag` was asked of
+fn own_files(
+    kelpie_home: &Path,
+    project: Option<ProjectName>,
+    flag: &str,
+) -> Result<(String, Vec<usage::Line>, String), String> {
+    let project =
+        project.ok_or_else(|| format!("`usage {flag}` takes the project to report on"))?;
+    let folder = kelpie_home.join(project.as_str());
+    let path = folder.join(usage::FILE);
+    let lines = usage::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    // A project that has run no call has no steps file, and its calls have no transcripts to find.
+    let steps = std::fs::read(folder.join(crate::runner::STEPS_FILE)).unwrap_or_default();
+    let steps = String::from_utf8_lossy(&steps).into_owned();
+    Ok((project.as_str().to_owned(), lines, steps))
 }
 
 // The start of `date`, `YYYY-MM-DD`, in this machine's time zone
@@ -130,6 +190,9 @@ fn with_ledgers(kelpie_home: &Path) -> Result<Vec<String>, String> {
     names.sort();
     Ok(names)
 }
+
+#[cfg(test)]
+mod inspect_tests;
 
 #[cfg(test)]
 mod tests {

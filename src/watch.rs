@@ -57,6 +57,32 @@ pub(crate) fn session_file(
     locate::find(&Started::of(format, session, folder, threads, at))
 }
 
+/// Each session the steps file `steps` names a call starting in, by session
+/// id, with its transcript's format and the file it wrote, for those whose
+/// file exists
+///
+/// A session logged more than once, as a resumed one is, keeps its first
+/// step's folder. A goose call is left out: its stdout file holds no whole
+/// session.
+pub(crate) fn transcripts_of(steps: &str) -> std::collections::BTreeMap<String, (Format, PathBuf)> {
+    let mut found = std::collections::BTreeMap::new();
+    for started in steps
+        .lines()
+        .filter_map(log::parse)
+        .filter_map(|step| step.started())
+    {
+        if started.format == Format::Goose || found.contains_key(&started.session) {
+            continue;
+        }
+        let format = started.format;
+        let session = started.session.clone();
+        if let Some(file) = locate::find(&started) {
+            found.insert(session, (format, file));
+        }
+    }
+    found
+}
+
 /// How far before its `session-started` step a transcript line may be and
 /// still belong to the call it starts
 ///
