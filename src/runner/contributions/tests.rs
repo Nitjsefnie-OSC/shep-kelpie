@@ -66,10 +66,15 @@ fn one(number: u64, author: &str, head: &str) -> Vec<(u64, String, String)> {
     vec![(number, author.to_owned(), head.to_owned())]
 }
 
-// A step with nothing for the board to do, after the next poll is due
+// A step with nothing for the board to do, after the next poll is due, but for
+// the alert of a ruling about the pull request
 pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     rig.next_look();
-    assert_eq!(step(runner).unwrap(), None);
+    let report = step(runner).unwrap();
+    assert!(
+        matches!(report, None | Some(StepReport::Alerted { id: 30 })),
+        "{report:?}"
+    );
 }
 
 #[test]

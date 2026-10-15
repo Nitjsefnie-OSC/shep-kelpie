@@ -280,6 +280,16 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                  merge ruling does."
             );
         }
+        RulingKind::Contribution(Held::Merge { head }) => {
+            return format!(
+                "The reviewers' pass over {about} has ended and CI is green on {}, and nobody \
+                 merges someone else's work but you, whatever `git.merging` says. {yes} merges \
+                 this head and the representative thanks the contributor. {no} merges nothing: \
+                 the representative words your note for the contributor and posts it, and a no \
+                 with no note posts nothing. No fix turn runs for either.",
+                short(head)
+            );
+        }
         RulingKind::Contribution(Held::Waiting) => {
             return format!(
                 "The contributor of {about} said no when kelpie asked to take it over, twice, \

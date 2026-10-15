@@ -378,7 +378,7 @@ impl Runner {
     // The open threads of a review bot on the current head, findings and
     // nits, one to a line. A local reviewer's findings are its own review and
     // not named.
-    fn open_threads(&self, held: &Contribution) -> String {
+    pub(super) fn open_threads(&self, held: &Contribution) -> String {
         let Some(pass) = held.pass.as_ref().filter(|p| p.head == held.head) else {
             return String::new();
         };
@@ -398,7 +398,7 @@ impl Runner {
     // the id the forge gave, or `None` when it could not be, told in the log
     // and tried at the next poll. A wording kept from a try that failed to
     // post is sent again.
-    fn word_and_post(
+    pub(super) fn word_and_post(
         &mut self,
         held: &Contribution,
         kind: &str,
@@ -544,7 +544,7 @@ impl Runner {
     }
 
     // Changes the contribution for `number` in the state
-    fn change(
+    pub(super) fn change(
         &mut self,
         number: u64,
         change: impl FnOnce(&mut Contribution),
@@ -559,7 +559,7 @@ impl Runner {
     // Records the change after the forge took a post, `posted` its id. A save
     // that fails leaves the id to be recorded at the next poll, so the post is
     // not made twice.
-    fn keep_record(
+    pub(super) fn keep_record(
         &mut self,
         number: u64,
         key: &str,

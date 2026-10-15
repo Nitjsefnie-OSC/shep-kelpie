@@ -98,7 +98,11 @@ fn a_question_about_a_finding_is_answered_in_a_comment() {
     assert!(prompts[1].contains("first is wrong"), "{}", prompts[1]);
     assert!(prompts[1].contains("one.txt"), "{}", prompts[1]);
     assert!(prompts[1].contains("+two"), "the diff: {}", prompts[1]);
-    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+    // The only ruling is the one about the merge.
+    let reasons: Vec<Value> = (rulings(&rig, &runner).iter())
+        .map(|r| r["kind"]["reason"].clone())
+        .collect();
+    assert_eq!(reasons, ["merge"]);
 }
 
 #[test]

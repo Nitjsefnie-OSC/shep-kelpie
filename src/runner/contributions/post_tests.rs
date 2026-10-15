@@ -217,6 +217,7 @@ fn the_publish_hook_sees_the_body_and_each_line_comment() {
 
     read_through(&rig, &runner, &head);
     poll_through(&rig, &runner);
+    poll_through(&rig, &runner);
 
     // Neither the body nor the comment that named the word was posted; the
     // third wording had none and was.

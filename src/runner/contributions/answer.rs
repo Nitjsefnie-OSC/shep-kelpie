@@ -23,6 +23,7 @@ use serde::Deserialize;
 
 use super::super::Runner;
 use super::super::representative::Post;
+use super::merge::is_merge_ruling;
 use super::post::{POST_TRIES, Wording, forge_is_busy, refused_text, short};
 use super::release::awaits_release;
 use super::ruling::{flagged_lines, raise_question};
@@ -136,7 +137,7 @@ impl Runner {
 
     // Whether a ruling on the pull request waits for the maintainer
     pub(super) fn ruling_waits(&self, number: u64) -> bool {
-        (self.state.rulings.iter()).any(|r| r.id == number)
+        (self.state.rulings.iter()).any(|r| r.id == number && !is_merge_ruling(&r.kind))
     }
 
     // Asks the representative about `said`. Returns whether it was dealt
