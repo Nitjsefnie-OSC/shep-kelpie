@@ -4,11 +4,12 @@
 //! `concurrency.pending_rulings` parked asks the board on its steps, after starting any pull
 //! request it adopted and checking its open pull requests for one asking
 //! for a rework, and before a call a contribution is due goes ahead of any
-//! issue. A queued issue waits until a slot is free, an issue, or a
-//! pull request, whose work item is open waits for it to end, and an issue
-//! naming a file a parked item's branch changes waits for that item. With a
-//! project manager and two or more issues the board could take, its pick
-//! goes in place of the board rule's, and a ready issue it holds waits.
+//! issue, and the research on an untouched issue after that. A queued issue
+//! waits until a slot is free, an issue, or a pull request, whose work item is
+//! open waits for it to end, and an issue naming a file a parked item's
+//! branch changes waits for that item. With a project manager and two or more
+//! issues the board could take, its pick goes in place of the board rule's,
+//! and a ready issue it holds waits.
 
 use super::Runner;
 use super::pm::Choice;
@@ -57,6 +58,12 @@ impl Runner {
         // A contribution's call goes before any new issue, and takes the slot
         // the board would have.
         if let Some(begin) = self.contribution_due()? {
+            self.set_failed_skips(failed);
+            return Ok(begin);
+        }
+        // An untouched issue's research goes after that and before the board's
+        // own pick, and takes the slot it would have.
+        if let Some(begin) = self.triage_due()? {
             self.set_failed_skips(failed);
             return Ok(begin);
         }

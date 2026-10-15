@@ -56,11 +56,15 @@ pub(super) struct Flights {
     labelling: Option<label::Labelling>,
     // The security review of a contribution's head
     securing: Option<security::Securing>,
+    // The triager's research of an untouched issue
+    triaging: Option<triage::Triaging>,
     // The e2e run of a bump's head
     proving: proving::Proving,
     // The contributions a security review started on since the last poll, which
     // are not tried again before the next
     security_tried: Vec<u64>,
+    // The issues triage looked at since the last poll
+    triage_tried: Vec<u64>,
     // The experts of one ruling, voting
     panel: Option<panel::Panelling>,
     // The project manager's batch retro
@@ -81,8 +85,10 @@ impl Default for Flights {
             pm: None,
             labelling: None,
             securing: None,
+            triaging: None,
             proving: proving::Proving::default(),
             security_tried: Vec::new(),
+            triage_tried: Vec::new(),
             panel: None,
             retro: None,
             ledger: InFlight::default(),
@@ -241,6 +247,12 @@ enum News {
         head: String,
         reading: crate::runner::contributions::Reading,
     },
+    // The triager's research of an issue ended, with its reply read against its view
+    Triaged {
+        issue: u64,
+        end: End,
+        found: Option<Result<crate::runner::triage::research::Found, String>>,
+    },
     // The experts of a ruling ended, each as its own call did
     Paneled {
         id: u64,
@@ -367,12 +379,14 @@ impl Runner {
             .map(|(deadline, _)| *deadline);
         let labelling = (self.flights.labelling.iter()).filter_map(label::Labelling::ceiling);
         let securing = (self.flights.securing.iter()).filter_map(security::Securing::ceiling);
+        let triaging = (self.flights.triaging.iter()).filter_map(triage::Triaging::ceiling);
         let panel = (self.flights.panel.iter()).filter_map(panel::Panelling::ceiling);
         let retro = (self.flights.retro.iter()).filter_map(retro::Retrospecting::ceiling);
         turns
             .chain(pm)
             .chain(labelling)
             .chain(securing)
+            .chain(triaging)
             .chain(panel)
             .chain(retro)
             .map(|deadline| Duration::from_secs(deadline.0.saturating_sub(now.0)))
@@ -398,6 +412,9 @@ impl Runner {
         }
         if let Some(securing) = &self.flights.securing {
             securing.end_overdue(now);
+        }
+        if let Some(triaging) = &self.flights.triaging {
+            triaging.end_overdue(now);
         }
         if let Some(panel) = &self.flights.panel {
             panel.end_overdue(now);
@@ -492,6 +509,10 @@ impl Runner {
             }
             Begin::Secure(job) => {
                 self.launch_security(job);
+                return Ok(Pass::Started);
+            }
+            Begin::Triage(job) => {
+                self.launch_triage(job);
                 return Ok(Pass::Started);
             }
         };
@@ -831,6 +852,10 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             runner.security_heard(pull_request, &head, reading)?;
             return Ok(None);
         }
+        News::Triaged { issue, end, found } => {
+            runner.triage_heard(issue, end, found)?;
+            return Ok(None);
+        }
         News::Proved(proof) => {
             runner.proof_heard(proof)?;
             return Ok(None);
@@ -919,6 +944,7 @@ pub(super) mod security;
 mod step;
 #[cfg(test)]
 mod tests;
+pub(super) mod triage;
 mod waiting;
 
 pub use carry::CarriedTurn;

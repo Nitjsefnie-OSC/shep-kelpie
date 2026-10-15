@@ -105,13 +105,13 @@ impl Runner {
     }
 }
 
-// The worker's turns and the reviewers read the code. The retro, the advisors and
+// The worker's turns, the reviewers and the triager read the code. The retro, the advisors and
 // the project manager do not, and a harness that loads no MCP servers cannot use it.
 fn reads_code(call: &AgentCall) -> bool {
     call.harness.loads_mcp()
         && matches!(
             (call.role, call.tools),
-            (Role::Worker, Tools::Work) | (Role::Reviewer, Tools::Review)
+            (Role::Worker, Tools::Work) | (Role::Reviewer | Role::Triager, Tools::Review)
         )
 }
 

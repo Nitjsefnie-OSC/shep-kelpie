@@ -9,10 +9,10 @@ use crate::runner::{Runner, step};
 use crate::test::Rig;
 
 // The maintainer is not kelpie's account, which is `the-maintainer`
-const MAINTAINER: &str = "Boss";
+pub(super) const MAINTAINER: &str = "Boss";
 
 // A rig whose App covers the repo, with `[app.dogs.kelpie.triage]` set to `lines`
-fn rig_with(lines: &str) -> Rig {
+pub(super) fn rig_with(lines: &str) -> Rig {
     let rig = Rig::new("shep");
     rig.with_app();
     rig.maintainer(MAINTAINER);
@@ -20,14 +20,14 @@ fn rig_with(lines: &str) -> Rig {
     rig
 }
 
-fn triaging(pick: &str) -> (Rig, Mutex<Runner>) {
+pub(super) fn triaging(pick: &str) -> (Rig, Mutex<Runner>) {
     let rig = rig_with(&format!("pick = \"{pick}\""));
     let runner = rig.open().unwrap();
     (rig, runner)
 }
 
 // An issue by `author` made `after` seconds after the rig's clock now reads
-fn issue(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIssue {
+pub(super) fn issue(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIssue {
     OpenIssue {
         number,
         title: format!("issue {number}"),
@@ -39,16 +39,16 @@ fn issue(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIssue {
     }
 }
 
-fn list(rig: &Rig, issue: OpenIssue) {
+pub(super) fn list(rig: &Rig, issue: OpenIssue) {
     rig.forge.list_open_issue(issue);
 }
 
-fn status(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+pub(super) fn status(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     rig.ask(runner, "status", None)
 }
 
 // The issues `status` lists as due, in the order it lists them
-fn due(rig: &Rig, runner: &Mutex<Runner>) -> Vec<u64> {
+pub(super) fn due(rig: &Rig, runner: &Mutex<Runner>) -> Vec<u64> {
     let status = status(rig, runner);
     let listed = status["triage"]["due"].as_array().cloned();
     let numbers = listed.unwrap_or_default();

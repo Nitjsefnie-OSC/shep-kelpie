@@ -131,7 +131,7 @@ impl Runner {
         self.recheck_dropped()?;
         self.follow_contributions()?;
         self.follow_dependencies()?;
-        self.follow_triage();
+        self.follow_triage()?;
         let open: Vec<u64> = self.state.work_items.iter().map(|i| i.issue).collect();
         self.unreachable.keep_only(&open);
         self.held_up.keep_only(&open);
