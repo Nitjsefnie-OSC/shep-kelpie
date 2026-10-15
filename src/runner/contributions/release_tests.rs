@@ -8,9 +8,10 @@ use super::pass_tests::read_through;
 use super::ruling_tests::rule;
 use super::security_tests::contribution;
 use super::tests::poll;
-use crate::ports::{Clock as _, Role};
+use crate::ports::{AgentError, Clock as _, Role};
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
 use crate::runner::{Runner, StepReport, step};
+use crate::settings::Harness;
 use crate::test::{Rig, Scripted};
 
 const DAY: u64 = Rig::DAY;
@@ -325,4 +326,79 @@ fn a_thumbs_up_on_any_other_comment_is_not_a_release() {
     assert_eq!(record["released"], Value::Null);
     assert_eq!(record["asked"]["nos"], Value::Null);
     assert_eq!(comments(&rig), [ASKS]);
+}
+
+fn down() -> AgentError {
+    AgentError::Failed(Harness::ClaudeCode, "overloaded".into())
+}
+
+// A reply to the ask that cannot be read yet is neither a yes nor a no yet,
+// and is not answered as a conversation meanwhile: the no is counted when it
+// is read.
+#[test]
+fn a_reply_that_cannot_be_read_yet_is_not_answered_as_a_conversation() {
+    let (rig, runner) = waiting(&[ASKS, "not json at all", ANSWERS, NO]);
+    later(&rig, &runner, 3);
+
+    rig.writes_on(30, "newcomer", "No thanks, I will finish it myself.");
+    poll(&rig, &runner);
+
+    assert_eq!(comments(&rig), [ASKS], "no public answer to a reply unread");
+    assert_eq!(prompts(&rig).len(), 2, "the ask and the failed reading");
+
+    // The scripted conversation answer is spent by the next reading, which
+    // is then not JSON either; the third reads it.
+    polls(&rig, &runner);
+    let record = held(&rig, &runner);
+    assert_eq!(comments(&rig), [ASKS], "{record}");
+    assert_eq!(record["asked"]["nos"], 1);
+    assert_eq!(record["released"], Value::Null);
+}
+
+// A yes whose line to the contributor failed to post is not a conversation
+// either, and is released when the line goes out.
+#[test]
+fn a_yes_whose_line_failed_is_not_answered_and_is_released_at_the_next_poll() {
+    let (rig, runner) = waiting(&[ASKS, YES]);
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Fail(down()), Scripted::Say(TAKEN)],
+    );
+    later(&rig, &runner, 3);
+
+    rig.writes_on(30, "newcomer", "Yes, please go ahead.");
+    poll(&rig, &runner);
+    assert_eq!(comments(&rig), [ASKS]);
+    assert_eq!(held(&rig, &runner)["released"], Value::Null);
+
+    polls(&rig, &runner);
+    assert_eq!(comments(&rig), [ASKS, TAKEN]);
+    assert_eq!(held(&rig, &runner)["released"]["how"], "yes");
+}
+
+// The thanks is saved as posted, so a restart before the close goes through
+// does not post it a second time.
+#[test]
+fn a_close_that_fails_across_a_restart_does_not_thank_twice() {
+    let (rig, runner) = refused_twice();
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say(THANKED), Scripted::Say(THANKED)],
+    );
+    rig.forge.set_pull_request_closes_down(true);
+
+    let ruled = rule(&rig, &runner, "30 answer close with thanks");
+    assert_eq!(ruled.get("error"), None, "{ruled}");
+    polls(&rig, &runner);
+    assert_eq!(comments(&rig), [ASKS, ASKS_AGAIN, THANKED]);
+    assert_eq!(rig.forge.pull_request_closings(), Vec::<u64>::new());
+    assert_eq!(held(&rig, &runner)["asked"]["thanked"], true);
+
+    // A restart forgets what the runner kept in memory.
+    runner.lock().unwrap().post_tries.borrow_mut().clear();
+    rig.forge.set_pull_request_closes_down(false);
+    polls(&rig, &runner);
+
+    assert_eq!(comments(&rig), [ASKS, ASKS_AGAIN, THANKED], "thanked once");
+    assert_eq!(rig.forge.pull_request_closings(), [30]);
 }

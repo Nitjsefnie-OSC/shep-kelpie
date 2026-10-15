@@ -24,6 +24,7 @@ use serde::Deserialize;
 use super::super::Runner;
 use super::super::representative::Post;
 use super::post::{POST_TRIES, Wording, forge_is_busy, refused_text, short};
+use super::release::awaits_release;
 use super::ruling::{flagged_lines, raise_question};
 use crate::ports::{Cost, Finding};
 use crate::state::{Contribution, Deciding, Said, StateError};
@@ -123,6 +124,7 @@ impl Runner {
             }
         }
         (held.unanswered().into_iter())
+            .filter(|said| !awaits_release(held, said))
             .find(|said| !self.answer_given_up(&answer_key(number, said)))
             .map(Due::Answer)
     }

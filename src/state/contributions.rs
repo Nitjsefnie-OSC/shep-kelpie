@@ -158,6 +158,10 @@ pub struct Asked {
     /// the next poll does
     #[serde(default, skip_serializing_if = "is_false")]
     pub closing: bool,
+    /// That the thanks for a close was posted, so a restart does not post it
+    /// again while the close is retried
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub thanked: bool,
 }
 
 fn is_false(b: &bool) -> bool {

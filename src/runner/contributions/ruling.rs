@@ -229,6 +229,7 @@ pub(in crate::runner) fn settle(
                     nos: 0,
                     read: Vec::new(),
                     closing: false,
+                    thanked: false,
                 });
                 asked.closing = true;
             }

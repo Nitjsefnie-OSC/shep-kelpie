@@ -247,8 +247,10 @@ impl Runner {
         if let Some(kept) = self.kept_answer(&key) {
             return Ok(Reading::of(&kept));
         }
+        // A reply that cannot be read after every try is left to the
+        // conversation, so it does not hold the release for ever.
         if self.answer_given_up(&key) {
-            return Ok(None);
+            return Ok(Some(Reading::Other));
         }
         let wrote = match self.said_text(number, said) {
             Ok(wrote) => wrote,
@@ -335,6 +337,7 @@ impl Runner {
                 nos,
                 read: Vec::new(),
                 closing: false,
+                thanked: false,
             });
             if quiet {
                 held.waiting_since = Some(now);
@@ -503,29 +506,35 @@ impl Runner {
     }
 
     // Thanks the contributor and closes the pull request, as the maintainer
-    // chose. The thanks is posted once: a close that fails is tried again
-    // alone.
+    // chose. The thanks is posted once, and saved as posted, so a close that
+    // fails is tried again alone, a restart included.
     fn close_with_thanks(&mut self, held: &Contribution) -> Result<(), StateError> {
         let number = held.pull_request;
         let key = format!("thanks:{number}");
         if self.answer_given_up(&key) {
             return Ok(());
         }
-        if self.sent_before(&key).is_none() {
-            let facts = format!(
-                "Pull request #{number} by @{}. The maintainer decided to close it without a \
-                 merge.\n",
-                held.author
-            );
-            let Some(id) = self.word_and_post(held, THANKS, &facts, &key, "thank")? else {
-                return Ok(());
+        let thanked = held.asked.as_ref().is_some_and(|a| a.thanked);
+        if !thanked {
+            let posted = match self.sent_before(&key) {
+                Some(id) => id,
+                None => {
+                    let facts = format!(
+                        "Pull request #{number} by @{}. The maintainer decided to close it \
+                         without a merge.\n",
+                        held.author
+                    );
+                    match self.word_and_post(held, THANKS, &facts, &key, "thank")? {
+                        Some(id) => id,
+                        None => return Ok(()),
+                    }
+                }
             };
-            // The thanks is out whatever happens to the close.
-            self.post_tries
-                .borrow_mut()
-                .entry(key.clone())
-                .or_default()
-                .sent = Some(id);
+            self.keep_record(number, &key, Some(posted), |held| {
+                if let Some(asked) = held.asked.as_mut() {
+                    asked.thanked = true;
+                }
+            })?;
         }
         if let Err(e) = self.ports.forge.close_pull_request(&self.remote, number) {
             let counts = !forge_is_busy(&e);
@@ -581,6 +590,15 @@ fn replies_since(held: &Contribution, asked: &Asked) -> Vec<Said> {
     (held.unanswered().into_iter())
         .filter(|said| said.at() >= asked.at && !known(&asked.read, said))
         .collect()
+}
+
+/// Whether `said` is a reply to the open ask that the release stage has yet to
+/// read, so the conversation leaves it alone: a yes or a no is never answered
+/// in public
+pub(super) fn awaits_release(held: &Contribution, said: &Said) -> bool {
+    held.released.is_none()
+        && (held.asked.as_ref())
+            .is_some_and(|a| a.is_open() && !a.closing && replies_since(held, a).contains(said))
 }
 
 fn read_key(number: u64, said: &Said) -> String {

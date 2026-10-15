@@ -36,6 +36,7 @@ fn an_older_state_file_loads() {
         nos: 1,
         read: Vec::new(),
         closing: false,
+        thanked: false,
     });
     state.contributions[0].released = Some(Released {
         at: Timestamp(90),
@@ -82,6 +83,7 @@ fn a_push_drops_an_ask_but_not_the_maintainers_close() {
         nos: 0,
         read: Vec::new(),
         closing,
+        thanked: false,
     };
     let mut held = Contribution::new(12, "newcomer".into(), "2a8f1e6".into(), Timestamp(1));
 
