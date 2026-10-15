@@ -144,6 +144,11 @@ impl Window {
         }
     }
 
+    /// Whether a summon accepted at `at` has aged out of the span by `now`
+    pub fn aged(&self, at: Timestamp, now: Timestamp) -> bool {
+        at.0 + self.span <= now.0
+    }
+
     /// Forgets summons older than the span before `now`
     pub fn prune(&mut self, now: Timestamp) {
         self.summons.retain(|at| at.0 + self.span > now.0);

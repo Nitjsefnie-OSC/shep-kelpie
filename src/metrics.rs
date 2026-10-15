@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
+mod dog;
 mod mcp;
 mod plan;
 mod series;

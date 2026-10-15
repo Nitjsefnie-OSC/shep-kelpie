@@ -143,16 +143,19 @@ impl Desk {
         let lease = self.e2e.entry(host.to_owned()).or_insert_with(|| {
             CountedLease::named(Cow::Owned(format!("{E2E}:{host}")), HOST_CAPACITY)
         });
-        lease.ask(taker, now)
+        let taken = lease.ask(taker, now);
+        self.look(true);
+        taken
     }
 
     /// Gives `host`'s e2e lease back, or leaves its queue, for the connection
     /// `ticket`, and returns the waiters granted after it
     pub(super) fn leave_e2e(&mut self, host: &str, ticket: Ticket) -> Vec<Ticket> {
         let now = self.book.now();
-        self.e2e
-            .get_mut(host)
-            .map_or_else(Vec::new, |lease| lease.leave(ticket, now))
+        let granted =
+            (self.e2e.get_mut(host)).map_or_else(Vec::new, |lease| lease.leave(ticket, now));
+        self.look(true);
+        granted
     }
 }
 

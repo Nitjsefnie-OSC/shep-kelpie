@@ -16,6 +16,12 @@ impl Desk {
     /// and `return` name a book lease and act for the maintainer. Asking
     /// with `take` again is how a waiting maintainer learns of the grant.
     pub fn answer(&mut self, action: &str, params: Option<&str>) -> (String, Vec<Delivery>) {
+        let answered = self.respond(action, params);
+        self.look(true);
+        answered
+    }
+
+    fn respond(&mut self, action: &str, params: Option<&str>) -> (String, Vec<Delivery>) {
         let error = |message: String| (json!({ "error": message }).to_string(), Vec::new());
         let params = params.map(str::trim).filter(|p| !p.is_empty());
         let kind = match (action, params) {
