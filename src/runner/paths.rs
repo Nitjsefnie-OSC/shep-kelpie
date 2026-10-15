@@ -120,6 +120,7 @@ pub struct ProjectPaths {
     worktrees: PathBuf,
     builds: PathBuf,
     graphs: PathBuf,
+    graph_runtimes: PathBuf,
     browsers: PathBuf,
     issues: PathBuf,
     triage: PathBuf,
@@ -127,7 +128,7 @@ pub struct ProjectPaths {
 
 impl ProjectPaths {
     /// `<kelpie home>/<project>/`, holding the project's state and worker
-    /// files, and its `worktrees`, `builds`, `code-graphs`, `browser` and `issues` folders, beside
+    /// files, and its `worktrees`, `builds`, `code-graphs`, `cbm`, `browser` and `issues` folders, beside
     /// kelpie's own `totp`, `agents` and `tools`
     pub fn under(kelpie_home: &Path, shep_home: &Path, project: &ProjectName) -> Self {
         let folder = kelpie_home.join(project.as_str());
@@ -154,6 +155,7 @@ impl ProjectPaths {
             worktrees: folder.join("worktrees"),
             builds: folder.join("builds"),
             graphs: folder.join("code-graphs"),
+            graph_runtimes: folder.join("cbm"),
             browsers: folder.join("browser"),
             issues: folder.join("issues"),
             triage: folder.join("triage"),
@@ -216,6 +218,12 @@ impl ProjectPaths {
         self.graphs.join(format!("triage-{issue}"))
     }
 
+    /// The folder the code graph daemon of the triager's view for `issue`
+    /// binds its socket in, which goes when its call ends
+    pub fn triage_graph_runtime(&self, issue: u64) -> PathBuf {
+        self.graph_runtimes.join(format!("triage-{issue}"))
+    }
+
     /// The folder holding the browser server's config and output for a bump's proof
     pub fn bump_browser(&self, pull_request: u64) -> PathBuf {
         self.browsers.join(format!("bump-{pull_request}"))
@@ -230,6 +238,12 @@ impl ProjectPaths {
     /// `issue`, which goes when the worktree does
     pub fn code_graph(&self, issue: u64) -> PathBuf {
         self.graphs.join(issue.to_string())
+    }
+
+    /// The folder the code graph daemon of the worktree that resolves `issue`
+    /// binds its socket in, which goes with the index. Short, as a socket's path must be.
+    pub fn code_graph_runtime(&self, issue: u64) -> PathBuf {
+        self.graph_runtimes.join(issue.to_string())
     }
 
     /// The folder holding the browser server's config and output for the work

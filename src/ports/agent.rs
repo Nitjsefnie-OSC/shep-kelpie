@@ -180,6 +180,10 @@ pub struct CodeGraph {
     pub binary: PathBuf,
     /// The folder the worktree's index is kept in, under kelpie's home
     pub index: PathBuf,
+    /// The folder the server's daemon binds its socket in, one a work item, under kelpie's
+    /// home. One daemon serves one index folder, and a second index in the same folder is
+    /// refused.
+    pub runtime: PathBuf,
 }
 
 /// The browser kelpie runs for a call, outside its sandbox, reached over a socket
