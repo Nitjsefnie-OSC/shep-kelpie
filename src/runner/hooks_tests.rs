@@ -268,3 +268,49 @@ fn a_pi_implementer_with_a_commit_hook_is_not_refused_at_load_and_its_commit_is_
         Verdict::Allow
     );
 }
+
+// How many runs of the project's hooks the metrics endpoint counted as `outcome`
+fn hook_runs(rig: &Rig, outcome: &str) -> Option<f64> {
+    let labels = [("feature", "hooks"), ("outcome", outcome)];
+    rig.samples.value("kelpie_feature_runs_total", &labels)
+}
+
+#[test]
+fn a_hook_that_exits_0_or_refuses_on_purpose_counts_as_an_ok_run() {
+    let passing = Rig::new("shep");
+    passing.hook("gate.sh", &["turn_start"], "exit 0");
+    let runner = passing.open().unwrap();
+    passing.ask(&runner, "add", Some("7"));
+    step(&runner).unwrap();
+    assert!(hook_runs(&passing, "ok") >= Some(1.0));
+    assert_eq!(hook_runs(&passing, "failed"), None);
+
+    let refusing = Rig::new("shep");
+    refusing.hook("gate.sh", &["turn_start"], "echo 'not now' >&2; exit 2");
+    let runner = refusing.open().unwrap();
+    refusing.ask(&runner, "add", Some("7"));
+    step(&runner).unwrap();
+    assert!(hook_runs(&refusing, "ok") >= Some(1.0));
+    assert_eq!(hook_runs(&refusing, "failed"), None);
+}
+
+#[test]
+fn a_hook_that_fails_to_run_counts_as_a_failed_run_and_none_as_ok() {
+    let rig = Rig::new("shep");
+    rig.hook("gate.sh", &["turn_start"], "exit 1");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    step(&runner).unwrap();
+    assert!(hook_runs(&rig, "failed") >= Some(1.0));
+    assert_eq!(hook_runs(&rig, "ok"), None);
+}
+
+#[test]
+fn a_project_with_no_hooks_counts_no_hook_runs() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    step(&runner).unwrap();
+    assert_eq!(hook_runs(&rig, "ok"), None);
+    assert_eq!(hook_runs(&rig, "failed"), None);
+}

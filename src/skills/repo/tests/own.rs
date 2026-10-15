@@ -87,3 +87,24 @@ fn a_server_the_default_branch_gains_after_the_runner_started_loads_when_it_look
     );
     assert_eq!(runner.lock().unwrap().reread_plugins(), None);
 }
+
+#[test]
+fn a_launch_file_the_default_branch_gains_turns_the_dev_server_gauge_on_when_it_looks_again() {
+    let rig = Rig::new("shep");
+    let off = "[app.dogs.kelpie.browser]\nenabled = false\nheaded = false\ndomains = []";
+    let on = "[app.dogs.kelpie.browser]\nenabled = true\nheaded = false\n\
+              domains = [\"app.example.com\"]";
+    rig.edit_settings(|s| s.replace(off, on));
+    let runner = rig.open().unwrap();
+    let gauge = || {
+        let labels = [("feature", "dev_server")];
+        rig.samples.value("kelpie_feature_enabled", &labels)
+    };
+    assert_eq!(gauge(), Some(0.0), "main has no launch file");
+
+    let web = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":4421}]}"#;
+    rig.land(".claude/launch.json", web);
+    super::fetch(&rig);
+    runner.lock().unwrap().reread_plugins();
+    assert_eq!(gauge(), Some(1.0));
+}
