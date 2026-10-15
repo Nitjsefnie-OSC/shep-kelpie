@@ -203,7 +203,7 @@ fn against(baseline: &Baseline, loaded: f64, median: f64) -> String {
     )
 }
 
-fn median(mut values: Vec<f64>) -> Option<f64> {
+pub(super) fn median(mut values: Vec<f64>) -> Option<f64> {
     values.sort_by(f64::total_cmp);
     let n = values.len();
     match n {
@@ -304,7 +304,7 @@ fn unrecorded(calls: &[&CallLine], recorded: &BTreeSet<u64>) -> Vec<String> {
     out
 }
 
-fn count(n: usize, thing: &str) -> String {
+pub(super) fn count(n: usize, thing: &str) -> String {
     match n {
         1 => format!("1 {thing}"),
         n => format!("{n} {thing}s"),
@@ -319,16 +319,16 @@ fn unpriced_note(unpriced: usize) -> String {
     }
 }
 
-fn money(dollars: f64) -> String {
+pub(super) fn money(dollars: f64) -> String {
     // An empty sum is -0.0, which prints its sign.
     format!("${:.2}", dollars + 0.0)
 }
 
-fn percent(share: Option<f64>) -> String {
+pub(super) fn percent(share: Option<f64>) -> String {
     share.map_or_else(|| "-".to_owned(), |s| format!("{:.0}%", s * 100.0))
 }
 
-fn duration(seconds: u64) -> String {
+pub(super) fn duration(seconds: u64) -> String {
     format!(
         "{}h{:02}m{:02}s",
         seconds / 3600,
@@ -337,7 +337,7 @@ fn duration(seconds: u64) -> String {
     )
 }
 
-fn thousands(n: u64) -> String {
+pub(super) fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
