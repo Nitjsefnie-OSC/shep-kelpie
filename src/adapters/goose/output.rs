@@ -203,6 +203,7 @@ pub(super) fn read(output: &Output, session: &Session, before: Spent) -> Read {
             usage,
             session_cost: None,
             context: None,
+            compactions: 0,
         })
     })();
     // Totals only grow, so ones below what the session had are not its own.

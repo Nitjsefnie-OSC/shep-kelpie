@@ -74,6 +74,8 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          request sizes and cache shares per role
        shep kelpie usage <project> --reads [--since <date>] [--json]
                                          what workers read before their first edit
+       shep kelpie usage [<project>] --openmetrics
+                                         the ledger as OpenMetrics counters, for promtool
        shep kelpie usage --forge [--since <date>]
                                          GitHub calls per minute, the busiest minutes and
                                          each used-up answer

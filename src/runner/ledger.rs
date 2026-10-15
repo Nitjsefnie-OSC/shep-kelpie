@@ -124,6 +124,8 @@ impl Runner {
             }) => Some(Spent {
                 usage: *usage,
                 session_cost: *session_cost,
+                // A reviewer's session has no compact window, so no hook counts a compaction.
+                compactions: 0,
             }),
             _ => None,
         };

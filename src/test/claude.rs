@@ -369,6 +369,7 @@ impl Agents for FakeClaude {
             usage: Usage::default(),
             session_cost: Some(Cost(0)),
             context: None,
+            compactions: 0,
         })
     }
 
@@ -547,10 +548,15 @@ impl Agents for FakeClaude {
                 // Its history now a summary, it knows the reply's line format
                 // only if the hook handed the turn's prompt back.
                 let remembered = after_compaction(&call.cwd, &settings_of(call));
-                Ok(said(match remembered.contains("`thread <n>: fixed`") {
+                let text = match remembered.contains("`thread <n>: fixed`") {
                     true => say,
                     false => "done",
-                }))
+                };
+                // The hook's mark is what the adapter counts the compaction by.
+                Ok(AgentReply {
+                    compactions: 1,
+                    ..said(text)
+                })
             }
             Some(Scripted::AbortAndPush(file, text)) => {
                 git(&call.cwd, &["merge", "--abort"]);
@@ -622,6 +628,7 @@ fn answer(call: &AgentCall, text: &str) -> AgentReply {
         usage: Usage::default(),
         session_cost: Some(Cost(0)),
         context: None,
+        compactions: 0,
     }
 }
 

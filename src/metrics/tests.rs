@@ -325,13 +325,11 @@ fn cache_writes(rig: &Rig, role: &str, after: &str) -> Option<f64> {
 #[test]
 fn a_call_s_requests_are_counted_by_context_size_and_what_came_before() {
     let (rig, _runner) = worker_and_reviewer(failed_call(), FAILED.to_owned());
-    let buckets = |role| {
-        ["25000", "50000", "100000", "150000", "200000", "+Inf"].map(|le| bucket(&rig, role, le))
-    };
-    assert_eq!(buckets("worker"), [Some(1.0); 6], "one request of 18,576");
+    let buckets = |role| ["50000", "150000", "200000", "+Inf"].map(|le| bucket(&rig, role, le));
+    assert_eq!(buckets("worker"), [Some(1.0); 4], "one request of 18,576");
     assert_eq!(
         buckets("reviewer"),
-        [1.0, 1.0, 3.0, 3.0, 3.0, 3.0].map(Some),
+        [1.0, 3.0, 3.0, 3.0].map(Some),
         "18,576, then 69,169 and 76,220: cumulative"
     );
     let writes = |role| ["start", "gap", "growth"].map(|after| cache_writes(&rig, role, after));
@@ -352,7 +350,7 @@ fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
         serde_json::from_value(serde_json::json!({
             "at": 1, "issue": 7, "role": role, "kind": kind, "harness": harness,
             "model": "model", "usage": usage, "units": 1, "cost_usd": 0.5,
-            "seconds": 3, "ended": ended,
+            "seconds": 3, "ended": ended, "compactions": u32::from(harness == "claude-code"),
         }))
         .unwrap(),
     )
@@ -412,8 +410,9 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         recorder.mcp_server(server, false);
     }
     // The series set from the state and the settings, and the finished work items', which these
-    // lines do not drive: six phases, four features' enabled gauges, and nine of the finished line's.
-    let not_driven = 6 + 4 + 9;
+    // lines do not drive: six phases, four features' enabled gauges, the plan gauges of the two
+    // accounts (two windows' two gauges, and two more), and nine of the finished line's.
+    let not_driven = 6 + 4 + 2 * (4 + 2) + 9;
     let held: std::collections::BTreeSet<_> = (sink.sent().iter())
         .map(|s| (s.name, s.labels.clone()))
         .collect();
@@ -433,8 +432,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        5 * 9,
-        "six buckets and three writes for each of the five pairs, and none for the one-shot roles"
+        5 * 7,
+        "four buckets and three writes for each of the five pairs, and none for the one-shot roles"
     );
     assert!(
         held.len() + not_driven < SERIES_CAP,
@@ -442,4 +441,102 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         held.len() + not_driven
     );
     assert_eq!(sink.value("kelpie_series_dropped_total", &[]), None);
+}
+
+#[test]
+fn a_call_s_agent_and_effort_are_labels_of_its_calls_tokens_and_cost() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let usage = Usage {
+        input: 10,
+        ..Usage::default()
+    };
+    rig.claude
+        .script([Scripted::Reply(usage, Cost::from_usd(0.25).unwrap())]);
+    step(&runner).unwrap();
+    let who = [("agent", "sonnet-high"), ("effort", "high")];
+    let worker = [("role", "worker"), ("harness", "claude-code")];
+    let calls = [
+        &who[..],
+        &worker[..],
+        &[("kind", "turn"), ("ended", "answered")],
+    ]
+    .concat();
+    assert_eq!(rig.samples.value("kelpie_calls_total", &calls), Some(1.0));
+    let model = rig
+        .samples
+        .sent()
+        .into_iter()
+        .find(|s| s.name == "kelpie_cost_usd_total");
+    let model = model.expect("the call is priced").labels;
+    let model = model.iter().find(|(k, _)| *k == "model").unwrap().1.clone();
+    let tokens = [
+        &who[..],
+        &worker[..],
+        &[("model", &model), ("type", "input")],
+    ]
+    .concat();
+    assert_eq!(
+        rig.samples.value("kelpie_tokens_total", &tokens),
+        Some(10.0)
+    );
+    let cost = [&who[..], &worker[..], &[("model", &model)]].concat();
+    assert_eq!(
+        rig.samples.value("kelpie_cost_usd_total", &cost),
+        Some(0.25)
+    );
+}
+
+#[test]
+fn a_pacer_reading_sets_the_plan_gauges() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    rig.meter.set(Rig::utilization(30, 12));
+    step(&runner).unwrap(); // reads the account's usage to dispatch
+    let at = |window: &str| {
+        let labels = [("account", "claude"), ("window", window)];
+        (
+            rig.samples.value("kelpie_plan_used_ratio", &labels),
+            rig.samples.value("kelpie_plan_resets_at_seconds", &labels),
+        )
+    };
+    #[expect(clippy::cast_precision_loss, reason = "a test's Unix seconds")]
+    let epoch = Rig::EPOCH as f64;
+    assert_eq!(at("session"), (Some(0.12), Some(epoch + 5.0 * 3600.0)));
+    #[expect(clippy::cast_precision_loss, reason = "a test's Unix seconds")]
+    let week = (Rig::EPOCH + 7 * Rig::DAY) as f64;
+    assert_eq!(at("week"), (Some(0.3), Some(week)));
+    let claude = [("account", "claude")];
+    let allowance = rig.samples.value("kelpie_plan_allowance_ratio", &claude);
+    assert!(
+        allowance.is_some_and(|a| (0.0..=1.0).contains(&a)),
+        "{allowance:?}"
+    );
+    let spent = rig.samples.value("kelpie_plan_spent_today_ratio", &claude);
+    assert!(spent.is_some_and(|s| (0.0..=1.0).contains(&s)), "{spent:?}");
+}
+
+#[test]
+fn a_turn_claude_code_compacted_counts_one_compaction() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([
+        Scripted::PushSayCompacted("work.txt", "work\n", "done"),
+        Scripted::Reply(Usage::default(), Cost(1)),
+    ]);
+    step(&runner).unwrap();
+    let both = [("role", "worker"), ("harness", "claude-code")];
+    assert_eq!(
+        rig.samples.value("kelpie_compactions_total", &both),
+        Some(1.0)
+    );
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.samples.value("kelpie_compactions_total", &both),
+        Some(1.0),
+        "a turn that did not compact adds none"
+    );
 }

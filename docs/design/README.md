@@ -47,6 +47,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | triage.md | triage of other people's issues: `triage` settings, the triager, the pick rule, `triage.since`, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/state/triage.rs`, `src/ports/issue.rs`, `agents/triager.md` |
 | log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, board skips, standing warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
 | metrics.md | kelpie's series on shep's metrics endpoint, the alerts and dashboard | `src/metrics.rs`, `src/metrics/`, `src/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
+| metrics-dog.md | the dog's series: leases, summons and the forge hold | `src/metrics/dog.rs`, `src/dog/watch.rs` |
 | metrics-transcripts.md | the series and reports read from a call's transcript: MCP servers, tool calls, requests, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 

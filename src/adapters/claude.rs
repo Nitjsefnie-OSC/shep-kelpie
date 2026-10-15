@@ -228,7 +228,9 @@ impl Agents for ClaudeCli {
             RunError::Stopped => AgentError::Stopped,
             RunError::TimedOut => AgentError::TimedOut(CLAUDE),
         })?;
-        parse_result(&output, &call.session)
+        let mut reply = parse_result(&output, &call.session)?;
+        reply.compactions = compactions(call);
+        Ok(reply)
     }
 
     fn adoption(&self, call: &AgentCall) -> Result<Adopted, String> {
@@ -267,7 +269,8 @@ pub(crate) fn write_settings(call: &AgentCall, unfenced: &[String]) -> Result<()
     // The prompt beside the settings file, for the hook that hands it back.
     let again = settings::prompt_file(&call.settings);
     if let Some(window) = call.compact_window {
-        settings::compacting(&mut value, window, &again);
+        let marks = settings::compactions_file(&sandbox::scratch(call));
+        settings::compacting(&mut value, window, &again, &marks);
     }
     mcp::allow(&mut value, call);
     let reads = settings::unfenced_reads(&call.cwd, &call.reach, unfenced);
@@ -461,7 +464,16 @@ fn parse_result(output: &Output, session: &Session) -> Result<AgentReply, AgentE
         },
         session_cost: Some(cost),
         context,
+        compactions: 0,
     })
+}
+
+// The compactions Claude Code did in the call: one mark for each, left by the hook that hands
+// the prompt back. A call another image adopted is not counted, its marks out of reach.
+fn compactions(call: &AgentCall) -> u32 {
+    let marks = settings::compactions_file(&sandbox::scratch(call));
+    let len = std::fs::metadata(marks).map_or(0, |m| m.len());
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
