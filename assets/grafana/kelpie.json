@@ -465,13 +465,167 @@
     {
       "id": 12,
       "type": "timeseries",
+      "title": "Leases held and waiting",
+      "description": "Who holds and who waits for each lease the dog keeps: the review bot windows, cargo-test and e2e. The dog's series carry no sheep, so the project filter does not apply.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (kind) (kelpie_leases_held)",
+          "legendFormat": "{{kind}} held"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (kind) (kelpie_lease_waiting)",
+          "legendFormat": "{{kind}} waiting"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Mean lease wait",
+      "description": "Seconds a grant waited in the queue, on average, over 15 minutes. A gap is a window with no grants.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (kind) (rate(kelpie_lease_wait_seconds_total[15m])) / sum by (kind) (rate(kelpie_lease_grants_total[15m]))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Review bot summons",
+      "description": "Summons runners reported in an hour, by bot and whether the bot accepted or refused. A refusal quotes when the window opens again.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (bot, outcome) (increase(kelpie_summons_total[1h]))",
+          "legendFormat": "{{bot}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Forge hold",
+      "description": "1 while the forge's rate limit holds every runner's calls, and the holds that began in the last hour.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max(kelpie_forge_held)",
+          "legendFormat": "held"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (login_kind) (increase(kelpie_forge_holds_total[1h]))",
+          "legendFormat": "holds an hour, {{login_kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
       "title": "Request context size",
       "description": "Median and 90th percentile of the tokens a request sent (input, cache read and cache write), by role, from the buckets of kelpie_request_context_tokens. Claude Code and pi calls only. Each request pays for its whole context, so cost follows these.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 56
       },
       "datasource": {
         "type": "prometheus",
@@ -506,7 +660,7 @@
       "options": {}
     },
     {
-      "id": 13,
+      "id": 17,
       "type": "timeseries",
       "title": "Cache writes by what came before",
       "description": "Tokens an hour that requests wrote to the cache: start is a session's first request, gap is a request over 5 minutes after the one before it, which rewrites what the cache dropped, and growth is the rest. Claude Code and pi calls only.",
@@ -514,7 +668,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 56
       },
       "datasource": {
         "type": "prometheus",

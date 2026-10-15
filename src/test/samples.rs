@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::metrics::Recorder;
 use crate::ports::{Sample, Sink};
 
 /// A sink that keeps every sample sent to it, oldest first
@@ -15,6 +16,11 @@ impl Sink for RecordedSink {
 }
 
 impl RecordedSink {
+    /// A recorder whose samples all come here
+    pub(crate) fn recorder(&self) -> Arc<Recorder> {
+        Arc::new(Recorder::new(Arc::new(self.clone())))
+    }
+
     /// Every sample sent, oldest first
     pub(crate) fn sent(&self) -> Vec<Sample> {
         self.0.lock().unwrap().clone()

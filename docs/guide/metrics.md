@@ -28,7 +28,7 @@ Import `assets/grafana/kelpie.json` into Grafana for the dashboard. Shep's own d
 
 ## The series
 
-Every series carries `sheep`, the project's name, as well as `id` and `fold`, which shep's metrics dog adds.
+Every runner series carries `sheep`, the project's name, as well as `id` and `fold`, which shep's metrics dog adds. The dog's series, last in the table, carry `dog` and `source` instead, and no `sheep`.
 
 | Series | Labels | What it counts |
 |---|---|---|
@@ -47,7 +47,15 @@ Every series carries `sheep`, the project's name, as well as `id` and `fold`, wh
 | `kelpie_mcp_tool_calls_total` | `server` | Tool calls a call made to each server, from Claude Code's and pi's transcripts. A server given and never called reads 0 |
 | `kelpie_request_context_tokens` | `role`, `harness`, `le` | Requests to the model by the tokens they sent (input, cache read and cache write), read from each call's transcript once it ends. Buckets `le` 25000, 50000, 100000, 150000, 200000 and `+Inf`, each counting the requests no larger, so `histogram_quantile(0.9, sum by (le) (rate(kelpie_request_context_tokens[1h])))` is the context size nine requests in ten stay under. Claude Code and pi calls of the worker, reviewer and project manager only |
 | `kelpie_cache_write_tokens_total` | `role`, `harness`, `after` | Tokens requests wrote to the cache, by what came before: `start` (a session's first request), `gap` (over 5 minutes since the request before, so the cache had dropped what it held) or `growth`. Claude Code and pi calls of the worker, reviewer and project manager only |
+| `kelpie_leases_held` | `kind` | The dog's leases in use: 0 or 1 for a book lease (the review bot windows), up to the capacity for `cargo-test`, and the busy hosts for `e2e` |
+| `kelpie_lease_waiting` | `kind` | Runners and commands waiting for the lease |
+| `kelpie_lease_grants_total`, `kelpie_lease_wait_seconds_total` | `kind` | Times the lease was granted, and the seconds those grants waited in the queue. Divide the rates for a mean wait. A grant to a command already running under the last dog is not counted |
+| `kelpie_summons_total` | `bot`, `outcome` | Review bot summons runners reported: `accepted`, or `refused` for each new quote of when the window opens. The maintainer's own summons through `shep kelpie lease take` are not counted |
+| `kelpie_forge_holds_total` | `login_kind` | Times the forge's rate limit began holding every runner's calls. `login_kind` is `login`, the maintainer's `gh` login, which the dog's hold is for |
+| `kelpie_forge_held` | | 1 while that hold stands, 0 when not |
 | `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 200 it sends |
+
+The dog's series are sent from the dog's own tick, so a hold that has ended reads 0 within ten seconds. Its counters start at zero when the dog starts, and every `e2e` host counts as the one `e2e` kind.
 
 A runner's counters start at zero when it starts, as Prometheus expects of a restart: read them with `rate` or `increase`. When a runner stops, its series go from the endpoint until it starts again.
 

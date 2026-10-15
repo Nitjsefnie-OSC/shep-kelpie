@@ -9,7 +9,7 @@ use crate::lease::cli::counted_run;
 use crate::lease::door::{NO_E2E_HOST, Visit};
 use crate::lease::saved::BookFile;
 use crate::review_bot::Reviewers;
-use crate::test::{EPOCH, FakeClock};
+use crate::test::{EPOCH, FakeClock, RecordedSink};
 
 // A `Visit` made here can be inherited by a child another test forks at
 // that moment, which delays the dog hearing it close until that child
@@ -19,7 +19,12 @@ const BOUND: Duration = Duration::from_secs(10);
 // A dog's desk in `dir`, with `capacity` places in cargo-test.
 fn kept(dir: &Path, capacity: u32) -> Arc<Mutex<Kept>> {
     let file = BookFile::new(dir.join("book.json"));
-    let mut kept = open_book(file, Box::new(FakeClock::at(EPOCH)), Reviewers::default());
+    let mut kept = open_book(
+        file,
+        Box::new(FakeClock::at(EPOCH)),
+        Reviewers::default(),
+        RecordedSink::default().recorder(),
+    );
     kept.desk
         .set_test_capacity(NonZeroU32::new(capacity).unwrap());
     Arc::new(Mutex::new(kept))
