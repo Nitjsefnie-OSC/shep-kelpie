@@ -499,7 +499,9 @@ impl Runner {
             open_checks::contributions(&settings, ports.voice.as_ref(), &remote, &book, home)?;
         open_checks::triage(&settings, ports.voice.as_ref(), &remote, &book)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
-        let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
+        let metrics = Arc::new(crate::metrics::Recorder::new(Arc::clone(&ports.metrics)));
+        let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks)
+            .counted_by(Arc::clone(&metrics));
         let clock = Arc::clone(&ports.clock);
         let say_to = |told: &claim::Notes| -> Say {
             let told = told.clone();
@@ -589,8 +591,7 @@ impl Runner {
             store.save(&state)?;
         }
         let spoken = points::Told::of(&state);
-        let metrics = Arc::new(crate::metrics::Recorder::new(Arc::clone(&ports.metrics)));
-        metrics.features(&settings);
+        metrics.features(&settings, dev_server::is_on(&settings));
         metrics.work_items(&state);
         let mut runner = Self {
             project,

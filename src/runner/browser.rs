@@ -12,6 +12,7 @@ use super::Runner;
 use super::code_graph::who;
 use crate::adapters::bridge::{Bridge, Server};
 use crate::bridge::Filter;
+use crate::metrics::Feature;
 use crate::ports::{AgentCall, Browser, Role, Session, Tools};
 use crate::settings::{AgentHarness, NonBlank};
 
@@ -97,6 +98,18 @@ impl Runner {
         }
         // A bridge opened for an earlier prepare of this work item's turn goes.
         self.opened.hold(call.issue, None);
+        let opened = self.open_browser(call);
+        let outcome = match opened {
+            Ok(true) => "ok",
+            Ok(false) => "skipped",
+            Err(_) => "failed",
+        };
+        self.metrics.feature_ran(Feature::Browser, outcome);
+        opened.map(drop)
+    }
+
+    // Whether the bridge was opened: not when the tools are missing.
+    fn open_browser(&self, call: &mut AgentCall) -> Result<bool, String> {
         let tools = &self.paths.tools;
         if !tools.has_browser() {
             self.notes.push(format!(
@@ -105,7 +118,7 @@ impl Runner {
                 who(call),
                 tools.playwright_mcp().display()
             ));
-            return Ok(());
+            return Ok(false);
         }
         let folder = self.paths.browser(call.issue);
         let server = Server::playwright(
@@ -136,7 +149,7 @@ impl Runner {
             socket: bridge.socket().to_owned(),
         }));
         self.opened.hold(call.issue, Some(bridge));
-        Ok(())
+        Ok(true)
     }
 
     /// Opens a new browser for a call that had one and is run again

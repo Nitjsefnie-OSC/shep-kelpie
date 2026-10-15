@@ -41,8 +41,8 @@ Every series carries `sheep`, the project's name, as well as `id` and `fold`, wh
 | `kelpie_work_items_finished_total` | `outcome` | Work items finished: `merged`, `closed` (no change), `dropped` |
 | `kelpie_work_item_seconds_total` | `outcome` | Wall seconds of the finished work items |
 | `kelpie_review_rounds_total`, `kelpie_fix_turns_total`, `kelpie_rulings_total` | | Review rounds, fix turns and rulings of the finished work items |
-| `kelpie_feature_enabled` | `feature` | 1 when the project's settings turn the feature on: `code_graph`, `browser`, `hooks` |
-| `kelpie_feature_runs_total` | `feature`, `outcome` | Times a feature ran for a call. The code graph's index: `ok`, `failed`, `skipped` (no server installed), `ended` (the call ended first) |
+| `kelpie_feature_enabled` | `feature` | 1 when the project's settings turn the feature on: `code_graph`, `browser`, `dev_server` (the browser is on and `main`'s launch file selects a configuration), `hooks` |
+| `kelpie_feature_runs_total` | `feature`, `outcome` | Times a feature ran, by `feature`: `code_graph`, `browser`, `dev_server` or `hooks`. The code graph's index: `ok`, `failed`, `skipped` (no server installed), `ended` (the call ended first). The browser's bridge opened for a turn: `ok`, `failed`, `skipped` (its tools are not installed). The dev server started for a turn's browser: `ok` (it answered in time), `failed` (it could not be planned or started, or did not answer within 60 seconds), `skipped` (`main` has no launch file, or one that selects no configuration). Each hook the runner runs: `ok` (it exited 0, or refused with 2 on purpose) or `failed` (any other exit, a timeout), one series per outcome and not per hook. Hooks run inside a worker's sandbox by `kelpie guard` are not counted |
 | `kelpie_mcp_servers_total` | `server`, `outcome` | MCP servers given to calls, read from each call's transcript once it ends: `connected` or `failed`. `server` is `codebase-memory-mcp` or `playwright` for kelpie's own, and `repo` for any your project names. Claude Code calls only: pi does not record a server that failed |
 | `kelpie_mcp_tool_calls_total` | `server` | Tool calls a call made to each server, from Claude Code's and pi's transcripts. A server given and never called reads 0 |
 | `kelpie_request_context_tokens` | `role`, `harness`, `le` | Requests to the model by the tokens they sent (input, cache read and cache write), read from each call's transcript once it ends. Buckets `le` 25000, 50000, 100000, 150000, 200000 and `+Inf`, each counting the requests no larger, so `histogram_quantile(0.9, sum by (le) (rate(kelpie_request_context_tokens[1h])))` is the context size nine requests in ten stay under. Claude Code and pi calls of the worker, reviewer and project manager only |
@@ -53,7 +53,7 @@ A runner's counters start at zero when it starts, as Prometheus expects of a res
 
 ## The alerts
 
-- **KelpieFeatureNeverWorks**: a feature has failed or been skipped since the runner started and has never worked once. Its calls run without it. The runner's log says why, in a line with `runs without`.
+- **KelpieFeatureNeverWorks**: a feature that is on has failed or been skipped since the runner started and has never worked once. Its calls run without it. The runner's log says why, in a line with `runs without`.
 - **KelpieFeatureFailing**: a feature failed in over half its runs in the last 6 hours.
 - **KelpieMcpServerFailing**: an MCP server failed to connect in over half the calls given it in the last 6 hours, so those calls ran without its tools. The runner's log names the server, the call and the error code, in a line with `failed to connect`, and `shep kelpie status` lists it under `standing` until a call finds it connected.
 - **KelpieCallsFailing**: over a quarter of a role's calls in 6 hours failed, timed out or came back unreadable.

@@ -362,15 +362,14 @@ fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
 fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     let (recorder, sink) = recorder();
     // Each role on a harness it might have, with its kinds of call and two ways each ended. The
-    // worker, the reviewer and the project manager run on a second harness as a fallback, and the
-    // reviewer on a third. Only their calls on Claude Code and pi have requests counted, and the
-    // other roles' are recorded to show they add none.
+    // worker and the project manager run on a second harness as a fallback, and the reviewer on a
+    // local round too. Only the worker's, reviewer's and project manager's calls on Claude Code and
+    // pi have requests counted, and the other roles' are recorded to show they add none.
     let roles = [
         ("worker", "claude-code", &["turn", "compact", "vote"][..]),
         ("worker", "pi", &["turn", "compact", "vote"][..]),
         ("pm", "pi", &["wake", "compact", "retro"][..]),
         ("reviewer", "claude-code", &["review"][..]),
-        ("reviewer", "pi", &["review"][..]),
         ("reviewer", "local", &["local-round"][..]),
         ("issue-writer", "pi", &["issues"][..]),
         ("pm", "claude-code", &["wake", "compact", "retro"][..]),
@@ -394,8 +393,18 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
             recorder.request(role, harness, &request);
         }
     }
-    for outcome in ["ok", "failed", "skipped", "ended"] {
-        recorder.feature_ran(Feature::CodeGraph, outcome);
+    for (feature, outcomes) in [
+        (
+            Feature::CodeGraph,
+            &["ok", "failed", "skipped", "ended"][..],
+        ),
+        (Feature::Browser, &["ok", "failed", "skipped"][..]),
+        (Feature::DevServer, &["ok", "failed", "skipped"][..]),
+        (Feature::Hooks, &["ok", "failed"][..]),
+    ] {
+        for outcome in outcomes {
+            recorder.feature_ran(feature, outcome);
+        }
     }
     for server in ["codebase-memory-mcp", "playwright", "repo"] {
         recorder.mcp_tool_calls(server, 1);
@@ -403,8 +412,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         recorder.mcp_server(server, false);
     }
     // The series set from the state and the settings, and the finished work items', which these
-    // lines do not drive: six phases, three features, and nine of the finished line's.
-    let not_driven = 6 + 3 + 9;
+    // lines do not drive: six phases, four features' enabled gauges, and nine of the finished line's.
+    let not_driven = 6 + 4 + 9;
     let held: std::collections::BTreeSet<_> = (sink.sent().iter())
         .map(|s| (s.name, s.labels.clone()))
         .collect();
@@ -424,8 +433,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        6 * 9,
-        "six buckets and three writes for each of the six pairs, and none for the one-shot roles"
+        5 * 9,
+        "six buckets and three writes for each of the five pairs, and none for the one-shot roles"
     );
     assert!(
         held.len() + not_driven < SERIES_CAP,

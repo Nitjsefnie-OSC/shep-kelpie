@@ -6,12 +6,15 @@ groups:
     rules:
       # A feature the project turned on that has failed or been skipped since
       # its runner started, and never once worked. The code graph sat like
-      # this for two days before #918.
+      # this for two days before #918. Only while the feature is on: a browser
+      # project with no launch file skips the dev server by design.
       - alert: KelpieFeatureNeverWorks
         expr: |
           (sum by (sheep, feature) (kelpie_feature_runs_total{outcome=~"failed|skipped"}) > 0)
           unless on (sheep, feature)
           (sum by (sheep, feature) (kelpie_feature_runs_total{outcome="ok"}) > 0)
+          and on (sheep, feature)
+          (kelpie_feature_enabled == 1)
         for: 30m
         labels:
           severity: warning
