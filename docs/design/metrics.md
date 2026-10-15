@@ -8,7 +8,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Through the `Sink` port (`src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
 - A runner sends at most `SERIES_CAP` (200) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name.
-- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `harness`, `model`, `ended`, `phase`, `feature`, `outcome`, `type`, `le`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
+- Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `harness`, `model`, `ended`, `phase`, `feature`, `outcome`, `type`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
 
@@ -31,22 +31,28 @@ Features: whether what a project turned on runs.
 - `kelpie_feature_enabled{feature}` gauge (1 or 0) at open and each reread: `code_graph`, `browser`, `hooks`
 - `kelpie_feature_runs_total{feature,outcome}`: `code_graph` index `ok`, `failed`, `skipped` (no binary), `ended` (call ended first). `src/runner/code_graph.rs`
 
-MCP servers, read from a call's transcript once it ends: the agents a call runs on are wrapped (`src/runner/mcp_count.rs`), which find the session's file through `Agents::transcript` and parse it (`src/mcp_use.rs`). A call that wrote nothing to it counts nothing.
+MCP servers, read from a call's transcript once it ends: the agents a call runs on are wrapped (`src/runner/transcript_count.rs`), which find the session's file through `Agents::transcript` and parse it (`src/mcp_use.rs`). A call that wrote nothing to it counts nothing.
 
 - `kelpie_mcp_servers_total{server,outcome}`: each server in the call's reach, `connected` or `failed`. Claude Code writes how its servers stand only when that changes, so the transcript's last such line is how they stood; `needsAuth` is `failed`, `pending` is not counted. A failed server is a standing warning naming the call and its error code, ended when a later call finds it connected. Claude Code only: pi records no failure (`docs/facts/mcp-servers.md`).
 - `kelpie_mcp_tool_calls_total{server}`: the call's own `mcp__<server>__<tool>` calls, from where its file stood when it began; each server it was given is sent, at 0 if never called. Claude Code and pi.
 
+Requests, read from the same file by the same wrapper (`src/request_use.rs`, `docs/facts/transcript-requests.md`), for the requests the call itself made. Claude Code and pi (`harness.request-usage`):
+
+- `kelpie_request_context_tokens{role,harness,le}`: requests by context size (input, cache read and cache write), as cumulative counters with `le` 25000, 50000, 100000, 150000, 200000 and `+Inf`, which `histogram_quantile` reads over a `rate`. The channel has no histogram type, so this counter has no `_total`. All six are sent with a role and harness's first request.
+- `kelpie_cache_write_tokens_total{role,harness,after}`: tokens written to the cache, `after` `start` (the session's first request), `gap` (over 5 minutes since the request before, which may be an earlier call's) or `growth`. All three are sent with the first. A role and harness holds 9 series between the two.
+- A request is one however many lines Claude Code wrote it as; a reply that sent nothing is none.
+
 ## Alerts and dashboard
 
 - `assets/prometheus/kelpie-rules.yml`: a feature failed or skipped since the runner started with no `ok` run (30m); a feature failing in over half its runs in 6h; an MCP server failing to connect in over half its calls in 6h; a role's calls `failed`, `timed-out` or `unreadable` in over a quarter of 6h's calls; a runner's series dropped.
-- `assets/grafana/kelpie.json`: spend by role and model, tokens by type, calls by how they ended, work items by phase, features, MCP servers and tool calls, mean call time.
+- `assets/grafana/kelpie.json`: spend by role and model, tokens by type, calls by how they ended, work items by phase, features, MCP servers and tool calls, request context sizes and cache writes by what came before, mean call time.
 - `docs/guide/metrics.md`: scrape config, the series, what each alert means.
 
 ## Not built
 
 - MCP servers and tool calls for Codex (#757) and goose (#784).
 - Feature runs of the browser, dev server and hooks. #923
-- Request context sizes (`kelpie_request_context_tokens` buckets) and cache writes after a gap: need per-request usage from transcripts, not per-call totals. #924
+- Requests for Codex (#757) and goose (#784).
 - The dog's series: leases held, waits, summons, forge holds. #925
 - `shep kelpie` reports replacing the maintainer's scripts: by item, context sources, reads. #926
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927

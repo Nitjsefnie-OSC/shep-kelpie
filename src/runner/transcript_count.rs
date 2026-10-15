@@ -1,5 +1,6 @@
-//! The MCP servers a call was given and its tool calls to them, read from its
-//! transcript once it ends, as series and a standing warning
+//! What a call's transcript says once it ends, as series and a standing
+//! warning: the MCP servers it was given and its tool calls to them, and
+//! each request it made to its model
 //!
 //! A server that failed to connect is noted once, naming the call and its
 //! error code, and the note stands until a later call finds it connected. A
@@ -17,19 +18,20 @@ use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId, Transcript,
 };
+use crate::request_use::{self, Request};
 use crate::settings::AgentHarness;
 
-/// Agents that count each call's MCP servers and tool calls as it ends
-pub(super) struct McpCount {
+/// Agents that count each call's MCP servers, tool calls and requests as it ends
+pub(super) struct TranscriptCount {
     agents: Arc<dyn Agents>,
     notes: Notes,
     metrics: Arc<Recorder>,
 }
 
 impl Runner {
-    /// `agents`, counting the MCP servers and tool calls of each call they run
+    /// `agents`, counting the MCP servers, tool calls and requests of each call they run
     pub(super) fn counted(&self, agents: Arc<dyn Agents>) -> Arc<dyn Agents> {
-        Arc::new(McpCount {
+        Arc::new(TranscriptCount {
             agents,
             notes: self.notes.clone(),
             metrics: Arc::clone(&self.metrics),
@@ -47,7 +49,7 @@ enum Format {
 impl Format {
     // pi records no server that failed to connect, so only its tool calls are counted.
     fn of(call: &AgentCall) -> Option<Self> {
-        // parity: harness.mcp-tool-calls, harness.mcp-failures
+        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage
         match call.harness {
             AgentHarness::ClaudeCode => Some(Self::Claude),
             AgentHarness::Pi(_) => Some(Self::Pi),
@@ -62,6 +64,13 @@ impl Format {
         }
     }
 
+    fn requests(self, text: &str, from: usize) -> Vec<Request> {
+        match self {
+            Self::Claude => request_use::claude(text, from),
+            Self::Pi => request_use::pi(text, from),
+        }
+    }
+
     // The part of a tool's name the harness gives the server `name`
     fn tool_part(self, name: &str) -> String {
         match self {
@@ -71,7 +80,7 @@ impl Format {
     }
 }
 
-impl McpCount {
+impl TranscriptCount {
     // The file `call`'s session writes, once it is written: Claude Code names it for the session,
     // and pi `<time>_<session>.jsonl`.
     fn file(&self, call: &AgentCall, format: Format) -> Option<PathBuf> {
@@ -92,7 +101,14 @@ impl McpCount {
         }
     }
 
-    fn count(&self, call: &AgentCall, format: Format, used: &McpUse) {
+    fn count_requests(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
+        let (role, harness) = (call.role.as_str(), call.harness.harness().as_str());
+        for request in format.requests(text, from) {
+            self.metrics.request(role, harness, &request);
+        }
+    }
+
+    fn count_mcp(&self, call: &AgentCall, format: Format, used: &McpUse) {
         let given: Vec<String> = crate::adapters::mcp::servers(call)
             .keys()
             .cloned()
@@ -132,20 +148,19 @@ impl McpCount {
     }
 }
 
-impl std::fmt::Debug for McpCount {
+impl std::fmt::Debug for TranscriptCount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("McpCount").finish_non_exhaustive()
+        f.debug_struct("TranscriptCount").finish_non_exhaustive()
     }
 }
 
-impl Agents for McpCount {
+impl Agents for TranscriptCount {
     fn prepare(&self, call: &AgentCall) -> Result<(), AgentError> {
         self.agents.prepare(call)
     }
 
     fn run(&self, call: &AgentCall, ending: &Ending) -> Result<AgentReply, AgentError> {
-        let format = Format::of(call).filter(|_| crate::adapters::mcp::loads(call));
-        let Some(format) = format else {
+        let Some(format) = Format::of(call) else {
             return self.agents.run(call, ending);
         };
         let length = |file: &PathBuf| std::fs::metadata(file).map_or(0, |m| m.len());
@@ -154,7 +169,10 @@ impl Agents for McpCount {
         let text = (self.file(call, format)).and_then(|file| std::fs::read_to_string(file).ok());
         if let Some(text) = text.filter(|text| text.len() as u64 > before) {
             let from = usize::try_from(before).unwrap_or(0);
-            self.count(call, format, &format.read(&text, from));
+            if crate::adapters::mcp::loads(call) {
+                self.count_mcp(call, format, &format.read(&text, from));
+            }
+            self.count_requests(call, format, &text, from);
         }
         ran
     }

@@ -50,3 +50,4 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [codebase-memory-mcp](codebase-memory-mcp.md)
 - [The browser](the-browser.md)
 - [MCP servers in a call's transcript](mcp-servers.md)
+- [Requests in a call's transcript](transcript-requests.md)

@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
 mod mcp;
+mod requests;
 mod series;
 
 pub(crate) use mcp::OWN_SERVERS;
