@@ -117,9 +117,12 @@ impl FakeForge {
         });
     }
 
-    /// Leaves `issue` open, with the author, labels and time it carries
+    /// Leaves `issue` open, with the author, labels and time it carries, in
+    /// place of any listed under its number
     pub(crate) fn list_open_issue(&self, issue: OpenIssue) {
-        self.issues.lock().unwrap().push(issue);
+        let mut listed = self.issues.lock().unwrap();
+        listed.retain(|i| i.number != issue.number);
+        listed.push(issue);
     }
 
     /// Every issue kelpie opened, oldest first

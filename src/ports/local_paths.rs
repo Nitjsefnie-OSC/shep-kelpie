@@ -218,6 +218,14 @@ impl Forge for Guarded {
         self.forge.comments_since(repo, since)
     }
 
+    fn issue_comments(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.forge.issue_comments(repo, number)
+    }
+
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,

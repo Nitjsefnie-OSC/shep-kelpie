@@ -378,6 +378,14 @@ impl Forge for RateHeld {
         self.call(Kind::CommentsSince, |f| f.comments_since(repo, since))
     }
 
+    fn issue_comments(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        self.call(Kind::IssueComments, |f| f.issue_comments(repo, number))
+    }
+
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,

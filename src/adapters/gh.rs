@@ -159,6 +159,14 @@ impl Forge for Gh {
         thread::comments_since(&self.etags, repo, since)
     }
 
+    fn issue_comments(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+    ) -> Result<Vec<ThreadComment>, ForgeError> {
+        thread::issue_comments(&self.etags, repo, number)
+    }
+
     fn thread_replies_since(
         &self,
         repo: &ForgeSlug,
