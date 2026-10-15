@@ -6,15 +6,19 @@
 //! delivers its grants as triggers.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::sync::Arc;
 
 use crate::lease::book::{Asked, Grant, LeaseBook};
 use crate::lease::counted::{CARGO_TEST_CAPACITY, CountedLease, Taken, Taker, Ticket};
 use crate::lease::saved::{SavedBook, SavedRun, SavedRunId, SavedTotals};
 use crate::lease::wire::{Total, TotalName, Totals, WindowFact, WindowName};
 use crate::lease::{Epoch, Holder, LeaseKind};
+use crate::metrics::Recorder;
 use crate::ports::{Clock, Timestamp};
 use crate::review_bot::Reviewers;
 use crate::runner::ProjectName;
+
+use super::watch::Watch;
 
 /// A grant the dog must deliver to a runner as a `grant` trigger
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,15 +90,19 @@ pub struct Desk {
     pub(super) e2e: BTreeMap<String, CountedLease>,
     runs: HashMap<String, Run>,
     retired: Retired,
+    pub(super) metrics: Arc<Recorder>,
+    pub(super) watch: Watch,
 }
 
 impl Desk {
-    /// A desk with an empty book, with a window for each reviewer in `reviewers`
-    pub fn new(clock: Box<dyn Clock>, reviewers: Reviewers) -> Self {
+    /// A desk with an empty book, with a window for each reviewer in
+    /// `reviewers`, sending its numbers through `metrics`
+    pub fn new(clock: Box<dyn Clock>, reviewers: Reviewers, metrics: Arc<Recorder>) -> Self {
         Self::restore(
             clock,
             SavedBook::new(Vec::new(), Vec::new(), Vec::new()),
             reviewers,
+            metrics,
         )
     }
 
@@ -103,7 +111,13 @@ impl Desk {
     ///
     /// Its runners are as they were when it was saved: a [`Desk::resync`]
     /// against the live flock reclaims from those since gone or restarted.
-    pub fn restore(clock: Box<dyn Clock>, saved: SavedBook, reviewers: Reviewers) -> Self {
+    pub fn restore(
+        clock: Box<dyn Clock>,
+        saved: SavedBook,
+        reviewers: Reviewers,
+        metrics: Arc<Recorder>,
+    ) -> Self {
+        let watch = Watch::counted(&saved.leases);
         let mut book = LeaseBook::restore(clock, saved.leases);
         book.set_reviewers(reviewers);
         let runs = saved
@@ -129,13 +143,18 @@ impl Desk {
         for run in saved.retired {
             retired.insert(&run.sheep, run.epoch);
         }
-        Self {
+        let mut desk = Self {
             book,
             tests: CountedLease::cargo_test(CARGO_TEST_CAPACITY),
             e2e: BTreeMap::new(),
             runs,
             retired,
-        }
+            metrics,
+            watch,
+        };
+        // What the saved book holds is not granted again.
+        desk.look(false);
+        desk
     }
 
     /// Lets up to `capacity` commands hold the `cargo-test` lease at once
@@ -143,23 +162,30 @@ impl Desk {
     /// Those holding it keep it: a lower capacity only slows new grants.
     pub fn set_test_capacity(&mut self, capacity: std::num::NonZeroU32) {
         self.tests.set_capacity(capacity);
+        self.look(true);
     }
 
     /// Asks for the `cargo-test` lease on behalf of `taker`
     pub fn take_test(&mut self, taker: Taker) -> Taken {
-        self.tests.ask(taker, self.book.now())
+        let taken = self.tests.ask(taker, self.book.now());
+        self.look(true);
+        taken
     }
 
     /// Seats `taker` in the `cargo-test` lease at once, for a command
     /// already running under a grant from a dog that went away
     pub fn seat_test(&mut self, taker: Taker) -> Taken {
-        self.tests.seat(taker, self.book.now())
+        let taken = self.tests.seat(taker, self.book.now());
+        self.look(false);
+        taken
     }
 
     /// Gives the `cargo-test` lease back, or leaves its queue, for the
     /// connection `ticket`, and returns the waiters granted after it
     pub fn leave_test(&mut self, ticket: Ticket) -> Vec<Ticket> {
-        self.tests.leave(ticket, self.book.now())
+        let granted = self.tests.leave(ticket, self.book.now());
+        self.look(true);
+        granted
     }
 
     /// Everything the dog keeps across a restart, in a stable order
@@ -203,6 +229,12 @@ impl Desk {
     /// Takes one total as [`Desk::note`] does, and says which a
     /// run's ask or return it did not act on
     pub fn heard(&mut self, sheep: &str, name: &str, value: f64) -> Heard {
+        let heard = self.hear(sheep, name, value);
+        self.look(true);
+        heard
+    }
+
+    fn hear(&mut self, sheep: &str, name: &str, value: f64) -> Heard {
         let (Ok(project), Some(value)) = (ProjectName::try_from(sheep), count(value)) else {
             return Heard::default();
         };
@@ -212,8 +244,18 @@ impl Desk {
             };
             let at = Timestamp(value);
             let window = match fact.fact {
-                WindowFact::Summoned => self.book.summoned(&fact.kind, at),
-                WindowFact::Opens => self.book.refused(&fact.kind, at),
+                WindowFact::Summoned => {
+                    if self.book.is_live_summon(&fact.kind, at) {
+                        self.watch.summoned(&self.metrics, fact.kind.as_str(), at);
+                    }
+                    self.book.summoned(&fact.kind, at)
+                }
+                WindowFact::Opens => {
+                    if self.book.is_live_refusal(&fact.kind, at) {
+                        self.watch.refused(&self.metrics, fact.kind.as_str(), at);
+                    }
+                    self.book.refused(&fact.kind, at)
+                }
                 WindowFact::Quota(per_hour) => self.book.quota(&fact.kind, per_hour, at),
             };
             grants.extend(window);
@@ -283,7 +325,9 @@ impl Desk {
 
     /// Grants whatever an opened review window now allows
     pub fn tick(&mut self) -> Vec<Delivery> {
-        deliveries(self.book.tick())
+        let grants = deliveries(self.book.tick());
+        self.look(true);
+        grants
     }
 
     // The run `epoch` of `sheep`, started if it is new. `None` for a run
@@ -313,6 +357,12 @@ impl Desk {
     ///
     /// Reclaims every lease a run other than `pid` held or waited for.
     pub fn runner_is(&mut self, sheep: &str, pid: Option<u32>) -> Vec<Delivery> {
+        let grants = self.reclaim(sheep, pid);
+        self.look(true);
+        grants
+    }
+
+    fn reclaim(&mut self, sheep: &str, pid: Option<u32>) -> Vec<Delivery> {
         let Ok(project) = ProjectName::try_from(sheep) else {
             return Vec::new();
         };
@@ -371,12 +421,13 @@ pub(super) mod tests {
     use super::*;
     use crate::lease::saved::BookFile;
     use crate::lease::wire::Asker;
-    use crate::test::{EPOCH, FakeClock};
+    use crate::test::{EPOCH, FakeClock, RecordedSink};
 
     pub(crate) struct World {
         pub(crate) desk: Desk,
         pub(crate) clock: FakeClock,
         reviewers: Reviewers,
+        pub(crate) samples: RecordedSink,
         _temp: tempfile::TempDir,
     }
 
@@ -388,11 +439,17 @@ pub(super) mod tests {
     pub(crate) fn world_with(reviewers: Reviewers) -> World {
         let _temp = tempfile::tempdir().unwrap();
         let clock = FakeClock::at(EPOCH);
-        let desk = Desk::new(Box::new(clock.clone()), reviewers.clone());
+        let samples = RecordedSink::default();
+        let desk = Desk::new(
+            Box::new(clock.clone()),
+            reviewers.clone(),
+            samples.recorder(),
+        );
         World {
             desk,
             clock,
             reviewers,
+            samples,
             _temp,
         }
     }
@@ -434,7 +491,9 @@ pub(super) mod tests {
             let file = BookFile::new(self._temp.path().join("book.json"));
             file.save(&self.desk.saved()).unwrap();
             let saved = file.load().unwrap().expect("a saved book");
-            self.desk = Desk::restore(Box::new(self.clock.clone()), saved, self.reviewers.clone());
+            let clock = Box::new(self.clock.clone());
+            let metrics = self.samples.recorder();
+            self.desk = Desk::restore(clock, saved, self.reviewers.clone(), metrics);
         }
 
         pub(crate) fn book_line(&mut self) -> Value {
