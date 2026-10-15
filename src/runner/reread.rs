@@ -205,8 +205,8 @@ impl Runner {
 impl Runner {
     // Sets which features the settings and `main`'s launch file turn on.
     fn refresh_features(&self) {
-        let launch_file = super::dev_server::has_launch_file(&self.settings.git.checkout);
-        self.metrics.features(&self.settings, launch_file);
+        let dev_server = super::dev_server::is_on(&self.settings);
+        self.metrics.features(&self.settings, dev_server);
     }
 
     /// Loads the repo's plugins again if its default branch moved since they

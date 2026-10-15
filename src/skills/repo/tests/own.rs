@@ -102,7 +102,8 @@ fn a_launch_file_the_default_branch_gains_turns_the_dev_server_gauge_on_when_it_
     };
     assert_eq!(gauge(), Some(0.0), "main has no launch file");
 
-    rig.land(".claude/launch.json", r#"{"configurations":[]}"#);
+    let web = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":4421}]}"#;
+    rig.land(".claude/launch.json", web);
     super::fetch(&rig);
     runner.lock().unwrap().reread_plugins();
     assert_eq!(gauge(), Some(1.0));

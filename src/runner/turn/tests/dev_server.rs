@@ -516,6 +516,13 @@ fn dev_server_enabled(rig: &Rig) -> Option<f64> {
 fn the_dev_server_is_on_when_the_browser_is_on_and_main_has_a_launch_file() {
     assert_eq!(dev_server_enabled(&project(Some(SHEP))), Some(1.0));
     assert_eq!(dev_server_enabled(&project(None)), Some(0.0));
+    let empty = r#"{"configurations":[]}"#;
+    let none = dev_server_enabled(&project(Some(empty)));
+    assert_eq!(
+        none,
+        Some(0.0),
+        "a file that gives no server skips by design"
+    );
     let rig = Rig::new("shep");
     rig.land(".claude/launch.json", SHEP);
     assert_eq!(dev_server_enabled(&rig), Some(0.0), "the browser is off");

@@ -591,10 +591,7 @@ impl Runner {
             store.save(&state)?;
         }
         let spoken = points::Told::of(&state);
-        metrics.features(
-            &settings,
-            dev_server::has_launch_file(&settings.git.checkout),
-        );
+        metrics.features(&settings, dev_server::is_on(&settings));
         metrics.work_items(&state);
         let mut runner = Self {
             project,

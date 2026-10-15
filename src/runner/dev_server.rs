@@ -26,7 +26,7 @@ use crate::metrics::{Feature, Recorder};
 use crate::ports::{
     AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Session, Started,
 };
-use crate::settings::NonBlank;
+use crate::settings::{NonBlank, Settings};
 use crate::work_item::WorkItem;
 
 /// How many times a port is picked before one that no other plan holds is given up on
@@ -35,9 +35,24 @@ const PICKS: usize = 16;
 /// The Mach service a dev server's file watcher looks up on macOS
 const FS_EVENTS: &str = "com.apple.FSEvents";
 
-/// Whether `main` of `checkout` has a launch file, which is when the dev server is on
-pub(super) fn has_launch_file(checkout: &Path) -> bool {
-    launch::exists(checkout)
+/// Whether the dev server is on for `settings`: the browser is on and `main` has a launch
+/// file that selects a configuration, or one a turn would fail to read
+///
+/// A file with no configuration is skipped by design, so it does not turn the feature on.
+pub(super) fn is_on(settings: &Settings) -> bool {
+    if !settings.browser.enabled {
+        return false;
+    }
+    let named = settings
+        .browser
+        .configuration
+        .as_ref()
+        .map(NonBlank::as_str);
+    match launch::read(&settings.git.checkout) {
+        Ok(None) => false,
+        Ok(Some(text)) => !matches!(launch::select(&text, named), Ok(None)),
+        Err(_) => true,
+    }
 }
 
 /// The dev servers planned for turns not yet over, by the issue of their work item

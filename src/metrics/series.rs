@@ -105,12 +105,12 @@ impl Feature {
         }
     }
 
-    // `launch_file`: whether `main` has one
-    fn enabled(self, settings: &Settings, launch_file: bool) -> bool {
+    // `dev_server`: whether the browser is on and `main` has a launch file that gives a server
+    fn enabled(self, settings: &Settings, dev_server: bool) -> bool {
         match self {
             Self::CodeGraph => settings.code_graph.enabled,
             Self::Browser => settings.browser.enabled,
-            Self::DevServer => settings.browser.enabled && launch_file,
+            Self::DevServer => dev_server,
             Self::Hooks => !settings.hooks.is_empty(),
         }
     }
@@ -136,11 +136,11 @@ impl Recorder {
         }
     }
 
-    /// Sets which features `settings` turn on, where `launch_file` is whether `main` has a
-    /// launch file for the dev server
-    pub fn features(&self, settings: &Settings, launch_file: bool) {
+    /// Sets which features `settings` turn on, where `dev_server` is whether the dev server
+    /// is on, which only the runner can read from `main`
+    pub fn features(&self, settings: &Settings, dev_server: bool) {
         for feature in Feature::ALL {
-            let on = f64::from(u8::from(feature.enabled(settings, launch_file)));
+            let on = f64::from(u8::from(feature.enabled(settings, dev_server)));
             self.set(&FEATURE_ENABLED, vec![feature_label(feature)], on);
         }
     }

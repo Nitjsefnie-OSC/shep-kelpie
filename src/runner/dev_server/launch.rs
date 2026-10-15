@@ -33,7 +33,7 @@ pub(super) struct Configuration {
 }
 
 /// Whether `origin/main` of `checkout` has the file
-pub(super) fn exists(checkout: &Path) -> bool {
+fn exists(checkout: &Path) -> bool {
     let spec = format!("origin/{BASE}:{FILE}");
     git(checkout, ["cat-file", "-e", &spec]).is_ok()
 }
