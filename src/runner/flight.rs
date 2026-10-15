@@ -25,6 +25,7 @@ use super::login_refresh;
 use super::replies::answer_replies;
 use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
 use super::review::run_review_call;
+use super::transcript_count::Mark;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
 use crate::adapters::bridge::Bridge;
@@ -209,6 +210,8 @@ struct Flight {
     fallback: waiting::Fallback,
     // The browser the turn drives, which lasts as long as the turn does
     browser: Option<Bridge>,
+    // Where the turn's transcript stood as it began, for a handover to carry
+    requests: Option<Mark>,
 }
 
 impl Flight {
@@ -613,6 +616,10 @@ impl Runner {
             told: None,
             fallback: waiting::Fallback::Stays,
             browser: deadline.and_then(|_| self.opened.take(issue)),
+            requests: match &launch {
+                Launch::Turn { call, .. } => Mark::of(self.ports.agents.as_ref(), call),
+                Launch::Review(_) => None,
+            },
         };
         // Only a turn has a ceiling to carry, for its record on disk.
         if flight.deadline.is_some() {

@@ -41,6 +41,7 @@ Requests, read from the same file by the same wrapper (`src/request_use.rs`, `do
 - `kelpie_request_context_tokens{role,harness,le}`: requests by context size (input, cache read and cache write), as cumulative counters with `le` 25000, 50000, 100000, 150000, 200000 and `+Inf`, which `histogram_quantile` reads over a `rate`. The channel has no histogram type, so this counter has no `_total`. All six are sent with a role and harness's first request.
 - `kelpie_cache_write_tokens_total{role,harness,after}`: tokens written to the cache, `after` `start` (the session's first request), `gap` (over 5 minutes since the request before, which may be an earlier call's) or `growth`. All three are sent with the first. A role and harness holds 9 series between the two.
 - A request is one however many lines Claude Code wrote it as; a reply that sent nothing is none.
+- A worker's turn carried through a handover is counted by the image that adopts it. `CarriedTurn` holds a `Mark` (the transcript's folder, the session and its length as the turn began), and the image counts the requests past it when the turn ends. Its MCP servers and tool calls are not counted, since the mark holds no servers.
 
 ## Alerts and dashboard
 

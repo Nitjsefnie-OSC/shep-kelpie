@@ -7,8 +7,10 @@
 //! call that wrote nothing to its transcript reached no model, and counts
 //! nothing.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
 
 use super::Runner;
 use super::claim::Notes;
@@ -16,10 +18,10 @@ use super::code_graph::who;
 use crate::mcp_use::{self, McpUse};
 use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
-    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, SessionId, Transcript,
+    AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Role, SessionId, Transcript,
 };
 use crate::request_use::{self, Request};
-use crate::settings::AgentHarness;
+use crate::settings::{AgentHarness, Harness};
 
 /// Agents that count each call's MCP servers, tool calls and requests as it ends
 pub(super) struct TranscriptCount {
@@ -57,6 +59,15 @@ impl Format {
         }
     }
 
+    fn of_harness(harness: Harness) -> Option<Self> {
+        // parity: harness.request-usage
+        match harness {
+            Harness::ClaudeCode => Some(Self::Claude),
+            Harness::Pi => Some(Self::Pi),
+            _ => None,
+        }
+    }
+
     fn read(self, text: &str, from: usize) -> McpUse {
         match self {
             Self::Claude => mcp_use::claude(text, from),
@@ -80,25 +91,75 @@ impl Format {
     }
 }
 
-impl TranscriptCount {
-    // The file `call`'s session writes, once it is written: Claude Code names it for the session,
-    // and pi `<time>_<session>.jsonl`.
-    fn file(&self, call: &AgentCall, format: Format) -> Option<PathBuf> {
-        let folder = self.agents.transcript(call)?.folder;
-        let session = &call.session.id().0;
-        match format {
-            Format::Claude => Some(folder.join(format!("{session}.jsonl"))),
-            Format::Pi => {
-                let suffix = format!("_{session}.jsonl");
-                (std::fs::read_dir(folder).ok()?)
-                    .filter_map(Result::ok)
-                    .map(|entry| entry.path())
-                    .find(|path| {
-                        (path.file_name().and_then(|n| n.to_str()))
-                            .is_some_and(|n| n.ends_with(&suffix))
-                    })
+// The file a session writes in `folder`, once it is written: Claude Code names it for the session,
+// and pi `<time>_<session>.jsonl`.
+fn file(folder: &Path, session: &str, format: Format) -> Option<PathBuf> {
+    match format {
+        Format::Claude => Some(folder.join(format!("{session}.jsonl"))),
+        Format::Pi => {
+            let suffix = format!("_{session}.jsonl");
+            (std::fs::read_dir(folder).ok()?)
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .find(|path| {
+                    (path.file_name().and_then(|n| n.to_str()))
+                        .is_some_and(|n| n.ends_with(&suffix))
+                })
+        }
+    }
+}
+
+fn length(file: &Path) -> u64 {
+    std::fs::metadata(file).map_or(0, |m| m.len())
+}
+
+/// Where a worker's turn found its session's transcript as it began, which a handover carries so
+/// the next image counts the turn's requests when it ends
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct Mark {
+    folder: PathBuf,
+    session: String,
+    from: u64,
+}
+
+impl Mark {
+    /// Where `call`'s transcript stands now, for a call on a harness whose requests are counted
+    pub(super) fn of(agents: &dyn Agents, call: &AgentCall) -> Option<Self> {
+        let format = Format::of(call)?;
+        let folder = agents.transcript(call)?.folder;
+        let session = call.session.id().0.clone();
+        let from = file(&folder, &session, format).map_or(0, |file| length(&file));
+        Some(Self {
+            folder,
+            session,
+            from,
+        })
+    }
+
+    /// Counts the requests the turn made since, as the wrapper does for a turn this image began
+    pub(super) fn count(&self, harness: Harness, metrics: &Recorder) {
+        let Some(format) = Format::of_harness(harness) else {
+            return;
+        };
+        let Some(file) = file(&self.folder, &self.session, format) else {
+            return;
+        };
+        let Ok(text) = std::fs::read_to_string(file) else {
+            return;
+        };
+        if text.len() as u64 > self.from {
+            let from = usize::try_from(self.from).unwrap_or(0);
+            for request in format.requests(&text, from) {
+                metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
         }
+    }
+}
+
+impl TranscriptCount {
+    fn file(&self, call: &AgentCall, format: Format) -> Option<PathBuf> {
+        let folder = self.agents.transcript(call)?.folder;
+        file(&folder, &call.session.id().0, format)
     }
 
     fn count_requests(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
@@ -163,8 +224,7 @@ impl Agents for TranscriptCount {
         let Some(format) = Format::of(call) else {
             return self.agents.run(call, ending);
         };
-        let length = |file: &PathBuf| std::fs::metadata(file).map_or(0, |m| m.len());
-        let before = self.file(call, format).as_ref().map_or(0, length);
+        let before = self.file(call, format).as_deref().map_or(0, length);
         let ran = self.agents.run(call, ending);
         let text = (self.file(call, format)).and_then(|file| std::fs::read_to_string(file).ok());
         if let Some(text) = text.filter(|text| text.len() as u64 > before) {
