@@ -36,6 +36,9 @@ fn waiting(said: &[&'static str]) -> (Rig, Mutex<Runner>) {
     read_through(&rig, &runner, &head);
     let said = said.iter().map(|s| Scripted::Say(s));
     rig.claude.script_for(Role::Representative, said);
+    // The merge ruling the ended pass raises is alerted before the asks begin.
+    poll(&rig, &runner);
+    poll(&rig, &runner);
     (rig, runner)
 }
 
@@ -72,9 +75,13 @@ fn prompts(rig: &Rig) -> Vec<String> {
         .collect()
 }
 
+// The rulings that wait, but for the one about the merge, which the ended
+// pass raises and which asks nothing about the release
 fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
     let status = rig.ask(runner, "status", None);
-    status["rulings"].as_array().cloned().unwrap_or_default()
+    let all = status["rulings"].as_array().cloned().unwrap_or_default();
+    let merge = |r: &Value| r["kind"]["reason"] == "merge";
+    all.into_iter().filter(|r| !merge(r)).collect()
 }
 
 // The comment id of the latest ask
@@ -216,7 +223,11 @@ fn a_second_no_then_quiet_raises_a_ruling_with_keep_waiting_adopt_anyway_and_clo
         "nothing is posted for it"
     );
     assert_eq!(held(&rig, &runner)["released"], Value::Null);
-    assert_eq!(rig.alerts.posts().len(), 1);
+    assert_eq!(
+        rig.alerts.posts().len(),
+        2,
+        "the merge ruling's, and this one"
+    );
     polls(&rig, &runner);
     assert_eq!(rulings(&rig, &runner).len(), 1, "raised once");
 }

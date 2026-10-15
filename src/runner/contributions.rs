@@ -31,6 +31,7 @@ mod budget;
 mod ci;
 mod clock;
 mod heard;
+mod merge;
 mod pass;
 pub(in crate::runner) mod post;
 mod release;
@@ -41,7 +42,7 @@ pub(super) use bots::waiting_on;
 pub use clock::Followed;
 pub(super) use ruling::{
     ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, flagged_lines, keep_answer, raise_budget,
-    settle, trust,
+    rule_merge, settle, trust,
 };
 
 use crate::ports::{Agents, Ending, Reviewer};
@@ -236,7 +237,8 @@ impl Runner {
         // a conversation.
         self.follow_release()?;
         self.follow_answers()?;
-        self.follow_clock()
+        self.follow_clock()?;
+        self.follow_merge()
     }
 }
 
@@ -250,6 +252,8 @@ mod ci_tests;
 mod clock_tests;
 #[cfg(test)]
 mod heard_tests;
+#[cfg(test)]
+mod merge_tests;
 #[cfg(test)]
 pub(in crate::runner) mod pass_tests;
 #[cfg(test)]

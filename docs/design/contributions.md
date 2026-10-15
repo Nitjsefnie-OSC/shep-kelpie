@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #624, #625
+Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), records the reviewers' pass over a green head (`contribution-pass.md`), and rules every merge (`contribution-merge.md`). #617 to #619, #622 to #625
 
 ## Settings
 
@@ -27,9 +27,9 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 - Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
 - The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `src/adapters/gh/board.rs`
 - `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `src/state/contributions.rs`
-- `Runner::follow_contributions` runs once a `BOARD_POLL` before the rotation, so it runs with every slot held. It reads the pass's listing, which the board then shares. A new head updates the record; a pull request closed, merged, a draft again, or unlabelled under `label` drops it, with no post. A listing or login that cannot be read changes nothing.
+- `Runner::follow_contributions` runs once a `BOARD_POLL` before the rotation, so it runs with every slot held. It reads the pass's listing, which the board then shares. A new head updates the record; a pull request closed, merged, a draft again, or unlabelled under `label` drops it, with no post. An unreadable listing or login changes nothing.
 - `adopt_waiting` leaves a labelled contribution alone when `pick` is not `off`. With `off` a labelled fork is refused as before. `rework_asked` still refuses a fork.
-- `status` lists the records under `contributions`, left out when empty.
+- `status` lists the records as `contributions`, absent when empty.
 
 ## Remote
 
@@ -39,12 +39,12 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 ## CI on a trusted head
 
 - GitHub holds a fork's first CI runs until a maintainer approves them, and approving runs the contributor's code. `Forge::approve_workflow_runs(repo, head)` lists the runs with `status=action_required` and that `head_sha`, drops any whose `head_sha` differs or whose `status` and `conclusion` are neither `action_required` (the query matches either field), and approves each. Kind `approve_workflow_runs`, REST. `src/adapters/gh/runs.rs`
-- Kelpie approves as the maintainer's `gh` login, from the runner outside any sandbox, as it merges. If the App's token can approve (#636), moving to it is a follow-up.
+- Kelpie approves as the maintainer's `gh` login, from the runner outside any sandbox, as it merges. Moving to the App's token, if it can approve, is #636.
 - `follow_ci` (`src/runner/contributions/ci.rs`) runs at the end of `follow_contributions`, once a poll. A head is approved only when it equals `passed`: a flagged, unread or stale head never is, and a yes to a flagged head's ruling makes it `passed`, so the next poll approves it. A new push clears `ci`, so the new head waits for its own pass.
 - `contributions[].ci` is `{ head, since, state }`, left out until the approval succeeds. `since` is the approval, and `state` is `waiting`, `green` or `{ red: [failed checks' names] }`.
 - A rollup is trusted `CHECKS_SETTLE` (two minutes) after `since`, as at the gate, and only when `Forge::pull_request` reads the same head. No check or a pending one stays `waiting`. A skipped rollup is `green`: a contribution is never a draft. With `ci.block` off the state is `green` at the approval, as the gate passes a project without CI.
 - A refused approval or an unreadable pull request logs and changes nothing: the next poll tries again, and no poll fails. A call that listed no held run is an approval. A run GitHub holds after that listing is approved by listing again at each poll while the settled rollup shows no check or a pending one. State version 50.
-- No reviewer reads a contribution before green, per ADR 0008. The pass (`contribution-pass.md`) enforces it.
+- No reviewer reads a contribution before green (ADR 0008; the pass, `contribution-pass.md`, enforces it).
 
 ## A review bot in the list
 

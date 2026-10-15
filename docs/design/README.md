@@ -14,7 +14,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket, and tests dial `FakeShepherd`, which answers in memory and binds nothing. A test binds a real socket only to prove the socket itself; the sandbox-red list names those. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into refusal). #311, #345
-- State file version 60 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
+- State file version 61 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Rust for all business code; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see workers.md, github-app.md).
 
@@ -41,6 +41,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | contribution-pass.md | the reviewers' pass over a green contribution head, rotation, the record | `src/runner/contributions/pass.rs`, `src/worktree/contribution.rs`, `src/state/contributions.rs` |
 | contribution-talk.md | what contributors say: hearing, the record, answering, the quiet clock | `src/runner/contributions/heard.rs`, `src/runner/contributions/clock.rs`, `src/runner/thread_replies.rs`, `src/state/contributions.rs` |
 | contribution-release.md | asking a contributor for a release, a yes, thumbs up or silence, the waiting ruling | `src/runner/contributions/release.rs`, `src/runner/contributions/ruling.rs`, `src/state/contributions.rs` |
+| contribution-merge.md | the merge ruling a contribution always gets, its yes, thanks and no | `src/runner/contributions/merge.rs`, `src/runner/contributions/ruling.rs`, `src/settings/rulings.rs`, `src/state/contributions.rs` |
 | representative.md | the representative: its agent file, `agents.representative`, the one call that words a post, the mention check | `src/runner/representative.rs`, `src/agents/front.rs`, `src/settings/agents.rs`, `agents/representative.md` |
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `src/settings/dependencies.rs`, `src/runner/dependencies.rs`, `src/runner/flight/proving.rs`, `src/runner/dev_server/bump.rs`, `src/state/bumps.rs`, `src/adapters/e2e_runner.rs`, `src/adapters/pages.rs`, `src/adapters/bridge/client.rs` |
 | triage.md | triage of other people's issues: `triage` settings, the triager, the pick rule, `triage.since`, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/state/triage.rs`, `src/ports/issue.rs`, `agents/triager.md` |

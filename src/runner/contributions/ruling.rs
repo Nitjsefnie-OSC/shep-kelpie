@@ -15,10 +15,11 @@
 
 use super::super::gate::short;
 use super::super::ruling::question;
+use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
 use crate::ports::{Cost, Finding, Timestamp};
 use crate::settings::PerItemUsd;
-use crate::state::{Asked, Held, How, ProjectState, Released, Ruling, RulingKind};
+use crate::state::{Asked, Held, How, ProjectState, Released, Ruled, Ruling, RulingKind, Verdict};
 
 /// The answer to the ruling for a contributor who said no twice that waits
 /// on, and asks again after
@@ -101,12 +102,41 @@ pub(super) fn raise_waiting(next: &mut ProjectState, pull_request: u64, now: Tim
     raise_held(next, pull_request, Held::Waiting, now);
 }
 
+/// Adds the ruling that asks whether `pull_request`'s `head` is merged to
+/// `next`, with `facts` after its question: what the reviewers found
+pub(super) fn raise_merge(
+    next: &mut ProjectState,
+    pull_request: u64,
+    head: &str,
+    facts: &str,
+    now: Timestamp,
+) {
+    let held = Held::Merge {
+        head: head.to_owned(),
+    };
+    raise_with(next, pull_request, held, facts, now);
+}
+
 fn raise_held(next: &mut ProjectState, pull_request: u64, held: Held, now: Timestamp) {
+    raise_with(next, pull_request, held, "", now);
+}
+
+// The merge ruling is the one a contribution can go without, so another one
+// takes its place, and it is raised again once that is answered.
+fn raise_with(next: &mut ProjectState, pull_request: u64, held: Held, facts: &str, now: Timestamp) {
+    next.rulings.retain(|r| {
+        r.id != pull_request || !matches!(r.kind, RulingKind::Contribution(Held::Merge { .. }))
+    });
     let kind = RulingKind::Contribution(held);
+    let mut question = question(pull_request, Some(pull_request), &kind);
+    if !facts.is_empty() {
+        question.push('\n');
+        question.push_str(facts);
+    }
     next.rulings.push(Ruling {
         id: pull_request,
         issue: None,
-        question: question(pull_request, Some(pull_request), &kind),
+        question,
         pull_request: Some(pull_request),
         kind,
         alerted: false,
@@ -126,6 +156,9 @@ pub(super) fn withdraw(next: &mut ProjectState) {
     let followed = &next.contributions;
     next.rulings.retain(|r| match &r.kind {
         RulingKind::Contribution(Held::Security { head, .. }) => {
+            (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
+        }
+        RulingKind::Contribution(Held::Merge { head }) => {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
         RulingKind::Contribution(
@@ -181,6 +214,38 @@ pub(in crate::runner) fn keep_answer(next: &mut ProjectState, answer: &Answer, r
     let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
     if let Some(deciding) = followed.and_then(|c| c.deciding.as_mut()) {
         deciding.answer = Some(text.trim().to_owned());
+    }
+}
+
+/// Keeps the maintainer's answer to a contribution's merge ruling, in `next`,
+/// for the next poll to carry out: a yes merges the head, and a no with a
+/// note has the representative post it for the contributor
+///
+/// A no with no note, or the note a reaction or a tick gives, posts nothing.
+pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ruling: &Ruling) {
+    let RulingKind::Contribution(Held::Merge { head }) = &ruling.kind else {
+        return;
+    };
+    let verdict = match answer {
+        Answer::Yes => Verdict::Yes {
+            merged: false,
+            thanked: false,
+        },
+        Answer::No(note) => {
+            let note = note.trim();
+            Verdict::No {
+                note: (!note.is_empty() && note != NO_NOTE).then(|| note.to_owned()),
+            }
+        }
+        _ => return,
+    };
+    let followed = (next.contributions.iter_mut())
+        .find(|c| c.pull_request == ruling.number() && c.head == *head);
+    if let Some(followed) = followed {
+        followed.ruled = Some(Ruled {
+            head: head.clone(),
+            verdict,
+        });
     }
 }
 

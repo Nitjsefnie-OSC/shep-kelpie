@@ -345,6 +345,7 @@ impl Runner {
         let worktree = parked.map(|item| item.worktree.clone());
         contributions::trust(&mut next, &answer, &ruling)?;
         contributions::keep_answer(&mut next, &answer, &ruling);
+        contributions::rule_merge(&mut next, &answer, &ruling);
         contributions::settle(&mut next, &answer, &ruling, now)?;
         // A contribution's cap lifts, and its next call may start at the next look.
         let per_item = self.settings.budget.per_item_usd;
@@ -839,7 +840,9 @@ fn decide(
         },
         // No work item is parked on it, so an answer only clears it.
         (Answer::Trust(_) | Answer::No(_), RulingKind::Contribution(_))
-        | (Answer::Yes, RulingKind::Contribution(Held::OverBudget { .. })) => Phase::Implement,
+        | (Answer::Yes, RulingKind::Contribution(Held::OverBudget { .. } | Held::Merge { .. })) => {
+            Phase::Implement
+        }
         // `trust` has refused these before `decide` is asked.
         (Answer::Trust(_), _) | (Answer::Yes, RulingKind::Contribution(_)) => {
             return Err(RuleError::Head(id, "takes no such yes".to_owned()));

@@ -368,6 +368,16 @@ impl Card {
                 facts: Some(asked.clone()),
                 choices: Vec::new(),
             },
+            RulingKind::Contribution(Held::Merge { head }) => Self {
+                problem: None,
+                board: None,
+                title: format!("Merge this contribution at {} into main?", short(head)),
+                facts: None,
+                choices: yes_no(
+                    "Merges the head, and the representative thanks the contributor",
+                    Some("The representative posts your note for the contributor, if you gave one"),
+                ),
+            },
             RulingKind::Contribution(Held::Waiting) => Self {
                 problem: None,
                 board: None,

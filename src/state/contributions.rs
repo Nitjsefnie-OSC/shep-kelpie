@@ -133,6 +133,48 @@ pub struct Contribution {
     /// Left out until it was. Nothing is asked again once it is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub released: Option<Released>,
+    /// The maintainer's answer to the merge ruling on the current head
+    ///
+    /// Left out until one is given, and after a push: it names the current
+    /// `head` or nothing. A head with an answer is not asked about again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruled: Option<Ruled>,
+}
+
+/// The maintainer's answer to the merge ruling on one head of a contribution,
+/// kept until it is carried out
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ruled {
+    /// The head the ruling was about
+    pub head: String,
+    /// What the maintainer answered
+    pub verdict: Verdict,
+}
+
+/// What the maintainer answered to a contribution's merge ruling
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Verdict {
+    /// Yes: the head is merged, then the contributor thanked
+    Yes {
+        /// That the forge took the merge, so it is not asked again
+        #[serde(default, skip_serializing_if = "is_false")]
+        merged: bool,
+        /// That the thanks was posted, so a restart does not post it again
+        #[serde(default, skip_serializing_if = "is_false")]
+        thanked: bool,
+    },
+    /// No: the head stays open. The note, once the representative has posted
+    /// it for the contributor, is taken out.
+    No {
+        /// The maintainer's note, until it is posted; none for a no with no
+        /// note
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
 }
 
 /// Kelpie's asking the contributor whether it may take their pull request
@@ -359,6 +401,7 @@ impl Contribution {
             deciding: None,
             asked: None,
             released: None,
+            ruled: None,
         }
     }
 
@@ -417,6 +460,8 @@ impl Contribution {
             // the maintainer's close is still to be carried out.
             waiting_since: None,
             asked: self.asked.clone().filter(|a| a.closing),
+            // An answer is about the head it was given on
+            ruled: None,
             // `seen` moves on, and the threads are read from where they were
             reviews_from: Some(self.reviews_since()),
             ..self.clone()
@@ -524,6 +569,14 @@ impl Contribution {
     /// Whether a pass has ended on the current head
     pub fn is_reviewed(&self) -> bool {
         self.pass.as_ref().is_some_and(|p| p.head == self.head)
+    }
+
+    /// Whether the maintainer is to be asked whether to merge the current
+    /// head: its pass has ended, CI is green on it, no answer to the ruling
+    /// is kept for it and the maintainer is not closing the pull request
+    pub fn awaits_merge_ruling(&self) -> bool {
+        let closing = self.asked.as_ref().is_some_and(|a| a.closing);
+        self.is_reviewed() && self.is_green() && self.ruled.is_none() && !closing
     }
 
     /// The walk of the current head's pass, if one is under way
@@ -664,6 +717,15 @@ pub enum Held {
     /// twice and has been quiet since. The maintainer chooses: keep waiting,
     /// adopt it anyway, or close it with thanks.
     Waiting,
+    /// The pass has ended and CI is green on the head, and the maintainer
+    /// decides every merge of someone else's work, whatever `git.merging`
+    /// says. The ruling names the findings recorded and the bot threads
+    /// open. A yes merges this head, and a no with a note is worded for the
+    /// contributor and posted.
+    Merge {
+        /// The head a yes merges
+        head: String,
+    },
 }
 
 impl RulingKind {

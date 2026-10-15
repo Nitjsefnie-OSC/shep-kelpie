@@ -89,6 +89,10 @@ pub enum RulingName {
     /// The security review flagged a contribution's head. The panel never
     /// votes on it, so `pm_alone` refuses it.
     Security,
+    /// A contribution's pass has ended and its CI is green on the head. The
+    /// maintainer decides every merge of someone else's work, and the panel
+    /// never votes on it, so `pm_alone` refuses it.
+    ContributionMerge,
     /// The local model sat on the CPU. No ruling is raised for it now, and
     /// the name stays so ledger and history lines written before it went
     /// still read; `pm_alone` refuses it.
@@ -108,6 +112,7 @@ impl RulingName {
                 Held::Security { .. } => Self::Security,
                 Held::OverBudget { .. } => Self::OverBudget,
                 Held::Question { .. } | Held::Waiting => Self::Question,
+                Held::Merge { .. } => Self::ContributionMerge,
             },
             RulingKind::Stuck(stuck) => match stuck {
                 Stuck::Rebase { .. } => Self::Rebase,
@@ -147,6 +152,7 @@ impl RulingName {
             Self::AdoptFailed => "adopt-failed",
             Self::OverBudget => "over-budget",
             Self::Security => "security",
+            Self::ContributionMerge => "contribution-merge",
             Self::LocalModelSpilled => "local-model-spilled",
         }
     }
@@ -189,6 +195,13 @@ impl Rulings {
             return Some(
                 "a ruling on a contribution never goes to the panel, since text from a \
                  stranger must not reach a vote: take `security` out of the list"
+                    .to_owned(),
+            );
+        }
+        if self.pm_alone.contains(&RulingName::ContributionMerge) {
+            return Some(
+                "the maintainer decides every merge of someone else's work, and a contribution's \
+                 ruling never goes to the panel: take `contribution-merge` out of the list"
                     .to_owned(),
             );
         }
