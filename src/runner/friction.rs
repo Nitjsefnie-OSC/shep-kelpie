@@ -46,7 +46,7 @@ impl Runner {
     pub(super) fn friction_of(&self, item: &WorkItem) -> Option<String> {
         let file = crate::worker_folder::read(&item.build, Path::new(pull_request_file::FILE));
         let handed = match file {
-            Ok(Some(file)) => pull_request_file::parse(&file).map(|text| text.body),
+            Ok(Some(file)) => pull_request_file::parse(&file).ok().map(|text| text.body),
             _ => None,
         };
         let body = match handed {

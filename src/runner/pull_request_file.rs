@@ -7,10 +7,12 @@
 //! pushed and no pull request, and sets the title and body again when a
 //! later turn changed the file.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use super::Runner;
 use crate::local_paths::Leak;
+use crate::panel::work_of;
 use crate::ports::ForgeError;
 use crate::worker_folder;
 use crate::worktree::BASE;
@@ -34,25 +36,84 @@ pub(super) struct Text {
     pub(super) body: String,
 }
 
+/// Why a file opens no pull request: its first line is no title kelpie
+/// sends
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Untitled {
+    /// The first line is blank, which GitHub would refuse
+    Blank,
+    /// The first line, which is not a conventional commit subject, such as a
+    /// template's first heading
+    NotConventional(String),
+}
+
 /// The title and body in `file`: its first line is the title, its
 /// leading `#`s left off, and the rest is the body
 ///
-/// `None` when it has no title, which GitHub would refuse.
-pub(super) fn parse(file: &str) -> Option<Text> {
+/// [`Untitled`] when the first line is blank or not a conventional commit
+/// subject. Any lowercase word is a type, as [`work_of`] reads one, since
+/// the runner does not know each project's list.
+pub(super) fn parse(file: &str) -> Result<Text, Untitled> {
     let file = file.trim_start();
     let (first, rest) = file.split_once('\n').unwrap_or((file, ""));
     let title = first.trim_start_matches('#').trim();
-    (!title.is_empty()).then(|| Text {
+    if title.is_empty() {
+        return Err(Untitled::Blank);
+    }
+    let summary = title
+        .split_once(':')
+        .is_some_and(|(_, s)| !s.trim().is_empty());
+    if !summary || work_of(Some(title)).kind == "untyped" {
+        return Err(Untitled::NotConventional(title.to_owned()));
+    }
+    Ok(Text {
         title: title.to_owned(),
         body: rest.trim().to_owned(),
     })
+}
+
+/// Why kelpie opened no pull request from the file
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Refused {
+    /// Its first line is not a conventional commit subject
+    Title(String),
+    /// The guard, a project's hook or the forge refused it
+    Forge(ForgeError),
+}
+
+impl fmt::Display for Refused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Title(line) => write!(
+                f,
+                "its first line, `{line}`, is not a conventional commit subject"
+            ),
+            Self::Forge(refusal) => refusal.fmt(f),
+        }
+    }
+}
+
+impl From<ForgeError> for Refused {
+    fn from(refusal: ForgeError) -> Self {
+        Self::Forge(refusal)
+    }
 }
 
 /// Why a refused open reads to the worker, with how to fix it where the
 /// worker can
 ///
 /// The guard's refusal never repeats what it found, so this does not either.
-pub(super) fn told(refusal: &ForgeError) -> String {
+pub(super) fn told(refused: &Refused) -> String {
+    let refusal = match refused {
+        Refused::Title(_) => {
+            return format!(
+                "{refused}. Write the title as the file's first line, a conventional commit \
+                 subject such as `fix(parser): keep the last line`, above any template's text: \
+                 a template's heading is never the title"
+            );
+        }
+        Refused::Forge(refusal) => refusal,
+    };
     match refusal {
         ForgeError::Hook { .. } => format!("{refusal}. Change the file so the hook accepts it"),
         ForgeError::LocalPath { leak, .. } => {
@@ -75,21 +136,34 @@ impl Runner {
     /// log. `Err` when the forge refused, whether the guard, a project's hook
     /// or the forge itself, which is told in the log too: the turn is then
     /// judged as one that opened no pull request, and the refusal is what the
-    /// worker and the project manager are told.
+    /// worker and the project manager are told. A first line that is not a
+    /// conventional commit subject is refused the same way, since the worker
+    /// can fix it.
     pub(super) fn open_handed_over(
         &self,
         build: &Path,
         branch: &str,
-    ) -> Result<Option<u64>, ForgeError> {
+    ) -> Result<Option<u64>, Refused> {
         let Some(file) = self.read_handed_over(build) else {
             return Ok(None);
         };
-        let Some(text) = parse(&file) else {
-            self.notes.push(format!(
-                "{} has no title on its first line, so no pull request is opened from it",
-                path(build).display()
-            ));
-            return Ok(None);
+        let text = match parse(&file) {
+            Ok(text) => text,
+            Err(Untitled::Blank) => {
+                self.notes.push(format!(
+                    "{} has no title on its first line, so no pull request is opened from it",
+                    path(build).display()
+                ));
+                return Ok(None);
+            }
+            Err(Untitled::NotConventional(line)) => {
+                let refused = Refused::Title(line);
+                self.notes.push(format!(
+                    "{}: {refused}, so no pull request is opened from it",
+                    path(build).display()
+                ));
+                return Err(refused);
+            }
         };
         let number = (self.ports.forge)
             .create_pull_request(&self.remote, branch, BASE, &text.title, &text.body)
@@ -104,16 +178,26 @@ impl Runner {
     /// Sets pull request `number`'s title and body to what the worker's file
     /// says now, when a turn changed it since kelpie last did
     ///
-    /// The refusal of a project's hook, when one refused the file: the worker
-    /// can fix its own file, so it is told why. The file is not marked
-    /// applied, so the next turn's end tries it again.
+    /// Why, when a project's hook refused the file or its first line is not a
+    /// conventional commit subject: the worker can fix its own file, so it is
+    /// told. The file is not marked applied, so the next turn's end tries it
+    /// again.
     pub(super) fn edit_handed_over(&self, build: &Path, number: u64) -> Option<String> {
         let file = self.read_handed_over(build)?;
         let applied = worker_folder::read(build, Path::new(APPLIED));
         if applied.is_ok_and(|applied| applied.as_deref() == Some(file.as_str())) {
             return None;
         }
-        let text = parse(&file)?;
+        let text = match parse(&file) {
+            Ok(text) => text,
+            Err(Untitled::Blank) => return None,
+            Err(Untitled::NotConventional(line)) => {
+                let refused = Refused::Title(line);
+                self.notes
+                    .push(format!("cannot edit pull request #{number}: {refused}"));
+                return Some(told(&refused));
+            }
+        };
         match (self.ports.forge).edit_pull_request(&self.remote, number, &text.title, &text.body) {
             Ok(()) => {
                 self.keep_applied(build, &file);
@@ -122,7 +206,7 @@ impl Runner {
             Err(e) => {
                 self.notes
                     .push(format!("cannot edit pull request #{number}: {e}"));
-                matches!(e, ForgeError::Hook { .. }).then(|| e.to_string())
+                matches!(e, ForgeError::Hook { .. }).then(|| told(&Refused::Forge(e)))
             }
         }
     }
@@ -596,7 +680,101 @@ body
 
     #[test]
     fn a_file_with_no_title_opens_nothing() {
-        assert_eq!(parse(""), None);
-        assert_eq!(parse("  \n\n##\nbody"), None);
+        assert_eq!(parse(""), Err(Untitled::Blank));
+        assert_eq!(parse("  \n\n##\nbody"), Err(Untitled::Blank));
+    }
+
+    #[test]
+    fn a_breaking_scoped_subject_is_a_title() {
+        let text = parse("feat(guard)!: scope the token\nbody").unwrap();
+
+        assert_eq!(text.title, "feat(guard)!: scope the token");
+    }
+
+    #[test]
+    fn a_first_line_that_is_not_a_conventional_commit_subject_is_no_title() {
+        for line in ["## Short summary", "feat:", "feat: ", "Feat: x"] {
+            let title = line.trim_start_matches('#').trim().to_owned();
+            assert_eq!(
+                parse(&format!("{line}\nbody")),
+                Err(Untitled::NotConventional(title)),
+                "{line}"
+            );
+        }
+    }
+
+    // A worker that filled the repo's template straight into the file has its
+    // first heading on the first line, as shep's `## Short summary`.
+    const TEMPLATE: &str = "## Short summary\n\nWhy.\n\nResolves #7\n";
+
+    #[test]
+    fn a_template_heading_on_the_first_line_opens_nothing_and_the_worker_is_told() {
+        let (rig, runner) = with_issue_7(true);
+        std::fs::write(path(&rig.build_7()), TEMPLATE).unwrap();
+        rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+
+        step(&runner).unwrap(); // the turn pushes, and the title is refused
+
+        assert_eq!(rig.forge.text_of(500), None);
+        let logged = runner.lock().unwrap().take_started();
+        let Some(StepReport::PullRequestNotOpened { issue: 7, reason }) = logged.last() else {
+            panic!("the refusal was not logged as a step: {logged:?}");
+        };
+        assert!(reason.contains("`Short summary`"), "{reason}");
+        std::fs::write(path(&rig.build_7()), format!("feat: x\n\n{TEMPLATE}")).unwrap();
+        rig.claude.script([Scripted::Say("fixed the file")]);
+        step(&runner).unwrap(); // sent back with the reason
+
+        let prompts = prompts(&rig);
+        let told = prompts.last().unwrap();
+        assert!(told.contains("pull-request.md"), "{told}");
+        assert!(told.contains("`Short summary`"), "{told}");
+        assert!(told.contains("conventional commit subject"), "{told}");
+        let (title, body) = rig.forge.text_of(500).expect("opened from the fixed file");
+        assert_eq!(title, "feat: x");
+        assert!(body.starts_with("## Short summary"), "{body}");
+    }
+
+    #[test]
+    fn a_title_that_stays_unconventional_parks_on_a_ruling_naming_the_reason() {
+        let (rig, runner) = with_issue_7(true);
+        std::fs::write(path(&rig.build_7()), TEMPLATE).unwrap();
+        rig.claude.script([
+            Scripted::Push("work.txt", "work\n"),
+            Scripted::Say("still the same"),
+        ]);
+
+        step(&runner).unwrap(); // the first turn, refused
+        step(&runner).unwrap(); // sent back, and refused again
+        let Some(StepReport::Failed { question, .. }) = step(&runner).unwrap() else {
+            panic!("the title that stays unconventional did not park the item");
+        };
+
+        assert_eq!(rig.forge.text_of(500), None);
+        assert!(question.contains("`Short summary`"), "{question}");
+        assert!(
+            question.contains("conventional commit subject"),
+            "{question}"
+        );
+    }
+
+    #[test]
+    fn an_edit_to_an_unconventional_title_is_refused_and_applied_once_fixed() {
+        let (rig, runner) = with_issue_7(true);
+        let (build, runner) = (rig.build_7(), runner.lock().unwrap());
+        rig.forge.open_pull_request(500, "kelpie/7", &[7]);
+        let before = rig.forge.text_of(500);
+
+        std::fs::write(path(&build), "Summary\n\nbody\n").unwrap();
+        let refused = runner.edit_handed_over(&build, 500).expect("refused");
+        assert!(refused.contains("`Summary`"), "{refused}");
+        assert_eq!(rig.forge.text_of(500), before);
+
+        std::fs::write(path(&build), "fix: y\n\nbody\n").unwrap();
+        assert_eq!(runner.edit_handed_over(&build, 500), None);
+        assert_eq!(
+            rig.forge.text_of(500),
+            Some(("fix: y".to_owned(), "body".to_owned()))
+        );
     }
 }
