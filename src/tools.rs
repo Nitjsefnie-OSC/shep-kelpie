@@ -14,7 +14,9 @@ use std::process::Command;
 mod browser;
 mod goose_packages;
 mod graph;
+mod install;
 mod pi_packages;
+mod report;
 
 pub use goose_packages::{WEB_SERVER as GOOSE_WEB, WEB_SERVER_FILE as GOOSE_WEB_FILE};
 pub use graph::RELEASE as CODE_GRAPH_RELEASE;
@@ -36,39 +38,6 @@ impl Tools {
     /// The tools in `dir` itself
     pub fn at(dir: PathBuf) -> Self {
         Self(dir)
-    }
-
-    /// Installs the pinned packages with `npm`
-    ///
-    /// # Errors
-    ///
-    /// The step that failed, and why.
-    pub fn install(&self) -> Result<(), String> {
-        self.install_with("npm")
-    }
-
-    // `install` with `npm` as the program that fetches the packages.
-    fn install_with(&self, npm: &str) -> Result<(), String> {
-        std::fs::create_dir_all(&self.0)
-            .and_then(|()| std::fs::write(self.0.join("package.json"), PACKAGE))
-            .map_err(|e| format!("cannot write {}: {e}", self.0.display()))?;
-        // The copy of the last install is of the last version. It goes before npm
-        // can fail, so a failed install leaves none for a call to find blocked.
-        self.remove_keychain_copy()?;
-        let args = ["install", "--no-audit", "--no-fund"];
-        run(crate::spawn::command(npm).args(args).current_dir(&self.0))?;
-        // Only macOS has a keychain, and only its profile names the services.
-        if cfg!(target_os = "macos") {
-            self.block_keychain()?;
-        }
-        self.install_browser()?;
-        if !self.install_code_graph()? {
-            eprintln!(
-                "the code graph server has no build for this machine, so projects that turn \
-                 it on run without it"
-            );
-        }
-        Ok(())
     }
 
     /// The folder itself
@@ -302,7 +271,12 @@ const lines = [
         assert!(tools.keychain_blocked());
         let npm = dir.path().join("failing-npm");
         crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
-        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+        tools
+            .install_with(
+                &install::Setup::here(npm.to_str().unwrap()),
+                &mut Vec::new(),
+            )
+            .unwrap_err();
         assert!(!tools.keychain_blocked());
         assert!(!tools.sandbox_without_keychain().exists());
     }
@@ -315,7 +289,12 @@ const lines = [
         let tools = Tools::at(dir.path().join("tools"));
         let npm = dir.path().join("failing-npm");
         crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
-        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+        tools
+            .install_with(
+                &install::Setup::here(npm.to_str().unwrap()),
+                &mut Vec::new(),
+            )
+            .unwrap_err();
 
         let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -332,7 +311,12 @@ const lines = [
         let tools = Tools::at(dir.path().join("tools"));
         let npm = dir.path().join("failing-npm");
         crate::test::write_script(&npm, "#!/bin/sh\nexit 1\n");
-        tools.install_with(npm.to_str().unwrap()).unwrap_err();
+        tools
+            .install_with(
+                &install::Setup::here(npm.to_str().unwrap()),
+                &mut Vec::new(),
+            )
+            .unwrap_err();
 
         let text = std::fs::read_to_string(tools.dir().join("package.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();

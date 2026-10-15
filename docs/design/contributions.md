@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. Today it works only its own; it sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #624, #625
+Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), and records the reviewers' pass over a green head (`contribution-pass.md`). #617, #618, #619, #622, #623, #624, #625
 
 ## Settings
 

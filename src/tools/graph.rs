@@ -58,36 +58,53 @@ impl Tools {
         self.code_graph().is_file()
     }
 
-    /// Fetches the pinned release of the code graph server for this machine
+    /// Fetches the pinned release of the code graph server, as `asset` names it
     ///
-    /// A machine the release has no build for is left without one, which
+    /// A machine the release has no build for, which has no `asset`, is left without one, which
     /// returns `Ok(false)`: a project that turns the graph on gets a doctor
     /// line and its calls run without it.
     ///
     /// # Errors
     ///
     /// The step that failed, and why.
-    pub(super) fn install_code_graph(&self) -> Result<bool, String> {
-        let Some(asset) = asset(std::env::consts::OS, std::env::consts::ARCH) else {
+    pub(super) fn install_code_graph(
+        &self,
+        asset: Option<Asset>,
+        curl: &str,
+        progress: bool,
+    ) -> Result<bool, String> {
+        let Some(asset) = asset else {
             return Ok(false);
         };
         let staging = self.0.join("code-graph-staging");
-        let fetched = self.fetch_code_graph(&asset, &staging);
+        let fetched = self.fetch_code_graph(&asset, curl, progress, &staging);
         // Whatever the fetch left is not worth keeping, whether it worked or not.
         let _ = std::fs::remove_dir_all(&staging);
         fetched.map(|()| true)
     }
 
-    fn fetch_code_graph(&self, asset: &Asset, staging: &Path) -> Result<(), String> {
+    fn fetch_code_graph(
+        &self,
+        asset: &Asset,
+        curl: &str,
+        progress: bool,
+        staging: &Path,
+    ) -> Result<(), String> {
         let _ = std::fs::remove_dir_all(staging);
         std::fs::create_dir_all(staging)
             .map_err(|e| format!("cannot make {}: {e}", staging.display()))?;
         let archive = staging.join(asset.name);
         let url = format!("{REPO}/{RELEASE}/{}", asset.name);
-        let fetch = crate::spawn::command("curl")
+        // curl draws its bar on stderr, so a pipe or a log gets none of it.
+        let quiet_or_bar = if progress {
+            "--progress-bar"
+        } else {
+            "--silent"
+        };
+        let fetch = crate::spawn::command(curl)
             .args([
                 "--fail",
-                "--silent",
+                quiet_or_bar,
                 "--show-error",
                 "--location",
                 "--output",
@@ -96,7 +113,7 @@ impl Tools {
             .arg(&url)
             .current_dir(staging)
             .status();
-        let fetch = fetch.map_err(|e| format!("cannot run curl: {e}"))?;
+        let fetch = fetch.map_err(|e| format!("cannot run {curl}: {e}"))?;
         if !fetch.success() {
             return Err(format!("cannot fetch {url}: curl {fetch}"));
         }
@@ -139,7 +156,7 @@ impl Tools {
 }
 
 // The SHA-256 of `file`, as `shasum` or `sha256sum` prints it.
-fn digest(file: &Path) -> Result<String, String> {
+pub(super) fn digest(file: &Path) -> Result<String, String> {
     for (program, args) in [("shasum", &["-a", "256"][..]), ("sha256sum", &[][..])] {
         let Ok(output) = crate::spawn::command(program).args(args).arg(file).output() else {
             continue;

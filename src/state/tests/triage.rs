@@ -4,14 +4,14 @@ use super::super::*;
 use super::store_in;
 use crate::ports::Timestamp;
 
-// A version 58 file has no `triage`, so it loads with no `since`; once set it
+// A version 59 file has no `triage`, so it loads with no `since`; once set it
 // is kept, and it is left out while unset.
 #[test]
 fn a_file_saved_before_this_version_loads_with_no_since() {
     let dir = tempfile::tempdir().unwrap();
     let store = store_in(dir.path());
     let mut old = serde_json::to_value(ProjectState::new()).unwrap();
-    old["version"] = 58.into();
+    old["version"] = 59.into();
     old.as_object_mut().unwrap().remove("triage");
     fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
 
