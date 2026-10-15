@@ -647,8 +647,7 @@ mod tests {
 
     #[test]
     fn an_index_that_fails_under_a_daemon_folder_too_long_for_its_socket_says_so() {
-        // macOS's own temp folder is too long for any socket under it.
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let dir = crate::test::short_tempdir();
         let binary = dir.path().join("codebase-memory-mcp");
         let failing = "#!/bin/sh\ncase \"$1\" in cli) echo 'endpoint could not be created' >&2; exit 1;; esac\n";
         write_script(&binary, failing);
