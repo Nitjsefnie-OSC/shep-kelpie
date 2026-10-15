@@ -202,7 +202,7 @@ fn a_call_still_trusts_no_project_with_servers_loaded() {
 }
 
 #[test]
-fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
+fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
     let w = World::new();
     let upstream = ClaudeCli::default()
         .pi()
@@ -212,6 +212,7 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
     let graph = CodeGraph {
         binary: PathBuf::from("/k/tools/codebase-memory-mcp"),
         index: PathBuf::from("/k/graphs/7"),
+        runtime: PathBuf::from("/k/cbm/7"),
     };
     let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let without = policy(&call, &Files::of(&call), &upstream, &socket, &[]);
@@ -227,7 +228,15 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
         .iter()
         .filter(|p| !without.write.contains(p))
         .collect();
-    assert_eq!(granted, [&graph.index]);
+    assert_eq!(granted, [&graph.index, &graph.runtime]);
+    let sockets: Vec<_> = (with.sockets.iter())
+        .filter(|s| !without.sockets.contains(s))
+        .collect();
+    assert_eq!(
+        sockets,
+        [&graph.runtime],
+        "its daemon's socket, and no other"
+    );
 }
 
 #[test]

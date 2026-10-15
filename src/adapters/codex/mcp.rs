@@ -152,6 +152,7 @@ mod tests {
         CodeGraph {
             binary: "/k/tools/codebase-memory-mcp".into(),
             index: "/k/graphs/7".into(),
+            runtime: "/k/cbm/7".into(),
         }
     }
 

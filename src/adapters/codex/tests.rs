@@ -307,11 +307,12 @@ fn a_call_with_a_browser_loads_playwright_and_the_sandbox_connects_only_to_its_s
 }
 
 #[test]
-fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
+fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
     let w = World::new();
     let graph = CodeGraph {
         binary: PathBuf::from("/k/tools/codebase-memory-mcp"),
         index: PathBuf::from("/k/graphs/7"),
+        runtime: PathBuf::from("/k/cbm/7"),
     };
     let mut call = w.fenced(Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
     let login = w.path("login");
@@ -328,7 +329,15 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
         .iter()
         .filter(|p| !without.write.contains(p))
         .collect();
-    assert_eq!(granted, [&graph.index]);
+    assert_eq!(granted, [&graph.index, &graph.runtime]);
+    let sockets: Vec<_> = (with.sockets.iter())
+        .filter(|s| !without.sockets.contains(s))
+        .collect();
+    assert_eq!(
+        sockets,
+        [&graph.runtime],
+        "its daemon's socket, and no other"
+    );
 }
 
 #[test]

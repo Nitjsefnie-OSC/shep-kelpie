@@ -9,6 +9,7 @@
 //! seconds to minutes, so it runs on the call's own thread, where a stop
 //! ends it.
 
+use std::ffi::OsStr;
 use std::io;
 use std::path::Path;
 use std::process::Stdio;
@@ -54,29 +55,33 @@ impl Runner {
         }
         self.notes.ends(NOT_INSTALLED);
         // A work item of the same number would share the index of a triage view.
-        let index = match call.role {
-            Role::Triager => self.paths.triage_graph(call.issue),
-            _ => self.paths.code_graph(call.issue),
+        let (index, runtime) = match call.role {
+            Role::Triager => (
+                self.paths.triage_graph(call.issue),
+                self.paths.triage_graph_runtime(call.issue),
+            ),
+            _ => (
+                self.paths.code_graph(call.issue),
+                self.paths.code_graph_runtime(call.issue),
+            ),
         };
         call.reach.code_graph = Some(CodeGraph {
             binary: tools.code_graph(),
             index,
+            runtime,
         });
     }
 
-    /// Removes the index of work item `issue`'s worktree
+    /// Removes the index of work item `issue`'s worktree, and its daemon's folder
     ///
     /// # Errors
     ///
     /// The folder that could not be removed, and why.
     pub(super) fn remove_code_graph(&self, issue: u64) -> Result<(), String> {
-        let folder = self.paths.code_graph(issue);
-        match std::fs::remove_dir_all(&folder) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                Err(format!("cannot remove {}: {e}", folder.display()))
-            }
-            _ => Ok(()),
-        }
+        remove(&[
+            self.paths.code_graph(issue),
+            self.paths.code_graph_runtime(issue),
+        ])
     }
 
     // A server pi, Codex or goose cannot load is left out, and a note says which and why. goose
@@ -162,12 +167,70 @@ fn name(role: Role) -> &'static str {
     }
 }
 
+/// Removes the folders of a graph, which may be gone already
+///
+/// # Errors
+///
+/// The folder that could not be removed, and why.
+pub(super) fn remove(folders: &[std::path::PathBuf]) -> Result<(), String> {
+    for folder in folders {
+        match std::fs::remove_dir_all(folder) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                return Err(format!("cannot remove {}: {e}", folder.display()));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 // Indexes `worktree` into the graph's folder, which the server reads back.
 // Run again for each call, since the server only watches what it is running over.
 // A call asked to end kills the indexer.
 fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), String> {
-    std::fs::create_dir_all(&graph.index)
-        .map_err(|e| format!("cannot make {}: {e}", graph.index.display()))?;
+    for folder in [&graph.index, &graph.runtime] {
+        std::fs::create_dir_all(folder)
+            .map_err(|e| format!("cannot make {}: {e}", folder.display()))?;
+    }
+    // The daemon serves its graph over HTTP on a local port unless its index folder says not to.
+    let ui_off = ["config", "set", "ui_enabled", "false"].map(OsStr::new);
+    run(graph, worktree, "turning its web UI off", &ui_off, ending)?;
+    let index = [
+        OsStr::new("cli"),
+        "index_repository".as_ref(),
+        "--repo-path".as_ref(),
+    ];
+    run(
+        graph,
+        worktree,
+        "indexing",
+        &[&index[..], &[worktree.as_os_str()]].concat(),
+        ending,
+    )
+    .map_err(|e| match too_long(&graph.runtime) {
+        Some(why) => format!("{e}; {why}"),
+        None => e,
+    })
+}
+
+// Why the daemon's socket, `cbm-daemon-<uid>/cbm-<16 hex>.sock` under `runtime`, cannot bind
+// there, when its path is too long: the daemon says only that its endpoint could not be made.
+// The folder is this user's, so its owner is the uid.
+fn too_long(runtime: &Path) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata(runtime).ok()?.uid();
+    let socket = runtime.join(format!("cbm-daemon-{uid}/cbm-{}.sock", "0".repeat(16)));
+    crate::home::socket_fits(&socket).err()
+}
+
+// Runs the server's `args` over the graph's folders, saying `what` it was doing when it fails.
+fn run(
+    graph: &CodeGraph,
+    worktree: &Path,
+    what: &str,
+    args: &[&OsStr],
+    ending: &Ending,
+) -> Result<(), String> {
     let log = graph.index.join("kelpie-index.log");
     let output =
         std::fs::File::create(&log).map_err(|e| format!("cannot write {}: {e}", log.display()))?;
@@ -175,9 +238,9 @@ fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), Stri
         .try_clone()
         .map_err(|e| format!("cannot write {}: {e}", log.display()))?;
     let mut child = crate::spawn::command(&graph.binary)
-        .args(["cli", "index_repository", "--repo-path"])
-        .arg(worktree)
+        .args(args)
         .env("CBM_CACHE_DIR", &graph.index)
+        .env("CBM_RUNTIME_DIR", &graph.runtime)
         .env("CBM_ALLOWED_ROOT", worktree)
         .current_dir(worktree)
         .stdin(Stdio::null())
@@ -196,8 +259,8 @@ fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), Stri
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(match ending.asked() {
-                    true => "the call was ended while indexing".to_owned(),
-                    false => format!("indexing took over {}s", INDEX_LIMIT.as_secs()),
+                    true => format!("the call was ended while {what}"),
+                    false => format!("{what} took over {}s", INDEX_LIMIT.as_secs()),
                 });
             }
             Err(e) => return Err(format!("cannot wait for the indexer: {e}")),
@@ -210,7 +273,7 @@ fn index(graph: &CodeGraph, worktree: &Path, ending: &Ending) -> Result<(), Stri
     let said = said.trim();
     let from = said.len().saturating_sub(TAIL);
     let tail = said.get(from..).unwrap_or(said);
-    Err(format!("indexing failed with {status}: {tail}"))
+    Err(format!("{what} failed with {status}: {tail}"))
 }
 
 #[cfg(test)]
@@ -226,9 +289,12 @@ mod tests {
     use crate::settings::AgentHarness;
     use crate::test::{Rig, Scripted, write_script};
 
-    // A server that indexes by writing a file into its cache folder.
+    // A server that indexes by writing a file into its cache folder, and keeps each run's
+    // arguments and the folder its daemon would bind in.
     const INDEXER: &str = "#!/bin/sh\n\
+        echo \"$@\" >> \"$CBM_CACHE_DIR/ran\"\n\
         echo \"$@\" > \"$CBM_CACHE_DIR/indexed-with\"\n\
+        echo \"$CBM_RUNTIME_DIR\" > \"$CBM_CACHE_DIR/runtime\"\n\
         echo \"$CBM_ALLOWED_ROOT\" > \"$CBM_CACHE_DIR/root\"\n";
 
     fn turn_on(rig: &Rig) {
@@ -277,17 +343,20 @@ mod tests {
         work_and_review(&rig);
 
         let index = rig.paths().folder.join("code-graphs/7");
+        let runtime = rig.paths().folder.join("cbm/7");
         let seen = reads_code(&rig);
         let roles: Vec<Role> = seen.iter().map(|s| s.call.role).collect();
         assert!(roles.contains(&Role::Worker) && roles.contains(&Role::Reviewer));
         for seen in &seen {
             let graph = seen.call.reach.code_graph.as_ref().expect("the server");
             assert_eq!(graph.index, index);
+            assert_eq!(graph.runtime, runtime);
             assert_eq!(graph.binary, rig.paths().tools.code_graph());
             let config: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(mcp_file(seen)).unwrap()).unwrap();
             let server = &config["mcpServers"]["codebase-memory-mcp"];
             assert_eq!(server["env"]["CBM_CACHE_DIR"], index.to_str().unwrap());
+            assert_eq!(server["env"]["CBM_RUNTIME_DIR"], runtime.to_str().unwrap());
             assert_eq!(
                 seen.settings["permissions"]["allow"]
                     .as_array()
@@ -305,6 +374,19 @@ mod tests {
         assert!(
             indexed.starts_with("cli index_repository --repo-path "),
             "{indexed}"
+        );
+        let ran = std::fs::read_to_string(index.join("ran")).unwrap();
+        let first: Vec<&str> = ran.lines().take(2).collect();
+        assert_eq!(
+            first[0], "config set ui_enabled false",
+            "the web UI off first"
+        );
+        assert!(first[1].starts_with("cli index_repository"), "{ran}");
+        let told = std::fs::read_to_string(index.join("runtime")).unwrap();
+        assert_eq!(PathBuf::from(told.trim()), runtime);
+        assert!(
+            runtime.is_dir(),
+            "made for the daemon, which does not make it"
         );
         let root = std::fs::read_to_string(index.join("root")).unwrap();
         assert_eq!(
@@ -523,10 +605,12 @@ mod tests {
             install(rig, INDEXER);
         });
         let index = rig.paths().folder.join("code-graphs/7");
+        let runtime = rig.paths().folder.join("cbm/7");
         assert!(
             index.join("indexed-with").is_file(),
             "the worker's turn indexed"
         );
+        assert!(runtime.is_dir());
 
         rig.ask(&runner, "rule", Some("71 yes"));
         step(&runner).unwrap(); // marked ready
@@ -537,25 +621,50 @@ mod tests {
             Some(crate::runner::StepReport::Finished { issue: 7, .. })
         ));
         assert!(!index.exists());
+        assert!(!runtime.exists(), "the daemon's folder goes with it");
     }
 
     #[test]
     fn a_call_ended_while_its_index_builds_kills_the_indexer_and_runs_without_the_server() {
         let dir = tempfile::tempdir().unwrap();
         let binary = dir.path().join("codebase-memory-mcp");
-        write_script(&binary, "#!/bin/sh\nsleep 600\n");
+        write_script(&binary, "#!/bin/sh\ncase \"$1\" in cli) sleep 600;; esac\n");
         let graph = CodeGraph {
             binary,
             index: dir.path().join("index"),
+            runtime: dir.path().join("cbm"),
         };
         let ending = Ending::default();
         ending.end();
         let started = Instant::now();
         let err = index(&graph, dir.path(), &ending).unwrap_err();
-        assert!(err.contains("ended while indexing"), "{err}");
+        assert!(err.contains("the call was ended while"), "{err}");
         assert!(
             started.elapsed() < Duration::from_secs(30),
             "it waited the sleep out"
+        );
+    }
+
+    #[test]
+    fn an_index_that_fails_under_a_daemon_folder_too_long_for_its_socket_says_so() {
+        let dir = crate::test::short_tempdir();
+        let binary = dir.path().join("codebase-memory-mcp");
+        let failing = "#!/bin/sh\ncase \"$1\" in cli) echo 'endpoint could not be created' >&2; exit 1;; esac\n";
+        write_script(&binary, failing);
+        let graph = |runtime: &str| CodeGraph {
+            binary: binary.clone(),
+            index: dir.path().join("index"),
+            runtime: dir.path().join(runtime),
+        };
+        let long = "x".repeat(80);
+        let err = index(&graph(&long), dir.path(), &Ending::default()).unwrap_err();
+        assert!(err.contains("endpoint could not be created"), "{err}");
+        assert!(err.contains(&long) && err.contains("socket"), "{err}");
+
+        let err = index(&graph("cbm"), dir.path(), &Ending::default()).unwrap_err();
+        assert!(
+            !err.contains("socket"),
+            "a path that fits is not blamed: {err}"
         );
     }
 }

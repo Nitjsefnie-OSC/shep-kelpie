@@ -720,6 +720,9 @@ fn the_code_graph_index_of_the_view_goes_when_the_call_ends() {
         "apart from a work item's"
     );
     assert!(!graph.index.exists(), "removed with the view");
+    assert_eq!(graph.runtime, rig.paths().triage_graph_runtime(30));
+    assert_ne!(graph.runtime, rig.paths().code_graph_runtime(30));
+    assert!(!graph.runtime.exists(), "its daemon's folder too");
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
 

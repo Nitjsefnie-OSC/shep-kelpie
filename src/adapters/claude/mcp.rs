@@ -120,6 +120,7 @@ mod tests {
         reach.code_graph = Some(CodeGraph {
             binary: "/k/tools/codebase-memory-mcp".into(),
             index: "/k/graphs/7".into(),
+            runtime: "/k/cbm/7".into(),
         });
         let call = call(Role::Worker, Tools::Work, &settings, reach);
         ClaudeCli::default().prepare(&call).unwrap();

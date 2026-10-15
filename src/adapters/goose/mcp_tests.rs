@@ -19,6 +19,7 @@ fn graph() -> CodeGraph {
     CodeGraph {
         binary: "/k/tools/codebase-memory-mcp".into(),
         index: "/k/graphs/7".into(),
+        runtime: "/k/cbm/7".into(),
     }
 }
 
@@ -133,7 +134,7 @@ fn a_new_session_gets_one_flag_per_server_in_order_with_the_graph_last_and_unrep
             "--with-extension",
             &format!(
                 "codebase-memory-mcp:CBM_ALLOWED_ROOT={} CBM_CACHE_DIR=/k/graphs/7 \
-                 /k/tools/codebase-memory-mcp",
+                 CBM_RUNTIME_DIR=/k/cbm/7 /k/tools/codebase-memory-mcp",
                 w.path("wt").display()
             ),
         ]
@@ -491,7 +492,7 @@ fn a_researcher_that_loads_a_server_runs_in_auto_behind_the_hook_and_one_that_lo
 }
 
 #[test]
-fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
+fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index_and_daemon_folder() {
     let w = World::new();
     let policy_of = |call: &AgentCall| {
         let goose = ClaudeCli::default().goose();
@@ -508,13 +509,17 @@ fn the_sandbox_reads_the_code_graph_binary_and_writes_only_its_index() {
     let without = policy_of(&worker(&w, Session::New(id(FRESH_ID)), json!({}), None));
     let binary = Path::new("/k/tools/codebase-memory-mcp");
     let index = Path::new("/k/graphs/7");
+    let runtime = Path::new("/k/cbm/7");
     assert!(with.read.iter().any(|p| p == binary));
     assert!(with.read.iter().any(|p| p == index));
     assert!(with.write.iter().any(|p| p == index));
+    assert!(with.write.iter().any(|p| p == runtime));
+    assert!(with.sockets.iter().any(|p| p == runtime));
     assert!(!with.write.iter().any(|p| p == binary));
     // Nothing else changed, and no host was added for the server.
-    assert_eq!(with.write.len(), without.write.len() + 1);
-    assert_eq!(with.read.len(), without.read.len() + 2);
+    assert_eq!(with.write.len(), without.write.len() + 2);
+    assert_eq!(with.read.len(), without.read.len() + 3);
+    assert_eq!(with.sockets.len(), without.sockets.len() + 1);
     assert_eq!(with.hosts, without.hosts);
     assert!(!without.read.iter().any(|p| p == binary || p == index));
 

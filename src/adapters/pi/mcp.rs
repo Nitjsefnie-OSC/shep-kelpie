@@ -175,6 +175,7 @@ mod tests {
             code_graph: Some(CodeGraph {
                 binary: "/k/tools/codebase-memory-mcp".into(),
                 index: "/k/graphs/7".into(),
+                runtime: "/k/cbm/7".into(),
             }),
             ..Reach::default()
         }
@@ -242,7 +243,11 @@ mod tests {
                 "type": "stdio",
                 "command": "/k/tools/codebase-memory-mcp",
                 "args": [],
-                "env": { "CBM_CACHE_DIR": "/k/graphs/7", "CBM_ALLOWED_ROOT": w.path("wt") },
+                "env": {
+                    "CBM_CACHE_DIR": "/k/graphs/7",
+                    "CBM_RUNTIME_DIR": "/k/cbm/7",
+                    "CBM_ALLOWED_ROOT": w.path("wt"),
+                },
                 "exposure": "direct",
             })
         );

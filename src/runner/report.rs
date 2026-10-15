@@ -789,6 +789,10 @@ pub(super) enum Begin {
 }
 
 /// A review call, which runs in flight like a turn
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one is made a review round; boxing either variant leaves the other the large one"
+)]
 pub(super) enum ReviewCall {
     /// One local round, of the project's kind
     Local {

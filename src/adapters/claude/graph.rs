@@ -15,6 +15,7 @@ mod tests {
         CodeGraph {
             binary: "/kelpie/tools/bin/codebase-memory-mcp".into(),
             index: "/kelpie/code-graphs/7".into(),
+            runtime: "/kelpie/cbm/7".into(),
         }
     }
 
@@ -90,10 +91,9 @@ mod tests {
             json!(["mcp__codebase-memory-mcp"])
         );
         let config = read(&mcp_file(&settings));
-        assert_eq!(
-            config["mcpServers"]["codebase-memory-mcp"]["env"]["CBM_CACHE_DIR"],
-            "/kelpie/code-graphs/7"
-        );
+        let env = &config["mcpServers"]["codebase-memory-mcp"]["env"];
+        assert_eq!(env["CBM_CACHE_DIR"], "/kelpie/code-graphs/7");
+        assert_eq!(env["CBM_RUNTIME_DIR"], "/kelpie/cbm/7");
     }
 
     #[test]
@@ -109,20 +109,30 @@ mod tests {
     }
 
     #[test]
-    fn the_sandbox_lets_the_server_read_its_binary_and_write_only_its_index() {
+    fn the_sandbox_lets_the_server_read_its_binary_and_write_and_bind_only_in_its_own_folders() {
         let settings = Path::new("/k/worker/settings.json");
         let with = call(Role::Worker, Tools::Work, settings, Some(graph()));
         let policy = sandbox::policy(&with, Path::new("/home"), &[]).unwrap();
         let graph = graph();
-        for path in [&graph.binary, &graph.index, &mcp_file(settings)] {
+        for path in [
+            &graph.binary,
+            &graph.index,
+            &graph.runtime,
+            &mcp_file(settings),
+        ] {
             assert!(policy.read.contains(path), "{path:?}");
         }
-        assert!(policy.write.contains(&graph.index));
+        assert!(policy.write.contains(&graph.index) && policy.write.contains(&graph.runtime));
+        assert!(
+            policy.sockets.contains(&graph.runtime),
+            "its daemon's socket"
+        );
         assert!(!policy.write.contains(&graph.binary));
 
         let without = call(Role::Worker, Tools::Work, settings, None);
         let policy = sandbox::policy(&without, Path::new("/home"), &[]).unwrap();
         assert!(!policy.read.contains(&graph.binary));
         assert!(!policy.write.contains(&graph.index));
+        assert!(!policy.sockets.contains(&graph.runtime));
     }
 }

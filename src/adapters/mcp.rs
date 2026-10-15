@@ -44,6 +44,7 @@ pub(crate) fn entry(graph: &CodeGraph, cwd: &Path) -> Value {
         "args": [],
         "env": {
             "CBM_CACHE_DIR": graph.index,
+            "CBM_RUNTIME_DIR": graph.runtime,
             "CBM_ALLOWED_ROOT": cwd,
         },
     })
@@ -66,13 +67,15 @@ pub(crate) fn fence_the_browser(policy: &mut Policy, call: &AgentCall) {
     }
 }
 
-/// Lets the sandbox read the code graph's binary and index and write its index, where the call has one
+/// Lets the sandbox read the code graph's binary and index, write its index, and bind and reach
+/// its daemon's socket in its runtime folder, where the call has one
 pub(crate) fn fence_the_graph(policy: &mut Policy, call: &AgentCall) {
     if let Some(graph) = &call.reach.code_graph {
-        policy
-            .read
-            .extend([graph.binary.clone(), graph.index.clone()]);
-        policy.write.push(graph.index.clone());
+        let folders = [graph.index.clone(), graph.runtime.clone()];
+        policy.read.push(graph.binary.clone());
+        policy.read.extend(folders.clone());
+        policy.write.extend(folders);
+        policy.sockets.push(graph.runtime.clone());
     }
 }
 
@@ -88,6 +91,7 @@ mod tests {
         CodeGraph {
             binary: "/k/tools/codebase-memory-mcp".into(),
             index: "/k/graphs/7".into(),
+            runtime: "/k/cbm/7".into(),
         }
     }
 
@@ -134,10 +138,11 @@ mod tests {
     }
 
     #[test]
-    fn the_entry_starts_the_server_on_the_calls_index_and_folder() {
+    fn the_entry_starts_the_server_on_the_calls_index_daemon_folder_and_folder() {
         let server = entry(&graph(), Path::new("/work/7"));
         assert_eq!(server["command"], "/k/tools/codebase-memory-mcp");
         assert_eq!(server["env"]["CBM_CACHE_DIR"], "/k/graphs/7");
+        assert_eq!(server["env"]["CBM_RUNTIME_DIR"], "/k/cbm/7");
         assert_eq!(server["env"]["CBM_ALLOWED_ROOT"], "/work/7");
     }
 
