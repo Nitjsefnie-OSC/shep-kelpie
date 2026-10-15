@@ -18,10 +18,8 @@ pub(crate) use mcp::OWN_SERVERS;
 pub use series::{FEATURE_RUNS, Feature};
 
 /// The most series a runner sends, under the metrics dog's 256 a sender
-/// (shep-pm/shep#733), with room for the dog's own refusal counter. The request
-/// series (nine for each role and harness) took it from 200: a worker and a
-/// project manager that each fall back to a second harness want about 220.
-pub const SERIES_CAP: usize = 240;
+/// (shep-pm/shep#733), with room for the dog's own refusal counter
+pub const SERIES_CAP: usize = 200;
 
 // Seconds between sending every series again. A minute is a scrape or four
 // at Prometheus's usual interval, and a few hundred samples a minute is

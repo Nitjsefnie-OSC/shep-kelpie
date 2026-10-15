@@ -363,7 +363,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     let (recorder, sink) = recorder();
     // Each role on a harness it might have, with its kinds of call and two ways each ended. The
     // worker, the reviewer and the project manager run on a second harness as a fallback, and the
-    // reviewer on a third; only Claude Code's and pi's calls have requests.
+    // reviewer on a third. Only their calls on Claude Code and pi have requests counted, and the
+    // other roles' are recorded to show they add none.
     let roles = [
         ("worker", "claude-code", &["turn", "compact", "vote"][..]),
         ("worker", "pi", &["turn", "compact", "vote"][..]),
@@ -423,8 +424,8 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        9 * 9,
-        "six buckets and three writes for each pair"
+        6 * 9,
+        "six buckets and three writes for each of the six pairs, and none for the one-shot roles"
     );
     assert!(
         held.len() + not_driven < SERIES_CAP,
