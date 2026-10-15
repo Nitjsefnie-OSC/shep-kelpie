@@ -414,18 +414,19 @@ fn refuse_unsupported(call: &AgentCall) -> Result<(), AgentError> {
              guard is written from the fence"
                 .to_owned(),
         ),
-        // A retro, a reviewer and an advisor with no fence have no shell and read what
+        // A retro, a reviewer, a triager and an advisor with no fence have no shell and read what
         // kelpie wrote them, as a researcher does.
         (Role::Worker, Tools::Work | Tools::Retro)
-        | (Role::Reviewer, Tools::Review)
+        | (Role::Reviewer | Role::Triager, Tools::Review)
         | (Role::Advisor, Tools::Advise) => None,
-        (Role::Worker | Role::Reviewer | Role::Advisor | Role::Representative, tools) => {
-            Some(format!(
-                "goose cannot run {:?} tools for {}",
-                tools,
-                call.role.as_str()
-            ))
-        }
+        (
+            Role::Worker | Role::Reviewer | Role::Advisor | Role::Representative | Role::Triager,
+            tools,
+        ) => Some(format!(
+            "goose cannot run {:?} tools for {}",
+            tools,
+            call.role.as_str()
+        )),
         (Role::IssueWriter | Role::Pm, _) => Some(format!(
             "goose cannot run the {}: it runs on Claude Code alone",
             call.role.as_str()
@@ -491,7 +492,7 @@ fn reads(call: &AgentCall) -> bool {
         && matches!(
             (call.role, call.tools),
             (Role::Worker, Tools::Retro)
-                | (Role::Reviewer, Tools::Review)
+                | (Role::Reviewer | Role::Triager, Tools::Review)
                 | (Role::Advisor, Tools::Advise)
         )
 }

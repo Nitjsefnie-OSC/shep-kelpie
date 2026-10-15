@@ -12,7 +12,7 @@ Nobody but the maintainer merges someone else's work, so `git.merging = "auto"` 
 
 ## The answer
 
-- `apply` records it as `contributions[].ruled = { head, verdict }` (`rule_merge`) and the next poll carries it out, so a restart loses none of it. A new head clears `ruled`. Version 60.
+- `apply` records it as `contributions[].ruled = { head, verdict }` (`rule_merge`) and the next poll carries it out, so a restart loses none of it. A new head clears `ruled`. Version 61.
 - `verdict` is `{ yes: { merged?, thanked? } }` or `{ no: { note? } }`. A no with no note, or the placeholder `NO_NOTE` a reaction or a tick gives, has no `note`.
 - Yes: `Forge::merge(repo, number, head)` with the head the ruling named, so a head that moved is refused by the forge. A refusal is logged and tried at the next poll, and after `POST_TRIES` the ruling is raised again. Then the representative posts thanks (`merged:<n>`). A call or a post that fails is logged and never holds the merge back.
 - No with a note: the representative words the note for the contributor and posts it (`declined:<n>`), then the note is cleared. No with no note posts nothing.

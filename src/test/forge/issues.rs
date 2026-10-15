@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 use super::FakeForge;
 use crate::ports::{
-    FinishedParent, ForgeError, OpenIssue, PullRequestState, SubIssue, SubIssueState,
+    FinishedParent, ForgeError, OpenIssue, PullRequestState, SubIssue, SubIssueState, Timestamp,
 };
 
 /// An issue kelpie opened on the fake forge
@@ -14,6 +14,18 @@ pub(crate) struct CreatedIssue {
     pub(crate) title: String,
     pub(crate) body: String,
     pub(crate) labels: Vec<String>,
+}
+
+fn plain_issue(number: u64, title: &str, body: &str) -> OpenIssue {
+    OpenIssue {
+        number,
+        title: title.to_owned(),
+        body: body.to_owned(),
+        author: "the-maintainer".to_owned(),
+        author_is_bot: false,
+        labels: Vec::new(),
+        created: Timestamp(0),
+    }
 }
 
 impl FakeForge {
@@ -94,11 +106,20 @@ impl FakeForge {
     /// Leaves issue `number` open, as someone other than kelpie would have,
     /// and shows this title and body when it is viewed
     pub(crate) fn open_issue(&self, number: u64, title: &str, body: &str) {
-        self.issues.lock().unwrap().push(OpenIssue {
-            number,
-            title: title.to_owned(),
-            body: body.to_owned(),
+        self.list_open_issue(plain_issue(number, title, body));
+    }
+
+    /// Lists issue `number` as kelpie's own account opened it with `labels`
+    pub(super) fn list_created(&self, number: u64, title: &str, body: &str, labels: &[&str]) {
+        self.list_open_issue(OpenIssue {
+            labels: labels.iter().map(|&l| l.to_owned()).collect(),
+            ..plain_issue(number, title, body)
         });
+    }
+
+    /// Leaves `issue` open, with the author, labels and time it carries
+    pub(crate) fn list_open_issue(&self, issue: OpenIssue) {
+        self.issues.lock().unwrap().push(issue);
     }
 
     /// Every issue kelpie opened, oldest first

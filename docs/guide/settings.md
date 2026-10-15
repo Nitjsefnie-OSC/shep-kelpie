@@ -23,6 +23,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `agents.implementers = ["sonnet-high"]`
 - `agents.reviewers = ["defect-hunter"]`, with `qwen` first when `~/.claude/scripts/qwen-review.sh` exists, and no review bot
 - `contributions.pick = "off"`, `contributions.security_reviewer = "security-reviewer"`, `contributions.quiet_days = 7` and `contributions.nudge_days = 3`
+- `triage.pick = "off"`, `triage.wait_days = 7`, `triage.max_questions = 10` and `triage.agent = "triager"`
 - `pacing.enabled = true`
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
 

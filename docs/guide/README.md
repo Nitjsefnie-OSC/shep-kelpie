@@ -5,6 +5,7 @@ The operator reference for shep-kelpie, one page for each topic. [Getting starte
 - [Writing issues](issues.md): the issue writer, `shep kelpie issue` and the `agent:` label
 - [The board and the project manager](board.md): what decides whether and when an issue starts, the briefing and the project manager
 - [Contributions](contributions.md): pull requests from other people, and their security review
+- [Triage](triage.md): finding the issues other people opened that nobody has touched
 - [Building](building.md): the worker, skills, repo plugins, `repo_setup`, the repo's own files, MCP servers, the code graph and retros
 - [The review](review.md): the reviewers, review bots, comments from people and local reviewers
 - [CI and the merge](ci-and-merge.md): red runs, the merge gate and what `auto` does

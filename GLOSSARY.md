@@ -233,6 +233,18 @@ and the representative words them. It speaks as kelpie, never as the
 maintainer.
 _Avoid_: rep (reads as repo), liaison, voice
 
+**Triager**:
+The agent that researches an issue another person opened, read-only on
+every **harness**, and reports what it found. It changes and posts nothing:
+kelpie's code does.
+_Avoid_: triage bot, classifier
+
+**Triage**:
+Kelpie's handling of issues other people open, chosen by `triage.pick`. An
+issue is **untouched** until it carries one of kelpie's triage labels, and
+only one opened after `triage.since` is looked at.
+_Avoid_: grooming, intake
+
 **Phase**:
 A stage of a work item: `implement`, `review`, `ci`, `ruling`, `merge` and
 `done`. A fix turn is a stage of the review phase.

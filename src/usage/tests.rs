@@ -432,6 +432,24 @@ fn a_report_totals_the_representatives_posts_apart_from_the_work_items() {
 }
 
 #[test]
+fn triager_calls_total_on_a_line_of_their_own() {
+    let lines = [
+        call(1, None, Role::Triager, CallKind::Triage, 300),
+        call(2, None, Role::Triager, CallKind::Triage, 200),
+        call(3, None, Role::Representative, CallKind::Post, 100),
+    ];
+
+    let report = report("koji", &lines, None, &[]);
+
+    let total = report.iter().find(|l| l.starts_with("triager:"));
+    let total = total.unwrap_or_else(|| panic!("no triager total in {report:#?}"));
+    assert!(
+        total.starts_with("triager: 2 calls, 500 units, $1.00"),
+        "{total}"
+    );
+}
+
+#[test]
 fn a_report_of_a_ledger_with_no_votes_has_no_panel_section() {
     let lines = [call(5, None, Role::Pm, CallKind::Wake, 100)];
 

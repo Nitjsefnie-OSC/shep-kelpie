@@ -736,11 +736,7 @@ impl Forge for FakeForge {
             body: body.to_owned(),
             labels: labels.iter().map(|&l| l.to_owned()).collect(),
         });
-        self.issues.lock().unwrap().push(OpenIssue {
-            number,
-            title: title.to_owned(),
-            body: body.to_owned(),
-        });
+        self.list_created(number, title, body, labels);
         drop(created);
         if labels.contains(&READY) {
             self.list_ready(number, false);

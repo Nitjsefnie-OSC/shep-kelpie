@@ -322,6 +322,22 @@ compact_window = 200000
 # quiet_days = 7
 # nudge_days = 3
 
+# Whether kelpie triages issues other people open. `pick` is `off`, `maintainer`
+# (only issues the maintainer filed) or `all`. Anything but `off` needs the
+# GitHub App to cover the repo, or the runner refuses to start: the triager's
+# words would post as the maintainer. Only issues opened after `pick` was turned
+# on are listed, and `status` lists them under `triage.due`; nothing is posted
+# or labelled yet. `wait_days` is whole days above 0 without a word from the
+# author before kelpie treats the triage as unanswered. `max_questions` is 1 to
+# 10, the most one comment asks. `agent` is an agent file whose role is
+# `triager`. The agent file is checked only when `pick` is not `off`. A change
+# waits for the runner's next start.
+# [app.dogs.kelpie.triage]
+# pick = "off"
+# wait_days = 7
+# max_questions = 10
+# agent = "triager"
+
 # Whether kelpie merges the bumps bots open. `pick` is `off` (every bot's pull
 # request is left alone) or `on`. A bump behind `main` is asked to rebase once
 # per head, and is proved only on the latest `main`: its checks must pass, as

@@ -406,3 +406,22 @@ fn a_goose_settings_file_in_the_roots_own_folder_refuses_the_call() {
     }
     goose.prepare(&call).unwrap();
 }
+
+#[test]
+fn a_triagers_review_call_is_set_up_in_an_empty_fence() {
+    let w = World::new();
+    let goose = stand_in(&w, FRESH);
+    let mut call = worker(&w, Session::New(id(FRESH_ID)));
+    call.role = Role::Triager;
+    call.tools = Tools::Review;
+    call.reach.fence.as_mut().unwrap().write.clear();
+
+    goose.prepare(&call).unwrap();
+
+    assert!(env_vars(&call).contains(&"GOOSE_MODE=auto".to_owned()));
+    let hooks = json_in(&plugin(&w).join("hooks/hooks.json"));
+    let command = hooks["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap();
+    assert!(command.contains("'--read-only'"), "{command}");
+}

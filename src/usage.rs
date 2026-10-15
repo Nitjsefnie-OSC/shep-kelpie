@@ -87,6 +87,8 @@ pub enum CallKind {
     Vote,
     /// The representative's wording of a post to a contributor
     Post,
+    /// The triager's research of an issue
+    Triage,
 }
 
 /// How a call ended

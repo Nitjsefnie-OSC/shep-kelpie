@@ -173,7 +173,7 @@ fn gone(error: &ForgeError) -> bool {
         if stderr.contains("Could not resolve to a node with the global id"))
 }
 
-fn time(text: &str, stdout: &[u8]) -> Result<Timestamp, ForgeError> {
+pub(super) fn time(text: &str, stdout: &[u8]) -> Result<Timestamp, ForgeError> {
     let at: jiff::Timestamp = text.parse().map_err(|_| unreadable(stdout))?;
     let seconds = u64::try_from(at.as_second()).map_err(|_| unreadable(stdout))?;
     Ok(Timestamp(seconds))

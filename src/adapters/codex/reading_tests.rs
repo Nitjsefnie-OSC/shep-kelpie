@@ -157,3 +157,18 @@ fn a_reviewer_is_told_what_its_shell_runs_and_a_retro_is_left_alone() {
         "Review the change."
     );
 }
+
+#[test]
+fn a_codex_triager_has_a_read_only_shell_and_no_patch() {
+    let w = World::new();
+    let mut call = reviewer(&w, Some(&w.path("build/review-read")));
+    call.role = Role::Triager;
+    call.reach.fence.as_mut().unwrap().write.clear();
+
+    let argv = strings(&call, None, None);
+
+    assert!(!shell_is_off(&argv));
+    let shell = hook_for(&argv, "^Bash$").expect("a hook judges the shell");
+    assert!(shell.contains("'--read-only'"), "{shell}");
+    refuses_every_patch(&hook_for(&argv, "^apply_patch$").expect("a hook holds apply_patch"));
+}
