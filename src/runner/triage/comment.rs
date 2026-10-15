@@ -65,6 +65,17 @@ pub(in crate::runner) struct Tries {
     labels: Vec<String>,
 }
 
+impl Tries {
+    // What an issue asked for by hand starts with: its comments need no read
+    // before the first call
+    pub(super) fn asked() -> Self {
+        Self {
+            read: true,
+            ..Self::default()
+        }
+    }
+}
+
 impl Runner {
     // The issue's record, if the state holds one
     pub(super) fn triage_record(&self, issue: u64) -> Option<&Triaged> {
@@ -108,17 +119,23 @@ impl Runner {
         Some(app.slug)
     }
 
-    // The id of the comment on `issue` the App wrote with the marker in it.
-    // A marker in anyone else's comment counts for nothing.
-    pub(super) fn marked_by_app(&self, issue: u64) -> Result<Option<u64>, ForgeError> {
+    // The id of the comment on `issue` the App wrote with the marker in it,
+    // past `after` when a comment is given: a triage asked again is not found
+    // by the comment of the one before. A marker in anyone else's comment
+    // counts for nothing.
+    pub(super) fn marked_by_app(
+        &self,
+        issue: u64,
+        after: Option<u64>,
+    ) -> Result<Option<u64>, ForgeError> {
         let comments = self.ports.forge.issue_comments(&self.remote, issue)?;
         let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
             return Ok(None);
         };
         let ours = |c: &&crate::ports::ThreadComment| {
-            c.body.contains(MARKER) && plain_login(&c.author) == app
+            c.body.contains(MARKER) && plain_login(&c.author) == app && Some(c.id) > after
         };
-        Ok(comments.iter().find(ours).map(|c| c.id))
+        Ok(comments.iter().filter(ours).map(|c| c.id).min())
     }
 
     // Posts what the research found: the labels the repo has are read first,

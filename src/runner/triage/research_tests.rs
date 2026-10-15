@@ -750,3 +750,59 @@ fn a_restart_at_commented_still_puts_on_the_type_and_priority_the_comment_named(
     assert_eq!(triaged["issues"][0]["step"], "done");
     assert!(triaged["issues"][0].get("labels").is_none(), "{triaged}");
 }
+
+#[test]
+fn a_research_on_an_issue_with_a_turn_in_flight_keeps_both_lines_on_the_ledger() {
+    let rig = rig_with("pick = \"maintainer\"");
+    rig.edit_settings(|s| s.replace("active_items = 1", "active_items = 2"));
+    let runner = rig.open().unwrap();
+    // Opened by a stranger, so the pick rule leaves it for the board and the verb.
+    list(&rig, crash(&rig, "It crashes when I run it."));
+    rig.forge.list_ready(30, false);
+    let (turn, research) = (Hold::default(), Hold::default());
+    rig.claude
+        .script_for(Role::Worker, [Scripted::HoldThenSay(turn.clone(), "done")]);
+    rig.claude.script_for(
+        Role::Triager,
+        [Scripted::HoldThenSay(research.clone(), "{}")],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.ask(&runner, "add", Some("30"));
+
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(turn.entered(CALL_PATIENCE), "the turn never began");
+    let reply = rig.ask(&runner, "triage", Some("30"));
+    assert_eq!(reply.get("error"), None, "{reply}");
+    pump(&runner, || research.entered(Duration::from_millis(20)));
+
+    turn.release();
+    research.release();
+    pump(&runner, || {
+        let lines = usage::read(&rig.paths().folder.join(usage::FILE)).unwrap_or_default();
+        let kinds: Vec<(CallKind, Role)> = lines
+            .into_iter()
+            .filter_map(|line| match line {
+                Line::Call(call) if call.issue == Some(30) => Some((call.kind, call.role)),
+                _ => None,
+            })
+            .collect();
+        kinds.contains(&(CallKind::Turn, Role::Worker))
+            && kinds.contains(&(CallKind::Triage, Role::Triager))
+    });
+}
+
+#[test]
+fn an_issue_with_a_record_is_not_listed_as_due() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    crashed_at(&rig, 30, "done");
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    // Its label may have been taken off, but kelpie has triaged it.
+    let due = triage(&rig, &runner)["due"].clone();
+    assert!(due.as_array().is_none_or(Vec::is_empty), "{due}");
+    assert_eq!(rig.claude.all_seen().len(), 0);
+}

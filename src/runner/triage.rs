@@ -109,7 +109,9 @@ impl Runner {
             TriagePick::All | TriagePick::Off => None,
         };
         let mut due: Vec<&OpenIssue> = (open.iter())
-            .filter(|issue| untouched(issue, since, only.as_deref()))
+            .filter(|i| {
+                untouched(i, since, only.as_deref()) && self.triage_record(i.number).is_none()
+            })
             .collect();
         due.sort_by_key(|issue| (issue.created, issue.number));
         self.triage_due = due
@@ -177,7 +179,7 @@ impl Runner {
                 continue;
             }
             self.flights.triage_try(issue);
-            if !asked && self.triage_settled(issue)? {
+            if self.triage_settled(issue)? {
                 continue;
             }
             // A research that read but could not be posted is posted again, not redone.
@@ -203,7 +205,8 @@ impl Runner {
         if self.triage_tries.get(&issue).is_some_and(|t| t.read) {
             return Ok(false);
         }
-        match self.marked_by_app(issue) {
+        let before = self.triage_record(issue).map(|t| t.comment);
+        match self.marked_by_app(issue, before) {
             Ok(Some(comment)) => {
                 self.record_triage(issue, comment)?;
                 self.finish_triage(issue)?;
@@ -331,8 +334,10 @@ impl Runner {
         if !self.triage_queue.contains(&issue) {
             self.triage_queue.push(issue);
         }
-        // Asked again by hand, it is tried now, and whatever kept it gives way.
-        self.triage_tries.remove(&issue);
+        // Asked again by hand, it is tried now, and whatever kept it gives way. Its
+        // comments are read only once a post may have gone up, since the one
+        // asked for is the first of the new triage.
+        self.triage_tries.insert(issue, comment::Tries::asked());
         self.flights.triage_forget(issue);
         self.looks.board_moved();
         Ok(())

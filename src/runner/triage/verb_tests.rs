@@ -4,7 +4,8 @@ use serde_json::{Value, json};
 
 use super::comment::MARKER;
 use super::pick_tests::{issue, list, rig_with, triaging};
-use crate::ports::Role;
+use crate::github::ApiError;
+use crate::ports::{Role, Timestamp};
 use crate::runner::step;
 use crate::test::Scripted;
 
@@ -135,4 +136,54 @@ fn triage_on_a_recorded_issue_posts_a_new_comment_and_replaces_the_record() {
     assert_ne!(records[0]["comment"], first["comment"]);
     assert_eq!(records[0]["step"], "done");
     assert_eq!(json!(records[0]["comment"].as_u64().is_some()), json!(true));
+}
+
+#[test]
+fn a_triage_asked_again_finds_its_own_comment_after_a_post_that_seemed_to_fail() {
+    let (rig, runner) = triaging("all");
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.claude.script_for(
+        Role::Triager,
+        [Scripted::Text(NOTHING), Scripted::Text(NOTHING)],
+    );
+    rig.claude.script_for(
+        Role::Representative,
+        [
+            Scripted::Say(WORDS),
+            Scripted::Say("Here is a second look."),
+        ],
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    let first = rig.ask(&runner, "status", None)["triage"]["issues"][0].clone();
+    let mut labelled = issue(&rig, 30, "newcomer", 5);
+    labelled.labels = vec!["needs-triage".to_owned()];
+    list(&rig, labelled);
+
+    rig.github.refuse_comments(ApiError::Refused(502));
+    let reply = rig.ask(&runner, "triage", Some("30"));
+    assert_eq!(reply.get("error"), None, "{reply}");
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        rig.github.comments().len(),
+        2,
+        "the first, and the refused try"
+    );
+
+    // The forge took the second post whose answer was lost.
+    let marked = format!("Here is a second look.\n\n{MARKER}");
+    let landed = rig
+        .forge
+        .threads
+        .write(30, "kelpie-shep-pm[bot]", &marked, Timestamp(1));
+    rig.github.accept_comments();
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.github.comments().len(), 2, "no third comment");
+    let status = rig.ask(&runner, "status", None);
+    let records = status["triage"]["issues"].as_array().unwrap();
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records[0]["comment"], landed);
+    assert_ne!(records[0]["comment"], first["comment"]);
+    assert_eq!(records[0]["step"], "done");
 }
