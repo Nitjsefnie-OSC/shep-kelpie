@@ -30,9 +30,8 @@ impl Wants {
     /// What a ruling of `kind` takes
     pub fn of(kind: &RulingKind) -> Self {
         match kind {
-            RulingKind::Question { .. } | RulingKind::Contribution(Held::Question { .. }) => {
-                Self::Answer
-            }
+            RulingKind::Question { .. }
+            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting) => Self::Answer,
             RulingKind::Merge { .. } => Self::Merge,
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }
@@ -135,6 +134,8 @@ mod tests {
             lines: Vec::new(),
         });
         assert_eq!(Wants::of(&flagged), Wants::YesOrNo);
+        let waiting = RulingKind::Contribution(crate::state::Held::Waiting);
+        assert_eq!(Wants::of(&waiting), Wants::Answer);
     }
 
     #[test]

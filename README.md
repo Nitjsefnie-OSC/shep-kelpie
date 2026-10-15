@@ -33,6 +33,8 @@ This is early. It changes without notice, and there is no release yet.
 5. **CI.** A red run goes back to the worker. A second red run on a head the worker left alone asks you.
 6. **Merge.** Under `ask` you get a ruling; under `auto` kelpie merges once every gate passes. Either way it is a merge commit of the head the gates passed (see [CI and the merge](docs/guide/ci-and-merge.md#ci-and-the-merge)).
 
+Pull requests from other people are followed too, when `contributions.pick` allows it. Kelpie reads each head for security, answers the contributor's comments, and, once the contributor has been quiet for `nudge_days`, asks them in one comment whether it may take the pull request from here. A yes, a thumbs up on that comment, or silence until `quiet_days` is a release, recorded as `released`; a no restarts the wait, and a second no followed by quiet is a `waiting` ruling for you: keep waiting, adopt anyway, or close with thanks (see [Contributions](docs/guide/contributions.md)).
+
 Anything kelpie cannot settle itself is a [ruling](docs/guide/rulings.md#rulings) for you. Each project runs as a sheep of your own shepherd, and every agent call it starts is one of that sheep's lambs (see [What shep does for it](docs/guide/shep.md#what-shep-does-for-it)).
 
 ## Getting started

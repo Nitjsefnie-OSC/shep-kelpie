@@ -25,11 +25,14 @@ use crate::worktree::{self, Remote};
 mod act;
 mod prompts;
 mod question;
+mod stuck;
 mod test_fails;
 use prompts::{
     answer_prompt, declined_prompt, failed_again, note_prompt, noted_prompt, rework_prompt,
 };
 pub(super) use question::question;
+use stuck::fix_turns_had;
+pub(in crate::runner) use stuck::stuck_comment;
 
 /// The prompt for a turn resumed after the maintainer accepts a timed-out
 /// turn's ruling with a yes
@@ -107,6 +110,8 @@ pub enum RuleError {
     /// A yes does not fit this ruling's head: it names none or another, or the
     /// ruling is not one that takes a head
     Head(u64, String),
+    /// The answer is none of the ruling's options
+    Choice(u64, String),
     /// The answer could not be saved
     State(StateError),
 }
@@ -147,7 +152,9 @@ impl fmt::Display for RuleError {
             Self::NotOffered(id, action) => {
                 write!(f, "ruling {id} does not offer to {}", action.verb())
             }
-            Self::Act(id, why) | Self::Head(id, why) => write!(f, "ruling {id}: {why}"),
+            Self::Act(id, why) | Self::Head(id, why) | Self::Choice(id, why) => {
+                write!(f, "ruling {id}: {why}")
+            }
             Self::State(e) => e.fmt(f),
         }
     }
@@ -338,6 +345,7 @@ impl Runner {
         let worktree = parked.map(|item| item.worktree.clone());
         contributions::trust(&mut next, &answer, &ruling)?;
         contributions::keep_answer(&mut next, &answer, &ruling);
+        contributions::settle(&mut next, &answer, &ruling, now)?;
         // A contribution's cap lifts, and its next call may start at the next look.
         let per_item = self.settings.budget.per_item_usd;
         if contributions::raise_budget(&mut next, &answer, &ruling, per_item) {
@@ -674,69 +682,6 @@ fn comment(kind: &RulingKind) -> Option<String> {
     ))
 }
 
-// The fix turns a worker had on red runs. The cap is read live, so a
-// lowered one can sit below the count.
-fn fix_turns_had(turns: u32) -> String {
-    match turns {
-        0 => "The worker has had no fix turn on red runs".to_owned(),
-        1 => "The worker has had 1 fix turn on red runs".to_owned(),
-        n => format!("The worker has had {n} fix turns on red runs"),
-    }
-}
-
-pub(super) fn stuck_comment(reason: &Stuck) -> String {
-    match reason {
-        Stuck::Rebase { why } => {
-            format!("This branch could not be rebased onto main: {why}.")
-        }
-        Stuck::StillRed {
-            head,
-            checks,
-            fix_turns: None,
-            ..
-        } => format!(
-            "CI failed again at {} and no fix was pushed: {}.",
-            short(head),
-            checks.join(", ")
-        ),
-        Stuck::StillRed {
-            head,
-            checks,
-            fix_turns: Some(turns),
-            ..
-        } => format!(
-            "CI failed at {}: {}. {}.",
-            short(head),
-            checks.join(", "),
-            fix_turns_had(*turns)
-        ),
-        // The forge's own words stay off a public pull request.
-        Stuck::MergeRefused { head, .. } => {
-            format!("Merging at {} was refused twice.", short(head))
-        }
-        Stuck::Closed => "This pull request was closed without merging.".to_owned(),
-        Stuck::FixNotPushed { .. } => {
-            "A fix for review findings ended without a push, so those findings still hold."
-                .to_owned()
-        }
-        Stuck::TestStillFails { .. } => test_fails::PUBLIC_LINE.to_owned(),
-        Stuck::Unpushed { .. } => {
-            "Work in this pull request's worktree is not pushed, so its review waits.".to_owned()
-        }
-        Stuck::TurnTimeout { .. } => {
-            "The work on this pull request ran too long and was stopped.".to_owned()
-        }
-        Stuck::Unlabelled { .. } => "No implementer was picked for this issue.".to_owned(),
-        Stuck::AdoptFailed { .. } => "This pull request could not be adopted.".to_owned(),
-        Stuck::TurnFailed { .. } => {
-            "The work on this pull request hit an error and stopped.".to_owned()
-        }
-        Stuck::OverBudget { .. } => {
-            "The work on this pull request is over its budget and waits for an answer.".to_owned()
-        }
-    }
-}
-
 // A yes, a no or an answer that does not fit the ruling is refused.
 fn decide(
     id: u64,
@@ -772,10 +717,17 @@ fn decide(
                 force,
             });
         }
-        // No work item is parked on it, so an answer only clears it. The
-        // representative words the text for the contributor.
-        (Answer::Text(_), RulingKind::Contribution(Held::Question { .. })) => Phase::Implement,
-        (_, RulingKind::Question { .. } | RulingKind::Contribution(Held::Question { .. })) => {
+        // No work item is parked on it, so an answer only clears it. For a
+        // decision the representative words the text for the contributor; a
+        // waiting ruling's text is a choice that kelpie carries out.
+        (Answer::Text(_), RulingKind::Contribution(Held::Question { .. } | Held::Waiting)) => {
+            Phase::Implement
+        }
+        (
+            _,
+            RulingKind::Question { .. }
+            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting),
+        ) => {
             return Err(RuleError::WantsAnswer(id));
         }
         (Answer::Text(_), _) => return Err(RuleError::NotAQuestion(id)),
