@@ -5,7 +5,7 @@
 //! that release pins, and `headed` needs the full build it installs beside the
 //! headless shell.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Tools, run};
 
@@ -36,26 +36,41 @@ impl Tools {
         chromium && self.playwright_mcp().is_file()
     }
 
-    /// The Chromium build folder the server's `playwright-core` pins, such as `chromium-1200`
+    /// The Chromium build folder the server's `playwright-core` installs on this host, such as `chromium-1200`
+    ///
+    /// Asked of `playwright-core` itself with `install --dry-run`, since the revision it
+    /// installs depends on the host.
     ///
     /// # Errors
     ///
-    /// Why `browsers.json` could not be read as expected, or that the build is not in
-    /// [`Tools::browsers`].
+    /// Why `playwright-core` could not be asked, or that the build is not in [`Tools::browsers`].
     pub(super) fn chromium_build(&self) -> Result<String, String> {
-        let list = self.playwright_cli().with_file_name("browsers.json");
-        let text = std::fs::read_to_string(&list)
-            .map_err(|e| format!("cannot read {}: {e}", list.display()))?;
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("{} is not JSON: {e}", list.display()))?;
-        let revision = json["browsers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|b| b["name"] == "chromium")
-            .and_then(|b| b["revision"].as_str())
-            .ok_or_else(|| format!("{} names no chromium revision", list.display()))?;
-        let build = format!("chromium-{revision}");
+        let output = crate::spawn::command("node")
+            .arg(self.playwright_cli())
+            .args(["install", "--dry-run", "chromium"])
+            .env("PLAYWRIGHT_BROWSERS_PATH", self.browsers())
+            .current_dir(&self.0)
+            .output()
+            .map_err(|e| format!("cannot run node: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "playwright install --dry-run failed: {}",
+                output.status
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        // The block of the browser itself, not of the headless shell or ffmpeg beside it.
+        let location = text
+            .lines()
+            .skip_while(|l| !l.contains("(playwright chromium v"))
+            .skip(1)
+            .find_map(|l| l.trim().strip_prefix("Install location:"))
+            .map(str::trim)
+            .ok_or("playwright install --dry-run named no install location for chromium")?;
+        let build = Path::new(location)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("{location} names no folder"))?;
         if !self.browsers().join(&build).is_dir() {
             return Err(format!(
                 "playwright installed no {build} in {}",
@@ -123,22 +138,28 @@ mod tests {
         assert_eq!(asked, "install chromium");
     }
 
+    // A playwright-core that, asked for a dry run, names `chromium-1300` as the build
+    // this host installs, as one with a revision override for it does.
     #[test]
-    fn the_chromium_build_is_the_one_playwright_pins_even_beside_a_newer_stale_one() {
+    fn the_chromium_build_is_the_one_playwright_installs_even_beside_a_newer_stale_one() {
         let dir = tempfile::tempdir().unwrap();
         let tools = fake(dir.path());
-        let list = tools.playwright_cli().with_file_name("browsers.json");
-        std::fs::create_dir_all(list.parent().unwrap()).unwrap();
+        let cli = tools.playwright_cli();
+        std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
         std::fs::write(
-            &list,
-            r#"{"browsers":[{"name":"firefox","revision":"1549"},{"name":"chromium","revision":"1200"}]}"#,
+            &cli,
+            "const b = process.env.PLAYWRIGHT_BROWSERS_PATH;\n\
+             console.log('Chrome Headless Shell 1 (playwright chromium-headless-shell v1400)');\n\
+             console.log('  Install location:    ' + b + '/chromium_headless_shell-1400');\n\
+             console.log('Chrome for Testing 1 (playwright chromium v1300)');\n\
+             console.log('  Install location:    ' + b + '/chromium-1300');\n",
         )
         .unwrap();
-        std::fs::create_dir_all(tools.browsers().join("chromium-1300")).unwrap();
+        std::fs::create_dir_all(tools.browsers().join("chromium-1400")).unwrap();
         let err = tools.chromium_build().unwrap_err();
-        assert!(err.contains("chromium-1200"), "{err}");
+        assert!(err.contains("chromium-1300"), "{err}");
 
-        std::fs::create_dir_all(tools.browsers().join("chromium-1200")).unwrap();
-        assert_eq!(tools.chromium_build().unwrap(), "chromium-1200");
+        std::fs::create_dir_all(tools.browsers().join("chromium-1300")).unwrap();
+        assert_eq!(tools.chromium_build().unwrap(), "chromium-1300");
     }
 }

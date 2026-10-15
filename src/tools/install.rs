@@ -239,11 +239,16 @@ const lines = [
     'kept',
 ];
 JS
-echo '{"browsers":[{"name":"chromium","revision":"1200"}]}' > node_modules/playwright-core/browsers.json
 cat > node_modules/playwright-core/cli.js <<'JS'
 const fs = require('fs');
 const path = require('path');
-fs.mkdirSync(path.join(process.env.PLAYWRIGHT_BROWSERS_PATH, 'chromium-1200'));
+const build = path.join(process.env.PLAYWRIGHT_BROWSERS_PATH, 'chromium-1200');
+if (process.argv.includes('--dry-run')) {
+    console.log('Chrome for Testing 1 (playwright chromium v1200)');
+    console.log('  Install location:    ' + build);
+} else {
+    fs.mkdirSync(build);
+}
 JS
 "#;
 
