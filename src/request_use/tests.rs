@@ -121,3 +121,82 @@ fn a_pi_request_over_five_minutes_after_the_one_before_is_a_gap() {
         [request(10, 0, Start), request(3_520, 500, Gap)]
     );
 }
+
+// A Claude Code reply of one block at `time` (a minute of 2026-10-15 at 22h), its usage reading
+// `read` and writing `five` tokens to the five-minute cache and `hour` to the one-hour cache
+fn claude_line(id: &str, minute: u32, read: u64, five: u64, hour: u64) -> String {
+    let write = five + hour;
+    format!(
+        r#"{{"type":"assistant","timestamp":"2026-10-15T22:{minute:02}:00.000Z","message":{{"id":"{id}","role":"assistant","usage":{{"input_tokens":3,"cache_read_input_tokens":{read},"cache_creation_input_tokens":{write},"cache_creation":{{"ephemeral_5m_input_tokens":{five},"ephemeral_1h_input_tokens":{hour}}}}}}}}}
+"#
+    )
+}
+
+#[test]
+fn a_claude_request_after_over_five_minutes_is_growth_while_the_one_hour_cache_held_the_write() {
+    // Six and then fifty-nine minutes after a write to the cache that keeps it for an hour.
+    let text = [
+        claude_line("a", 0, 0, 0, 1_000),
+        claude_line("b", 6, 1_000, 0, 500),
+        claude_line("c", 59, 1_500, 0, 200),
+    ]
+    .concat();
+    let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
+    assert_eq!(after, [Start, Growth, Growth]);
+}
+
+#[test]
+fn a_claude_request_after_over_an_hour_is_a_gap_whatever_the_cache() {
+    let text = [
+        claude_line("a", 0, 0, 0, 1_000),
+        claude_line("b", 30, 1_000, 0, 500),
+    ]
+    .concat()
+        + &claude_line("c", 0, 1_500, 0, 200).replace("22:00:00", "23:31:00");
+    let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
+    assert_eq!(after, [Start, Growth, Gap]);
+}
+
+#[test]
+fn a_claude_request_after_over_five_minutes_is_a_gap_once_the_cache_kept_a_write_five_minutes() {
+    // A write to both caches lasts as long as the shorter.
+    let text = [
+        claude_line("a", 0, 0, 300, 700),
+        claude_line("b", 6, 1_000, 0, 0),
+    ]
+    .concat();
+    let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
+    assert_eq!(after, [Start, Gap]);
+}
+
+#[test]
+fn a_claude_request_that_wrote_nothing_leaves_the_last_cache_time_standing() {
+    let text = [
+        claude_line("a", 0, 0, 0, 1_000),
+        claude_line("b", 2, 1_000, 0, 0),
+        claude_line("c", 10, 1_000, 0, 0),
+    ]
+    .concat();
+    let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
+    assert_eq!(
+        after,
+        [Start, Growth, Growth],
+        "the hour still stands at ten minutes"
+    );
+}
+
+#[test]
+fn a_claude_request_with_no_split_is_a_gap_after_five_minutes() {
+    let text = [
+        claude_line("a", 0, 0, 0, 1_000),
+        claude_line("b", 2, 1_000, 0, 0),
+    ]
+    .concat()
+    .replace(
+        r#","cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":1000}"#,
+        "",
+    );
+    let text = text + &claude_line("c", 9, 1_000, 0, 0);
+    let after: Vec<_> = claude(&text, 0).iter().map(|r| r.after).collect();
+    assert_eq!(after, [Start, Growth, Gap]);
+}

@@ -846,7 +846,7 @@
       "id": 22,
       "type": "timeseries",
       "title": "Cache writes by what came before",
-      "description": "Tokens an hour that requests wrote to the cache: start is a session's first request, gap is a request over 5 minutes after the one before it, which rewrites what the cache dropped, and growth is the rest. Claude Code and pi calls only.",
+      "description": "Tokens an hour that requests wrote to the cache: start is a session's first request, gap is a request after the cache kept what the one before wrote (5 minutes, or 1 hour for Claude Code's 1-hour writes), which rewrites what the cache dropped, and growth is the rest. Claude Code and pi calls only.",
       "gridPos": {
         "h": 8,
         "w": 12,

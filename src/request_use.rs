@@ -6,26 +6,31 @@
 //! Claude Code writes a request as a line for each block of its reply, all
 //! of them holding the request's usage, so they count once. A request is
 //! `after` the session's start if it is the first the file holds, after a
-//! gap if over five minutes passed since the request before it, which is
-//! longer than the cache keeps what it wrote, and after growth otherwise.
-//! The request before may be an earlier call's, so a resumed call's first
-//! request reads the gap since its session last spoke. `docs/facts/transcript-requests.md`
+//! gap if longer passed since the request before it than the cache keeps
+//! what that wrote, and after growth otherwise. Claude Code writes the cache
+//! for an hour and pi for five minutes, as a request's usage says when it
+//! writes. The request before may be an earlier call's, so a resumed call's
+//! first request reads the gap since its session last spoke.
+//! `docs/facts/transcript-requests.md`
 
 use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-// Milliseconds after which the cache has dropped what a request wrote
-const GAP_MILLIS: i64 = 5 * 60 * 1000;
+// Milliseconds after which the cache has dropped what a request wrote to its five-minute cache,
+// which is also what a request is taken to have written if its usage does not say
+const FIVE_MINUTES: i64 = 5 * 60 * 1000;
+// The same for a write to the one-hour cache
+const ONE_HOUR: i64 = 60 * 60 * 1000;
 
 /// What came before a request
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum After {
     /// Nothing: the session's first request
     Start,
-    /// A wait of over five minutes
+    /// A wait longer than the cache kept what the request before wrote
     Gap,
-    /// A request within five minutes
+    /// A request within the time the cache kept it
     Growth,
 }
 
@@ -70,11 +75,21 @@ pub(crate) fn claude(text: &str, from: usize) -> Vec<Request> {
         if key.is_some_and(|key| !keys.insert(key.to_owned())) {
             return None;
         }
-        Some((
-            used("input_tokens"),
-            used("cache_read_input_tokens"),
-            used("cache_creation_input_tokens"),
-        ))
+        // The cache keeps a write for as long as the shortest cache it went to.
+        let split = &usage["cache_creation"];
+        let lives = if split["ephemeral_5m_input_tokens"].as_u64().unwrap_or(0) > 0 {
+            Some(FIVE_MINUTES)
+        } else if split["ephemeral_1h_input_tokens"].as_u64().unwrap_or(0) > 0 {
+            Some(ONE_HOUR)
+        } else {
+            None
+        };
+        Some(Read {
+            input: used("input_tokens"),
+            cache_read: used("cache_read_input_tokens"),
+            cache_write: used("cache_creation_input_tokens"),
+            lives,
+        })
     })
 }
 
@@ -88,22 +103,34 @@ pub(crate) fn pi(text: &str, from: usize) -> Vec<Request> {
         }
         let usage = &message["usage"];
         let used = |key: &str| usage[key].as_u64().unwrap_or(0);
-        Some((used("input"), used("cacheRead"), used("cacheWrite")))
+        Some(Read {
+            input: used("input"),
+            cache_read: used("cacheRead"),
+            cache_write: used("cacheWrite"),
+            lives: None,
+        })
     })
 }
 
-// The requests of `text` from byte `from`, as `read` finds each line's (input, cache read, cache
-// write), the first line of a request only. A request that sent nothing, as Claude Code's
-// `<synthetic>` replies, is no request.
-fn requests(
-    text: &str,
-    from: usize,
-    mut read: impl FnMut(&Value) -> Option<(u64, u64, u64)>,
-) -> Vec<Request> {
+// What a line of a transcript says of its request
+struct Read {
+    input: u64,
+    cache_read: u64,
+    cache_write: u64,
+    // Milliseconds the cache keeps what the request wrote, if its usage says
+    lives: Option<i64>,
+}
+
+// The requests of `text` from byte `from`, as `read` finds each line's usage, the first line of a
+// request only. A request that sent nothing, as Claude Code's `<synthetic>` replies, is no request.
+// How long the cache kept what the request before wrote is `lasts`: the time of the last request
+// whose usage said, else five minutes.
+fn requests(text: &str, from: usize, mut read: impl FnMut(&Value) -> Option<Read>) -> Vec<Request> {
     // A file shorter than `from` is a new one.
     let from = if text.get(from..).is_some() { from } else { 0 };
     let mut offset = 0;
     let mut before: Option<Option<i64>> = None;
+    let mut lasts = FIVE_MINUTES;
     let mut found = Vec::new();
     for line in text.split_inclusive('\n') {
         let at = offset;
@@ -111,10 +138,14 @@ fn requests(
         let Ok(entry) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        let Some((input, cache_read, cache_write)) = read(&entry) else {
+        let Some(used) = read(&entry) else {
             continue;
         };
-        let context = input.saturating_add(cache_read).saturating_add(cache_write);
+        let (cache_read, cache_write) = (used.cache_read, used.cache_write);
+        let context = used
+            .input
+            .saturating_add(cache_read)
+            .saturating_add(cache_write);
         if context == 0 {
             continue;
         }
@@ -123,10 +154,11 @@ fn requests(
             .map(jiff::Timestamp::as_millisecond);
         let after = match (before, when) {
             (None, _) => After::Start,
-            (Some(Some(was)), Some(now)) if now.saturating_sub(was) > GAP_MILLIS => After::Gap,
+            (Some(Some(was)), Some(now)) if now.saturating_sub(was) > lasts => After::Gap,
             _ => After::Growth,
         };
         before = Some(when);
+        lasts = used.lives.unwrap_or(lasts);
         if at >= from {
             found.push(Request {
                 context,
