@@ -59,6 +59,21 @@ groups:
         annotations:
           summary: "{{ $labels.sheep }}: {{ $value | humanizePercentage }} of {{ $labels.role }} calls did not answer in 6h"
 
+      # A plan's weekly window nearly used with over a day to go before it
+      # resets, so the week runs dry. The session window is not alerted on:
+      # it resets within hours.
+      - alert: KelpiePlanNearlyUsed
+        expr: |
+          kelpie_plan_used_ratio{window="week"} > 0.9
+          and on (sheep, account)
+          (kelpie_plan_resets_at_seconds{window="week"} - time()) > 86400
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.sheep }}: the {{ $labels.account }} plan's week is {{ $value | humanizePercentage }} used with over a day to its reset"
+          description: "Little of the week is left for the days that remain, and the pacer holds new work items on its allowance."
+
       # A runner with more series than it may send, so some go unseen.
       - alert: KelpieSeriesDropped
         expr: kelpie_series_dropped_total > 0

@@ -1,5 +1,6 @@
 //! `shep kelpie usage [<project>] [--since <date>]`,
 //! `shep kelpie usage <project> --import <log file>` and
+//! `shep kelpie usage [<project>] --openmetrics` and
 //! `shep kelpie usage --forge [--since <date>]`: the usage ledger and the
 //! forge ledger, read here with no shepherd asked
 
@@ -14,6 +15,7 @@ use crate::usage::{self, baselines};
 enum Ask<'a> {
     Report { since: Option<&'a str> },
     Import { log: &'a str },
+    OpenMetrics,
     Forge { since: Option<&'a str> },
 }
 
@@ -53,6 +55,20 @@ pub(super) fn usage(
                 imported.added, imported.known
             )])
         }
+        Ask::OpenMetrics => {
+            let projects = match project {
+                Some(project) => vec![project.as_str().to_owned()],
+                None => with_ledgers(kelpie_home)?,
+            };
+            let mut ledgers = Vec::new();
+            for project in projects {
+                let path = kelpie_home.join(&project).join(usage::FILE);
+                let lines = usage::read(&path)
+                    .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                ledgers.push((project, lines));
+            }
+            Ok(usage::openmetrics(&ledgers))
+        }
         Ask::Report { since } => {
             let since = since.map(since_date).transpose()?;
             let projects = match project {
@@ -88,11 +104,13 @@ fn read_args<'a>(
         ["--forge", "--since", date] => (None, Ask::Forge { since: Some(date) }),
         ["--since", date] => (None, Ask::Report { since: Some(date) }),
         ["--import", log] => (None, Ask::Import { log }),
+        ["--openmetrics"] => (None, Ask::OpenMetrics),
         [name] if !name.starts_with('-') => (Some(*name), Ask::Report { since: None }),
         [name, "--since", date] if !name.starts_with('-') => {
             (Some(*name), Ask::Report { since: Some(date) })
         }
         [name, "--import", log] if !name.starts_with('-') => (Some(*name), Ask::Import { log }),
+        [name, "--openmetrics"] if !name.starts_with('-') => (Some(*name), Ask::OpenMetrics),
         _ => return Err(super::USAGE.to_owned()),
     };
     let project = match (positional, named) {
@@ -158,6 +176,29 @@ mod tests {
         assert!(err.contains("2026-10-01"), "{err}");
         let named = ProjectName::try_from("koji").ok();
         assert!(usage(home.path(), named, &["koji"]).is_err(), "named twice");
+    }
+
+    #[test]
+    fn openmetrics_reads_one_project_s_ledger_or_every_one() {
+        let home = tempfile::tempdir().unwrap();
+        let line = r#"{"line":"call","at":5,"issue":null,"role":"pm","kind":"wake","usage":{"input":1,"cache_write":0,"cache_read":0,"output":1},"units":6,"cost_usd":0.25,"ended":"answered"}"#;
+        let call: Line = serde_json::from_str(line).unwrap();
+        for project in ["koji", "shep"] {
+            let folder = home.path().join(project);
+            std::fs::create_dir_all(&folder).unwrap();
+            append_to(&folder.join(usage::FILE), &call).unwrap();
+        }
+        let sheep = |out: &[String], name: &str| {
+            let wanted = format!("sheep=\"{name}\"");
+            out.iter().any(|line| line.contains(&wanted))
+        };
+        let all = usage(home.path(), None, &["--openmetrics"]).unwrap();
+        assert!(sheep(&all, "koji") && sheep(&all, "shep"), "{all:#?}");
+        assert_eq!(all.last().unwrap(), "# EOF");
+        let one = usage(home.path(), None, &["koji", "--openmetrics"]).unwrap();
+        assert!(sheep(&one, "koji") && !sheep(&one, "shep"), "{one:#?}");
+        let named = ProjectName::try_from("koji").ok();
+        assert!(usage(home.path(), named, &["koji", "--openmetrics"]).is_err());
     }
 
     #[test]

@@ -105,6 +105,15 @@ fn a_compaction_that_aborted_adds_nothing() {
     assert_eq!(turn(&aborted).usage.input, 140_000 + 9_000);
 }
 
+#[test]
+fn a_turn_counts_each_compaction_pi_did_in_it_and_not_one_that_aborted() {
+    assert_eq!(turn(COMPACTION).compactions, 1);
+    let aborted = COMPACTION.replace(r#""aborted":false"#, r#""aborted":true"#);
+    assert_eq!(turn(&aborted).compactions, 0);
+    let twice = format!("{COMPACTION}{COMPACTION}");
+    assert_eq!(turn(&twice).compactions, 2);
+}
+
 // What a stand-in pi prints for a compact call that ended with `end`.
 fn compaction_end(end: serde_json::Value) -> String {
     let mut end = end;

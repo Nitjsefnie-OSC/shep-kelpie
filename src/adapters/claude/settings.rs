@@ -291,16 +291,31 @@ pub(crate) fn prompt_file(settings: &Path) -> PathBuf {
     settings.with_extension("prompt.md")
 }
 
+/// Where the hook that hands the prompt back leaves one mark for each
+/// compaction, in the call's `scratch` folder
+pub(crate) fn compactions_file(scratch: &Path) -> PathBuf {
+    scratch.join("compactions")
+}
+
 /// Has Claude Code compact the session at `window` tokens of context, and
-/// print `prompt_file` into it after it does
+/// print `prompt_file` into it after it does, leaving a mark in `marks` first
 ///
 /// A compaction in the middle of a turn summarizes the turn's own prompt, and
 /// early instructions may not survive the summary. Kelpie reads the reply's
 /// `thread <n>: fixed` lines when the turn ends, so the prompt comes back
 /// through a `SessionStart` hook that fires for a compaction alone.
-pub(crate) fn compacting(settings: &mut Value, window: NonZeroU32, prompt_file: &Path) {
+pub(crate) fn compacting(
+    settings: &mut Value,
+    window: NonZeroU32,
+    prompt_file: &Path,
+    marks: &Path,
+) {
     settings["autoCompactWindow"] = window.get().into();
-    let command = format!("cat {}", shell_quote(&prompt_file.to_string_lossy()));
+    let command = format!(
+        "printf . >> {}; cat {}",
+        shell_quote(&marks.to_string_lossy()),
+        shell_quote(&prompt_file.to_string_lossy())
+    );
     let start = &mut settings["hooks"]["SessionStart"];
     let mut entries = start.as_array().cloned().unwrap_or_default();
     entries.push(entry(Some("compact"), &command));
@@ -573,6 +588,33 @@ mod tests {
     use crate::hooks::Hooks;
     use crate::ports::{Fence, Guard};
     use crate::trim::deny_with_trim;
+
+    #[test]
+    fn a_compaction_hook_leaves_a_mark_in_the_scratch_folder_and_prints_the_prompt_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompt = dir.path().join("settings.prompt.md");
+        std::fs::write(&prompt, "do the thing\n").unwrap();
+        let marks = compactions_file(&dir.path().join("settings.tmp"));
+        std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        let mut value = json!({});
+        compacting(
+            &mut value,
+            NonZeroU32::new(200_000).unwrap(),
+            &prompt,
+            &marks,
+        );
+        let hook = &value["hooks"]["SessionStart"][0];
+        assert_eq!(hook["matcher"], "compact");
+        let command = hook["hooks"][0]["command"].as_str().unwrap();
+        for _ in 0..2 {
+            let out = std::process::Command::new("sh")
+                .args(["-c", command])
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), "do the thing\n");
+        }
+        assert_eq!(std::fs::read_to_string(&marks).unwrap(), "..");
+    }
 
     #[test]
     fn a_denied_folder_holding_a_readable_one_is_denied_around_it() {

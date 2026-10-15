@@ -86,6 +86,7 @@ fn call_of(line: &str) -> Option<CallLine> {
         effort: None,
         session: Some(step.session?),
         usage,
+        compactions: 0,
         units: units(usage),
         cost_usd: step.cost_usd,
         unpriced: step.cost_usd.is_none(),

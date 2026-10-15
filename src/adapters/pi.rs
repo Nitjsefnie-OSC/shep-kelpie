@@ -867,6 +867,7 @@ fn parse_turn(output: &Output, asked: &SessionId, paused: bool) -> Result<AgentR
     let mut session = None;
     let mut usage = Usage::default();
     let mut context = None;
+    let mut compactions = 0;
     let mut last: Option<Message> = None;
     // Whether the latest message to end could not be read, so `last` is stale.
     let mut unread = false;
@@ -889,7 +890,10 @@ fn parse_turn(output: &Output, asked: &SessionId, paused: bool) -> Result<AgentR
                 last = Some(message);
             }
             // pi's own threshold compaction, which runs inside a turn.
-            ("compaction_end", _) => usage += compact::usage_of(text),
+            ("compaction_end", _) => {
+                usage += compact::usage_of(text);
+                compactions += u32::from(compact::made_summary(text));
+            }
             _ => {}
         }
     }
@@ -937,5 +941,6 @@ fn parse_turn(output: &Output, asked: &SessionId, paused: bool) -> Result<AgentR
         usage,
         session_cost: None,
         context,
+        compactions,
     })
 }

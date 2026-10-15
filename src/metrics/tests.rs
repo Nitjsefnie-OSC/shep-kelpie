@@ -305,3 +305,101 @@ fn a_failed_server_that_connects_in_a_later_call_ends_its_standing_note() {
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["standing"], serde_json::Value::Null, "none stands");
 }
+
+#[test]
+fn a_call_s_agent_and_effort_are_labels_of_its_calls_tokens_and_cost() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let usage = Usage {
+        input: 10,
+        ..Usage::default()
+    };
+    rig.claude
+        .script([Scripted::Reply(usage, Cost::from_usd(0.25).unwrap())]);
+    step(&runner).unwrap();
+    let who = [("agent", "sonnet-high"), ("effort", "high")];
+    let worker = [("role", "worker"), ("harness", "claude-code")];
+    let calls = [
+        &who[..],
+        &worker[..],
+        &[("kind", "turn"), ("ended", "answered")],
+    ]
+    .concat();
+    assert_eq!(rig.samples.value("kelpie_calls_total", &calls), Some(1.0));
+    let model = rig
+        .samples
+        .sent()
+        .into_iter()
+        .find(|s| s.name == "kelpie_cost_usd_total");
+    let model = model.expect("the call is priced").labels;
+    let model = model.iter().find(|(k, _)| *k == "model").unwrap().1.clone();
+    let tokens = [
+        &who[..],
+        &worker[..],
+        &[("model", &model), ("type", "input")],
+    ]
+    .concat();
+    assert_eq!(
+        rig.samples.value("kelpie_tokens_total", &tokens),
+        Some(10.0)
+    );
+    let cost = [&who[..], &worker[..], &[("model", &model)]].concat();
+    assert_eq!(
+        rig.samples.value("kelpie_cost_usd_total", &cost),
+        Some(0.25)
+    );
+}
+
+#[test]
+fn a_pacer_reading_sets_the_plan_gauges() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.forge.list_ready(7, false);
+    rig.meter.set(Rig::utilization(30, 12));
+    step(&runner).unwrap(); // reads the account's usage to dispatch
+    let at = |window: &str| {
+        let labels = [("account", "claude"), ("window", window)];
+        (
+            rig.samples.value("kelpie_plan_used_ratio", &labels),
+            rig.samples.value("kelpie_plan_resets_at_seconds", &labels),
+        )
+    };
+    #[expect(clippy::cast_precision_loss, reason = "a test's Unix seconds")]
+    let epoch = Rig::EPOCH as f64;
+    assert_eq!(at("session"), (Some(0.12), Some(epoch + 5.0 * 3600.0)));
+    #[expect(clippy::cast_precision_loss, reason = "a test's Unix seconds")]
+    let week = (Rig::EPOCH + 7 * Rig::DAY) as f64;
+    assert_eq!(at("week"), (Some(0.3), Some(week)));
+    let claude = [("account", "claude")];
+    let allowance = rig.samples.value("kelpie_plan_allowance_ratio", &claude);
+    assert!(
+        allowance.is_some_and(|a| (0.0..=1.0).contains(&a)),
+        "{allowance:?}"
+    );
+    let spent = rig.samples.value("kelpie_plan_spent_today_ratio", &claude);
+    assert!(spent.is_some_and(|s| (0.0..=1.0).contains(&s)), "{spent:?}");
+}
+
+#[test]
+fn a_turn_claude_code_compacted_counts_one_compaction() {
+    let rig = Rig::new("shep");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([
+        Scripted::PushSayCompacted("work.txt", "work\n", "done"),
+        Scripted::Reply(Usage::default(), Cost(1)),
+    ]);
+    step(&runner).unwrap();
+    let both = [("role", "worker"), ("harness", "claude-code")];
+    assert_eq!(
+        rig.samples.value("kelpie_compactions_total", &both),
+        Some(1.0)
+    );
+    step(&runner).unwrap();
+    assert_eq!(
+        rig.samples.value("kelpie_compactions_total", &both),
+        Some(1.0),
+        "a turn that did not compact adds none"
+    );
+}

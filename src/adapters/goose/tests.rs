@@ -465,6 +465,7 @@ fn a_turn_answers_with_its_last_message_and_the_tokens_its_session_spent_in_it()
             },
             session_cost: None,
             context: None,
+            compactions: 0,
         })
     );
 }

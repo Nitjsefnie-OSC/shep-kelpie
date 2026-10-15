@@ -282,6 +282,7 @@ fn finish(files: &Files, id: &SessionId, output: &Output) -> Result<AgentReply, 
         usage: turn.spent.since(before),
         session_cost: None,
         context,
+        compactions: 0,
     })
 }
 

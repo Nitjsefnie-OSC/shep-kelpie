@@ -68,6 +68,8 @@ usage: shep kelpie add [<project>]       registers this checkout as a project
                                          units and dollars per merged pull request
        shep kelpie usage <project> --import <steps file>
                                          adds a runner's logged calls to its ledger
+       shep kelpie usage [<project>] --openmetrics
+                                         the ledger as OpenMetrics counters, for promtool
        shep kelpie usage --forge [--since <date>]
                                          GitHub calls per minute, the busiest minutes and
                                          each used-up answer
