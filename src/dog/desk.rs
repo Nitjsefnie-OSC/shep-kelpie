@@ -117,6 +117,7 @@ impl Desk {
         reviewers: Reviewers,
         metrics: Arc<Recorder>,
     ) -> Self {
+        let watch = Watch::counted(&saved.leases);
         let mut book = LeaseBook::restore(clock, saved.leases);
         book.set_reviewers(reviewers);
         let runs = saved
@@ -149,7 +150,7 @@ impl Desk {
             runs,
             retired,
             metrics,
-            watch: Watch::default(),
+            watch,
         };
         // What the saved book holds is not granted again.
         desk.look(false);
@@ -242,17 +243,16 @@ impl Desk {
                 return Heard::default();
             };
             let at = Timestamp(value);
-            let bot = fact.kind.as_str();
             let window = match fact.fact {
                 WindowFact::Summoned => {
-                    if self.book.has_window(&fact.kind) {
-                        self.watch.summoned(&self.metrics, bot, at);
+                    if self.book.is_live_summon(&fact.kind, at) {
+                        self.watch.summoned(&self.metrics, fact.kind.as_str(), at);
                     }
                     self.book.summoned(&fact.kind, at)
                 }
                 WindowFact::Opens => {
-                    if self.book.has_window(&fact.kind) {
-                        self.watch.refused(&self.metrics, bot, at);
+                    if self.book.is_live_refusal(&fact.kind, at) {
+                        self.watch.refused(&self.metrics, fact.kind.as_str(), at);
                     }
                     self.book.refused(&fact.kind, at)
                 }

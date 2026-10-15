@@ -179,9 +179,21 @@ impl LeaseBook {
         self.with_window(kind, |window, now| window.refused(now, opens))
     }
 
-    /// Whether `kind` has a review window to take summons and refusals
-    pub fn has_window(&self, kind: &LeaseKind) -> bool {
-        self.leases.get(kind).is_some_and(|l| l.window.is_some())
+    /// Whether a summon of `kind` accepted at `at` is news: the kind has a
+    /// window, and the summon has not aged out of its span
+    pub fn is_live_summon(&self, kind: &LeaseKind, at: Timestamp) -> bool {
+        self.window_of(kind)
+            .is_some_and(|w| !w.aged(at, self.clock.now()))
+    }
+
+    /// Whether a refusal of `kind` quoting the window opening at `opens` is
+    /// news: the kind has a window, and the quote has not passed
+    pub fn is_live_refusal(&self, kind: &LeaseKind, opens: Timestamp) -> bool {
+        self.window_of(kind).is_some() && opens > self.clock.now()
+    }
+
+    fn window_of(&self, kind: &LeaseKind) -> Option<&Window> {
+        self.leases.get(kind)?.window.as_ref()
     }
 
     /// Grants every free lease whose window has opened to its next waiter

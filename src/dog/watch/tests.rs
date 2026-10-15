@@ -252,6 +252,51 @@ fn a_summon_the_window_forgot_counts_no_more_when_the_runner_sends_it_again() {
 }
 
 #[test]
+fn a_restart_counts_no_summon_or_refusal_again_when_the_runner_sends_them_again() {
+    let mut w = world();
+    let cr = LeaseKind::coderabbit();
+    let mut koji = Asker::new(Epoch(101));
+    w.raise("koji", koji.window(&cr, WindowFact::Summoned, EPOCH));
+    w.raise("koji", koji.window(&cr, WindowFact::Opens, EPOCH + 600));
+    let counted = |w: &World| {
+        (w.samples.sent().iter())
+            .filter(|s| s.name == SUMMONS)
+            .count()
+    };
+    let before = counted(&w);
+    assert_eq!(before, 2);
+
+    w.restart();
+    for note in koji.notes() {
+        w.raise("koji", note);
+    }
+
+    assert_eq!(counted(&w), before);
+}
+
+#[test]
+fn a_restart_after_the_window_forgot_a_summon_does_not_count_it_when_it_is_sent_again() {
+    let mut w = world();
+    let cr = LeaseKind::coderabbit();
+    let mut koji = Asker::new(Epoch(101));
+    w.raise("koji", koji.window(&cr, WindowFact::Summoned, EPOCH));
+    w.raise("koji", koji.window(&cr, WindowFact::Opens, EPOCH + 600));
+    w.clock.advance(3 * 3600);
+    w.desk.tick();
+    let before = w.samples.sent().len();
+
+    w.restart();
+    for note in koji.notes() {
+        w.raise("koji", note);
+    }
+
+    let counted = (w.samples.sent().iter().skip(before))
+        .filter(|s| s.name == SUMMONS)
+        .count();
+    assert_eq!(counted, 0);
+}
+
+#[test]
 fn a_refusal_counts_once_and_a_new_quote_counts_again() {
     let mut w = world();
     let cr = LeaseKind::coderabbit();

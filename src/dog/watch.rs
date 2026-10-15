@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::desk::Desk;
 use crate::lease::counted::{CARGO_TEST, CountedStatus, Ticket};
+use crate::lease::saved::SavedLease;
 use crate::metrics::Recorder;
 use crate::ports::Timestamp;
 
@@ -28,6 +29,7 @@ pub(super) struct Watch {
     held: BTreeMap<String, BTreeSet<(String, Timestamp)>>,
     queued: BTreeMap<(String, String), Timestamp>,
     // Each summon and refusal already counted, by bot and the time it carries.
+    // A restart takes the saved windows' and counts none older than the span.
     // A runner resends what it has seen for as long as it runs, long after the
     // window forgot a summon, so the window cannot say what is new.
     summoned: BTreeSet<(String, Timestamp)>,
@@ -35,6 +37,26 @@ pub(super) struct Watch {
 }
 
 impl Watch {
+    /// A watch that has counted the summons and refusals `saved` windows hold
+    ///
+    /// A runner that outlives a dog sends them again to the next one.
+    pub(super) fn counted(saved: &[SavedLease]) -> Self {
+        let mut watch = Self::default();
+        for lease in saved {
+            let Some(window) = &lease.window else {
+                continue;
+            };
+            let bot = lease.kind.as_str();
+            for at in &window.summons {
+                watch.summoned.insert((bot.to_owned(), *at));
+            }
+            if let Some(refusal) = &window.refusal {
+                watch.refused.insert((bot.to_owned(), refusal.opens));
+            }
+        }
+        watch
+    }
+
     /// Counts a summon of `bot` accepted at `at`, the first time it is heard
     pub(super) fn summoned(&mut self, metrics: &Recorder, bot: &str, at: Timestamp) {
         if self.summoned.insert((bot.to_owned(), at)) {
