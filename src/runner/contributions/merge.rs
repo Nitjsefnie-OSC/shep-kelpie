@@ -16,8 +16,8 @@
 //!   contributor. A forge that refuses the merge, because the head moved or
 //!   for any other reason, is told in the log and asked again at the next
 //!   poll. A merge that failed every try raises the ruling again. A thanks that
-//!   cannot be worded or posted is told in the log and never holds the merge
-//!   back.
+//!   cannot be worded or posted is told in the log, never holds the merge back
+//!   and is not tried again once the merged pull request leaves the record.
 //! - A no with a note has the representative word the note and post it for
 //!   the contributor. A no with no note, or one given by a reaction or a tick,
 //!   posts nothing.
@@ -27,6 +27,7 @@
 
 use super::super::Runner;
 use super::super::gate::short;
+use super::post::forge_is_busy;
 use super::ruling::{flagged_lines, raise_merge};
 use crate::ports::Finding;
 use crate::state::{Contribution, Held, RulingKind, StateError, Verdict};
@@ -117,7 +118,13 @@ impl Runner {
         if !merged {
             let key = format!("merge:{number}");
             if let Err(e) = self.ports.forge.merge(&self.remote, number, &held.head) {
-                self.answer_failed(&key, number, "merge the pull request of", &e, true);
+                self.answer_failed(
+                    &key,
+                    number,
+                    "merge the pull request of",
+                    &e,
+                    !forge_is_busy(&e),
+                );
                 if self.answer_given_up(&key) {
                     // The maintainer is asked again, with the failure in the log.
                     self.answer_ends(&key);
@@ -146,8 +153,8 @@ impl Runner {
     }
 
     // The thanks is a courtesy: a call or a post that fails is told in the
-    // log, tried at the next poll while the record is there, and nothing
-    // waits on it.
+    // log and nothing waits on it. The merged pull request leaves the record
+    // at the next poll, so a thanks that failed is not tried again.
     fn thank_for_the_merge(&mut self, held: &Contribution) -> Result<(), StateError> {
         let number = held.pull_request;
         let key = format!("merged:{number}");
