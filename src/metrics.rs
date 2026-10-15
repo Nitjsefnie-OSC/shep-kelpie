@@ -13,6 +13,7 @@ use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 mod dog;
 mod mcp;
 mod plan;
+mod requests;
 mod series;
 
 pub(crate) use mcp::OWN_SERVERS;

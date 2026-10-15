@@ -2,8 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::ports::{CLEAN, Cost, Usage};
+use crate::request_use::{After, Request};
 use crate::runner::{CHECKS_SETTLE, Runner, StepReport, step};
 use crate::test::{RecordedSink, Rig, Scripted, write_script};
+use crate::usage::Line;
 
 const COUNTER: Family = Family {
     name: "kelpie_test_total",
@@ -304,6 +306,141 @@ fn a_failed_server_that_connects_in_a_later_call_ends_its_standing_note() {
     assert_eq!(outcome("connected"), Some(1.0));
     let status = rig.ask(&runner, "status", None);
     assert_eq!(status["standing"], serde_json::Value::Null, "none stands");
+}
+
+fn bucket(rig: &Rig, role: &str, le: &str) -> Option<f64> {
+    let labels = [("harness", "claude-code"), ("le", le), ("role", role)];
+    rig.samples.value("kelpie_request_context_tokens", &labels)
+}
+
+fn cache_writes(rig: &Rig, role: &str, after: &str) -> Option<f64> {
+    let labels = [("after", after), ("harness", "claude-code"), ("role", role)];
+    rig.samples
+        .value("kelpie_cache_write_tokens_total", &labels)
+}
+
+// The worker's turn writes the recorded session's first call to its transcript, and the reviewer's
+// round the whole session: three requests an hour or more apart, with contexts of 18,576, 69,169
+// and 76,220 tokens and cache writes of 13,152, 63,745 and 70,796.
+#[test]
+fn a_call_s_requests_are_counted_by_context_size_and_what_came_before() {
+    let (rig, _runner) = worker_and_reviewer(failed_call(), FAILED.to_owned());
+    let buckets = |role| ["50000", "150000", "200000", "+Inf"].map(|le| bucket(&rig, role, le));
+    assert_eq!(buckets("worker"), [Some(1.0); 4], "one request of 18,576");
+    assert_eq!(
+        buckets("reviewer"),
+        [1.0, 3.0, 3.0, 3.0].map(Some),
+        "18,576, then 69,169 and 76,220: cumulative"
+    );
+    let writes = |role| ["start", "gap", "growth"].map(|after| cache_writes(&rig, role, after));
+    assert_eq!(writes("worker"), [Some(13_152.0), Some(0.0), Some(0.0)]);
+    assert_eq!(
+        writes("reviewer"),
+        [Some(13_152.0), Some(134_541.0), Some(0.0)],
+        "the two requests an hour apart wrote 63,745 and 70,796 after a gap"
+    );
+}
+
+// A call line of `role` and `kind` on `harness`, which ended `ended`
+fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
+    let usage = serde_json::json!({
+        "input": 1, "cache_write": 1, "cache_read": 1, "output": 1,
+    });
+    Line::Call(
+        serde_json::from_value(serde_json::json!({
+            "at": 1, "issue": 7, "role": role, "kind": kind, "harness": harness,
+            "model": "model", "usage": usage, "units": 1, "cost_usd": 0.5,
+            "seconds": 3, "ended": ended, "compactions": u32::from(harness == "claude-code"),
+        }))
+        .unwrap(),
+    )
+}
+
+#[test]
+fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
+    let (recorder, sink) = recorder();
+    // Each role on a harness it might have, with its kinds of call and two ways each ended. The
+    // worker and the project manager run on a second harness as a fallback, and the reviewer on a
+    // local round too. Only the worker's, reviewer's and project manager's calls on Claude Code and
+    // pi have requests counted, and the other roles' are recorded to show they add none.
+    let roles = [
+        ("worker", "claude-code", &["turn", "compact", "vote"][..]),
+        ("worker", "pi", &["turn", "compact", "vote"][..]),
+        ("pm", "pi", &["wake", "compact", "retro"][..]),
+        ("reviewer", "claude-code", &["review"][..]),
+        ("reviewer", "local", &["local-round"][..]),
+        ("issue-writer", "pi", &["issues"][..]),
+        ("pm", "claude-code", &["wake", "compact", "retro"][..]),
+        ("advisor", "codex", &["vote"][..]),
+        ("researcher", "goose", &["vote"][..]),
+        ("representative", "pi", &["post"][..]),
+        ("triager", "claude-code", &["triage"][..]),
+    ];
+    for (role, harness, kinds) in roles {
+        for kind in kinds {
+            for ended in ["answered", "failed"] {
+                recorder.line(&call_line(role, kind, harness, ended));
+            }
+        }
+        if harness == "claude-code" || harness == "pi" {
+            let request = Request {
+                context: 30_000,
+                cache_write: 1,
+                after: After::Gap,
+            };
+            recorder.request(role, harness, &request);
+        }
+    }
+    for (feature, outcomes) in [
+        (
+            Feature::CodeGraph,
+            &["ok", "failed", "skipped", "ended"][..],
+        ),
+        (Feature::Browser, &["ok", "failed", "skipped"][..]),
+        (Feature::DevServer, &["ok", "failed", "skipped"][..]),
+        (Feature::Hooks, &["ok", "failed"][..]),
+    ] {
+        for outcome in outcomes {
+            recorder.feature_ran(feature, outcome);
+        }
+    }
+    for server in ["codebase-memory-mcp", "playwright", "repo"] {
+        recorder.mcp_tool_calls(server, 1);
+        recorder.mcp_server(server, true);
+        recorder.mcp_server(server, false);
+    }
+    // The series set from the state and the settings, and the finished work items', which these
+    // lines do not drive: six phases, four features' enabled gauges, the plan gauges of the two
+    // accounts (two windows' two gauges, and two more), and nine of the finished line's.
+    let not_driven = 6 + 4 + 2 * (4 + 2) + 9;
+    let held: std::collections::BTreeSet<_> = (sink.sent().iter())
+        .map(|s| (s.name, s.labels.clone()))
+        .collect();
+    let requests = held
+        .iter()
+        .filter(|(name, _)| {
+            [
+                "kelpie_request_context_tokens",
+                "kelpie_cache_write_tokens_total",
+            ]
+            .contains(name)
+        })
+        .count();
+    eprintln!(
+        "series: {} and {not_driven} more, {requests} of them requests",
+        held.len()
+    );
+    assert_eq!(
+        requests,
+        5 * 7,
+        "four buckets and three writes for each of the five pairs, and none for the one-shot roles"
+    );
+    assert!(
+        held.len() + not_driven < SERIES_CAP,
+        "{}",
+        held.len() + not_driven
+    );
+    assert_eq!(sink.value("kelpie_series_dropped_total", &[]), None);
 }
 
 #[test]

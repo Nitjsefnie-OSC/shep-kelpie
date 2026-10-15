@@ -798,6 +798,89 @@
         "overrides": []
       },
       "options": {}
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Request context size",
+      "description": "Median and 90th percentile of the tokens a request sent (input, cache read and cache write), by role, from the buckets of kelpie_request_context_tokens. Claude Code and pi calls only. Each request pays for its whole context, so cost follows these.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 80
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le, role) (rate(kelpie_request_context_tokens{sheep=~\"$sheep\"}[1h])))",
+          "legendFormat": "{{role}} p50"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "histogram_quantile(0.9, sum by (le, role) (rate(kelpie_request_context_tokens{sheep=~\"$sheep\"}[1h])))",
+          "legendFormat": "{{role}} p90"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Cache writes by what came before",
+      "description": "Tokens an hour that requests wrote to the cache: start is a session's first request, gap is a request after the cache kept what the one before wrote (5 minutes, or 1 hour for Claude Code's 1-hour writes), which rewrites what the cache dropped, and growth is the rest. Claude Code and pi calls only.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 80
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (after) (rate(kelpie_cache_write_tokens_total{sheep=~\"$sheep\"}[1h])) * 3600",
+          "legendFormat": "{{after}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ],
   "refresh": "30s",

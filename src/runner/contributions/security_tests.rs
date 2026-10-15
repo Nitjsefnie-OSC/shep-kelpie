@@ -385,3 +385,25 @@ fn a_security_reviewer_that_is_no_session_reviewer_is_refused_at_start() {
     assert!(said.contains("contributions.security_reviewer"), "{said}");
     assert!(said.contains("sonnet-high"), "{said}");
 }
+
+// The call reads a contribution's head as a reviewer, and its transcript is read once it ends.
+#[test]
+fn a_contribution_review_s_requests_are_counted_as_the_reviewer_s() {
+    let (rig, runner) = picking("all");
+    let lines = include_str!("../../../fixtures/claude-transcript-request-sizes.jsonl");
+    rig.claude.script([Scripted::Transcribed(
+        lines.to_owned(),
+        Box::new(Scripted::Text(CLEAN)),
+    )]);
+    contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(reviews(&rig).len(), 1);
+    let all = [
+        ("harness", "claude-code"),
+        ("le", "+Inf"),
+        ("role", "reviewer"),
+    ];
+    let requests = rig.samples.value("kelpie_request_context_tokens", &all);
+    assert_eq!(requests, Some(6.0), "the six requests of the transcript");
+}

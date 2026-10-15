@@ -154,3 +154,48 @@ fn a_handover_waits_while_a_worker_turn_holds_a_browser() {
     hold.release();
     assert!(hold.answered(CALL_PATIENCE), "the call never answered");
 }
+
+// A turn the next image finishes is counted there, from where its transcript stood as it began.
+#[test]
+fn a_carried_turn_s_requests_are_counted_when_the_next_image_adopts_it() {
+    let rig = Rig::new("rotom");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let hold = Hold::default();
+    let lines = include_str!("../../../../fixtures/claude-transcript-request-sizes.jsonl");
+    rig.claude.script([Scripted::Transcribed(
+        lines.to_owned(),
+        Box::new(Scripted::Hold(hold.clone())),
+    )]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the call never began");
+
+    let turns = runner.lock().unwrap().carry_calls().unwrap();
+    assert_eq!(turns.len(), 1);
+    runner.lock().unwrap().adopt_calls(turns);
+
+    let total = || {
+        let labels = [
+            ("harness", "claude-code"),
+            ("le", "+Inf"),
+            ("role", "worker"),
+        ];
+        rig.samples.value("kelpie_request_context_tokens", &labels)
+    };
+    let began = std::time::Instant::now();
+    while total() != Some(6.0) && began.elapsed() < CALL_PATIENCE {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(total(), Some(6.0), "the six requests of the transcript");
+    let labels = [
+        ("after", "start"),
+        ("harness", "claude-code"),
+        ("role", "worker"),
+    ];
+    let start = rig
+        .samples
+        .value("kelpie_cache_write_tokens_total", &labels);
+    assert!(start.is_some_and(|written| written > 0.0), "{start:?}");
+
+    hold.release();
+}

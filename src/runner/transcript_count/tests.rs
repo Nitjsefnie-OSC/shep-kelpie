@@ -73,7 +73,7 @@ fn each_pi_call_counts_its_own_tool_calls_from_its_session_file_and_no_server() 
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
     let sink = RecordedSink::default();
-    let counted = McpCount {
+    let counted = TranscriptCount {
         agents: Arc::new(Pi { sessions }),
         notes: Notes::default(),
         metrics: Arc::new(Recorder::new(Arc::new(sink.clone()))),
@@ -96,4 +96,36 @@ fn each_pi_call_counts_its_own_tool_calls_from_its_session_file_and_no_server() 
         "the second call's own, not the first's again"
     );
     assert_eq!(sink.total("kelpie_mcp_servers_total"), 0.0);
+}
+
+#[test]
+fn each_pi_call_counts_its_own_requests_from_its_session_file() {
+    let folder = short_tempdir();
+    let sessions = folder.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let sink = RecordedSink::default();
+    let counted = TranscriptCount {
+        agents: Arc::new(Pi { sessions }),
+        notes: Notes::default(),
+        metrics: Arc::new(Recorder::new(Arc::new(sink.clone()))),
+    };
+    let call = pi_call(folder.path());
+    let small = [("harness", "pi"), ("le", "50000"), ("role", "worker")];
+
+    counted.run(&call, &Ending::default()).unwrap();
+    let requests = sink.value("kelpie_request_context_tokens", &small);
+    assert_eq!(requests, Some(2.0), "the recorded session's two requests");
+    counted.run(&call, &Ending::default()).unwrap();
+    let requests = sink.value("kelpie_request_context_tokens", &small);
+    assert_eq!(
+        requests,
+        Some(4.0),
+        "the second call's two, not the first's again"
+    );
+    let start = [("after", "start"), ("harness", "pi"), ("role", "worker")];
+    assert_eq!(
+        sink.value("kelpie_cache_write_tokens_total", &start),
+        Some(0.0),
+        "the recorded session wrote nothing to a cache"
+    );
 }

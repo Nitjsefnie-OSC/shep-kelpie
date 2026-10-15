@@ -17,6 +17,7 @@ use super::super::Runner;
 use super::super::attach::live;
 use super::super::briefing::Watched;
 use super::super::in_flight::Open;
+use super::super::transcript_count::Mark;
 use super::{End, Flight, News, Tell, unstarted, waiting};
 use crate::lease::wire::AskerCarry;
 use crate::ports::{Adopted, Ending, Flying, Timestamp};
@@ -32,6 +33,9 @@ pub struct CarriedTurn {
     flying: Flying,
     started: Timestamp,
     open: Open,
+    // Where the turn's transcript stood as it began, so the next image counts its requests
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    requests: Option<Mark>,
 }
 
 impl CarriedTurn {
@@ -106,6 +110,7 @@ impl Runner {
                     flying,
                     started: flight.watched.started,
                     open,
+                    requests: flight.requests.clone(),
                 })
             })
             .collect()
@@ -147,6 +152,7 @@ impl Runner {
             flying,
             started,
             open,
+            requests,
         } = turn;
         let harness = adopted.harness;
         let ending = Ending::default();
@@ -159,10 +165,14 @@ impl Runner {
         self.flights.ledger.restore(Some(issue), open);
         let (held, ledger) = (ending.clone(), self.flights.ledger.clone());
         let agents = Arc::clone(&self.ports.agents);
+        let metrics = Arc::clone(&self.metrics);
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
                 End::Turn(agents.adopt(&adopted, &held))
             }));
+            if let Some(mark) = &requests {
+                mark.count(adopted.harness, &metrics);
+            }
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
                 ledger.no_model(Some(issue));
@@ -194,6 +204,7 @@ impl Runner {
                 told: None,
                 fallback: waiting::Fallback::Stays,
                 browser: None,
+                requests: None,
             },
         );
         self.board_changed();
