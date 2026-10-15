@@ -159,7 +159,8 @@ impl Runner {
             .then(|| Skills::load(&settings.skills, &self.paths.skills));
         let new_implementers = agents.implementer_names() != self.agents.implementer_names();
         self.settings = settings;
-        self.metrics.features(&self.settings);
+        let launch_file = super::dev_server::has_launch_file(&self.settings.git.checkout);
+        self.metrics.features(&self.settings, launch_file);
         self.lineup = lineup;
         self.agents = agents;
         if new_implementers {

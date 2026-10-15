@@ -22,6 +22,7 @@ use super::Runner;
 use super::claim::Notes;
 use super::code_graph::who;
 use super::instructions::DevServer;
+use crate::metrics::{Feature, Recorder};
 use crate::ports::{
     AgentCall, DevPort, DevRun, DevServers, Policy, READY_WITHIN, Reach, Session, Started,
 };
@@ -33,6 +34,11 @@ const PICKS: usize = 16;
 
 /// The Mach service a dev server's file watcher looks up on macOS
 const FS_EVENTS: &str = "com.apple.FSEvents";
+
+/// Whether `main` of `checkout` has a launch file, which is when the dev server is on
+pub(super) fn has_launch_file(checkout: &Path) -> bool {
+    launch::exists(checkout)
+}
 
 /// The dev servers planned for turns not yet over, by the issue of their work item
 #[derive(Debug, Default)]
@@ -92,21 +98,26 @@ impl Runner {
         let hosts = hosts?;
         let fence = reach.fence.as_deref()?;
         let without = |why: String| {
+            self.metrics.feature_ran(Feature::DevServer, "failed");
             self.notes.push(format!(
                 "issue #{}'s worker runs without a dev server: {why}",
                 item.issue
             ));
             Some(DevServer::Without(why))
         };
+        let skipped = || {
+            self.metrics.feature_ran(Feature::DevServer, "skipped");
+            None
+        };
         let text = match launch::read(&self.settings.git.checkout) {
             Ok(Some(text)) => text,
-            Ok(None) => return None,
+            Ok(None) => return skipped(),
             Err(why) => return without(why),
         };
         let named = self.settings.browser.configuration.as_ref();
         let configuration = match launch::select(&text, named.map(NonBlank::as_str)) {
             Ok(Some(configuration)) => configuration,
-            Ok(None) => return None,
+            Ok(None) => return skipped(),
             Err(why) => return without(why),
         };
         let cwd = match launch::folder(&item.worktree, &configuration) {
@@ -244,12 +255,15 @@ impl Drop for Served {
 ///
 /// The server stops when the returned [`Started`] is dropped. A server that
 /// cannot be started or never answers leaves the turn running, a note and a
-/// line at the end of the call's instructions saying so.
+/// line at the end of the call's instructions saying so. Either counts as a
+/// failed run of the dev server, and a server that answers within
+/// [`READY_WITHIN`] as an `ok` one.
 pub(super) fn started(
     servers: &dyn DevServers,
     run: &DevRun,
     call: &mut AgentCall,
     notes: &Notes,
+    metrics: &Recorder,
 ) -> Option<Served> {
     let log = run.log.display();
     let served = |started| Served {
@@ -258,6 +272,7 @@ pub(super) fn started(
     };
     let (started, line) = match servers.start(run) {
         Ok(started) if started.answered => {
+            metrics.feature_ran(Feature::DevServer, "ok");
             run.gate.open(run.port);
             return Some(served(started));
         }
@@ -276,6 +291,7 @@ pub(super) fn started(
             format!("Kelpie could not start the dev server: {why}. The turn runs without it."),
         ),
     };
+    metrics.feature_ran(Feature::DevServer, "failed");
     notes.push(format!("{}: {line}", who(call)));
     // A resumed session keeps the instructions it began with, so it is told in the prompt.
     match (&call.session, call.instructions.as_deref()) {

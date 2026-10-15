@@ -285,3 +285,69 @@ fn an_attached_session_is_not_told_of_a_browser_it_lacks() {
     assert!(!told.contains("playwright"), "{told}");
     assert_eq!(attach.reach.browser, None);
 }
+
+// How many runs of the browser the metrics endpoint counted as `outcome`
+fn browser_runs(rig: &Rig, outcome: &str) -> Option<f64> {
+    let labels = [("feature", "browser"), ("outcome", outcome)];
+    rig.samples.value("kelpie_feature_runs_total", &labels)
+}
+
+#[test]
+fn a_bridge_opened_for_a_turn_counts_as_an_ok_run() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    let _ = step(&runner);
+
+    assert!(browser_runs(&rig, "ok") >= Some(1.0));
+    assert_eq!(browser_runs(&rig, "skipped"), None);
+    assert_eq!(browser_runs(&rig, "failed"), None);
+}
+
+#[test]
+fn a_turn_whose_tools_lack_the_browser_counts_as_a_skipped_run() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+
+    assert_eq!(browser_runs(&rig, "skipped"), Some(1.0));
+    assert_eq!(browser_runs(&rig, "ok"), None);
+    assert_eq!(browser_runs(&rig, "failed"), None);
+}
+
+#[test]
+fn a_bridge_that_cannot_be_opened_counts_as_a_failed_run() {
+    let rig = Rig::new("shep");
+    turn_on(&rig);
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    // A file where the work item's browser folder goes, which kelpie will not use.
+    let folder = rig.paths().browser(7);
+    fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    fs::write(&folder, "").unwrap();
+    let _ = step(&runner);
+
+    assert_eq!(browser_runs(&rig, "failed"), Some(1.0));
+    assert_eq!(browser_runs(&rig, "ok"), None);
+}
+
+#[test]
+fn a_project_without_the_browser_counts_no_browser_runs() {
+    let rig = Rig::new("shep");
+    install(&rig);
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude.script([Scripted::Push("work.txt", "work\n")]);
+    step(&runner).unwrap();
+
+    for outcome in ["ok", "skipped", "failed"] {
+        assert_eq!(browser_runs(&rig, outcome), None, "{outcome}");
+    }
+}

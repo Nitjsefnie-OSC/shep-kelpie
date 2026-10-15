@@ -87,25 +87,30 @@ pub enum Feature {
     CodeGraph,
     /// `browser`: the Playwright MCP server behind kelpie's bridge
     Browser,
+    /// `dev_server`: the project's server from `main`'s launch file, started for a turn's browser
+    DevServer,
     /// `hooks`: the project's own commands at kelpie's points
     Hooks,
 }
 
 impl Feature {
-    const ALL: [Self; 3] = [Self::CodeGraph, Self::Browser, Self::Hooks];
+    const ALL: [Self; 4] = [Self::CodeGraph, Self::Browser, Self::DevServer, Self::Hooks];
 
     fn as_str(self) -> &'static str {
         match self {
             Self::CodeGraph => "code_graph",
             Self::Browser => "browser",
+            Self::DevServer => "dev_server",
             Self::Hooks => "hooks",
         }
     }
 
-    fn enabled(self, settings: &Settings) -> bool {
+    // `launch_file`: whether `main` has one
+    fn enabled(self, settings: &Settings, launch_file: bool) -> bool {
         match self {
             Self::CodeGraph => settings.code_graph.enabled,
             Self::Browser => settings.browser.enabled,
+            Self::DevServer => settings.browser.enabled && launch_file,
             Self::Hooks => !settings.hooks.is_empty(),
         }
     }
@@ -131,10 +136,11 @@ impl Recorder {
         }
     }
 
-    /// Sets which features `settings` turn on
-    pub fn features(&self, settings: &Settings) {
+    /// Sets which features `settings` turn on, where `launch_file` is whether `main` has a
+    /// launch file for the dev server
+    pub fn features(&self, settings: &Settings, launch_file: bool) {
         for feature in Feature::ALL {
-            let on = f64::from(u8::from(feature.enabled(settings)));
+            let on = f64::from(u8::from(feature.enabled(settings, launch_file)));
             self.set(&FEATURE_ENABLED, vec![feature_label(feature)], on);
         }
     }

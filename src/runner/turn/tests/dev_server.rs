@@ -332,8 +332,13 @@ fn gate_around_serving(rig: &Rig) -> ([Option<u16>; 3], String) {
         .unwrap();
     let run = runner.planned.get(7).expect("a plan");
     let before = runner.dev_gate(7).get();
-    let served =
-        crate::runner::dev_server::started(&rig.dev_servers, &run, &mut call, &runner.notes);
+    let served = crate::runner::dev_server::started(
+        &rig.dev_servers,
+        &run,
+        &mut call,
+        &runner.notes,
+        &runner.metrics,
+    );
     let during = runner.dev_gate(7).get();
     drop(served);
     ([before, during, runner.dev_gate(7).get()], call.prompt)
@@ -431,4 +436,86 @@ fn a_zero_port_is_not_swapped_into_the_arguments_that_say_zero() {
     assert_eq!(run.port, 5304);
     assert_eq!(run.args, ["dev", "--retries", "0"]);
     assert_eq!(run.env.get("PORT").map(String::as_str), Some("5304"));
+}
+
+// How many runs of the dev server the metrics endpoint counted as `outcome`
+fn dev_server_runs(rig: &Rig, outcome: &str) -> Option<f64> {
+    let labels = [("feature", "dev_server"), ("outcome", outcome)];
+    rig.samples.value("kelpie_feature_runs_total", &labels)
+}
+
+#[test]
+fn a_server_that_answers_counts_as_an_ok_run() {
+    let rig = project(Some(SHEP));
+    gate_around_serving(&rig);
+    assert_eq!(dev_server_runs(&rig, "ok"), Some(1.0));
+    assert_eq!(dev_server_runs(&rig, "failed"), None);
+}
+
+#[test]
+fn a_server_that_never_answers_or_never_starts_counts_as_a_failed_run() {
+    let silent = project(Some(SHEP));
+    silent.dev_servers.never_answer();
+    gate_around_serving(&silent);
+    assert_eq!(dev_server_runs(&silent, "failed"), Some(1.0));
+    assert_eq!(dev_server_runs(&silent, "ok"), None);
+
+    let broken = project(Some(SHEP));
+    broken.dev_servers.cannot_start("the port is taken");
+    gate_around_serving(&broken);
+    assert_eq!(dev_server_runs(&broken, "failed"), Some(1.0));
+    assert_eq!(dev_server_runs(&broken, "ok"), None);
+}
+
+#[test]
+fn a_server_that_cannot_be_planned_counts_as_a_failed_run() {
+    let fixed = r#"{"configurations":[{"name":"web","runtimeExecutable":"npm","port":4421}]}"#;
+    let rig = project(Some(fixed));
+    rig.dev_servers.take(4421);
+    planned(&rig, |_| {});
+    assert!(dev_server_runs(&rig, "failed") >= Some(1.0));
+    assert_eq!(dev_server_runs(&rig, "ok"), None);
+}
+
+#[test]
+fn a_project_without_a_launch_file_on_main_counts_a_skipped_run() {
+    let rig = project(None);
+    planned(&rig, |_| {});
+    assert!(dev_server_runs(&rig, "skipped") >= Some(1.0));
+    assert_eq!(dev_server_runs(&rig, "ok"), None);
+    assert_eq!(dev_server_runs(&rig, "failed"), None);
+}
+
+#[test]
+fn a_launch_file_with_no_configuration_counts_a_skipped_run() {
+    let rig = project(Some(r#"{"configurations":[]}"#));
+    planned(&rig, |_| {});
+    assert!(dev_server_runs(&rig, "skipped") >= Some(1.0));
+}
+
+#[test]
+fn a_project_without_the_browser_counts_no_dev_server_runs() {
+    let rig = Rig::new("shep");
+    install(&rig);
+    rig.land(".claude/launch.json", SHEP);
+    planned(&rig, |_| {});
+    for outcome in ["ok", "skipped", "failed"] {
+        assert_eq!(dev_server_runs(&rig, outcome), None, "{outcome}");
+    }
+}
+
+// What `kelpie_feature_enabled{feature="dev_server"}` read once the runner opened
+fn dev_server_enabled(rig: &Rig) -> Option<f64> {
+    rig.open().unwrap();
+    rig.samples
+        .value("kelpie_feature_enabled", &[("feature", "dev_server")])
+}
+
+#[test]
+fn the_dev_server_is_on_when_the_browser_is_on_and_main_has_a_launch_file() {
+    assert_eq!(dev_server_enabled(&project(Some(SHEP))), Some(1.0));
+    assert_eq!(dev_server_enabled(&project(None)), Some(0.0));
+    let rig = Rig::new("shep");
+    rig.land(".claude/launch.json", SHEP);
+    assert_eq!(dev_server_enabled(&rig), Some(0.0), "the browser is off");
 }

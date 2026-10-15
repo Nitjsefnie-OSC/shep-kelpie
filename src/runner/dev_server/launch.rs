@@ -32,16 +32,22 @@ pub(super) struct Configuration {
     pub(super) auto_port: bool,
 }
 
+/// Whether `origin/main` of `checkout` has the file
+pub(super) fn exists(checkout: &Path) -> bool {
+    let spec = format!("origin/{BASE}:{FILE}");
+    git(checkout, ["cat-file", "-e", &spec]).is_ok()
+}
+
 /// The file's text on `origin/main` of `checkout`, or `None` when `main` has none
 ///
 /// # Errors
 ///
 /// Why git could not show a file that `main` has.
 pub(super) fn read(checkout: &Path) -> Result<Option<String>, String> {
-    let spec = format!("origin/{BASE}:{FILE}");
-    if git(checkout, ["cat-file", "-e", &spec]).is_err() {
+    if !exists(checkout) {
         return Ok(None);
     }
+    let spec = format!("origin/{BASE}:{FILE}");
     git(checkout, ["show", &spec])
         .map(Some)
         .map_err(|e| format!("cannot read {FILE} on {BASE}: {e}"))
