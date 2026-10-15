@@ -180,6 +180,21 @@ fn item_lists_the_work_items_calls_in_order_with_their_transcripts() {
 }
 
 #[test]
+fn item_lists_calls_by_when_they_ended_not_where_an_import_put_them() {
+    let rig = Rig::new();
+    rig.call(Some(7), "reviewer", "claude-code", "s-late", 600);
+    rig.call(Some(7), "worker", "pi", "s-late", 300);
+
+    let out = rig.ask(&["koji", "--item", "7", "--json"]).unwrap();
+    let json: Value = serde_json::from_str(&out.join("\n")).unwrap();
+
+    assert_eq!(json["calls"][0]["role"], "worker");
+    assert_eq!(json["calls"][1]["role"], "reviewer");
+    assert_eq!(json["sessions"][0]["role"], "worker");
+    assert_eq!(json["sessions"][0]["harness"], "pi");
+}
+
+#[test]
 fn item_as_json_holds_the_calls_and_the_sessions() {
     let rig = Rig::new();
     rig.call(Some(7), "worker", "claude-code", "s-worker", 0);
@@ -416,6 +431,70 @@ fn reads_count_one_file_spelt_relative_and_absolute_as_one() {
     assert_eq!(group["docs"], 1);
     assert_eq!(group["neighbours"], 0);
     assert_eq!(group["other_code"], 0);
+}
+
+#[test]
+fn a_docs_folder_above_the_checkout_does_not_make_every_read_a_doc() {
+    let rig = Rig::new();
+    rig.call(Some(7), "worker", "claude-code", "s-docs", 0);
+    let mut lines = Vec::new();
+    for (n, block) in [
+        tool("Read", "src/a.rs"),
+        tool("Read", "docs/guide.md"),
+        tool("Edit", "lib/b.rs"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut request = claude_request(&format!("m{n}"), [1, 1, 1, 1], &[block]);
+        for line in &mut request {
+            line["cwd"] = json!("/Users/me/docs/proj");
+        }
+        lines.extend(request);
+    }
+    rig.transcript("claude-code", "s-docs", &lines);
+
+    let out = rig.ask(&["koji", "--reads", "--json"]).unwrap();
+    let json: Value = serde_json::from_str(&out.join("\n")).unwrap();
+
+    let group = &json["groups"][0];
+    assert_eq!(group["docs"], 1);
+    assert_eq!(group["other_code"], 1);
+}
+
+#[test]
+fn context_says_a_transcript_with_no_request_was_read() {
+    let rig = Rig::new();
+    rig.call(Some(7), "worker", "claude-code", "s-cut", 0);
+    let mut cut = claude_request("m", [0, 0, 0, 0], &[thought()]);
+    cut[0]["message"]["model"] = json!("<synthetic>");
+    rig.transcript("claude-code", "s-cut", &cut);
+
+    let out = rig.ask(&["koji", "--context"]).unwrap();
+    let json: Value = serde_json::from_str(
+        &rig.ask(&["koji", "--context", "--json"])
+            .unwrap()
+            .join("\n"),
+    )
+    .unwrap();
+
+    assert!(
+        out.iter()
+            .any(|l| l
+                == "1 of 1 sessions are left out: their transcript was read and holds no request"),
+        "{out:#?}"
+    );
+    assert!(
+        !out.iter().any(|l| l.contains("no transcript was found")),
+        "{out:#?}"
+    );
+    assert_eq!(
+        (
+            json["groups"][0]["unread"].as_u64(),
+            json["groups"][0]["empty"].as_u64()
+        ),
+        (Some(0), Some(1))
+    );
 }
 
 #[test]

@@ -52,6 +52,8 @@ pub(super) struct Parsed {
     pub requests: Vec<Request>,
     /// The files it touched, in order
     pub touches: Vec<Touch>,
+    /// The working directory it began in, where the transcript records one
+    pub root: Option<String>,
 }
 
 /// What the transcript `text` of a session written in `format` holds, or
@@ -90,6 +92,7 @@ fn claude(text: &str) -> Parsed {
         }
         if let Some(dir) = entry["cwd"].as_str() {
             dir.clone_into(&mut cwd);
+            parsed.root.get_or_insert_with(|| dir.to_owned());
         }
         for block in message["content"].as_array().into_iter().flatten() {
             if block["type"] == "tool_use"
@@ -152,6 +155,7 @@ fn pi(text: &str) -> Parsed {
             && let Some(dir) = entry["cwd"].as_str()
         {
             dir.clone_into(&mut cwd);
+            parsed.root.get_or_insert_with(|| dir.to_owned());
         }
         let message = &entry["message"];
         if entry["type"] != "message" || message["role"] != "assistant" {

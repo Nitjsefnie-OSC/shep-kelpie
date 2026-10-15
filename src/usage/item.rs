@@ -30,12 +30,14 @@ struct ItemJson<'a> {
 /// The report on the work item of `issue` in `project`'s ledger `lines`,
 /// its sessions' transcripts placed by `steps`, as JSON when `json`
 pub fn item(project: &str, lines: &[Line], steps: &str, issue: u64, json: bool) -> Vec<String> {
-    let calls: Vec<&CallLine> = (lines.iter())
+    let mut calls: Vec<&CallLine> = (lines.iter())
         .filter_map(|line| match line {
             Line::Call(call) if call.issue == Some(issue) => Some(call),
             _ => None,
         })
         .collect();
+    // An import appends turns that ended earlier than the lines before them.
+    calls.sort_by_key(|call| call.at);
     let pull_request = calls.iter().rev().find_map(|call| call.pull_request);
     if calls.is_empty() {
         return match json {

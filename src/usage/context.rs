@@ -20,6 +20,8 @@ struct Group {
     sessions: usize,
     /// Sessions whose transcript was not, for want of a file or a reader
     unread: usize,
+    /// Sessions whose transcript was read and holds no request
+    empty: usize,
     requests: usize,
     /// The median over sessions of the context of a session's first request
     first_request: Option<u64>,
@@ -76,19 +78,27 @@ pub fn context(
     ];
     out.extend(groups.iter().map(|g| row(&cells(g))));
     let unread: usize = groups.iter().map(|g| g.unread).sum();
+    let empty: usize = groups.iter().map(|g| g.empty).sum();
+    let all = unread + empty + groups.iter().map(|g| g.sessions).sum::<usize>();
     if unread > 0 {
         out.push(format!(
-            "{unread} of {} sessions are left out: no transcript was found for them, or kelpie \
-             reads none of their harness's",
-            unread + groups.iter().map(|g| g.sessions).sum::<usize>()
+            "{unread} of {all} sessions are left out: no transcript was found for them, or kelpie \
+             reads none of their harness's"
+        ));
+    }
+    if empty > 0 {
+        out.push(format!(
+            "{empty} of {all} sessions are left out: their transcript was read and holds no request"
         ));
     }
     out
 }
 
 fn group(role: String, harness: String, sessions: &[&Seen]) -> Group {
-    let read: Vec<&Vec<Request>> = (sessions.iter())
+    let parsed: Vec<&Vec<Request>> = (sessions.iter())
         .filter_map(|s| s.parsed.as_ref().map(|p| &p.requests))
+        .collect();
+    let read: Vec<&Vec<Request>> = (parsed.iter().copied())
         .filter(|requests| !requests.is_empty())
         .collect();
     let requests: Vec<&Request> = read.iter().flat_map(|r| r.iter()).collect();
@@ -99,7 +109,8 @@ fn group(role: String, harness: String, sessions: &[&Seen]) -> Group {
         role,
         harness,
         sessions: read.len(),
-        unread: sessions.len() - read.len(),
+        unread: sessions.len() - parsed.len(),
+        empty: parsed.len() - read.len(),
         requests: requests.len(),
         first_request: whole(median(
             read.iter()

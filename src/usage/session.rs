@@ -62,17 +62,22 @@ pub(super) fn seen(calls: &[&CallLine], steps: &str) -> Vec<Seen> {
     out
 }
 
-/// The calls of `lines` that ended at or after `since`, when given
+/// The calls of `lines` that ended at or after `since`, when given, in the
+/// order they ended
 pub(super) fn window(
     lines: &[super::Line],
     since: Option<crate::ports::Timestamp>,
 ) -> Vec<&CallLine> {
-    (lines.iter())
+    let mut calls: Vec<&CallLine> = (lines.iter())
         .filter_map(|line| match line {
             super::Line::Call(call) if since.is_none_or(|since| call.at >= since) => Some(call),
             _ => None,
         })
-        .collect()
+        .collect();
+    // An import appends turns that ended earlier than the lines before them,
+    // and the first call of a session names its role and harness.
+    calls.sort_by_key(|call| call.at);
+    calls
 }
 
 /// `value` as pretty-printed JSON, a line each

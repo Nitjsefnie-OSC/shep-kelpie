@@ -164,13 +164,24 @@ fn split(parsed: &Parsed) -> Option<Split> {
             Touch::Edit(_) => None,
         })
         .collect();
+    // Paths are absolute, and a `docs` folder above the checkout is not a doc.
+    let root = parsed
+        .root
+        .as_deref()
+        .map_or("", |root| root.trim_end_matches('/'));
+    let root = if root.is_empty() {
+        root.to_owned()
+    } else {
+        format!("{root}/")
+    };
+    let root = root.as_str();
     let mut split = Split::default();
     for path in read {
         if edited.contains(path) {
             split.edited += 1;
         } else if edited.iter().any(|edit| same_module(path, edit)) {
             split.neighbours += 1;
-        } else if is_doc(path) {
+        } else if is_doc(path.strip_prefix(root).unwrap_or(path)) {
             split.docs += 1;
         } else {
             split.other_code += 1;
