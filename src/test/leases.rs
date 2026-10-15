@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::FakeClock;
-use crate::adapters::{Metrics, ShepLeases};
+use crate::adapters::{Notes, ShepLeases};
 use crate::lease::book::LeaseBook;
-use crate::lease::wire::{MetricName, Total, WindowFact, grant_params};
+use crate::lease::wire::{Total, TotalName, WindowFact, grant_params};
 use crate::lease::{Epoch, Holder, LeaseKind};
 use crate::ports::{Leases, Timestamp};
 use crate::review_bot::{ReviewWindow, Reviewers};
@@ -32,6 +32,7 @@ pub(crate) enum Told {
 pub(crate) struct DogStandIn {
     seen: Mutex<BTreeMap<(LeaseKind, Epoch, u8), u64>>,
     grants: Mutex<Vec<(LeaseKind, Epoch)>>,
+    notes: Mutex<Vec<(String, f64)>>,
 }
 
 impl DogStandIn {
@@ -47,26 +48,29 @@ impl DogStandIn {
     pub(crate) fn take_grants(&self) -> Vec<(LeaseKind, Epoch)> {
         std::mem::take(&mut *self.grants.lock().unwrap())
     }
+
+    /// Every note the runner sent, oldest first
+    pub(crate) fn notes(&self) -> Vec<(String, f64)> {
+        self.notes.lock().unwrap().clone()
+    }
 }
 
-impl Metrics for DogStandIn {
-    fn metric(&self, name: String, value: f64) {
-        let Some(metric) = MetricName::parse(&name) else {
+impl Notes for DogStandIn {
+    fn note(&self, name: String, value: f64) {
+        self.notes.lock().unwrap().push((name.clone(), value));
+        let Some(said) = TotalName::parse(&name) else {
             return;
         };
         let value = value as u64;
-        let key = (metric.kind.clone(), metric.epoch, metric.total as u8);
+        let key = (said.kind.clone(), said.epoch, said.total as u8);
         let mut seen = self.seen.lock().unwrap();
         if seen.get(&key).is_some_and(|last| value <= *last) {
             return;
         }
         seen.insert(key, value);
         drop(seen);
-        if metric.total == Total::Want && self.asking(&metric.kind, metric.epoch) {
-            self.grants
-                .lock()
-                .unwrap()
-                .push((metric.kind, metric.epoch));
+        if said.total == Total::Want && self.asking(&said.kind, said.epoch) {
+            self.grants.lock().unwrap().push((said.kind, said.epoch));
         }
     }
 }
@@ -90,8 +94,8 @@ pub(crate) struct FakeLeases {
 }
 
 impl FakeLeases {
-    /// Answers through `leases`, the runner's real adapter, raising its
-    /// metrics to `dog` and taking the grants the dog makes at once
+    /// Answers through `leases`, the runner's real adapter, sending its
+    /// notes to `dog` and taking the grants the dog makes at once
     pub(crate) fn behind_a_dog(&self, dog: Arc<DogStandIn>, leases: Arc<ShepLeases>) {
         *self.behind.lock().unwrap() = Some(BehindADog { dog, leases });
     }

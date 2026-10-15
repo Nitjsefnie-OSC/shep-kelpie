@@ -16,6 +16,7 @@ Each ADR below is one decision that is hard to reverse. A later ADR can reopen p
 - 0010 [Kelpie finishes a contribution on its contributor's branch](0010-kelpie-finishes-a-contribution-on-its-contributors-branch.md): a quiet contributor is asked, a yes or silence is a release, and kelpie then pushes to their branch, never a second pull request.
 - 0011 [A worker sees the UI through a browser outside its sandbox](0011-a-worker-sees-the-ui-through-a-browser-outside-its-sandbox.md): a worker's `Work` turn on Claude Code or pi drives a Playwright MCP server that kelpie runs outside the sandbox, behind a socket that passes only an allow-list of tools and listed domains.
 - 0012 [Kelpie's numbers go out on the shepherd channel](0012-kelpie-s-numbers-go-out-on-the-shepherd-channel.md): the runner and the dog send `kelpie_*` series as channel samples to shep's metrics dog, with bounded labels, and detail by work item stays in the ledger.
+- 0013 [Runners tell the dog in notes, not metric samples](0013-runners-tell-the-dog-in-notes-not-metric-samples.md): a runner's lease and window totals go up as shep notes, which the metrics dog never reads, and the dog reads an older runner's samples for one release.
 
 ## Decided against
 
@@ -57,6 +58,9 @@ Check this list before proposing an option. Where a later ADR reopened the decis
 - the e2e host alone for a look at the UI (0011)
 - raw CDP from a crate in place of Playwright (0011)
 - shots on the pull request, in place of a live look (0011, and parked in 0006)
+- keep lease totals as metric samples and have shep's metrics dog skip kelpie's names (0013)
+- rename lease totals to names the metrics dog takes (0013)
+- a socket of kelpie's own between runner and dog, for lease totals (0013)
 
 ### Decided against without an ADR
 

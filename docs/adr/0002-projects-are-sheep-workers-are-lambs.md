@@ -16,3 +16,5 @@ Each project runs as a sheep, kelpie's project runner, which holds the project m
 ADR 0005 reopens this ADR's claim that shep's stop ladder already stops a project's workers.
 
 ADR 0006 removes the judge, so the lambs a runner labels are its workers, reviewers and project manager.
+
+ADR 0013 reopens this ADR's "channel metrics up on the bus": runners send their running totals up as notes, which shep's metrics dog never reads.

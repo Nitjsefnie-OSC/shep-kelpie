@@ -17,5 +17,5 @@ The decision: the runner and the dog send kelpie's numbers as channel samples, n
 
 - A runner's series go when it stops, and its counters start again from zero when it starts. Prometheus keeps the history, and `rate` and `increase` read across a restart.
 - There is no histogram type on the channel, so a distribution goes out as counters with an `le` label, which `histogram_quantile` reads.
-- The lease totals and summons a runner sends the dog (`lease.<kind>.want.<epoch>`, `window.<reviewer>.summoned.<pid>`) are not Prometheus names. As channel samples, the metrics dog refused each one and counted it in `shep_channel_samples_refused_total{reason="invalid_name"}`, which buried any real bad name. #931 sends them as notes (shep's `channel.note`, shep-pm/shep#913), which the metrics dog never reads.
+- The lease totals and summons a runner sends the dog (`lease.<kind>.want.<epoch>`, `window.<reviewer>.summoned.<pid>`) are not Prometheus names. As channel samples, the metrics dog refused each one and counted it in `shep_channel_samples_refused_total{reason="invalid_name"}`, which buried any real bad name. Since #931 they go as notes (shep's `channel.note`, ADR 0013), which the metrics dog never reads.
 - A feature that is on but never works shows as a series that never moves, and the shipped alert rule fires on it.

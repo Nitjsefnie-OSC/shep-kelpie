@@ -71,12 +71,12 @@ fn stand_in_runner() {
             match name {
                 "want" => {
                     times.wanted_ms = now_ms();
-                    let (metric, value) = asker.want(&kind());
-                    shepherd.metric(metric, value);
+                    let (note, value) = asker.want(&kind());
+                    shepherd.note(note, value);
                 }
                 "return" => {
-                    let (metric, value) = asker.give_back(&kind());
-                    shepherd.metric(metric, value);
+                    let (note, value) = asker.give_back(&kind());
+                    shepherd.note(note, value);
                 }
                 "grant" => match asker.grant(params.unwrap_or_default()) {
                     Ok(_) => times.granted_ms = now_ms(),

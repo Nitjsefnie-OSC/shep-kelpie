@@ -64,7 +64,7 @@ pub(crate) use goose::mcp::{refusal as goose_mcp_refusal, skipped_env as goose_m
 pub use goose::{GOOSE_MINIMUM, GooseCli};
 pub use gpu::GpuCurl;
 pub use host::SystemHost;
-pub use leases::{Metrics, ShepLeases};
+pub use leases::{Notes, ShepLeases};
 pub use local::LocalReviewer;
 pub use pages::PlaywrightPages;
 pub(crate) use pi::mcp::refusal as pi_mcp_refusal;

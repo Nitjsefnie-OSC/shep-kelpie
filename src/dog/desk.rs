@@ -1,6 +1,6 @@
 //! The dog's desk: what it makes of what shep tells it
 //!
-//! Pure. Runner metrics and runner processes go in, and the grants the
+//! Pure. Runner notes and runner processes go in, and the grants the
 //! dog must deliver come out. The maintainer's triggers are answered in
 //! [`super::triggers`]. The shell in [`super`] feeds it from shep and
 //! delivers its grants as triggers.
@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use crate::lease::book::{Asked, Grant, LeaseBook};
 use crate::lease::counted::{CARGO_TEST_CAPACITY, CountedLease, Taken, Taker, Ticket};
 use crate::lease::saved::{SavedBook, SavedRun, SavedRunId, SavedTotals};
-use crate::lease::wire::{MetricName, Total, Totals, WindowFact, WindowMetric};
+use crate::lease::wire::{Total, TotalName, Totals, WindowFact, WindowName};
 use crate::lease::{Epoch, Holder, LeaseKind};
 use crate::ports::{Clock, Timestamp};
 use crate::review_bot::Reviewers;
@@ -36,23 +36,23 @@ struct Run {
     said: BTreeSet<(LeaseKind, bool, u64)>,
 }
 
-/// What the dog made of one metric
+/// What the dog made of one note
 #[derive(Debug, Default)]
 pub struct Heard {
     /// The grants it made
     pub grants: Vec<Delivery>,
-    /// A line for the log when the metric was an ask or a return the dog did
+    /// A line for the log when the note was an ask or a return the dog did
     /// not act on, once for each
     pub ignored: Option<String>,
 }
 
 /// How many replaced runs the desk remembers per runner, newest kept. A
-/// late metric comes from a run replaced moments before, so a few cover it,
+/// late note comes from a run replaced moments before, so a few cover it,
 /// and the book file stops growing with every restart.
 const RETIRED_PER_RUNNER: usize = 8;
 
 // Runs already replaced, per runner, oldest first. Pids are not ordered,
-// so a late metric from one is known only by having seen it retired.
+// so a late note from one is known only by having seen it retired.
 #[derive(Debug, Default)]
 struct Retired(BTreeMap<String, VecDeque<Epoch>>);
 
@@ -191,21 +191,22 @@ impl Desk {
         SavedBook::new(self.book.saved(), runs, retired.collect())
     }
 
-    /// Takes one channel metric from sheep `sheep`
+    /// Takes one lease or window total from sheep `sheep`, sent as a note,
+    /// or as a metric sample by a runner on a build from before notes
     ///
-    /// Anything that is not a lease metric from a runner is ignored. A new
+    /// Anything that is not a lease total from a runner is ignored. A new
     /// epoch reclaims what the runner's earlier run held.
-    pub fn metric(&mut self, sheep: &str, name: &str, value: f64) -> Vec<Delivery> {
+    pub fn note(&mut self, sheep: &str, name: &str, value: f64) -> Vec<Delivery> {
         self.heard(sheep, name, value).grants
     }
 
-    /// Takes one channel metric as [`Desk::metric`] does, and says which a
+    /// Takes one total as [`Desk::note`] does, and says which a
     /// run's ask or return it did not act on
     pub fn heard(&mut self, sheep: &str, name: &str, value: f64) -> Heard {
         let (Ok(project), Some(value)) = (ProjectName::try_from(sheep), count(value)) else {
             return Heard::default();
         };
-        if let Some(fact) = WindowMetric::parse(name) {
+        if let Some(fact) = WindowName::parse(name) {
             let Some(mut grants) = self.run_of(sheep, &project, fact.epoch) else {
                 return Heard::default();
             };
@@ -221,21 +222,21 @@ impl Desk {
                 ignored: None,
             };
         }
-        let Some(metric) = MetricName::parse(name) else {
+        let Some(said) = TotalName::parse(name) else {
             return Heard::default();
         };
-        let Some(mut grants) = self.run_of(sheep, &project, metric.epoch) else {
+        let Some(mut grants) = self.run_of(sheep, &project, said.epoch) else {
             return Heard::default();
         };
         let run = self.runs.get_mut(sheep).expect("run_of keeps the run");
         let holder = Holder::Runner {
             project,
-            epoch: metric.epoch,
+            epoch: said.epoch,
         };
-        let kind = metric.kind;
+        let kind = said.kind;
         let totals = run.totals.entry(kind.clone()).or_default();
         let mut ignored = None;
-        match metric.total {
+        match said.total {
             Total::Want if value > totals.want => {
                 totals.want = value;
                 let asking = totals.asking();
@@ -270,7 +271,7 @@ impl Desk {
             first.then(|| {
                 format!(
                     "ignored {kind} {total} total {value} from {sheep} run {}: {why}",
-                    metric.epoch.0
+                    said.epoch.0
                 )
             })
         });
@@ -409,12 +410,12 @@ pub(super) mod tests {
     }
 
     impl World {
-        // Raises a metric the way a runner's channel would reach the dog.
+        // Sends a note the way a runner's channel would reach the dog.
         pub(crate) fn raise(&mut self, sheep: &str, (name, value): (String, f64)) -> Vec<Delivery> {
-            self.desk.metric(sheep, &name, value)
+            self.desk.note(sheep, &name, value)
         }
 
-        // What the dog says of a metric it does not act on, if anything.
+        // What the dog says of a note it does not act on, if anything.
         pub(crate) fn ignored(
             &mut self,
             sheep: &str,
@@ -490,8 +491,8 @@ pub(super) mod tests {
         let mut koji = Asker::new(Epoch(101));
         let want = koji.want(&stand_in());
         w.raise("koji", want.clone());
-        for metric in koji.metrics() {
-            assert_eq!(w.raise("koji", metric), []);
+        for note in koji.notes() {
+            assert_eq!(w.raise("koji", note), []);
         }
         assert_eq!(w.raise("koji", want), []);
         assert_eq!(w.book_line()["holder"], json!({ "runner": "koji" }));
@@ -505,8 +506,8 @@ pub(super) mod tests {
             let _ = old.want(&stand_in());
             let _ = old.give_back(&stand_in());
         }
-        for metric in old.metrics() {
-            w.raise("koji", metric);
+        for note in old.notes() {
+            w.raise("koji", note);
         }
         // The new image of the run counts from zero.
         let mut new = Asker::new(Epoch(101));
@@ -533,8 +534,8 @@ pub(super) mod tests {
             None,
             "an ask repeated while it stands"
         );
-        for metric in koji.metrics() {
-            assert_eq!(w.ignored("koji", metric), None);
+        for note in koji.notes() {
+            assert_eq!(w.ignored("koji", note), None);
         }
     }
 
@@ -599,7 +600,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn a_late_metric_from_a_replaced_run_changes_nothing() {
+    fn a_late_note_from_a_replaced_run_changes_nothing() {
         let mut w = world();
         let (mut old, mut new) = (Asker::new(Epoch(101)), Asker::new(Epoch(303)));
         w.raise("koji", old.want(&stand_in()));
@@ -659,7 +660,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn metrics_that_are_not_lease_totals_are_ignored() {
+    fn notes_that_are_not_lease_totals_are_ignored() {
         let mut w = world();
         for (sheep, name, value) in [
             ("koji", "cpu.load", 1.0),
@@ -670,7 +671,7 @@ pub(super) mod tests {
             ("a/b", "lease.stand-in.want.101", 1.0),
         ] {
             assert_eq!(
-                w.desk.metric(sheep, name, value),
+                w.desk.note(sheep, name, value),
                 [],
                 "{sheep} {name} {value}"
             );
@@ -722,8 +723,8 @@ pub(super) mod tests {
         w.raise("koji", koji.window(&cr, WindowFact::Opens, opens));
         w.raise("koji", koji.give_back(&cr));
         assert_eq!(w.raise("koji", koji.want(&cr)), []);
-        for metric in koji.metrics() {
-            assert_eq!(w.raise("koji", metric), [], "a repeat changes nothing");
+        for note in koji.notes() {
+            assert_eq!(w.raise("koji", note), [], "a repeat changes nothing");
         }
         w.clock.advance(12 * 60);
         assert_eq!(w.desk.tick(), [coderabbit_grant("koji", 101)]);
@@ -751,8 +752,8 @@ pub(super) mod tests {
         );
         w.raise("koji", koji.window(&cr, WindowFact::Quota(10), EPOCH));
         assert_eq!(w.line("coderabbit")["window"]["quota"], 1);
-        for metric in koji.metrics() {
-            w.raise("koji", metric);
+        for note in koji.notes() {
+            w.raise("koji", note);
         }
         assert_eq!(w.line("coderabbit")["window"]["quota"], 1, "raised again");
     }
@@ -785,11 +786,11 @@ pub(super) mod tests {
             w.desk.resync(&live(&[("koji", 101), ("reactmap", 202)])),
             []
         );
-        for metric in koji.metrics() {
-            assert_eq!(w.raise("koji", metric), [], "a repeat changes nothing");
+        for note in koji.notes() {
+            assert_eq!(w.raise("koji", note), [], "a repeat changes nothing");
         }
-        for metric in reactmap.metrics() {
-            assert_eq!(w.raise("reactmap", metric), [], "a repeat changes nothing");
+        for note in reactmap.notes() {
+            assert_eq!(w.raise("reactmap", note), [], "a repeat changes nothing");
         }
         assert_eq!(
             w.book_line(),
@@ -820,7 +821,7 @@ pub(super) mod tests {
         assert_eq!(
             w.raise("koji", koji.give_back(&stand_in())),
             [],
-            "a late metric from the replaced run changes nothing"
+            "a late note from the replaced run changes nothing"
         );
     }
 
@@ -934,7 +935,7 @@ pub(super) mod tests {
         assert_eq!(
             w.raise("koji", newest_replaced.want(&stand_in())),
             [],
-            "a late metric from a recent run still changes nothing"
+            "a late note from a recent run still changes nothing"
         );
     }
 }

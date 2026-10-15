@@ -3,7 +3,7 @@
 //! Shep starts the adopted kelpie with no arguments, and that start is the
 //! dog. It asks for the shepherd channel in its `--version` answer, so
 //! `shep trigger kelpie <status|take|return>` reaches it. It listens on the
-//! shepherd's bus for runners' lease metrics and their process events,
+//! shepherd's bus for runners' lease notes and their process events,
 //! keeps the book on its [`desk`], and grants with a `grant` trigger on the
 //! runner. The book is saved to `<kelpie home>/dog/book.json` after every
 //! change and loaded on start, with a review window for each review bot as
@@ -384,10 +384,10 @@ async fn on_event(
         Ok(event) => event,
     };
     match event {
-        BusEvent::Channel {
-            id,
-            message: ChildMessage::Metric { name, value, .. },
-        } => {
+        BusEvent::Channel { id, message } => {
+            let Some((name, value)) = told(message) else {
+                return Ok(Vec::new());
+            };
             if !names.contains_key(&id) {
                 *names = flock(client).await?.names;
             }
@@ -417,6 +417,19 @@ async fn on_event(
             resync(desk, client, names).await
         }
         _ => Ok(Vec::new()),
+    }
+}
+
+// The name and value of what a runner told the dog on its channel, or
+// `None` for a message that is not for the dog.
+fn told(message: ChildMessage) -> Option<(String, f64)> {
+    match message {
+        ChildMessage::Note { name, value } => Some((name, value)),
+        // A runner on a build from before notes sends the same totals as
+        // metric samples. An upgrade restarts the dog before its runners,
+        // so this path stays for one release, and goes in a later one.
+        ChildMessage::Metric { name, value, .. } => Some((name, value)),
+        _ => None,
     }
 }
 
@@ -488,9 +501,13 @@ async fn deliver_grant(client: &ReconnectingClient, grant: &Delivery) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
-    use crate::lease::LeaseKind;
+    use crate::lease::wire::Asker;
+    use crate::lease::{Epoch, LeaseKind};
     use crate::review_bot::{Bot, ReviewWindow};
+    use crate::runner::ProjectName;
     use crate::test::{EPOCH, FakeClock};
 
     fn opened(file: BookFile) -> Kept {
@@ -518,6 +535,58 @@ mod tests {
 
     fn take(desk: &mut Desk) {
         desk.answer("take", Some("stand-in"));
+    }
+
+    fn stand_in() -> LeaseKind {
+        LeaseKind::try_from("stand-in").unwrap()
+    }
+
+    // What the dog grants on hearing `message` on koji's channel.
+    fn granted(message: ChildMessage) -> Vec<Delivery> {
+        let mut desk = Desk::new(Box::new(FakeClock::at(EPOCH)), Reviewers::default());
+        let Some((name, value)) = told(message) else {
+            return Vec::new();
+        };
+        desk.heard("koji", &name, value).grants
+    }
+
+    fn koji_101() -> Delivery {
+        Delivery {
+            project: ProjectName::try_from("koji").unwrap(),
+            kind: stand_in(),
+            epoch: Epoch(101),
+        }
+    }
+
+    #[test]
+    fn a_runner_s_ask_sent_as_a_note_is_granted() {
+        let (name, value) = Asker::new(Epoch(101)).want(&stand_in());
+        assert_eq!(granted(ChildMessage::Note { name, value }), [koji_101()]);
+    }
+
+    // A runner still on a build from before notes, while an upgrade has
+    // restarted the dog and not yet the runner.
+    #[test]
+    fn an_older_build_s_ask_sent_as_a_metric_sample_is_still_granted() {
+        let (name, value) = Asker::new(Epoch(101)).want(&stand_in());
+        let sample = ChildMessage::Metric {
+            name,
+            value,
+            metric_type: None,
+            labels: BTreeMap::new(),
+            help: None,
+        };
+        assert_eq!(granted(sample), [koji_101()]);
+    }
+
+    #[test]
+    fn a_reply_on_the_channel_grants_nothing() {
+        let reply = ChildMessage::ActionReply {
+            action: "lease.stand-in.want.101".into(),
+            body: "1".into(),
+            id: None,
+        };
+        assert_eq!(granted(reply), []);
     }
 
     #[test]
