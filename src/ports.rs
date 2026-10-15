@@ -32,6 +32,7 @@ mod issue;
 mod keychain;
 mod leased;
 mod local_paths;
+mod metrics;
 mod pace;
 mod paced_voice;
 mod pages;
@@ -65,6 +66,7 @@ pub use issue::{FinishedParent, Issue, OpenIssue, SubIssue, SubIssueState};
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
+pub use metrics::{Sample, SeriesKind, Sink};
 pub use pace::{AT_ONCE, CallPacer, LocalPace, PER_MINUTE, Pace, Pass};
 pub use paced_voice::PacedVoice;
 pub use pages::{ConsoleError, PageRequest, PageSession, Pages, Visit};
@@ -852,6 +854,8 @@ pub struct Ports {
     pub pages: Arc<dyn Pages>,
     /// The dog's book leases, which the runner's `grant` trigger fills
     pub leases: Arc<dyn Leases>,
+    /// Where the runner's metrics go, shep's metrics dog
+    pub metrics: Arc<dyn Sink>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
     /// The login's forge hold and pace, kept by the dog where it is reached

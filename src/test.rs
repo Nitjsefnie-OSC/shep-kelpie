@@ -44,6 +44,7 @@ mod memory;
 mod pages;
 mod reads;
 mod reviewer;
+mod samples;
 mod sandbox;
 mod script;
 mod shepherd;
@@ -66,6 +67,7 @@ pub(crate) use memory::Memory;
 pub(crate) use pages::{FakePages, clean as clean_visit};
 pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
+pub(crate) use samples::RecordedSink;
 pub(crate) use sandbox::OpenSandbox;
 pub(crate) use script::write_script;
 pub(crate) use shepherd::FakeShepherd;
@@ -287,6 +289,7 @@ pub(crate) struct Rig {
     pub(crate) dev_servers: FakeDevServers,
     pub(crate) e2e: FakeE2e,
     pub(crate) pages: FakePages,
+    pub(crate) samples: RecordedSink,
     pub(crate) clock: FakeClock,
     /// The login's forge hold and pace, which no test's calls reach the cap of
     /// until it swaps in a pacer with one
@@ -745,6 +748,7 @@ impl Rig {
             dev_servers: Arc::new(self.dev_servers.clone()),
             e2e_runner: Arc::new(self.e2e.clone()),
             pages: Arc::new(self.pages.clone()),
+            metrics: Arc::new(self.samples.clone()),
             clock: Arc::new(self.clock.clone()),
             pace: Arc::clone(&self.pace),
             flock: Vec::new(),

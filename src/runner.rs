@@ -362,6 +362,8 @@ pub struct Runner {
     planned: dev_server::Planned,
     // Where each call is recorded as it ends
     ledger: crate::usage::Ledger,
+    // The project's series on shep's metrics endpoint, which the ledger feeds too
+    metrics: Arc<crate::metrics::Recorder>,
     steps: step_log::StepLog,
     // What the board briefing keeps between writes, in memory only
     brief: briefing::BoardCache,
@@ -586,6 +588,9 @@ impl Runner {
             store.save(&state)?;
         }
         let spoken = points::Told::of(&state);
+        let metrics = Arc::new(crate::metrics::Recorder::new(Arc::clone(&ports.metrics)));
+        metrics.features(&settings);
+        metrics.work_items(&state);
         let mut runner = Self {
             project,
             settings,
@@ -628,7 +633,8 @@ impl Runner {
             flights: flight::Flights::default(),
             opened: browser::Opened::default(),
             planned: dev_server::Planned::default(),
-            ledger: crate::usage::Ledger::in_folder(&paths.folder),
+            ledger: crate::usage::Ledger::in_folder(&paths.folder).sending(Arc::clone(&metrics)),
+            metrics,
             steps: step_log::StepLog::in_folder(&paths.folder),
             brief: briefing::BoardCache::default(),
             local,
@@ -897,6 +903,7 @@ impl Runner {
         self.threads
             .settled(&self.state, &next, self.ports.clock.now());
         self.state = next;
+        self.metrics.work_items(&self.state);
         Ok(())
     }
 }

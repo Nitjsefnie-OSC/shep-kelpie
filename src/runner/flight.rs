@@ -620,7 +620,7 @@ impl Runner {
         }
         let held = flight.ending.clone();
         let (voice, remote) = (Arc::clone(&self.ports.voice), self.remote.clone());
-        let notes = self.notes.clone();
+        let (notes, metrics) = (self.notes.clone(), Arc::clone(&self.metrics));
         let servers = Arc::clone(&self.ports.dev_servers);
         let dev = match &launch {
             Launch::Turn { call, .. } => self.dev_run(call),
@@ -631,7 +631,7 @@ impl Runner {
                 // A covered worker's token lasts an hour, a call may not.
                 Launch::Turn { mut call, .. } => {
                     // Here, with the runner's lock let go, since an index takes a while.
-                    super::code_graph::indexed(&mut call, &notes, &held);
+                    super::code_graph::indexed(&mut call, &notes, &metrics, &held);
                     // Started here too, and stopped when the call returns, however it ends.
                     let _server = (dev.as_ref()).and_then(|run| {
                         dev_server::started(servers.as_ref(), run, &mut call, &notes)
@@ -647,7 +647,7 @@ impl Runner {
                 }
                 Launch::Review(mut action) => {
                     if let ReviewCall::Session(call) = &mut action {
-                        super::code_graph::indexed(call, &notes, &held);
+                        super::code_graph::indexed(call, &notes, &metrics, &held);
                     }
                     let watch = |stage| tell.stage(stage);
                     let reviewed =
@@ -779,6 +779,7 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
 #[track_caller]
 fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     lock(runner).beat();
+    lock(runner).send_metrics();
     lock(runner).let_go_of_the_gone();
     // Before any answer is taken, so none resumes a worker on a closed issue.
     lock(runner).read_parked()?;

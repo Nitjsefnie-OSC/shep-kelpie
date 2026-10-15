@@ -1,0 +1,55 @@
+# Kelpie's alert rules, over the series its runners send to shep's metrics
+# dog (docs/metrics.md). Load with `rule_files: [kelpie-rules.yml]` in
+# prometheus.yml. Every series carries `sheep`, the project's name.
+groups:
+  - name: kelpie
+    rules:
+      # A feature the project turned on that has failed or been skipped since
+      # its runner started, and never once worked. The code graph sat like
+      # this for two days before #918.
+      - alert: KelpieFeatureNeverWorks
+        expr: |
+          (sum by (sheep, feature) (kelpie_feature_runs_total{outcome=~"failed|skipped"}) > 0)
+          unless on (sheep, feature)
+          (sum by (sheep, feature) (kelpie_feature_runs_total{outcome="ok"}) > 0)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.sheep }}: {{ $labels.feature }} is on and has never worked since the runner started"
+          description: "Its calls run without it. The runner's log says why: look for 'runs without'."
+
+      # A feature that works sometimes, failing in over half its runs.
+      - alert: KelpieFeatureFailing
+        expr: |
+          sum by (sheep, feature) (increase(kelpie_feature_runs_total{outcome="failed"}[6h]))
+          / sum by (sheep, feature) (increase(kelpie_feature_runs_total[6h]))
+          > 0.5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.sheep }}: {{ $labels.feature }} failed in {{ $value | humanizePercentage }} of its runs in 6h"
+
+      # A role whose calls fail, time out or come back unreadable.
+      - alert: KelpieCallsFailing
+        expr: |
+          (
+            sum by (sheep, role) (increase(kelpie_calls_total{ended=~"failed|timed-out|unreadable"}[6h]))
+            / sum by (sheep, role) (increase(kelpie_calls_total[6h]))
+          ) > 0.25
+          and on (sheep, role) sum by (sheep, role) (increase(kelpie_calls_total[6h])) >= 4
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.sheep }}: {{ $value | humanizePercentage }} of {{ $labels.role }} calls did not answer in 6h"
+
+      # A runner with more series than it may send, so some go unseen.
+      - alert: KelpieSeriesDropped
+        expr: kelpie_series_dropped_total > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.sheep }} sends more series than its cap, so some are missing"
+          description: "The runner's log names each series it held back."

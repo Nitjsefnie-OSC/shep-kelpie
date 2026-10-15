@@ -101,6 +101,12 @@ impl Runner {
         })
     }
 
+    /// Sends every series again, once a minute, for a metrics dog that
+    /// started or restarted since
+    pub(super) fn send_metrics(&self) {
+        self.metrics.refresh(self.ports.clock.now());
+    }
+
     /// Saves the charge when a work item has gone [`HEARTBEAT`] seconds without one
     ///
     /// A save that fails is told and let go: the same time is charged by the
