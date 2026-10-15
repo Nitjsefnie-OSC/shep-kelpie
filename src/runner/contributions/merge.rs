@@ -61,6 +61,10 @@ impl Runner {
         let Some(ruled) = held.ruled.as_ref() else {
             return self.raise_for(&held);
         };
+        // An answer is about the head the ruling named, never another.
+        if ruled.head != held.head {
+            return self.change(number, |held| held.ruled = None);
+        }
         match &ruled.verdict {
             Verdict::Yes { merged, thanked } => self.merge_and_thank(&held, *merged, *thanked),
             Verdict::No { note: Some(note) } => self.tell_the_note(&held, note),
