@@ -245,14 +245,14 @@ impl Desk {
             let bot = fact.kind.as_str();
             let window = match fact.fact {
                 WindowFact::Summoned => {
-                    if self.book.is_new_summon(&fact.kind, at) {
-                        self.metrics.summon(bot, true);
+                    if self.book.has_window(&fact.kind) {
+                        self.watch.summoned(&self.metrics, bot, at);
                     }
                     self.book.summoned(&fact.kind, at)
                 }
                 WindowFact::Opens => {
-                    if self.book.is_new_refusal(&fact.kind, at) {
-                        self.metrics.summon(bot, false);
+                    if self.book.has_window(&fact.kind) {
+                        self.watch.refused(&self.metrics, bot, at);
                     }
                     self.book.refused(&fact.kind, at)
                 }

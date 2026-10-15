@@ -27,9 +27,29 @@ pub(super) struct Standing {
 pub(super) struct Watch {
     held: BTreeMap<String, BTreeSet<(String, Timestamp)>>,
     queued: BTreeMap<(String, String), Timestamp>,
+    // Each summon and refusal already counted, by bot and the time it carries.
+    // A runner resends what it has seen for as long as it runs, long after the
+    // window forgot a summon, so the window cannot say what is new.
+    summoned: BTreeSet<(String, Timestamp)>,
+    refused: BTreeSet<(String, Timestamp)>,
 }
 
 impl Watch {
+    /// Counts a summon of `bot` accepted at `at`, the first time it is heard
+    pub(super) fn summoned(&mut self, metrics: &Recorder, bot: &str, at: Timestamp) {
+        if self.summoned.insert((bot.to_owned(), at)) {
+            metrics.summon(bot, true);
+        }
+    }
+
+    /// Counts a refusal of `bot` quoting the window opening at `opens`, the
+    /// first time it is heard
+    pub(super) fn refused(&mut self, metrics: &Recorder, bot: &str, opens: Timestamp) {
+        if self.refused.insert((bot.to_owned(), opens)) {
+            metrics.summon(bot, false);
+        }
+    }
+
     /// Sends how `standing` stands at `now` and counts the grants since last
     /// time, unless `counting` is off
     ///

@@ -179,21 +179,9 @@ impl LeaseBook {
         self.with_window(kind, |window, now| window.refused(now, opens))
     }
 
-    /// Whether `kind` has a window that has not yet heard of a summon accepted
-    /// at `at`
-    pub fn is_new_summon(&self, kind: &LeaseKind, at: Timestamp) -> bool {
-        self.window_of(kind).is_some_and(|w| !w.knows_summon(at))
-    }
-
-    /// Whether `kind` has a window that has not yet heard of a refusal
-    /// quoting it opening at `opens`
-    pub fn is_new_refusal(&self, kind: &LeaseKind, opens: Timestamp) -> bool {
-        self.window_of(kind)
-            .is_some_and(|w| !w.knows_refusal(opens))
-    }
-
-    fn window_of(&self, kind: &LeaseKind) -> Option<&Window> {
-        self.leases.get(kind)?.window.as_ref()
+    /// Whether `kind` has a review window to take summons and refusals
+    pub fn has_window(&self, kind: &LeaseKind) -> bool {
+        self.leases.get(kind).is_some_and(|l| l.window.is_some())
     }
 
     /// Grants every free lease whose window has opened to its next waiter

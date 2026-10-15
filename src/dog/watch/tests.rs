@@ -230,6 +230,28 @@ fn a_summon_a_runner_reports_counts_once_however_often_it_is_sent() {
 }
 
 #[test]
+fn a_summon_the_window_forgot_counts_no_more_when_the_runner_sends_it_again() {
+    let mut w = world();
+    let cr = LeaseKind::coderabbit();
+    let mut koji = Asker::new(Epoch(101));
+    w.raise("koji", koji.window(&cr, WindowFact::Summoned, EPOCH));
+    w.raise("koji", koji.window(&cr, WindowFact::Opens, EPOCH + 600));
+
+    w.clock.advance(3 * 3600);
+    w.desk.tick();
+    for note in koji.notes() {
+        w.raise("koji", note);
+    }
+    w.desk.tick();
+    for note in koji.notes() {
+        w.raise("koji", note);
+    }
+
+    assert_eq!(w.summons("coderabbit", "accepted"), Some(1.0));
+    assert_eq!(w.summons("coderabbit", "refused"), Some(1.0));
+}
+
+#[test]
 fn a_refusal_counts_once_and_a_new_quote_counts_again() {
     let mut w = world();
     let cr = LeaseKind::coderabbit();
