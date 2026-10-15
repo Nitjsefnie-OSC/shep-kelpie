@@ -153,6 +153,7 @@ impl CodexCli {
             usage: Usage::default(),
             session_cost: None,
             context: None,
+            compactions: 0,
         })
     }
 }

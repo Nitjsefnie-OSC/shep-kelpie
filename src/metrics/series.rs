@@ -13,17 +13,22 @@ use crate::work_item::Phase;
 const CALLS: Family = Family {
     name: "kelpie_calls_total",
     kind: Counter,
-    help: "Model calls that ended, by role, call kind, harness and how they ended.",
+    help: "Model calls that ended, by role, call kind, agent, harness, effort and how they ended.",
 };
 const TOKENS: Family = Family {
     name: "kelpie_tokens_total",
     kind: Counter,
-    help: "Tokens the calls used as their harness reported them, by type.",
+    help: "Tokens the calls used as their harness reported them, by type, agent and effort.",
 };
 const COST: Family = Family {
     name: "kelpie_cost_usd_total",
     kind: Counter,
-    help: "What the calls whose harness reported a cost cost, in US dollars.",
+    help: "What the calls whose harness reported a cost cost, in US dollars, by agent and effort.",
+};
+const COMPACTIONS: Family = Family {
+    name: "kelpie_compactions_total",
+    kind: Counter,
+    help: "Compactions a harness did by itself partway through a call.",
 };
 const UNPRICED: Family = Family {
     name: "kelpie_unpriced_calls_total",
@@ -155,11 +160,15 @@ impl Recorder {
         let role = ("role", call.role.as_str().to_owned());
         let harness = ("harness", known(call.harness.as_deref()));
         let model = ("model", known(call.model.as_deref()));
+        let agent = ("agent", known(call.agent.as_deref()));
+        let effort = ("effort", known(call.effort.as_deref()));
         let kind = ("kind", wire(&call.kind));
         let calls = vec![
             role.clone(),
             kind.clone(),
+            agent.clone(),
             harness.clone(),
+            effort.clone(),
             ("ended", wire(&call.ended)),
         ];
         self.add(&CALLS, calls, 1.0);
@@ -173,8 +182,10 @@ impl Recorder {
         for (kind, count) in tokens {
             let labels = vec![
                 role.clone(),
+                agent.clone(),
                 harness.clone(),
                 model.clone(),
+                effort.clone(),
                 ("type", kind.into()),
             ];
             #[expect(
@@ -184,9 +195,16 @@ impl Recorder {
             self.add(&TOKENS, labels, count as f64);
         }
         match call.cost_usd {
-            Some(usd) => self.add(&COST, vec![role.clone(), harness.clone(), model], usd),
-            None if call.unpriced => self.add(&UNPRICED, vec![role.clone(), harness], 1.0),
+            Some(usd) => {
+                let labels = vec![role.clone(), agent, harness.clone(), model, effort];
+                self.add(&COST, labels, usd);
+            }
+            None if call.unpriced => self.add(&UNPRICED, vec![role.clone(), harness.clone()], 1.0),
             None => {}
+        }
+        if call.compactions > 0 {
+            let labels = vec![role.clone(), harness];
+            self.add(&COMPACTIONS, labels, f64::from(call.compactions));
         }
         if let Some(seconds) = call.seconds {
             #[expect(

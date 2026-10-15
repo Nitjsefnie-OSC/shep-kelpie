@@ -153,6 +153,14 @@ pub(super) fn usage_of(line: &str) -> Usage {
         .map_or_else(Usage::default, |tokens| tokens.usage())
 }
 
+/// Whether the `compaction_end` event in `line` made a summary, so the session did compact
+pub(super) fn made_summary(line: &str) -> bool {
+    let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    !event["aborted"].as_bool().unwrap_or(false) && event["result"].is_object()
+}
+
 /// A compact call's reply: the compaction's usage and no text
 ///
 /// The exit status and an unreachable model are read as for any pi call.
@@ -204,5 +212,6 @@ pub(super) fn parse(output: &Output, asked: &SessionId) -> Result<AgentReply, Ag
         usage: end.usage(),
         session_cost: None,
         context: None,
+        compactions: 0,
     })
 }

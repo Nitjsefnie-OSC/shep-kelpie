@@ -1,5 +1,6 @@
 //! `shep kelpie usage [<project>] [--since <date>]`,
 //! `shep kelpie usage <project> --import <log file>`,
+//! `shep kelpie usage [<project>] --openmetrics`,
 //! `shep kelpie usage <project> --item <issue>`,
 //! `shep kelpie usage <project> --context [--since <date>]`,
 //! `shep kelpie usage <project> --reads [--since <date>]` and
@@ -18,6 +19,7 @@ use crate::usage::{self, baselines};
 enum Ask<'a> {
     Report { since: Option<&'a str> },
     Import { log: &'a str },
+    OpenMetrics,
     Forge { since: Option<&'a str> },
     Item { issue: u64, json: bool },
     Context { since: Option<&'a str>, json: bool },
@@ -74,6 +76,20 @@ pub(super) fn usage(
                 imported.added, imported.known
             )])
         }
+        Ask::OpenMetrics => {
+            let projects = match project {
+                Some(project) => vec![project.as_str().to_owned()],
+                None => with_ledgers(kelpie_home)?,
+            };
+            let mut ledgers = Vec::new();
+            for project in projects {
+                let path = kelpie_home.join(&project).join(usage::FILE);
+                let lines = usage::read(&path)
+                    .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                ledgers.push((project, lines));
+            }
+            Ok(usage::openmetrics(&ledgers))
+        }
         Ask::Report { since } => {
             let since = since.map(since_date).transpose()?;
             let projects = match project {
@@ -106,6 +122,7 @@ fn read_args<'a>(
     let mut positional = None;
     let (mut since, mut import, mut item) = (None, None, None);
     let (mut forge, mut context, mut reads, mut json) = (false, false, false, false);
+    let mut openmetrics = false;
     let mut words = args.iter().copied();
     while let Some(word) = words.next() {
         match word {
@@ -117,6 +134,7 @@ fn read_args<'a>(
                 item = Some(number.ok_or_else(|| format!("{issue:?} is not an issue number"))?);
             }
             "--forge" => forge = true,
+            "--openmetrics" => openmetrics = true,
             "--context" => context = true,
             "--reads" => reads = true,
             "--json" => json = true,
@@ -124,18 +142,26 @@ fn read_args<'a>(
             _ => return Err(super::USAGE.to_owned()),
         }
     }
-    let modes = [import.is_some(), forge, item.is_some(), context, reads];
+    let modes = [
+        import.is_some(),
+        forge,
+        item.is_some(),
+        context,
+        reads,
+        openmetrics,
+    ];
     if modes.into_iter().filter(|&on| on).count() > 1 {
         return Err(super::USAGE.to_owned());
     }
     // Only these three have a JSON form; `--since` goes with every report but an import and an item.
-    let ask = match (import, forge, item, context, reads) {
+    let ask = match (import, forge, item, context, reads, openmetrics) {
         (Some(log), ..) if since.is_none() && !json => Ask::Import { log },
         (_, true, ..) if !json => Ask::Forge { since },
         (_, _, Some(issue), ..) if since.is_none() => Ask::Item { issue, json },
-        (_, _, _, true, _) => Ask::Context { since, json },
-        (.., true) => Ask::Reads { since, json },
-        (None, false, None, false, false) if !json => Ask::Report { since },
+        (_, _, _, true, ..) => Ask::Context { since, json },
+        (_, _, _, _, true, _) => Ask::Reads { since, json },
+        (.., true) if since.is_none() && !json => Ask::OpenMetrics,
+        (None, false, None, false, false, false) if !json => Ask::Report { since },
         _ => return Err(super::USAGE.to_owned()),
     };
     let project = match (positional, named) {
@@ -221,6 +247,29 @@ mod tests {
         assert!(err.contains("2026-10-01"), "{err}");
         let named = ProjectName::try_from("koji").ok();
         assert!(usage(home.path(), named, &["koji"]).is_err(), "named twice");
+    }
+
+    #[test]
+    fn openmetrics_reads_one_project_s_ledger_or_every_one() {
+        let home = tempfile::tempdir().unwrap();
+        let line = r#"{"line":"call","at":5,"issue":null,"role":"pm","kind":"wake","usage":{"input":1,"cache_write":0,"cache_read":0,"output":1},"units":6,"cost_usd":0.25,"ended":"answered"}"#;
+        let call: Line = serde_json::from_str(line).unwrap();
+        for project in ["koji", "shep"] {
+            let folder = home.path().join(project);
+            std::fs::create_dir_all(&folder).unwrap();
+            append_to(&folder.join(usage::FILE), &call).unwrap();
+        }
+        let sheep = |out: &[String], name: &str| {
+            let wanted = format!("sheep=\"{name}\"");
+            out.iter().any(|line| line.contains(&wanted))
+        };
+        let all = usage(home.path(), None, &["--openmetrics"]).unwrap();
+        assert!(sheep(&all, "koji") && sheep(&all, "shep"), "{all:#?}");
+        assert_eq!(all.last().unwrap(), "# EOF");
+        let one = usage(home.path(), None, &["koji", "--openmetrics"]).unwrap();
+        assert!(sheep(&one, "koji") && !sheep(&one, "shep"), "{one:#?}");
+        let named = ProjectName::try_from("koji").ok();
+        assert!(usage(home.path(), named, &["koji", "--openmetrics"]).is_err());
     }
 
     #[test]

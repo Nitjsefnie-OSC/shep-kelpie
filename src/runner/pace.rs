@@ -110,6 +110,9 @@ impl Runner {
                 Assessment::unreadable(now, format!("cannot read {whose}usage: {e}"))
             }
         };
+        if let Some(reading) = &assessment.reading {
+            self.metrics.plan(account, reading);
+        }
         if assessment.day_start.is_some() && assessment.day_start != prior {
             let mut next = self.state.clone();
             *next.day_start_mut(account) = assessment.day_start;

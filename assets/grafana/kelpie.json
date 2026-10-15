@@ -615,6 +615,189 @@
         "overrides": []
       },
       "options": {}
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Cost per merged work item",
+      "description": "US dollars the project's calls cost over a day, over the work items it merged in that day. Calls and merges of a day do not line up item for item, so read a week of it.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (sheep) (increase(kelpie_cost_usd_total{sheep=~\"$sheep\"}[1d])) / (sum by (sheep) (increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d])) > 0)",
+          "legendFormat": "{{sheep}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Tokens per merged work item",
+      "description": "Tokens of each type the project's calls used over a day, over the work items it merged in that day.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (type) (increase(kelpie_tokens_total{sheep=~\"$sheep\"}[1d])) / scalar(sum(increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d])) > 0)",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Cache-read share",
+      "description": "Share of the input side read from the cache: cache_read over input plus cache_read. Low means the calls pay for context again.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (harness) (rate(kelpie_tokens_total{type=\"cache_read\",sheep=~\"$sheep\"}[1h])) / sum by (harness) (rate(kelpie_tokens_total{type=~\"input|cache_read\",sheep=~\"$sheep\"}[1h]))",
+          "legendFormat": "{{harness}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Review rounds and fix turns per finished work item",
+      "description": "Rounds and fix turns of the work items finished in a day, over how many finished. A rise is more rework per item.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(increase(kelpie_review_rounds_total{sheep=~\"$sheep\"}[1d])) / (sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
+          "legendFormat": "review rounds"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum(increase(kelpie_fix_turns_total{sheep=~\"$sheep\"}[1d])) / (sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
+          "legendFormat": "fix turns"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Plan use by account and window",
+      "description": "How much of each plan window is used, as the pacer last read it. session is the 5-hour window and week the weekly one.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 72
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "max by (account, window) (kelpie_plan_used_ratio{sheep=~\"$sheep\"})",
+          "legendFormat": "{{account}} {{window}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ],
   "refresh": "30s",

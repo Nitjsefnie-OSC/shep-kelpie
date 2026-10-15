@@ -28,15 +28,21 @@ Import `assets/grafana/kelpie.json` into Grafana for the dashboard. Shep's own d
 
 ## The series
 
+`agent` is the name the project's settings give the agent (`codex`, `coderabbit`, `qwen`), and `effort` how hard the model was set to think. Either reads `unknown` where the ledger has none, as on an imported call. The plan gauges are set each time the pacer reads usage, which it does before a call on the account starts, so they hold the last reading until the next.
+
 Every runner series carries `sheep`, the project's name, as well as `id` and `fold`, which shep's metrics dog adds. The dog's series, last in the table, carry `dog` and `source` instead, and no `sheep`.
 
 | Series | Labels | What it counts |
 |---|---|---|
-| `kelpie_calls_total` | `role`, `kind`, `harness`, `ended` | Model calls that ended, and how: `answered`, `unreadable`, `failed`, `timed-out`, `stopped`, `paused` |
-| `kelpie_tokens_total` | `role`, `harness`, `model`, `type` | Tokens as the harness reported them: `input`, `output`, `cache_read`, `cache_write` |
-| `kelpie_cost_usd_total` | `role`, `harness`, `model` | US dollars, from calls whose harness reported a cost |
+| `kelpie_calls_total` | `role`, `kind`, `agent`, `harness`, `effort`, `ended` | Model calls that ended, and how: `answered`, `unreadable`, `failed`, `timed-out`, `stopped`, `paused` |
+| `kelpie_tokens_total` | `role`, `agent`, `harness`, `model`, `effort`, `type` | Tokens as the harness reported them: `input`, `output`, `cache_read`, `cache_write` |
+| `kelpie_cost_usd_total` | `role`, `agent`, `harness`, `model`, `effort` | US dollars, from calls whose harness reported a cost |
+| `kelpie_compactions_total` | `role`, `harness` | Compactions the harness did by itself partway through a call. Kelpie's own `/compact` is `kind="compact"` in `kelpie_calls_total`. Claude Code workers with a compact window, and pi; a call adopted by a new runner image counts none |
 | `kelpie_unpriced_calls_total` | `role`, `harness` | Calls whose harness reported no cost |
 | `kelpie_call_seconds_total` | `role`, `kind` | Seconds the calls ran; over `kelpie_calls_total` for a mean |
+| `kelpie_plan_used_ratio` | `account`, `window` | How much of a plan window is used, 0 to 1, as the pacer last read it. `account` is `claude` or `codex`, `window` is `session` (5 hours) or `week` |
+| `kelpie_plan_resets_at_seconds` | `account`, `window` | When that window resets, in Unix seconds |
+| `kelpie_plan_allowance_ratio`, `kelpie_plan_spent_today_ratio` | `account` | The share of the week today may spend, and the share spent since the day began by anyone on the account, 0 to 1 |
 | `kelpie_work_items` | `phase` | Open work items: `implement`, `review`, `ci`, `ruling`, `merge`, `done` |
 | `kelpie_work_items_finished_total` | `outcome` | Work items finished: `merged`, `closed` (no change), `dropped` |
 | `kelpie_work_item_seconds_total` | `outcome` | Wall seconds of the finished work items |
@@ -62,8 +68,20 @@ A runner's counters start at zero when it starts, as Prometheus expects of a res
 - **KelpieFeatureNeverWorks**: a feature that is on has failed or been skipped since the runner started and has never worked once. Its calls run without it. The runner's log says why, in a line with `runs without`.
 - **KelpieFeatureFailing**: a feature failed in over half its runs in the last 6 hours.
 - **KelpieMcpServerFailing**: an MCP server failed to connect in over half the calls given it in the last 6 hours, so those calls ran without its tools. The runner's log names the server, the call and the error code, in a line with `failed to connect`, and `shep kelpie status` lists it under `standing` until a call finds it connected.
+- **KelpiePlanNearlyUsed**: an account's weekly window is over 90% used with more than a day to its reset.
 - **KelpieCallsFailing**: over a quarter of a role's calls in 6 hours failed, timed out or came back unreadable.
 - **KelpieSeriesDropped**: a runner holds back series past its cap, so some panels miss data. Its log names the series.
+
+## Loading history
+
+The endpoint starts at zero when a runner does, so what ran before you enabled metrics is not on it. `shep kelpie usage --openmetrics` prints the usage ledger as the same counters, each total at the time of its call or finished work item, for Prometheus to load as blocks:
+
+```sh
+shep kelpie usage koji --openmetrics > koji.om        # one project; leave it out for every project
+promtool tsdb create-blocks-from openmetrics koji.om ./blocks
+```
+
+Then stop Prometheus, move the block folders `promtool` made into its data folder, and start it again. Load only the time before Prometheus's first scrape. The series carry `sheep` but not the `id` and `fold` the live ones have, so a query that sums them with `sum by (sheep, ...)` reads both. Counters run from the ledger's first line, as a runner started then would have sent them; read them with `rate` or `increase`. Imported ledger lines are included, with `agent` and `effort` as `unknown`.
 
 ## By work item
 

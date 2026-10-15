@@ -28,6 +28,7 @@ mod context;
 mod draft;
 mod import;
 mod item;
+mod openmetrics;
 mod panel;
 mod reads;
 mod report;
@@ -38,6 +39,7 @@ pub use context::context;
 pub use draft::{Draft, Spent, ended};
 pub use import::{Imported, import};
 pub use item::item;
+pub use openmetrics::openmetrics;
 pub use panel::vote_costs;
 pub use reads::reads;
 pub use report::report;
@@ -192,6 +194,9 @@ pub struct CallLine {
     pub session: Option<String>,
     /// The tokens it used, as its harness reported them
     pub usage: Usage,
+    /// Times its harness compacted the session by itself partway through it
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub compactions: u32,
     /// Those tokens in the control room's units
     pub units: u64,
     /// What it cost, in US dollars, when its harness reported a cost

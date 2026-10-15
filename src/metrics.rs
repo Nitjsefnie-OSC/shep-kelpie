@@ -12,6 +12,7 @@ use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
 mod dog;
 mod mcp;
+mod plan;
 mod series;
 
 pub(crate) use mcp::OWN_SERVERS;
@@ -53,6 +54,8 @@ type Key = (&'static str, Vec<Label>);
 pub struct Recorder {
     sink: Arc<dyn Sink>,
     kept: Mutex<Kept>,
+    // The most series it sends
+    cap: usize,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +72,16 @@ impl Recorder {
         Self {
             sink,
             kept: Mutex::new(Kept::default()),
+            cap: SERIES_CAP,
+        }
+    }
+
+    /// A recorder with no cap on its series, for a ledger replayed whole, which no metrics dog
+    /// limits
+    pub fn uncapped(sink: Arc<dyn Sink>) -> Self {
+        Self {
+            cap: usize::MAX,
+            ..Self::new(sink)
         }
     }
 
@@ -102,7 +115,7 @@ impl Recorder {
         let mut kept = self.kept();
         let key = (family.name, labels);
         let new = !kept.series.contains_key(&key);
-        if new && kept.series.len() >= SERIES_CAP {
+        if new && kept.series.len() >= self.cap {
             return self.drop_new(&mut kept, family);
         }
         let sample = kept.series.entry(key.clone()).or_insert(Sample {

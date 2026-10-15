@@ -475,3 +475,38 @@ fn a_vote_line_keeps_its_ruling_and_choice_through_the_ledger_file() {
     };
     assert_eq!(call.votes[0].choice, Some('B'));
 }
+
+fn ledger_line(text: &str) -> Line {
+    serde_json::from_str(text).unwrap()
+}
+
+#[test]
+fn the_ledger_comes_out_as_the_counters_the_runner_sends_each_at_its_lines_time() {
+    let call = |at: u64, input: u64| {
+        ledger_line(&format!(
+            r#"{{"line":"call","at":{at},"issue":7,"role":"worker","kind":"turn","agent":"sonnet-high",
+            "harness":"claude-code","model":"sonnet","effort":"high",
+            "usage":{{"input":{input},"cache_write":0,"cache_read":0,"output":0}},"units":{input},
+            "cost_usd":0.25,"compactions":1,"ended":"answered"}}"#
+        ))
+    };
+    let item = ledger_line(
+        r#"{"line":"finished","at":200,"issue":7,"title":"t","pull_request":71,"merged":true,
+        "wall":90,"units":30,"cost_usd":0.5,
+        "worker":{"calls":2,"tokens":{"input":30,"cache_write":0,"cache_read":0,"output":0},"units":30,"cost_usd":0.5},
+        "reviewer":{"calls":0,"tokens":{"input":0,"cache_write":0,"cache_read":0,"output":0},"units":0,"cost_usd":0.0},
+        "qwen":{"rounds":0,"seconds":0},"review_rounds":2,"fix_turns":1,"rulings":0}"#,
+    );
+    // Imports come last in the file and are not in order
+    let out = openmetrics(&[("koji".to_owned(), vec![call(150, 20), item, call(100, 10)])]);
+    let calls = r#"kelpie_calls_total{sheep="koji",agent="sonnet-high",effort="high",ended="answered",harness="claude-code",kind="turn",role="worker"}"#;
+    assert!(out.contains(&format!("{calls} 1 100")), "{out:#?}");
+    assert!(out.contains(&format!("{calls} 2 150")), "{out:#?}");
+    let merged = r#"kelpie_work_items_finished_total{sheep="koji",outcome="merged"} 1 200"#;
+    assert!(out.contains(&merged.to_owned()), "{out:#?}");
+    let moves =
+        r#"kelpie_compactions_total{sheep="koji",harness="claude-code",role="worker"} 2 150"#;
+    assert!(out.contains(&moves.to_owned()), "{out:#?}");
+    assert!(out.contains(&"# TYPE kelpie_calls counter".to_owned()));
+    assert_eq!(out.last().unwrap(), "# EOF");
+}

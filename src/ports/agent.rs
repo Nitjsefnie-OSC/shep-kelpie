@@ -420,6 +420,9 @@ pub struct AgentReply {
     /// The tokens the session's context held at the call's last model
     /// request, where the harness reports it
     pub context: Option<u64>,
+    /// Times the harness compacted the session by itself partway through
+    /// the call, which a `COMPACT` call is not
+    pub compactions: u32,
 }
 
 /// A call a runner's earlier image started, which still runs as the process's

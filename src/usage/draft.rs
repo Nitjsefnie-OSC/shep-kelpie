@@ -33,6 +33,8 @@ pub struct Spent {
     pub usage: Usage,
     /// What its session had cost by its end, where the harness reports it
     pub session_cost: Option<Cost>,
+    /// Times the harness compacted the session by itself during the call
+    pub compactions: u32,
 }
 
 impl From<&AgentReply> for Spent {
@@ -40,6 +42,7 @@ impl From<&AgentReply> for Spent {
         Self {
             usage: reply.usage,
             session_cost: reply.session_cost,
+            compactions: reply.compactions,
         }
     }
 }
@@ -104,6 +107,7 @@ impl Draft {
     ) -> CallLine {
         let usage = spent.map(|s| s.usage).unwrap_or_default();
         let session_cost = spent.and_then(|s| s.session_cost);
+        let compactions = spent.map_or(0, |s| s.compactions);
         let cost = session_cost.map(|now| Cost(now.0.saturating_sub(before.0)));
         CallLine {
             at,
@@ -117,6 +121,7 @@ impl Draft {
             effort: self.effort.clone(),
             session: self.session.as_ref().map(|s| s.0.clone()),
             usage,
+            compactions,
             units: units(usage),
             cost_usd: cost.map(Cost::usd),
             unpriced: self.kind != CallKind::LocalRound && cost.is_none(),
