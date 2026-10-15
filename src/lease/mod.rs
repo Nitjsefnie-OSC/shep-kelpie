@@ -30,7 +30,7 @@ pub const GPU_GONE: &str = "there is no GPU lease: paddock queues the GPU, so ho
 pub const CODERABBIT: &str = "coderabbit";
 
 /// What a book lease is for, as a runner and the dog name it
-// wire format: changing this is a breaking change to runner metrics
+// wire format: changing this is a breaking change to runner notes
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 pub struct LeaseKind(String);
@@ -113,7 +113,7 @@ impl core::error::Error for LeaseKindError {}
 /// A restart is a new process, so a new epoch, and the dog reclaims what
 /// the old run held. shep's process events carry the pid too, so the dog
 /// tells runs apart without relying on event order.
-// wire format: changing this is a breaking change to runner metrics
+// wire format: changing this is a breaking change to runner notes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Epoch(pub u64);

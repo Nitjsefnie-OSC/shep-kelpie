@@ -1,4 +1,5 @@
-//! The runner's side of the dog's leases, raised as channel metrics
+//! The runner's side of the dog's leases, sent as notes on the shepherd
+//! channel
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,15 +13,19 @@ use crate::lease::wire::{Asker, AskerCarry, GrantError, WindowFact};
 use crate::ports::{Leases, Timestamp};
 use crate::review_bot::ReviewWindow;
 
-/// Where a runner raises its metrics
-pub trait Metrics: fmt::Debug + Send + Sync {
-    /// Raises one metric
-    fn metric(&self, name: String, value: f64);
+/// Where a runner sends the dog its notes
+///
+/// A note is a name and a number for a dog, which shep publishes as
+/// `channel.note`. Unlike a metric sample, shep's metrics dog never reads
+/// one, so it refuses none of the lease names.
+pub trait Notes: fmt::Debug + Send + Sync {
+    /// Sends one note
+    fn note(&self, name: String, value: f64);
 }
 
-impl Metrics for Shepherd {
-    fn metric(&self, name: String, value: f64) {
-        Shepherd::metric(self, name, value);
+impl Notes for Shepherd {
+    fn note(&self, name: String, value: f64) {
+        Shepherd::note(self, name, value);
     }
 }
 
@@ -31,15 +36,15 @@ impl Metrics for Shepherd {
 /// book file, which the dog saves after every change.
 #[derive(Debug)]
 pub struct ShepLeases {
-    shepherd: Arc<dyn Metrics>,
+    shepherd: Arc<dyn Notes>,
     asker: Mutex<Asker>,
     book: BookFile,
 }
 
 impl ShepLeases {
-    /// This run's side, raising its metrics through `shepherd`, and reading
+    /// This run's side, sending its notes through `shepherd`, and reading
     /// the dog's `book`
-    pub fn new(shepherd: Arc<dyn Metrics>, asker: Asker, book: BookFile) -> Self {
+    pub fn new(shepherd: Arc<dyn Notes>, asker: Asker, book: BookFile) -> Self {
         Self {
             shepherd,
             asker: Mutex::new(asker),
@@ -86,13 +91,13 @@ impl Leases for ShepLeases {
     fn want(&self, kind: &LeaseKind) {
         let mut asker = self.asker();
         if asker.asking(kind) {
-            for (name, value) in asker.metrics() {
-                self.shepherd.metric(name, value);
+            for (name, value) in asker.notes() {
+                self.shepherd.note(name, value);
             }
             return;
         }
         let (name, value) = asker.want(kind);
-        self.shepherd.metric(name, value);
+        self.shepherd.note(name, value);
     }
 
     fn holds(&self, kind: &LeaseKind) -> bool {
@@ -107,13 +112,13 @@ impl Leases for ShepLeases {
         let mut asker = self.asker();
         if asker.asking(kind) {
             let (name, value) = asker.give_back(kind);
-            self.shepherd.metric(name, value);
+            self.shepherd.note(name, value);
         }
     }
 
     fn window(&self, kind: &LeaseKind, fact: WindowFact, value: u64) {
         let (name, value) = self.asker().window(kind, fact, value);
-        self.shepherd.metric(name, value);
+        self.shepherd.note(name, value);
     }
 
     fn opens(&self, kind: &LeaseKind, window: ReviewWindow, now: Timestamp) -> Option<Timestamp> {
