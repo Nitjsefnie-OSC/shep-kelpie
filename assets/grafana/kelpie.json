@@ -484,7 +484,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (sheep) (increase(kelpie_cost_usd_total{sheep=~\"$sheep\"}[1d])) / sum by (sheep) (increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d]))",
+          "expr": "sum by (sheep) (increase(kelpie_cost_usd_total{sheep=~\"$sheep\"}[1d])) / (sum by (sheep) (increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d])) > 0)",
           "legendFormat": "{{sheep}}"
         }
       ],
@@ -518,7 +518,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (type) (increase(kelpie_tokens_total{sheep=~\"$sheep\"}[1d])) / scalar(sum(increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d])))",
+          "expr": "sum by (type) (increase(kelpie_tokens_total{sheep=~\"$sheep\"}[1d])) / scalar(sum(increase(kelpie_work_items_finished_total{outcome=\"merged\",sheep=~\"$sheep\"}[1d])) > 0)",
           "legendFormat": "{{type}}"
         }
       ],
@@ -588,7 +588,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(kelpie_review_rounds_total{sheep=~\"$sheep\"}[1d])) / sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d]))",
+          "expr": "sum(increase(kelpie_review_rounds_total{sheep=~\"$sheep\"}[1d])) / (sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
           "legendFormat": "review rounds"
         },
         {
@@ -597,7 +597,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(kelpie_fix_turns_total{sheep=~\"$sheep\"}[1d])) / sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d]))",
+          "expr": "sum(increase(kelpie_fix_turns_total{sheep=~\"$sheep\"}[1d])) / (sum(increase(kelpie_work_items_finished_total{sheep=~\"$sheep\"}[1d])) > 0)",
           "legendFormat": "fix turns"
         }
       ],
