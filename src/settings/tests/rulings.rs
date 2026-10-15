@@ -37,3 +37,14 @@ fn pm_alone_naming_security_is_refused_at_load() {
     let reason = security.refusal().expect("security is refused");
     assert!(reason.contains("`security`"), "{reason}");
 }
+
+#[test]
+fn pm_alone_naming_contribution_merge_is_refused_and_the_panel_does_not_vote() {
+    let merge = parse(&format!(
+        "{EXAMPLE}\n[app.dogs.kelpie.rulings]\npm_alone = [\"contribution-merge\"]\n"
+    ))
+    .unwrap()
+    .rulings;
+    let reason = merge.refusal().expect("contribution-merge is refused");
+    assert!(reason.contains("`contribution-merge`"), "{reason}");
+}

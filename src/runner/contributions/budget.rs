@@ -7,9 +7,10 @@
 //! doubles the cap, as for a work item. The ruling holds the calls until it is
 //! answered, whatever `budget.per_item_usd` becomes.
 
+use super::merge::is_merge_ruling;
 use super::ruling;
 use crate::runner::Runner;
-use crate::state::{Held, RulingKind, StateError};
+use crate::state::{Held, Ruling, RulingKind, StateError};
 
 impl Runner {
     // Whether the contribution for `pull_request` has spent more than its cap,
@@ -32,7 +33,8 @@ impl Runner {
         let Some(cap) = over else {
             return Ok(false);
         };
-        if (self.state.rulings.iter()).any(|r| r.id == pull_request) {
+        let other = |r: &Ruling| r.id == pull_request && !is_merge_ruling(&r.kind);
+        if self.state.rulings.iter().any(other) {
             return Ok(true);
         }
         let now = self.ports.clock.now();
