@@ -362,9 +362,12 @@ fn call_line(role: &str, kind: &str, harness: &str, ended: &str) -> Line {
 fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     let (recorder, sink) = recorder();
     // Each role on a harness it might have, with its kinds of call and two ways each ended. The
-    // reviewer runs on three; only Claude Code's and pi's calls have requests.
+    // worker, the reviewer and the project manager run on a second harness as a fallback, and the
+    // reviewer on a third; only Claude Code's and pi's calls have requests.
     let roles = [
         ("worker", "claude-code", &["turn", "compact", "vote"][..]),
+        ("worker", "pi", &["turn", "compact", "vote"][..]),
+        ("pm", "pi", &["wake", "compact", "retro"][..]),
         ("reviewer", "claude-code", &["review"][..]),
         ("reviewer", "pi", &["review"][..]),
         ("reviewer", "local", &["local-round"][..]),
@@ -420,7 +423,7 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
     );
     assert_eq!(
         requests,
-        7 * 9,
+        9 * 9,
         "six buckets and three writes for each pair"
     );
     assert!(

@@ -7,7 +7,7 @@ Kelpie's numbers, live, on shep's metrics endpoint. ADR 0012, #920.
 - Runner and dog send channel samples (`shep_channel::Shepherd::metric_with`); shep's metrics dog serves them on `/metrics` (default `127.0.0.1:9615`) with the sender's labels first: `sheep` (the project), `id`, `fold` for a runner; `dog`, `source` for the dog. `src/metrics.rs`
 - Through the `Sink` port (`src/ports/metrics.rs`): the real one is the runner's `Shepherd`, a test holds `RecordedSink` and asserts the samples sent. Sending never blocks or fails; a full outbox drops a sample, and the next carries the total.
 - Counters are kept whole in kelpie's memory (`Recorder`) and each change sends the new total. A runner start begins them at zero, as Prometheus expects of a restart.
-- A runner sends at most `SERIES_CAP` (200) series, under the dog's 256 a sender; a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name.
+- A runner sends at most `SERIES_CAP` (240) series, under the dog's 256 a sender (it was 200 until the request series, nine for each role and harness, which a worker and a project manager that each fall back to a second harness bring to about 220); a new series past it is not sent and counts in `kelpie_series_dropped_total`, with one log line per name.
 - Names `kelpie_*`, snake case; counters end `_total`. Labels only from bounded sets: `role`, `kind`, `harness`, `model`, `ended`, `phase`, `feature`, `outcome`, `type`, `le`, `after`, `server` (kelpie's own servers by name, any other `repo`). Never an issue, pull request, session or path.
 
 ## Series
