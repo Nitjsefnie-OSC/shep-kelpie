@@ -20,6 +20,7 @@ pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String
     red_workflows(status, &mut lines);
     contributions(status, &mut lines);
     bumps(status, &mut lines);
+    triage(status, &mut lines);
     rulings(status, &mut lines);
     pacer(status, &mut lines);
     lines
@@ -228,6 +229,28 @@ fn bumps(status: &Value, lines: &mut Vec<String>) {
             bump["author"].as_str().unwrap_or("?"),
             head.get(..7).unwrap_or(head),
             bump["standing"].as_str().unwrap_or("?"),
+        ));
+    }
+}
+
+// One line for each issue triage would pick up, and none when it has none
+fn triage(status: &Value, lines: &mut Vec<String>) {
+    let due = status["triage"]["due"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    if due.is_empty() {
+        return;
+    }
+    lines.push(format!("  triage due: {}", due.len()));
+    for issue in due {
+        let author = match issue["author"].as_str() {
+            Some("") | None => "a deleted account",
+            Some(login) => login,
+        };
+        lines.push(format!(
+            "    #{} {} by {author}",
+            issue["issue"],
+            issue["title"].as_str().unwrap_or_default(),
         ));
     }
 }

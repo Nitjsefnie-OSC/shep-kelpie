@@ -84,6 +84,7 @@ mod looks;
 mod main_ci;
 mod merge;
 mod older_bots;
+mod open_checks;
 #[cfg(test)]
 mod overlap_tests;
 mod owner_template;
@@ -123,6 +124,7 @@ mod talk;
 mod thread_replies;
 mod timings;
 mod token_wait;
+mod triage;
 mod trigger;
 mod turn;
 mod turn_hooks;
@@ -300,6 +302,8 @@ pub struct Runner {
     pacing: BTreeMap<Account, (Timestamp, Assessment)>,
     // What the board passed over on its last poll, kept in memory only
     skipped: Vec<Skip>,
+    // The issues triage found untouched on its last poll, kept in memory only
+    triage_due: Vec<triage::DueStatus>,
     // Each adopted pull request that keeps failing to start, kept in memory only
     adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
@@ -484,24 +488,9 @@ impl Runner {
             }
             .into());
         }
-        let mut contribution_lineup = Vec::new();
-        if !settings.contributions.is_off() {
-            if !ports.voice.covers(&remote) {
-                return Err(SettingsError::Invalid {
-                    setting: "contributions.pick",
-                    reason: format!(
-                        "the GitHub App does not cover {}, so the representative would \
-                         otherwise post as the maintainer: set up the App for the repo, or \
-                         set `pick = \"off\"`",
-                        remote.as_str()
-                    ),
-                }
-                .into());
-            }
-            contribution_lineup = settings.contribution_lineup(&book, home)?;
-            settings.security_reviewer(&book)?;
-            settings.representative(&book)?;
-        }
+        let contribution_lineup =
+            open_checks::contributions(&settings, ports.voice.as_ref(), &remote, &book, home)?;
+        open_checks::triage(&settings, ports.voice.as_ref(), &remote, &book)?;
         // What the project's `publish` hooks judge is every text bound for the forge.
         let hooks = Hooks::new(project.as_str(), remote.as_str(), checkout, &settings.hooks);
         let clock = Arc::clone(&ports.clock);
@@ -589,6 +578,9 @@ impl Runner {
         if timings::reload(&mut state, ports.clock.now()) {
             store.save(&state)?;
         }
+        if triage::settle_since(&mut state, &settings, ports.clock.now()) {
+            store.save(&state)?;
+        }
         let spoken = points::Told::of(&state);
         let mut runner = Self {
             project,
@@ -606,6 +598,7 @@ impl Runner {
             ports,
             pacing: BTreeMap::new(),
             skipped: Vec::new(),
+            triage_due: Vec::new(),
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),
@@ -728,6 +721,7 @@ impl Runner {
             adopted: &self.state.adopted,
             contributions: self.followed_status(now),
             bumps: self.bumps_status(),
+            triage: self.triage_status(),
             order: &self.state.order[..self.state.order.len().min(trigger::STATUS_ORDER)],
             skipped: &self.skipped,
             standing: self.notes.standing_lines(),

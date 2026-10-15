@@ -1,6 +1,8 @@
 //! An issue as the forge holds it, the open ones the follow-up check reads, and
 //! a parent's sub-issues
 
+use super::Timestamp;
+
 /// How a sub-issue stands
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubIssueState {
@@ -56,4 +58,12 @@ pub struct OpenIssue {
     pub title: String,
     /// Its body, as written
     pub body: String,
+    /// The login of whoever opened it, empty when their account is gone
+    pub author: String,
+    /// Whether a bot opened it, the App included
+    pub author_is_bot: bool,
+    /// Its labels' names
+    pub labels: Vec<String>,
+    /// When it was opened
+    pub created: Timestamp,
 }

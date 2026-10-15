@@ -192,7 +192,8 @@ impl Runner {
                 | Role::Pm
                 | Role::Advisor
                 | Role::Researcher
-                | Role::Representative => continue,
+                | Role::Representative
+                | Role::Triager => continue,
             };
             *count = count.saturating_add(1);
             changed = true;

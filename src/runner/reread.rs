@@ -63,6 +63,11 @@ impl Runner {
                 .contributions
                 .clone_from(&self.settings.contributions);
         }
+        // The start checks cover the App and the triager's file against `pick`.
+        if settings.triage != self.settings.triage {
+            waiting.push("triage");
+            settings.triage.clone_from(&self.settings.triage);
+        }
         // Merging a bot's pull request begins only at a start.
         if settings.dependencies != self.settings.dependencies {
             waiting.push("dependencies");
@@ -261,6 +266,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: old_rulings,
         contributions: _, // waits for the next start, when the runner checks it
         dependencies: _,  // waits for the next start, like `contributions`
+        triage: _,        // waits for the next start, like `contributions`
         hooks: _,         // waits for the next start, so `reread` keeps the old
         skills: old_skills,
         repo_setup: old_repo_setup,
@@ -282,6 +288,7 @@ fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
         rulings: new_rulings,
         contributions: _,
         dependencies: _,
+        triage: _,
         hooks: _,
         skills: new_skills,
         repo_setup: new_repo_setup,
@@ -592,6 +599,25 @@ mod tests {
 
         let err = rig.open().unwrap_err().to_string();
         assert!(err.contains("contributions.pick"), "{err}");
+    }
+
+    #[test]
+    fn a_changed_triage_table_waits_for_the_next_start() {
+        let rig = Rig::new("shep");
+        let runner = rig.open().unwrap();
+        // The App does not cover the repo, so a start would refuse `maintainer`.
+        rig.edit_settings(|s| format!("{s}\n[app.dogs.kelpie.triage]\npick = \"maintainer\"\n"));
+        let mut runner = runner.lock().unwrap();
+        let line = runner.reread(rig.settings(), rig.kelpie_settings());
+        assert_eq!(
+            line.unwrap().as_deref(),
+            Some("settings changed; triage from the runner's next start")
+        );
+        assert!(runner.settings().triage.is_off(), "the old pick stays");
+        drop(runner);
+
+        let err = rig.open().unwrap_err().to_string();
+        assert!(err.contains("triage.pick"), "{err}");
     }
 
     #[test]

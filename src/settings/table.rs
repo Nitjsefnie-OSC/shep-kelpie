@@ -37,6 +37,10 @@ impl Settings {
             .contributions
             .check()
             .map_err(|e| refused(e.to_string()))?;
+        settings
+            .triage
+            .check()
+            .map_err(|e| refused(e.to_string()))?;
         settings.expand(home);
         settings.relative_to(folder);
         Ok(settings)

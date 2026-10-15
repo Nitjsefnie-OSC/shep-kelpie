@@ -152,6 +152,7 @@ fn name(role: Role) -> &'static str {
         Role::Advisor => "advisor",
         Role::Researcher => "researcher",
         Role::Representative => "representative",
+        Role::Triager => "triager",
     }
 }
 

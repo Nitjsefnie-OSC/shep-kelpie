@@ -136,3 +136,18 @@ fn the_guard_hands_a_reviewers_write_to_confine_as_an_absolute_path() {
         ]
     );
 }
+
+#[test]
+fn a_pi_triager_reads_with_no_write_and_no_shell() {
+    let w = World::new();
+    let mut call = reviewer(&w, None);
+    call.role = Role::Triager;
+
+    let argv = argv(&call, &Files::of(&call));
+
+    assert_eq!(
+        flag_after(&argv, "--tools").as_deref(),
+        Some("read,grep,find,ls")
+    );
+    assert_eq!(flag_after(&argv, "--extension"), None);
+}

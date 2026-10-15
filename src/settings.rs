@@ -40,6 +40,7 @@ mod repo_setup;
 mod reviewers;
 mod rulings;
 mod skills;
+mod triage;
 
 pub use agents::{
     Account, AgentHarness, AgentName, ExpertAgent, Harness, Implementer, Limit, ModelServer,
@@ -64,6 +65,7 @@ pub use repo_setup::{CallRole, MarketplaceSource, Part, PluginId, RepoSetup};
 pub use reviewers::{ListedReviewer, default_reviewers};
 pub use rulings::{Decide, RulingName, Rulings};
 pub use skills::{SkillChoice, SkillName, StepSkills};
+pub use triage::{Triage, TriagePick};
 
 /// Everything kelpie reads about one project
 #[dog_config]
@@ -103,6 +105,10 @@ pub struct Settings {
     /// picks up none when absent.
     #[serde(default)]
     pub contributions: Contributions,
+    /// Whether and how kelpie triages issues other people open. It triages
+    /// none when absent.
+    #[serde(default)]
+    pub triage: Triage,
     /// Whether kelpie merges the bumps bots open when they pass, and closes
     /// those that break. It follows none when absent.
     #[serde(default)]

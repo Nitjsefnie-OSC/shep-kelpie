@@ -4,7 +4,7 @@
 //! frontmatter naming what it is for and what runs it, then a Markdown body.
 //! An implementer's body is added to kelpie's own instructions, and a
 //! reviewer's, the issue writer's, the project manager's, the advisor's, the
-//! researcher's or the representative's is its prompt.
+//! researcher's, the representative's or the triager's is its prompt.
 //! Kelpie embeds its defaults, which a file of the same name replaces, and `shep kelpie add` writes out any that are
 //! missing. A file with `extends: <name>` builds on another agent, setting
 //! only the keys it changes. A file that cannot be read or used stops the runner, naming the
@@ -61,6 +61,9 @@ pub const RESEARCHER: &str = "researcher";
 /// `agents.representative`
 pub const REPRESENTATIVE: &str = "representative";
 
+/// The triager kelpie ships, which a project runs with `triage.agent`
+pub const TRIAGER: &str = "triager";
+
 /// The maintainer's qwen-review script, which the `qwen` reviewer runs
 pub const QWEN_REVIEW: &str = "~/.claude/scripts/qwen-review.sh";
 
@@ -74,7 +77,7 @@ enum Written {
 
 // Kelpie's own agents, by name: what `add` writes out, and what a missing
 // file falls back to. A project lists none of the review bots unless told to.
-const DEFAULTS: [(&str, &str, Written); 15] = [
+const DEFAULTS: [(&str, &str, Written); 16] = [
     (
         DEFAULT_IMPLEMENTER,
         include_str!("../agents/sonnet-high.md"),
@@ -134,6 +137,11 @@ const DEFAULTS: [(&str, &str, Written); 15] = [
         include_str!("../agents/representative.md"),
         Written::Always,
     ),
+    (
+        TRIAGER,
+        include_str!("../agents/triager.md"),
+        Written::Always,
+    ),
 ];
 
 /// What an agent is for
@@ -158,6 +166,9 @@ pub enum Role {
     /// It words the facts kelpie drafted into a post to a contributor, once a
     /// project names it in `agents.representative`
     Representative,
+    /// It researches an issue other people opened and asks the author what
+    /// the research leaves open, once a project names it in `triage.agent`
+    Triager,
 }
 
 impl Role {
@@ -171,6 +182,7 @@ impl Role {
             Self::Advisor => "advisor",
             Self::Researcher => "researcher",
             Self::Representative => "representative",
+            Self::Triager => "triager",
         }
     }
 }

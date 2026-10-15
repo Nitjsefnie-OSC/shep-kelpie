@@ -182,6 +182,10 @@ mod tests {
                 "[app.dogs.kelpie.contributions]\npick = \"off\"\nreviewers = [\"defect-hunter\"]\nsecurity_reviewer = \"security-reviewer\"\nquiet_days = 7\nnudge_days = 3\n",
             )
             .replace(
+                "# [app.dogs.kelpie.triage]\n# pick = \"off\"\n# wait_days = 7\n# max_questions = 10\n# agent = \"triager\"\n",
+                "[app.dogs.kelpie.triage]\npick = \"off\"\nwait_days = 7\nmax_questions = 10\nagent = \"triager\"\n",
+            )
+            .replace(
                 "# [app.dogs.kelpie.dependencies]\n# pick = \"off\"\n# bots = [\"dependabot\"]\n# on_red = \"close\"\n# web = [\"web/\", \"package.json\"]\n# wait_hours = 24\n",
                 "[app.dogs.kelpie.dependencies]\npick = \"off\"\nbots = [\"dependabot\"]\non_red = \"close\"\nweb = [\"web/\", \"package.json\"]\nwait_hours = 24\n",
             )
