@@ -30,6 +30,7 @@ pub mod hooks;
 pub mod issues;
 pub mod lease;
 pub mod local_paths;
+pub mod metrics;
 pub mod pacer;
 pub mod panel;
 pub mod ports;

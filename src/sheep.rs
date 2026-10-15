@@ -250,6 +250,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         e2e_runner: Arc::new(DogE2e),
         pages: Arc::new(PlaywrightPages),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
+        metrics: Arc::new(shepherd.clone()),
         clock: Arc::new(SystemClock),
         pace: Arc::new(DoorPace::new(paths.door.clone())),
         flock,

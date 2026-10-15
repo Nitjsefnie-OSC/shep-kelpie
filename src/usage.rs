@@ -13,9 +13,11 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::metrics::Recorder;
 use crate::panel::{Tier, Voter};
 use crate::ports::{Cost, Role, SessionId, Timestamp, Usage};
 use crate::settings::RulingName;
@@ -328,6 +330,8 @@ pub struct Ledger {
     costs: Option<BTreeMap<String, Cost>>,
     // Whether the last append failed, so a run of failures is told once
     failing: bool,
+    // Where each line's numbers go as it is written, if anywhere
+    recorder: Option<Arc<Recorder>>,
 }
 
 impl Ledger {
@@ -337,12 +341,25 @@ impl Ledger {
             path: folder.join(FILE),
             costs: None,
             failing: false,
+            recorder: None,
         }
+    }
+
+    /// The same ledger, counting each line in `recorder` as it is written
+    #[must_use]
+    pub fn sending(self, recorder: Arc<Recorder>) -> Self {
+        let recorder = Some(recorder);
+        Self { recorder, ..self }
     }
 
     /// Appends `line`. A failure is told on stderr, once until an append
     /// works again, and goes no further: no call or step fails on it.
     pub fn append(&mut self, line: &Line) {
+        // Counted whether or not the file takes it: the metrics and the
+        // ledger are two records, and losing one is no reason to lose both.
+        if let Some(recorder) = &self.recorder {
+            recorder.line(line);
+        }
         match append_to(&self.path, line) {
             // Only a line that is in the file moves its session's cost on,
             // so the next line's cost takes in a lost one's.

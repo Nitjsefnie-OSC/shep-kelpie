@@ -248,6 +248,7 @@ One page for each topic, indexed in [docs/guide/README.md](docs/guide/README.md)
 - [The GitHub App](docs/guide/github-app.md): registering kelpie's App, what a worker's token can do, and the tools and login token
 - [Upgrading](docs/guide/upgrading.md): moving the dog and the runners onto a new build
 - [What shep does for it](docs/guide/shep.md): supervision, lambs, triggers, settings and logs
+- [Metrics](docs/guide/metrics.md): the series on shep's metrics endpoint, the alerts and the dashboard
 - [Commands](docs/guide/commands.md): `status`, `usage`, `watch`, `doctor` and the rest, and pausing and finishing
 - [Leases and end-to-end tests](docs/guide/leases-and-e2e.md): the `cargo-test` lease and running e2e tests on another host
 - [Settings](docs/guide/settings.md): every key, what `add` writes, and shep-kelpie's own settings

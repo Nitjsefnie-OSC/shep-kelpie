@@ -17,6 +17,7 @@ The operator reference for shep-kelpie, one page for each topic. [Getting starte
 - [Upgrading](upgrading.md): moving the dog and the runners onto a new build
 - [What shep does for it](shep.md): supervision, lambs, triggers, settings and logs
 - [Commands](commands.md): `status`, `usage`, `watch`, `doctor` and the rest, and pausing and finishing
+- [Metrics](metrics.md): the series on shep's metrics endpoint, the alerts and the dashboard
 - [Leases and end-to-end tests](leases-and-e2e.md): the `cargo-test` lease and running e2e tests on another host
 - [Settings](settings.md): every key, what `add` writes, and shep-kelpie's own settings
 - [shep-kelpie's home](home-and-logs.md): where it keeps its files, and its logs

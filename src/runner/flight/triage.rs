@@ -17,6 +17,7 @@ use super::super::claim::Notes;
 use super::super::code_graph::{indexed, remove};
 use super::super::triage::research::{Found, Listed, read_reply};
 use super::{End, News};
+use crate::metrics::Recorder;
 use crate::ports::{AgentCall, AgentError, Agents, Ending, Timestamp};
 use crate::state::StateError;
 use crate::usage::{CallKind, Draft};
@@ -121,7 +122,7 @@ impl Runner {
         let ending = Ending::default();
         let held = ending.clone();
         let agents = Arc::clone(&self.ports.agents);
-        let notes = self.notes.clone();
+        let (notes, metrics) = (self.notes.clone(), Arc::clone(&self.metrics));
         let graph = research
             .call
             .reach
@@ -130,7 +131,7 @@ impl Runner {
             .map(|g| [g.index.clone(), g.runtime.clone()]);
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
-                researched(agents.as_ref(), &mut research, &notes, &held)
+                researched(agents.as_ref(), &mut research, &notes, &metrics, &held)
             }));
             if let Err(e) = worktree::remove_view(&research.checkout, &research.view) {
                 eprintln!("triage #{issue}: cannot remove its view of main: {e}");
@@ -224,6 +225,7 @@ fn researched(
     agents: &dyn Agents,
     research: &mut Research,
     notes: &Notes,
+    metrics: &Recorder,
     ending: &Ending,
 ) -> (End, Option<Result<Found, String>>) {
     let Research {
@@ -239,7 +241,7 @@ fn researched(
         let reason = format!("cannot make a view of origin/main: {e}");
         return (End::Turn(Err(AgentError::Setup(reason))), None);
     }
-    indexed(call, notes, ending);
+    indexed(call, notes, metrics, ending);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));
     let found = (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, open, view, *most));
     (End::Turn(ran), found)

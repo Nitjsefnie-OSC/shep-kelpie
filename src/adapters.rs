@@ -26,6 +26,7 @@ mod host;
 mod leases;
 mod local;
 pub(crate) mod mcp;
+mod metric_sink;
 mod ntfy;
 pub(crate) mod openai_gateway;
 pub(crate) mod paddock;

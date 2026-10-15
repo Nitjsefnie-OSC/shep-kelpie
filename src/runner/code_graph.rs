@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use super::Runner;
 use super::claim::Notes;
+use crate::metrics::{Feature, Recorder};
 use crate::ports::{AgentCall, CodeGraph, Ending, Role, Tools};
 use crate::settings::AgentHarness;
 
@@ -42,6 +43,7 @@ impl Runner {
         }
         let tools = &self.paths.tools;
         if !tools.has_code_graph() {
+            self.metrics.feature_ran(Feature::CodeGraph, "skipped");
             self.notes.standing(
                 NOT_INSTALLED,
                 format!(
@@ -135,18 +137,23 @@ pub(super) fn who(call: &AgentCall) -> String {
 ///
 /// A call whose index cannot be built, or is ended while it builds, loses the
 /// server and runs without it, and a note says why.
-pub(super) fn indexed(call: &mut AgentCall, notes: &Notes, ending: &Ending) {
+pub(super) fn indexed(call: &mut AgentCall, notes: &Notes, metrics: &Recorder, ending: &Ending) {
     let Some(graph) = &call.reach.code_graph else {
         return;
     };
     match index(graph, &call.cwd, ending) {
-        Ok(()) => notes.ends(INDEX_FAILED),
+        Ok(()) => {
+            metrics.feature_ran(Feature::CodeGraph, "ok");
+            notes.ends(INDEX_FAILED);
+        }
         Err(e) => {
             let line = format!("{} runs without a code graph: {e}", who(call));
             // A call ended while it indexes says nothing of the graph itself.
             if ending.asked() {
+                metrics.feature_ran(Feature::CodeGraph, "ended");
                 notes.push(line);
             } else {
+                metrics.feature_ran(Feature::CodeGraph, "failed");
                 notes.standing(INDEX_FAILED, line);
             }
             call.reach.code_graph = None;
