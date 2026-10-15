@@ -72,7 +72,7 @@ impl Runner {
         let (news, wake) = (self.flights.send.clone(), self.flights.wake.clone());
         let ending = Ending::default();
         let held = ending.clone();
-        let agents = Arc::clone(&self.ports.agents);
+        let agents = self.counted(Arc::clone(&self.ports.agents));
         let reviewer = Arc::clone(&self.ports.reviewer);
         let (pull_request, head) = (job.pull_request(), job.head().to_owned());
         let name = format!("#{pull_request} {}", job.name());
