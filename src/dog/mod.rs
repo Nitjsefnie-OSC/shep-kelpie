@@ -16,6 +16,7 @@ mod forge;
 pub mod left_over;
 mod link;
 pub mod triggers;
+mod watch;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -36,6 +37,7 @@ use crate::agents::{self, Agents};
 use crate::home;
 use crate::lease::saved::{BookFile, SavedBook};
 use crate::lease::wire::{GRANT, grant_params};
+use crate::metrics::Recorder;
 use crate::ports::{Clock, LocalPace};
 use crate::review_bot::Reviewers;
 use crate::shep_home;
@@ -93,6 +95,16 @@ struct Kept {
 }
 
 impl Kept {
+    // Grants whatever an opened review window now allows, and says how the
+    // forge hold stands, which ends with no one to tell the dog.
+    fn tick(&mut self) -> Vec<Delivery> {
+        let grants = self.change(Desk::tick);
+        let now = self.desk.book.now();
+        forge::publish(&self.pace, &self.desk.metrics, now);
+        self.desk.metrics.refresh(now);
+        grants
+    }
+
     // A save that fails leaves the previous book standing, and the next
     // change tries again.
     fn change<T>(&mut self, act: impl FnOnce(&mut Desk) -> T) -> T {
@@ -112,7 +124,12 @@ impl Kept {
 // this build's format and cannot be read may have held a summon, so its
 // empty book starts with every review window closed for its span, as if
 // a summon had just been accepted. The first change overwrites the file.
-fn open(file: BookFile, clock: Box<dyn Clock>, reviewers: Reviewers) -> Kept {
+fn open(
+    file: BookFile,
+    clock: Box<dyn Clock>,
+    reviewers: Reviewers,
+    metrics: Arc<Recorder>,
+) -> Kept {
     let empty = || SavedBook::new(Vec::new(), Vec::new(), Vec::new());
     let (last, unread) = match file.load() {
         Ok(Some(saved)) => (saved, false),
@@ -124,7 +141,7 @@ fn open(file: BookFile, clock: Box<dyn Clock>, reviewers: Reviewers) -> Kept {
     };
     let now = clock.now();
     let bots: Vec<_> = reviewers.defined().map(|(bot, _)| bot).collect();
-    let mut desk = Desk::restore(clock, last.clone(), reviewers);
+    let mut desk = Desk::restore(clock, last.clone(), reviewers, metrics);
     if unread {
         for bot in bots {
             desk.book.summoned(&bot.lease(), now);
@@ -251,7 +268,8 @@ async fn serve() -> Result<(), String> {
     }
     println!("the book is {}", file.path().display());
     let settings = settings(&client).await?;
-    let mut kept = open(file, Box::new(SystemClock), windows());
+    let metrics = Arc::new(Recorder::new(Arc::new(shepherd.clone())));
+    let mut kept = open(file, Box::new(SystemClock), windows(), metrics);
     let capacity = settings.leases.cargo_test_capacity();
     kept.desk.set_test_capacity(capacity);
     let desk = Arc::new(Mutex::new(kept));
@@ -327,7 +345,7 @@ async fn serve() -> Result<(), String> {
                 }
             },
             Some(grants) = to_deliver.recv() => grants,
-            _ = ticks.tick() => lock_desk(&desk).change(Desk::tick),
+            _ = ticks.tick() => lock_desk(&desk).tick(),
             _ = stopped.recv() => break Ok(()),
         };
         for grant in grants {
@@ -506,12 +524,18 @@ mod tests {
     use super::*;
     use crate::lease::wire::Asker;
     use crate::lease::{Epoch, LeaseKind};
+    use crate::ports::{Pace, Timestamp};
     use crate::review_bot::{Bot, ReviewWindow};
     use crate::runner::ProjectName;
-    use crate::test::{EPOCH, FakeClock};
+    use crate::test::{EPOCH, FakeClock, RecordedSink};
 
     fn opened(file: BookFile) -> Kept {
-        open(file, Box::new(FakeClock::at(EPOCH)), Reviewers::default())
+        open(
+            file,
+            Box::new(FakeClock::at(EPOCH)),
+            Reviewers::default(),
+            RecordedSink::default().recorder(),
+        )
     }
 
     fn window(kept: &mut Kept) -> serde_json::Value {
@@ -523,7 +547,11 @@ mod tests {
     }
 
     fn kept(file: BookFile) -> Kept {
-        let desk = Desk::new(Box::new(FakeClock::at(EPOCH)), Reviewers::default());
+        let desk = Desk::new(
+            Box::new(FakeClock::at(EPOCH)),
+            Reviewers::default(),
+            RecordedSink::default().recorder(),
+        );
         let last = desk.saved();
         Kept {
             desk,
@@ -543,7 +571,11 @@ mod tests {
 
     // What the dog grants on hearing `message` on koji's channel.
     fn granted(message: ChildMessage) -> Vec<Delivery> {
-        let mut desk = Desk::new(Box::new(FakeClock::at(EPOCH)), Reviewers::default());
+        let mut desk = Desk::new(
+            Box::new(FakeClock::at(EPOCH)),
+            Reviewers::default(),
+            RecordedSink::default().recorder(),
+        );
         let Some((name, value)) = told(message) else {
             return Vec::new();
         };
@@ -757,6 +789,7 @@ mod tests {
             file,
             Box::new(FakeClock::at(EPOCH)),
             windows_in(&dir.path().join("agents")),
+            RecordedSink::default().recorder(),
         );
         assert_eq!(
             window_of(&mut kept, "coderabbit"),
@@ -787,5 +820,34 @@ mod tests {
         let windows = windows_in(dir.path());
         assert_eq!(windows, Reviewers::from_agents(&Agents::embedded()));
         assert_eq!(windows.window(Bot::Cubic), Some(month(20)));
+    }
+
+    #[test]
+    fn the_dogs_tick_sends_a_hold_that_ended_and_every_series_again_each_minute() {
+        let dir = tempfile::tempdir().unwrap();
+        let (clock, samples) = (FakeClock::at(EPOCH), RecordedSink::default());
+        let reviewers = Reviewers::default();
+        let file = BookFile::new(dir.path().join("book.json"));
+        let mut kept = open(file, Box::new(clock.clone()), reviewers, samples.recorder());
+        kept.pace.hold(Timestamp(EPOCH + 30));
+        kept.tick();
+        assert_eq!(samples.value("kelpie_forge_held", &[]), Some(1.0));
+
+        clock.advance(30);
+        kept.tick();
+        assert_eq!(samples.value("kelpie_forge_held", &[]), Some(0.0));
+
+        let held = ("kind", "coderabbit");
+        let sent = |samples: &RecordedSink| {
+            (samples.sent().iter())
+                .filter(|s| {
+                    s.name == "kelpie_leases_held" && s.labels.contains(&("kind", held.1.into()))
+                })
+                .count()
+        };
+        let before = sent(&samples);
+        clock.advance(60);
+        kept.tick();
+        assert_eq!(sent(&samples), before + 1, "a minute on, sent again");
     }
 }

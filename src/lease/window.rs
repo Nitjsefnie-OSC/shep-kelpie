@@ -106,17 +106,27 @@ impl Window {
 
     /// Counts a summon accepted at `at`. The same summon counts once.
     pub fn summoned(&mut self, at: Timestamp) {
-        if !self.summons.contains(&at) {
+        if !self.knows_summon(at) {
             self.summons.push(at);
             self.summons.sort_unstable();
         }
+    }
+
+    /// Whether a summon accepted at `at` is already counted
+    pub fn knows_summon(&self, at: Timestamp) -> bool {
+        self.summons.contains(&at)
+    }
+
+    /// Whether a refusal quoting the window opening at `opens` is already held
+    pub fn knows_refusal(&self, opens: Timestamp) -> bool {
+        self.refusal.is_some_and(|r| r.opens == opens)
     }
 
     /// Takes a refusal heard at `heard` that quotes the window opening at `opens`
     ///
     /// The same quote heard again keeps its first hearing.
     pub fn refused(&mut self, heard: Timestamp, opens: Timestamp) {
-        if self.refusal.is_some_and(|r| r.opens == opens) {
+        if self.knows_refusal(opens) {
             return;
         }
         self.refusal = Some(Refusal { heard, opens });

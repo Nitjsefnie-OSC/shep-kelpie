@@ -36,10 +36,16 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 - `kelpie_mcp_servers_total{server,outcome}`: each server in the call's reach, `connected` or `failed`. Claude Code writes how its servers stand only when that changes, so the transcript's last such line is how they stood; `needsAuth` is `failed`, `pending` is not counted. A failed server is a standing warning naming the call and its error code, ended when a later call finds it connected. Claude Code only: pi records no failure (`docs/facts/mcp-servers.md`).
 - `kelpie_mcp_tool_calls_total{server}`: the call's own `mcp__<server>__<tool>` calls, from where its file stood when it began; each server it was given is sent, at 0 if never called. Claude Code and pi.
 
+The dog's: it sends through the same `Recorder` on its own `Shepherd` (`src/metrics/dog.rs`), labelled `dog` and `source` by the metrics dog.
+
+- `kelpie_leases_held{kind}`, `kelpie_lease_waiting{kind}` gauges, `kelpie_lease_grants_total{kind}` and `kelpie_lease_wait_seconds_total{kind}`: the desk looks at every lease after each change (`Desk::look`, `src/dog/watch.rs`). A grant is a holder not there at the last look, so the book's, the maintainer's and `cargo-test`'s are counted by one rule; the wait is from when the dog first saw the waiter queued, and a waiter that leaves is not counted. `e2e` is one kind for every host, as a host name is not a bounded label. A command seated for a run under the last dog is held but not a grant.
+- `kelpie_summons_total{bot,outcome}`: `accepted` or `refused`, counted when the book had not heard that summon time or refusal quote yet, so the runners' repeated totals count once. The maintainer's grants count as summons in the window, not here.
+- `kelpie_forge_holds_total{login_kind}` and `kelpie_forge_held`: a hold begins when a runner reports one and none stands. `login_kind` is always `login`: the dog's hold is the login's, as the App's used-up answer holds only its own reads. The hold ends on its own, so the dog's tick (`Kept::tick`) sets the gauge and sends every series again each minute.
+
 ## Alerts and dashboard
 
 - `assets/prometheus/kelpie-rules.yml`: a feature failed or skipped since the runner started with no `ok` run (30m); a feature failing in over half its runs in 6h; an MCP server failing to connect in over half its calls in 6h; a role's calls `failed`, `timed-out` or `unreadable` in over a quarter of 6h's calls; a runner's series dropped.
-- `assets/grafana/kelpie.json`: spend by role and model, tokens by type, calls by how they ended, work items by phase, features, MCP servers and tool calls, mean call time.
+- `assets/grafana/kelpie.json`: spend by role and model, tokens by type, calls by how they ended, work items by phase, features, MCP servers and tool calls, mean call time, the dog's leases held and waiting, mean lease wait, summons and the forge hold.
 - `docs/guide/metrics.md`: scrape config, the series, what each alert means.
 
 ## Not built
@@ -47,6 +53,5 @@ MCP servers, read from a call's transcript once it ends: the agents a call runs 
 - MCP servers and tool calls for Codex (#757) and goose (#784).
 - Feature runs of the browser, dev server and hooks. #923
 - Request context sizes (`kelpie_request_context_tokens` buckets) and cache writes after a gap: need per-request usage from transcripts, not per-call totals. #924
-- The dog's series: leases held, waits, summons, forge holds. #925
 - `shep kelpie` reports replacing the maintainer's scripts: by item, context sources, reads. #926
 - Canary: a real issue a night through each harness with every feature on, checked from its transcript. #927
