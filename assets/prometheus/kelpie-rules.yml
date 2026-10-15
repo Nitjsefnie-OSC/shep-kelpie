@@ -31,6 +31,20 @@ groups:
         annotations:
           summary: "{{ $labels.sheep }}: {{ $labels.feature }} failed in {{ $value | humanizePercentage }} of its runs in 6h"
 
+      # An MCP server that failed to connect in over half the calls given it,
+      # as `shadcn` did on #135. `repo` is any server the project names.
+      - alert: KelpieMcpServerFailing
+        expr: |
+          sum by (sheep, server) (increase(kelpie_mcp_servers_total{outcome="failed"}[6h]))
+          / sum by (sheep, server) (increase(kelpie_mcp_servers_total[6h]))
+          > 0.5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.sheep }}: MCP server {{ $labels.server }} failed to connect in {{ $value | humanizePercentage }} of its calls in 6h"
+          description: "Those calls ran without its tools. The runner's log names the server and its error: look for 'failed to connect'."
+
       # A role whose calls fail, time out or come back unreadable.
       - alert: KelpieCallsFailing
         expr: |

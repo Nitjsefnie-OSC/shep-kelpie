@@ -418,6 +418,49 @@
         "overrides": []
       },
       "options": {}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "MCP servers and tool calls",
+      "description": "Calls an hour given each MCP server, by whether it connected, and the tool calls made to it. A server that is given and never called, or that fails, gives the calls nothing. repo is any server the project names.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (server, outcome) (rate(kelpie_mcp_servers_total{sheep=~\"$sheep\"}[1h])) * 3600",
+          "legendFormat": "{{server}} {{outcome}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (server) (rate(kelpie_mcp_tool_calls_total{sheep=~\"$sheep\"}[1h])) * 3600",
+          "legendFormat": "{{server}} tool calls"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ],
   "refresh": "30s",
