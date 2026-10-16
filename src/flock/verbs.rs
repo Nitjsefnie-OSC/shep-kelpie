@@ -335,6 +335,7 @@ async fn issue(here: Here<'_>, name: &ProjectName, args: &[&str]) -> Result<Vec<
         paths: &paths,
         agents: &listed,
         kelpie: &kelpie,
+        home: here.home,
     };
     if interactive {
         issues::make_labels(&Gh::default(), &project, Mode::Interactive)?;

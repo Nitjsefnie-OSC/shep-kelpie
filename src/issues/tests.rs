@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use super::*;
-use crate::test::{Rig, Scripted, git, write_script};
+use crate::test::{Rig, Scripted, git, write_in, write_script};
 
 const BODY: &str = "Build the thing.\n\n## Acceptance criteria\n\n- [ ] It works\n";
 
@@ -52,6 +52,7 @@ impl Setup {
             paths: &self.paths,
             agents: &self.listed,
             kelpie: Path::new(Rig::KELPIE),
+            home: self.rig.home.path(),
         }
     }
 
@@ -689,6 +690,42 @@ fn plugin_dirs_of_the_run(roles: &str) -> Vec<PathBuf> {
     let calls = s.rig.claude.all_calls();
     assert_eq!(calls.len(), 1);
     calls[0].plugin_dirs.clone()
+}
+
+#[test]
+fn the_issue_writer_reads_the_installed_dependency_sources_and_no_credential_of_them() {
+    let s = Setup::with(|rig| {
+        write_in(
+            &rig.home.path().join(".cargo"),
+            "registry/src/serde-1.0.2/src/lib.rs",
+            "x\n",
+        );
+    });
+    s.rig.forge.set_repo_labels(&[HUMAN]);
+    s.filed(41, "Pause a project", BODY, &[HUMAN, "agent:sonnet-high"]);
+    s.headless("{\"filed\": [41]}").unwrap();
+    let calls = s.rig.claude.all_calls();
+    let reach = &calls[0].reach;
+    let crate_src = s
+        .rig
+        .home
+        .path()
+        .join(".cargo/registry/src/serde-1.0.2/src/lib.rs");
+    let fence = reach.fence.as_ref().expect("the writer's fence");
+    for held in [reach.read.clone(), fence.read.clone()] {
+        assert!(
+            held.iter().any(|folder| crate_src.starts_with(folder)),
+            "{held:?}"
+        );
+    }
+    for secret in [
+        "~/.cargo/credentials",
+        "~/.cargo/credentials.toml",
+        "~/.npmrc",
+        "~/.netrc",
+    ] {
+        assert!(fence.no_read.iter().any(|r| r == secret), "{secret}");
+    }
 }
 
 #[test]

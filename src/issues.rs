@@ -100,6 +100,9 @@ pub struct Project<'a> {
     pub agents: &'a RoleAgents,
     /// The kelpie binary, which runs the guard
     pub kelpie: &'a Path,
+    /// The maintainer's home folder, whose installed toolchain homes the writer
+    /// reads the sources and docs of
+    pub home: &'a Path,
 }
 
 /// How the issue writer runs
@@ -249,6 +252,12 @@ fn reach(
             .collect(),
         ledger: Some(ledger),
     };
+    // The installed sources and docs of dependencies and toolchains, which this
+    // call reads and writes none of.
+    let dep =
+        crate::dep_sources::DepSources::discover(project.home, &crate::dep_sources::ProcessEnv)
+            .folders()
+            .to_vec();
     let fence = Fence {
         write: Vec::new(),
         no_write: crate::fence::deny_write(checkout),
@@ -259,6 +268,7 @@ fn reach(
         read: [checkout.to_owned(), project.kelpie.to_owned()]
             .into_iter()
             .chain(also.iter().cloned())
+            .chain(dep.iter().cloned())
             .collect(),
         hosts: vec!["github.com".to_owned(), "api.github.com".to_owned()],
         no_commands: Vec::new(),
@@ -281,7 +291,7 @@ fn reach(
         hooks: Vec::new(),
     };
     Ok(Reach {
-        read: also.to_vec(),
+        read: also.iter().cloned().chain(dep.into_iter()).collect(),
         fence: Some(Box::new(fence)),
         block_keychain: false,
         code_graph: None,

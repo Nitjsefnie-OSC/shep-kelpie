@@ -442,6 +442,48 @@ fn the_sandbox_reads_every_plugin_folder_a_call_loads_skills_from() {
 }
 
 #[test]
+fn the_sandbox_reads_the_dependency_sources_a_call_is_given_and_no_credential_of_them() {
+    let w = World::new();
+    let mut call = w.fenced(URL, Path::new("/k/kelpie"), Session::New(id(WORKER_ID)));
+    // The folders `crate::dep_sources` finds, as the runner puts them in a call's reach.
+    let sources = [
+        w.path("cargo/registry/src/serde-1.0.2"),
+        w.path("cargo/git/checkouts/shep-core-1a2b3c"),
+        w.path("rustup/toolchains/stable/lib/rustlib/src"),
+        w.path("rustup/toolchains/stable/share/doc"),
+    ];
+    for folder in &sources {
+        call.reach.read.push(folder.clone());
+        call.reach.fence.as_mut().unwrap().read.push(folder.clone());
+    }
+    let upstream = ClaudeCli::default()
+        .pi()
+        .upstream(server(&call).unwrap())
+        .unwrap();
+    let policy = policy(
+        &call,
+        &Files::of(&call),
+        &upstream,
+        &w.path("forwarder.sock"),
+        &[],
+    );
+    for folder in &sources {
+        assert!(policy.read.contains(folder), "{}", folder.display());
+        assert!(
+            !policy
+                .write
+                .iter()
+                .any(|writable| folder.starts_with(writable)),
+            "{} is writable",
+            folder.display()
+        );
+    }
+    for secret in ["~/.cargo/credentials", "~/.npmrc", "~/.netrc", "~/.ssh/**"] {
+        assert!(policy.no_read.iter().any(|r| r == secret), "{secret}");
+    }
+}
+
+#[test]
 fn prepare_writes_pis_own_home_with_the_one_model() {
     let w = World::new();
     let call = w.call(URL, Role::Reviewer, Session::New(id(FRESH_ID)));
