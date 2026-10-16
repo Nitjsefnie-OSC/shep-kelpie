@@ -60,6 +60,10 @@ pub enum Kind {
     CreateIssue,
     /// An issue closed
     CloseIssue,
+    /// An issue closed for a reason the forge records
+    CloseIssueAs,
+    /// The repo's open pull requests, each with its title and what its body closes
+    OpenPulls,
     /// A pull request closed unmerged
     ClosePullRequest,
     /// A pull request opened
@@ -155,6 +159,7 @@ impl Kind {
                 | Self::CanWrite
                 | Self::CommentMarks
                 | Self::OpenIssues
+                | Self::OpenPulls
                 | Self::FailedRunLogs
                 | Self::BranchRuns
                 | Self::Workflows
@@ -201,6 +206,8 @@ impl Kind {
             Self::Folder
             | Self::FileText
             | Self::SubIssues
+            | Self::CloseIssueAs
+            | Self::OpenPulls
             | Self::CreateLabel
             | Self::RateLimitReset
             | Self::ReviewBotSeen

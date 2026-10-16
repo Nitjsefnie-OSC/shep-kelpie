@@ -49,6 +49,41 @@ pub struct Issue {
     pub blocked_by: Vec<u64>,
 }
 
+/// Why an issue was closed, which the forge records alongside the close
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssueCloseReason {
+    /// The work it asked for was done
+    Completed,
+    /// It will not be done
+    NotPlanned,
+    /// Another issue or pull request already covers it
+    Duplicate,
+}
+
+impl IssueCloseReason {
+    /// The name the GitHub API records it under
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::NotPlanned => "not_planned",
+            Self::Duplicate => "duplicate",
+        }
+    }
+}
+
+/// An open pull request, as the listing that tells a duplicate by reads it.
+/// The board's own listing (`crate::board::OpenPullRequest`) is the other one,
+/// with heads, checks and labels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenPull {
+    /// Its number
+    pub number: u64,
+    /// Its title
+    pub title: String,
+    /// The issues its body names with `Resolves`, `Fixes` or `Closes`
+    pub closes: Vec<u64>,
+}
+
 /// An open issue, as the follow-up check reads it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenIssue {
