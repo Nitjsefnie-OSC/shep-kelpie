@@ -10,7 +10,7 @@ use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list, rig_with};
 use super::research_tests::{calls, moves, reply, restart, triage};
 use crate::github::ApiError;
-use crate::ports::{Clock, Role};
+use crate::ports::{Clock, Cooldown, Role};
 use crate::runner::{Runner, step};
 use crate::test::{Rig, Scripted};
 
@@ -123,6 +123,12 @@ pub(super) fn record(rig: &Rig, runner: &Mutex<Runner>) -> Value {
         .expect("issue 30")
 }
 
+// How many comments GitHub took on issue 30, the App's own included
+fn taken(rig: &Rig) -> usize {
+    rig.github.posted_on(30).len()
+}
+
+// What the App posted on issue 30, in order
 pub(super) fn posted(rig: &Rig) -> Vec<String> {
     rig.github
         .comments()
@@ -467,5 +473,52 @@ fn an_ask_kelpie_cannot_post_is_given_up_on_and_its_reply_is_not_read_again() {
     assert!(
         !(done.iter().any(|m| m == "label needs-triage")),
         "{done:?}"
+    );
+}
+
+// GitHub is too busy to take the questions, for longer than a read reaches
+// back. The author's `github` is still there when it can go up.
+#[test]
+fn a_github_reply_is_still_read_after_the_forge_was_too_busy_to_post_the_questions() {
+    let (rig, runner) = filed("pick = \"maintainer\"\nwait_days = 30", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "github");
+    rig.github.refuse_comments(ApiError::RateLimited(Cooldown {
+        retry_after: Some(60),
+        reset: None,
+    }));
+    rig.claude.script_for(
+        Role::Representative,
+        [
+            read("github"),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+            Scripted::Say(Q_WORDS),
+        ],
+    );
+
+    // Six polls is past the slack a read reaches back, and each post failed.
+    for _ in 0..6 {
+        rig.next_look();
+        step(&runner).unwrap();
+        assert_eq!(taken(&rig), 1, "only the ask went up");
+    }
+
+    rig.github.accept_comments();
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(taken(&rig), 2, "the questions went up at last");
+    let held = record(&rig, &runner);
+    assert!(held["questions"]["comment"].is_number(), "{held}");
+    assert!(held.get("asked").is_none(), "{held}");
+    assert_eq!(
+        calls(&rig, Role::Representative).len(),
+        9,
+        "the triage comment, the reply read once, the questions worded seven times"
     );
 }

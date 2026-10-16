@@ -335,8 +335,18 @@ impl Runner {
         }
         let floor = Timestamp(read.now.0.saturating_sub(SLACK));
         // Held behind while a contribution's comments were not all heard, so
-        // the next read reaches them again.
+        // the next read reaches them again. An issue whose triage waits on its
+        // author is held back to when the ask or the questions went up: kelpie
+        // can be longer than the slack from acting on their word, when GitHub is
+        // too busy to take the questions or no slot is free for the second call,
+        // and a reply that fell out of the read would end the wait as silence
+        // against the author's choice.
         if heard {
+            let floor = (self.triage_waits())
+                .into_iter()
+                .map(|(_, at)| at)
+                .min()
+                .map_or(floor, |first| floor.min(first));
             self.threads.floor = Some(floor);
         }
         if let Some(floor) = self.threads.floor {
