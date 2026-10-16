@@ -63,6 +63,9 @@ mod attach_tests;
 mod compact_tests;
 
 #[cfg(test)]
+mod dep_sources_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
