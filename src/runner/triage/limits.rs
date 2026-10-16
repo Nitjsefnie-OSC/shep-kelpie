@@ -13,8 +13,9 @@
 //!
 //! The counts come from the calls saved in `ProjectState.triage`, each record
 //! holding the moment of every triager call its issue made, so a cap survives a
-//! restart. A record a limit held stands for no call, so it spends no place of
-//! a cap it was held by, and a record made from a triage comment found on the
+//! restart. A call counts when it reached a model, whether or not its reply
+//! read. A record a limit held stands for no call, so it spends no place of a
+//! cap it was held by, and a record made from a triage comment found on the
 //! issue holds no call of its own either.
 
 use crate::board::TRIAGE;
@@ -101,28 +102,82 @@ impl Runner {
     }
 
     // The day's triage calls, and the oldest of them: every call saved in the
-    // records whose moment falls in the 24 hours back from `now`. With `login`,
-    // only that author's. A record a limit held, and one made from a comment
-    // found on the issue, hold no call and count toward none.
+    // records whose moment falls in the 24 hours back from `now`, and every call
+    // this run made on an issue that has no record yet, which is what a first
+    // pass that keeps failing leaves behind. With `login`, only that author's.
+    // A record a limit held, and one made from a comment found on the issue,
+    // hold no call and count toward none.
     fn triage_count(&self, now: Timestamp, login: Option<&str>) -> (u32, Option<Timestamp>) {
         let from = now.0.saturating_sub(DAY);
-        let Some(triage) = self.state.triage.as_ref() else {
-            return (0, None);
-        };
+        let triage = self.state.triage.as_ref();
+        let listed = || triage.into_iter().flat_map(|t| t.issues.iter());
         let mut used = 0;
         let mut oldest = None;
-        for record in &triage.issues {
+        let mut count = |at: &Timestamp| {
+            if at.0 <= from {
+                return;
+            }
+            used += 1;
+            oldest = Some(oldest.map_or(*at, |old: Timestamp| old.min(*at)));
+        };
+        for record in listed() {
             if record.held.is_some()
                 || !login.is_none_or(|login| record.author.eq_ignore_ascii_case(login))
             {
                 continue;
             }
-            for at in record.calls.iter().filter(|at| at.0 > from) {
-                used += 1;
-                oldest = Some(oldest.map_or(*at, |old: Timestamp| old.min(*at)));
+            for at in &record.calls {
+                count(at);
+            }
+        }
+        // A call on an issue with no record is kept with its tries until a
+        // record exists, so the caps see the ones a first pass made and never
+        // posted.
+        for (issue, tries) in &self.triage_tries {
+            if listed().any(|record| record.issue == *issue)
+                || !login.is_none_or(|login| {
+                    tries
+                        .author
+                        .as_deref()
+                        .is_some_and(|a| a.eq_ignore_ascii_case(login))
+                })
+            {
+                continue;
+            }
+            for at in &tries.calls {
+                count(at);
             }
         }
         (used, oldest)
+    }
+
+    // Records that a triager call on `issue` ran, at the moment it ended. An
+    // issue with a record carries its calls from the moment each one ends, so
+    // the next poll and a restart both see the place it spent, and a round's
+    // second call is counted before it is admitted. The first pass has no record
+    // yet, so its call waits with the issue's tries and goes into the record
+    // when its comment is recorded.
+    pub(in crate::runner) fn triage_call_made(&mut self, issue: u64) -> Result<(), StateError> {
+        let now = self.ports.clock.now();
+        if self.triage_record(issue).is_none() {
+            if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                tries.calls.push(now);
+            }
+            return Ok(());
+        }
+        let made = self
+            .triage_tries
+            .get_mut(&issue)
+            .map_or(Vec::new(), |t| std::mem::take(&mut t.calls));
+        let mut next = self.state.clone();
+        if let Some(triage) = next.triage.as_mut()
+            && let Some(record) = triage.issues.iter_mut().find(|t| t.issue == issue)
+        {
+            for at in made.into_iter().chain([now]) {
+                record.add_call(at);
+            }
+        }
+        self.save(next)
     }
 
     // What the limits that hold an issue say about it, in their order, or none
@@ -135,6 +190,13 @@ impl Runner {
         if per_day > 0 && self.triage_day(now).0 >= per_day {
             return Some(Held::Day);
         }
+        // The author's cap and the account's age decide which of an author's
+        // issues kelpie takes on. They reach an issue kelpie has already called
+        // on no more than the account's age does: a hold is final, and calls
+        // that came to nothing are no reason to label an issue over for good.
+        if self.triage_spent(due.issue) {
+            return None;
+        }
         let per_author = self.settings.triage.per_author_per_day;
         if per_author > 0 && self.triage_author_calls(&due.author, now) >= per_author {
             return Some(Held::Final(TriageHeld::AuthorCap));
@@ -145,19 +207,22 @@ impl Runner {
         None
     }
 
-    // Whether a call of the author's round waits for a free place: the day's
-    // cap, or the author's share of it. The account's age is not asked of here,
-    // since the issue is already triaged and a limit's hold would label over an
-    // issue in progress. A round is read from the records at every poll, so a
-    // call that waits is simply made at the next one.
-    pub(super) fn triage_round_held(&mut self, author: &str) -> bool {
+    // Whether `issue` has spent a triage call of its own: the ones its record
+    // keeps, or the ones this run made on it, posted or not.
+    fn triage_spent(&self, issue: u64) -> bool {
+        (self.triage_record(issue)).is_some_and(|record| !record.calls.is_empty())
+            || (self.triage_tries.get(&issue)).is_some_and(|t| !t.calls.is_empty())
+    }
+
+    // Whether a call of the author's round waits for a free place: the day's cap
+    // alone. The author's share and the account's age decide which of an
+    // author's issues kelpie takes on, and this issue is one it took on already.
+    // A round is read from the records at every poll, so a call that waits is
+    // simply made at the next one.
+    pub(super) fn triage_round_held(&mut self) -> bool {
         let now = self.ports.clock.now();
         let per_day = self.settings.triage.per_day;
-        if per_day > 0 && self.triage_day(now).0 >= per_day {
-            return true;
-        }
-        let per_author = self.settings.triage.per_author_per_day;
-        per_author > 0 && self.triage_author_calls(author, now) >= per_author
+        per_day > 0 && self.triage_day(now).0 >= per_day
     }
 
     // Whether the author's account is younger than `triage.min_account_days`

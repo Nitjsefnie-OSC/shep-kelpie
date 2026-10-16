@@ -8,7 +8,9 @@
 //!
 //! The caps count the calls the records save, so an author's round spends places
 //! beside the first pass's call, and a round call past a cap waits for the next
-//! free place instead of ending the issue.
+//! free place instead of ending the issue. A call counts when it reached a
+//! model, whatever its reply came to, and a call on an issue with no record yet
+//! counts from the run that made it.
 
 use std::sync::Mutex;
 
@@ -18,7 +20,7 @@ use super::ask_tests::{A_WORDS, Q_WORDS, asked as one_question, filed, read, set
 use super::comment::MARKER;
 use super::limits::DAY;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
-use super::research_tests::{WORDS, calls, moves, reply, triage};
+use super::research_tests::{WORDS, calls, moves, reply, restart, triage};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
 use crate::state::StateStore;
@@ -562,6 +564,103 @@ fn an_authors_answers_call_past_the_days_cap_waits_and_is_made_once_a_place_open
     assert_eq!(calls(&rig, Role::Triager).len(), 2, "the call is made");
     assert_eq!(posted(&rig).len(), 3, "and its comment goes up");
     assert_eq!(record(&rig, &runner, 30).get("held"), None);
+}
+
+#[test]
+fn a_call_whose_reply_cannot_be_read_still_spends_a_place_of_the_day() {
+    let rig = rig_with("pick = \"all\"\nper_day = 2");
+    let runner = rig.open().unwrap();
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(
+        Role::Triager,
+        [
+            Scripted::Text("not a triage reply"),
+            Scripted::Text("still not a triage reply"),
+            reply(json!({})),
+        ],
+    );
+
+    // The call ran and its reply could not be read: nothing is posted and the
+    // issue is tried again, but the model was called and its place is spent.
+    assert_eq!(step(&runner).unwrap(), None);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 2);
+    assert_eq!(
+        triage(&rig, &runner)["daily"]["used"],
+        2,
+        "an unreadable reply spends a place beside a readable one"
+    );
+    assert_eq!(rig.github.comments(), [], "nothing is posted");
+    assert_eq!(
+        record(&rig, &runner, 30),
+        Value::Null,
+        "and it has no record"
+    );
+
+    // The day's two places are gone, so the issue waits for the next one
+    // instead of being tried a third time.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "no third call");
+    assert_eq!(due(&rig, &runner), [30], "it waits in the due list");
+
+    // A place opens when the oldest of the day's calls is a day old.
+    rig.clock.advance(DAY + 1);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 3, "and it takes the next");
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))]
+    );
+}
+
+#[test]
+fn a_round_call_spends_its_place_before_the_next_issue_is_called() {
+    // The day has two places, and the issue's own round takes both.
+    let (rig, runner) = filed("pick = \"all\"\nper_day = 2", "newcomer", one_question());
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "the first pass");
+
+    // The author answers `github` and kelpie restarts before the questions
+    // comment goes up, so it owes a research call for the comment it lost.
+    wrote(&rig, "newcomer", "github");
+    let runner = restart(&rig, runner);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    rig.claude.script_for(
+        Role::Representative,
+        [read("github"), Scripted::Say(Q_WORDS)],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None, "the word is read");
+    rig.next_look();
+    assert_eq!(
+        step(&runner).unwrap(),
+        None,
+        "and the lost questions are researched"
+    );
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the questions call");
+    assert_eq!(triage(&rig, &runner)["daily"]["used"], 2, "the day is full");
+    assert_eq!(
+        record(&rig, &runner, 30)["calls"].as_array().unwrap().len(),
+        2,
+        "and the record carries the moment of each"
+    );
+
+    // The next issue waits for a place: the round's call was counted before it
+    // was admitted, and not only when its own comment was recorded.
+    list(&rig, issue(&rig, 31, "someone", 7));
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "no third call");
+    assert_eq!(due(&rig, &runner), [31], "it waits in the due list");
 }
 
 #[test]

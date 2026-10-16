@@ -335,6 +335,11 @@ impl Runner {
         if tries.seen.is_none() {
             tries.seen = Some(this.labels.clone());
         }
+        // The author's login comes from the same listing that made the call, so
+        // a call that never posted is still counted against their cap.
+        if tries.author.is_none() {
+            tries.author = Some(this.author.clone());
+        }
         let listed: Vec<Listed> = (open.iter())
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
