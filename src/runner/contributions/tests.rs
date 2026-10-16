@@ -77,6 +77,21 @@ pub(in crate::runner) fn poll(rig: &Rig, runner: &Mutex<Runner>) {
     );
 }
 
+// The same, for a poll that may also start and run the work item a release
+// adopted: every report it takes besides the ruling's names the pull request
+// that was handed over
+pub(in crate::runner) fn poll_or_adopt(rig: &Rig, runner: &Mutex<Runner>) {
+    rig.next_look();
+    let report = step(runner).unwrap();
+    let taken_over = (serde_json::to_value(&report).unwrap().get("pull_request"))
+        .and_then(Value::as_u64)
+        == Some(30);
+    assert!(
+        matches!(report, None | Some(StepReport::Alerted { id: 30 })) || taken_over,
+        "{report:?}"
+    );
+}
+
 #[test]
 fn a_pull_request_from_another_person_is_a_contribution_under_pick_all() {
     let (rig, runner) = picking("all");

@@ -178,6 +178,18 @@ impl FakeForge {
         self.pull_request_closes_down.store(down, Ordering::SeqCst);
     }
 
+    /// Makes editing a pull request's title or body fail, or work again
+    pub(crate) fn set_pull_request_edit_down(&self, down: bool) {
+        self.pull_request_edit_down.store(down, Ordering::SeqCst);
+    }
+
+    /// The body pull request `number` has on the forge: what an edit left,
+    /// or the body its listing gave it
+    pub(crate) fn pull_request_body(&self, number: u64) -> String {
+        (self.texts.lock().unwrap().get(&number).map(|t| t.1.clone()))
+            .unwrap_or_else(|| format!("Body of pull request #{number}.\n"))
+    }
+
     /// Lists open pull request `number`, titled `title` and closing `closes`,
     /// as someone other than kelpie opening it would
     pub(crate) fn list_open_pull(&self, number: u64, title: &str, closes: &[u64]) {

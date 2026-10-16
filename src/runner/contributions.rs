@@ -161,7 +161,10 @@ impl Runner {
             Pick::All => true,
         };
         let left = self.state.left_open.contains(&pr.number);
-        picked && !pr.draft && !left && self.by_someone_else(pr, own)
+        // A pull request kelpie adopted is its own work item now, not someone
+        // else's, and its record goes with it.
+        let adopted = (self.state.work_items.iter()).any(|i| i.pull_request == Some(pr.number));
+        picked && !pr.draft && !left && !adopted && self.by_someone_else(pr, own)
     }
 
     // Whether another person opened `pr`, ready or not: the contributions
@@ -253,7 +256,8 @@ impl Runner {
         self.follow_release()?;
         self.follow_answers()?;
         self.follow_clock()?;
-        self.follow_merge()
+        self.follow_merge()?;
+        self.follow_adoption()
     }
 }
 
