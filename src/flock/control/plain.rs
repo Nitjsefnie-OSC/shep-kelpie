@@ -5,6 +5,8 @@
 
 use serde_json::Value;
 
+use crate::state::TriageHeld;
+
 /// `sheep`'s block from `status`, the runner's answer, under a header that
 /// carries `marks`
 pub(super) fn block(sheep: &str, marks: &[String], status: &Value) -> Vec<String> {
@@ -240,9 +242,16 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
     if let Some(issue) = triage["running"].as_u64() {
         lines.push(format!("  triage running: #{issue}"));
     }
+    daily(triage, lines);
     let records = triage["issues"].as_array().map_or(&[][..], Vec::as_slice);
     for record in records {
         let (issue, comment) = (&record["issue"], &record["comment"]);
+        // A limit held it: no call was made and no comment was posted, so the
+        // line says which limit rather than a comment that is not there.
+        if let Some(why) = held(record) {
+            lines.push(format!("  triaged #{issue}: no call, {why}"));
+            continue;
+        }
         match record["duplicate_of"].as_u64() {
             // The step says whether the close the comment announced is already
             // done, so a close still owed is never shown as one that happened.
@@ -274,6 +283,30 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
             issue["title"].as_str().unwrap_or_default(),
         ));
     }
+}
+
+// The day's triage calls against `triage.per_day`, and when the next place
+// opens once they fill it
+fn daily(triage: &Value, lines: &mut Vec<String>) {
+    let daily = &triage["daily"];
+    let Some(cap) = daily["cap"].as_u64() else {
+        return;
+    };
+    let used = daily["used"].as_u64().unwrap_or(0);
+    let waiting = match daily["wait"].as_u64() {
+        // Rounded up, so a place that opens in nine minutes is never shown as
+        // one that opens in none.
+        Some(seconds) => format!(", next place in {}h", seconds.div_ceil(3_600)),
+        None => String::new(),
+    };
+    lines.push(format!("  triage daily: {used} of {cap} used{waiting}"));
+}
+
+// The limit a record says held its issue, in the words the state gives it, or
+// none for a record that triaged one
+fn held(record: &Value) -> Option<String> {
+    let named: TriageHeld = serde_json::from_value(record["held"].clone()).ok()?;
+    Some(named.said().to_owned())
 }
 
 // What a contribution's clock says: whose move it is and when the nudge is

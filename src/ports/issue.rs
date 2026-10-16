@@ -97,8 +97,60 @@ pub struct OpenIssue {
     pub author: String,
     /// Whether a bot opened it, the App included
     pub author_is_bot: bool,
+    /// How the forge counts whoever opened it to the repo, or `None` when the
+    /// listing does not say
+    pub author_association: Option<AuthorAssociation>,
     /// Its labels' names
     pub labels: Vec<String>,
     /// When it was opened
     pub created: Timestamp,
+}
+
+use serde::Serialize;
+
+/// How the forge counts the person who opened an issue to the repo it is on,
+/// which is what it says per issue rather than per repo
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthorAssociation {
+    /// No history on the repo at all
+    None,
+    /// Opened their first issue or pull request on the repo
+    FirstTimer,
+    /// Wrote their first contribution to the repo
+    FirstTimeContributor,
+    /// Has contributed to the repo before
+    Contributor,
+    /// Belongs to the organisation that owns the repo
+    Member,
+    /// Has write access to the repo
+    Collaborator,
+    /// Owns the repo
+    Owner,
+}
+
+impl AuthorAssociation {
+    /// The association from the word the forge names it with, or `None` when
+    /// the word is one kelpie does not know
+    pub fn from_word(word: &str) -> Option<Self> {
+        match word.to_ascii_uppercase().as_str() {
+            "NONE" => Some(Self::None),
+            "FIRST_TIMER" => Some(Self::FirstTimer),
+            "FIRST_TIME_CONTRIBUTOR" => Some(Self::FirstTimeContributor),
+            "CONTRIBUTOR" => Some(Self::Contributor),
+            "MEMBER" => Some(Self::Member),
+            "COLLABORATOR" => Some(Self::Collaborator),
+            "OWNER" => Some(Self::Owner),
+            _ => None,
+        }
+    }
+
+    /// Whether the forge counts this author as having no history on the repo:
+    /// nothing of theirs is on it yet
+    pub fn no_history(&self) -> bool {
+        matches!(
+            self,
+            Self::None | Self::FirstTimer | Self::FirstTimeContributor
+        )
+    }
 }

@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::ports::{Clock, OpenIssue, Timestamp};
+use crate::ports::{AuthorAssociation, Clock, OpenIssue, Timestamp};
 use crate::runner::{Runner, step};
 use crate::test::Rig;
 
@@ -34,6 +34,7 @@ pub(super) fn issue(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIss
         body: String::new(),
         author: author.to_owned(),
         author_is_bot: false,
+        author_association: Some(AuthorAssociation::Contributor),
         labels: Vec::new(),
         created: Timestamp(rig.clock.now().0 + after),
     }

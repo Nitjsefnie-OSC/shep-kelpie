@@ -312,15 +312,19 @@ fn a_report_with_no_304_has_no_section_for_them() {
 }
 
 // gh's own list commands go through its GraphQL list query, so every listing
-// kelpie asks that way spends GraphQL, whatever flags it carries.
+// kelpie asks that way spends GraphQL, whatever flags it carries. The open
+// issues are no longer one of them: `gh issue list --json` answers no
+// `authorAssociation` in gh 2.96, so that listing goes to the REST endpoint.
 #[test]
 fn every_listing_gh_reads_for_kelpie_spends_graphql() {
-    for kind in [
-        Kind::OpenIssues,
-        Kind::OpenPulls,
-        Kind::OpenPullRequests,
-        Kind::ReadyIssues,
-    ] {
+    for kind in [Kind::OpenPulls, Kind::OpenPullRequests, Kind::ReadyIssues] {
         assert_eq!(kind.api(), Api::GraphQl, "{kind:?}");
+    }
+}
+
+#[test]
+fn the_open_issue_listing_and_an_account_read_spend_rest() {
+    for kind in [Kind::OpenIssues, Kind::AccountCreated] {
+        assert_eq!(kind.api(), Api::Rest, "{kind:?}");
     }
 }

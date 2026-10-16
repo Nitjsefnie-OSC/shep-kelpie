@@ -595,6 +595,36 @@ fn a_plain_status_lists_each_issue_triage_would_pick_up() {
 }
 
 #[test]
+fn a_plain_status_says_the_days_triage_count_and_what_a_limit_held() {
+    let full = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[
+        {"issue":30,"comment":0,"step":"done","author":"newcomer","held":"author-cap"}],
+        "daily":{"used":10,"cap":10,"opens":1790000000,"wait":7200}},"rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", full)[3..5],
+        [
+            "  triage daily: 10 of 10 used, next place in 2h",
+            "  triaged #30: no call, its author already had the day's triage calls",
+        ]
+    );
+
+    let room = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[],
+        "daily":{"used":3,"cap":10}},"rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", room)[3..4],
+        ["  triage daily: 3 of 10 used"]
+    );
+
+    // A new account held by the age limit says so in its own words
+    let new = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[
+        {"issue":31,"comment":0,"step":"done","author":"newcomer","held":"new-account"}]},
+        "rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", new)[3..4],
+        ["  triaged #31: no call, its author's account is new and has no history in the repo",]
+    );
+}
+
+#[test]
 fn a_plain_status_says_how_long_a_contribution_has_waited_on_its_contributor() {
     let body = r#"{"project":"koji","work_items":[],"contributions":[
         {"pull_request":12,"author":"newcomer","head":"2a8f1e6d0b4c","seen":1,

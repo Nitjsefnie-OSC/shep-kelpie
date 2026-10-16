@@ -76,7 +76,7 @@ pub(super) struct Marked {
 pub(super) const TRIES: u32 = 5;
 
 // Made on a repo that lacks it before the first issue is labelled with it
-const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
+pub(super) const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
     name: TRIAGE,
     color: "d876e3",
     description: "Kelpie researched this issue; it waits on the maintainer",
@@ -629,6 +629,17 @@ impl Runner {
         let Some(triage) = next.triage.as_mut() else {
             return Ok(());
         };
+        // The calls the issue's earlier record kept go into the new one: the
+        // caps count every triager call, the first pass's and the author's
+        // round's alike.
+        let kept = triage
+            .issues
+            .iter()
+            .find(|t| t.issue == issue)
+            .map_or_else(Vec::new, |t| t.calls.clone());
+        // The calls saved for the issue while it had no record join them, and
+        // stop being kept on their own.
+        let (_, made) = triage.take_calls(issue);
         triage.issues.retain(|t| t.issue != issue);
         let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
         let ready_body = (self.triage_tries.get(&issue)).and_then(|t| t.ready_body.clone());
@@ -652,10 +663,20 @@ impl Runner {
             (None, false, Some(_)) => TriageStep::Answers,
             (None, false, None) => TriageStep::Commented,
         };
-        triage.issues.push(Triaged {
+        // The calls the issue already made stay with its record, and the ones
+        // made since it was saved join them: the caps count every triager call,
+        // the first pass's and the author's round's alike. A record made from a
+        // marker found in the issue's comments has none, since no call ran for it.
+        let mut record = Triaged {
             issue,
             comment,
             step,
+            at: self.ports.clock.now(),
+            author: (self.triage_tries.get(&issue))
+                .and_then(|t| t.author.clone())
+                .unwrap_or_default(),
+            held: None,
+            calls: kept,
             labels,
             duplicate_of,
             ready_body: ready_body.or(answers_body),
@@ -663,7 +684,11 @@ impl Runner {
             asked,
             questions: None,
             local: None,
-        });
+        };
+        for at in made {
+            record.add_call(at);
+        }
+        triage.issues.push(record);
         // A record saved finished needs the cap kept, as `triage_stepped` does
         // for the steps that finish later.
         if step == TriageStep::Done
