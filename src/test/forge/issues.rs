@@ -132,6 +132,11 @@ impl FakeForge {
         listed.push(issue);
     }
 
+    /// Takes issue `number` off the open listing, as closing it does
+    pub(crate) fn unlist_open_issue(&self, number: u64) {
+        self.issues.lock().unwrap().retain(|i| i.number != number);
+    }
+
     /// Every issue kelpie opened, oldest first
     pub(crate) fn created(&self) -> Vec<CreatedIssue> {
         self.created.lock().unwrap().clone()

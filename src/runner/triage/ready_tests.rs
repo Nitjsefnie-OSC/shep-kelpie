@@ -164,31 +164,45 @@ fn a_body_with_no_criteria_or_no_touches_line_is_not_sure_and_ends_needs_triage(
 
 #[test]
 fn a_reply_with_an_open_question_or_no_priority_is_not_sure() {
-    let founds = [
-        json!({
-            "type": "bug", "priority": "P2", "body": BODY,
-            "open": [{ "question": "Which platform?", "recommended": "Linux" }],
-        }),
-        json!({ "type": "bug", "body": BODY }),
-    ];
-    for found in founds {
-        let (rig, runner) = filed("maintainer", MAINTAINER);
-        rig.claude.script_for(Role::Triager, [reply(found.clone())]);
+    // An open question on the maintainer's own issue goes to its author first:
+    // the pass is not sure, and no label goes on while it waits. The round
+    // itself is `ask_tests`.
+    let open = json!({
+        "type": "bug", "priority": "P2", "body": BODY,
+        "open": [{ "question": "Which platform?", "recommended": "Linux" }],
+    });
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    rig.claude.script_for(Role::Triager, [reply(open.clone())]);
 
-        assert_eq!(step(&runner).unwrap(), None, "{found}");
+    assert_eq!(step(&runner).unwrap(), None, "{open}");
 
-        assert_eq!(rig.github.issue_edits(), [], "{found}");
-        assert_eq!(
-            moves(&rig).last().map(String::as_str),
-            Some("label needs-triage"),
-            "{found}"
-        );
-        assert_eq!(
-            triage(&rig, &runner)["issues"][0]["step"],
-            "done",
-            "{found}"
-        );
-    }
+    assert_eq!(rig.github.issue_edits(), [], "{open}");
+    assert_eq!(moves(&rig), ["comment"], "{open}");
+    assert_eq!(
+        triage(&rig, &runner)["issues"][0]["step"],
+        "commented",
+        "{open}"
+    );
+
+    // Nothing to ask about is triaged as any other issue: it ends
+    // `needs-triage`.
+    let found = json!({ "type": "bug", "body": BODY });
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    rig.claude.script_for(Role::Triager, [reply(found.clone())]);
+
+    assert_eq!(step(&runner).unwrap(), None, "{found}");
+
+    assert_eq!(rig.github.issue_edits(), [], "{found}");
+    assert_eq!(
+        moves(&rig).last().map(String::as_str),
+        Some("label needs-triage"),
+        "{found}"
+    );
+    assert_eq!(
+        triage(&rig, &runner)["issues"][0]["step"],
+        "done",
+        "{found}"
+    );
 }
 
 #[test]
@@ -527,11 +541,8 @@ fn a_board_named_priority_label_is_the_one_that_goes_on_an_issue_that_ends_needs
 #[test]
 fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass() {
     let (rig, runner) = filed("maintainer", MAINTAINER);
-    let asked = json!({
-        "type": "bug",
-        "priority": "P2",
-        "open": [{ "question": "Is it every start?", "recommended": "Yes" }],
-    });
+    // Not sure of it, with nothing to ask its author: it ends `needs-triage`.
+    let asked = json!({ "type": "bug", "priority": "P2" });
     rig.claude
         .script_for(Role::Triager, [reply(asked), reply(sure())]);
     rig.claude.script_for(
