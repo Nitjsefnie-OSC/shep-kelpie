@@ -35,8 +35,13 @@ fn said(found: Value) -> &'static str {
 
 // A rig whose App covers the repo, with `[triage]` set to `pick`, open issue
 // 30 opened by `author` after triage was turned on, whose representative
-// says WORDS and whose repo has the labels the pass puts on
+// says WORDS and whose repo has the labels the pass puts on. `before` runs
+// what a test needs set before the runner opens.
 fn filed(pick: &str, author: &str) -> (Rig, Mutex<Runner>) {
+    filed_before(pick, author, |_| {})
+}
+
+fn filed_before(pick: &str, author: &str, before: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>) {
     let rig = rig_with(&format!("pick = \"{pick}\""));
     rig.forge.set_repo_labels(&[
         "bug",
@@ -47,13 +52,14 @@ fn filed(pick: &str, author: &str) -> (Rig, Mutex<Runner>) {
         "needs-info",
         "ready-for-agent",
     ]);
-    let runner = rig.open().unwrap();
     let mut crash = issue(&rig, 30, author, 5);
     crash.title = "Crash on start".to_owned();
     crash.body = "It crashes when I run it.".to_owned();
     list(&rig, crash);
     rig.claude
         .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    before(&rig);
+    let runner = rig.open().unwrap();
     (rig, runner)
 }
 
@@ -174,10 +180,20 @@ fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
+    // The body is read against the local guard before the comment is worded,
+    // so nothing is promised that kelpie will not do, and nothing is sent.
+    let said = facts(&rig);
+    assert!(!said.contains("ready-for-agent"), "{said}");
+    assert!(said.contains("The maintainer triages it next"), "{said}");
     assert_eq!(
         rig.github.issue_edits(),
         [],
         "the refused body never reaches the forge"
+    );
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        "one comment, and no notice to undo a promise"
     );
     assert_eq!(
         moves(&rig),
@@ -190,6 +206,47 @@ fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
             .any(|n| n.starts_with("triage #30:") && n.contains("needs-triage")),
         "{told:?}"
     );
+}
+
+// A refusal the runner cannot read beforehand, from the project's own publish
+// hook: the comment promised the rewrite, so the refusal is said on the issue
+// rather than left there unkept.
+#[test]
+fn a_body_a_hook_refused_is_said_on_the_issue_and_the_issue_ends_needs_triage() {
+    let (rig, runner) = filed_before("maintainer", MAINTAINER, |rig| {
+        rig.forbid_word(&["publish"], "Unwriteable")
+    });
+    let body = format!("Touches:\n- `src/start.rs`\n\nUnwriteable notes.\n\n{BODY}");
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(
+            json!({ "type": "bug", "priority": "P2", "body": body }),
+        )],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.issue_edits(),
+        [],
+        "the refused body never reaches the forge"
+    );
+    let posted = rig.github.comments();
+    assert_eq!(posted.len(), 2, "{posted:?}");
+    assert_eq!(posted[0], (30, format!("{WORDS}\n\n{MARKER}")));
+    assert!(posted[1].1.contains("did not rewrite"), "{posted:?}");
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage"
+        ],
+        "the triage comment, the notice that the rewrite was refused, then the labels"
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
 
 #[test]
@@ -319,9 +376,48 @@ fn a_triage_label_put_on_while_the_call_ran_stands_and_the_body_is_kept() {
         [],
         "the body is kept as the author wrote it"
     );
+    // The stand is read before the comment is worded, so the comment promises
+    // nothing kelpie will not do.
+    let said = facts(&rig);
+    assert!(!said.contains("ready-for-agent"), "{said}");
+    assert!(said.contains("The maintainer triages it next"), "{said}");
     assert_eq!(moves(&rig), ["comment"], "nothing more is labelled");
     assert_eq!(rig.forge.issue_labels(30), ["needs-info"]);
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}
+
+// The same stand, read again where the ready path's labels would go on: a
+// label put on after the body went on is not labelled over.
+#[test]
+fn a_triage_label_put_on_after_the_body_edit_stands_and_ready_for_agent_is_not_put_on() {
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({ "issue": 30, "comment": 101, "step": "body-written", "labels": ["bug", "P2"] }),
+    );
+    let runner = rig.open().unwrap();
+    rig.forge.label(30, "ready-for-human");
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let none: [String; 0] = [];
+    assert_eq!(
+        moves(&rig),
+        none,
+        "nothing is labelled over the maintainer's"
+    );
+    assert_eq!(rig.github.comments(), [], "no comment is posted again");
+    assert_eq!(rig.forge.issue_labels(30), ["ready-for-human"]);
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["step"], "done");
+    assert!(triaged["issues"][0].get("labels").is_none(), "{triaged}");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.contains("ready-for-human") && n.contains("stands")),
+        "{told:?}"
+    );
 }
 
 #[test]

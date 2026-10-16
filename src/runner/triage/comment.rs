@@ -122,6 +122,9 @@ pub(in crate::runner) struct Tries {
     // The labels the issue carried when its pass began, so a triage label it
     // carries later came by hand and stands; kept once, whatever retry runs
     pub(in crate::runner) seen: Option<Vec<String>>,
+    // The triage label that came by hand while the call ran, which stands: the
+    // comment is the pass's last write, and nothing is labelled or rewritten
+    stood: Option<String>,
     // The other item this issue is being closed as a duplicate of, kept with
     // the comment so the post is followed by the close and not by labels
     duplicate: Option<Addressed>,
@@ -295,7 +298,36 @@ impl Runner {
             .filter_map(|want| have.iter().find(|l| l.eq_ignore_ascii_case(want)))
             .cloned()
             .collect();
-        let ready_body = ready::body_for(self, author, found);
+        // A triage label the maintainer put on while the call ran stands, and
+        // it is read for before the comment is worded: the comment never
+        // promises a rewrite or a `ready-for-agent` that kelpie will not do.
+        let stood = match self.triage_labelled_by_hand(issue) {
+            Ok(label) => label,
+            Err(e) => {
+                let why = format!("cannot read its labels: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return Ok(());
+            }
+        };
+        let ready = ready::readiness(self, author, found);
+        let ready_body = match (stood.as_ref(), ready) {
+            (Some(label), _) => {
+                self.notes.push(format!(
+                    "triage #{issue}: `{label}` went on while the triager ran, so that stands: \
+                     kelpie labels it no further and writes no new body"
+                ));
+                None
+            }
+            (None, ready::Ready::Body(body)) => Some(body),
+            (None, ready::Ready::Local(leak)) => {
+                self.notes.push(format!(
+                    "triage #{issue}: its agent-ready body names {leak}, so it is not written \
+                     and the issue ends `{TRIAGE}"
+                ));
+                None
+            }
+            (None, ready::Ready::Not) => None,
+        };
         let facts = facts(found, &labels, ready_body.is_some());
         let earlier: Vec<u64> = self
             .triage_record(issue)
@@ -318,8 +350,12 @@ impl Runner {
         };
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(format!("{words}\n\n{MARKER}"));
-        tries.labels = labels;
+        tries.labels = match stood {
+            Some(_) => Vec::new(),
+            None => labels,
+        };
         tries.ready_body = ready_body;
+        tries.stood = stood;
         tries.duplicate = None;
         self.send_triage(issue)
     }
@@ -443,9 +479,11 @@ impl Runner {
         triage.issues.retain(|t| t.issue != issue);
         let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
         let ready_body = (self.triage_tries.get(&issue)).and_then(|t| t.ready_body.clone());
-        let step = match duplicate_of {
-            Some(_) => TriageStep::Closed,
-            None => TriageStep::Commented,
+        let stood = (self.triage_tries.get(&issue)).is_some_and(|t| t.stood.is_some());
+        let step = match (duplicate_of, stood) {
+            (Some(_), _) => TriageStep::Closed,
+            (None, true) => TriageStep::Done,
+            (None, false) => TriageStep::Commented,
         };
         triage.issues.push(Triaged {
             issue,
@@ -455,6 +493,13 @@ impl Runner {
             duplicate_of,
             ready_body,
         });
+        // A record saved finished needs the cap kept, as `triage_stepped` does
+        // for the steps that finish later.
+        if step == TriageStep::Done
+            && let Some(triage) = next.triage.as_mut()
+        {
+            triage.prune();
+        }
         self.save(next)?;
         self.triage_due.retain(|d| d.issue != issue);
         self.triage_queue.retain(|&n| n != issue);
@@ -463,6 +508,7 @@ impl Runner {
             tries.waiting = None;
             tries.duplicate = None;
             tries.ready_body = None;
+            tries.stood = None;
         }
         Ok(())
     }
@@ -534,10 +580,11 @@ impl Runner {
                     }
                 }
                 TriageStep::BodyWritten => {
-                    if !self.label_ready(issue) {
-                        return Ok(());
+                    match self.label_ready(issue)? {
+                        ready::ReadyLabels::On => self.triage_stepped(issue, TriageStep::Ready)?,
+                        ready::ReadyLabels::Stood => {}
+                        ready::ReadyLabels::Held => return Ok(()),
                     }
-                    self.triage_stepped(issue, TriageStep::Ready)?;
                     self.triage_tries.remove(&issue);
                     return Ok(());
                 }
