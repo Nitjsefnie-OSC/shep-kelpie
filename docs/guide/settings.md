@@ -24,6 +24,7 @@ A key kelpie no longer reads, such as `review.reviewers`, `coderabbit` or `plann
 - `agents.reviewers = ["defect-hunter"]`, with `qwen` first when `~/.claude/scripts/qwen-review.sh` exists, and no review bot
 - `contributions.pick = "off"`, `contributions.security_reviewer = "security-reviewer"`, `contributions.quiet_days = 7` and `contributions.nudge_days = 3`
 - `triage.pick = "off"`, `triage.wait_days = 7`, `triage.max_questions = 10` and `triage.agent = "triager"`
+- `triage.per_day = 10`, `triage.per_author_per_day = 2`, `triage.min_account_days = 30` and `triage.max_body_kb = 20`: the limits checked before an issue's triage call, each `0` for off. `triage.md` says what each one does
 - `pacing.enabled = true`
 - `worker.allowed_domains = []`, `worker.turn_timeout = 60` and `worker.compact_window = 200000`
 
