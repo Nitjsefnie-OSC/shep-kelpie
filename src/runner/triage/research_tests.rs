@@ -255,9 +255,9 @@ fn a_type_and_priority_the_repo_has_go_on_before_needs_triage() {
 }
 
 #[test]
-fn a_label_the_repo_lacks_is_left_off() {
+fn a_type_the_repo_lacks_is_left_off_and_a_priority_it_lacks_is_made() {
     let (rig, runner) = untouched();
-    rig.forge.set_repo_labels(&["bug", "needs-triage"]);
+    rig.forge.set_repo_labels(&["needs-triage"]);
     rig.claude.script_for(
         Role::Triager,
         [reply(json!({ "type": "bug", "priority": "P2" }))],
@@ -265,10 +265,18 @@ fn a_label_the_repo_lacks_is_left_off() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
-    assert_eq!(moves(&rig), ["comment", "label bug", "label needs-triage"]);
+    assert_eq!(
+        moves(&rig),
+        [
+            "make priority: P2",
+            "comment",
+            "label priority: P2",
+            "label needs-triage"
+        ]
+    );
     let said = facts(&rig);
-    assert!(said.contains("Kelpie labels it: bug."), "{said}");
-    assert!(!said.contains("P2"), "{said}");
+    assert!(said.contains("priority: P2"), "{said}");
+    assert!(!said.contains("bug"), "{said}");
 }
 
 #[test]
