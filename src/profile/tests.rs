@@ -578,6 +578,18 @@ fn the_instructions_say_the_packed_refs_lock_message_is_no_failure() {
     assert!(INSTRUCTIONS.contains("packed-refs.lock"), "{INSTRUCTIONS}");
 }
 
+// 29 refused `/tmp` writes in four days of transcripts, 51 of 93 worker
+// retros. Every harness already runs its call with `TMPDIR` at the call's
+// own scratch folder; nothing told the model it exists (#951).
+#[test]
+fn the_instructions_send_a_worker_to_its_own_temp_folder_for_scratch_files() {
+    assert!(
+        INSTRUCTIONS.contains("the folder `TMPDIR` names"),
+        "{INSTRUCTIONS}"
+    );
+    assert!(INSTRUCTIONS.contains("`/tmp` is refused"), "{INSTRUCTIONS}");
+}
+
 // A bare `git fetch` updates every `refs/remotes/origin/*` of the shared
 // clone, and a worker may write only its own branch's: 36 tool errors in the
 // transcripts of 13 to 16 October 2026, and 83 of the 93 retros of 10 to 12
