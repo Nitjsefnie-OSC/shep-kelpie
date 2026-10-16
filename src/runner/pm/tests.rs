@@ -8,6 +8,7 @@ use serde_json::json;
 
 use crate::ports::{AgentError, CallActivity, Role, Session, Timestamp};
 use crate::runner::flight::advance;
+use crate::runner::flight::tests::Driven;
 use crate::runner::{Pass, Runner, StepReport, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
@@ -15,6 +16,7 @@ use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen};
 mod attach;
 mod code;
 mod follow_up;
+mod lease;
 mod question;
 mod red;
 
@@ -79,6 +81,114 @@ fn step_until(runner: &Mutex<Runner>, wanted: impl Fn(&StepReport) -> bool) -> S
         }
     }
     panic!("no step reported what the test waited for");
+}
+
+#[test]
+fn a_worker_queued_for_its_lease_is_woken_for_the_wait_and_never_as_stuck() {
+    let (rig, runner) = with_pm("acme");
+    rig.ask(&runner, "add", Some("7"));
+    let queue = Hold::default();
+    let work = Hold::default();
+    rig.claude.script([
+        Scripted::Queued(queue.clone(), Box::new(Scripted::Hold(work.clone()))),
+        Scripted::Say("{\"pick\": null}"),
+    ]);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(
+        queue.entered(CALL_PATIENCE),
+        "the turn never queued for its lease"
+    );
+    assert_eq!(driven.heard(), None, "the wait is no report");
+    rig.clock.advance(11 * 60);
+
+    let (woke_for, acted, dropped) = answered(step(&runner).unwrap());
+    assert_eq!(
+        woke_for,
+        [
+            "#7 has waited 11m for a lease on its model. Its worker is not stuck: it has had \
+             no model to show anything through, and kelpie leaves its turn running. Reply to \
+             the maintainer if the lease should be released."
+        ]
+    );
+    assert_eq!((acted, dropped), (vec![], vec![]));
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    assert!(
+        board.contains("worker turn running for 11m, waiting for its model\n"),
+        "{board}"
+    );
+    assert!(
+        board.contains("#7: worker waits 11m for its model's lease\n"),
+        "{board}"
+    );
+    assert!(!board.contains("worker idle"), "{board}");
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_items"][0]["waiting"]["why"],
+        "lease",
+        "the turn still waits on its model"
+    );
+
+    // Half an hour in, its model is still taken, and it is still no stuck worker.
+    rig.clock.advance(19 * 60);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Idle));
+    assert_eq!(pm_seen(&rig).len(), 1, "the wait woke it a second time");
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    assert!(
+        board.contains("worker turn running for 30m, waiting for its model\n"),
+        "{board}"
+    );
+    assert!(!board.contains("worker idle"), "{board}");
+    assert!(!work.returned(), "the queued turn was ended");
+
+    // The lease comes, and the turn works on it.
+    queue.release();
+    assert_eq!(driven.heard(), None, "the grant is no report");
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    driven.pass();
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    assert!(
+        board.contains("#7: worker has its model's lease, after waiting 30m\n"),
+        "{board}"
+    );
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
+}
+
+#[test]
+fn a_worker_quiet_ten_minutes_past_its_grant_is_stuck_as_ever() {
+    let (rig, runner) = with_pm("acme");
+    rig.ask(&runner, "add", Some("7"));
+    let queue = Hold::default();
+    let work = Hold::default();
+    rig.claude.script([
+        Scripted::Queued(queue.clone(), Box::new(Scripted::Hold(work.clone()))),
+        Scripted::Say("{\"pick\": null}"),
+    ]);
+    rig.claude.set_activity(CallActivity::Nothing);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(
+        queue.entered(CALL_PATIENCE),
+        "the turn never queued for its lease"
+    );
+    assert_eq!(driven.heard(), None, "the wait is no report");
+
+    rig.clock.advance(2 * 60);
+    queue.release();
+    assert_eq!(driven.heard(), None, "the grant is no report");
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    rig.clock.advance(10 * 60);
+
+    let (woke_for, _, _) = answered(step(&runner).unwrap());
+    assert_eq!(
+        woke_for,
+        ["#7 is stuck: its worker has shown no tool call or output for 10m"]
+    );
+    let board = std::fs::read_to_string(rig.paths().board).unwrap();
+    let idle = "  - Session: worker turn running for 12m, idle: no tool call or output for 10m\n";
+    assert!(board.contains(idle), "{board}");
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
 }
 
 #[test]

@@ -237,6 +237,34 @@ pub(super) fn reason(wake: &Wake) -> String {
             files.join(", ")
         ),
         Wake::Stuck(issue, what) => format!("#{issue} is stuck: {what}"),
+        Wake::LeaseWait {
+            issue,
+            worker,
+            why,
+            waited,
+            holder,
+        } => {
+            let held = holder.as_ref().map_or(String::new(), |h| {
+                let what = match h.what.is_empty() {
+                    true => String::new(),
+                    false => format!(
+                        " for `{}`",
+                        h.what.split_whitespace().collect::<Vec<_>>().join(" ")
+                    ),
+                };
+                format!(", which `{}` holds{what}", h.client)
+            });
+            let (who, run) = match worker {
+                true => ("worker", "its turn"),
+                false => ("review call", "its review"),
+            };
+            format!(
+                "#{issue} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
+                 no model to show anything through, and kelpie leaves {run} running. Reply to \
+                 the maintainer if the lease should be released.",
+                why.as_str()
+            )
+        }
         Wake::Told => "the maintainer told you something".to_owned(),
         Wake::Vote { id, asked } => {
             let mut out = format!("ruling {id} is before the panel, and your vote is due:\n");

@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use crate::ports::{AgentError, CallActivity, Cost, Timestamp, Usage};
 use crate::runner::flight::advance;
+use crate::runner::flight::tests::Driven;
 use crate::runner::{Pass, Runner, step};
 use crate::settings::Harness;
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, git};
@@ -188,6 +189,65 @@ fn a_worker_silent_past_ten_minutes_reads_as_idle_until_it_shows_something_again
     assert!(text.contains("] 14:25 #7: worker active again\n"), "{text}");
     hold.release();
     assert!(hold.answered(CALL_PATIENCE), "the turn never answered");
+}
+
+#[test]
+fn a_turn_queued_for_its_lease_is_never_idle_and_its_quiet_starts_at_the_grant() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let queue = Hold::default();
+    let work = Hold::default();
+    rig.claude.script([Scripted::Queued(
+        queue.clone(),
+        Box::new(Scripted::Hold(work.clone())),
+    )]);
+    rig.claude.set_activity(CallActivity::Nothing);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(
+        queue.entered(CALL_PATIENCE),
+        "the turn never queued for its lease"
+    );
+    assert_eq!(driven.heard(), None, "the wait is no report");
+
+    rig.clock.advance(30 * 60);
+    driven.pass();
+    let text = board(&rig);
+    let waiting = "  - Session: worker turn running for 30m, waiting for its model\n";
+    assert!(text.contains(waiting), "{text}");
+    let lease = "  - Waiting for its model since 14:13 (30m): for a lease on its model\n";
+    assert!(text.contains(lease), "{text}");
+    assert!(
+        text.contains("#7: worker waits 30m for its model's lease\n"),
+        "{text}"
+    );
+    assert!(!text.contains("worker idle"), "{text}");
+
+    queue.release();
+    assert_eq!(driven.heard(), None, "the grant is no report");
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    rig.clock.advance(60);
+    driven.pass();
+    let text = board(&rig);
+    let quiet = "  - Session: worker turn running for 31m, no tool call or output yet\n";
+    assert!(text.contains(quiet), "{text}");
+    assert!(
+        text.contains("worker has its model's lease, after waiting 30m\n"),
+        "{text}"
+    );
+
+    rig.clock.advance(10 * 60);
+    driven.pass();
+    let text = board(&rig);
+    let idle = "  - Session: worker turn running for 41m, idle: no tool call or output for 11m\n";
+    assert!(text.contains(idle), "{text}");
+    assert!(
+        text.contains("] 14:54 #7: worker idle, no tool call or output for 11m\n"),
+        "{text}"
+    );
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
 }
 
 #[test]

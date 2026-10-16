@@ -29,6 +29,7 @@ use super::transcript_count::Mark;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
 use crate::adapters::bridge::Bridge;
+use crate::board::briefing::elapsed;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Ending, Flying, RoundStage, Timestamp, Wait,
 };
@@ -202,10 +203,6 @@ struct Flight {
     first: bool,
     // Whether it is a `/compact` of the worker's session, sent before a turn
     compact: bool,
-    // When the call began, past the lease it waited for
-    began_at: Option<Timestamp>,
-    // What the call last said it waits for, and since when
-    told: Option<(Timestamp, Wait)>,
     // Where a first turn that waited too long moves
     fallback: waiting::Fallback,
     // The browser the turn drives, which lasts as long as the turn does
@@ -474,16 +471,31 @@ impl Runner {
     }
 
     // Counts `issue`'s turn ceiling from now, once its call has the lease it
-    // waited for.
+    // waited for, and starts the board's quiet clock from the same moment.
     fn began(&mut self, issue: u64) {
         let now = self.ports.clock.now();
-        if let Some(flight) = self.flights.flying.get_mut(&issue)
-            && flight.deadline.is_some()
+        let told = self.flights.flying.get_mut(&issue).map(|flight| {
+            let told = flight.watched.told.take();
+            let said = flight.watched.woken;
+            let turn = flight.watched.call.is_some();
+            let waited = told.map_or(0, |(since, _)| now.0.saturating_sub(since.0));
+            flight.watched.granted = Some(now);
+            flight.watched.woken = false;
+            if flight.deadline.is_some() {
+                flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
+                flight.ending.carry(flight.flying(now));
+            }
+            (said, turn, waited)
+        });
+        // The board names the gap the lease took, so a reader sees the wait was real.
+        if let Some((said, turn, waited)) = told
+            && said
         {
-            flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
-            flight.began_at = Some(now);
-            flight.ending.carry(flight.flying(now));
-            flight.told = None;
+            let who = if turn { "worker" } else { "review call" };
+            self.board_event(format!(
+                "#{issue}: {who} has its model's lease, after waiting {}",
+                elapsed(waited)
+            ));
         }
         self.board_changed();
     }
@@ -569,6 +581,10 @@ impl Runner {
                 Launch::Review(_) => None,
             },
             idle: false,
+            told: None,
+            granted: None,
+            woken: false,
+            lease: waiting::lease_of(&launch),
         };
         let draft = match &launch {
             Launch::Turn { call, .. } => {
@@ -614,8 +630,6 @@ impl Runner {
             watched,
             first,
             compact,
-            began_at: None,
-            told: None,
             fallback: waiting::Fallback::Stays,
             browser: deadline.and_then(|_| self.opened.take(issue)),
             requests: match &launch {
@@ -837,6 +851,11 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             if stage == RoundStage::Running {
                 let now = runner.ports.clock.now();
                 runner.flights.ledger.ran(Some(issue), now);
+                // The round has the lease it queued for.
+                runner.began(issue);
+            } else {
+                // A round queued at its model's lease waits like a turn does.
+                runner.told(issue, Wait::Lease);
             }
             // A failed save is told and let go. A GPU wait may then count as
             // the round's, but the phases still sum to the wall time.
@@ -953,7 +972,7 @@ pub(super) mod security;
 #[cfg(test)]
 mod step;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 

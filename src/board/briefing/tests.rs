@@ -34,6 +34,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
         12,
         Session::Review {
             since: Timestamp(EPOCH - 120),
+            waiting: None,
         },
         Files::Diff(files(&["src/a.rs", "src/b.rs"])),
     );
@@ -61,6 +62,7 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
                 11,
                 Session::Turn {
                     since: Timestamp(EPOCH - 3600),
+                    active: Some(Timestamp(EPOCH - 3600)),
                     last: CallActivity::At(Timestamp(EPOCH - 50 * 60)),
                 },
                 Files::Named(files(&["src/b.rs"])),
@@ -134,6 +136,66 @@ fn a_board_with_an_idle_worker_a_review_call_and_a_ruling_reads_whole() {
          - #12 (kelpie/12): src/a.rs, src/b.rs\n\
          - #13 (kelpie/13): src/c.rs\n"
     );
+}
+
+#[test]
+fn a_turn_that_has_not_had_its_lease_and_a_queued_round_are_not_idle() {
+    let open = vec![
+        item(
+            11,
+            Session::Turn {
+                since: Timestamp(EPOCH - 30 * 60),
+                active: None,
+                last: CallActivity::Nothing,
+            },
+            Files::Diff(files(&["src/a.rs"])),
+        ),
+        item(
+            12,
+            Session::Review {
+                since: Timestamp(EPOCH - 20 * 60),
+                waiting: Some((Timestamp(EPOCH - 20 * 60), Wait::Lease)),
+            },
+            Files::Diff(files(&["src/a.rs"])),
+        ),
+    ];
+    let board = Briefing {
+        held: 2,
+        ..briefing(open)
+    };
+    let text = render(&board);
+    assert!(
+        text.contains("  - Session: worker turn running for 30m, waiting for its model\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "  - Session: review call running for 20m, waiting for a lease on its model\n"
+        ),
+        "{text}"
+    );
+}
+
+// A board with nothing on it but `items`, at [`EPOCH`]
+fn briefing(items: Vec<Item>) -> Briefing<'static> {
+    Briefing {
+        project: "acme",
+        now: Timestamp(EPOCH),
+        active_items: 2,
+        pending_rulings: 2,
+        held: items.len(),
+        parked: 0,
+        run: None,
+        main: None,
+        items,
+        rulings: Vec::new(),
+        red: Vec::new(),
+        ready: None,
+        events: Vec::new(),
+        woken_before: false,
+        dropped: false,
+        conflicts: BTreeMap::new(),
+    }
 }
 
 #[test]

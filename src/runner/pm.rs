@@ -18,7 +18,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::Runner;
 use super::report::StepReport;
 use crate::pacer::Scope;
-use crate::ports::{AgentError, AgentReply, COMPACT, Finding, Session, SessionId, Timestamp};
+use crate::ports::{
+    AgentError, AgentReply, COMPACT, Finding, PaddockHolder, Session, SessionId, Timestamp, Wait,
+};
 use crate::settings::PmAgent;
 use crate::state::StateError;
 use crate::usage::CallKind;
@@ -79,6 +81,20 @@ pub(super) enum Wake {
     Conflict(u64, u64, Vec<String>),
     /// A work item is stuck, as this says
     Stuck(u64, String),
+    /// A call in flight has waited long for a lease on its model, which is not
+    /// the worker being stuck
+    LeaseWait {
+        /// The work item's issue
+        issue: u64,
+        /// Whether the call that waits is a worker's turn, not a review call
+        worker: bool,
+        /// What its call waits for
+        why: Wait,
+        /// How long it has waited, in words
+        waited: String,
+        /// Who holds the lease, as the gateway says it, when the gateway says
+        holder: Option<PaddockHolder>,
+    },
     /// The maintainer told it something, which the state file holds
     Told,
     /// A worker asked a question, which ruling `id` holds for the maintainer
@@ -118,6 +134,7 @@ impl Wake {
             (Self::Pick(_), Self::Pick(_)) | (Self::Told, Self::Told) => true,
             (Self::Conflict(a, b, _), Self::Conflict(c, d, _)) => (a, b) == (c, d),
             (Self::Stuck(a, _), Self::Stuck(b, _)) => a == b,
+            (Self::LeaseWait { issue: a, .. }, Self::LeaseWait { issue: b, .. }) => a == b,
             (Self::Question { id: a, .. }, Self::Question { id: b, .. }) => a == b,
             (Self::FollowUp { id: a, .. }, Self::FollowUp { id: b, .. }) => a == b,
             (Self::Vote { id: a, .. }, Self::Vote { id: b, .. }) => a == b,
@@ -353,6 +370,7 @@ impl Runner {
                 }
                 Wake::Told => self.pm_due(Wake::Told),
                 Wake::Conflict(..) | Wake::Stuck(..) => self.pm.lapsed = true,
+                Wake::LeaseWait { .. } => self.pm.lapsed = true,
                 // The ruling goes to the maintainer, who need not wait on it again.
                 Wake::Question { id, .. } | Wake::FollowUp { id, .. } => {
                     self.pm.asking.remove(&id);

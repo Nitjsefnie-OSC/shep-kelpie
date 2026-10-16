@@ -15,11 +15,12 @@ use super::trigger::lock;
 use super::turn::held_up::HeldUp;
 use crate::board::briefing::{
     self, Briefing, Files, IDLE_AFTER, Item, Merge, Ready, ReadyLine, RedLine, RulingLine, Session,
-    age, quiet_for,
+    age, elapsed, quiet_for,
 };
 use crate::board::{ReadyIssue, Skip, priority, rule_order};
 use crate::local_paths::Surface;
-use crate::ports::{AgentCall, Timestamp};
+use crate::ports::{AgentCall, PaddockHolder, Timestamp, Wait};
+use crate::settings::{GatewayName, ModelHost};
 use crate::state::{ProjectState, StateError, write_atomically};
 use crate::work_item::{Phase, ReviewStage, Seat, Turn, WorkItem};
 
@@ -37,6 +38,13 @@ const RECENT: usize = 20;
 
 /// How often the board is written again with nothing changed, in seconds
 const REFRESH: u64 = 60;
+
+/// How long a call in flight waits for its model's lease before the project
+/// manager is woken for it, in seconds
+///
+/// The board calls a quiet turn idle at the same length. A wait is not the
+/// worker being quiet, but a long one is worth a word of its own.
+const LEASE_WAIT_AFTER: u64 = IDLE_AFTER;
 
 /// What the board keeps between writes, in memory only
 #[derive(Debug, Default)]
@@ -67,6 +75,31 @@ pub(super) struct Watched {
     pub(super) call: Option<AgentCall>,
     /// Whether the board has said it is idle
     pub(super) idle: bool,
+    /// What the call last said it waits for before its model can answer, and
+    /// since when. `None` once it has the lease it waited for.
+    pub(super) told: Option<(Timestamp, Wait)>,
+    /// When the call was granted the lease it waited for. `None` while it
+    /// waits for one, and while its harness waits on none.
+    pub(super) granted: Option<Timestamp>,
+    /// Whether this wait has already woken the project manager
+    pub(super) woken: bool,
+    /// The gateway and the model the call holds a lease on, `None` when its
+    /// harness or round holds none
+    pub(super) lease: Option<(GatewayName, String)>,
+}
+
+impl Watched {
+    /// When the call's quiet counts from: the grant of the lease it waited
+    /// for, or its start when it waited for none
+    ///
+    /// `None` while the call still waits for its model, when nothing it shows
+    /// is late: the quiet is the gateway's turn, not the worker's.
+    pub(super) fn quiet_from(&self) -> Option<Timestamp> {
+        match self.told {
+            Some(_) => None,
+            None => Some(self.granted.unwrap_or(self.started)),
+        }
+    }
 }
 
 // Whether `after` holds an entry `before` did not, or holds one differently
@@ -196,9 +229,34 @@ impl Runner {
         let agents = std::sync::Arc::clone(&self.ports.agents);
         let mut found = Vec::new();
         let mut stuck = Vec::new();
+        let mut waiting = Vec::new();
         for (issue, watched) in self.flights.watched_mut() {
+            // A call that has not been granted its model's lease is never idle:
+            // what it has shown nothing for is the gateway's turn, not the
+            // worker's. A long wait is its own wake, naming the lease holder.
+            if let Some((since, _)) = watched.told {
+                watched.idle = false;
+                let waited = now.0.saturating_sub(since.0);
+                if !watched.woken && waited >= LEASE_WAIT_AFTER {
+                    watched.woken = true;
+                    let who = if watched.call.is_some() {
+                        "worker"
+                    } else {
+                        "review call"
+                    };
+                    found.push(format!(
+                        "#{issue}: {who} waits {} for its model's lease",
+                        elapsed(waited)
+                    ));
+                    waiting.push(issue);
+                }
+                continue;
+            }
             let Some(call) = &watched.call else { continue };
-            let Some(quiet) = quiet_for(watched.started, agents.last_active(call), now) else {
+            // Its quiet runs from the lease it was granted, or from its start
+            // for a harness that waits on none.
+            let from = watched.granted.unwrap_or(watched.started);
+            let Some(quiet) = quiet_for(from, agents.last_active(call), now) else {
                 continue;
             };
             let idle = quiet >= IDLE_AFTER;
@@ -217,7 +275,69 @@ impl Runner {
             let what = format!("its worker has shown no tool call or output for {quiet}");
             self.pm_due(super::pm::Wake::Stuck(issue, what));
         }
+        for issue in waiting {
+            if let Some(wake) = self.lease_wake(issue) {
+                self.pm_due(wake);
+            }
+        }
         found
+    }
+
+    /// `issue`'s wake for a call in flight that has waited past
+    /// [`LEASE_WAIT_AFTER`] for a lease on its model, naming who holds it
+    /// where the gateway will say
+    ///
+    /// `None` when it waits on nothing, waits on no lease, or has not waited
+    /// that long.
+    pub(super) fn lease_wake(&self, issue: u64) -> Option<super::pm::Wake> {
+        let watched = self.flights.watched(issue)?;
+        let (since, why) = watched.told?;
+        let now = self.ports.clock.now();
+        let waited = now.0.saturating_sub(since.0);
+        if waited < LEASE_WAIT_AFTER {
+            return None;
+        }
+        Some(super::pm::Wake::LeaseWait {
+            issue,
+            worker: watched.call.is_some(),
+            why,
+            waited: elapsed(waited),
+            holder: watched
+                .lease
+                .as_ref()
+                .and_then(|l| self.lease_holder(l))
+                .map(|h| self.shown_holder(h)),
+        })
+    }
+
+    // `holder`, with each word the gateway gave it checked as the board checks
+    // what it shows
+    fn shown_holder(&self, holder: PaddockHolder) -> PaddockHolder {
+        PaddockHolder {
+            lease: self.shown(holder.lease),
+            client: self.shown(holder.client),
+            what: self.shown(holder.what),
+            since: holder.since,
+        }
+    }
+
+    // Who holds the gateway's lease on the model `lease` names, when the
+    // gateway will say
+    fn lease_holder(&self, lease: &(GatewayName, String)) -> Option<PaddockHolder> {
+        let upstream = self
+            .gateways
+            .upstream(&ModelHost::Gateway(lease.0.clone()))
+            .ok()?;
+        self.ports
+            .local_leases
+            .paddock_holder(&upstream, lease.1.as_str())
+    }
+
+    // Saves `what` as a board event, saying so when it cannot be saved
+    pub(super) fn board_event(&mut self, what: String) {
+        if let Err(e) = self.record(vec![what]) {
+            eprintln!("cannot save the board's events: {e}");
+        }
     }
 
     fn write_board(&mut self, mut answers: GitAnswers) {
@@ -343,15 +463,17 @@ impl Runner {
 
     fn item_line(&self, item: &WorkItem, files: Files, now: Timestamp) -> Item {
         let session = match self.flights.watched(item.issue) {
-            Some(Watched {
-                started,
-                call: Some(call),
-                ..
-            }) => Session::Turn {
-                since: *started,
-                last: self.ports.agents.last_active(call),
+            Some(watched) => match &watched.call {
+                Some(call) => Session::Turn {
+                    since: watched.started,
+                    active: watched.quiet_from(),
+                    last: self.ports.agents.last_active(call),
+                },
+                None => Session::Review {
+                    since: watched.started,
+                    waiting: watched.told,
+                },
             },
-            Some(Watched { started, .. }) => Session::Review { since: *started },
             None => {
                 let held = self.held_up.of(item.issue);
                 Session::Still(still(&item.turn, now, held, &|text| self.shown(text)))
