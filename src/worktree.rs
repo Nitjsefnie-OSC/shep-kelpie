@@ -139,7 +139,9 @@ impl core::error::Error for WorktreeError {}
 ///
 /// A new worktree's branch starts where `start` says, just fetched, and does
 /// not track it. [`Start::Pushed`] reads the branch from `remote`, which is
-/// the fork's branch when `remote` is a [`Remote::Fork`].
+/// the fork's branch when `remote` is a [`Remote::Fork`]. Every call leaves
+/// `origin/main` current, which is what the worker is told to merge and may
+/// not fetch itself.
 ///
 /// # Errors
 ///
@@ -159,6 +161,11 @@ pub fn prepare(
         if listed_branch(repo, worktree)?.as_deref() != Some(full_ref.as_str()) {
             return Err(foreign());
         }
+        // The worker merges `origin/main` and runs no fetch of its own, so
+        // kelpie brings main to it before each of its turns. A fetch that
+        // fails leaves the ref where kelpie last put it and the turn runs on:
+        // the gate fetches main again before it reads a head.
+        let _ = git(repo, ["fetch", "--quiet", "--", "origin", BASE]);
     } else {
         let local = git(repo, ["rev-parse", "--verify", "--quiet", &full_ref]).ok();
         if local.is_some() && start == Start::Main {
@@ -172,7 +179,7 @@ pub fn prepare(
                 git(repo, ["fetch", "--quiet", "--", "origin", BASE])?;
                 format!("origin/{BASE}")
             }
-            Start::Pushed => remote.fetch(repo, branch)?,
+            Start::Pushed => remote.fetch_with_main(repo, branch)?,
         };
         let wt = worktree.as_os_str();
         if let Some(local) = local {
