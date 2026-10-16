@@ -130,7 +130,7 @@ async fn a_pi_tool_off_the_path_is_missing_and_says_to_install() {
 }
 
 #[tokio::test]
-async fn each_pi_tool_off_the_path_is_named_by_the_tool_it_breaks_and_debian_s_name_counts() {
+async fn each_pi_tool_off_the_path_is_named_by_the_tool_it_breaks() {
     let mut scene = Scene::new().await;
     scene.runs_pi_on_golbat();
 
@@ -138,7 +138,7 @@ async fn each_pi_tool_off_the_path_is_named_by_the_tool_it_breaks_and_debian_s_n
     let (what, _) = missing(&scene.report().await, "golbat: pi tools");
     assert_eq!(
         what,
-        "`find` runs `fd`, which is not on your PATH, so pi's `find` tool fails in every call"
+        "`find` runs `fd` or `fdfind`, and neither is on your PATH, so pi's `find` tool fails in every call"
     );
 
     scene.host.path = Some(vec!["pi"]);
@@ -146,14 +146,28 @@ async fn each_pi_tool_off_the_path_is_named_by_the_tool_it_breaks_and_debian_s_n
     assert_eq!(
         what,
         "`grep` runs `rg`, which is not on your PATH, so pi's `grep` tool fails in every call; \
-         `find` runs `fd`, which is not on your PATH, so pi's `find` tool fails in every call"
+         `find` runs `fd` or `fdfind`, and neither is on your PATH, so pi's `find` tool fails in every call"
     );
+}
 
-    // Debian calls `fd` `fdfind`, and pi takes either name.
-    scene.host.path = Some(vec!["pi", "rg", "fdfind"]);
+// pi takes either name for `fd`, and Debian ships it as `fdfind`. The line
+// names the program it actually found, so an operator looking for `fd` is not
+// told it is there when it is not.
+#[tokio::test]
+async fn the_ok_pi_tools_line_names_the_program_it_found_on_the_path() {
+    let mut scene = Scene::new().await;
+    scene.runs_pi_on_golbat();
+
+    scene.host.path = Some(vec!["pi", "rg", "fd"]);
     assert_eq!(
         ok(&scene.report().await, "golbat: pi tools"),
         "`rg` and `fd` are on your PATH, which pi's `grep` and `find` run"
+    );
+
+    scene.host.path = Some(vec!["pi", "rg", "fdfind"]);
+    assert_eq!(
+        ok(&scene.report().await, "golbat: pi tools"),
+        "`rg` and `fdfind` are on your PATH, which pi's `grep` and `find` run (`fdfind` is `fd` under another name)"
     );
 }
 

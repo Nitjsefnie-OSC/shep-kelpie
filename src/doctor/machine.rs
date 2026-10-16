@@ -145,23 +145,47 @@ const PI_TOOLS: [(&str, &str, &[&str]); 2] =
 /// call since each call gets a pi home of its own, then on `PATH`, then
 /// downloads the program from GitHub, which the sandbox refuses. A tool with
 /// none of those fails in every call (`docs/facts/tool-errors.md`).
+///
+/// Each line names the program the `PATH` actually has, since pi takes more
+/// than one name for `fd` and an operator looking for `fd` is not told it is
+/// there when what is there is `fdfind`.
 pub(super) fn pi_tools(subject: String, host: &dyn Host) -> Line {
-    let gone: Vec<(&str, &str)> = PI_TOOLS
-        .iter()
-        .filter(|(_, _, names)| !names.iter().any(|name| host.on_path(name)))
-        .map(|(tool, program, _)| (*tool, *program))
-        .collect();
+    let mut found: Vec<(&str, &str)> = Vec::new();
+    let mut gone: Vec<(&str, &[&str])> = Vec::new();
+    for (tool, program, names) in PI_TOOLS {
+        match names.iter().copied().find(|name| host.on_path(name)) {
+            Some(name) => found.push((program, name)),
+            None => gone.push((tool, names)),
+        }
+    }
     if gone.is_empty() {
-        return Line::ok(
-            subject,
-            "`rg` and `fd` are on your PATH, which pi's `grep` and `find` run",
+        let names: Vec<String> = found.iter().map(|(_, name)| format!("`{name}`")).collect();
+        let renamed: Vec<String> = found
+            .iter()
+            .filter(|(program, name)| program != name)
+            .map(|(program, name)| format!("`{name}` is `{program}` under another name"))
+            .collect();
+        let mut what = format!(
+            "{} are on your PATH, which pi's `grep` and `find` run",
+            names.join(" and ")
         );
+        if !renamed.is_empty() {
+            what.push_str(&format!(" ({})", renamed.join("; ")));
+        }
+        return Line::ok(subject, what);
     }
     let said: Vec<String> = gone
         .iter()
-        .map(|(tool, program)| {
+        .map(|(tool, names)| {
+            // Every tool in `PI_TOOLS` has at most two accepted names.
+            let names: Vec<String> = names.iter().map(|name| format!("`{name}`")).collect();
+            let (list, not) = if names.len() == 1 {
+                (names.join(""), "which is not")
+            } else {
+                (names.join(" or "), "and neither is")
+            };
             format!(
-                "`{tool}` runs `{program}`, which is not on your PATH, so pi's `{tool}` tool fails in every call"
+                "`{tool}` runs {list}, {not} on your PATH, so pi's `{tool}` tool fails in every call"
             )
         })
         .collect();
