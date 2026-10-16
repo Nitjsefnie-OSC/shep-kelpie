@@ -119,3 +119,56 @@ fn a_worker_reads_the_toolchain_its_build_env_points_into_the_build_folder() {
         );
     }
 }
+
+#[test]
+fn a_worker_reads_the_build_folder_source_folders_its_cargo_has_not_made_yet() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| {
+        s.replace(
+            "build_env = {}",
+            "build_env = { CARGO_HOME = \"cargo\", RUSTUP_HOME = \"rustup\" }",
+        )
+    });
+    // Nothing has been built for this item: its build folder holds no crate and
+    // no toolchain, and the call's own cargo is what will make them.
+    let (cargo, rustup) = (rig.build_7().join("cargo"), rig.build_7().join("rustup"));
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+    step(&runner).unwrap();
+    let [seen] = rig.claude.seen().try_into().unwrap();
+    let granted: Vec<&str> = (seen.settings["permissions"]["additionalDirectories"]
+        .as_array()
+        .expect("the worker is granted folders outside its worktree")
+        .iter())
+    .filter_map(serde_json::Value::as_str)
+    .collect();
+
+    for folder in [
+        cargo.join("registry/src"),
+        cargo.join("git/checkouts"),
+        rustup.join("toolchains"),
+    ] {
+        assert!(
+            folder.is_dir(),
+            "{} is not there for the call to fill",
+            folder.display()
+        );
+        assert!(granted.contains(&folder.to_str().unwrap()), "{granted:?}");
+    }
+
+    // The grant is no wider than the source folders: the home itself and what
+    // cargo keeps beside its unpacked crates stay outside it.
+    for other in [
+        cargo.as_path(),
+        &cargo.join("registry"),
+        &cargo.join("registry/index"),
+    ] {
+        assert!(
+            !granted.contains(&other.to_str().unwrap()),
+            "{}: {granted:?}",
+            other.display()
+        );
+    }
+}

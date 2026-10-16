@@ -45,9 +45,9 @@ impl Runner {
         }
     }
 
-    // The machine's own dependency and toolchain sources, and what the build
-    // folder `build` holds of them when the project's `build_env` points a
-    // tool's home there.
+    // The machine's own dependency and toolchain sources, and the folders the
+    // build folder `build` is expected to hold when the project's `build_env`
+    // points a tool's home there.
     fn dep_reads(&self, build: Option<&Path>) -> Vec<PathBuf> {
         let named = |name: &str| {
             build.and_then(|build| {
@@ -59,12 +59,24 @@ impl Runner {
                     .map(|(_, dir)| build.join(dir.as_path()))
             })
         };
+        // A build-local folder is made as it is granted. A harness judges its
+        // grants when the call starts, and the call's own tool is what fills the
+        // folder, so a grant left naming an empty folder may be refused, and the
+        // source stays unreadable until the next call. One that cannot be made is
+        // still granted: the tool makes it when it runs, and the call is no worse
+        // off than it was.
+        let made = |folders: Vec<PathBuf>| {
+            for folder in &folders {
+                let _ = std::fs::create_dir_all(folder);
+            }
+            folders
+        };
         let mut reads = self.dep_sources.folders().to_vec();
         if let Some(cargo) = named("CARGO_HOME") {
-            reads.extend(crate::dep_sources::cargo_srcs(&cargo));
+            reads.extend(made(crate::dep_sources::expected_cargo_srcs(&cargo)));
         }
         if let Some(rustup) = named("RUSTUP_HOME") {
-            reads.extend(crate::dep_sources::rustup_srcs(&rustup));
+            reads.extend(made(crate::dep_sources::expected_rustup_srcs(&rustup)));
         }
         reads
     }

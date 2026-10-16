@@ -71,22 +71,31 @@ impl Env for ProcessEnv {
     }
 }
 
-/// The folders of the cargo home at `dir` that hold a crate's unpacked source,
-/// each one there. A project's `build_env` can put its worker's cargo home in
-/// the work item's build folder, whose crates a reviewer reads there.
-pub(crate) fn cargo_srcs(dir: &Path) -> Vec<PathBuf> {
-    CARGO_SRC
-        .iter()
-        .map(|sub| dir.join(sub))
-        .filter(|folder| folder.is_dir())
-        .collect()
+/// The source folders a cargo home is expected to hold, whether or not they are
+/// there yet. A project's `build_env` puts its worker's cargo home in the work
+/// item's build folder, and the call runs cargo itself: its crates appear while
+/// it runs, and a grant that names a folder which is not there when the call
+/// starts may be refused.
+pub(crate) fn expected_cargo_srcs(dir: &Path) -> Vec<PathBuf> {
+    CARGO_SRC.iter().map(|sub| dir.join(sub)).collect()
+}
+
+/// The source and docs a rustup home is expected to hold, whether or not they
+/// are there yet: each installed toolchain's, in name order, or, where none is
+/// installed yet, its `toolchains` folder whole. A toolchain's name is not known
+/// until the call installs one, so the whole folder is the narrowest grant that
+/// covers a toolchain made while the call runs.
+pub(crate) fn expected_rustup_srcs(dir: &Path) -> Vec<PathBuf> {
+    let installed = rustup_srcs(dir);
+    match installed.is_empty() {
+        true => vec![dir.join("toolchains")],
+        false => installed,
+    }
 }
 
 /// The source and docs of every toolchain under the rustup home at `dir`, each
-/// one there, in toolchain name order. A project's `build_env` can put its
-/// worker's rustup home in the work item's build folder, whose standard library
-/// a reviewer reads there.
-pub(crate) fn rustup_srcs(dir: &Path) -> Vec<PathBuf> {
+/// one there, in toolchain name order.
+fn rustup_srcs(dir: &Path) -> Vec<PathBuf> {
     toolchains(dir)
         .iter()
         .flat_map(|toolchain| under(toolchain, &RUSTUP_SRC))
