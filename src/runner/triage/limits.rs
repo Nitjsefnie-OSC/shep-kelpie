@@ -53,7 +53,7 @@ pub(in crate::runner) fn cut_body(body: &str, max_kb: u32) -> (String, String) {
     while end > 0 && !body.is_char_boundary(end) {
         end -= 1;
     }
-    let whole = (body.len() + 1023) / 1024;
+    let whole = body.len().div_ceil(1024);
     let note = format!(
         "\n\n[Kelpie cut the issue's body here: it is {whole} KB, and this call is given at \
          most {max_kb} KB of it.]"

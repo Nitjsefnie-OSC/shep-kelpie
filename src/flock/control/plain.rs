@@ -296,7 +296,7 @@ fn daily(triage: &Value, lines: &mut Vec<String>) {
     let waiting = match daily["wait"].as_u64() {
         // Rounded up, so a place that opens in nine minutes is never shown as
         // one that opens in none.
-        Some(seconds) => format!(", next place in {}h", (seconds + 3_599) / 3_600),
+        Some(seconds) => format!(", next place in {}h", seconds.div_ceil(3_600)),
         None => String::new(),
     };
     lines.push(format!("  triage daily: {used} of {cap} used{waiting}"));

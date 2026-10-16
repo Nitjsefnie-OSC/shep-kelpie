@@ -129,21 +129,34 @@ const P0_QUESTION: &str =
     "The research rates this P0, which only the maintainer sets. How urgent is it?";
 const P0_RECOMMENDED: &str = "P1";
 
-/// What the triager is asked about issue `number`: the issue, then the open
+/// The issue a research call is given: its number, its title, its body, and
+/// the size its body is cut at, 0 for no cut
+pub(in crate::runner) struct Subject<'a> {
+    pub(in crate::runner) number: u64,
+    pub(in crate::runner) title: &'a str,
+    pub(in crate::runner) body: &'a str,
+    pub(in crate::runner) max_body_kb: u32,
+}
+
+/// What the triager is asked about `subject`'s issue: the issue, then the open
 /// issues and the open pull requests, each fenced, and the shape of the reply.
-/// The second pass of the author's round is given `settling`: the questions
-/// kelpie asked and the author's answers, each fenced, which it reads against
-/// the issue.
+/// A body past `max_body_kb` kilobytes is cut, and the fence says it was. The
+/// second pass of the author's round is given `settling`: the questions kelpie
+/// asked and the author's answers, each fenced, which it reads against the
+/// issue.
 pub(super) fn prompt(
-    number: u64,
-    title: &str,
-    body: &str,
-    max_body_kb: u32,
+    subject: &Subject<'_>,
     open: &[Listed],
     pulls: &[ListedPull],
     max_questions: usize,
     settling: Option<&(String, String)>,
 ) -> String {
+    let Subject {
+        number,
+        title,
+        body,
+        max_body_kb,
+    } = *subject;
     // The body is what the limit cuts, never the title, and the cut says so in
     // the fence beside the text it left out.
     let (body, cut) = limits::cut_body(body, max_body_kb);

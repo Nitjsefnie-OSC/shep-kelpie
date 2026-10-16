@@ -262,16 +262,16 @@ impl Runner {
                 Some(due) => self.triage_limited(&due.author, asked),
                 None => false,
             };
-            if let Some(due) = &waiting {
-                if limited {
-                    match self.triage_held(due) {
-                        Some(limits::Held::Day) => continue,
-                        Some(limits::Held::Final(limit)) => {
-                            self.triage_hold(issue, &due.author, limit)?;
-                            continue;
-                        }
-                        None => {}
+            if let Some(due) = &waiting
+                && limited
+            {
+                match self.triage_held(due) {
+                    Some(limits::Held::Day) => continue,
+                    Some(limits::Held::Final(limit)) => {
+                        self.triage_hold(issue, &due.author, limit)?;
+                        continue;
                     }
+                    None => {}
                 }
             }
             if let Some(job) = self.triage_job(issue, Purpose::First, limited) {
@@ -379,22 +379,19 @@ impl Runner {
         if matches!(purpose, Purpose::Answers) && settling.is_none() {
             return None;
         }
-        let prompt = research::prompt(
-            issue,
-            &this.title,
-            &this.body,
+        let subject = research::Subject {
+            number: issue,
+            title: &this.title,
+            body: &this.body,
             // The body limit is one of the four, so it reaches no issue the
             // limits do not.
-            if limited {
+            max_body_kb: if limited {
                 self.settings.triage.max_body_kb
             } else {
                 0
             },
-            &listed,
-            &listed_pulls,
-            most,
-            settling.as_ref(),
-        );
+        };
+        let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
         let view = self.paths.triage(issue);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
