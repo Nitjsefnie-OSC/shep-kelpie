@@ -23,7 +23,10 @@
 //!   posts nothing.
 //! - A rework hands the pull request to kelpie: the record is released, which
 //!   is what adoption needs, and it is queued for a work item at once, without
-//!   waiting for the contributor to release it. The note goes to the worker.
+//!   waiting for the contributor to release it. The note is kept on the record,
+//!   where the work item's start reads it, and a push after the answer keeps
+//!   it. A rework with no note, which a tick or the card's choice gives, sends
+//!   the worker none.
 //!
 //! A yes, a no and a rework run no fix turn of their own. A new head clears
 //! the answer, withdraws the ruling and is read afresh.
@@ -81,7 +84,13 @@ impl Runner {
     // the maintainer about the pull request
     fn raise_for(&mut self, held: &Contribution) -> Result<(), StateError> {
         let number = held.pull_request;
-        if !held.awaits_merge_ruling() || (self.state.rulings.iter()).any(|r| r.id == number) {
+        // A pull request kelpie has taken over is kelpie's to finish: nothing
+        // is asked about merging it, even where its head moved before its work
+        // item started.
+        if held.released.is_some()
+            || !held.awaits_merge_ruling()
+            || (self.state.rulings.iter()).any(|r| r.id == number)
+        {
             return Ok(());
         }
         let facts = self.merge_facts(held);
@@ -113,31 +122,32 @@ impl Runner {
     // Has kelpie take the pull request over, as the maintainer's `rework`
     // answer does. The record is released, which is all adoption needs of it,
     // and the poll's own step queues it for a work item. Nothing is posted on
-    // the pull request, and the note stays on the answer, where the work
-    // item's start reads it.
+    // the pull request. The note goes on the record and not on the answer, so
+    // a contributor who pushes before the work item starts leaves it there.
     fn take_it_over(&mut self, held: &Contribution) -> Result<(), StateError> {
         let number = held.pull_request;
         if held.released.is_some() {
             return Ok(());
         }
-        let note = held
-            .ruled
-            .as_ref()
-            .and_then(|r| match &r.verdict {
-                Verdict::Rework { note } => Some(note.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let note = (held.ruled.as_ref()).and_then(|r| match &r.verdict {
+            Verdict::Rework { note } => note.clone(),
+            _ => None,
+        });
         let now = self.ports.clock.now();
         self.change(number, |held| {
             held.released = Some(Released {
                 at: now,
                 how: How::Maintainer,
             });
+            held.rework = note.clone();
         })?;
+        let tail = match &note {
+            Some(note) => format!(": {note}"),
+            None => String::new(),
+        };
         self.notes.push(format!(
             "contribution #{number}: the maintainer answered its merge ruling `rework`, so \
-             kelpie takes the pull request over: {note}"
+             kelpie takes the pull request over{tail}"
         ));
         Ok(())
     }

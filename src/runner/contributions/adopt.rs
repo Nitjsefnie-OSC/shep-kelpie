@@ -13,7 +13,10 @@
 //! labelled for the project's default implementer so the work item has an
 //! agent, and adds `Resolves #<issue>` to the pull request's body through the
 //! forge's edit, so the merge closes it. The record keeps the issue it filed,
-//! so a poll that filed it and could not edit the body files no second one.
+//! so a poll that filed it and could not edit the body files no second one, and
+//! that issue is what the work item hangs on even where the pull request closes
+//! another one later: the filed issue is the one its body names, so it closes
+//! with the merge and none is left open beside the work.
 //!
 //! A fork kelpie cannot push to is the maintainer's to decide on, not
 //! kelpie's: a quiet one gets a ruling ([`awaits_edits`]) and nothing is
@@ -25,7 +28,7 @@ use super::super::Runner;
 use super::ruling::raise_no_edits;
 use crate::issues::AgentLabel;
 use crate::ports::Reviewed;
-use crate::state::{Adopting, StateError, Waiting};
+use crate::state::{Adopting, How, StateError, Waiting};
 
 impl Runner {
     // Whether the release stage stops for the pull request this poll: the
@@ -95,20 +98,32 @@ impl Runner {
             self.save(next)?;
             return Ok(());
         }
-        // The issue the work item hangs on: the lowest the pull request closes,
-        // or the one an earlier poll filed for it.
-        let closes = pr.closes.iter().min().copied();
-        let issue = match (closes, held.adopting.as_ref().map(|a| a.issue)) {
+        // The issue its work item hangs on: the one an earlier poll filed for
+        // it, or the lowest the pull request closes. A pull request that closes
+        // an issue only after kelpie filed one keeps kelpie's: the filed issue
+        // is the one named on the pull request's body, so it is the one the
+        // merge closes, and none is left open beside the work.
+        let mut filed = held.adopting.map(|a| (a.issue, a.resolves));
+        let issue = match (
+            filed.map(|(issue, _)| issue),
+            pr.closes.iter().min().copied(),
+        ) {
             (Some(issue), _) => issue,
             (None, Some(issue)) => issue,
-            (None, None) => match self.file_issue(number, &pr)? {
-                Some(issue) => issue,
-                None => return Ok(()),
-            },
+            (None, None) => {
+                let how = held.released.as_ref().map(|r| r.how);
+                match self.file_issue(number, &pr, how)? {
+                    Some(issue) => {
+                        filed = Some((issue, false));
+                        issue
+                    }
+                    None => return Ok(()),
+                }
+            }
         };
         // Only the issue kelpie filed needs naming on the pull request: one it
         // already closes is named there.
-        let to_link = closes.is_none() && !held.adopting.is_some_and(|a| a.resolves);
+        let to_link = filed.is_some_and(|(_, resolves)| !resolves);
         if to_link && !self.link_issue(number, &pr, issue)? {
             return Ok(());
         }
@@ -124,14 +139,19 @@ impl Runner {
     // title and body, under the default implementer's `agent:` label. It is
     // saved as filed before the body is touched, so a body the forge will not
     // let kelpie edit costs no second issue.
-    fn file_issue(&mut self, number: u64, pr: &Reviewed) -> Result<Option<u64>, StateError> {
+    fn file_issue(
+        &mut self,
+        number: u64,
+        pr: &Reviewed,
+        how: Option<How>,
+    ) -> Result<Option<u64>, StateError> {
         let label = AgentLabel::of(&self.agents.default_implementer.name);
         if let Err(why) = self.make_missing_labels([label.new_label()]) {
             self.adopt_told(number, "make the label it needs", &why);
             return Ok(None);
         }
         let name = label.name().to_owned();
-        let issue = match self.open_issue(&pr.title, &filed_body(number, pr), &[&name]) {
+        let issue = match self.open_issue(&pr.title, &filed_body(number, pr, how), &[&name]) {
             Ok(issue) => issue,
             Err(e) => {
                 self.adopt_told(number, "file its issue", &e);
@@ -182,12 +202,18 @@ impl Runner {
     }
 }
 
-// What the filed issue says: where it came from, then the pull request's own
-// body as its contributor wrote it.
-fn filed_body(number: u64, pr: &Reviewed) -> String {
+// What the filed issue says: where it came from and who handed the pull
+// request over, then its body as its contributor wrote it. A release by the
+// maintainer's ruling says so, and does not claim the contributor released it.
+fn filed_body(number: u64, pr: &Reviewed, how: Option<How>) -> String {
+    let taken = match how {
+        Some(How::Yes | How::ThumbsUp | How::Silence) => {
+            "which its contributor released and kelpie took over"
+        }
+        Some(How::Maintainer) | None => "which the maintainer's ruling had kelpie take over",
+    };
     format!(
-        "Kelpie filed this issue from pull request #{number}, which its contributor \
-         released and kelpie took over.\n\n{}\n",
+        "Kelpie filed this issue from pull request #{number}, {taken}.\n\n{}\n",
         pr.body.trim_end()
     )
 }

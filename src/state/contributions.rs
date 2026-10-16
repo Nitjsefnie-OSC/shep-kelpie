@@ -148,6 +148,14 @@ pub struct Contribution {
     /// filing, and stays without this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adopting: Option<Adopting>,
+    /// What the maintainer answered a `rework` merge ruling with, for the
+    /// worker who takes the pull request over
+    ///
+    /// Left out until kelpie takes the pull request over. It is about the pull
+    /// request and not one head, so a push keeps it: the work item's start
+    /// reads it even where its contributor pushed after the answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rework: Option<String>,
 }
 
 /// How far kelpie has come to hang a released contribution's work item on an
@@ -203,8 +211,10 @@ pub enum Verdict {
     /// The note is what the maintainer wants changed, and the worker gets it
     /// before its first turn.
     Rework {
-        /// The maintainer's note for the worker
-        note: String,
+        /// The maintainer's note for the worker; none for a rework with no
+        /// note, which a tick or the card's choice gives
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
     },
 }
 
@@ -270,7 +280,9 @@ pub enum How {
     ThumbsUp,
     /// The contributor did not answer before `quiet_days` ran out
     Silence,
-    /// The maintainer chose to adopt it anyway
+    /// The maintainer had kelpie take it over: a `rework` answer to the merge
+    /// ruling, or `adopt anyway` on the ruling for a contributor who said no
+    /// twice
     Maintainer,
 }
 
@@ -434,6 +446,7 @@ impl Contribution {
             released: None,
             ruled: None,
             adopting: None,
+            rework: None,
         }
     }
 

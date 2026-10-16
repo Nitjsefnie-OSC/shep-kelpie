@@ -30,7 +30,7 @@ use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };
 use crate::settings::AgentName;
-use crate::state::{Ruling, RulingKind, StateError, Stuck, Verdict, Waiting};
+use crate::state::{Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
 use crate::worktree::{self, Remote, Start};
 
@@ -426,11 +426,14 @@ impl Runner {
             return Err(AdoptError::NoEdits(number));
         }
         // A released contribution whose pull request closes no issue has the
-        // one kelpie filed for it on its record (`contribution-release.md`).
+        // one kelpie filed for it on its record (`contribution-release.md`), and
+        // that one is what its work item hangs on even where the pull request
+        // closes another issue later: the filed one is the one the pull
+        // request's body names.
         let filed = (released.as_ref())
             .and_then(|c| c.adopting.as_ref())
             .map(|a| a.issue);
-        let issue = match (pr.closes.iter().min().copied(), filed) {
+        let issue = match (filed, pr.closes.iter().min().copied()) {
             (Some(issue), _) | (None, Some(issue)) => issue,
             (None, None) => return Err(AdoptError::NoIssue(number)),
         };
@@ -539,13 +542,10 @@ impl Runner {
             .filter(|r| r.changes_requested && !self.state.reworked.contains(&r.id))
             .cloned();
         // What the maintainer answered a contribution's merge ruling `rework`
-        // with, which the worker reads before its first turn.
-        let rework_note = (released.as_ref())
-            .and_then(|c| c.ruled.as_ref())
-            .and_then(|r| match &r.verdict {
-                Verdict::Rework { note } => Some(note.clone()),
-                _ => None,
-            });
+        // with, which the worker reads before its first turn. It sits on the
+        // record and not on the answer, so a contributor who pushes after the
+        // answer leaves it there.
+        let rework_note = (released.as_ref()).and_then(|c| c.rework.clone());
         let text = adopted_text(
             number,
             &pr,
