@@ -108,6 +108,8 @@ pub(crate) fn fence_policy(fence: &Fence) -> Policy {
         no_write: fence.no_write.clone(),
         no_read: fence.no_read.clone(),
         read: fence.read.clone(),
+        open: Vec::new(),
+        scratch: Vec::new(),
         hosts: fence.hosts.clone(),
         sockets: fence.sockets.clone(),
         forward: None,

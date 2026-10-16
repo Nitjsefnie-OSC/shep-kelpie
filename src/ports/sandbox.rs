@@ -21,6 +21,14 @@ pub struct Policy {
     pub no_read: Vec<String>,
     /// Paths it may read inside `no_read` after all
     pub read: Vec<PathBuf>,
+    /// Folders inside `no_read` it may open and list on macOS, each alone and
+    /// nothing under it, for a program that checks every folder above its own.
+    /// srt has no such rule on Linux, so there they add nothing.
+    pub open: Vec<PathBuf>,
+    /// Globs of what a program makes with a random name in a folder it may not
+    /// write, such as `/private/tmp/cbm-search-*`, each writable with one
+    /// level under it. macOS only, as `open` is.
+    pub scratch: Vec<String>,
     /// The hosts it may reach, and no others. A leading `*.` covers subdomains.
     pub hosts: Vec<String>,
     /// The Unix sockets it may connect to
