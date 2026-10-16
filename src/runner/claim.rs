@@ -104,7 +104,7 @@ impl Notes {
         self.lock().extend(notes);
     }
 
-    fn take(&self) -> Vec<String> {
+    pub(super) fn take(&self) -> Vec<String> {
         std::mem::take(&mut *self.lock())
     }
 

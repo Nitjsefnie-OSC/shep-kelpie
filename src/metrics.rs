@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
 mod dog;
+mod errors;
 mod mcp;
 mod plan;
 mod requests;

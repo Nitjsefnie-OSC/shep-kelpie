@@ -1,12 +1,13 @@
 //! What a call's transcript says once it ends, as series and a standing
-//! warning: the MCP servers it was given and its tool calls to them, and
-//! each request it made to its model
+//! warning: the MCP servers it was given and its tool calls to them, each
+//! request it made to its model, and each of its tool calls that failed
 //!
 //! A server that failed to connect is noted once, naming the call and its
 //! error code, and the note stands until a later call finds it connected. A
 //! call that wrote nothing to its transcript reached no model, and counts
 //! nothing.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -22,6 +23,7 @@ use crate::ports::{
 };
 use crate::request_use::{self, Request};
 use crate::settings::{AgentHarness, Harness};
+use crate::tool_error::{self, ToolError};
 
 /// Agents that count each call's MCP servers, tool calls and requests as it ends
 pub(super) struct TranscriptCount {
@@ -51,7 +53,8 @@ enum Format {
 impl Format {
     // pi records no server that failed to connect, so only its tool calls are counted.
     fn of(call: &AgentCall) -> Option<Self> {
-        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage
+        // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage,
+        // harness.tool-errors
         match call.harness {
             AgentHarness::ClaudeCode => Some(Self::Claude),
             AgentHarness::Pi(_) => Some(Self::Pi),
@@ -60,7 +63,7 @@ impl Format {
     }
 
     fn of_harness(harness: Harness) -> Option<Self> {
-        // parity: harness.request-usage
+        // parity: harness.request-usage, harness.tool-errors
         match harness {
             Harness::ClaudeCode => Some(Self::Claude),
             Harness::Pi => Some(Self::Pi),
@@ -79,6 +82,13 @@ impl Format {
         match self {
             Self::Claude => request_use::claude(text, from),
             Self::Pi => request_use::pi(text, from),
+        }
+    }
+
+    fn errors(self, text: &str, from: usize) -> Vec<ToolError> {
+        match self {
+            Self::Claude => tool_error::claude(text, from),
+            Self::Pi => tool_error::pi(text, from),
         }
     }
 
@@ -136,7 +146,8 @@ impl Mark {
         })
     }
 
-    /// Counts the requests the turn made since, as the wrapper does for a turn this image began
+    /// Counts the requests and the failed tool calls the turn made since, as the
+    /// wrapper does for a turn this image began
     pub(super) fn count(&self, harness: Harness, metrics: &Recorder) {
         let Some(format) = Format::of_harness(harness) else {
             return;
@@ -152,6 +163,9 @@ impl Mark {
             for request in format.requests(&text, from) {
                 metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
+            for error in format.errors(&text, from) {
+                metrics.tool_error(Role::Worker.as_str(), error.kind.as_str());
+            }
         }
     }
 }
@@ -166,6 +180,27 @@ impl TranscriptCount {
         let (role, harness) = (call.role.as_str(), call.harness.harness().as_str());
         for request in format.requests(text, from) {
             self.metrics.request(role, harness, &request);
+        }
+    }
+
+    // Each failed tool call of the roles whose requests are counted. A hook that is not
+    // kelpie's is named in a note, since no label may hold a command.
+    fn count_errors(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
+        let role = call.role.as_str();
+        let mut refused: BTreeMap<String, u64> = BTreeMap::new();
+        for error in format.errors(text, from) {
+            self.metrics.tool_error(role, error.kind.as_str());
+            if let Some(hook) = &error.hook {
+                *refused.entry(hook.clone()).or_insert(0) += 1;
+            }
+        }
+        for (hook, count) in refused {
+            let calls = match count {
+                1 => "one tool call".to_owned(),
+                n => format!("{n} tool calls"),
+            };
+            self.notes
+                .push(format!("{} had {calls} refused by the hook `{hook}`", who(call)));
         }
     }
 
@@ -233,6 +268,7 @@ impl Agents for TranscriptCount {
                 self.count_mcp(call, format, &format.read(&text, from));
             }
             self.count_requests(call, format, &text, from);
+            self.count_errors(call, format, &text, from);
         }
         ran
     }
