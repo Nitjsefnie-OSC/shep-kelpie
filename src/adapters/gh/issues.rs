@@ -219,25 +219,38 @@ fn parse_open_pulls(stdout: &[u8]) -> Result<Vec<OpenPull>, ForgeError> {
 }
 
 // The issues a pull request's body names with `Resolves`, `Fixes` or `Closes`,
-// each keyword read in any case, in the order they first appear. A number ends
-// at whitespace, punctuation or the end of the body: `#12abc` and `#12_3` name
-// nothing, since GitHub reads no issue of that number.
+// each keyword read in any case, in the order they first appear. As GitHub
+// reads them, the keyword is a word of its own: it may carry a colon after it
+// (`Fixes: #12`, `Fixes:#12`) and markup or punctuation before it (`(Fixes
+// #12)`, `**Fixes #12**`), and a number ends at whitespace, punctuation or the
+// end of the body: `#12abc` and `#12_3` name nothing, since GitHub reads no
+// issue of that number.
 fn closes_named_in(body: &str) -> Vec<u64> {
     const KEYWORDS: [&str; 3] = ["resolves", "fixes", "closes"];
     let words: Vec<&str> = body.split_whitespace().collect();
     let mut named = Vec::new();
     for (at, word) in words.iter().enumerate() {
-        if !KEYWORDS.iter().any(|k| word.eq_ignore_ascii_case(k)) {
+        let word = word.trim_start_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let (keyword, tail) = match word.split_once(':') {
+            Some((keyword, tail)) => (keyword, Some(tail)),
+            None => (word, None),
+        };
+        if !KEYWORDS.iter().any(|k| keyword.eq_ignore_ascii_case(k)) {
             continue;
         }
-        let Some(rest) = words.get(at + 1).and_then(|next| next.strip_prefix('#')) else {
+        // The number is what the colon left in the same word, or the next word
+        let tail = tail.filter(|t| !t.is_empty());
+        let rest = match tail {
+            Some(tail) => tail,
+            None => words.get(at + 1).map_or("", |next| next),
+        };
+        let Some(rest) = rest.strip_prefix('#') else {
             continue;
         };
         let digits: String = (rest.chars())
             .take_while(char::is_ascii_digit)
             .collect::<String>();
-        let after = digits.len();
-        let ends = match rest.chars().nth(after) {
+        let ends = match rest.chars().nth(digits.len()) {
             None => true,
             Some(next) => !(next.is_ascii_alphanumeric() || matches!(next, '_' | '-')),
         };
@@ -335,7 +348,8 @@ mod tests {
         let out = br#"[
             {"number":41,"title":"Fix the crash","body":"One line.\n\nResolves #30\nfixes #31, and Closes #30 again."},
             {"number":42,"title":"Rework the docs","body":"No closing line here."},
-            {"number":43,"title":"No body","body":null}
+            {"number":43,"title":"No body","body":null},
+            {"number":44,"title":"Stop the crash","body":"Closes: #30, and (fixes #31)."}
         ]"#;
         let pulls = parse_open_pulls(out).unwrap();
         assert_eq!(
@@ -356,6 +370,11 @@ mod tests {
                     title: "No body".into(),
                     closes: Vec::new(),
                 },
+                OpenPull {
+                    number: 44,
+                    title: "Stop the crash".into(),
+                    closes: vec![30, 31],
+                },
             ]
         );
     }
@@ -367,16 +386,40 @@ mod tests {
             "Resolves the crash",
             "fixes issue 12",
             "Closes#12",
+            "Fixes:: #12",
+            "Fixes::#12",
+            "Fixes. #12",
+            "unfixes #12",
             "Resolves #12abc",
             "Resolves #12_3",
             "Resolves #12-13",
             "Resolves #1x",
             "Resolves #",
+            "Resolves:",
         ] {
             assert_eq!(closes_named_in(body), Vec::<u64>::new(), "{body}");
         }
         assert_eq!(closes_named_in("Fixes #12.\n"), [12]);
         assert_eq!(closes_named_in("Resolves #12; fixes #13."), [12, 13]);
+    }
+
+    // GitHub reads the keyword at a word boundary and takes a colon between it
+    // and the number, with or without a space, so a body written either way
+    // names the issue, and markup around the keyword hides nothing.
+    #[test]
+    fn a_closing_keyword_names_the_number_after_a_colon_or_under_punctuation() {
+        for body in [
+            "Fixes: #12",
+            "Fixes:#12",
+            "Closes: #12",
+            "(Resolves #12)",
+            "- Fixes: #12",
+            "`Closes #12`",
+            "**Closes #12**",
+        ] {
+            assert_eq!(closes_named_in(body), [12], "{body}");
+        }
+        assert_eq!(closes_named_in("Resolves: #12 and (fixes #13)"), [12, 13]);
     }
 
     #[test]
