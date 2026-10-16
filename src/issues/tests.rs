@@ -151,8 +151,9 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
     let ledger = scratch.join("ledger.json");
     assert_guarded(&seen.settings, HUMAN, &ledger);
     assert_file_tools_read_only(&seen.settings, &call.cwd, &s.rig);
-    // Its sandbox reads none of the secrets, the history or kelpie's homes,
-    // and inside those only its checkout and the guard's binary.
+    // Its sandbox reads none of the secrets, the history or kelpie's homes, and
+    // inside those only its checkout, the guard's binary and the installed
+    // sources and docs of its dependencies and toolchains.
     let files = &seen.sandbox["filesystem"];
     let denied = files["denyRead"].to_string();
     for path in ["~/.ssh/**", "~/.zsh_history", "~/.bash_history"] {
@@ -163,10 +164,20 @@ fn a_request_runs_one_session_that_files_and_kelpie_prints_what_it_filed() {
         denied.contains(&kelpie_home)
             || denied.contains(&format!("\"{}/**\"", s.paths.shep_home.display()))
     );
+    let mut read = vec![json!(call.cwd), json!(Rig::KELPIE)];
+    read.extend(
+        crate::dep_sources::DepSources::discover(
+            s.rig.home.path(),
+            &crate::dep_sources::ProcessEnv,
+        )
+        .folders()
+        .iter()
+        .map(|folder| json!(folder)),
+    );
     assert_eq!(
         files["allowRead"],
-        json!([call.cwd, Rig::KELPIE]),
-        "the checkout and the guard alone"
+        json!(read),
+        "the checkout, the guard and the installed sources alone"
     );
     // The run is in the project's usage ledger.
     let lines = usage::read(&s.paths.folder.join(usage::FILE)).unwrap();
