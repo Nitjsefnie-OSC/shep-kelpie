@@ -193,6 +193,57 @@ fn the_oldest_finished_records_go_past_the_cap() {
     assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 4));
 }
 
+// The daily caps count the calls the records hold, so a record that holds one is
+// kept ahead of one that holds none: a burst of issues a limit held cannot push
+// out the records the caps count, which is what they hold the burst for.
+#[test]
+fn a_prune_past_the_cap_lets_the_records_that_hold_no_call_go_first() {
+    let cap = TRIAGED_KEPT as u64;
+    let mut triage = TriageState {
+        since: Timestamp(1),
+        issues: (1..cap + 4)
+            .map(|issue| Triaged {
+                issue,
+                comment: 0,
+                step: TriageStep::Done,
+                at: Timestamp(0),
+                author: "newcomer".to_owned(),
+                held: Some(TriageHeld::AuthorCap),
+                calls: if issue <= 2 {
+                    vec![Timestamp(9)]
+                } else {
+                    Vec::new()
+                },
+                labels: Vec::new(),
+                duplicate_of: None,
+                ready_body: None,
+                seen: Vec::new(),
+                asked: None,
+                questions: None,
+                local: None,
+            })
+            .collect(),
+        unrecorded: Vec::new(),
+    };
+
+    triage.prune();
+
+    assert_eq!(triage.issues.len(), TRIAGED_KEPT);
+    assert_eq!(
+        (triage.issues.iter())
+            .take(2)
+            .map(|t| t.issue)
+            .collect::<Vec<_>>(),
+        [1, 2],
+        "the two oldest records hold calls, and they stayed"
+    );
+    assert_eq!(
+        triage.issues[2].issue, 6,
+        "the oldest records that hold no call went instead"
+    );
+    assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 3));
+}
+
 // A record that closed an issue as a duplicate is kept past the cap: the issue
 // carries no `needs-triage` label, and the record is what keeps a reopened one
 // out of the due list.

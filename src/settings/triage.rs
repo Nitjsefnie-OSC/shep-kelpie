@@ -15,8 +15,9 @@ use crate::state::TRIAGED_KEPT;
 pub const MOST_QUESTIONS: u8 = 10;
 
 /// The most a daily cap may ask for. Both count the calls saved in the triage
-/// records, and [`TRIAGED_KEPT`] of them are kept, so a cap past it is one
-/// kelpie cannot see and cannot hold anyone to.
+/// records, [`TRIAGED_KEPT`] of them are kept, and a record that holds a call is
+/// kept ahead of one that holds none, so a cap past it is one kelpie cannot see
+/// and cannot hold anyone to.
 pub(super) const MOST_PER_DAY: u32 = 200;
 
 /// Whose issues kelpie triages
@@ -118,8 +119,8 @@ impl Triage {
                     setting,
                     reason: format!(
                         "it is {cap} and kelpie keeps the last {TRIAGED_KEPT} finished triage \
-                         records, which is all a 24 hour count can see: set it from 0 to \
-                         {MOST_PER_DAY}"
+                         records, a record that holds a call ahead of one that holds none, which \
+                         is all a 24 hour count can see: set it from 0 to {MOST_PER_DAY}"
                     ),
                 });
             }

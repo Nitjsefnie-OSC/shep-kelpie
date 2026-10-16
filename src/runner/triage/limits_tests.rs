@@ -23,7 +23,7 @@ use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging
 use super::research_tests::{WORDS, calls, moves, reply, restart, triage};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
-use crate::state::StateStore;
+use crate::state::{StateStore, TRIAGED_KEPT};
 use crate::test::{Rig, Scripted};
 
 // A rig with `[triage]` set to `lines`, its representative saying `WORDS` and
@@ -41,23 +41,49 @@ fn limits_on(lines: &str) -> (Rig, Mutex<Runner>) {
 // per `(author, when its call ran)`, numbered from 11, none held by a limit.
 // The runner must be closed first, as a restart is.
 fn seeded(rig: &Rig, records: &[(&str, u64)]) {
+    let kept: Vec<(&str, u64, u32)> = records
+        .iter()
+        .map(|(author, at)| (*author, *at, 1))
+        .collect();
+    seeded_as(rig, &kept);
+}
+
+// Records saved to the state as `kept` gives them: `(author, when the record was
+// made, how many calls it holds)`, numbered from 11, in the order given, which is
+// the order the state keeps them in and the order a prune drops them in.
+fn seeded_as(rig: &Rig, kept: &[(&str, u64, u32)]) {
+    write_records(rig, kept, false);
+}
+
+fn write_records(rig: &Rig, kept: &[(&str, u64, u32)], append: bool) {
     let store = StateStore::new(rig.paths().state);
     let mut saved = serde_json::to_value(store.load().unwrap().unwrap()).unwrap();
-    let kept: Vec<Value> = records
+    let first = (saved["triage"].get("issues"))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let first = u64::try_from(first).unwrap();
+    let records: Vec<Value> = kept
         .iter()
         .enumerate()
-        .map(|(n, (author, at))| {
+        .map(|(n, (author, at, calls))| {
             json!({
-                "issue": 11 + n as u64,
-                "comment": 11 + n as u64,
+                "issue": 11 + first + n as u64,
+                "comment": 11 + first + n as u64,
                 "step": "done",
                 "at": at,
                 "author": author,
-                "calls": [at],
+                "calls": (0..*calls).map(|c| at + u64::from(c)).collect::<Vec<_>>(),
             })
         })
         .collect();
-    saved["triage"]["issues"] = json!(kept);
+    if append {
+        saved["triage"]["issues"]
+            .as_array_mut()
+            .unwrap()
+            .extend(records);
+    } else {
+        saved["triage"]["issues"] = json!(records);
+    }
     let state = serde_json::from_value(saved).unwrap();
     store.save(&state).unwrap();
 }
@@ -736,5 +762,52 @@ fn a_first_pass_call_that_never_posted_spends_its_place_across_a_restart() {
     assert_eq!(
         rig.github.comments(),
         [(30, format!("{WORDS}\n\n{MARKER}"))]
+    );
+}
+
+#[test]
+fn a_burst_of_held_issues_does_not_free_the_authors_cap_partway_through() {
+    // The day's cap is set wide enough not to bind, so `status` shows what the
+    // day has spent and the author's cap is what holds their issues.
+    let rig = rig_with("pick = \"all\"\nper_day = 20\nper_author_per_day = 2");
+    let runner = rig.open().unwrap();
+    let now = rig.clock.now().0;
+    drop(runner);
+    // A state already at its cap of finished records: the author's two issues
+    // triaged today, each holding its call, then the rest of the cap from issues
+    // a limit held, which hold no call of their own. Each new hold pushes one
+    // record out, and the ones that hold calls are what the caps count.
+    let mut kept: Vec<(&str, u64, u32)> = vec![("newcomer", now, 1), ("newcomer", now, 1)];
+    kept.extend((0..TRIAGED_KEPT - 2).map(|_| ("someone", 0, 0)));
+    seeded_as(&rig, &kept);
+    let runner = rig.open().unwrap();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    // Above the numbers the seeded records hold, which run from 11
+    for number in 300..306 {
+        list(&rig, issue(&rig, number, "newcomer", 5));
+    }
+
+    for _ in 0..3 {
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.next_look();
+    }
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        0,
+        "every one of their issues is held, and none is called"
+    );
+    assert_eq!(rig.github.comments(), [], "nothing is posted");
+    assert_eq!(
+        labelled(&rig, "needs-triage"),
+        (300..306).collect::<Vec<_>>(),
+        "each got needs-triage with no call"
+    );
+    assert_eq!(
+        triage(&rig, &runner)["daily"]["used"],
+        2,
+        "and the day still counts the author's two calls"
     );
 }

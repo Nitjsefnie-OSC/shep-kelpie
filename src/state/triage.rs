@@ -45,8 +45,14 @@ pub const TRIAGE_CALLS_KEPT: usize = 8;
 
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
-    /// one that closed an issue as a duplicate, and bounding the calls kept for
-    /// an issue with no record the same way
+    /// one that closed an issue as a duplicate, and the records that hold a call
+    /// ahead of the ones that hold none
+    ///
+    /// The daily caps count the calls the records hold, so a record that holds
+    /// one is all a cap can see. A limit's hold makes a record that holds none,
+    /// and a burst of them is what would otherwise push the counted records out
+    /// and free the cap partway through the burst it exists for. The calls kept
+    /// for an issue with no record are bounded the same way.
     pub fn prune(&mut self) {
         let finished = |t: &Triaged| {
             matches!(t.step, TriageStep::Done | TriageStep::Ready) && t.duplicate_of.is_none()
@@ -57,6 +63,11 @@ impl TriageState {
             .filter(|t| finished(t))
             .count()
             .saturating_sub(TRIAGED_KEPT);
+        self.issues.retain(|t| {
+            let drop = extra > 0 && finished(t) && t.calls.is_empty();
+            extra -= usize::from(drop);
+            !drop
+        });
         self.issues.retain(|t| {
             let drop = extra > 0 && finished(t);
             extra -= usize::from(drop);
