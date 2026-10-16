@@ -9,9 +9,16 @@ use serde::Deserialize;
 use super::agents::find;
 use super::{AgentName, ExpertAgent, Settings, SettingsError};
 use crate::agents::{Agents, Role, Runs, TRIAGER};
+use crate::state::TRIAGED_KEPT;
 
 /// The most questions one triage comment may ask
 pub const MOST_QUESTIONS: u8 = 10;
+
+/// The most a daily cap may ask for. Both count the calls saved in the triage
+/// records, [`TRIAGED_KEPT`] of them are kept, and a record that holds a call is
+/// kept ahead of one that holds none, so a cap past it is one kelpie cannot see
+/// and cannot hold anyone to.
+pub(super) const MOST_PER_DAY: u32 = 200;
 
 /// Whose issues kelpie triages
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -42,6 +49,22 @@ pub struct Triage {
     /// The agent file whose role is `triager` that researches an issue.
     /// `triager` when absent.
     pub agent: AgentName,
+    /// The most triage calls in any 24 hours, up to 200. An issue past it waits
+    /// for the next free place and is never dropped. 10 when absent, 0 for no
+    /// cap.
+    pub per_day: u32,
+    /// The most triage calls on one author's issues in any 24 hours, up to 200,
+    /// logins compared ignoring case. An issue past it is labelled
+    /// `needs-triage` with no call and no comment. 2 when absent, 0 for no cap.
+    pub per_author_per_day: u32,
+    /// An author whose account is younger than this many days, and who has no
+    /// history in the repo, gets `needs-triage` with no call and no comment.
+    /// 30 when absent, 0 for no check.
+    pub min_account_days: u32,
+    /// The most kilobytes of an issue body that reach the triager, which the
+    /// call is given cut at that size with a line saying so. The title is
+    /// never cut. 20 when absent, 0 sends the whole body.
+    pub max_body_kb: u32,
 }
 
 impl Default for Triage {
@@ -51,6 +74,10 @@ impl Default for Triage {
             wait_days: NonZeroU32::new(7).unwrap_or(NonZeroU32::MIN),
             max_questions: NonZeroU8::new(MOST_QUESTIONS).unwrap_or(NonZeroU8::MIN),
             agent: AgentName::kelpies(TRIAGER),
+            per_day: 10,
+            per_author_per_day: 2,
+            min_account_days: 30,
+            max_body_kb: 20,
         }
     }
 }
@@ -67,19 +94,38 @@ impl Triage {
     /// # Errors
     ///
     /// [`SettingsError::Invalid`] naming `triage.max_questions` when it is
-    /// above 10.
+    /// above 10, or `triage.per_day` or `triage.per_author_per_day` when a cap is
+    /// above 200, the most this file's `MOST_PER_DAY` allows and the number of
+    /// finished triage records the state keeps.
     pub fn check(&self) -> Result<(), SettingsError> {
-        match self.max_questions.get() <= MOST_QUESTIONS {
-            true => Ok(()),
-            false => Err(SettingsError::Invalid {
+        if self.max_questions.get() > MOST_QUESTIONS {
+            return Err(SettingsError::Invalid {
                 setting: "triage.max_questions",
                 reason: format!(
                     "it is {} and a comment asks at most {MOST_QUESTIONS}: set it from 1 to \
                      {MOST_QUESTIONS}",
                     self.max_questions
                 ),
-            }),
+            });
         }
+        // A cap the state cannot count is a cap that never engages, so it is
+        // refused rather than quietly lowered.
+        for (setting, cap) in [
+            ("triage.per_day", self.per_day),
+            ("triage.per_author_per_day", self.per_author_per_day),
+        ] {
+            if cap > MOST_PER_DAY {
+                return Err(SettingsError::Invalid {
+                    setting,
+                    reason: format!(
+                        "it is {cap} and kelpie keeps the last {TRIAGED_KEPT} finished triage \
+                         records, a record that holds a call ahead of one that holds none, which \
+                         is all a 24 hour count can see: set it from 0 to {MOST_PER_DAY}"
+                    ),
+                });
+            }
+        }
+        Ok(())
     }
 }
 

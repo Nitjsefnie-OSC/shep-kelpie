@@ -6,7 +6,8 @@ use serde::Deserialize;
 use super::review_bot::time;
 use super::{gh, unreadable};
 use crate::ports::{
-    FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, SubIssue, SubIssueState,
+    AuthorAssociation, FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, SubIssue,
+    SubIssueState, Timestamp,
 };
 use crate::settings::ForgeSlug;
 
@@ -14,20 +15,71 @@ use crate::settings::ForgeSlug;
 // stops at its limit.
 const LIST_LIMIT: &str = "1000";
 
+// The REST endpoint answers 100 items a page, and an item is an issue or a pull
+// request, so the pages are read until `LIST_ISSUES` issues are in hand or the
+// endpoint runs out. `LIST_PAGES` bounds what one listing may cost: past it a
+// repo whose open pull requests crowd the pages out loses its oldest issues,
+// the way `gh` loses them at its own ceiling.
+const PER_PAGE: usize = 100;
+const LIST_ISSUES: usize = 1000;
+const LIST_PAGES: usize = 20;
+
+// `gh issue list --json` has no `authorAssociation` in gh 2.96, and the triage
+// limits read it, so the open issues come from the REST endpoint, which answers
+// it for every issue. The endpoint answers pull requests beside issues, which
+// are left out, and one page holds 100 items, so a repo with more open issues
+// costs one more call for each 100.
 pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
-    let args = [
-        "issue",
-        "list",
-        "--repo",
-        repo.as_str(),
-        "--state",
-        "open",
-        "--limit",
-        LIST_LIMIT,
-        "--json",
-        "number,title,body,author,labels,createdAt",
-    ];
-    parse_open_issues(&gh(&args)?)
+    let mut open = Vec::new();
+    for page in 1..=LIST_PAGES {
+        let stdout = gh(&["api", &issue_page(repo, page)])?;
+        let listed = parse_open_page(&stdout)?;
+        let items = listed.len();
+        // A full page can take the count past the ceiling, and the endpoint
+        // lists newest first, so what does not fit is the oldest of it and goes.
+        open.extend(listed.into_iter().flatten().take(room(open.len())));
+        if !more_pages(items, open.len()) {
+            break;
+        }
+    }
+    Ok(open)
+}
+
+// How many more issues a listing has room for under its ceiling
+fn room(issues: usize) -> usize {
+    LIST_ISSUES.saturating_sub(issues)
+}
+
+// Whether another page is worth asking for: the endpoint has more items, and
+// the issues in hand have not reached the ceiling. Pull requests are items and
+// not issues, so a page of them fills neither end.
+fn more_pages(items: usize, issues: usize) -> bool {
+    items == PER_PAGE && issues < LIST_ISSUES
+}
+
+// One page of the endpoint's open issues, newest first
+fn issue_page(repo: &ForgeSlug, page: usize) -> String {
+    format!(
+        "repos/{}/issues?state=open&per_page={PER_PAGE}&page={page}",
+        repo.as_str()
+    )
+}
+
+// When the account `login` was created, from `created_at`. The login is one a
+// listing gave.
+pub(super) fn account_created(login: &str) -> Result<Timestamp, ForgeError> {
+    let path = format!("users/{login}");
+    parse_account_created(&gh(&["api", &path])?)
+}
+
+fn parse_account_created(stdout: &[u8]) -> Result<Timestamp, ForgeError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    struct Account {
+        created_at: String,
+    }
+    let account: Account = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    time(&account.created_at, stdout)
 }
 
 // `gh` counts an issue's sub-issues closed whatever they closed as, so this
@@ -114,21 +166,31 @@ pub(super) fn set_label(
     .map(drop)
 }
 
-fn parse_open_issues(stdout: &[u8]) -> Result<Vec<OpenIssue>, ForgeError> {
+// One page of the endpoint's answer: every item, with `None` for the pull
+// requests it answers beside the issues
+fn parse_open_page(stdout: &[u8]) -> Result<Vec<Option<OpenIssue>>, ForgeError> {
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
+    #[serde(rename_all = "snake_case")]
     struct Listed {
         number: u64,
         title: String,
         body: Option<String>,
-        author: Option<Author>,
+        user: Option<User>,
+        // Only a pull request carries it, and the endpoint lists them beside issues
+        pull_request: Option<serde_json::Value>,
         labels: Vec<Label>,
         created_at: String,
+        // Absent only from an answer that does not carry it, which is read as
+        // the listing not saying how the author stands to the repo
+        #[serde(default)]
+        author_association: Option<String>,
     }
     #[derive(Deserialize)]
-    struct Author {
+    struct User {
         login: String,
-        is_bot: bool,
+        // A bot account's type is `Bot`, a person's is `User`
+        #[serde(rename = "type")]
+        kind: String,
     }
     #[derive(Deserialize)]
     struct Label {
@@ -138,15 +200,21 @@ fn parse_open_issues(stdout: &[u8]) -> Result<Vec<OpenIssue>, ForgeError> {
     listed
         .into_iter()
         .map(|issue| {
-            Ok(OpenIssue {
+            // A pull request is not an issue, and the endpoint answers both
+            if issue.pull_request.is_some() {
+                return Ok(None);
+            }
+            Ok(Some(OpenIssue {
                 number: issue.number,
                 title: issue.title,
                 body: issue.body.unwrap_or_default(),
-                author_is_bot: issue.author.as_ref().is_some_and(|a| a.is_bot),
-                author: issue.author.map(|a| a.login).unwrap_or_default(),
+                author_is_bot: issue.user.as_ref().is_some_and(|u| u.kind == "Bot"),
+                author: issue.user.map(|u| u.login).unwrap_or_default(),
+                author_association: (issue.author_association.as_deref())
+                    .and_then(AuthorAssociation::from_word),
                 labels: issue.labels.into_iter().map(|l| l.name).collect(),
                 created: time(&issue.created_at, stdout)?,
-            })
+            }))
         })
         .collect()
 }
@@ -317,6 +385,16 @@ mod tests {
     use super::*;
     use crate::ports::Timestamp;
 
+    // One page of the listing's answer, as the runner would have it: the issues,
+    // the pull requests left out
+    fn page(stdout: &[u8]) -> Vec<OpenIssue> {
+        parse_open_page(stdout)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     #[test]
     fn an_issue_closes_with_the_reason_the_forge_records_it_under() {
         let repo = ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap();
@@ -438,18 +516,23 @@ mod tests {
         );
     }
 
+    // The shape of one page of `gh api repos/{repo}/issues?state=open`, written
+    // from GitHub's REST docs: `gh api` is not one a worker's sandbox runs, so
+    // it is not a recording.
     #[test]
     fn open_issues_are_read_with_a_body_that_may_be_null() {
         let out = br#"[
-            {"number":4,"title":"a","body":"b","createdAt":"2026-10-14T08:00:00Z",
-             "author":{"login":"rin","is_bot":false,"id":"U_1","name":"Rin"},
+            {"number":4,"title":"a","body":"b","created_at":"2026-10-14T08:00:00Z",
+             "user":{"login":"rin","id":"U_1","type":"User"},
+             "author_association":"OWNER",
              "labels":[{"name":"bug","id":"L_1"},{"name":"needs-info","id":"L_2"}]},
-            {"number":5,"title":"c","body":null,"createdAt":"2026-10-14T09:30:00Z",
-             "author":{"login":"app/kelpie","is_bot":true},"labels":[]},
-            {"number":6,"title":"d","body":"","createdAt":"2026-10-14T09:30:00Z",
-             "author":null,"labels":[]}
+            {"number":5,"title":"c","body":null,"created_at":"2026-10-14T09:30:00Z",
+             "user":{"login":"kelpie-app[bot]","id":"B_1","type":"Bot"},
+             "author_association":"NONE","labels":[]},
+            {"number":6,"title":"d","body":"","created_at":"2026-10-14T09:30:00Z",
+             "user":null,"labels":[]}
         ]"#;
-        let issues = parse_open_issues(out).unwrap();
+        let issues = page(out);
         assert_eq!(
             issues,
             [
@@ -459,6 +542,7 @@ mod tests {
                     body: "b".into(),
                     author: "rin".into(),
                     author_is_bot: false,
+                    author_association: Some(AuthorAssociation::Owner),
                     labels: vec!["bug".into(), "needs-info".into()],
                     created: Timestamp(1_791_964_800),
                 },
@@ -466,8 +550,9 @@ mod tests {
                     number: 5,
                     title: "c".into(),
                     body: String::new(),
-                    author: "app/kelpie".into(),
+                    author: "kelpie-app[bot]".into(),
                     author_is_bot: true,
+                    author_association: Some(AuthorAssociation::None),
                     labels: Vec::new(),
                     created: Timestamp(1_791_970_200),
                 },
@@ -477,11 +562,100 @@ mod tests {
                     body: String::new(),
                     author: String::new(),
                     author_is_bot: false,
+                    author_association: None,
                     labels: Vec::new(),
                     created: Timestamp(1_791_970_200),
                 },
             ]
         );
+    }
+
+    // The endpoint answers pull requests beside issues, and a pull request is
+    // no issue: it is not triaged, not labelled and not listed as due.
+    #[test]
+    fn a_pull_request_in_the_issue_listing_is_no_issue() {
+        let out = br#"[
+            {"number":41,"title":"a pull","body":"","created_at":"2026-10-14T08:00:00Z",
+             "user":{"login":"someone","type":"User"},"author_association":"CONTRIBUTOR",
+             "labels":[],"pull_request":{"url":"https://github.com/o/r/pull/41"}},
+            {"number":42,"title":"an issue","body":"","created_at":"2026-10-14T08:00:00Z",
+             "user":{"login":"someone","type":"User"},"author_association":"CONTRIBUTOR",
+             "labels":[]}
+        ]"#;
+        let page = parse_open_page(out).unwrap();
+        assert_eq!(page.len(), 2, "the page holds both items");
+        assert_eq!(page[0], None, "the pull request is left out");
+        assert_eq!(page[1].as_ref().map(|i| i.number), Some(42));
+    }
+
+    #[test]
+    fn an_author_association_kelpie_does_not_know_is_no_association() {
+        for (word, want) in [
+            ("NONE", Some(AuthorAssociation::None)),
+            ("FIRST_TIMER", Some(AuthorAssociation::FirstTimer)),
+            (
+                "FIRST_TIME_CONTRIBUTOR",
+                Some(AuthorAssociation::FirstTimeContributor),
+            ),
+            ("CONTRIBUTOR", Some(AuthorAssociation::Contributor)),
+            ("MEMBER", Some(AuthorAssociation::Member)),
+            ("COLLABORATOR", Some(AuthorAssociation::Collaborator)),
+            ("OWNER", Some(AuthorAssociation::Owner)),
+            ("SOMETHING_NEW", None),
+        ] {
+            let out = format!(
+                r#"[{{"number":4,"title":"a","body":"b","created_at":"2026-10-14T08:00:00Z","user":null,"labels":[],"author_association":"{word}"}}]"#
+            );
+            let issues = page(out.as_bytes());
+            assert_eq!(issues[0].author_association, want, "{word}");
+        }
+    }
+
+    #[test]
+    fn an_account_is_read_by_the_time_its_answer_gives_it() {
+        let out = br#"{"login":"newcomer","created_at":"2026-10-14T08:00:00Z"}"#;
+        assert_eq!(
+            parse_account_created(out).unwrap(),
+            Timestamp(1_791_964_800)
+        );
+        let bad = br#"{"login":"newcomer"}"#;
+        assert!(matches!(
+            parse_account_created(bad),
+            Err(ForgeError::Unreadable(_))
+        ));
+    }
+
+    #[test]
+    fn the_open_issue_listing_is_the_rest_endpoint_and_not_a_gh_list() {
+        let repo = ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap();
+        assert_eq!(
+            issue_page(&repo, 2),
+            "repos/shep-pm/koji/issues?state=open&per_page=100&page=2"
+        );
+        assert_eq!(LIST_ISSUES, 1000, "as long a list as gh stops at");
+        assert_eq!(
+            LIST_PAGES * PER_PAGE,
+            2_000,
+            "twice the issues ceiling, so a page full of pull requests cannot fill it"
+        );
+    }
+
+    #[test]
+    fn pull_requests_do_not_fill_the_open_issue_ceiling() {
+        assert!(
+            more_pages(PER_PAGE, 0),
+            "a full page of pull requests is neither end"
+        );
+        assert!(more_pages(PER_PAGE, LIST_ISSUES - 1));
+        assert!(!more_pages(PER_PAGE, LIST_ISSUES), "the ceiling is issues");
+        assert!(
+            !more_pages(40, 12),
+            "a short page is the end of the listing"
+        );
+        assert_eq!(room(0), LIST_ISSUES, "a fresh listing has room");
+        assert_eq!(room(LIST_ISSUES - 1), 1, "one issue of the last page");
+        assert_eq!(room(LIST_ISSUES), 0, "nothing past the ceiling");
+        assert_eq!(room(LIST_ISSUES + 500), 0, "and nothing to make up for it");
     }
 
     #[test]

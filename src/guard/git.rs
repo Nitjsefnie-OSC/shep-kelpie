@@ -161,10 +161,10 @@ pub(super) fn judge(
     let args = &git.words[at + 1..];
     // A fetch of the shared clone is answered rather than run. In a repo the
     // worker made inside its worktree its refs are its own to write, so a
-    // fetch there is left to git. So is one git is pointed at another repo
-    // by `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment: kelpie
-    // cannot tell which repo such a fetch names, and a fetch is no write to
-    // the work item's branch.
+    // fetch there is left to git. So is one git is pointed at another repo by
+    // `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment, and one
+    // that follows a repo the same call made: kelpie cannot tell which repo
+    // such a fetch names, and a fetch is no write to the work item's branch.
     if runs
         && writes_remote_refs(sub, args)
         && !(front.redirected || git.redirected)
