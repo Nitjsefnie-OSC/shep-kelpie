@@ -61,6 +61,9 @@ struct Hub {
     ungiven: Vec<String>,
     // The review threads a GraphQL write lands on
     threads: Option<FakeCodeRabbit>,
+    // Each comment the App posted that GitHub took: its number, its id, what
+    // it says and when, which is what the forge then lists beside anyone's
+    posted: Vec<(u64, u64, String, jiff::Timestamp)>,
 }
 
 /// A pull request review the App sent
@@ -167,6 +170,24 @@ impl FakeGithub {
     /// was never given the Contents permission does
     pub(crate) fn refuse_workers(&self, error: ApiError) {
         self.hub.lock().unwrap().workers_refused = Some(error);
+    }
+
+    /// Every comment the App posted on issue or pull request `number` that
+    /// GitHub took, as the forge lists it: its own login, a bot's, oldest first
+    pub(crate) fn posted_on(&self, number: u64) -> Vec<crate::ports::ThreadComment> {
+        let hub = self.hub.lock().unwrap();
+        let slug = format!("kelpie-{}[bot]", self.owner.to_ascii_lowercase());
+        (hub.posted.iter())
+            .filter(|(thread, _, _, _)| *thread == number)
+            .map(|(thread, id, body, created)| crate::ports::ThreadComment {
+                id: *id,
+                thread: *thread,
+                author: slug.clone(),
+                bot: true,
+                body: body.clone(),
+                created: Timestamp(created.as_second() as u64),
+            })
+            .collect()
     }
 
     /// Mints workers' tokens again after [`Self::refuse_workers`]
@@ -508,10 +529,21 @@ impl GithubApi for FakeGithub {
         if call.path.ends_with("/comments") {
             hub.comment_ids += 1;
             let created = jiff::Timestamp::from_second(self.clock.now().0 as i64).unwrap();
-            return Ok(format!(
-                r#"{{"id":{},"created_at":"{created}"}}"#,
-                99 + hub.comment_ids
-            ));
+            let id = 99 + hub.comment_ids;
+            let body =
+                serde_json::from_str::<serde_json::Value>(call.body.as_deref().unwrap_or("{}"))
+                    .ok()
+                    .and_then(|sent| sent["body"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+            if let Some(thread) = call
+                .path
+                .strip_suffix("/comments")
+                .and_then(|p| p.rsplit('/').next())
+                .and_then(|n| n.parse::<u64>().ok())
+            {
+                hub.posted.push((thread, id, body, created));
+            }
+            return Ok(format!(r#"{{"id":{id},"created_at":"{created}"}}"#));
         }
         if call.path.ends_with("/issues") {
             hub.issues += 1;

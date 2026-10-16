@@ -109,6 +109,9 @@ pub(crate) struct FakeForge {
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
     pub(crate) threads: thread::FakeThreads,
+    // The App whose comments the forge then lists beside what people wrote,
+    // which is what an App's own post looks like on a real repo
+    app_comments: Arc<Mutex<Option<super::github::FakeGithub>>>,
 }
 
 /// The account the fake forge says kelpie acts as, and opens pull requests as
@@ -182,6 +185,7 @@ impl FakeForge {
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
+            app_comments: Arc::default(),
         }
     }
 
@@ -614,7 +618,13 @@ impl Forge for FakeForge {
         number: u64,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.ask()?;
-        Ok(self.threads.on(number))
+        let mut on = self.threads.on(number);
+        // An App's own comment is on the issue like anyone's: the forge lists it.
+        if let Some(github) = self.app_comments.lock().unwrap().clone() {
+            on.extend(github.posted_on(number));
+            on.sort_by_key(|c| c.id);
+        }
+        Ok(on)
     }
 
     fn thread_replies_since(
@@ -979,6 +989,7 @@ use handed::FakePullRequest;
 mod app;
 mod approvals;
 mod authors;
+mod comments;
 mod down;
 mod handed;
 mod issues;

@@ -55,6 +55,7 @@ impl Rig {
         };
         rig.forge.threads.use_clock(rig.clock.clone());
         rig.github.use_threads(rig.forge.coderabbit.clone());
+        rig.forge.use_app_comments(rig.github.clone());
         rig
     }
 
