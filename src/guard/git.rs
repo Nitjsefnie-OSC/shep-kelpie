@@ -1,5 +1,10 @@
 //! `git commit`, `git tag` and `git push` in a worker's Bash call
 //!
+//! A `git fetch` or `git pull` in the work item's own repo is answered before it
+//! runs: every worktree shares one `.git`, a worker may write only its own
+//! branch's refs, and a fetch updates every `refs/remotes/origin/*`, so it
+//! fails on the others. Kelpie fetches `origin/main` for the worker.
+//!
 //! Messages are read from the command. What a commit adds and a push sends
 //! is read from the worktree's own git, once a call, through kelpie's
 //! trusted worktree git. A commit or push anywhere else, in a folder the
@@ -150,6 +155,13 @@ pub(super) fn judge(
         moved(dir.as_deref(), to, home.path())
     });
     let args = &git.words[at + 1..];
+    // A fetch of the shared clone is answered rather than run. In a repo the
+    // worker made inside its worktree its refs are its own to write, so a
+    // fetch there is left to git.
+    if runs && matches!(sub, "fetch" | "pull") && in_own_repo(checkout.worktree, dir.as_deref()) {
+        out.push(fetch_answered());
+        return out;
+    }
     if sub == "config"
         && let Some(key) = runs::config_set(args)
         && !runs::safe(key)
@@ -343,6 +355,14 @@ impl Refspec {
     fn sends_current_branch(&self) -> bool {
         self.destination.is_none() && matches!(self.source.as_str(), "HEAD" | "@")
     }
+}
+
+// What a worker is told instead of a fetch of the shared clone
+fn fetch_answered() -> String {
+    "kelpie fetches `origin/main` in this repo and merges `main` into your branch \
+     itself, and the clone's other refs are not yours to write, so a fetch here \
+     fails. To take main into your branch, run `git merge origin/main`."
+        .to_owned()
 }
 
 /// The refusal for a push to the base branch
