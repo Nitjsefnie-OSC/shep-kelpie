@@ -17,6 +17,13 @@ use super::Runner;
 /// puts the same name on this repo's issues by hand.
 pub const IN_PROGRESS: &str = "in-progress";
 
+/// The key of the standing warning that issue `issue`'s worker runs with an
+/// `origin/main` kelpie last fetched, which `status` lists until a fetch lands
+/// or the work item ends
+pub(super) fn main_fetch_key(issue: u64) -> String {
+    format!("main-fetch-{issue}")
+}
+
 impl Runner {
     // Labels `issue` as held, or takes the label off, and notes a refusal
     pub(super) fn mark_held(&mut self, issue: u64, held: bool) {

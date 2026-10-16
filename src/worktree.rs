@@ -59,6 +59,12 @@ pub struct Worktree {
     pub git_common_dir: PathBuf,
     /// The worktree's own git dir: its index and HEAD
     pub git_dir: PathBuf,
+    /// What the fetch of `origin/main` failed with, when it failed
+    ///
+    /// The worktree keeps the `origin/main` kelpie last fetched, and the
+    /// runner notes this for `status`, since the worker merges that ref and
+    /// runs no fetch of its own.
+    pub main_fetch_failed: Option<String>,
 }
 
 /// Why a worktree or build folder could not be prepared
@@ -139,7 +145,12 @@ impl core::error::Error for WorktreeError {}
 ///
 /// A new worktree's branch starts where `start` says, just fetched, and does
 /// not track it. [`Start::Pushed`] reads the branch from `remote`, which is
-/// the fork's branch when `remote` is a [`Remote::Fork`].
+/// the fork's branch when `remote` is a [`Remote::Fork`]. Every call fetches
+/// `origin/main`, which is what the worker is told to merge and may not fetch
+/// itself. Where that fetch fails the worktree keeps the `origin/main` kelpie
+/// last fetched and [`Worktree::main_fetch_failed`] says why, so the runner
+/// can note it and the turn go on. A [`Start::Main`] branch starts on that
+/// ref, so there a failed fetch is an error.
 ///
 /// # Errors
 ///
@@ -155,10 +166,14 @@ pub fn prepare(
     let foreign = || WorktreeError::Foreign(worktree.to_owned());
     stale_lock::clear(&repo.join(".git"), SystemTime::now());
     let full_ref = format!("refs/heads/{branch}");
+    let mut main_fetch_failed = None;
     if worktree.exists() {
         if listed_branch(repo, worktree)?.as_deref() != Some(full_ref.as_str()) {
             return Err(foreign());
         }
+        // The worker merges `origin/main` and runs no fetch of its own, so
+        // kelpie brings main to it before each of its turns.
+        main_fetch_failed = fetch_main(repo);
     } else {
         let local = git(repo, ["rev-parse", "--verify", "--quiet", &full_ref]).ok();
         if local.is_some() && start == Start::Main {
@@ -172,7 +187,14 @@ pub fn prepare(
                 git(repo, ["fetch", "--quiet", "--", "origin", BASE])?;
                 format!("origin/{BASE}")
             }
-            Start::Pushed => remote.fetch(repo, branch)?,
+            // A branch that is already pushed needs main only for the merge
+            // its worker runs, so a failed fetch of it is reported rather
+            // than fatal.
+            Start::Pushed => {
+                let tracking = remote.fetch(repo, branch)?;
+                main_fetch_failed = fetch_main(repo);
+                tracking
+            }
         };
         let wt = worktree.as_os_str();
         if let Some(local) = local {
@@ -216,7 +238,17 @@ pub fn prepare(
     Ok(Worktree {
         git_common_dir,
         git_dir,
+        main_fetch_failed,
     })
+}
+
+// Fetch `origin/main`, and say what it failed with. A fetch that fails leaves
+// the ref where kelpie last put it, and the gate fetches main again before it
+// reads a head.
+fn fetch_main(repo: &Path) -> Option<String> {
+    git(repo, ["fetch", "--quiet", "--", "origin", BASE])
+        .err()
+        .map(|e| e.to_string())
 }
 
 /// Removes a work item's worktree, its branch and its build folder

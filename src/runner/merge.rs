@@ -10,6 +10,7 @@
 use std::fmt;
 
 use super::Runner;
+use super::claim::main_fetch_key;
 use super::gate::{settled, short};
 use super::report::{Begin, StepReport};
 use super::retro::journal::Entry;
@@ -393,6 +394,8 @@ impl Runner {
         if let Err(e) = removed.and_then(|()| self.remove_code_graph(item.issue)) {
             return Ok(self.gate_failed(format!("cannot clean up: {e}")));
         }
+        // The item is gone, so a main it could not fetch warns about nothing.
+        self.notes.ends(&main_fetch_key(item.issue));
         let now = self.ports.clock.now();
         let timings = item.split(now, self.timing_phase(item));
         let closed = matches!(item.phase, Phase::Done { closed: true, .. });
