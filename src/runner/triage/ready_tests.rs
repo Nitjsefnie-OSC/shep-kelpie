@@ -515,6 +515,29 @@ fn a_board_named_priority_label_is_the_one_that_goes_on_a_readied_issue() {
     );
 }
 
+// A repo with no label for the triager's priority gets the board's name made,
+// so the priority is not dropped
+#[test]
+fn a_priority_the_repo_has_no_label_for_is_made_under_the_board_s_name() {
+    let (rig, runner) = filed_at("maintainer", MAINTAINER, &BOARD_LABELS, |_| {});
+    let mut found = sure();
+    found["priority"] = json!("P4");
+    rig.claude.script_for(Role::Triager, [reply(found)]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        [
+            "make priority: P4",
+            "comment",
+            "label bug",
+            "label priority: P4",
+            "label ready-for-agent"
+        ]
+    );
+}
+
 // The same on the plain `needs-triage` path, which takes its labels from the
 // same reading of the repo
 #[test]
