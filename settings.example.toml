@@ -176,7 +176,9 @@ kickoff_hours = 8
 # `CARGO_TARGET_DIR` is always the build folder itself. Every call that works
 # the item reads the unpacked crates of a `CARGO_HOME` there and the standard
 # library and docs of a `RUSTUP_HOME` there, as it reads the machine's own
-# installed dependency and toolchain sources.
+# installed dependency and toolchain sources. kelpie makes each of those folders
+# in the build folder as it grants it, so the first call reads what its own tool
+# installs while it runs.
 [app.dogs.kelpie.worker]
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 build_env = {}
