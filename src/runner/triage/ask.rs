@@ -447,9 +447,10 @@ impl Runner {
     }
 
     // Saves the record as commented with its labels still owed, which is what
-    // the answers write leaves behind: the write is done, the labels are not.
+    // the answers pass leaves behind whether its write went on or was refused:
+    // the body is no longer owed, the type and priority the pass found are.
     // `triage_stepped` would clear them with the body, so this keeps them.
-    pub(super) fn triage_answers_written(&mut self, issue: u64) -> Result<(), StateError> {
+    pub(super) fn triage_answers_commented(&mut self, issue: u64) -> Result<(), StateError> {
         let mut next = self.state.clone();
         if let Some(record) = next
             .triage
@@ -487,7 +488,7 @@ impl Runner {
         }
         match self.ports.voice.edit_issue_body(&self.remote, issue, body) {
             Ok(()) => {
-                self.triage_answers_written(issue)?;
+                self.triage_answers_commented(issue)?;
                 Ok(Write::Written)
             }
             Err(e) if refused_text(&e) => {
@@ -495,7 +496,11 @@ impl Runner {
                     "triage #{issue}: its answers were refused: {e}; they are not written, and \
                      the issue ends `{TRIAGE}"
                 ));
-                self.triage_ready_dropped(issue)?;
+                // The step moves to `commented` here rather than through
+                // `triage_ready_dropped`, which would leave it at `answers` for
+                // `finish_triage` to step with `triage_stepped`, and that clears
+                // the labels the pass found with the body.
+                self.triage_answers_commented(issue)?;
                 // The comment said the answers would go under the author's text.
                 // Say on the issue that they did not, rather than leave that
                 // promise there unkept.

@@ -6,7 +6,8 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::ask_tests::{
-    A_WORDS, Q_WORDS, asked, filed, posted, read, record, settled, settled_ready, wrote,
+    A_WORDS, Q_WORDS, asked, filed, filed_before, posted, read, record, settled, settled_ready,
+    wrote,
 };
 use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
@@ -361,6 +362,54 @@ pub(super) fn asked_and_answered(rig: &Rig, runner: &Mutex<Runner>, author: &str
     assert_eq!(step(runner).unwrap(), None);
     wrote(rig, author, answers);
 }
+// A settled body a project's own publish hook refuses
+#[test]
+fn answers_a_hook_refused_still_put_the_type_and_priority_on() {
+    let (rig, runner) = filed_before("pick = \"all\"", "newcomer", asked(), |rig| {
+        rig.forbid_word(&["publish"], "Unwriteable")
+    });
+    asked_and_answered(&rig, &runner, "newcomer", "Q1: Linux, on start.");
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(json!({
+            "type": "bug",
+            "priority": "P2",
+            "body": "## Settled\n\n- Linux, on start. Unwriteable notes.",
+        }))],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.issue_edits(),
+        [],
+        "the refused body never reaches the forge"
+    );
+    let posted = posted(&rig);
+    assert_eq!(posted.len(), 4, "{posted:?}");
+    assert!(
+        posted[3].contains("did not write the answers"),
+        "{posted:?}"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ],
+        "the type and priority the pass found are not lost with the body"
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
 // The issue's body cannot be read, so the pass has no settled body to put under
 // the author's text. That is not stood for by a comment and a label.
 #[test]
