@@ -7,8 +7,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - One pass when CI green on draft head: `agents.reviewers` in order, each once; no loop or judge (gains come in the first two reads). ADR 0006, ADR 0008, `src/runner/review/`
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
 - Round waits for CI on its head first (red costs no read or window); `doctor` names CI that skips drafts. #423
-- A contribution's head gets its held runs approved only after it passes the security review, and its CI is tracked in `contributions[].ci`; no reviewer reads it before `green` (ADR 0008), and then one pass of the contribution's reviewers records findings, posting none. `contributions.md`. #622, #623
-- A released contribution's adopted work item starts at the full pass: `agents.reviewers` in order, each once, not `contributions.reviewers` and not the bots-only read an adopted pull request of kelpie's own owes. A merge ruling's `rework` answer takes the pull request over the same way. `contribution-release.md`, `src/runner/adopt.rs`. #634
+- A contribution's head gets its held runs approved only after the security review, CI in `contributions[].ci`, and no reviewer reads it before `green` (ADR 0008); one pass of `contributions.reviewers` records findings, posting none. A released one's work item runs the full `agents.reviewers` pass (`contribution-release.md`). #622, #623, #634
 - Pass restarts only on a new head that needs it (merge `rework`, accepted foreign change, rework). ADR 0006
 - Merge ruling `no <note>` = fix turn back to the ruling, no new pass; restarts pass only after unread/open-thread warning. #354
 - Reviewer = agent file on session harness (read-only), `command`, `endpoint` or `bot`; runs no commands (running tests found fewer bugs). #314
@@ -44,7 +43,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 ## Rulings
 
 - Seven kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `no-edits`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `src/runner/ruling.rs`
-- A `contribution` ruling has no work item and is never posted on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel, and `rulings.pm_alone` naming `security` or `contribution-merge` is refused at load. #620, #629, #630
+- A `contribution` ruling has no work item and is never posted on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel either (`contribution-merge.md`, `github-app.md`). #620, #629, #630
 - Ruling = log line + `status` entry + webhook post with one question; `no <note>` is worker's next turn. #89
 - A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The counter ids are gone; a state file saved under them is renamed on load (version 38). #508, #509
 - `rule <number> <answer>` (`rule 427`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507
