@@ -15,10 +15,14 @@ use crate::settings::ForgeSlug;
 // stops at its limit.
 const LIST_LIMIT: &str = "1000";
 
-// The REST endpoint answers 100 items a page, and `gh` lists newest first, so
-// a short page limit would hide the oldest issue. Ten pages is `LIST_LIMIT`.
+// The REST endpoint answers 100 items a page, and an item is an issue or a pull
+// request, so the pages are read until `LIST_ISSUES` issues are in hand or the
+// endpoint runs out. `LIST_PAGES` bounds what one listing may cost: past it a
+// repo whose open pull requests crowd the pages out loses its oldest issues,
+// the way `gh` loses them at its own ceiling.
 const PER_PAGE: usize = 100;
-const LIST_PAGES: usize = 10;
+const LIST_ISSUES: usize = 1000;
+const LIST_PAGES: usize = 20;
 
 // `gh issue list --json` has no `authorAssociation` in gh 2.96, and the triage
 // limits read it, so the open issues come from the REST endpoint, which answers
@@ -28,16 +32,22 @@ const LIST_PAGES: usize = 10;
 pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError> {
     let mut open = Vec::new();
     for page in 1..=LIST_PAGES {
-        let path = issue_page(repo, page);
-        let stdout = gh(&["api", &path])?;
+        let stdout = gh(&["api", &issue_page(repo, page)])?;
         let listed = parse_open_page(&stdout)?;
-        let more = listed.len() == PER_PAGE;
+        let items = listed.len();
         open.extend(listed.into_iter().flatten());
-        if !more {
+        if !more_pages(items, open.len()) {
             break;
         }
     }
     Ok(open)
+}
+
+// Whether another page is worth asking for: the endpoint has more items, and
+// the issues in hand have not reached the ceiling. Pull requests are items and
+// not issues, so a page of them fills neither end.
+fn more_pages(items: usize, issues: usize) -> bool {
+    items == PER_PAGE && issues < LIST_ISSUES
 }
 
 // One page of the endpoint's open issues, newest first
@@ -615,7 +625,26 @@ mod tests {
             issue_page(&repo, 2),
             "repos/shep-pm/koji/issues?state=open&per_page=100&page=2"
         );
-        assert_eq!(LIST_PAGES * PER_PAGE, 1000, "as long a list as gh stops at");
+        assert_eq!(LIST_ISSUES, 1000, "as long a list as gh stops at");
+        assert_eq!(
+            LIST_PAGES * PER_PAGE,
+            2_000,
+            "twice the issues ceiling, so a page full of pull requests cannot fill it"
+        );
+    }
+
+    #[test]
+    fn pull_requests_do_not_fill_the_open_issue_ceiling() {
+        assert!(
+            more_pages(PER_PAGE, 0),
+            "a full page of pull requests is neither end"
+        );
+        assert!(more_pages(PER_PAGE, LIST_ISSUES - 1));
+        assert!(!more_pages(PER_PAGE, LIST_ISSUES), "the ceiling is issues");
+        assert!(
+            !more_pages(40, 12),
+            "a short page is the end of the listing"
+        );
     }
 
     #[test]
