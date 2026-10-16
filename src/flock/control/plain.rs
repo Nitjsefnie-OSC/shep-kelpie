@@ -242,12 +242,16 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
     }
     let records = triage["issues"].as_array().map_or(&[][..], Vec::as_slice);
     for record in records {
-        lines.push(format!(
-            "  triaged #{}: comment {}, {}",
-            record["issue"],
-            record["comment"],
-            record["step"].as_str().unwrap_or("?"),
-        ));
+        let (issue, comment) = (&record["issue"], &record["comment"]);
+        match record["duplicate_of"].as_u64() {
+            Some(of) => lines.push(format!(
+                "  triaged #{issue}: comment {comment}, closed as a duplicate of #{of}"
+            )),
+            None => lines.push(format!(
+                "  triaged #{issue}: comment {comment}, {}",
+                record["step"].as_str().unwrap_or("?"),
+            )),
+        }
     }
     let due = triage["due"].as_array().map_or(&[][..], Vec::as_slice);
     if due.is_empty() {
