@@ -48,6 +48,8 @@ pub(in crate::runner) struct Found {
     pub(in crate::runner) criteria: Vec<String>,
     /// What only the author can answer, at most `max_questions`
     pub(in crate::runner) open: Vec<Question>,
+    /// The agent-ready issue body the research wrote, when it wrote one
+    pub(in crate::runner) body: Option<String>,
 }
 
 /// The other item the research named as already covering this issue
@@ -107,6 +109,8 @@ struct Reply {
     criteria: Vec<String>,
     #[serde(default)]
     open: Vec<Question>,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 // What the triager named as covering the issue, before kelpie checks it
@@ -167,13 +171,15 @@ pub(super) fn prompt(
          closes, are listed above so you can tell one that already covers this issue; you \
          cannot list them yourself. Ask at most {max_questions} questions in `open`. Kelpie \
          never sets `P0`: answer it if you think the issue is one, and the author is asked \
-         how urgent it is.\n\n\
+         how urgent it is. When you are sure of everything, answer `body` with the whole \
+         agent-ready issue body: kelpie writes it over the issue and labels the issue \
+         `ready-for-agent` when the maintainer opened it.\n\n\
          Reply with exactly one JSON object and nothing else: {{\"type\": \"bug\" | \
          \"enhancement\" | null, \"priority\": \"P0\" | \"P1\" | \"P2\" | \"P3\" | \"P4\" | null, \
          \"related\": [issue numbers], \"addressed_by\": null | {{\"number\": n, \"kind\": \
          \"issue\" | \"pull_request\", \"why\": \"one sentence\"}}, \"files\": [repo paths], \
          \"tests\": [test names], \"criteria\": [strings], \"open\": [{{\"question\": \"...\", \
-         \"recommended\": \"...\"}}], \"body\": null}}",
+         \"recommended\": \"...\"}}], \"body\": null | \"the whole agent-ready issue body\"}}",
         fenced("The issue", &issue),
         fenced("The open issues' numbers and titles", &listing),
         fenced(
@@ -273,6 +279,10 @@ pub(in crate::runner) fn read_reply(
         tests: texts(reply.tests),
         criteria: texts(reply.criteria),
         open: questions,
+        body: reply
+            .body
+            .map(|body| body.trim().to_owned())
+            .filter(|body| !body.is_empty()),
     })
 }
 

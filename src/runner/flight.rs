@@ -250,11 +250,13 @@ enum News {
         head: String,
         reading: crate::runner::contributions::Reading,
     },
-    // The triager's research of an issue ended, with its reply read against its view
+    // The triager's research of an issue ended, with its reply read against its
+    // view. The reply is boxed: it is the largest thing any `News` variant holds
+    // by far, and the rest of the enum is small next to it.
     Triaged {
         issue: u64,
         end: End,
-        found: Option<Result<crate::runner::triage::research::Found, String>>,
+        found: Option<Box<Result<crate::runner::triage::research::Found, String>>>,
     },
     // The experts of a ruling ended, each as its own call did
     Paneled {
@@ -861,7 +863,7 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             return Ok(None);
         }
         News::Triaged { issue, end, found } => {
-            runner.triage_heard(issue, end, found)?;
+            runner.triage_heard(issue, end, found.map(|found| *found))?;
             return Ok(None);
         }
         News::Proved(proof) => {

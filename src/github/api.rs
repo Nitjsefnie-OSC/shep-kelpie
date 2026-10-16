@@ -265,6 +265,16 @@ impl Call {
         )
     }
 
+    /// Issue `number`'s body replaced with `body`, its title as it stands,
+    /// `PATCH /repos/{owner}/{repo}/issues/{number}`
+    pub fn edit_issue(repo: &ForgeSlug, number: u64, body: &str) -> Self {
+        Self {
+            verb: Verb::Patch,
+            path: format!("/repos/{}/issues/{number}", repo.as_str()),
+            body: Some(serde_json::json!({ "body": body }).to_string()),
+        }
+    }
+
     /// A new label on the repo, `POST /repos/{owner}/{repo}/labels`
     pub fn label(repo: &ForgeSlug, label: &NewLabel<'_>) -> Self {
         Self::post(

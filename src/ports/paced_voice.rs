@@ -124,6 +124,10 @@ impl Voice for PacedVoice {
         self.call(|v| v.create_issue(repo, title, body, labels))
     }
 
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.call(|v| v.edit_issue_body(repo, number, body))
+    }
+
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
         self.call(|v| v.resolve_thread(repo, thread))
     }

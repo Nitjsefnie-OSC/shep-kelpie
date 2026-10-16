@@ -31,7 +31,7 @@ Report:
 
 When you name something that covers the issue, kelpie closes the issue as a duplicate of it and says no more. Name one only when it asks for the same thing, in the same place, with the same end: not a nearby issue, not an issue in the same file, not a pull request that touches the same code without doing what this one asks. Leave `addressed_by` null where you are unsure, and put the near match in `related` instead. A number you name must be one the prompt listed.
 
-Only when the prompt asks for a `body` and you are sure of everything, write the issue body an agent can build from, in the issue writer's shape:
+When you are sure of everything, write the issue body an agent can build from, in the issue writer's shape:
 
 - `Touches:` as the first line, naming the files it changes, new ones marked.
 - A `## What to build` section: one line of why, then concrete bullets naming the files, types, functions and shapes to add or change, and what stays unchanged where a builder might wander.
@@ -49,4 +49,4 @@ How to reply: exactly one JSON object and nothing else, no code fence, with thes
 - `tests`: the test names it would add or change.
 - `criteria`: a draft of the acceptance criteria, as a list of strings.
 - `open`: a list of `{ "question": "...", "recommended": "..." }`, empty when nothing is left to ask.
-- `body`: `null`. A later pass asks for the agent-ready issue body here; leave it null unless the prompt says otherwise.
+- `body`: `null`, or when you are sure of everything, the whole agent-ready issue body in the shape above, as one JSON string. Kelpie writes it over the issue and labels the issue `ready-for-agent` when the maintainer opened it and the reply has a type, a priority, no open questions and that body.
