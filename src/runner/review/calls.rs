@@ -115,7 +115,7 @@ mod tests {
     use crate::runner::step;
     use crate::settings::AgentHarness;
     use crate::test::{
-        Rig, Scripted, assert_reads, assert_refuses, git, linked_worktree, main_commits,
+        Rig, Scripted, assert_reads, assert_refuses, git, linked_worktree, main_commits, write_in,
     };
     use crate::trim::deny_with_trim;
 
@@ -160,31 +160,32 @@ mod tests {
     }
 
     #[test]
-    fn a_reviewer_reads_the_build_cargo_homes_sources_and_none_of_its_credentials() {
+    fn a_reviewer_reads_the_installed_dependency_sources_and_none_of_a_cargo_homes_credentials() {
         let rig = Rig::new("shep");
         rig.test_command("cargo test --test {name}");
         rig.edit_settings(|s| {
             s.replace("build_env = {}", "build_env = { CARGO_HOME = \"cargo\" }")
         });
+        // cargo's own default home, and the one this project points into the
+        // work item's build folder, both there before the runner looks.
+        let (machine, build_cargo) = (rig.home.path().join(".cargo"), rig.build_7().join("cargo"));
+        for root in [&machine, &build_cargo] {
+            for file in [
+                "registry/src/serde-1.0.2/src/lib.rs",
+                "git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs",
+                "registry/cache/index.crates.io-6a1f/serde-1.0.2.crate",
+                "registry/index/index.crates.io-6a1f/.cache",
+                "credentials.toml",
+            ] {
+                write_in(root, file, "x\n");
+            }
+        }
         let runner = rig.open().unwrap();
         rig.ask(&runner, "add", Some("7"));
         rig.forge.open_pull_request(71, "kelpie/7", &[7]);
         rig.claude
             .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
         step(&runner).unwrap(); // the worker's first turn
-        let cargo = rig.build_7().join("cargo");
-        let crate_src = cargo.join("registry/src/serde-1.0.2/src/lib.rs");
-        for file in [
-            "registry/src/serde-1.0.2/src/lib.rs",
-            "git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs",
-            "registry/cache/index.crates.io-6a1f/serde-1.0.2.crate",
-            "registry/index/index.crates.io-6a1f/.cache",
-            "credentials.toml",
-        ] {
-            let path = cargo.join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, "x\n").unwrap();
-        }
         step(&runner).unwrap(); // round 1, qwen: clean by default
         step(&runner).unwrap(); // round 2, claude: the reviewer
 
@@ -197,14 +198,25 @@ mod tests {
             .iter())
         .filter_map(serde_json::Value::as_str)
         .collect();
-        for folder in [cargo.join("registry/src"), cargo.join("git/checkouts")] {
-            assert!(granted.contains(&folder.to_str().unwrap()), "{granted:?}");
+        for root in [&machine, &build_cargo] {
+            for sub in ["registry/src", "git/checkouts"] {
+                let folder = root.join(sub);
+                assert!(granted.contains(&folder.to_str().unwrap()), "{granted:?}");
+            }
+            assert_reads(&seen, &root.join("registry/src/serde-1.0.2/src/lib.rs"));
+            assert_reads(
+                &seen,
+                &root.join("git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs"),
+            );
         }
-        assert_reads(&seen, &crate_src);
+        // The build folder is the worker's, and the reviewer reads only the
+        // crates in it. The machine's own cargo home is denied its credentials
+        // by name, which `a_worker_reads_the_installed_dependency_sources_and_no_credential_of_cargo`
+        // checks on the rules themselves.
         for unread in [
-            cargo.join("credentials.toml"),
-            cargo.join("registry/cache/index.crates.io-6a1f/serde-1.0.2.crate"),
-            cargo.join("registry/index/index.crates.io-6a1f/.cache"),
+            build_cargo.join("credentials.toml"),
+            build_cargo.join("registry/cache/index.crates.io-6a1f/serde-1.0.2.crate"),
+            build_cargo.join("registry/index/index.crates.io-6a1f/.cache"),
         ] {
             assert_refuses(&seen, &unread);
         }
