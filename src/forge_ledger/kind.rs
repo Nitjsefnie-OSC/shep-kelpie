@@ -173,6 +173,9 @@ impl Kind {
 
     /// Which of GitHub's APIs the call spends from; a call that asks both
     /// counts as GraphQL, the one with the smaller allowance
+    ///
+    /// gh's own list commands go through its GraphQL list query, so `gh issue
+    /// list` and `gh pr list` count as GraphQL whatever flags they carry.
     pub fn api(self) -> Api {
         match self {
             Self::Visibility
@@ -183,6 +186,7 @@ impl Kind {
             | Self::FinishedParents
             | Self::ReadyIssues
             | Self::OpenPullRequests
+            | Self::OpenPulls
             | Self::PullRequest
             | Self::Reviewed
             | Self::Talk
@@ -207,7 +211,6 @@ impl Kind {
             | Self::FileText
             | Self::SubIssues
             | Self::CloseIssueAs
-            | Self::OpenPulls
             | Self::CreateLabel
             | Self::RateLimitReset
             | Self::ReviewBotSeen
