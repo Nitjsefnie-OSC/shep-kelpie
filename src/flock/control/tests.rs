@@ -552,11 +552,13 @@ fn a_plain_status_lists_each_bump_with_where_it_stands() {
 fn a_plain_status_names_what_a_closed_duplicate_was_closed_as_a_duplicate_of() {
     let body = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[
         {"issue":30,"comment":101,"step":"done","duplicate_of":41},
+        {"issue":32,"comment":103,"step":"closed","duplicate_of":41},
         {"issue":31,"comment":102,"step":"commented"}]},"rulings":[]}"#;
     assert_eq!(
-        plain_status("koji", body)[3..5],
+        plain_status("koji", body)[3..6],
         [
             "  triaged #30: comment 101, closed as a duplicate of #41",
+            "  triaged #32: comment 103, to close as a duplicate of #41",
             "  triaged #31: comment 102, commented",
         ]
     );

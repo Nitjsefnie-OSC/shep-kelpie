@@ -244,8 +244,13 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
     for record in records {
         let (issue, comment) = (&record["issue"], &record["comment"]);
         match record["duplicate_of"].as_u64() {
-            Some(of) => lines.push(format!(
+            // The step says whether the close the comment announced is already
+            // done, so a close still owed is never shown as one that happened.
+            Some(of) if record["step"].as_str() == Some("done") => lines.push(format!(
                 "  triaged #{issue}: comment {comment}, closed as a duplicate of #{of}"
+            )),
+            Some(of) => lines.push(format!(
+                "  triaged #{issue}: comment {comment}, to close as a duplicate of #{of}"
             )),
             None => lines.push(format!(
                 "  triaged #{issue}: comment {comment}, {}",
