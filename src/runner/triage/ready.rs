@@ -7,7 +7,9 @@
 //! `Touches:`. The comment says the issue is ready, the body goes over the
 //! issue's through [`Voice::edit_issue_body`](crate::ports::Voice), and the
 //! type and priority labels come before `ready-for-agent`, which goes on
-//! last.
+//! last, with the `needs-triage` an earlier pass left on taken off before it.
+//! A priority goes on under the name the board ranks by, `priority: P2`, and
+//! under the bare `P2` only where the repo names its priorities that way.
 //!
 //! The comment is worded before any of that is written, so what it promises is
 //! decided here first: no promise for a body the local guard would refuse, and
@@ -167,6 +169,15 @@ impl Runner {
         }
     }
 
+    // The triage labels `issue` carries now
+    pub(super) fn triage_labels_now(&self, issue: u64) -> Result<Vec<String>, ForgeError> {
+        let found = self.ports.forge.issue(&self.remote, issue)?;
+        Ok((found.labels.iter())
+            .filter(|l| TRIAGE_LABELS.contains(&l.as_str()))
+            .cloned()
+            .collect())
+    }
+
     // The triage label `issue` carries now that it did not when the pass
     // began, or `None` when it carries none. Kelpie's own labels for the
     // issue go on after this check, so a label that came by since is the
@@ -178,10 +189,7 @@ impl Runner {
             .get(&issue)
             .and_then(|t| t.seen.clone())
             .unwrap_or_default();
-        let found = self.ports.forge.issue(&self.remote, issue)?;
-        Ok((found.labels.iter())
-            .find(|l| TRIAGE_LABELS.contains(&l.as_str()) && !seen.iter().any(|s| s == l.as_str()))
-            .cloned())
+        Ok(stood(&self.triage_labels_now(issue)?, &seen))
     }
 
     // Saves the record with the owed ready body dropped: a publish refusal
@@ -199,26 +207,32 @@ impl Runner {
     }
 
     // Puts on the labels the reply gave and then `ready-for-agent`, the last
-    // label the ready path writes. A triage label that went on by hand since
-    // the pass began is read for here as well: kelpie labels nothing over it,
-    // so a label put on after the body went on stands the same as one put on
-    // while the call ran.
+    // label the ready path writes, taking the `needs-triage` an earlier pass
+    // left behind off first. A triage label that went on by hand since the pass
+    // began is read for here as well: kelpie labels nothing over it, so a label
+    // put on after the body went on stands the same as one put on while the
+    // call ran.
     pub(super) fn label_ready(&mut self, issue: u64) -> Result<ReadyLabels, StateError> {
-        match self.triage_labelled_by_hand(issue) {
-            Ok(Some(label)) => {
-                self.notes.push(format!(
-                    "triage #{issue}: `{label}` went on while its triage waited to be labelled, \
-                     so that stands: kelpie labels it no further"
-                ));
-                self.triage_stepped(issue, TriageStep::Done)?;
-                return Ok(ReadyLabels::Stood);
-            }
-            Ok(None) => {}
+        let seen = self
+            .triage_tries
+            .get(&issue)
+            .and_then(|t| t.seen.clone())
+            .unwrap_or_default();
+        let carried = match self.triage_labels_now(issue) {
+            Ok(carried) => carried,
             Err(e) => {
                 let why = format!("cannot read its labels: {e}");
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
                 return Ok(ReadyLabels::Held);
             }
+        };
+        if let Some(label) = stood(&carried, &seen) {
+            self.notes.push(format!(
+                "triage #{issue}: `{label}` went on while its triage waited to be labelled, so \
+                 that stands: kelpie labels it no further"
+            ));
+            self.triage_stepped(issue, TriageStep::Done)?;
+            return Ok(ReadyLabels::Stood);
         }
         let labels = self
             .triage_record(issue)
@@ -229,6 +243,17 @@ impl Runner {
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
                 return Ok(ReadyLabels::Held);
             }
+        }
+        // An issue is not both ready for the board and waiting for the
+        // maintainer, so the `needs-triage` of an earlier pass comes off before
+        // `ready-for-agent` goes on. The reading above already ruled out a label
+        // put on by hand, so this one is kelpie's own.
+        if carried.iter().any(|l| l == TRIAGE)
+            && let Err(e) = self.label_issue(issue, TRIAGE, false)
+        {
+            let why = format!("cannot take `{TRIAGE}` off: {e}");
+            self.triage_failed(issue, &why, !forge_is_busy(&e));
+            return Ok(ReadyLabels::Held);
         }
         if let Err(why) = self.make_missing_labels([READY_LABEL]) {
             self.triage_failed(issue, &format!("cannot make `{READY}`: {why}"), true);
@@ -241,4 +266,12 @@ impl Runner {
         }
         Ok(ReadyLabels::On)
     }
+}
+
+// The triage label among `carried` that `seen` does not hold: one that came by
+// after the pass began, which is the maintainer's and stands
+fn stood(carried: &[String], seen: &[String]) -> Option<String> {
+    (carried.iter())
+        .find(|l| !seen.iter().any(|s| s.as_str() == l.as_str()))
+        .cloned()
 }

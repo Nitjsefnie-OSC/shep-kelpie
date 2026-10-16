@@ -20,7 +20,7 @@ use super::super::thread_replies::plain_login;
 use super::addressed::Cover;
 use super::ready;
 use super::research::{Addressed, Found};
-use crate::board::TRIAGE;
+use crate::board::{self, TRIAGE};
 use crate::github::{Apps, Owner};
 use crate::ports::{ForgeError, NewLabel};
 use crate::state::{StateError, TriageStep, Triaged};
@@ -293,11 +293,18 @@ impl Runner {
                 return Ok(());
             }
         };
-        let wanted = found.kind.into_iter().chain(found.priority);
-        let labels: Vec<String> = wanted
-            .filter_map(|want| have.iter().find(|l| l.eq_ignore_ascii_case(want)))
-            .cloned()
-            .collect();
+        // The reply names a type `bug` and a priority `P2`. The board ranks by
+        // `priority: P2`, the label name it reads, so a priority is looked for
+        // under that name first, and under the bare `P2` only on a repo that
+        // names its priorities that way. A label the repo does not have is
+        // never put on.
+        let mut labels: Vec<String> = Vec::new();
+        if let Some(kind) = found.kind {
+            labels.extend(board::repo_label(&have, kind).map(str::to_owned));
+        }
+        if let Some(priority) = found.priority {
+            labels.extend(board::repo_priority(&have, priority).map(str::to_owned));
+        }
         // A triage label the maintainer put on while the call ran stands, and
         // it is read for before the comment is worded: the comment never
         // promises a rewrite or a `ready-for-agent` that kelpie will not do.

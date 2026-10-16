@@ -34,24 +34,25 @@ fn said(found: Value) -> &'static str {
 }
 
 // A rig whose App covers the repo, with `[triage]` set to `pick`, open issue
-// 30 opened by `author` after triage was turned on, whose representative
-// says WORDS and whose repo has the labels the pass puts on. `before` runs
-// what a test needs set before the runner opens.
+// 30 opened by `author` after triage was turned on, whose representative says
+// WORDS and whose repo has `labels`. `before` runs what a test needs set
+// before the runner opens.
 fn filed(pick: &str, author: &str) -> (Rig, Mutex<Runner>) {
-    filed_before(pick, author, |_| {})
+    filed_at(pick, author, &REPO_LABELS, |_| {})
 }
 
 fn filed_before(pick: &str, author: &str, before: impl FnOnce(&Rig)) -> (Rig, Mutex<Runner>) {
+    filed_at(pick, author, &REPO_LABELS, before)
+}
+
+fn filed_at(
+    pick: &str,
+    author: &str,
+    labels: &[&str],
+    before: impl FnOnce(&Rig),
+) -> (Rig, Mutex<Runner>) {
     let rig = rig_with(&format!("pick = \"{pick}\""));
-    rig.forge.set_repo_labels(&[
-        "bug",
-        "enhancement",
-        "P1",
-        "P2",
-        "needs-triage",
-        "needs-info",
-        "ready-for-agent",
-    ]);
+    rig.forge.set_repo_labels(labels);
     let mut crash = issue(&rig, 30, author, 5);
     crash.title = "Crash on start".to_owned();
     crash.body = "It crashes when I run it.".to_owned();
@@ -62,6 +63,29 @@ fn filed_before(pick: &str, author: &str, before: impl FnOnce(&Rig)) -> (Rig, Mu
     let runner = rig.open().unwrap();
     (rig, runner)
 }
+
+// The labels a repo may hold for the pass, named bare
+const REPO_LABELS: [&str; 7] = [
+    "bug",
+    "enhancement",
+    "P1",
+    "P2",
+    "needs-triage",
+    "needs-info",
+    "ready-for-agent",
+];
+
+// The same, named the way the board reads a priority: `priority: P2`
+const BOARD_LABELS: [&str; 8] = [
+    "bug",
+    "enhancement",
+    "priority: P1",
+    "priority: P2",
+    "needs-triage",
+    "needs-info",
+    "ready-for-agent",
+    "wontfix",
+];
 
 #[test]
 fn a_maintainer_issue_it_is_sure_of_gets_the_new_body_its_labels_and_ready_for_agent_last() {
@@ -453,5 +477,111 @@ fn a_ready_issue_is_recorded_ready_and_a_refused_edit_costs_no_second_call() {
     assert_eq!(step(&runner).unwrap(), None);
 
     assert_eq!(calls(&rig, Role::Triager).len(), 1, "the pass ran once");
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
+}
+
+// The board ranks a ready issue by `priority: P2`, not by a bare `P2`. A repo
+// named that way gets the label the board reads.
+#[test]
+fn a_board_named_priority_label_is_the_one_that_goes_on_a_readied_issue() {
+    let (rig, runner) = filed_at("maintainer", MAINTAINER, &BOARD_LABELS, |_| {});
+    rig.claude.script_for(Role::Triager, [reply(sure())]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "label bug",
+            "label priority: P2",
+            "label ready-for-agent"
+        ],
+        "the triager's `P2` goes on under the name the board ranks by"
+    );
+}
+
+// The same on the plain `needs-triage` path, which takes its labels from the
+// same reading of the repo
+#[test]
+fn a_board_named_priority_label_is_the_one_that_goes_on_an_issue_that_ends_needs_triage() {
+    let (rig, runner) = filed_at("all", "newcomer", &BOARD_LABELS, |_| {});
+    rig.claude.script_for(Role::Triager, [reply(sure())]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "label bug",
+            "label priority: P2",
+            "label needs-triage"
+        ]
+    );
+}
+
+// `shep kelpie triage` on an issue an earlier pass left at `needs-triage`, now
+// sure of it: the issue is not left both ready for the board and waiting for
+// the maintainer
+#[test]
+fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass() {
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    let asked = json!({
+        "type": "bug",
+        "priority": "P2",
+        "open": [{ "question": "Is it every start?", "recommended": "Yes" }],
+    });
+    rig.claude
+        .script_for(Role::Triager, [reply(asked), reply(sure())]);
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say(WORDS), Scripted::Say(WORDS)],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        moves(&rig),
+        ["comment", "label bug", "label P2", "label needs-triage"],
+        "the first pass is not sure of it, so it ends `needs-triage`"
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+
+    // The issue as the first pass left it, on the forge as on the board's
+    // list, asked again
+    for label in ["bug", "P2", "needs-triage"] {
+        rig.forge.label(30, label);
+    }
+    let mut left = issue(&rig, 30, MAINTAINER, 5);
+    left.title = "Crash on start".to_owned();
+    left.labels = vec!["bug".to_owned(), "P2".to_owned(), "needs-triage".to_owned()];
+    list(&rig, left);
+    let reply = rig.ask(&runner, "triage", Some("30"));
+    assert_eq!(reply.get("error"), None, "{reply}");
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(30, BODY.trim_end().to_owned())],
+        "the second pass rewrote it"
+    );
+    assert_eq!(
+        rig.github.label_takes(),
+        [(30, "needs-triage".to_owned())],
+        "`needs-triage` came off before `ready-for-agent` went on"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+            "comment",
+            "label bug",
+            "label P2",
+            "label ready-for-agent",
+        ]
+    );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
 }

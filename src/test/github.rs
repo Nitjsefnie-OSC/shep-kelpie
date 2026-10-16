@@ -299,6 +299,23 @@ impl FakeGithub {
             .collect()
     }
 
+    /// Each issue label the App took off, in order, as the issue it came off
+    /// and the label's name. A name that needs no path encoding, which every
+    /// label this runner writes does, comes back as it was written.
+    pub(crate) fn label_takes(&self) -> Vec<(u64, String)> {
+        (self.writes().into_iter())
+            .filter(|(_, call)| call.verb == Verb::Delete)
+            .filter_map(|(_, call)| {
+                let mut parts = call.path.rsplit('/');
+                let name = parts.next()?;
+                if parts.next() != Some("labels") {
+                    return None;
+                }
+                Some((parts.next()?.parse().ok()?, name.to_owned()))
+            })
+            .collect()
+    }
+
     /// The id of each comment the App reacted to, in order
     pub(crate) fn reactions(&self) -> Vec<u64> {
         (self.writes().into_iter())
