@@ -15,8 +15,8 @@ const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\
                               gateway: paddock\ncontext: 65536\n---\n";
 
 /// `rig`'s runner, with a project manager, a `mine` implementer behind a
-/// gateway at `server`, and issue 7 open on it
-fn behind(rig: &Rig, server: &StandInEndpoint) -> Mutex<Runner> {
+/// gateway at `url`, and issue 7 open on it
+fn behind(rig: &Rig, url: &str) -> Mutex<Runner> {
     rig.write_agent("mine", BEHIND_PADDOCK);
     // `name_pm` and `implementers` each rewrite the example's `implementers`
     // line, so the one that checks it goes first.
@@ -25,10 +25,9 @@ fn behind(rig: &Rig, server: &StandInEndpoint) -> Mutex<Runner> {
     let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
     let gateway = format!(
         "[gateways.paddock]\nurl = \"{}\"\nkey_env = \"CARGO_PKG_NAME\"\n",
-        server.host()
+        url
     );
     rig.set_kelpie_settings(&format!("{settings}{gateway}"));
-    name_pm(rig);
     let runner = rig.open().unwrap();
     rig.forge.label(7, "agent:mine");
     rig.ask(&runner, "add", Some("7"));
@@ -45,7 +44,7 @@ fn a_long_lease_wait_wakes_it_naming_who_holds_the_lease() {
             ],"waiters":[]}"#,
         );
     let rig = Rig::new("rotom");
-    let runner = behind(&rig, &server);
+    let runner = behind(&rig, server.host());
     let queue = Hold::default();
     let work = Hold::default();
     rig.claude.script([
