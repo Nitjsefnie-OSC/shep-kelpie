@@ -83,17 +83,39 @@ impl Posted {
     /// The flag is set here, so no new call starts from now, whatever the pass
     /// that holds the runner's lock goes on to read.
     ///
+    /// A `drain pause` asked for once is asked for: a later plain `drain` poll
+    /// that lands in the same pass takes the pause back, so the two merge into
+    /// one ask that ends each turn in flight at its next tool call.
+    ///
     /// Returns whether this is the first one since the runner took the last up,
     /// which is the one that asks the loop for a pass.
     pub(crate) fn ask_drain(&self, at_tool: bool) -> bool {
         self.draining.store(true, Ordering::SeqCst);
-        let first = self
+        let mut pending = self
             .pending
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(Pending::Drain { at_tool })
-            .is_none();
-        self.wake.store(first, Ordering::SeqCst);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let first = match *pending {
+            Some(Pending::Drain { at_tool: was }) => {
+                *pending = Some(Pending::Drain {
+                    at_tool: was || at_tool,
+                });
+                false
+            }
+            // A `drain` after an `undrain` is the later ask, so it stands.
+            Some(Pending::Undrain) => {
+                *pending = Some(Pending::Drain { at_tool });
+                false
+            }
+            None => {
+                *pending = Some(Pending::Drain { at_tool });
+                true
+            }
+        };
+        drop(pending);
+        // The ask a pass has not taken up yet still wants one, whatever landed
+        // after it.
+        self.wake.fetch_or(first, Ordering::SeqCst);
         first
     }
 
@@ -107,7 +129,7 @@ impl Posted {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .replace(Pending::Undrain)
             .is_none();
-        self.wake.store(first, Ordering::SeqCst);
+        self.wake.fetch_or(first, Ordering::SeqCst);
     }
 
     /// What a `drain` or `undrain` asked while a pass held the lock, if any is waiting
@@ -240,6 +262,43 @@ mod tests {
             Some(Pending::Drain { at_tool: false })
         );
         assert!(posted.draining());
+    }
+
+    #[test]
+    fn a_drain_pause_asked_once_is_asked_for_whatever_asks_after_it() {
+        let posted = Posted::default();
+        assert!(posted.ask_drain(true));
+        assert!(
+            !posted.ask_drain(false),
+            "a plain `drain` poll asks for no second pass"
+        );
+        assert_eq!(
+            posted.take_pending(),
+            Some(Pending::Drain { at_tool: true }),
+            "the plain poll took the pause back"
+        );
+
+        posted.ask_drain(false);
+        assert!(!posted.ask_drain(true));
+        assert_eq!(
+            posted.take_pending(),
+            Some(Pending::Drain { at_tool: true })
+        );
+    }
+
+    #[test]
+    fn a_second_drain_waiting_for_a_pass_keeps_the_wake_the_first_asked_for() {
+        let posted = Posted::default();
+        assert!(posted.ask_drain(false));
+        assert!(
+            !posted.ask_drain(false),
+            "the first ask already wants the same pass"
+        );
+        assert!(
+            posted.needs_wake(),
+            "the second ask cleared the first's ask"
+        );
+        assert!(!posted.needs_wake(), "the ask was already taken");
     }
 
     #[test]

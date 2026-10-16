@@ -16,6 +16,7 @@
 use serde::Serialize;
 
 use super::Runner;
+use super::posted::Pending;
 use crate::guard::Pause;
 use crate::ports::Tools;
 use crate::settings::Harness;
@@ -93,10 +94,18 @@ impl Runner {
     /// With `at_tool`, each worker turn in flight that a hook can end is
     /// asked to end at its next tool result.
     pub(super) fn drain(&mut self, at_tool: bool) {
+        // A `drain` or `undrain` that landed while a pass held the lock is taken
+        // up here rather than left for the pass after this one, which would act
+        // on it after this. A pause asked for there is still asked for here.
+        let (posted_drain, at_tool) = match self.postings.take_pending() {
+            Some(Pending::Drain { at_tool: was }) => (true, at_tool || was),
+            Some(Pending::Undrain) => (false, at_tool),
+            None => (false, at_tool),
+        };
         // The one call a drain starts: a retro over what finished since the
         // last. It starts here, so the status this answers lists it. One that
         // cannot start yet is asked for on a later pass.
-        self.retro_book.at_drain |= !self.draining();
+        self.retro_book.at_drain |= posted_drain || !self.draining();
         self.postings.set_draining(true);
         self.retro_launched();
         if at_tool {
@@ -111,20 +120,24 @@ impl Runner {
     /// runner itself is taken up here, at the pass's next lock.
     pub(super) fn take_posted(&mut self) {
         match self.postings.take_pending() {
-            Some(super::posted::Pending::Drain { at_tool }) => {
+            Some(Pending::Drain { at_tool }) => {
                 self.retro_book.at_drain = true;
                 self.retro_launched();
                 if at_tool {
                     self.pause_turns();
                 }
             }
-            Some(super::posted::Pending::Undrain) => self.withdraw_pauses(),
+            Some(Pending::Undrain) => self.withdraw_pauses(),
             None => {}
         }
     }
 
     /// Starts calls again
     pub(super) fn undrain(&mut self) {
+        // A `drain` that landed while a pass held the lock is taken up here
+        // rather than left for the pass after this one, which would pause the
+        // turns this one let go of.
+        self.postings.take_pending();
         self.postings.set_draining(false);
         self.withdraw_pauses();
     }

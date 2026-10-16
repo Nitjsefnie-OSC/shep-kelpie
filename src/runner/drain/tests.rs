@@ -217,3 +217,98 @@ fn a_drain_answered_while_a_pass_holds_the_lock_leaves_its_ask_for_the_pass() {
     );
     hold.release();
 }
+
+// An `undrain` answered with the lock free acts at once, so it takes up a
+// `drain` that landed while a pass held the lock. Left for the next pass, that
+// drain pauses the turns this one let go of, and the drain wins last.
+#[test]
+fn an_undrain_takes_up_a_drain_that_landed_while_a_pass_held_the_lock() {
+    let (rig, runner) = seven_due("koji");
+    std::fs::create_dir_all(rig.build_7()).unwrap();
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let held = runner.lock().unwrap();
+    let asking = {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        std::thread::spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+    };
+    asking.join().unwrap();
+    drop(held);
+    assert!(
+        !Pause::in_build(&rig.build_7()).is_requested(),
+        "the posted drain set the pause while a pass held the lock"
+    );
+
+    // The lock is free, so this `undrain` is answered by the runner.
+    rig.ask(&runner, "undrain", None);
+    assert!(!postings.draining(), "the undrain left the runner draining");
+
+    let mut pass = runner.lock().unwrap();
+    pass.take_posted();
+    assert!(
+        !Pause::in_build(&rig.build_7()).is_requested(),
+        "the next pass paused the turn the undrain had let go of"
+    );
+    assert!(!postings.draining(), "the next pass drained again");
+    drop(pass);
+    hold.release();
+}
+
+// A `drain` answered with the lock free acts at once, so it takes up an
+// `undrain` that landed while a pass held the lock. Left for the next pass,
+// that undrain withdraws the pause this one set, and the undrain wins last.
+#[test]
+fn a_drain_takes_up_an_undrain_that_landed_while_a_pass_held_the_lock() {
+    let (rig, runner) = seven_due("koji");
+    std::fs::create_dir_all(rig.build_7()).unwrap();
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+
+    rig.ask(&runner, "drain", Some("pause"));
+    assert!(
+        Pause::in_build(&rig.build_7()).is_requested(),
+        "the pause never reached the turn in flight"
+    );
+
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let held = runner.lock().unwrap();
+    let asking = {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        std::thread::spawn(move || answer(&runner, &postings, "undrain", None))
+    };
+    asking.join().unwrap();
+    drop(held);
+    assert!(
+        !postings.draining(),
+        "the posted undrain did not let go at once"
+    );
+    assert!(
+        Pause::in_build(&rig.build_7()).is_requested(),
+        "the posted undrain withdrew the pause itself"
+    );
+
+    // The lock is free, so this `drain` is answered by the runner.
+    rig.ask(&runner, "drain", None);
+    assert!(postings.draining(), "the drain did not hold new calls back");
+
+    let mut pass = runner.lock().unwrap();
+    pass.take_posted();
+    assert!(
+        postings.draining(),
+        "the next pass undrained what this drained"
+    );
+    assert!(
+        Pause::in_build(&rig.build_7()).is_requested(),
+        "the next pass withdrew the pause the drain set"
+    );
+    drop(pass);
+    hold.release();
+}
