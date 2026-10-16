@@ -38,6 +38,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [The first hands-on run](the-first-hands-on-run.md)
 - [The shep surface kelpie leans on](the-shep-surface-kelpie-leans-on.md)
 - [`shep kelpie doctor`](shep-kelpie-doctor.md)
+- [Tool errors in a call's transcript](tool-errors.md)
 - [The getting-started path](the-getting-started-path.md)
 - [`shep kelpie upgrade`](shep-kelpie-upgrade.md)
 - [The board briefing](the-board-briefing.md)
