@@ -66,6 +66,9 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         issue: 12,
         comment: 5001,
         step: TriageStep::Labelled,
+        at: Timestamp(0),
+        author: String::new(),
+        held: None,
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -79,7 +82,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
     let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(
         saved["triage"]["issues"],
-        serde_json::json!([{ "issue": 12, "comment": 5001, "step": "labelled" }])
+        serde_json::json!([{ "issue": 12, "comment": 5001, "at": 0, "step": "labelled" }])
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
@@ -107,6 +110,9 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             issue: 12,
             comment: 5001,
             step: TriageStep::Done,
+            at: Timestamp(0),
+            author: String::new(),
+            held: None,
             labels: Vec::new(),
             duplicate_of: None,
             ready_body: None,
@@ -121,6 +127,9 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         issue: 13,
         comment: 5002,
         step: TriageStep::Closed,
+        at: Timestamp(0),
+        author: String::new(),
+        held: None,
         labels: Vec::new(),
         duplicate_of: Some(41),
         ready_body: None,
@@ -136,7 +145,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
     assert_eq!(
         saved["triage"]["issues"][1],
         serde_json::json!({
-            "issue": 13, "comment": 5002, "step": "closed", "duplicate_of": 41
+            "issue": 13, "comment": 5002, "at": 0, "step": "closed", "duplicate_of": 41
         })
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
@@ -150,6 +159,9 @@ fn the_oldest_finished_records_go_past_the_cap() {
         issue,
         comment: issue + 1_000,
         step,
+        at: Timestamp(0),
+        author: String::new(),
+        held: None,
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -188,6 +200,9 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                 issue,
                 comment: issue + 1_000,
                 step: TriageStep::Done,
+                at: Timestamp(0),
+                author: String::new(),
+                held: None,
                 labels: Vec::new(),
                 duplicate_of: match issue {
                     2 => Some(41),
@@ -254,10 +269,10 @@ fn a_record_saved_by_slice_2_loads() {
     assert_eq!(
         saved["triage"]["issues"],
         serde_json::json!([
-            { "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug", "P2"] },
-            { "issue": 13, "comment": 5002, "step": "labelled" },
-            { "issue": 14, "comment": 5003, "step": "done" },
-            { "issue": 15, "comment": 5004, "step": "closed", "duplicate_of": 41 },
+            { "issue": 12, "comment": 5001, "at": 0, "step": "commented", "labels": ["bug", "P2"] },
+            { "issue": 13, "comment": 5002, "at": 0, "step": "labelled" },
+            { "issue": 14, "comment": 5003, "at": 0, "step": "done" },
+            { "issue": 15, "comment": 5004, "at": 0, "step": "closed", "duplicate_of": 41 },
         ])
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
@@ -293,6 +308,9 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
         issue: 13,
         comment: 5002,
         step: TriageStep::Answers,
+        at: Timestamp(0),
+        author: String::new(),
+        held: None,
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -312,11 +330,11 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
         saved["triage"]["issues"],
         serde_json::json!([
             {
-                "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug"],
+                "issue": 12, "comment": 5001, "at": 0, "step": "commented", "labels": ["bug"],
                 "asked": { "at": 1_792_051_200, "asks": 2 },
             },
             {
-                "issue": 13, "comment": 5002, "step": "answers",
+                "issue": 13, "comment": 5002, "at": 0, "step": "answers",
                 "questions": { "comment": 5010, "at": 1_792_054_800 },
             },
         ])
@@ -364,10 +382,64 @@ fn a_file_saved_before_this_version_loads_with_no_local_wait() {
         saved["triage"]["issues"],
         serde_json::json!([
             {
-                "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug"],
+                "issue": 12, "comment": 5001, "at": 0, "step": "commented", "labels": ["bug"],
                 "local": { "at": 1_792_051_200, "body": 18_446_744_073_709_551_615_u64 },
             },
-            { "issue": 13, "comment": 5002, "step": "done" },
+            { "issue": 13, "comment": 5002, "at": 0, "step": "done" },
+        ])
+    );
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A version 68 file has records with no `at`, no `author` and no `held`, so
+// they load with none of them: no time, so no cap counts them, and no author,
+// so no author's count reaches them. A record a limit held keeps the limit it
+// was held by, with no comment id behind it.
+#[test]
+fn a_file_saved_before_this_version_loads_with_no_limit_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 68.into();
+    old["triage"] = serde_json::json!({
+        "since": 1_791_964_800,
+        "issues": [{ "issue": 12, "comment": 5001, "step": "done" }],
+    });
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    let triage = loaded.triage.as_mut().expect("the records");
+    assert_eq!(triage.issues[0].at, Timestamp(0), "no time to count");
+    assert_eq!(triage.issues[0].author, "", "no author to count");
+    assert_eq!(triage.issues[0].held, None);
+
+    triage.issues.push(Triaged {
+        issue: 13,
+        comment: 0,
+        step: TriageStep::Done,
+        at: Timestamp(1_792_051_200),
+        author: "newcomer".to_owned(),
+        held: Some(TriageHeld::AuthorCap),
+        labels: Vec::new(),
+        duplicate_of: None,
+        ready_body: None,
+        seen: Vec::new(),
+        asked: None,
+        questions: None,
+        local: None,
+    });
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["triage"]["issues"],
+        serde_json::json!([
+            { "issue": 12, "comment": 5001, "at": 0, "step": "done" },
+            {
+                "issue": 13, "comment": 0, "at": 1_792_051_200, "author": "newcomer",
+                "step": "done", "held": "author-cap",
+            },
         ])
     );
     assert_eq!(store.load().unwrap(), Some(loaded));

@@ -50,17 +50,38 @@ impl TriageState {
     }
 }
 
-/// An issue whose triage comment kelpie has posted
+/// An issue whose triage comment kelpie has posted, or which a triage limit
+/// held with no call at all
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Triaged {
     /// The issue's number
     pub issue: u64,
-    /// The id of the comment kelpie posted on it
+    /// The id of the comment kelpie posted on it, 0 when no comment was
+    /// posted, which is what a limit's hold leaves
     pub comment: u64,
     /// How far the issue has got
     pub step: TriageStep,
+    /// When the record was made: the moment its triage comment was recorded,
+    /// or the moment a limit held the issue. What the daily and per-author
+    /// caps count their 24 hours from. A record saved before it existed reads
+    /// as 0, which is past any window.
+    #[serde(default = "no_time")]
+    pub at: Timestamp,
+    /// The login of whoever opened the issue, which the per-author cap counts
+    /// by, ignoring case. Empty for a deleted account, and for a record saved
+    /// before the cap existed.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    /// The limit that held this issue, which kelpie labelled `needs-triage`
+    /// with no call and no comment
+    ///
+    /// Left out unless a limit held the issue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<TriageHeld>,
     /// The labels the research asked for that are not all on yet, so that a
     /// restart at `commented` puts them on
     ///
@@ -130,6 +151,12 @@ fn asked_once() -> u32 {
     1
 }
 
+// A record saved before `at` existed has no time, which is past any cap's
+// 24 hours, so no cap counts it.
+fn no_time() -> Timestamp {
+    Timestamp(0)
+}
+
 fn is_once(asks: &u32) -> bool {
     *asks <= 1
 }
@@ -197,4 +224,29 @@ pub enum TriageStep {
     Done,
     /// `ready-for-agent` is on
     Ready,
+}
+
+/// Which triage limit held an issue, so it got `needs-triage` with no call and
+/// no comment. The hold is final for that issue: the pass does not come back to
+/// it, and `shep kelpie triage` can still be asked of it.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TriageHeld {
+    /// The author already had `triage.per_author_per_day` issues triaged in
+    /// the 24 hours before it
+    AuthorCap,
+    /// The author's account is younger than `triage.min_account_days` and the
+    /// forge counts them as having no history in the repo
+    NewAccount,
+}
+
+impl TriageHeld {
+    /// What `status` says of the issue's limit
+    pub fn said(&self) -> &'static str {
+        match self {
+            Self::AuthorCap => "its author already had the day's triage calls",
+            Self::NewAccount => "its author's account is new and has no history in the repo",
+        }
+    }
 }

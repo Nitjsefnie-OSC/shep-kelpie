@@ -622,6 +622,11 @@ impl Runner {
             issue,
             comment,
             step,
+            at: self.ports.clock.now(),
+            author: (self.triage_tries.get(&issue))
+                .and_then(|t| t.author.clone())
+                .unwrap_or_default(),
+            held: None,
             labels,
             duplicate_of,
             ready_body: ready_body.or(answers_body),
