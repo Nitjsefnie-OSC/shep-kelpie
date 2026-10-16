@@ -184,7 +184,7 @@ impl Runner {
             let holder = up.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
             shown.insert(name, holder);
         }
-        *self.lease_holders.borrow_mut() = shown.clone();
+        self.postings.keep_holders(shown.clone());
         shown
     }
 
@@ -193,7 +193,7 @@ impl Runner {
     /// Read once at the start, where a trigger could have been answered anyway,
     /// and kept after that, so no pass asks the gateway.
     pub(super) fn posted_local_leases(&self) -> BTreeMap<String, Option<PaddockHolder>> {
-        let held = self.lease_holders.borrow().clone();
+        let held = self.postings.holders();
         if held.is_empty() && !self.gateway_models().is_empty() {
             return self.read_local_leases();
         }

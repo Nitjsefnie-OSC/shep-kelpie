@@ -14,6 +14,7 @@
 //! what finished, the pause for each turn in flight) is kept for the pass to
 //! take up at its next lock.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,12 +22,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::Value;
 
 use super::Runner;
+use crate::ports::PaddockHolder;
 
 /// What the loop last posted, and what a trigger asked while a pass held the lock
 #[derive(Debug, Default)]
 pub(crate) struct Posted {
     body: Mutex<Option<Body>>,
     pending: Mutex<Option<Pending>>,
+    // Who holds each gateway model's lease, as the runner last read them, so a
+    // post asks the gateway nothing
+    holders: Mutex<BTreeMap<String, Option<PaddockHolder>>>,
     // Whether the runner starts no new call, which `drain` sets without the runner's lock
     draining: AtomicBool,
     // Whether a `drain` or `undrain` landed while a pass held the lock and still wants a pass
@@ -66,6 +71,22 @@ impl Posted {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    /// Who holds each gateway model's lease, as the runner last read them
+    pub(crate) fn holders(&self) -> BTreeMap<String, Option<PaddockHolder>> {
+        self.holders
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Keeps `holders` as the last reading, for a post to reuse
+    pub(crate) fn keep_holders(&self, holders: BTreeMap<String, Option<PaddockHolder>>) {
+        *self
+            .holders
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = holders;
     }
 
     /// Whether `drain` holds back every new call
