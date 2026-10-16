@@ -133,6 +133,11 @@ impl Runner {
         let Ok(open) = self.ports.forge.open_issues(&self.remote) else {
             return Ok(());
         };
+        // A record that names no author, which is what a file saved before the
+        // caps existed leaves, gets it from the listing: the author is what the
+        // author's cap counts by and what tells the maintainer's own issues from
+        // everyone else's.
+        self.note_triage_authors(&open)?;
         // A wait on the author ends when the forge says the issue is closed or
         // carries a triage label the maintainer put on by hand, before anything
         // the record owes is written.

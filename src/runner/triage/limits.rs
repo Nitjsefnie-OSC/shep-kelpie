@@ -21,7 +21,7 @@
 //! issue holds no call of its own either.
 
 use crate::board::TRIAGE;
-use crate::ports::Timestamp;
+use crate::ports::{OpenIssue, Timestamp};
 use crate::state::{StateError, TriageHeld, TriageStep, Triaged};
 
 use super::super::Runner;
@@ -77,6 +77,39 @@ impl Runner {
     fn triage_is_maintainer(&self, login: &str) -> bool {
         self.maintainer()
             .is_ok_and(|m| login.eq_ignore_ascii_case(&m))
+    }
+
+    // A record made before the caps existed names no author, and neither does one
+    // made from a triage comment found on the issue. The listing gives it, and it
+    // is what the author's cap counts by and what tells the maintainer's own
+    // issues, which skip every limit, from everyone else's. An account deleted
+    // since the issue went up leaves none, and the record stays as it is.
+    pub(super) fn note_triage_authors(&mut self, open: &[OpenIssue]) -> Result<(), StateError> {
+        let Some(triage) = self.state.triage.as_ref() else {
+            return Ok(());
+        };
+        if (triage.issues.iter()).all(|record| !record.author.is_empty()) {
+            return Ok(());
+        }
+        let mut next = self.state.clone();
+        let mut filled = 0;
+        if let Some(triage) = next.triage.as_mut() {
+            for record in &mut triage.issues {
+                if !record.author.is_empty() {
+                    continue;
+                }
+                if let Some(issue) = (open.iter()).find(|i| i.number == record.issue)
+                    && !issue.author.is_empty()
+                {
+                    record.author = issue.author.clone();
+                    filled += 1;
+                }
+            }
+        }
+        if filled == 0 {
+            return Ok(());
+        }
+        self.save(next)
     }
 
     // What the day's records say: how many triage calls fall in the 24 hours
