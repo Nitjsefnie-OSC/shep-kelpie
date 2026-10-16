@@ -219,7 +219,9 @@ fn parse_open_pulls(stdout: &[u8]) -> Result<Vec<OpenPull>, ForgeError> {
 }
 
 // The issues a pull request's body names with `Resolves`, `Fixes` or `Closes`,
-// each keyword read in any case, in the order they first appear
+// each keyword read in any case, in the order they first appear. A number ends
+// at whitespace, punctuation or the end of the body: `#12abc` and `#12_3` name
+// nothing, since GitHub reads no issue of that number.
 fn closes_named_in(body: &str) -> Vec<u64> {
     const KEYWORDS: [&str; 3] = ["resolves", "fixes", "closes"];
     let words: Vec<&str> = body.split_whitespace().collect();
@@ -228,20 +230,23 @@ fn closes_named_in(body: &str) -> Vec<u64> {
         if !KEYWORDS.iter().any(|k| word.eq_ignore_ascii_case(k)) {
             continue;
         }
-        let Some(number) = words
-            .get(at + 1)
-            .and_then(|next| next.strip_prefix('#'))
-            .and_then(|digits| {
-                digits
-                    .chars()
-                    .take_while(char::is_ascii_digit)
-                    .collect::<String>()
-                    .parse()
-                    .ok()
-            })
-        else {
+        let Some(rest) = words.get(at + 1).and_then(|next| next.strip_prefix('#')) else {
             continue;
         };
+        let digits: String = (rest.chars())
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        let after = digits.len();
+        let ends = match rest.chars().nth(after) {
+            None => true,
+            Some(next) => !(next.is_ascii_alphanumeric() || matches!(next, '_' | '-')),
+        };
+        let Ok(number) = digits.parse::<u64>() else {
+            continue;
+        };
+        if !ends || digits.is_empty() {
+            continue;
+        }
         if !named.contains(&number) {
             named.push(number);
         }
@@ -362,10 +367,16 @@ mod tests {
             "Resolves the crash",
             "fixes issue 12",
             "Closes#12",
+            "Resolves #12abc",
+            "Resolves #12_3",
+            "Resolves #12-13",
+            "Resolves #1x",
+            "Resolves #",
         ] {
             assert_eq!(closes_named_in(body), Vec::<u64>::new(), "{body}");
         }
         assert_eq!(closes_named_in("Fixes #12.\n"), [12]);
+        assert_eq!(closes_named_in("Resolves #12; fixes #13."), [12, 13]);
     }
 
     #[test]
