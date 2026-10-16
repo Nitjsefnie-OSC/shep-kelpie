@@ -133,6 +133,69 @@ pub(super) fn pi(subject: String, host: &dyn Host) -> Line {
     }
 }
 
+// Each of pi's own search tools, the program it runs, and every name pi
+// accepts for it: Debian calls `fd` `fdfind`.
+const PI_TOOLS: [(&str, &str, &[&str]); 2] =
+    [("grep", "rg", &["rg"]), ("find", "fd", &["fd", "fdfind"])];
+
+/// `rg` and `fd` on the `PATH`, which pi's own `grep` and `find` tools run,
+/// for `subject`, a project with an agent on pi
+///
+/// pi looks in its own `bin` folder first, which is empty for every kelpie
+/// call since each call gets a pi home of its own, then on `PATH`, then
+/// downloads the program from GitHub, which the sandbox refuses. A tool with
+/// none of those fails in every call (`docs/facts/tool-errors.md`).
+///
+/// Each line names the program the `PATH` actually has, since pi takes more
+/// than one name for `fd` and an operator looking for `fd` is not told it is
+/// there when what is there is `fdfind`.
+pub(super) fn pi_tools(subject: String, host: &dyn Host) -> Line {
+    let mut found: Vec<(&str, &str)> = Vec::new();
+    let mut gone: Vec<(&str, &[&str])> = Vec::new();
+    for (tool, program, names) in PI_TOOLS {
+        match names.iter().copied().find(|name| host.on_path(name)) {
+            Some(name) => found.push((program, name)),
+            None => gone.push((tool, names)),
+        }
+    }
+    if gone.is_empty() {
+        let names: Vec<String> = found.iter().map(|(_, name)| format!("`{name}`")).collect();
+        let renamed: Vec<String> = found
+            .iter()
+            .filter(|(program, name)| program != name)
+            .map(|(program, name)| format!("`{name}` is `{program}` under another name"))
+            .collect();
+        let mut what = format!(
+            "{} are on your PATH, which pi's `grep` and `find` run",
+            names.join(" and ")
+        );
+        if !renamed.is_empty() {
+            what.push_str(&format!(" ({})", renamed.join("; ")));
+        }
+        return Line::ok(subject, what);
+    }
+    let said: Vec<String> = gone
+        .iter()
+        .map(|(tool, names)| {
+            // Every tool in `PI_TOOLS` has at most two accepted names.
+            let names: Vec<String> = names.iter().map(|name| format!("`{name}`")).collect();
+            let (list, not) = if names.len() == 1 {
+                (names.join(""), "which is not")
+            } else {
+                (names.join(" or "), "and neither is")
+            };
+            format!(
+                "`{tool}` runs {list}, {not} on your PATH, so pi's `{tool}` tool fails in every call"
+            )
+        })
+        .collect();
+    Line::missing(
+        subject,
+        said.join("; "),
+        "install them: `brew install ripgrep fd` on macOS, `apt-get install ripgrep fd-find` on Debian",
+    )
+}
+
 /// `goose` on the `PATH` at [`GOOSE_MINIMUM`] or later, for `subject`, a project with an agent on goose
 pub(super) fn goose(subject: String, host: &dyn Host) -> Line {
     if !host.on_path("goose") {
