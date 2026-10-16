@@ -737,3 +737,76 @@ fn a_body_rewritten_while_the_prompt_is_being_worded_is_the_body_it_measures_aga
     );
     assert_eq!(moves(&rig), ["comment", "comment"], "the round is open");
 }
+
+// A prompt that posted before a crash is timed from when it went up, so an
+// outage does not grant a fresh `triage.wait_days`.
+#[test]
+fn a_local_prompt_a_restart_lost_is_timed_from_when_its_prompt_went_up() {
+    let (rig, runner) = filed(
+        "pick = \"maintainer\"\nwait_days = 2",
+        MAINTAINER,
+        asked_with_files(),
+    );
+    assert_eq!(step(&runner).unwrap(), None);
+    let owed = record(&rig, &runner);
+
+    wrote(&rig, MAINTAINER, "local");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::Say(L_WORDS)],
+    );
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let at = (rig.github.posted_on(30).iter())
+        .find(|c| c.body.contains(LOCAL_MARKER))
+        .expect("the prompt comment")
+        .created;
+
+    drop(runner);
+    crashed_with(&rig, owed);
+    let runner = rig.open().unwrap();
+
+    rig.claude.script_for(Role::Representative, [read("local")]);
+    rig.claude
+        .script_for(Role::Triager, [reply(asked_with_files())]);
+
+    rig.clock.advance(Rig::DAY);
+    for _ in 0..3 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        if record(&rig, &runner)["local"].is_object() {
+            break;
+        }
+    }
+    let held = record(&rig, &runner);
+    assert_eq!(
+        held["local"]["at"],
+        json!(at.0),
+        "the wait is timed from its prompt, not from the restart"
+    );
+
+    // A day on from the restart, which is two days on from the prompt, with no
+    // new body: the round ends as `none` on the prompt's own `wait_days`.
+    rig.clock.advance(Rig::DAY);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage"
+        ],
+        "the prompt's own wait_days, not a fresh pair of them"
+    );
+    let held = record(&rig, &runner);
+    assert_eq!(held["step"], "done");
+    assert!(held.get("local").is_none(), "{held}");
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        2,
+        "no call on a body that never changed"
+    );
+}

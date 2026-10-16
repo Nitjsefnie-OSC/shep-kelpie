@@ -22,12 +22,13 @@
 //! The prompt comment's last line carries the hash of the body it went up
 //! against, so a prompt that posted before a crash leaves the round measured
 //! against that body rather than whatever the forge holds when kelpie comes
-//! back. A prompt kelpie finds on the issue is taken up before a pass that
-//! finds no question left is ended as `none`. The hash is taken from a read
-//! made just before the post, since the wording call before it can run for
-//! minutes. Everything the block names, the title, the files and each question
-//! with what it recommends, is put on one line with its backticks gone, so
-//! none of it can close the fence the prompt is posted in.
+//! back, and timed from when it went up rather than from the restart. A prompt
+//! kelpie finds on the issue is taken up before a pass that finds no question
+//! left is ended as `none`. The hash is taken from a read made just before the
+//! post, since the wording call before it can run for minutes. Everything the
+//! block names, the title, the files and each question with what it recommends,
+//! is put on one line with its backticks gone, so none of it can close the
+//! fence the prompt is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -35,6 +36,7 @@ use super::super::report::Begin;
 use super::super::representative::IssuePost;
 use super::ask::Purpose;
 use super::research::Question;
+use crate::ports::Timestamp;
 use crate::state::{StateError, TriageLocal};
 
 /// What begins the last line of kelpie's local prompt comment, which also
@@ -111,12 +113,13 @@ impl Runner {
         // first: what its author did after it is read from the body, and a pass
         // that now finds no question left is the round's answer rather than a
         // reason to end it as `none`. The comment it finds carries the body the
-        // prompt went up against, so an edit made between that post and this
-        // read is still the round's answer.
+        // prompt went up against and when it went up, so an edit made in between
+        // is still the round's answer and its `wait_days` are the ones that
+        // began then.
         match self.app_comment_after(issue, LOCAL_MARKER, asked.at) {
             Ok(Some(prompt)) => {
                 let seen = prompt_hash(&prompt.body).unwrap_or_else(|| body_hash(&found.body));
-                return self.set_local(issue, seen);
+                return self.set_local(issue, seen, prompt.created);
             }
             Ok(None) => {}
             Err(e) => {
@@ -177,7 +180,7 @@ impl Runner {
                 if let Some(tries) = self.triage_tries.get_mut(&issue) {
                     tries.local_call = false;
                 }
-                self.set_local(issue, seen)
+                self.set_local(issue, seen, self.ports.clock.now())
             }
             Err(e) => {
                 let why = format!("cannot post the prompt: {e}");
@@ -188,9 +191,16 @@ impl Runner {
     }
 
     // Saves the record as waiting on the author's own session, with the body
-    // kelpie last saw. The ask comes off: the prompt replaces it, and the
-    // prompt's own `wait_days` is what silence is measured from.
-    pub(in crate::runner) fn set_local(&mut self, issue: u64, body: u64) -> Result<(), StateError> {
+    // kelpie last saw and when the prompt it waits on went up. The ask comes
+    // off: the prompt replaces it, and the prompt's own `wait_days` is what
+    // silence is measured from. A prompt kelpie found on the issue is timed from
+    // the forge's own time for it, so an outage does not grant a fresh one.
+    pub(in crate::runner) fn set_local(
+        &mut self,
+        issue: u64,
+        body: u64,
+        at: Timestamp,
+    ) -> Result<(), StateError> {
         let mut next = self.state.clone();
         if let Some(record) = next
             .triage
@@ -198,10 +208,7 @@ impl Runner {
             .and_then(|t| t.issues.iter_mut().find(|t| t.issue == issue))
         {
             record.asked = None;
-            record.local = Some(TriageLocal {
-                at: self.ports.clock.now(),
-                body,
-            });
+            record.local = Some(TriageLocal { at, body });
         }
         self.save(next)
     }
