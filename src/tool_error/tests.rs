@@ -131,6 +131,55 @@ fn each_failed_result_in_the_recorded_pi_call_counts_once() {
     assert_eq!(pi(PI, 0).len(), 8);
 }
 
+// A recorded failure, given an MCP tool's name. No MCP failure was recorded in the
+// four days the fixtures come from, so the name is the only part that is not real.
+const MCP_TOOL: &str = "mcp__codebase_memory_mcp__search_graph";
+
+#[test]
+fn a_failed_mcp_tool_call_that_says_nothing_else_counts_as_mcp() {
+    let text = CLAUDE.replace(
+        "\"id\":\"toolu_016kwpRXt5T2RGDg6R2mrnkk\",\"name\":\"Bash\"",
+        &format!("\"id\":\"toolu_016kwpRXt5T2RGDg6R2mrnkk\",\"name\":\"{MCP_TOOL}\""),
+    );
+    let kinds = claude_of(&text);
+    assert_eq!(kinds.get("mcp").copied(), Some(1));
+    assert_eq!(kinds.get("other"), None, "it is no longer `other`");
+}
+
+#[test]
+fn a_failed_pi_mcp_tool_call_that_says_nothing_else_counts_as_mcp() {
+    let text = PI.replace(
+        "\"toolCallId\":\"call_bb621f4bc2904e6581188020\",\"toolName\":\"bash\"",
+        &format!("\"toolCallId\":\"call_bb621f4bc2904e6581188020\",\"toolName\":\"{MCP_TOOL}\""),
+    );
+    let kinds = pi_of(&text);
+    assert_eq!(kinds.get("mcp").copied(), Some(1));
+    assert_eq!(kinds.get("other"), None, "it is no longer `other`");
+}
+
+#[test]
+fn a_guard_refusal_that_also_holds_a_timeout_is_a_guard_block() {
+    let text = PI.replace(
+        "\"text\":\"Command timed out after 600 seconds\"",
+        &format!("\"text\":\"{GUARD_MARK}Command timed out after 600 seconds\""),
+    );
+    let kinds = pi_of(&text);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(2),
+        "the refusal, and the guard's own"
+    );
+    assert_eq!(kinds.get("timeout"), None, "the first kind that matches wins");
+}
+
+#[test]
+fn a_result_that_succeeded_counts_nothing() {
+    let clean = CLAUDE.replace("\"is_error\":true", "\"is_error\":false");
+    assert_eq!(claude(&clean, 0), Vec::new(), "12 real results, none failed");
+    let clean = PI.replace("\"isError\":true", "\"isError\":false");
+    assert_eq!(pi(&clean, 0), Vec::new(), "8 real results, none failed");
+}
+
 #[test]
 fn a_hook_refusal_names_the_hook_that_refused() {
     let errors = claude(CLAUDE, 0);
