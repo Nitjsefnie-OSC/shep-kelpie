@@ -230,8 +230,9 @@ pub(in crate::runner) fn keep_answer(next: &mut ProjectState, answer: &Answer, r
 }
 
 /// Keeps the maintainer's answer to a contribution's merge ruling, in `next`,
-/// for the next poll to carry out: a yes merges the head, and a no with a
-/// note has the representative post it for the contributor
+/// for the next poll to carry out: a yes merges the head, a no with a note has
+/// the representative post it for the contributor, and a rework has kelpie take
+/// the pull request over
 ///
 /// A no with no note, or the note a reaction or a tick gives, posts nothing.
 pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ruling: &Ruling) {
@@ -249,6 +250,9 @@ pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ru
                 note: (!note.is_empty() && note != NO_NOTE).then(|| note.to_owned()),
             }
         }
+        Answer::Rework(note) => Verdict::Rework {
+            note: note.trim().to_owned(),
+        },
         _ => return,
     };
     let followed = (next.contributions.iter_mut())

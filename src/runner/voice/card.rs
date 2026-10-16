@@ -375,10 +375,20 @@ impl Card {
                 board: None,
                 title: format!("Merge this contribution at {} into main?", short(head)),
                 facts: None,
-                choices: yes_no(
-                    "Merges the head, and the representative thanks the contributor",
-                    Some("The representative posts your note for the contributor, if you gave one"),
-                ),
+                choices: {
+                    let mut choices = yes_no(
+                        "Merges the head, and the representative thanks the contributor",
+                        Some(
+                            "The representative posts your note for the contributor, if you gave one",
+                        ),
+                    );
+                    choices.push(choice(
+                        "Rework",
+                        "Takes the pull request over, and kelpie's reviewers and a worker finish it",
+                        Answer::Rework(NO_NOTE.to_owned()),
+                    ));
+                    choices
+                },
             },
             RulingKind::Contribution(Held::Waiting) => Self {
                 problem: None,

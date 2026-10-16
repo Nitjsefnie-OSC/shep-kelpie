@@ -34,7 +34,9 @@ impl Wants {
             | RulingKind::Contribution(Held::Question { .. } | Held::Waiting | Held::NoEdits) => {
                 Self::Answer
             }
-            RulingKind::Merge { .. } => Self::Merge,
+            // Kelpie's own merge ruling and a contribution's take the same
+            // three answers.
+            RulingKind::Merge { .. } | RulingKind::Contribution(Held::Merge { .. }) => Self::Merge,
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }
             | RulingKind::ForeignChange { .. }

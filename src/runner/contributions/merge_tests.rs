@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::pass_tests::{listing, read_through, write};
 use super::ruling_tests::rule;
 use super::security_tests::{commit_on, contribute, contribution};
-use super::tests::poll;
+use super::tests::{poll, poll_or_adopt};
 use crate::ports::{AgentError, CLEAN, Finding, PullRequestState, Role, Severity};
 use crate::runner::words::NO_NOTE;
 use crate::runner::{Runner, StepReport, step};
@@ -349,4 +349,51 @@ fn the_maintainers_comment_does_not_reset_the_contributors_clock() {
     assert_eq!(held["context"].as_array().map(Vec::len), Some(1), "{held}");
     assert_eq!(held.get("heard"), None, "not the contributor's words");
     assert_eq!(rulings(&rig, &runner).len(), 1, "the ruling still waits");
+}
+
+// `rework` takes the pull request over at once: no release, no merge, and
+// the adopted work item runs the project's own reviewers.
+#[test]
+fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
+    let (rig, runner, _) = ruled_on();
+    rig.claude.script([Scripted::Text(CLEAN)]);
+
+    rule(
+        &rig,
+        &runner,
+        "30 rework Add the test the review asked for.",
+    );
+    poll_or_adopt(&rig, &runner);
+    poll_or_adopt(&rig, &runner);
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(rig.forge.merges(), [], "nothing was merged");
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new(), "answered");
+    assert_eq!(status["work_item"]["pull_request"], 30);
+    assert_eq!(status["work_item"]["adopted"], Value::Bool(true));
+    assert_eq!(rig.github.issues_created(), 1, "an issue for the work");
+
+    let told = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.contains("Add the test the review asked for.")),
+        "{told:?}"
+    );
+
+    // The project's own reviewers read it: its qwen round, then its Claude
+    // reviewer, where `contributions.reviewers` listed only "mine".
+    for _ in 0..8 {
+        step(&runner).unwrap();
+    }
+    let said = comments(&rig);
+    assert!(
+        said.iter()
+            .any(|c| c.contains("qwen read this pull request")),
+        "{said:?}"
+    );
+    assert!(
+        said.iter()
+            .any(|c| c.contains("claude read this pull request")),
+        "{said:?}"
+    );
 }

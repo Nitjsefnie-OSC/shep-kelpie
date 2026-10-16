@@ -281,12 +281,15 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
             );
         }
         RulingKind::Contribution(Held::Merge { head }) => {
+            let rework = trigger("rework <note>");
             return format!(
                 "The reviewers' pass over {about} has ended and CI is green on {}, and nobody \
                  merges someone else's work but you, whatever `git.merging` says. {yes} merges \
                  this head and the representative thanks the contributor. {no} merges nothing: \
                  the representative words your note for the contributor and posts it, and a no \
-                 with no note posts nothing. No fix turn runs for either.",
+                 with no note posts nothing. {rework} takes the pull request over: kelpie opens \
+                 a work item on its branch, has it read by the project's reviewers, and has a \
+                 worker finish it. No fix turn runs for a yes or a no.",
                 short(head)
             );
         }
