@@ -55,6 +55,15 @@ impl FakeForge {
             .from_fork = true;
     }
 
+    /// Makes pull request `number` come from the fork cloned from `url`,
+    /// whose owner lets the maintainers edit it or not
+    pub(crate) fn set_fork(&self, number: u64, url: &str, maintainer_can_edit: bool) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        let pr = prs.get_mut(&number).expect("an opened pull request");
+        pr.from_fork = true;
+        pr.fork = Some((url.to_owned(), maintainer_can_edit));
+    }
+
     pub(super) fn count_review(&self, number: u64) {
         let mut counts = self.review_counts.lock().unwrap();
         *counts.entry(number).or_default() += 1;

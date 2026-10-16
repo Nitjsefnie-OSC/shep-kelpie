@@ -153,6 +153,11 @@ impl Runner {
             return Ok(());
         };
         let due = clock.due(now);
+        // Kelpie takes a pull request over by pushing to its branch, so one
+        // it cannot push to is the maintainer's to decide at the quiet.
+        if due == Some(Due::Quiet) && self.awaits_edits(number)? {
+            return Ok(());
+        }
         match &held.asked {
             None => match due {
                 Some(due) => self.ask(&held, &clock, due == Due::Quiet),

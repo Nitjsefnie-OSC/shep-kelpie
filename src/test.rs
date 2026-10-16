@@ -36,6 +36,7 @@ mod e2e_runner;
 mod elsewhere;
 mod endpoint;
 mod forge;
+mod fork;
 mod git;
 mod github;
 mod home;

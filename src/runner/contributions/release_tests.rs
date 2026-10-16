@@ -16,19 +16,20 @@ use crate::test::{Rig, Scripted};
 
 const DAY: u64 = Rig::DAY;
 
-const ASKS: &str = "May kelpie take this from here? A review bot still has a thread open.";
+pub(super) const ASKS: &str =
+    "May kelpie take this from here? A review bot still has a thread open.";
 const ASKS_AGAIN: &str = "One more time: may kelpie take this from here?";
 const YES: &str = r#"{"reading": "yes"}"#;
 const NO: &str = r#"{"reading": "no"}"#;
 const OTHER: &str = r#"{"reading": "other"}"#;
-const TAKEN: &str = "This pull request is kelpie's now. Your commits and credit stay.";
-const THANKED: &str = "Thank you for the pull request. Kelpie is closing it now.";
+pub(super) const TAKEN: &str = "This pull request is kelpie's now. Your commits and credit stay.";
+pub(super) const THANKED: &str = "Thank you for the pull request. Kelpie is closing it now.";
 const ANSWERS: &str = r#"{"kind": "answer", "text": "Yes, that is the failing test."}"#;
 
 // Pull request 30 by `newcomer`, whose head a review bot found a thread in,
 // so kelpie waits on the contributor from the last poll, with the
 // representative saying `said` to each call, once each
-fn waiting(said: &[&'static str]) -> (Rig, Mutex<Runner>) {
+pub(super) fn waiting(said: &[&'static str]) -> (Rig, Mutex<Runner>) {
     let (rig, runner, head) = contributed(&["cubic", "mine"]);
     until_summoned(&rig, &runner);
     let at = rig.clock.now().0 + 30;
@@ -43,24 +44,24 @@ fn waiting(said: &[&'static str]) -> (Rig, Mutex<Runner>) {
 }
 
 // Lets `days` pass, then polls
-fn later(rig: &Rig, runner: &Mutex<Runner>, days: u64) {
+pub(super) fn later(rig: &Rig, runner: &Mutex<Runner>, days: u64) {
     rig.clock.advance(days * DAY);
     poll(rig, runner);
 }
 
 // Polls three times, enough to hear what was written and deal with it
-fn polls(rig: &Rig, runner: &Mutex<Runner>) {
+pub(super) fn polls(rig: &Rig, runner: &Mutex<Runner>) {
     for _ in 0..3 {
         poll(rig, runner);
     }
 }
 
-fn held(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+pub(super) fn held(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     contribution(rig, runner)
 }
 
 // What the App posted on the pull requests
-fn comments(rig: &Rig) -> Vec<String> {
+pub(super) fn comments(rig: &Rig) -> Vec<String> {
     (rig.github.comments().into_iter())
         .map(|(_, body)| body)
         .collect()
@@ -77,7 +78,7 @@ fn prompts(rig: &Rig) -> Vec<String> {
 
 // The rulings that wait, but for the one about the merge, which the ended
 // pass raises and which asks nothing about the release
-fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
+pub(super) fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
     let status = rig.ask(runner, "status", None);
     let all = status["rulings"].as_array().cloned().unwrap_or_default();
     let merge = |r: &Value| r["kind"]["reason"] == "merge";

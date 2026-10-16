@@ -14,7 +14,8 @@ use crate::settings::ForgeSlug;
 // longer pull request the oldest fall out, never the latest review's.
 const QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) { \
     repository(owner: $owner, name: $name) { pullRequest(number: $number) { \
-    state title body isDraft baseRefName headRefName isCrossRepository author { login } \
+    state title body isDraft baseRefName headRefName isCrossRepository maintainerCanModify headRepository { url } \
+    author { login } \
     closingIssuesReferences(first: 50) { nodes { number repository { name owner { login } } } } \
     labels(first: 100) { nodes { name } } \
     reviews(last: 100) { nodes { id state body authorAssociation author { __typename } } } \
@@ -68,10 +69,19 @@ struct Pr {
     base_ref_name: String,
     head_ref_name: String,
     is_cross_repository: bool,
+    #[serde(default)]
+    maintainer_can_modify: bool,
+    #[serde(default)]
+    head_repository: Option<Head>,
     author: Option<Login>,
     labels: Nodes<Label>,
     reviews: Nodes<Review>,
     review_threads: Nodes<Thread>,
+}
+
+#[derive(Deserialize)]
+struct Head {
+    url: String,
 }
 
 #[derive(Deserialize)]
@@ -177,6 +187,10 @@ pub(crate) fn parse_reviewed(stdout: &[u8], repo: &ForgeSlug) -> Result<Reviewed
         base: pr.base_ref_name,
         branch: pr.head_ref_name,
         from_fork: pr.is_cross_repository,
+        maintainer_can_edit: pr.maintainer_can_modify,
+        // GitHub names a repository by its page, which is also its clone URL
+        // with `.git` after it.
+        head_clone_url: pr.head_repository.map(|r| format!("{}.git", r.url)),
         author: pr.author.map(|a| a.login).unwrap_or_default(),
         draft: pr.is_draft,
         labels: pr.labels.nodes.into_iter().map(|l| l.name).collect(),
@@ -192,6 +206,9 @@ mod tests {
     // Recorded from gh 2.96: `gh api graphql` with `QUERY` on shep-pm/shep#617.
     // The maintainer's reviews there are replies with empty bodies, and
     // CodeRabbit's reviews come after them, with every thread resolved.
+    // `maintainerCanModify` and `headRepository` were added by hand, in the
+    // shape the GraphQL schema gives them, because the query grew after the
+    // recording; the ignored test below reads them from the real GitHub.
     const PR_617: &str = include_str!("../../../fixtures/gh-pr-reviewed-617.json");
 
     fn shep() -> ForgeSlug {
@@ -252,6 +269,43 @@ mod tests {
                 comments: vec![],
             })
         );
+    }
+
+    #[test]
+    fn the_gh_adapter_reads_maintainer_can_modify_and_the_head_repository_from_the_recording() {
+        assert!(QUERY.contains("maintainerCanModify"));
+        assert!(QUERY.contains("headRepository { url }"));
+        let pr = parse_reviewed(PR_617.as_bytes(), &shep()).unwrap();
+        assert!(!pr.from_fork);
+        assert!(!pr.maintainer_can_edit);
+        assert_eq!(
+            pr.head_clone_url.as_deref(),
+            Some("https://github.com/shep-pm/shep.git")
+        );
+        assert!(pr.pushable(), "a branch on the repo itself needs no edits");
+
+        let fork = |can_modify: bool, head: &str| {
+            let pr = reply(&format!(
+                r#"{{"state":"OPEN","title":"t","body":"","isDraft":false,"baseRefName":"main",
+                "headRefName":"patch-1","isCrossRepository":true,"maintainerCanModify":{can_modify},
+                "headRepository":{head},"author":{{"login":"newcomer"}},
+                "closingIssuesReferences":{{"nodes":[]}},"labels":{{"nodes":[]}},
+                "reviews":{{"nodes":[]}},"reviewThreads":{{"nodes":[]}}}}"#
+            ));
+            parse_reviewed(pr.as_bytes(), &shep()).unwrap()
+        };
+        let open = fork(true, r#"{"url":"https://github.com/newcomer/shep"}"#);
+        assert!(open.from_fork && open.maintainer_can_edit);
+        assert_eq!(
+            open.head_clone_url.as_deref(),
+            Some("https://github.com/newcomer/shep.git")
+        );
+        assert!(open.pushable());
+        let locked = fork(false, r#"{"url":"https://github.com/newcomer/shep"}"#);
+        assert!(!locked.pushable(), "a fork without edits is not pushable");
+        let deleted = fork(true, "null");
+        assert_eq!(deleted.head_clone_url, None);
+        assert!(!deleted.pushable(), "a deleted fork is not pushable");
     }
 
     #[test]
@@ -349,6 +403,10 @@ mod tests {
         let repo = ForgeSlug::try_from("shep-pm/shep".to_owned()).unwrap();
         let pr = reviewed(None, &repo, 617).unwrap();
         assert_eq!(pr.branch, "c/stoic-dijkstra-31dgjs");
+        assert_eq!(
+            pr.head_clone_url.as_deref(),
+            Some("https://github.com/shep-pm/shep.git")
+        );
         assert!(pr.review.is_some());
     }
 

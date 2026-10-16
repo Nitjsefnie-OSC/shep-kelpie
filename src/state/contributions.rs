@@ -717,6 +717,11 @@ pub enum Held {
     /// twice and has been quiet since. The maintainer chooses: keep waiting,
     /// adopt it anyway, or close it with thanks.
     Waiting,
+    /// The contributor has been quiet for `quiet_days` and the pull request's
+    /// fork does not let the maintainers edit it, so kelpie cannot finish it
+    /// on its own branch. The maintainer chooses: leave it open, which
+    /// follows it no further, or close it with thanks.
+    NoEdits,
     /// The pass has ended and CI is green on the head, and the maintainer
     /// decides every merge of someone else's work, whatever `git.merging`
     /// says. The ruling names the findings recorded and the bot threads
