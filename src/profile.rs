@@ -927,6 +927,18 @@ mod tests {
         assert!(INSTRUCTIONS.contains("packed-refs.lock"), "{INSTRUCTIONS}");
     }
 
+    // 29 refused `/tmp` writes in four days of transcripts, 51 of 93 worker
+    // retros. Every harness already runs its call with `TMPDIR` at the call's
+    // own scratch folder; nothing told the model it exists (#951).
+    #[test]
+    fn the_instructions_send_a_worker_to_its_own_temp_folder_for_scratch_files() {
+        assert!(
+            INSTRUCTIONS.contains("the folder `TMPDIR` names"),
+            "{INSTRUCTIONS}"
+        );
+        assert!(INSTRUCTIONS.contains("`/tmp` is refused"), "{INSTRUCTIONS}");
+    }
+
     // The first-turn skill names no docs, so a worker read the domain docs in
     // about a third of its sessions.
     #[test]
