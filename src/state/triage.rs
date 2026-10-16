@@ -18,6 +18,14 @@ pub struct TriageState {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<Triaged>,
+    /// The triager calls made on issues that have no record to carry them yet,
+    /// oldest issue first, the last [`TRIAGED_KEPT`] issues' worth. A first pass
+    /// has no record until its comment is recorded, so its calls are kept here:
+    /// a restart does not forget the places they spent.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unrecorded: Vec<UnrecordedCall>,
 }
 
 /// How many finished records are kept, the oldest going first. An issue whose
@@ -37,23 +45,82 @@ pub const TRIAGE_CALLS_KEPT: usize = 8;
 
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
-    /// one that closed an issue as a duplicate
+    /// one that closed an issue as a duplicate, and bounding the calls kept for
+    /// an issue with no record the same way
     pub fn prune(&mut self) {
-        let kept = |t: &Triaged| {
+        let finished = |t: &Triaged| {
             matches!(t.step, TriageStep::Done | TriageStep::Ready) && t.duplicate_of.is_none()
         };
         let mut extra = self
             .issues
             .iter()
-            .filter(|t| kept(t))
+            .filter(|t| finished(t))
             .count()
             .saturating_sub(TRIAGED_KEPT);
         self.issues.retain(|t| {
-            let drop = extra > 0 && kept(t);
+            let drop = extra > 0 && finished(t);
             extra -= usize::from(drop);
             !drop
         });
+        if self.unrecorded.len() > TRIAGED_KEPT {
+            self.unrecorded
+                .drain(..self.unrecorded.len() - TRIAGED_KEPT);
+        }
     }
+
+    /// Records that a triager call on `issue` ended at `at`, for an issue that
+    /// has no record to carry it yet
+    pub fn record_call(&mut self, issue: u64, author: &str, at: Timestamp) {
+        match self.unrecorded.iter_mut().find(|c| c.issue == issue) {
+            Some(made) => {
+                made.calls.push(at);
+                if made.calls.len() > TRIAGE_CALLS_KEPT {
+                    made.calls.remove(0);
+                }
+                if made.author.is_empty() {
+                    made.author = author.to_owned();
+                }
+            }
+            None => self.unrecorded.push(UnrecordedCall {
+                issue,
+                author: author.to_owned(),
+                calls: vec![at],
+            }),
+        }
+    }
+
+    /// Takes the calls kept for `issue`, with their author, for a record that
+    /// carries them from here on
+    pub fn take_calls(&mut self, issue: u64) -> (String, Vec<Timestamp>) {
+        match self.unrecorded.iter().position(|c| c.issue == issue) {
+            Some(at) => {
+                let made = self.unrecorded.remove(at);
+                (made.author, made.calls)
+            }
+            None => (String::new(), Vec::new()),
+        }
+    }
+}
+
+/// A triager call that ran on an issue with no record to carry it: the first
+/// pass has none until its comment is recorded, and a call whose reply could not
+/// be read never makes one at all. Its time is kept here so the caps see it
+/// across a restart.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnrecordedCall {
+    /// The issue it ran on
+    pub issue: u64,
+    /// The login of whoever opened it, which the per-author cap counts by,
+    /// ignoring case. Empty when the listing gave none.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    /// When each call on that issue ended, oldest first, the last
+    /// [`TRIAGE_CALLS_KEPT`] of them
+    pub calls: Vec<Timestamp>,
 }
 
 /// An issue whose triage comment kelpie has posted, or which a triage limit

@@ -25,7 +25,7 @@ use super::ready;
 use super::research::{Addressed, Found, Question};
 use crate::board::{self, TRIAGE};
 use crate::github::{Apps, Owner};
-use crate::ports::{ForgeError, NewLabel, Timestamp};
+use crate::ports::{ForgeError, NewLabel};
 use crate::state::{StateError, TriageAsked, TriageStep, Triaged};
 
 /// What marks a comment as kelpie's triage comment
@@ -201,10 +201,6 @@ pub(in crate::runner) struct Tries {
     // The author's replies the pass already read, each with the word it was
     // read as, so a post that failed is not paid for again at the next poll
     pub(in crate::runner) heard: BTreeMap<u64, String>,
-    // The triager calls that ran on this issue since its record was last saved,
-    // each with the moment it ended. They go into the record, which is what the
-    // caps count: a round's call spends a place beside the first pass's.
-    pub(in crate::runner) calls: Vec<Timestamp>,
 }
 
 impl Tries {
@@ -641,6 +637,9 @@ impl Runner {
             .iter()
             .find(|t| t.issue == issue)
             .map_or_else(Vec::new, |t| t.calls.clone());
+        // The calls saved for the issue while it had no record join them, and
+        // stop being kept on their own.
+        let (_, made) = triage.take_calls(issue);
         triage.issues.retain(|t| t.issue != issue);
         let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
         let ready_body = (self.triage_tries.get(&issue)).and_then(|t| t.ready_body.clone());
@@ -668,10 +667,6 @@ impl Runner {
         // made since it was saved join them: the caps count every triager call,
         // the first pass's and the author's round's alike. A record made from a
         // marker found in the issue's comments has none, since no call ran for it.
-        let made = self
-            .triage_tries
-            .get(&issue)
-            .map_or_else(Vec::new, |t| t.calls.clone());
         let mut record = Triaged {
             issue,
             comment,
@@ -715,7 +710,6 @@ impl Runner {
             tries.local_call = false;
             tries.local_edit = false;
             tries.local_read = None;
-            tries.calls.clear();
         }
         Ok(())
     }

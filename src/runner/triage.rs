@@ -107,6 +107,7 @@ pub(super) fn settle_since(state: &mut ProjectState, settings: &Settings, now: T
             state.triage = Some(TriageState {
                 since: now,
                 issues: Vec::new(),
+                unrecorded: Vec::new(),
             })
         }
         _ => return false,

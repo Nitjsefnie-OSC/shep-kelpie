@@ -26,6 +26,7 @@ fn a_file_saved_before_this_version_loads_with_no_since() {
     loaded.triage = Some(TriageState {
         since: Timestamp(1_791_964_800),
         issues: Vec::new(),
+        unrecorded: Vec::new(),
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -177,6 +178,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
     let mut triage = TriageState {
         since: Timestamp(1),
         issues: vec![record(1, TriageStep::Commented)],
+        unrecorded: Vec::new(),
     };
     let cap = TRIAGED_KEPT as u64;
     triage
@@ -220,6 +222,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                 local: None,
             })
             .collect(),
+        unrecorded: Vec::new(),
     };
 
     triage.prune();

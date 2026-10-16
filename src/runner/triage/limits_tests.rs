@@ -9,8 +9,8 @@
 //! The caps count the calls the records save, so an author's round spends places
 //! beside the first pass's call, and a round call past a cap waits for the next
 //! free place instead of ending the issue. A call counts when it reached a
-//! model, whatever its reply came to, and a call on an issue with no record yet
-//! counts from the run that made it.
+//! model, whatever its reply came to, and a call on an issue with no record yet is
+//! saved in the state, so a restart does not lose it.
 
 use std::sync::Mutex;
 
@@ -690,4 +690,51 @@ fn an_issue_whose_author_deleted_their_account_counts_toward_no_authors_cap() {
         [(30, format!("{WORDS}\n\n{MARKER}"))]
     );
     assert_eq!(record(&rig, &runner, 30).get("held"), None);
+}
+
+#[test]
+fn a_first_pass_call_that_never_posted_spends_its_place_across_a_restart() {
+    let rig = rig_with("pick = \"all\"\nper_day = 1");
+    let runner = rig.open().unwrap();
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(
+        Role::Triager,
+        [Scripted::Text("not a triage reply"), reply(json!({}))],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "the call ran");
+    assert_eq!(
+        record(&rig, &runner, 30),
+        Value::Null,
+        "and its reply left no record"
+    );
+
+    // A restart loses the run's own memory of the call, so the place it spent is
+    // saved in the state at the moment it ended: the issue waits for the next
+    // place instead of being called again the same day.
+    let runner = restart(&rig, runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "no second call");
+    assert_eq!(
+        triage(&rig, &runner)["daily"]["used"],
+        1,
+        "the restart still counts it"
+    );
+    assert_eq!(due(&rig, &runner), [30], "it waits in the due list");
+
+    // A place opens when that call is a day old, and the issue takes it.
+    rig.clock.advance(DAY + 1);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the next place");
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))]
+    );
 }
