@@ -13,11 +13,12 @@ use crate::ports::{AgentCall, Role, Tools};
 use crate::runner::Runner;
 
 impl Runner {
-    // Every call but an answer reads the installed sources and docs of its
-    // dependencies and toolchains. An answer reads only what kelpie put in its
-    // prompt, and its harness gives it no read tool.
+    // Every call that reads code reads the installed sources and docs of its
+    // dependencies and toolchains. Two read none: an answer reads only what
+    // kelpie put in its prompt, and its harness gives it no read tool; a
+    // researcher reads its own folder and the web, and no file of the flock.
     pub(super) fn with_dep_sources(&self, call: &mut AgentCall) {
-        if call.tools == Tools::Answer {
+        if matches!(call.tools, Tools::Answer | Tools::Research) {
             return;
         }
         // Only a call that works a work item has a build folder of its own.
