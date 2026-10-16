@@ -46,6 +46,7 @@ A pull request that measures something adds it to its topic's file, or starts a 
 - [The representative wording test](the-representative-wording-test.md)
 - [The state file](the-state-file.md)
 - [GitHub's rate limit](githubs-rate-limit.md)
+- [What gh's listings answer](what-ghs-listings-answer.md)
 - [A worker's session grows past what its turns need](a-workers-session-grows-past-what-its-turns-need.md)
 - [codebase-memory-mcp](codebase-memory-mcp.md)
 - [The browser](the-browser.md)
