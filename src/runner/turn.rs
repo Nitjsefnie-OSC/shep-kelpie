@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use super::Runner;
 use super::adopt;
+use super::claim::main_fetch_key;
 use super::claude_files::Unchecked;
 use super::instructions;
 use super::pace::Pace;
@@ -574,7 +575,7 @@ impl Runner {
         .map_err(|e| e.to_string())?;
         // The worker merges `origin/main` and runs no fetch of its own, so a
         // fetch that failed leaves it merging a main kelpie last fetched.
-        let key = format!("main-fetch-{}", item.issue);
+        let key = main_fetch_key(item.issue);
         match &dirs.main_fetch_failed {
             Some(why) => self.notes.standing(
                 &key,

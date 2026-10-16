@@ -79,51 +79,6 @@ fn the_first_turn_starts_the_workers_session_in_its_own_worktree() {
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), origin_main);
 }
 
-// A worker runs no fetch of its own, so a turn whose fetch of main failed says
-// so once while it stands, `status` keeps it, and it goes when a fetch lands.
-#[test]
-fn a_turn_that_cannot_fetch_main_says_so_once_and_stops_when_main_comes_back() {
-    let (rig, runner) = with_issue_7("shep");
-    rig.claude
-        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
-    step(&runner).unwrap();
-    let item = runner.lock().unwrap().current().expect("an item").clone();
-    let main = git(&rig.repo(), &["rev-parse", "origin/main"]);
-    let origin = rig.home.path().join("origin.git");
-    // origin's `main` goes away, which is what a fetch of it fails against.
-    // The worktree is there, and its `origin/main` is the one kelpie last got.
-    git(&origin, &["update-ref", "-d", "refs/heads/main"]);
-
-    for _ in 0..2 {
-        runner
-            .lock()
-            .unwrap()
-            .worker_reach(&item, Start::Main, None)
-            .unwrap();
-    }
-
-    let notes = runner.lock().unwrap().take_notes();
-    let said: Vec<_> = (notes.iter())
-        .filter(|n| n.contains("kelpie last fetched it"))
-        .collect();
-    assert_eq!(said.len(), 1, "{notes:#?}");
-    assert!(said[0].contains("issue #7's worker"), "{}", said[0]);
-    assert!(said[0].contains("git fetch"), "{}", said[0]);
-    let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["standing"], json!([said[0]]));
-
-    git(&origin, &["update-ref", "refs/heads/main", &main]);
-    runner
-        .lock()
-        .unwrap()
-        .worker_reach(&item, Start::Main, None)
-        .unwrap();
-
-    assert_eq!(runner.lock().unwrap().take_notes(), Vec::<String>::new());
-    let status = rig.ask(&runner, "status", None);
-    assert_eq!(status["standing"], serde_json::Value::Null, "none stands");
-}
-
 #[test]
 fn a_turn_logs_its_work_item_role_agent_and_session_as_its_call_starts() {
     let (rig, runner) = with_issue_7("shep");
@@ -982,4 +937,5 @@ mod budget;
 mod dev_server;
 mod hand_over;
 mod held;
+mod main_fetch;
 mod pause_log;
