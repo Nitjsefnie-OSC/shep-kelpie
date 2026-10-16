@@ -35,17 +35,22 @@ pub(super) mod limits;
 pub(super) mod local;
 pub(super) mod ready;
 pub(super) mod research;
+pub(super) mod spam;
 
 use super::contributions::post::forge_is_busy;
 use super::flight::triage::{Job, Research};
+use spam::POSSIBLE_SPAM;
 
-/// The labels that say an issue has been looked at, so triage leaves it alone
-pub(super) const TRIAGE_LABELS: [&str; 5] = [
+/// The labels that say an issue has been looked at, so triage leaves it alone.
+/// `possible-spam` is one of them: an issue its classifier read as spam is left
+/// alone until the maintainer says otherwise.
+pub(super) const TRIAGE_LABELS: [&str; 6] = [
     "needs-triage",
     "needs-info",
     "ready-for-agent",
     "ready-for-human",
     "wontfix",
+    POSSIBLE_SPAM,
 ];
 
 /// An untouched issue, as `status` lists it
@@ -346,6 +351,19 @@ impl Runner {
         if tries.author.is_none() {
             tries.author = Some(this.author.clone());
         }
+        // The classifier, after the limits and before the call. The maintainer's
+        // own issues and one the verb asked for skip it, as they skip the limits.
+        if matches!(purpose, Purpose::First) && limited {
+            match self.triage_spam(this) {
+                Ok(true) => return None,
+                Ok(false) => {}
+                Err(e) => {
+                    let why = format!("cannot record its spam check: {e}");
+                    self.triage_failed(issue, &why, true);
+                    return None;
+                }
+            }
+        }
         let listed: Vec<Listed> = (open.iter())
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
@@ -476,9 +494,15 @@ impl Runner {
         };
         // The `needs-triage` its own record put on lets it through: that is the
         // issue to triage again.
+        // Kelpie's own labels let the verb through: the `needs-triage` its record
+        // put on, which is the issue to triage again, and the `possible-spam` its
+        // classifier put on, which the maintainer overrules by asking for it.
         let recorded = self.triage_record(issue).is_some();
-        let held = (found.labels.iter())
-            .find(|l| TRIAGE_LABELS.contains(&l.as_str()) && !(recorded && *l == TRIAGE));
+        let held = (found.labels.iter()).find(|l| {
+            TRIAGE_LABELS.contains(&l.as_str())
+                && *l != POSSIBLE_SPAM
+                && !(recorded && *l == TRIAGE)
+        });
         if let Some(label) = held {
             return Err(format!(
                 "#{issue} carries `{label}`, so it is not untouched"
@@ -522,5 +546,7 @@ mod pick_tests;
 mod ready_tests;
 #[cfg(test)]
 mod research_tests;
+#[cfg(test)]
+mod spam_tests;
 #[cfg(test)]
 mod verb_tests;

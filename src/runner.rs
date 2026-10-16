@@ -313,6 +313,10 @@ pub struct Runner {
     // start, keyed by the login lowered. A `None` is an age the forge could not
     // say, kept so a poll does not ask again
     triage_accounts: BTreeMap<String, Option<Timestamp>>,
+    // Whether triage's spam check could not be asked, which turns it off for the
+    // rest of this run and is told once. Kept in memory only: the next start
+    // asks the gateway again
+    triage_spam_off: bool,
     // Each adopted pull request that keeps failing to start, kept in memory only
     adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
@@ -480,6 +484,7 @@ impl Runner {
         let lineup = settings.lineup(&book, home)?;
         let gateways = kelpie_settings.gateways();
         check_gateways(&gateways, &book, &agents, &lineup)?;
+        gateways.check_triage_spam(&settings.triage.spam)?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -614,6 +619,7 @@ impl Runner {
             triage_queue: Vec::new(),
             triage_tries: BTreeMap::new(),
             triage_accounts: BTreeMap::new(),
+            triage_spam_off: false,
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),

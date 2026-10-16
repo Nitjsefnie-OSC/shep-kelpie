@@ -281,7 +281,7 @@ impl Runner {
     // When the account `login` was created, read once per author per runner
     // start, and `None` when the forge cannot say. An unreadable age is kept as
     // unreadable, so a poll does not ask again.
-    fn triage_account_created(&mut self, login: &str) -> Option<Timestamp> {
+    pub(super) fn triage_account_created(&mut self, login: &str) -> Option<Timestamp> {
         if login.is_empty() {
             return None;
         }
@@ -332,6 +332,7 @@ impl Runner {
                 asked: None,
                 questions: None,
                 local: None,
+                spam: None,
             });
             triage.prune();
         }

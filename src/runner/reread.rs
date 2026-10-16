@@ -105,6 +105,7 @@ impl Runner {
         let mut lineup = settings.lineup(&book, &self.home)?;
         // The gateways must hold as a start checks them.
         check_gateways(&kelpie.gateways(), &book, &agents, &lineup)?;
+        kelpie.gateways().check_triage_spam(&settings.triage.spam)?;
         // Agents the adapters cannot route yet wait with the gateways they name.
         if check_gateways(&self.gateways, &book, &agents, &lineup).is_err() {
             waiting.push("agents");
