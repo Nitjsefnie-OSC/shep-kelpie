@@ -106,6 +106,8 @@ pub(crate) struct FakeForge {
     approvals: Arc<approvals::Approvals>,
     // Set while the forge is down
     down: Arc<Mutex<Option<down::Down>>>,
+    // Set while the test holds the next call open
+    hold: Arc<Mutex<Option<held::Gate>>>,
     limited: Arc<Mutex<Option<crate::ports::Cooldown>>>,
     /// Pull requests' labels, and what CodeRabbit posts
     pub(crate) coderabbit: FakeCodeRabbit,
@@ -186,6 +188,7 @@ impl FakeForge {
             pull_request_reads: Arc::default(),
             approvals: Arc::default(),
             down: Arc::default(),
+            hold: Arc::default(),
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
@@ -934,6 +937,7 @@ mod authors;
 mod comments;
 mod down;
 mod handed;
+mod held;
 mod issues;
 mod lookup;
 mod pulls;

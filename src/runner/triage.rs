@@ -181,7 +181,7 @@ impl Runner {
     // others. Where no App covers the repo nothing is started, since the comment
     // could not be posted as one.
     pub(super) fn triage_due(&mut self) -> Result<Option<Begin>, StateError> {
-        let idle = self.state.triage.is_some() && !self.draining && self.app_covers();
+        let idle = self.state.triage.is_some() && !self.draining() && self.app_covers();
         if !idle || self.flights.triaging().is_some() {
             return Ok(None);
         }

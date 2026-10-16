@@ -296,7 +296,7 @@ impl Runner {
     // with no vote goes to the maintainer without the panel.
     fn panel_settle_overdue(&mut self) {
         let now = self.ports.clock.now();
-        let draining = self.draining;
+        let draining = self.draining();
         let overdue: Vec<u64> = (self.panel.open.iter())
             .filter(|(id, open)| {
                 let waits_its_turn = self.panel.queue.contains(id) && !draining;

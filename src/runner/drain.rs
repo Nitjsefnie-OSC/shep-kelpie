@@ -96,18 +96,42 @@ impl Runner {
         // The one call a drain starts: a retro over what finished since the
         // last. It starts here, so the status this answers lists it. One that
         // cannot start yet is asked for on a later pass.
-        self.retro_book.at_drain |= !self.draining;
-        self.draining = true;
+        self.retro_book.at_drain |= !self.draining();
+        self.postings.set_draining(true);
         self.retro_launched();
         if at_tool {
             self.pause_turns();
         }
     }
 
+    /// Acts on a `drain` or `undrain` that landed while a pass held the runner's
+    /// lock
+    ///
+    /// Its flag was set at once, so no new call started. What it asked the
+    /// runner itself is taken up here, at the pass's next lock.
+    pub(super) fn take_posted(&mut self) {
+        match self.postings.take_pending() {
+            Some(super::posted::Pending::Drain { at_tool }) => {
+                self.retro_book.at_drain = true;
+                self.retro_launched();
+                if at_tool {
+                    self.pause_turns();
+                }
+            }
+            Some(super::posted::Pending::Undrain) => self.withdraw_pauses(),
+            None => {}
+        }
+    }
+
     /// Starts calls again
     pub(super) fn undrain(&mut self) {
-        self.draining = false;
-        // A turn that ended for the pause already stays paused, and resumes.
+        self.postings.set_draining(false);
+        self.withdraw_pauses();
+    }
+
+    // Withdraws the pause set for each worker turn in flight.
+    // A turn that ended for the pause already stays paused, and resumes.
+    fn withdraw_pauses(&mut self) {
         for item in &self.state.work_items {
             // A pause the build limits set for a turn in flight stands.
             if !self.builds.holds_pause(item.issue) {
@@ -164,9 +188,15 @@ impl Runner {
 
     /// What `status` shows of the drain, while the runner drains
     pub(super) fn draining_status(&self) -> Option<Draining> {
-        if !self.draining {
-            return None;
-        }
+        self.draining().then(|| self.drain_state())
+    }
+
+    /// The calls in flight and the longest any of them may run, whether or not
+    /// the runner drains
+    ///
+    /// Posted at each point the status is, so a `drain` that lands while a pass
+    /// holds the runner's lock can answer what is running.
+    pub(super) fn drain_state(&self) -> Draining {
         let pm = self.agents.pm.is_some().then_some(super::pm::CEILING);
         let labelling = (self.flights.labelling()).map(|_| super::flight::label::CEILING);
         let securing = (self.flights.securing()).then_some(super::flight::security::CEILING);
@@ -196,11 +226,11 @@ impl Runner {
             .filter(|item| Pause::in_build(&item.build).is_requested())
             .map(|item| item.issue)
             .collect();
-        Some(Draining {
+        Draining {
             calls: self.flights.running().into_iter().chain(attached).collect(),
             ceiling,
             at_tool,
-        })
+        }
     }
 }
 

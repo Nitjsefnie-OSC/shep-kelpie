@@ -124,7 +124,7 @@ impl Runner {
                 let Some(local) = chosen.runs.local() else {
                     return self.session_call(&chosen, None);
                 };
-                if self.draining {
+                if self.draining() {
                     return Ok(Begin::Idle);
                 }
                 if let Some(parked) = self.park_over_budget()? {
@@ -184,7 +184,7 @@ impl Runner {
         let Some((model, limit)) = chosen.runs.session() else {
             unreachable!("only a reviewer that runs sessions is called in one")
         };
-        if self.draining {
+        if self.draining() {
             return Ok(Begin::Idle);
         }
         if let Some(parked) = self.park_over_budget()? {

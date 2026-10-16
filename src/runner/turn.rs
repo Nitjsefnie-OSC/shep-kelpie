@@ -110,6 +110,8 @@ impl Runner {
     pub(super) fn begin_turn(&mut self, start_over: Option<u64>) -> Result<Begin, StateError> {
         self.snapshot.begin_pass();
         self.looks.pass_began(self.forge_ledger.writes());
+        // What follows asks the forge with the runner's lock held.
+        self.post();
         let begin = self.step_rotation(start_over);
         self.read_main_ci();
         self.snapshot.end_pass();
@@ -145,6 +147,9 @@ impl Runner {
             if !self.looks.due(slot, now) {
                 continue;
             }
+            // The step ahead asks the forge with the runner's lock held, so
+            // post what a trigger reads before it waits.
+            self.post();
             let begin = match slot {
                 Slot::Item(issue) => {
                     self.focus = Some(issue);
@@ -367,7 +372,7 @@ impl Runner {
             // `AgentError::TimedOut` would, with no call spent.
             return self.park_ceiling_passed(now);
         }
-        if self.draining {
+        if self.draining() {
             return Ok(self.idle(Reason::Draining));
         }
         let issue = item.issue;

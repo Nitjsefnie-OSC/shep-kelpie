@@ -51,8 +51,12 @@ impl FakeForge {
     }
 
     /// Counts a call, and fails it while the forge is down
+    ///
+    /// A call the test holds open waits here, which is where a pass holds the
+    /// runner's lock.
     pub(super) fn ask(&self) -> Result<(), ForgeError> {
         self.asked.fetch_add(1, Ordering::SeqCst);
+        self.wait_if_held();
         if let Some(cooldown) = *self.limited.lock().unwrap() {
             let said = "gh: You have exceeded a secondary rate limit. (HTTP 403)";
             return Err(ForgeError::Limited {

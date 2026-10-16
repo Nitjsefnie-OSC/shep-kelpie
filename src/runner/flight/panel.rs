@@ -216,7 +216,7 @@ impl Runner {
     /// panel's experts are in flight or the runner drains, and says whether
     /// any started
     pub(in crate::runner) fn panel_ask_next(&mut self) -> bool {
-        if self.flights.panel.is_some() || self.draining {
+        if self.flights.panel.is_some() || self.draining() {
             return false;
         }
         while let Some(id) = self.panel.queue_pop(self.ports.clock.now()) {

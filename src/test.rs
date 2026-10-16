@@ -774,7 +774,8 @@ impl Rig {
         action: &str,
         params: Option<&str>,
     ) -> serde_json::Value {
-        let reply = answer(runner, action, params);
+        let postings = runner.lock().unwrap().postings();
+        let reply = answer(runner, &postings, action, params);
         runner.lock().unwrap().settle_notices();
         serde_json::from_str(&reply).expect("a JSON reply")
     }

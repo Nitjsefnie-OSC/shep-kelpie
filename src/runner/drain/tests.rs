@@ -1,7 +1,7 @@
 //! Draining through the runner's stand-ins: what starts, what goes on, and
 //! what `status` shows
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde_json::{Value, json};
@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::guard::Pause;
 use crate::ports::{CLEAN, Cost, Role, Usage};
 use crate::runner::gate::CHECKS_SETTLE;
-use crate::runner::{Pass, Runner, advance, step};
+use crate::runner::{Pass, Runner, advance, answer, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // A running project with issue 7 open and its first turn due
@@ -179,4 +179,41 @@ fn a_drained_runner_does_not_wake_the_project_manager() {
     rig.claude.script([Scripted::Say("{\"pick\": null}")]);
     step(&runner).unwrap();
     assert_eq!(woken(&rig), 1);
+}
+
+// A `drain pause` answered while a pass holds the runner's lock sets its flag
+// at once, and leaves the pause for the pass to set at its next lock.
+#[test]
+fn a_drain_answered_while_a_pass_holds_the_lock_leaves_its_ask_for_the_pass() {
+    let (rig, runner) = seven_due("koji");
+    std::fs::create_dir_all(rig.build_7()).unwrap();
+    let hold = Hold::default();
+    rig.claude.script([Scripted::Hold(hold.clone())]);
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the turn never began");
+
+    let runner = Arc::new(runner);
+    let postings = runner.lock().unwrap().postings();
+    let mut pass = runner.lock().unwrap();
+    let asking = {
+        let (runner, postings) = (Arc::clone(&runner), Arc::clone(&postings));
+        std::thread::spawn(move || answer(&runner, &postings, "drain", Some("pause")))
+    };
+    let reply: Value = serde_json::from_str(&asking.join().unwrap()).expect("a JSON reply");
+    assert_eq!(
+        reply["draining"]["calls"],
+        json!([{ "issue": 7, "role": "worker" }]),
+        "{reply}"
+    );
+    assert!(
+        !Pause::in_build(&rig.build_7()).is_requested(),
+        "the pause was set while the pass still held the lock"
+    );
+
+    pass.take_posted();
+    assert!(
+        Pause::in_build(&rig.build_7()).is_requested(),
+        "the drain pause never reached the turn in flight"
+    );
+    hold.release();
 }

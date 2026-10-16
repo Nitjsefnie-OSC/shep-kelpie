@@ -5,6 +5,7 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 ## Runner and turns
 
 - Loop never waits on an agent call: each runs on its own thread, one per item, beside the PM's (triggers and `status` answer meanwhile). #318, ADR 0005, `src/runner/flight.rs`
+- `status`, `drain` and `undrain` answer from a copy the loop posts, not from the runner's lock, which a pass holds through its forge calls. A `drain` or `undrain` answered that way sets its flag at once and leaves the rest for the pass. #916, `src/runner/posted.rs`
 - Harness files carry the issue (`settings-<issue>.json`); runner git waits 2s for a ref lock, 5s for `packed-refs`. `src/runner/turn.rs`
 - On stop: SIGTERM each call's process group, save, exit inside shep's 1.6s `kill_timeout`; restart resumes each item from its session. A `handover` trigger instead keeps the calls running (agents.md). ADR 0005
 - Worker owns one item, builds inline, no plan or crew; instructions and headless rules forbid sub-agents. ADR 0006
