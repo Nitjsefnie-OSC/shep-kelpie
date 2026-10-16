@@ -12,8 +12,13 @@ const TOOL_CALLS: &str = include_str!("../../fixtures/claude-transcript-mcp-tool
 // the graph's tools.
 const CONNECTED: &str = include_str!("../../fixtures/claude-transcript-mcp-connected.jsonl");
 // A pi 1.1.0 session given the code graph, which connected, and the server whose command is not
-// there, whose model called the graph's `list_projects`.
+// there, whose model called the graph's `list_projects`. Its lines hold no system message of its
+// tools.
 const PI: &str = include_str!("../../fixtures/pi-session-mcp.jsonl");
+// A pi 1.1.0 worker session given the code graph, recorded after #949, whose system message lists
+// the graph's 17 tools in `toolsAdded`. Cut to its system message, each tool kept to its name and
+// the start of its description.
+const PI_CONNECTED: &str = include_str!("../../fixtures/pi-session-mcp-connected.jsonl");
 
 // Where the line that starts with `start`, `nth` from the first, begins
 fn start_of(text: &str, start: &str, nth: usize) -> usize {
@@ -126,10 +131,49 @@ fn a_pi_session_s_tool_calls_are_counted_by_server_and_it_says_nothing_of_its_se
         used.servers, None,
         "pi records no server that failed to connect"
     );
+    assert!(
+        used.loaded
+            .expect("pi says which of its tools loaded")
+            .is_empty(),
+        "the session lists no system message of its tools"
+    );
     let from = start_of(PI, "{\"type\":\"message\"", 3);
     assert!(
         pi(PI, from).tool_calls.is_empty(),
         "only the lines from `from` on"
+    );
+}
+
+#[test]
+fn a_pi_session_that_lists_a_server_s_tools_in_its_system_message_reads_it_loaded() {
+    let used = pi(PI_CONNECTED, 0);
+    let loaded = used.loaded.expect("its system message lists its tools");
+    assert_eq!(
+        loaded.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["codebase_memory_mcp"],
+        "the graph's 17 tools, and pi's own tools name no server"
+    );
+    assert!(
+        used.servers.is_none(),
+        "pi records no server that failed to connect"
+    );
+}
+
+#[test]
+fn a_resumed_pi_call_reads_the_tools_its_session_loaded_in_an_earlier_call() {
+    let text = format!(
+        "{PI_CONNECTED}{{\"type\":\"message\",\"message\":{{\"role\":\"user\",\"content\":[]}}}}\n"
+    );
+    let used = pi(&text, PI_CONNECTED.len());
+    assert!(
+        used.loaded
+            .expect("the session's own system message")
+            .contains("codebase_memory_mcp"),
+        "pi writes `toolsAdded` once, in the session's first system message"
+    );
+    assert!(
+        used.tool_calls.is_empty(),
+        "and only the call's own tool calls"
     );
 }
 

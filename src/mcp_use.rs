@@ -7,11 +7,12 @@
 //! how they stood at the call's end. While every server connects and none of
 //! their tools is deferred it writes no such line, and its prompt snapshot
 //! lists each server's tools with the server's name. pi's session file
-//! records the call's tool calls, and nothing of a server that failed to
-//! connect.
+//! records the call's tool calls, and the tools its system message lists as
+//! added, which is all it says of a server that failed to connect: it names
+//! none.
 //! `docs/facts/mcp-servers.md`
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
@@ -21,8 +22,13 @@ pub(crate) const NEEDS_AUTH: &str = "NEEDS_AUTH";
 /// What a call's transcript says of its MCP servers
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct McpUse {
-    /// How its servers stood as the call ended, where the transcript says
+    /// How its servers stood as the call ended, where the transcript says.
+    /// Claude Code says this, and pi does not
     pub(crate) servers: Option<Stood>,
+    /// The servers whose tools the session lists as added, by the part of a
+    /// tool's name each is named after. pi says this, and names no server
+    /// that failed
+    pub(crate) loaded: Option<BTreeSet<String>>,
     /// The call's tool calls to MCP servers, by the server's part of the
     /// tool's name, `mcp__<server>__<tool>`
     pub(crate) tool_calls: BTreeMap<String, u64>,
@@ -51,6 +57,7 @@ pub(crate) fn claude(text: &str, from: usize) -> McpUse {
     });
     McpUse {
         servers,
+        loaded: None,
         tool_calls,
     }
 }
@@ -65,6 +72,7 @@ pub(crate) fn pi(text: &str, from: usize) -> McpUse {
     });
     McpUse {
         servers: None,
+        loaded: Some(loaded(text)),
         tool_calls,
     }
 }
@@ -121,6 +129,33 @@ fn all_connected(text: &str) -> Option<Stood> {
         .and_then(|served| served.then(Stood::default))
 }
 
+// The servers whose tools the session's system messages list as added, by the part of a tool's
+// name pi names them after. pi writes `toolsAdded` once, when a server's tools load, and a
+// resumed call's file holds them from the call that wrote them, so the whole file is read and not
+// the call's own lines.
+fn loaded(text: &str) -> BTreeSet<String> {
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|entry| entry["message"]["role"] == "system")
+        .flat_map(|entry| {
+            (entry["message"]["toolsAdded"]
+                .as_array()
+                .into_iter()
+                .flatten())
+            .filter_map(|tool| (tool["name"].as_str()).and_then(server_part))
+            .map(str::to_owned)
+            .collect::<Vec<String>>()
+        })
+        .collect()
+}
+
+// The server part of a tool's name `mcp__<server>__<tool>`, if it has one
+fn server_part(tool: &str) -> Option<&str> {
+    (tool.strip_prefix("mcp__"))
+        .and_then(|rest| rest.split_once("__"))
+        .map(|(server, _)| server)
+}
+
 // The names of a message's tool calls, blocks of type `kind`
 fn tools(content: &Value, kind: &str) -> Vec<String> {
     (content.as_array().into_iter().flatten())
@@ -137,8 +172,7 @@ fn tool_calls<'a>(
     let mut counted = BTreeMap::new();
     let entries = lines.filter_map(|line| serde_json::from_str::<Value>(line).ok());
     for tool in entries.filter_map(|entry| calls(&entry)).flatten() {
-        let server = (tool.strip_prefix("mcp__")).and_then(|rest| rest.split_once("__"));
-        if let Some((server, _)) = server {
+        if let Some(server) = server_part(&tool) {
             *counted.entry(server.to_owned()).or_insert(0) += 1;
         }
     }

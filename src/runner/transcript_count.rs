@@ -2,10 +2,11 @@
 //! warning: the MCP servers it was given and its tool calls to them, and
 //! each request it made to its model
 //!
-//! A server that failed to connect is noted once, naming the call and its
-//! error code, and the note stands until a later call finds it connected. A
-//! call that wrote nothing to its transcript reached no model, and counts
-//! nothing.
+//! A server that is not connected as the call ends is noted once, naming the
+//! call and why: Claude Code's error code, or that pi's session never listed
+//! the server's tools. The note stands until a later call finds the server
+//! connected. A call that wrote nothing to its transcript reached no model,
+//! and counts nothing.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::Runner;
 use super::claim::Notes;
 use super::code_graph::who;
-use crate::mcp_use::{self, McpUse};
+use crate::mcp_use::{self, McpUse, Stood};
 use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Agents, CallActivity, Ending, Role, SessionId, Transcript,
@@ -49,7 +50,8 @@ enum Format {
 }
 
 impl Format {
-    // pi records no server that failed to connect, so only its tool calls are counted.
+    // pi names no server that failed to connect: the tools its session lists as loaded say which
+    // connected, and its tool calls are counted as Claude Code's are.
     fn of(call: &AgentCall) -> Option<Self> {
         // parity: harness.mcp-tool-calls, harness.mcp-failures, harness.request-usage
         match call.harness {
@@ -89,6 +91,28 @@ impl Format {
             Self::Pi => crate::adapters::pi_tool_prefix(name),
         }
     }
+}
+
+// What a server's transcript says about it, where it names no reason: pi lists the tools that
+// loaded and nothing of a server that failed
+const NEVER_LOADED: &str = "tools-never-loaded";
+
+// How each server the call was given stood, as its transcript says: Claude Code names those that
+// failed, pi those whose tools loaded, so a server with none of its tools in the session failed.
+// A pi session that lists no tools at all says its servers were none of them there.
+fn stood(format: Format, given: &[String], used: &McpUse) -> Option<Stood> {
+    if let Some(stood) = &used.servers {
+        return Some((*stood).clone());
+    }
+    let loaded = used.loaded.as_ref()?;
+    Some(Stood {
+        failed: given
+            .iter()
+            .filter(|name| !loaded.contains(&format.tool_part(name.as_str())))
+            .map(|name| (name.clone(), NEVER_LOADED.to_owned()))
+            .collect(),
+        pending: Vec::new(),
+    })
 }
 
 // The file a session writes in `folder`, once it is written: Claude Code names it for the session,
@@ -183,7 +207,7 @@ impl TranscriptCount {
                 .find(|name| format.tool_part(name) == *part);
             self.metrics.mcp_tool_calls(named.unwrap_or(part), *calls);
         }
-        let Some(stood) = &used.servers else {
+        let Some(stood) = stood(format, &given, used) else {
             return;
         };
         for name in given.iter().filter(|name| !stood.pending.contains(name)) {
@@ -191,13 +215,13 @@ impl TranscriptCount {
             match stood.failed.get(name) {
                 Some(code) => {
                     self.metrics.mcp_server(name, false);
+                    let why = match code.as_str() {
+                        NEVER_LOADED => "its tools never loaded".to_owned(),
+                        other => format!("which failed to connect: {other}"),
+                    };
                     self.notes.standing(
                         &key,
-                        format!(
-                            "{} ran without the MCP server `{name}`, which failed to connect: \
-                             {code}",
-                            who(call)
-                        ),
+                        format!("{} ran without the MCP server `{name}`, {why}", who(call)),
                     );
                 }
                 None => {

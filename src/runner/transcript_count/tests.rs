@@ -5,8 +5,12 @@ use crate::ports::{CodeGraph, Role, Session, Tools, Usage};
 use crate::settings::{ContextSize, EndpointUrl, ModelHost, ModelServer};
 use crate::test::{RecordedSink, short_tempdir};
 
-// A pi 1.1.0 session given the code graph, whose model called the graph's `list_projects`
+// A pi 1.1.0 session given the code graph, whose model called the graph's `list_projects` and
+// whose lines hold no system message of its tools
 const PI: &str = include_str!("../../../fixtures/pi-session-mcp.jsonl");
+// A pi 1.1.0 worker session given the code graph, recorded after #949, whose system message lists
+// the graph's tools in `toolsAdded`
+const PI_CONNECTED: &str = include_str!("../../../fixtures/pi-session-mcp-connected.jsonl");
 const SESSION: &str = "8b2d6e41-0c3f-4a97-b5e8-1d7f9a2c4e60";
 
 // pi, as far as its session file goes: each call appends its lines to the file pi names
@@ -14,6 +18,7 @@ const SESSION: &str = "8b2d6e41-0c3f-4a97-b5e8-1d7f9a2c4e60";
 #[derive(Debug)]
 struct Pi {
     sessions: PathBuf,
+    text: &'static str,
 }
 
 impl Agents for Pi {
@@ -24,7 +29,7 @@ impl Agents for Pi {
     fn run(&self, call: &AgentCall, _ending: &Ending) -> Result<AgentReply, AgentError> {
         let file = (self.sessions).join(format!("2026-10-15T19-59-36-998Z_{SESSION}.jsonl"));
         let before = std::fs::read_to_string(&file).unwrap_or_default();
-        std::fs::write(&file, before + PI).unwrap();
+        std::fs::write(&file, before + self.text).unwrap();
         Ok(AgentReply {
             session_id: call.session.id().clone(),
             text: "done".into(),
@@ -59,6 +64,7 @@ fn pi_call(folder: &Path) -> AgentCall {
         folder.join("worktree"),
         "go on",
     );
+    call.issue = 7;
     call.reach.code_graph = Some(CodeGraph {
         binary: folder.join("codebase-memory-mcp"),
         index: folder.join("graph"),
@@ -67,17 +73,22 @@ fn pi_call(folder: &Path) -> AgentCall {
     call
 }
 
-#[test]
-fn each_pi_call_counts_its_own_tool_calls_from_its_session_file_and_no_server() {
-    let folder = short_tempdir();
-    let sessions = folder.path().join("sessions");
-    std::fs::create_dir_all(&sessions).unwrap();
+fn counted_over(sessions: PathBuf, text: &'static str) -> (TranscriptCount, RecordedSink) {
     let sink = RecordedSink::default();
     let counted = TranscriptCount {
-        agents: Arc::new(Pi { sessions }),
+        agents: Arc::new(Pi { sessions, text }),
         notes: Notes::default(),
         metrics: Arc::new(Recorder::new(Arc::new(sink.clone()))),
     };
+    (counted, sink)
+}
+
+#[test]
+fn each_pi_call_counts_its_own_tool_calls_from_its_session_file() {
+    let folder = short_tempdir();
+    let sessions = folder.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let (counted, sink) = counted_over(sessions, PI);
     let call = pi_call(folder.path());
     let graph = [("server", "codebase-memory-mcp")];
 
@@ -95,7 +106,61 @@ fn each_pi_call_counts_its_own_tool_calls_from_its_session_file_and_no_server() 
         Some(2.0),
         "the second call's own, not the first's again"
     );
-    assert_eq!(sink.total("kelpie_mcp_servers_total"), 0.0);
+}
+
+#[test]
+fn a_pi_call_counts_a_server_whose_tools_its_session_loaded_connected() {
+    let folder = short_tempdir();
+    let sessions = folder.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let (counted, sink) = counted_over(sessions, PI_CONNECTED);
+    let call = pi_call(folder.path());
+    let connected = [("outcome", "connected"), ("server", "codebase-memory-mcp")];
+    let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &connected),
+        Some(1.0)
+    );
+    assert_eq!(sink.value("kelpie_mcp_servers_total", &failed), None);
+    assert!(counted.notes.standing_lines().is_empty());
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &connected),
+        Some(2.0),
+        "the session loaded the tools once, and each call was given the server"
+    );
+}
+
+#[test]
+fn a_pi_call_counts_a_server_whose_tools_its_session_never_loaded_failed_and_notes_it_once() {
+    let folder = short_tempdir();
+    let sessions = folder.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let (counted, sink) = counted_over(sessions, PI);
+    let call = pi_call(folder.path());
+    let failed = [("outcome", "failed"), ("server", "codebase-memory-mcp")];
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(sink.value("kelpie_mcp_servers_total", &failed), Some(1.0));
+    let standing = counted.notes.standing_lines();
+    assert_eq!(standing.len(), 1, "{standing:#?}");
+    assert!(standing[0].contains("issue #7's worker"), "{}", standing[0]);
+    assert!(
+        standing[0].contains("its tools never loaded"),
+        "pi records no reason: {}",
+        standing[0]
+    );
+
+    counted.run(&call, &Ending::default()).unwrap();
+    assert_eq!(
+        sink.value("kelpie_mcp_servers_total", &failed),
+        Some(2.0),
+        "each call was given the server"
+    );
+    assert_eq!(counted.notes.standing_lines(), standing, "noted once");
 }
 
 #[test]
@@ -103,12 +168,7 @@ fn each_pi_call_counts_its_own_requests_from_its_session_file() {
     let folder = short_tempdir();
     let sessions = folder.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
-    let sink = RecordedSink::default();
-    let counted = TranscriptCount {
-        agents: Arc::new(Pi { sessions }),
-        notes: Notes::default(),
-        metrics: Arc::new(Recorder::new(Arc::new(sink.clone()))),
-    };
+    let (counted, sink) = counted_over(sessions, PI);
     let call = pi_call(folder.path());
     let small = [("harness", "pi"), ("le", "50000"), ("role", "worker")];
 

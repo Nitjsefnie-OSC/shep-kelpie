@@ -90,7 +90,7 @@ goose = { gap = 784 }
 [harness.mcp-failures]
 what = "A call's MCP servers that failed to connect are counted and noted from its transcript once it ends"
 claude-code = "yes"
-pi = { cannot = "pi's session file says nothing of a server that failed to connect", doc = "docs/facts/mcp-servers.md", says = "records no MCP server that failed to connect" }
+pi = "yes"
 codex = { gap = 757 }
 goose = { gap = 784 }
 
