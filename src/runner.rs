@@ -326,6 +326,9 @@ pub struct Runner {
     book: Agents,
     // The maintainer's home folder, for `~/` in kelpie's own settings
     home: PathBuf,
+    // The installed sources and docs of dependencies and toolchains, found once
+    // when the runner starts, which every call reads
+    dep_sources: crate::dep_sources::DepSources,
     // The GPU's last reading, from the page kelpie's settings name
     gpu: gpu::GpuWatch,
     // The gateways the adapters were built with, which a change waits to replace
@@ -620,6 +623,10 @@ impl Runner {
             agents,
             book,
             home: home.to_owned(),
+            dep_sources: crate::dep_sources::DepSources::discover(
+                home,
+                &crate::dep_sources::ProcessEnv,
+            ),
             gpu,
             gateways,
             webhook,
