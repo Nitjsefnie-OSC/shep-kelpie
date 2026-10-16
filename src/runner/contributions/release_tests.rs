@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::pass_tests::read_through;
 use super::ruling_tests::rule;
 use super::security_tests::contribution;
-use super::tests::poll;
+use super::tests::{poll, poll_or_adopt};
 use crate::ports::{AgentError, Clock as _, Role};
 use crate::runner::review_bot::contribution_turns::{FINDING, contributed, until_summoned};
 use crate::runner::{Runner, StepReport, step};
@@ -43,21 +43,36 @@ pub(super) fn waiting(said: &[&'static str]) -> (Rig, Mutex<Runner>) {
     (rig, runner)
 }
 
-// Lets `days` pass, then polls
+// Lets `days` pass, then polls. A release queues the adoption, and the board's
+// step starts the work item in the same poll, so the step may report it.
 pub(super) fn later(rig: &Rig, runner: &Mutex<Runner>, days: u64) {
     rig.clock.advance(days * DAY);
-    poll(rig, runner);
+    poll_or_adopt(rig, runner);
 }
 
 // Polls three times, enough to hear what was written and deal with it
 pub(super) fn polls(rig: &Rig, runner: &Mutex<Runner>) {
     for _ in 0..3 {
-        poll(rig, runner);
+        poll_or_adopt(rig, runner);
     }
 }
 
 pub(super) fn held(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     contribution(rig, runner)
+}
+
+// Polls until the record has `released`, and hands back the record. A release
+// queues the adoption and the work item starts in the same poll, so the record
+// is read here, before the next poll replaces it with the work item.
+pub(super) fn released(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+    for _ in 0..3 {
+        poll_or_adopt(rig, runner);
+        let record = held(rig, runner);
+        if record["released"] != Value::Null {
+            return record;
+        }
+    }
+    panic!("nothing was released");
 }
 
 // What the App posted on the pull requests
@@ -88,6 +103,11 @@ pub(super) fn rulings(rig: &Rig, runner: &Mutex<Runner>) -> Vec<Value> {
 // The comment id of the latest ask
 fn ask_id(rig: &Rig, runner: &Mutex<Runner>) -> u64 {
     held(rig, runner)["asked"]["comment"].as_u64().unwrap()
+}
+
+// How many times the App posted `text`
+fn said(rig: &Rig, text: &str) -> usize {
+    (comments(rig).into_iter()).filter(|c| c == text).count()
 }
 
 // A contribution that was asked, and said no, twice, and has been quiet
@@ -136,9 +156,8 @@ fn a_yes_reply_releases_the_contribution_and_the_representative_says_so() {
 
     let wrote = rig.clock.now().0;
     rig.writes_on(30, "newcomer", "Yes, please go ahead.");
-    polls(&rig, &runner);
+    let record = released(&rig, &runner);
 
-    let record = held(&rig, &runner);
     assert_eq!(record["released"]["how"], "yes");
     let at = record["released"]["at"].as_u64().unwrap();
     assert!((wrote..=rig.clock.now().0).contains(&at), "{record}");
@@ -147,7 +166,7 @@ fn a_yes_reply_releases_the_contribution_and_the_representative_says_so() {
     assert_eq!(asked.len(), 3, "the ask, the reading, the line: {asked:?}");
     assert!(asked[1].contains("Yes, please go ahead."), "{}", asked[1]);
     polls(&rig, &runner);
-    assert_eq!(comments(&rig), [ASKS, TAKEN], "released once, said once");
+    assert_eq!(said(&rig, TAKEN), 1, "released once, said once");
 }
 
 #[test]
@@ -157,9 +176,9 @@ fn a_thumbs_up_on_the_ask_releases_it() {
 
     let id = ask_id(&rig, &runner);
     rig.forge.threads.thumbs(id, "newcomer", true);
-    polls(&rig, &runner);
+    let record = released(&rig, &runner);
 
-    assert_eq!(held(&rig, &runner)["released"]["how"], "thumbs-up");
+    assert_eq!(record["released"]["how"], "thumbs-up");
     assert_eq!(comments(&rig), [ASKS, TAKEN]);
     assert_eq!(prompts(&rig).len(), 2, "no reply was read");
 }
@@ -278,9 +297,8 @@ fn adopt_anyway_records_a_release_by_the_maintainer() {
 
     let ruled = rule(&rig, &runner, "30 answer adopt anyway");
     assert_eq!(ruled.get("error"), None, "{ruled}");
-    polls(&rig, &runner);
+    let record = released(&rig, &runner);
 
-    let record = held(&rig, &runner);
     assert_eq!(record["released"]["how"], "maintainer");
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
     assert_eq!(comments(&rig), [ASKS, ASKS_AGAIN]);
@@ -383,9 +401,9 @@ fn a_yes_whose_line_failed_is_not_answered_and_is_released_at_the_next_poll() {
     assert_eq!(comments(&rig), [ASKS]);
     assert_eq!(held(&rig, &runner)["released"], Value::Null);
 
-    polls(&rig, &runner);
+    let record = released(&rig, &runner);
     assert_eq!(comments(&rig), [ASKS, TAKEN]);
-    assert_eq!(held(&rig, &runner)["released"]["how"], "yes");
+    assert_eq!(record["released"]["how"], "yes");
 }
 
 // The thanks is saved as posted, so a restart before the close goes through

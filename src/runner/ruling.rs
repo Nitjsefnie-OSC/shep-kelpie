@@ -754,6 +754,10 @@ fn decide(
                 force: Some(Phase::Review(Review::first())),
             });
         }
+        // A contribution's rework is carried out by the merge stage, which
+        // releases the record and queues it for adoption. No work item is
+        // parked on it, so here the answer only clears the ruling.
+        (Answer::Rework(_), RulingKind::Contribution(Held::Merge { .. })) => Phase::Implement,
         (Answer::Rework(_), _) => return Err(RuleError::NotAMerge(id)),
         // The jobs are rerun, so CI is looked at again, in the round it
         // interrupted when it did.

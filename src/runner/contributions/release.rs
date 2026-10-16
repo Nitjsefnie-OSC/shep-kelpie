@@ -445,7 +445,7 @@ impl Runner {
                             "The contributor did not answer kelpie's question in time, which \
                              kelpie takes as a yes."
                         }
-                        How::Maintainer => "The maintainer decided kelpie takes it.",
+                        How::Maintainer | How::Rework => "The maintainer decided kelpie takes it.",
                     }
                 );
                 self.word_and_post(held, RELEASED, &facts, &key, "tell")?

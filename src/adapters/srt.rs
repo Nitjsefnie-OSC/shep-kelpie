@@ -57,7 +57,8 @@ impl Sandbox for SandboxRuntime {
             }
             false => cli,
         };
-        let text = serde_json::to_string_pretty(&srt_settings(policy)).expect("settings are JSON");
+        let text = serde_json::to_string_pretty(&settings_on(policy, self.macos))
+            .expect("settings are JSON");
         let folder = settings.parent().unwrap_or(Path::new("/"));
         std::fs::create_dir_all(folder)
             .and_then(|()| std::fs::write(settings, text))
@@ -83,8 +84,15 @@ impl Sandbox for SandboxRuntime {
     }
 }
 
-/// `srt`'s settings file for `policy`
+/// `srt`'s settings file for `policy`, on this machine
+#[cfg(test)]
 pub(crate) fn srt_settings(policy: &Policy) -> Value {
+    settings_on(policy, cfg!(target_os = "macos"))
+}
+
+// `srt`'s settings file for `policy`, on macOS or not: `open` and `scratch`
+// reach srt on macOS alone.
+fn settings_on(policy: &Policy, macos: bool) -> Value {
     // Without `strictAllowlist`, a host off the list is asked about rather than refused.
     let mut network = json!({
         "allowedDomains": policy.hosts,
@@ -109,16 +117,51 @@ pub(crate) fn srt_settings(policy: &Policy) -> Value {
     if !policy.services.is_empty() {
         network["allowMachLookup"] = json!(policy.services);
     }
+    let mut read = json!(policy.read);
+    let mut write = json!(policy.write);
+    if macos {
+        let (read, write) = (array(&mut read), array(&mut write));
+        read.extend(policy.open.iter().map(|folder| alone(folder).into()));
+        for glob in &policy.scratch {
+            write.extend([json!(glob), json!(format!("{glob}/*"))]);
+        }
+    }
     json!({
         "network": network,
         "filesystem": {
             "denyRead": policy.no_read,
-            "allowRead": policy.read,
-            "allowWrite": policy.write,
+            "allowRead": read,
+            "allowWrite": write,
             "denyWrite": policy.no_write,
         },
         "enableWeakerNetworkIsolation": policy.verify_tls,
     })
+}
+
+fn array(value: &mut Value) -> &mut Vec<Value> {
+    value
+        .as_array_mut()
+        .expect("a list of paths is a JSON array")
+}
+
+// `folder` as a glob that matches it and nothing under it. srt reads a path
+// with no glob character as the folder and all it holds, and on macOS turns a
+// glob into a regex of the whole path, so one bracketed character is enough.
+fn alone(folder: &Path) -> String {
+    let text = folder.to_string_lossy();
+    let mut glob = String::with_capacity(text.len() + 2);
+    for c in text.chars() {
+        match c {
+            '*' | '?' | '[' | ']' => glob.extend(['[', c, ']']),
+            c => glob.push(c),
+        }
+    }
+    if glob.len() == text.len()
+        && let Some(last) = glob.pop()
+    {
+        glob.extend(['[', last, ']']);
+    }
+    glob
 }
 
 #[cfg(test)]
@@ -189,6 +232,33 @@ mod tests {
         let plain = &srt_settings(&Policy::default())["network"];
         assert!(plain.get("allowLocalBinding").is_none(), "{plain}");
         assert!(plain.get("allowMachLookup").is_none(), "{plain}");
+    }
+
+    #[test]
+    fn on_macos_an_opened_folder_is_read_alone_and_a_scratch_glob_is_written_one_level_down() {
+        let policy = Policy {
+            read: vec![PathBuf::from("/k/wt/7")],
+            write: vec![PathBuf::from("/k/wt/7")],
+            open: vec![PathBuf::from("/k/graphs"), PathBuf::from("/k/odd[1]*?")],
+            scratch: vec!["/private/tmp/cbm-search-*".into()],
+            ..Policy::default()
+        };
+        let files = &settings_on(&policy, true)["filesystem"];
+        assert_eq!(
+            files["allowRead"],
+            json!(["/k/wt/7", "/k/graph[s]", "/k/odd[[]1[]][*][?]"])
+        );
+        assert_eq!(
+            files["allowWrite"],
+            json!([
+                "/k/wt/7",
+                "/private/tmp/cbm-search-*",
+                "/private/tmp/cbm-search-*/*"
+            ])
+        );
+        let files = &settings_on(&policy, false)["filesystem"];
+        assert_eq!(files["allowRead"], json!(["/k/wt/7"]));
+        assert_eq!(files["allowWrite"], json!(["/k/wt/7"]));
     }
 
     // A tools folder with the runtime, and with its keychain-free copy when `blocked`.

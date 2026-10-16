@@ -7,7 +7,9 @@
 //! it, with its labels, ready state and head taken as kelpie's own, at a
 //! pass of the review bots the project lists, which each owe it a read of
 //! kelpie's own summon, or at CI when it lists none. A review asking for
-//! changes is the worker's first turn instead. The
+//! changes is the worker's first turn instead, and so is a contribution whose
+//! merge ruling the maintainer answered `rework`, which has the project's full
+//! pass queued behind that turn. The
 //! branch's owner may still be pushing, so only a push the worker's worktree
 //! holds is the worker's.
 //!
@@ -30,7 +32,7 @@ use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };
 use crate::settings::AgentName;
-use crate::state::{Ruling, RulingKind, StateError, Stuck, Waiting};
+use crate::state::{How, Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
 use crate::worktree::{self, Remote, Start};
 
@@ -391,10 +393,11 @@ impl Runner {
         posted.err().map(|e| e.to_string())
     }
 
-    // What adopting an open pull request takes: the issue it closes lowest,
-    // when it closes more than one, and where its branch lives. Kelpie's own
-    // account's pull request from the repo itself is adopted; so is a
-    // contributor's whose record is released, from a fork too (ADR 0010).
+    // What adopting an open pull request starts from: the issue it closes
+    // lowest, or the one kelpie filed for a released contribution that closes
+    // none, and where its branch lives. Kelpie's own account's pull request
+    // from the repo itself is adopted; so is a contributor's whose record is
+    // released, from a fork too (ADR 0010).
     fn adoptable(&mut self, number: u64, pr: &Reviewed) -> Result<Adoptable, AdoptError> {
         match pr.state {
             PullRequestState::Open => {}
@@ -402,14 +405,15 @@ impl Runner {
             PullRequestState::Closed => return Err(AdoptError::NotOpen(number, "closed")),
         }
         let released = (self.state.contributions.iter())
-            .any(|c| c.pull_request == number && c.released.is_some());
-        if pr.from_fork && !released {
+            .find(|c| c.pull_request == number && c.released.is_some())
+            .cloned();
+        if pr.from_fork && released.is_none() {
             return Err(AdoptError::Fork(number));
         }
         if pr.base != worktree::BASE {
             return Err(AdoptError::Base(number, pr.base.clone()));
         }
-        if !released {
+        if released.is_none() {
             let me = self.viewer().map_err(AdoptError::Viewer)?;
             if pr.author != me {
                 let login = if pr.author.is_empty() {
@@ -423,7 +427,18 @@ impl Runner {
         if !pr.pushable() {
             return Err(AdoptError::NoEdits(number));
         }
-        let issue = (pr.closes.iter().min().copied()).ok_or(AdoptError::NoIssue(number))?;
+        // A released contribution whose pull request closes no issue has the
+        // one kelpie filed for it on its record (`contribution-release.md`), and
+        // that one is what its work item hangs on even where the pull request
+        // closes another issue later: the filed one is the one the pull
+        // request's body names.
+        let filed = (released.as_ref())
+            .and_then(|c| c.adopting.as_ref())
+            .map(|a| a.issue);
+        let issue = match (filed, pr.closes.iter().min().copied()) {
+            (Some(issue), _) | (None, Some(issue)) => issue,
+            (None, None) => return Err(AdoptError::NoIssue(number)),
+        };
         // A fork's branch is named by its contributor, so it could be `main`:
         // the worktree's branch is kelpie's own for the issue.
         let (branch, remote) = match (&pr.head_clone_url, pr.from_fork) {
@@ -451,6 +466,7 @@ impl Runner {
             issue,
             branch,
             remote,
+            released,
         })
     }
 
@@ -468,6 +484,7 @@ impl Runner {
             issue,
             branch,
             remote,
+            released,
         } = self.adoptable(number, &pr)?;
         if self.state.item(issue).is_some() {
             return Err(AdoptError::InFlight(issue));
@@ -526,7 +543,22 @@ impl Runner {
             .as_ref()
             .filter(|r| r.changes_requested && !self.state.reworked.contains(&r.id))
             .cloned();
-        let text = adopted_text(number, &pr, issue, &found, review.as_ref());
+        // What the maintainer answered a contribution's merge ruling `rework`
+        // with, which the worker reads before its first turn. It sits on the
+        // record and not on the answer, so a contributor who pushes after the
+        // answer leaves it there.
+        let rework_note = (released.as_ref()).and_then(|c| c.rework.clone());
+        let taken_over = (released.as_ref())
+            .is_some_and(|c| c.released.as_ref().is_some_and(|r| r.how == How::Rework));
+        let text = adopted_text(
+            number,
+            &pr,
+            issue,
+            &found,
+            review.as_ref(),
+            rework_note.as_deref(),
+            taken_over,
+        );
         turn::write(&fresh.build, &adopted_path(&fresh.build), &text).map_err(AdoptError::File)?;
         // With the summon labels off, no push summons a review bot outside the lease.
         let mut labels = pr.labels;
@@ -549,6 +581,21 @@ impl Runner {
                 next.reworked.push(review.id.clone());
                 let first = Some(Phase::Review(Review::first()));
                 (Turn::Due, Phase::Implement, first)
+            }
+            // The maintainer answered the merge ruling `rework`: a worker
+            // changes the pull request first, and the project's full reviewers
+            // read what it pushed. A pass over the contributor's own head could
+            // come back clean and let the change the maintainer asked for go
+            // undone, so it is not what a rework starts at.
+            None if taken_over => {
+                let pass = Some(Phase::Review(Review::first()));
+                (Turn::Due, Phase::Implement, pass)
+            }
+            // A released contribution is kelpie's own work item now, so the
+            // project's full reviewers read it, not the bots' owed read alone.
+            None if released.is_some() => {
+                let pass = Phase::Review(Review::first());
+                (Turn::Ended { at: now }, pass, None)
             }
             // A listed bot owes it a read of kelpie's own before CI.
             None if !listed.is_empty() => {
@@ -650,12 +697,15 @@ fn failed_with(ruling: &Ruling, why: &str) -> bool {
 
 // What an adoption starts from
 struct Adoptable {
-    // The issue the pull request closes
+    // The issue the pull request closes, or the one kelpie filed for it
     issue: u64,
     // The work item's branch, in the worktree
     branch: String,
     // Where the pull request's branch lives
     remote: Remote,
+    // The contribution's record, for a released one: what its reviewers found
+    // and what the maintainer answered `rework` with
+    released: Option<crate::state::Contribution>,
 }
 
 /// Whether the adopted work item's worker has yet to begin its session
@@ -679,6 +729,8 @@ fn adopted_text(
     issue: u64,
     found: &Issue,
     review: Option<&MaintainerReview>,
+    note: Option<&str>,
+    taken_over: bool,
 ) -> String {
     let mut text = format!("# Pull request #{number}: {}\n", pr.title);
     push_block(&mut text, &pr.body);
@@ -687,6 +739,18 @@ fn adopted_text(
     if let Some(review) = review {
         text.push('\n');
         text.push_str(&review_text(number, review));
+    }
+    if let Some(note) = note {
+        text.push_str(&format!(
+            "\n# The maintainer's note on pull request #{number}\n\n{note}\n"
+        ));
+    }
+    if taken_over && note.is_none() {
+        text.push_str(
+            "\n# Kelpie took this pull request over\n\nThe maintainer answered its merge \
+             ruling `rework`, so a worker finishes it and the project's reviewers read what \
+             the worker pushed.\n",
+        );
     }
     text
 }
