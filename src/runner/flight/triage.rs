@@ -37,6 +37,8 @@ pub(in crate::runner) struct Job {
     pub(in crate::runner) author: String,
     pub(in crate::runner) said: String,
     pub(in crate::runner) agent: String,
+    /// The numbers the call was shown, which is all an `addressed_by` may name
+    pub(in crate::runner) shown: Vec<u64>,
     pub(in crate::runner) research: Research,
 }
 
@@ -55,6 +57,7 @@ pub(in crate::runner) struct Triaging {
     issue: u64,
     author: String,
     said: String,
+    shown: Vec<u64>,
     deadline: Timestamp,
     ending: Ending,
 }
@@ -109,6 +112,7 @@ impl Runner {
             author,
             said,
             agent,
+            shown,
             mut research,
         } = job;
         let now = self.ports.clock.now();
@@ -166,6 +170,7 @@ impl Runner {
             issue,
             author,
             said,
+            shown,
             deadline: Timestamp(now.0.saturating_add(CEILING)),
             ending,
         });
@@ -205,7 +210,7 @@ impl Runner {
                 Ok(())
             }
             (Ok(_), Some(Ok(found))) => {
-                self.post_triage(issue, &flight.author, &flight.said, &found)
+                self.post_triage(issue, &flight.author, &flight.said, &flight.shown, &found)
             }
             (Ok(_), Some(Err(why))) => {
                 self.triage_failed(issue, &why, true);

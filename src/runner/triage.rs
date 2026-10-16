@@ -260,6 +260,10 @@ impl Runner {
                 closes: pull.closes.clone(),
             })
             .collect();
+        let shown: Vec<u64> = (listed.iter())
+            .map(|(n, _)| *n)
+            .chain(listed_pulls.iter().map(|pull| pull.number))
+            .collect();
         let agent = match self.settings.triager(&self.book) {
             Ok(agent) => agent,
             Err(e) => {
@@ -282,6 +286,7 @@ impl Runner {
             author: this.author.clone(),
             said: format!("{}\n\n{}", this.title.trim(), this.body.trim()),
             agent: agent.name.as_str().to_owned(),
+            shown,
             research: Research {
                 call,
                 checkout: self.settings.git.checkout.clone(),

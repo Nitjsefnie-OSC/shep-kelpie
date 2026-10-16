@@ -29,12 +29,18 @@ pub(super) enum Cover {
 }
 
 impl Runner {
-    // Checks `named`, which the research gave for `issue`, against the forge
-    // as it stands now. A listing that cannot be read fails the pass rather
-    // than close an issue against a cover kelpie could not read.
-    pub(super) fn cover_of(&mut self, issue: u64, named: &Addressed) -> Cover {
+    // Checks `named`, which the research gave for `issue`, against the listing
+    // its call was given and the forge as it stands now. A listing that cannot
+    // be read fails the pass rather than close an issue against a cover kelpie
+    // could not read.
+    pub(super) fn cover_of(&mut self, issue: u64, named: &Addressed, shown: &[u64]) -> Cover {
         if named.number == issue {
             return Cover::No("it is the issue itself".to_owned());
+        }
+        if !shown.contains(&named.number) {
+            return Cover::No(
+                "no issue or pull request of that number was in its listing".to_owned(),
+            );
         }
         let open = match self.ports.forge.open_issues(&self.remote) {
             Ok(open) => open,

@@ -52,6 +52,8 @@ pub(super) struct Waiting {
     pub(super) author: String,
     pub(super) said: String,
     pub(super) found: Found,
+    /// The numbers its call was shown, which is all an `addressed_by` may name
+    pub(super) shown: Vec<u64>,
 }
 
 /// What the runner keeps of one issue's triage that has not gone through, in
@@ -157,6 +159,7 @@ impl Runner {
         issue: u64,
         author: &str,
         said: &str,
+        shown: &[u64],
         found: &Found,
     ) -> Result<(), StateError> {
         let tries = self.triage_tries.entry(issue).or_default();
@@ -164,6 +167,7 @@ impl Runner {
             author: author.to_owned(),
             said: said.to_owned(),
             found: found.clone(),
+            shown: shown.to_owned(),
         });
         self.say_triage(issue)
     }
@@ -189,17 +193,18 @@ impl Runner {
         else {
             return Ok(());
         };
-        let (author, said, found) = (
+        let (author, said, found, shown) = (
             waiting.author.clone(),
             waiting.said.clone(),
             waiting.found.clone(),
+            waiting.shown.clone(),
         );
         let (author, said, found) = (author.as_str(), said.as_str(), &found);
         // The research named something that already covers the issue. Kelpie
         // closes it as a duplicate when the forge still agrees the item is
         // open, and words an ordinary triage comment when it does not.
         if let Some(named) = found.addressed_by.clone() {
-            match self.cover_of(issue, &named) {
+            match self.cover_of(issue, &named, &shown) {
                 Cover::Yes => return self.say_duplicate(issue, author, said, &named),
                 Cover::No(why) => {
                     self.notes.push(format!(

@@ -5,10 +5,12 @@ use serde_json::json;
 
 use super::comment::MARKER;
 use super::pick_tests::{issue, list};
-use super::research_tests::{WORDS, calls, crashed_with, facts, moves, reply, triage, untouched};
+use super::research_tests::{
+    WORDS, calls, crashed_with, facts, moves, pump, reply, triage, untouched,
+};
 use crate::ports::{IssueCloseReason, PullRequestState, Role};
-use crate::runner::step;
-use crate::test::Scripted;
+use crate::runner::{Pass, advance, step};
+use crate::test::{CALL_PATIENCE, Hold, Scripted};
 
 // The triager's reply naming `#number`, of `kind`, as covering the issue
 fn covered(number: u64, kind: &str, why: &str) -> Scripted {
@@ -121,6 +123,50 @@ fn a_number_not_in_the_listing_or_closed_or_itself_is_dropped_and_the_issue_is_t
             "{what}: {told:?}"
         );
     }
+}
+
+#[test]
+fn a_number_the_call_was_never_shown_is_dropped_even_when_it_is_open() {
+    let (rig, runner) = untouched();
+    let hold = Hold::default();
+    let said = json!({
+        "addressed_by": { "number": 55, "kind": "issue", "why": "It names the same crash." },
+    })
+    .to_string();
+    rig.claude.script_for(
+        Role::Triager,
+        [Scripted::HoldThenSay(
+            hold.clone(),
+            Box::leak(said.into_boxed_str()),
+        )],
+    );
+
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the research never began");
+
+    // Issue 55 opens while the call runs: it is open at the post, and it was
+    // never in the listing the call was given.
+    let mut late = issue(&rig, 55, "someone", 0);
+    late.title = "Also crashes".to_owned();
+    list(&rig, late);
+    hold.release();
+    pump(&runner, || {
+        triage(&rig, &runner)["issues"][0]["step"] == "done"
+    });
+
+    assert_eq!(rig.forge.closings(), Vec::<u64>::new());
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        "an ordinary triage comment"
+    );
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter().any(|n| n.starts_with("triage #30:")
+            && n.contains("names #55")
+            && n.contains("was in its listing")),
+        "{told:?}"
+    );
 }
 
 #[test]
