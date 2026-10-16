@@ -175,6 +175,9 @@ pub(in crate::runner) struct Tries {
     // That the body the author's own session was told to rewrite has changed, so
     // the triager reads the issue again
     pub(in crate::runner) local_edit: bool,
+    // The hash of the body the pass that reads a rewritten body was made on,
+    // which its comment is not owed when the body changes again under the call
+    pub(in crate::runner) local_read: Option<u64>,
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
@@ -307,6 +310,12 @@ impl Runner {
 
     // Words the comment from the waiting research and posts it
     fn say_triage(&mut self, issue: u64) -> Result<(), StateError> {
+        // The call can run for minutes, and the author's session can rewrite the
+        // body again while it runs. A comment, labels or a ready write from that
+        // read would describe a body the issue no longer holds.
+        if self.local_read_stale(issue)? {
+            return Ok(());
+        }
         let Some(waiting) = self
             .triage_tries
             .get(&issue)
@@ -507,6 +516,11 @@ impl Runner {
         let Some(body) = self.triage_tries.get(&issue).and_then(|t| t.body.clone()) else {
             return Ok(());
         };
+        // The same read again for a pass that was worded but could not be
+        // posted: the body it was worded on may not be the one the issue holds.
+        if self.local_read_stale(issue)? {
+            return Ok(());
+        }
         // The wording call can run for minutes, so a duplicate's cover is read
         // again against the forge right before the post. A cover that went in
         // the meantime is not posted: the comment is worded again at the next
@@ -636,6 +650,7 @@ impl Runner {
             tries.answers_body = None;
             tries.local_call = false;
             tries.local_edit = false;
+            tries.local_read = None;
         }
         Ok(())
     }

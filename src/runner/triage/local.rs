@@ -20,15 +20,15 @@
 //! read as the author's.
 //!
 //! The prompt comment's last line carries the hash of the body it went up
-//! against, so a prompt that posted before a crash leaves the round measured
-//! against that body rather than whatever the forge holds when kelpie comes
-//! back, and timed from when it went up rather than from the restart. A prompt
-//! kelpie finds on the issue is taken up before a pass that finds no question
-//! left is ended as `none`. The hash is taken from a read made just before the
-//! post, since the wording call before it can run for minutes. Everything the
-//! block names, the title, the files and each question with what it recommends,
-//! is put on one line with its backticks gone, so none of it can close the
-//! fence the prompt is posted in.
+//! against and the time it went up, so a prompt that posted before a crash
+//! leaves the round measured against that body and timed from then rather than
+//! from the restart. The hash is taken from a read made just before the post,
+//! since the wording call before it can run for minutes. A pass that reads a
+//! rewritten body is read again against the forge before its comment goes up,
+//! so a body rewritten a second time under the call is not answered by it.
+//! Everything the block names, the title, the files and each question with what
+//! it recommends, is put on one line with its backticks gone, so none of it can
+//! close the fence the prompt is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -71,9 +71,8 @@ pub(in crate::runner) const LOCAL_READ_KIND: &str = "Write the triage comment on
 impl Runner {
     // Posts the one prompt kelpie gives an author who settles the questions in
     // their own terminal: the numbered files and questions under a lead-in the
-    // representative words. The body it posts the hash of is the one the forge
-    // holds now, which is what the wait is measured against, and the comment
-    // itself carries that hash.
+    // representative words. The hash the wait is measured against is taken from
+    // a read made just before the post, and the comment itself carries it.
     pub(in crate::runner) fn post_local_prompt(
         &mut self,
         issue: u64,
@@ -193,8 +192,8 @@ impl Runner {
     // Saves the record as waiting on the author's own session, with the body
     // kelpie last saw and when the prompt it waits on went up. The ask comes
     // off: the prompt replaces it, and the prompt's own `wait_days` is what
-    // silence is measured from. A prompt kelpie found on the issue is timed from
-    // the forge's own time for it, so an outage does not grant a fresh one.
+    // silence is measured from. A prompt kelpie found on the issue is timed
+    // from the forge's own time for it, so an outage does not grant a fresh one.
     pub(in crate::runner) fn set_local(
         &mut self,
         issue: u64,
@@ -215,8 +214,9 @@ impl Runner {
 
     // Reads each issue whose triage waits on a local session. Its body is what
     // the author's session was told to rewrite, so a body whose hash differs is
-    // the round's answer: the triager reads the issue again. With no edit
-    // `triage.wait_days` after the prompt, the wait ends as `none` does.
+    // the round's answer: the triager reads the issue again, on the body this
+    // read saw. With no edit `triage.wait_days` after the prompt, the wait ends
+    // as `none` does.
     pub(super) fn watch_local_waits(&mut self) -> Result<(), StateError> {
         for record in self.triage_waiting() {
             let (Some(local), issue) = (record.local, record.issue) else {
@@ -237,8 +237,11 @@ impl Runner {
                 }
             };
             if body_hash(&body) != local.body {
+                let seen = body_hash(&body);
                 let told = self.triage_tries.get(&issue).is_some_and(|t| t.local_edit);
-                self.triage_tries.entry(issue).or_default().local_edit = true;
+                let tries = self.triage_tries.entry(issue).or_default();
+                tries.local_edit = true;
+                tries.local_read = Some(seen);
                 if !told {
                     self.notes.push(format!(
                         "triage #{issue}: its body changed since kelpie's prompt went up, so the \
@@ -257,6 +260,44 @@ impl Runner {
             self.triage_none(issue)?;
         }
         Ok(())
+    }
+
+    // Whether the pass that reads a body the author's session rewrote is out of
+    // date: the body changed again while its call ran, so its comment, its
+    // labels and a ready write from it would describe a body the issue no longer
+    // holds. The pass is owed again on the newer body.
+    pub(super) fn local_read_stale(&mut self, issue: u64) -> Result<bool, StateError> {
+        let owed = self
+            .triage_tries
+            .get(&issue)
+            .filter(|t| t.purpose == Purpose::LocalRead)
+            .and_then(|t| t.local_read);
+        let Some(owed) = owed else {
+            return Ok(false);
+        };
+        let found = match self.ports.forge.issue(&self.remote, issue) {
+            Ok(found) => found,
+            Err(e) => {
+                let why = format!("cannot read its body: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return Ok(true);
+            }
+        };
+        let seen = body_hash(&found.body);
+        if seen == owed {
+            return Ok(false);
+        }
+        self.notes.push(format!(
+            "triage #{issue}: its body changed again while the triager read it, so that read is \
+             not posted and it is taken again on the newer body"
+        ));
+        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+            tries.local_edit = true;
+            tries.local_read = Some(seen);
+            tries.waiting = None;
+            tries.body = None;
+        }
+        Ok(true)
     }
 
     // Keeps the hash a `local` wait is measured against at the body kelpie just

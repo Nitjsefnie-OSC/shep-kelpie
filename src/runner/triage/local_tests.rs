@@ -11,10 +11,10 @@ use super::ask_tests::{
 };
 use super::local::LOCAL_MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
-use super::research_tests::{calls, crashed_with, moves, reply, restart};
+use super::research_tests::{calls, crashed_with, moves, nothing, reply, restart};
 use crate::github::ApiError;
 use crate::ports::{OpenIssue, Role};
-use crate::runner::{Runner, step};
+use crate::runner::{Pass, Runner, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // What the representative says beside the prompt an author runs themselves
@@ -50,6 +50,15 @@ fn asked_with_fences() -> Value {
 // The last line of a comment kelpie posted, which carries its marker
 fn marker_line(comment: &str) -> &str {
     comment.trim_end().lines().last().unwrap_or_default()
+}
+
+// The triager's reply as leaked text, for a call held open
+fn said(found: Value) -> &'static str {
+    let mut all = nothing();
+    for (key, value) in found.as_object().expect("an object") {
+        all[key] = value.clone();
+    }
+    Box::leak(all.to_string().into_boxed_str())
 }
 
 // Issue 30 as the forge lists it after its author's session rewrote its body
@@ -809,4 +818,65 @@ fn a_local_prompt_a_restart_lost_is_timed_from_when_its_prompt_went_up() {
         2,
         "no call on a body that never changed"
     );
+}
+
+// The author's session rewrites the body again while the pass that reads its
+// first rewrite runs. That read posts no comment and writes no body: the pass
+// runs again on the newer text.
+#[test]
+fn a_body_rewritten_again_under_the_local_read_call_is_not_answered_by_it() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_with_files());
+    local_round(&rig, &runner, MAINTAINER);
+
+    list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+    let hold = Hold::default();
+    rig.claude.script_for(
+        Role::Triager,
+        [
+            Scripted::HoldThenSay(hold.clone(), said(settled_ready())),
+            reply(settled()),
+        ],
+    );
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+
+    rig.next_look();
+    assert!(matches!(advance(&runner).unwrap(), Pass::Started));
+    assert!(hold.entered(CALL_PATIENCE), "the read never began");
+
+    let twice = format!("{EDITED}\n\nAnd on macOS too.");
+    list(&rig, rewritten(&rig, MAINTAINER, &twice));
+    hold.release();
+
+    for _ in 0..4 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        if record(&rig, &runner)["step"] == "done" {
+            break;
+        }
+    }
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        3,
+        "the read made on the older body is taken again"
+    );
+    assert_eq!(
+        rig.github.issue_edits(),
+        [],
+        "no body written from the older read"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ],
+        "the newer body is what the round ends on"
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
 }

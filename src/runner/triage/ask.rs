@@ -262,6 +262,7 @@ impl Runner {
             tries.questions_call = false;
             tries.local_call = false;
             tries.local_edit = false;
+            tries.local_read = None;
             tries.open.clear();
         }
         self.finish_triage(issue)
