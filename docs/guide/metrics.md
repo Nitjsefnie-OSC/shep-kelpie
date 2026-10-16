@@ -60,7 +60,7 @@ Every runner series carries `sheep`, the project's name, as well as `id` and `fo
 | `kelpie_summons_total` | `bot`, `outcome` | Review bot summons runners reported: `accepted`, or `refused` for each new quote of when the window opens. The maintainer's own summons through `shep kelpie lease take` are not counted |
 | `kelpie_forge_holds_total` | `login_kind` | Times the forge's rate limit began holding every runner's calls. `login_kind` is `login`, the maintainer's `gh` login, which the dog's hold is for |
 | `kelpie_forge_held` | | 1 while that hold stands, 0 when not |
-| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 200 it sends |
+| `kelpie_series_dropped_total` | | Samples of a series the runner held back, past the 240 it sends |
 
 The dog's series are sent from the dog's own tick, so a hold that has ended reads 0 within ten seconds. Its counters start at zero when the dog starts, and every `e2e` host counts as the one `e2e` kind.
 
