@@ -93,8 +93,9 @@ impl Triage {
     /// # Errors
     ///
     /// [`SettingsError::Invalid`] naming `triage.max_questions` when it is
-    /// above 10, or `triage.per_day` or `triage.per_author_per_day` when a cap
-    /// is above [`MOST_PER_DAY`].
+    /// above 10, or `triage.per_day` or `triage.per_author_per_day` when a cap is
+    /// above 200, the most this file's `MOST_PER_DAY` allows and the number of
+    /// finished triage records the state keeps.
     pub fn check(&self) -> Result<(), SettingsError> {
         if self.max_questions.get() > MOST_QUESTIONS {
             return Err(SettingsError::Invalid {
