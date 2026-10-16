@@ -18,6 +18,10 @@
 //! call again. No edit `triage.wait_days` after the prompt ends as `none` does.
 //! Kelpie's own body edits set the hash, so a write of kelpie's own is never
 //! read as the author's.
+//!
+//! Everything the block names, the title, the files and each question with
+//! what it recommends, is put on one line with its backticks gone, so none of
+//! it can close the fence the prompt is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -274,6 +278,9 @@ impl Runner {
 // The prompt an author pastes into their own session: the issue, how to read it
 // and the files kelpie named, the open questions with what the research
 // recommends, and the write-back that is how kelpie learns what they settled.
+// Every word of it that came from an agent's reply is put on one line with its
+// backticks gone, so none of it can close the fence the block is posted in or
+// become a line of the prompt itself.
 fn local_block(
     repo: &str,
     issue: u64,
@@ -288,15 +295,15 @@ fn local_block(
     if !files.is_empty() {
         block.push_str("\nThen read the files kelpie's triage comment named:\n");
         for file in files {
-            block.push_str(&format!("- `{file}`\n"));
+            block.push_str(&format!("- `{}`\n", one_line(file)));
         }
     }
     block.push_str(
         "\nSettle these open questions, each with the answer kelpie's research recommends:\n",
     );
     for (i, q) in questions.iter().enumerate() {
-        let asked = format!("{}. {}", i + 1, q.question.trim());
-        match q.recommended.trim() {
+        let asked = format!("{}. {}", i + 1, one_line(&q.question));
+        match one_line(&q.recommended).as_str() {
             "" => block.push_str(&format!("{asked}\n")),
             recommended => block.push_str(&format!("{asked} (recommended: {recommended})\n")),
         }
@@ -309,9 +316,10 @@ fn local_block(
     block
 }
 
-// The title as one line that cannot close the fence the prompt is posted in
-fn one_line(title: &str) -> String {
-    (title.chars())
+// The title, file, question or answer as one line that cannot close the fence
+// the prompt is posted in, or stand as a line of the prompt itself
+fn one_line(text: &str) -> String {
+    (text.chars())
         .map(|c| match c {
             '`' => ' ',
             c if c.is_whitespace() => ' ',
