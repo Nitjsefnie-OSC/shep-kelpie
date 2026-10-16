@@ -68,6 +68,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         step: TriageStep::Labelled,
         labels: Vec::new(),
         duplicate_of: None,
+        ready_body: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -104,6 +105,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             step: TriageStep::Done,
             labels: Vec::new(),
             duplicate_of: None,
+            ready_body: None,
         }]
     );
 
@@ -113,6 +115,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         step: TriageStep::Closed,
         labels: Vec::new(),
         duplicate_of: Some(41),
+        ready_body: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -137,6 +140,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         step,
         labels: Vec::new(),
         duplicate_of: None,
+        ready_body: None,
     };
     let mut triage = TriageState {
         since: Timestamp(1),
@@ -173,6 +177,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                     2 => Some(41),
                     _ => None,
                 },
+                ready_body: None,
             })
             .collect(),
     };
@@ -186,4 +191,51 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
         "the oldest ordinary record went and the duplicate's stayed"
     );
     assert_eq!(triage.issues[1].duplicate_of, None);
+}
+
+// A version 64 file, saved by the first pass before the ready path, has
+// records with none of the new steps and no `ready_body`, so they load as
+// they were and save again at the current version.
+#[test]
+fn a_record_saved_by_slice_2_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 63.into();
+    old["triage"] = serde_json::json!({
+        "since": 1_791_964_800,
+        "issues": [
+            { "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug", "P2"] },
+            { "issue": 13, "comment": 5002, "step": "labelled" },
+            { "issue": 14, "comment": 5003, "step": "done" },
+            { "issue": 15, "comment": 5004, "step": "closed", "duplicate_of": 41 },
+        ],
+    });
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let loaded = store.load().unwrap().expect("a saved state");
+    let triage = loaded.triage.as_ref().expect("the records");
+    assert_eq!(triage.issues.len(), 4);
+    assert!(
+        triage.issues.iter().all(|t| t.ready_body.is_none()),
+        "{:?}",
+        triage.issues
+    );
+    assert_eq!(triage.issues[0].labels, ["bug", "P2"]);
+    assert_eq!(triage.issues[3].duplicate_of, Some(41));
+
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["triage"]["issues"],
+        serde_json::json!([
+            { "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug", "P2"] },
+            { "issue": 13, "comment": 5002, "step": "labelled" },
+            { "issue": 14, "comment": 5003, "step": "done" },
+            { "issue": 15, "comment": 5004, "step": "closed", "duplicate_of": 41 },
+        ])
+    );
+    assert_eq!(store.load().unwrap(), Some(loaded));
 }
