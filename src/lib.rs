@@ -48,6 +48,7 @@ pub mod skills;
 pub mod spawn;
 pub mod state;
 pub mod terminal;
+mod tool_error;
 pub mod tools;
 pub mod totp;
 mod transcripts;
