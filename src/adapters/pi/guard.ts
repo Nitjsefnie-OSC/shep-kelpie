@@ -20,6 +20,10 @@ type Checks = {
 };
 const CHECKS: Checks = __CHECKS__;
 
+// Every refusal kelpie's own checks make starts with this, so the runner can tell one
+// from any other failed result. It is kelpie's words, not pi's.
+const MARK: string = __MARK__;
+
 // The path pi's write and edit resolve: it folds odd spaces, strips a
 // leading `@` and expands `~`. It also opens a `file:` URL, which is refused.
 function resolved(path: string, cwd: string): string | undefined {
@@ -81,7 +85,7 @@ async function afterCommand(event: any, ctx: any) {
 	});
 	if (why === undefined) return undefined;
 	return {
-		content: [...(event.content ?? []), { type: "text", text: `kelpie: ${why}` }],
+		content: [...(event.content ?? []), { type: "text", text: `${MARK}${why}` }],
 		isError: true,
 	};
 }
@@ -110,7 +114,7 @@ export default function (pi: any) {
 		} else if (!["read", "grep", "find", "ls", ...CHECKS.web].includes(event.toolName)) {
 			why = `kelpie runs no ${event.toolName} tool for a worker`;
 		}
-		if (why !== undefined) return { block: true, reason: why };
+		if (why !== undefined) return { block: true, reason: `${MARK}${why}` };
 	});
 
 	pi.on("tool_result", async (event: any, ctx: any) => {

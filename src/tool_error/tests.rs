@@ -87,6 +87,51 @@ fn each_failed_result_in_the_recorded_call_counts_once() {
 }
 
 #[test]
+fn a_refusal_by_a_pi_call_guard_extension_is_a_guard_block() {
+    assert_eq!(pi_of(PI).get("guard-block").copied(), Some(1));
+}
+
+#[test]
+fn a_path_a_pi_call_sandbox_refused_counts_as_path_refused() {
+    assert_eq!(pi_of(PI).get("path-refused").copied(), Some(1));
+}
+
+#[test]
+fn a_path_under_tmp_a_pi_call_sandbox_refused_counts_as_tmp_refused() {
+    assert_eq!(pi_of(PI).get("tmp-refused").copied(), Some(1));
+}
+
+#[test]
+fn a_git_ref_a_pi_call_git_cannot_lock_counts_as_git_ref_lock() {
+    assert_eq!(pi_of(PI).get("git-ref-lock").copied(), Some(1));
+}
+
+#[test]
+fn a_program_a_pi_tool_needs_that_is_not_there_counts_as_command_not_found() {
+    assert_eq!(pi_of(PI).get("command-not-found").copied(), Some(1));
+}
+
+#[test]
+fn an_edit_whose_old_text_a_pi_call_cannot_match_counts_as_edit_miss() {
+    assert_eq!(pi_of(PI).get("edit-miss").copied(), Some(1));
+}
+
+#[test]
+fn a_command_a_pi_call_ran_past_its_limit_counts_as_timeout() {
+    assert_eq!(pi_of(PI).get("timeout").copied(), Some(1));
+}
+
+#[test]
+fn a_command_a_pi_call_ran_and_failed_counts_as_other() {
+    assert_eq!(pi_of(PI).get("other").copied(), Some(1));
+}
+
+#[test]
+fn each_failed_result_in_the_recorded_pi_call_counts_once() {
+    assert_eq!(pi(PI, 0).len(), 8);
+}
+
+#[test]
 fn a_hook_refusal_names_the_hook_that_refused() {
     let errors = claude(CLAUDE, 0);
     let hooks: Vec<&str> = errors

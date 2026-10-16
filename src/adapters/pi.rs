@@ -41,6 +41,7 @@ use crate::ports::{
 };
 use crate::settings::{AgentHarness, Gateways, Harness, HookPoint, ModelHost, ModelServer};
 use crate::skills::split_command;
+use crate::tool_error::GUARD_MARK;
 
 mod activity;
 pub(super) mod adopt;
@@ -93,7 +94,7 @@ const PI: Harness = Harness::Pi;
 /// The provider kelpie's own `models.json` names, for the call's one model
 const PROVIDER: &str = "kelpie";
 
-/// The extension that runs kelpie's checks, with `__CHECKS__` to fill in
+/// The extension that runs kelpie's checks, with `__CHECKS__` and `__MARK__` to fill in
 const GUARD: &str = include_str!("pi/guard.ts");
 
 /// pi's tools for each kind, by its own names
@@ -695,7 +696,9 @@ fn guard_extension(fence: &Fence, web: bool) -> String {
         "pause": { "requested": pause.requested_file(), "ended": pause.ended_file() },
         "web": if web { web::TOOLS.to_vec() } else { Vec::new() },
     });
-    GUARD.replace("__CHECKS__", &checks.to_string())
+    GUARD
+        .replace("__CHECKS__", &checks.to_string())
+        .replace("__MARK__", &json!(GUARD_MARK).to_string())
 }
 
 /// The whole call's policy: its fence, or none, and what pi itself needs
