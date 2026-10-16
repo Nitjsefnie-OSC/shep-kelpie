@@ -23,7 +23,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Detection
 
-- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot. Logins compare ignoring case. `Runner::is_contribution`, `src/runner/contributions.rs`
+- A contribution is an open pull request, not a draft, whose author is not the maintainer (`Runner::maintainer`), not the account kelpie acts as (`viewer`), and not a bot, and not one the maintainer left open (`left_open`). Logins compare ignoring case. `Runner::is_contribution`, `src/runner/contributions.rs`
 - Under `pick = "label"` it also carries `ready-for-agent`; under `"all"` it needs no label; under `"off"` nothing is one.
 - The author decides, never the branch name or the fork flag: a fork can name its branch `kelpie/5`. `OpenPullRequest.author_is_bot` is the listing's `author { __typename }` being `Bot`. `src/adapters/gh/board.rs`
 - `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `src/state/contributions.rs`
@@ -33,8 +33,7 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 
 ## Remote
 
-- `worktree::Remote` is where a work item's branch lives: `Origin`, or `Fork { url, branch }` for a contributor's fork. `prepare` (`Start::Pushed`), `origin_head`, `base_of`, `adopt`, `rebase` and `remove` take it, and every runner caller passes `Remote::Origin`, so nothing observable changes yet. A fork is fetched and pushed by URL, never added as a remote of the repo. `src/worktree/remote.rs`
-- A fork's branch is fetched to `refs/remotes/fork-<hash of the URL>/<branch>`, never under `origin`, so a fork cannot overwrite `origin/main`. `Start::Main` and the catch-up with `main` always read `origin/main`. #631
+- `worktree::Remote`, where a work item's branch lives (`Origin` or a contributor's fork), and the adoption of a released contribution: `contribution-release.md`. #631, #632
 
 ## CI on a trusted head
 

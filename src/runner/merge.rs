@@ -263,7 +263,7 @@ impl Runner {
     pub(super) fn regate(&mut self, from: &str, tip: &str) -> Result<(), String> {
         let item = self.current().expect("a gate is of a work item");
         let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-        worktree::adopt(repo, &item.worktree, branch, from, tip, &Remote::Origin)
+        worktree::adopt(repo, &item.worktree, branch, from, tip, &item.remote)
             .map_err(|e| format!("cannot bring the worktree to {}: {e}", short(tip)))?;
         let tip = Some(tip.to_owned());
         self.update(|item| {

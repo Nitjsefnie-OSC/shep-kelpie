@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::ports::{Cost, Finding, Role, SessionId, Timestamp, Usage};
 use crate::review_bot::Bot;
 use crate::settings::AgentName;
+use crate::worktree::Remote;
 
 mod bots;
 mod disputes;
@@ -58,6 +59,11 @@ pub struct WorkItem {
     /// rewrites the branch's commits.
     #[serde(default)]
     pub adopted: bool,
+    /// Where its branch lives: `origin`, or the contributor's fork for an
+    /// adopted contribution. Then `branch` is the local branch, and the
+    /// fork's own name for it is in the remote.
+    #[serde(default, skip_serializing_if = "Remote::is_origin")]
+    pub remote: Remote,
     /// An adopted pull request's head as it arrived, which its review diffs
     /// against instead of `origin/main`
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -436,6 +442,7 @@ impl WorkItem {
             branch: branch.into(),
             rework: false,
             adopted: false,
+            remote: Remote::Origin,
             arrived: None,
             worktree,
             build,

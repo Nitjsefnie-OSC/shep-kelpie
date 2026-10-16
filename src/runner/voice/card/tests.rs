@@ -519,3 +519,14 @@ fn a_contribution_ruling_names_each_line_and_offers_a_yes_that_trusts_and_a_no_t
         "nothing found is posted"
     );
 }
+
+#[test]
+fn a_no_edits_ruling_card_offers_leave_it_open_or_close_and_names_both_causes() {
+    let kind = RulingKind::Contribution(crate::state::Held::NoEdits);
+    let card = rendered(&ruling(72, kind));
+
+    assert!(card.contains("Leave it open"), "{card}");
+    assert!(card.contains("Close with thanks"), "{card}");
+    assert!(card.contains("or has been deleted"), "{card}");
+    assert!(!card.contains("  "), "no run of spaces: {card}");
+}

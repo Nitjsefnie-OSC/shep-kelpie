@@ -10,7 +10,9 @@
 //! the option it stood behind as the recommendation. A ruling the panel has
 //! not voted on holds the project manager's words where it gave any.
 
-use super::super::contributions::{ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, flagged_lines};
+use super::super::contributions::{
+    ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, LEAVE_OPEN, flagged_lines,
+};
 use super::super::gate::short;
 use super::super::ruling::{needs_pass, stuck_comment};
 use super::super::words::{NO_NOTE, Wants};
@@ -397,6 +399,28 @@ impl Card {
                         "Adopt anyway",
                         "Records the release as the maintainer's, so kelpie takes it over",
                         Answer::Text(ADOPT_ANYWAY.to_owned()),
+                    ),
+                    choice(
+                        "Close with thanks",
+                        "The representative thanks the contributor and the pull request is closed",
+                        Answer::Text(CLOSE_WITH_THANKS.to_owned()),
+                    ),
+                ],
+            },
+            RulingKind::Contribution(Held::NoEdits) => Self {
+                problem: None,
+                board: None,
+                title: "A contributor has gone quiet and their fork cannot be edited".to_owned(),
+                facts: Some(
+                    "Kelpie can only finish a pull request by pushing to its branch, and \
+                     the fork does not allow edits by maintainers or has been deleted."
+                        .to_owned(),
+                ),
+                choices: vec![
+                    choice(
+                        "Leave it open",
+                        "Kelpie follows the pull request no further, and posts nothing on it",
+                        Answer::Text(LEAVE_OPEN.to_owned()),
                     ),
                     choice(
                         "Close with thanks",

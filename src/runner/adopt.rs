@@ -10,6 +10,11 @@
 //! changes is the worker's first turn instead. The
 //! branch's owner may still be pushing, so only a push the worker's worktree
 //! holds is the worker's.
+//!
+//! A pull request is adopted only when kelpie's account opened it and it is
+//! not from a fork, unless its contributor released it (ADR 0010): then a fork is
+//! adopted onto `kelpie/<issue>` at the fork's head, if its owner allows
+//! edits by maintainers, and a branch in the repo itself under its own name.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -50,6 +55,9 @@ pub enum AdoptError {
     NotOpen(u64, &'static str),
     /// The pull request's branch is on a fork, not the repo itself
     Fork(u64),
+    /// The pull request's branch is on a fork that kelpie cannot push to: its
+    /// owner does not allow edits by maintainers, or deleted it
+    NoEdits(u64),
     /// The pull request merges into this branch, not `main`
     Base(u64, String),
     /// The pull request was opened by this login, not the account kelpie acts as
@@ -88,6 +96,11 @@ impl fmt::Display for AdoptError {
             Self::PullRequest(number, e) => write!(f, "cannot read pull request #{number}: {e}"),
             Self::NotOpen(number, state) => write!(f, "pull request #{number} is {state}"),
             Self::Fork(number) => write!(f, "pull request #{number} comes from a fork"),
+            Self::NoEdits(number) => write!(
+                f,
+                "pull request #{number} comes from a fork kelpie cannot push to: it does not let \
+                 maintainers edit it, or it has been deleted"
+            ),
             Self::Base(number, base) => write!(
                 f,
                 "pull request #{number} merges into `{base}`, not `{}`",
@@ -132,6 +145,7 @@ impl AdoptError {
             self,
             Self::NotOpen(..)
                 | Self::Fork(_)
+                | Self::NoEdits(_)
                 | Self::Base(..)
                 | Self::Author(..)
                 | Self::NoIssue(_)
@@ -377,43 +391,67 @@ impl Runner {
         posted.err().map(|e| e.to_string())
     }
 
-    // The issue an open pull request of kelpie's account, from the repo
-    // itself, closes: the lowest, when it closes more than one
-    fn adoptable(&mut self, number: u64, pr: &Reviewed) -> Result<u64, AdoptError> {
+    // What adopting an open pull request takes: the issue it closes lowest,
+    // when it closes more than one, and where its branch lives. Kelpie's own
+    // account's pull request from the repo itself is adopted; so is a
+    // contributor's whose record is released, from a fork too (ADR 0010).
+    fn adoptable(&mut self, number: u64, pr: &Reviewed) -> Result<Adoptable, AdoptError> {
         match pr.state {
             PullRequestState::Open => {}
             PullRequestState::Merged => return Err(AdoptError::NotOpen(number, "merged")),
             PullRequestState::Closed => return Err(AdoptError::NotOpen(number, "closed")),
         }
-        if pr.from_fork {
+        let released = (self.state.contributions.iter())
+            .any(|c| c.pull_request == number && c.released.is_some());
+        if pr.from_fork && !released {
             return Err(AdoptError::Fork(number));
         }
         if pr.base != worktree::BASE {
             return Err(AdoptError::Base(number, pr.base.clone()));
         }
-        let me = self.viewer().map_err(AdoptError::Viewer)?;
-        if pr.author != me {
-            let login = if pr.author.is_empty() {
-                "a deleted account".to_owned()
-            } else {
-                pr.author.clone()
-            };
-            return Err(AdoptError::Author(number, login));
+        if !released {
+            let me = self.viewer().map_err(AdoptError::Viewer)?;
+            if pr.author != me {
+                let login = if pr.author.is_empty() {
+                    "a deleted account".to_owned()
+                } else {
+                    pr.author.clone()
+                };
+                return Err(AdoptError::Author(number, login));
+            }
+        }
+        if !pr.pushable() {
+            return Err(AdoptError::NoEdits(number));
         }
         let issue = (pr.closes.iter().min().copied()).ok_or(AdoptError::NoIssue(number))?;
+        // A fork's branch is named by its contributor, so it could be `main`:
+        // the worktree's branch is kelpie's own for the issue.
+        let (branch, remote) = match (&pr.head_clone_url, pr.from_fork) {
+            (Some(url), true) => (
+                format!("kelpie/{issue}"),
+                Remote::Fork {
+                    url: url.clone(),
+                    branch: pr.branch.clone(),
+                },
+            ),
+            _ => (pr.branch.clone(), Remote::Origin),
+        };
         // The worktree kelpie keeps for the issue is cleared at the start, so
         // only another one holding the branch stops it.
         let own = self.paths.worktree(issue);
-        let holder = worktree::holder_of(&self.settings.git.checkout, &pr.branch, &own);
+        let holder = worktree::holder_of(&self.settings.git.checkout, &branch, &own);
         if let Some(holder) = holder.map_err(|e| AdoptError::Holder(e.to_string()))? {
             return Err(AdoptError::Worktree(format!(
-                "`{}` is checked out in the worktree at {}, which kelpie did not make: \
+                "`{branch}` is checked out in the worktree at {}, which kelpie did not make: \
                  remove it or switch it off the branch",
-                pr.branch,
                 holder.display()
             )));
         }
-        Ok(issue)
+        Ok(Adoptable {
+            issue,
+            branch,
+            remote,
+        })
     }
 
     // Checks the pull request can be adopted, then prepares its worktree,
@@ -426,7 +464,11 @@ impl Runner {
             .forge
             .reviewed(&repo, number)
             .map_err(|e| AdoptError::PullRequest(number, e))?;
-        let issue = self.adoptable(number, &pr)?;
+        let Adoptable {
+            issue,
+            branch,
+            remote,
+        } = self.adoptable(number, &pr)?;
         if self.state.item(issue).is_some() {
             return Err(AdoptError::InFlight(issue));
         }
@@ -445,7 +487,7 @@ impl Runner {
         let removed = worktree::remove(
             &self.settings.git.checkout,
             &fresh.worktree,
-            &pr.branch,
+            &branch,
             &fresh.build,
             None,
         );
@@ -455,13 +497,13 @@ impl Runner {
         let prepared = worktree::prepare(
             &self.settings.git.checkout,
             &fresh.worktree,
-            &pr.branch,
+            &branch,
             Start::Pushed,
-            &Remote::Origin,
+            &remote,
             &fresh.build,
         );
         prepared.map_err(|e| AdoptError::Worktree(e.to_string()))?;
-        let head = worktree::origin_head(&self.settings.git.checkout, &pr.branch, &Remote::Origin)
+        let head = worktree::origin_head(&self.settings.git.checkout, &branch, &remote)
             .map_err(|e| AdoptError::Worktree(e.to_string()))?;
         // A listed bot's `rounds` counts the reviews it gave so far. One of
         // this head counts when the bot's round finds it, as any read does.
@@ -525,7 +567,8 @@ impl Runner {
             }
         };
         let mut item = WorkItem {
-            branch: pr.branch,
+            branch,
+            remote,
             adopted: true,
             arrived: Some(head.clone()),
             pull_request: Some(number),
@@ -605,6 +648,16 @@ fn failed_with(ruling: &Ruling, why: &str) -> bool {
     matches!(&ruling.kind, RulingKind::Stuck(Stuck::AdoptFailed { why: said }) if said == why)
 }
 
+// What an adoption starts from
+struct Adoptable {
+    // The issue the pull request closes
+    issue: u64,
+    // The work item's branch, in the worktree
+    branch: String,
+    // Where the pull request's branch lives
+    remote: Remote,
+}
+
 /// Whether the adopted work item's worker has yet to begin its session
 pub(super) fn unborn(item: &WorkItem) -> bool {
     item.adopted
@@ -677,5 +730,7 @@ pub(super) fn first_prompt(item: &WorkItem, then: Option<&str>) -> String {
     prompt
 }
 
+#[cfg(test)]
+mod released;
 #[cfg(test)]
 mod tests;

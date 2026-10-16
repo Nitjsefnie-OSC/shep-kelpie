@@ -19,6 +19,12 @@ pub struct Reviewed {
     pub branch: String,
     /// Whether that branch is on a fork rather than the repo itself
     pub from_fork: bool,
+    /// Whether the author lets the repo's maintainers push to the branch
+    /// ("allow edits by maintainers"). The forge says so for a fork only.
+    pub maintainer_can_edit: bool,
+    /// Where the branch's repository is cloned from, `None` once a fork was
+    /// deleted
+    pub head_clone_url: Option<String>,
     /// Its author's login, empty for a deleted account
     pub author: String,
     /// Whether it is still a draft
@@ -28,6 +34,14 @@ pub struct Reviewed {
     /// The maintainer's latest review: the latest one a person left, since
     /// kelpie's own reviewers post none and bots are left out
     pub review: Option<MaintainerReview>,
+}
+
+impl Reviewed {
+    /// Whether kelpie can push to the branch: it is on the repo itself, or on
+    /// a fork that still exists and lets the maintainers edit
+    pub fn pushable(&self) -> bool {
+        !self.from_fork || (self.maintainer_can_edit && self.head_clone_url.is_some())
+    }
 }
 
 /// One review the maintainer left, as written

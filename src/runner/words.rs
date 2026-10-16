@@ -31,7 +31,9 @@ impl Wants {
     pub fn of(kind: &RulingKind) -> Self {
         match kind {
             RulingKind::Question { .. }
-            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting) => Self::Answer,
+            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting | Held::NoEdits) => {
+                Self::Answer
+            }
             RulingKind::Merge { .. } => Self::Merge,
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }

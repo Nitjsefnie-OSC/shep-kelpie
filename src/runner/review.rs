@@ -59,7 +59,7 @@ use crate::ports::{Finding, RoundEnd};
 use crate::settings::{AgentName, ListedReviewer};
 use crate::state::{Fix, StateError, Stuck};
 use crate::work_item::{CallKind, Phase, Review, ReviewCallState, ReviewStage, Turn, WorkItem};
-use crate::worktree::{self, Remote};
+use crate::worktree;
 
 // A reviewer whose call fails this many times in a row is passed over for
 // the rest of its pass: a reply it cannot give would otherwise stall the
@@ -493,7 +493,7 @@ impl Runner {
     // Asks git rather than the forge: the forge's head lags a push by a moment.
     pub(super) fn origin_head(&self) -> Result<String, String> {
         let item = self.current().expect("a head is a work item's");
-        worktree::origin_head(&self.settings.git.checkout, &item.branch, &Remote::Origin)
+        worktree::origin_head(&self.settings.git.checkout, &item.branch, &item.remote)
             .map_err(|e| e.to_string())
     }
 

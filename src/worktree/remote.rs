@@ -8,12 +8,18 @@
 
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use super::{BASE, WorktreeError, git};
 
 /// Where a work item's branch is pushed, and fetched from
-#[derive(Debug, Clone, PartialEq, Eq)]
+// wire format: a work item saves it, so changing this is a breaking change to
+// the state file
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Remote {
     /// The project's `origin`, under the work item's own branch name
+    #[default]
     Origin,
     /// A contributor's fork, whose branch has a name of its own
     Fork {
@@ -25,6 +31,11 @@ pub enum Remote {
 }
 
 impl Remote {
+    /// Whether this is the project's `origin`
+    pub fn is_origin(&self) -> bool {
+        *self == Self::Origin
+    }
+
     /// Where git is told to fetch from and push to
     pub(super) fn target(&self) -> &str {
         match self {

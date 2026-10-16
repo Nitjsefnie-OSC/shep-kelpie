@@ -301,6 +301,17 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                 trigger("answer close with thanks")
             );
         }
+        RulingKind::Contribution(Held::NoEdits) => {
+            return format!(
+                "The contributor of {about} has been quiet for the whole wait, and kelpie \
+                 cannot push to the fork it comes from: the fork does not let maintainers \
+                 edit it, or it has been deleted. Nothing is posted on the pull request until \
+                 you answer: {} leaves it open and kelpie follows it no further, and {} has \
+                 the representative thank the contributor and closes it.",
+                trigger("answer leave it open"),
+                trigger("answer close with thanks")
+            );
+        }
         RulingKind::FollowUp { findings, refused } => {
             let list: Vec<String> = findings
                 .iter()
