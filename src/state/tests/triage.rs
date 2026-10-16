@@ -69,6 +69,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
+        seen: Vec::new(),
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -106,6 +107,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             labels: Vec::new(),
             duplicate_of: None,
             ready_body: None,
+            seen: Vec::new(),
         }]
     );
 
@@ -116,6 +118,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         labels: Vec::new(),
         duplicate_of: Some(41),
         ready_body: None,
+        seen: Vec::new(),
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -141,6 +144,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
+        seen: Vec::new(),
     };
     let mut triage = TriageState {
         since: Timestamp(1),
@@ -178,6 +182,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                     _ => None,
                 },
                 ready_body: None,
+                seen: Vec::new(),
             })
             .collect(),
     };
@@ -193,9 +198,9 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
     assert_eq!(triage.issues[1].duplicate_of, None);
 }
 
-// A version 64 file, saved by the first pass before the ready path, has
-// records with none of the new steps and no `ready_body`, so they load as
-// they were and save again at the current version.
+// A version 63 file, saved by the first pass before the ready path, has
+// records with none of the new steps, no `ready_body` and no `seen`, so they
+// load as they were and save again at the current version.
 #[test]
 fn a_record_saved_by_slice_2_loads() {
     let dir = tempfile::tempdir().unwrap();
@@ -217,7 +222,10 @@ fn a_record_saved_by_slice_2_loads() {
     let triage = loaded.triage.as_ref().expect("the records");
     assert_eq!(triage.issues.len(), 4);
     assert!(
-        triage.issues.iter().all(|t| t.ready_body.is_none()),
+        triage
+            .issues
+            .iter()
+            .all(|t| t.ready_body.is_none() && t.seen.is_empty()),
         "{:?}",
         triage.issues
     );

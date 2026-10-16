@@ -79,6 +79,13 @@ pub struct Triaged {
     /// Left out unless the issue is on the ready path and the edit is owed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_body: Option<String>,
+    /// The labels the issue carried when this pass began, kept so a pass that
+    /// resumes after a restart still tells a triage label the maintainer put on
+    /// from kelpie's own
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seen: Vec<String>,
 }
 
 /// How far an issue's triage has got, saved before the next write to the forge

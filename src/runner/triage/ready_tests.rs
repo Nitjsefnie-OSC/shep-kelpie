@@ -585,3 +585,105 @@ fn an_issue_triaged_again_and_now_sure_loses_the_needs_triage_of_the_first_pass(
     );
     assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
 }
+
+// A pass that resumes after a restart has no in-memory reading of the labels
+// the issue began with, so its record keeps them. Without that, the
+// `needs-triage` an earlier pass put on reads as one the maintainer put on.
+#[test]
+fn a_restarted_pass_knows_its_own_needs_triage_from_the_record() {
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({
+            "issue": 30, "comment": 101, "step": "commented", "labels": ["bug", "P2"],
+            "ready_body": BODY, "seen": ["bug", "P2", "needs-triage"],
+        }),
+    );
+    for label in ["bug", "P2", "needs-triage"] {
+        rig.forge.label(30, label);
+    }
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(30, BODY.to_owned())],
+        "the owed rewrite goes on, as the comment promised"
+    );
+    assert_eq!(rig.github.label_takes(), [(30, "needs-triage".to_owned())]);
+    assert_eq!(
+        moves(&rig),
+        ["label bug", "label P2", "label ready-for-agent"]
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "ready");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        !told.iter().any(|n| n.contains("stands")),
+        "{told:?}: kelpie's own label is not a hand label"
+    );
+}
+
+// The same at the labelling step, where `ready-for-agent` is the label kelpie
+// is writing. An answer lost after it went on, or a crash before the step
+// saved, leaves it on the issue with the record still at `body-written`.
+#[test]
+fn a_ready_for_agent_already_on_the_issue_is_not_read_as_a_label_put_by_hand() {
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({
+            "issue": 30, "comment": 101, "step": "body-written", "labels": ["bug", "P2"],
+            "seen": ["needs-triage"],
+        }),
+    );
+    rig.forge.label(30, "needs-triage");
+    rig.forge.label(30, "ready-for-agent");
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        ["label bug", "label P2", "label ready-for-agent"]
+    );
+    assert_eq!(rig.github.label_takes(), [(30, "needs-triage".to_owned())]);
+    assert_eq!(
+        triage(&rig, &runner)["issues"][0]["step"],
+        "ready",
+        "the record says what the issue really is"
+    );
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        !told.iter().any(|n| n.contains("stands")),
+        "{told:?}: the label this step writes is kelpie's own"
+    );
+}
+
+// A label that is not the one this step writes still stands at that step
+#[test]
+fn a_label_put_by_hand_at_the_labelling_step_stands_though_ready_for_agent_is_owed() {
+    let (rig, runner) = filed("maintainer", MAINTAINER);
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({
+            "issue": 30, "comment": 101, "step": "body-written", "labels": ["bug", "P2"],
+            "seen": [],
+        }),
+    );
+    rig.forge.label(30, "ready-for-agent");
+    rig.forge.label(30, "ready-for-human");
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        moves(&rig),
+        Vec::<String>::new(),
+        "kelpie labels nothing over `ready-for-human`"
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}

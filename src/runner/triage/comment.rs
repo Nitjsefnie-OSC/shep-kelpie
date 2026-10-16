@@ -486,6 +486,13 @@ impl Runner {
         triage.issues.retain(|t| t.issue != issue);
         let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
         let ready_body = (self.triage_tries.get(&issue)).and_then(|t| t.ready_body.clone());
+        // The labels the pass began with go into the record with it: a pass
+        // that resumes after a restart has no in-memory reading left, and
+        // without these it takes kelpie's own `needs-triage` for the
+        // maintainer's.
+        let seen = (self.triage_tries.get(&issue))
+            .and_then(|t| t.seen.clone())
+            .unwrap_or_default();
         let stood = (self.triage_tries.get(&issue)).is_some_and(|t| t.stood.is_some());
         let step = match (duplicate_of, stood) {
             (Some(_), _) => TriageStep::Closed,
@@ -499,6 +506,7 @@ impl Runner {
             labels,
             duplicate_of,
             ready_body,
+            seen,
         });
         // A record saved finished needs the cap kept, as `triage_stepped` does
         // for the steps that finish later.

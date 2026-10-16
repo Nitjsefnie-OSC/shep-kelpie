@@ -15,9 +15,11 @@
 //! decided here first: no promise for a body the local guard would refuse, and
 //! none while a triage label the maintainer put on by hand stands, which is
 //! read for before the comment, before the body write and before the labelling
-//! ([`Runner::triage_labelled_by_hand`]). A refusal kelpie cannot read
-//! beforehand is said on the issue, since the comment there promised the
-//! rewrite.
+//! ([`Runner::triage_labelled_by_hand`]). The labels the pass began with come
+//! from [`Runner::triage_seen`], the record's `seen` after a restart, so a
+//! pass that resumes takes none of kelpie's own labels for the maintainer's.
+//! A refusal kelpie cannot read beforehand is said on the issue, since the
+//! comment there promised the rewrite.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
@@ -178,18 +180,26 @@ impl Runner {
             .collect())
     }
 
+    // The labels `issue`'s pass began with: the reading taken when its call
+    // started, or the one its record saved, for a pass that resumes after a
+    // restart with no in-memory reading left.
+    pub(super) fn triage_seen(&self, issue: u64) -> Vec<String> {
+        (self.triage_tries.get(&issue))
+            .and_then(|t| t.seen.clone())
+            .or_else(|| self.triage_record(issue).map(|t| t.seen.clone()))
+            .unwrap_or_default()
+    }
+
     // The triage label `issue` carries now that it did not when the pass
     // began, or `None` when it carries none. Kelpie's own labels for the
     // issue go on after this check, so a label that came by since is the
     // maintainer's, and it stands. A reading that fails is the caller's to
     // count as a failure: kelpie will not label over labels it cannot see.
     pub(super) fn triage_labelled_by_hand(&self, issue: u64) -> Result<Option<String>, ForgeError> {
-        let seen = self
-            .triage_tries
-            .get(&issue)
-            .and_then(|t| t.seen.clone())
-            .unwrap_or_default();
-        Ok(stood(&self.triage_labels_now(issue)?, &seen))
+        Ok(stood(
+            &self.triage_labels_now(issue)?,
+            &self.triage_seen(issue),
+        ))
     }
 
     // Saves the record with the owed ready body dropped: a publish refusal
@@ -213,11 +223,7 @@ impl Runner {
     // put on after the body went on stands the same as one put on while the
     // call ran.
     pub(super) fn label_ready(&mut self, issue: u64) -> Result<ReadyLabels, StateError> {
-        let seen = self
-            .triage_tries
-            .get(&issue)
-            .and_then(|t| t.seen.clone())
-            .unwrap_or_default();
+        let seen = self.triage_seen(issue);
         let carried = match self.triage_labels_now(issue) {
             Ok(carried) => carried,
             Err(e) => {
@@ -226,7 +232,17 @@ impl Runner {
                 return Ok(ReadyLabels::Held);
             }
         };
-        if let Some(label) = stood(&carried, &seen) {
+        // `ready-for-agent` is the label this step writes, so on the issue at
+        // this step it is kelpie's own: an answer lost after the label went on
+        // or a crash before the step saved leaves it there, and the pass finishes
+        // the labelling rather than reading kelpie's own label as the
+        // maintainer's. Any other triage label here came by hand and stands.
+        let owed: Vec<String> = carried
+            .iter()
+            .filter(|l| l.as_str() != READY)
+            .cloned()
+            .collect();
+        if let Some(label) = stood(&owed, &seen) {
             self.notes.push(format!(
                 "triage #{issue}: `{label}` went on while its triage waited to be labelled, so \
                  that stands: kelpie labels it no further"
