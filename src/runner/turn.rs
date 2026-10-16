@@ -8,7 +8,7 @@
 //! question block parks the worker on a ruling.
 
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use super::Runner;
@@ -42,6 +42,7 @@ use unfinished::{awaits_a_push, timed_out, uncommitted_prompt};
 pub(super) use unfinished::{failed, named_files};
 
 mod budget;
+mod dep_reads;
 mod handover;
 pub(super) mod held_up;
 pub(super) mod paused;
@@ -690,55 +691,6 @@ impl Runner {
             return Err(e.to_string());
         }
         Ok(call)
-    }
-
-    /// The folders of installed dependencies and toolchains a call reads, and
-    /// the crates the work item's build folder holds when the project's
-    /// `build_env` points cargo's home there
-    pub(in crate::runner) fn dep_reads(&self, build: Option<&Path>) -> Vec<PathBuf> {
-        let mut reads = self.dep_sources.folders().to_vec();
-        let cargo = build.and_then(|build| {
-            self.settings
-                .worker
-                .build_env
-                .iter()
-                .find(|(name, _)| name.as_str() == "CARGO_HOME")
-                .map(|(_, dir)| build.join(dir.as_path()))
-        });
-        if let Some(cargo) = cargo {
-            reads.extend(crate::dep_sources::cargo_srcs(&cargo));
-        }
-        reads
-    }
-
-    // Every call but an answer reads the installed sources and docs of its
-    // dependencies and toolchains, and writes none of them: the fence's write
-    // list is untouched, and a credential beside a readable folder stays denied.
-    fn with_dep_sources(&self, call: &mut AgentCall) {
-        // An answer reads only what kelpie put in its prompt, and has no read tool.
-        if call.tools == Tools::Answer {
-            return;
-        }
-        // Only a call that works a work item has a build folder of its own.
-        let build = matches!(call.role, Role::Worker | Role::Reviewer | Role::Triager)
-            .then(|| self.paths.build(call.issue));
-        let added = self.dep_reads(build.as_deref());
-        let held = |folders: &Vec<PathBuf>, folder: &Path| {
-            folders
-                .iter()
-                .any(|h| folder == h.as_path() || folder.starts_with(h))
-        };
-        for folder in added {
-            if held(&call.reach.read, &folder) {
-                continue;
-            }
-            call.reach.read.push(folder.clone());
-            if let Some(fence) = call.reach.fence.as_mut() {
-                if !held(&fence.read, &folder) {
-                    fence.read.push(folder);
-                }
-            }
-        }
     }
 
     pub(super) fn end_turn(

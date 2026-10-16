@@ -291,7 +291,7 @@ fn reach(
         hooks: Vec::new(),
     };
     Ok(Reach {
-        read: also.iter().cloned().chain(dep.into_iter()).collect(),
+        read: also.iter().cloned().chain(dep).collect(),
         fence: Some(Box::new(fence)),
         block_keychain: false,
         code_graph: None,
