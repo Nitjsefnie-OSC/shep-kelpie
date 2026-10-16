@@ -32,11 +32,16 @@ struct FakeHost {
     pi_version: Option<Result<&'static str, &'static str>>,
     // What `goose --version` prints, `crate::adapters::GOOSE_MINIMUM` when unset
     goose_version: Option<Result<&'static str, &'static str>>,
+    // When set, `PATH` holds exactly these programs and nothing else
+    path: Option<Vec<&'static str>>,
 }
 
 impl Host for FakeHost {
     fn on_path(&self, program: &str) -> bool {
-        !self.off_path.contains(&program)
+        match &self.path {
+            Some(names) => names.contains(&program),
+            None => !self.off_path.contains(&program),
+        }
     }
 
     fn sandbox_gaps(&self) -> Vec<&'static str> {

@@ -63,6 +63,9 @@ mod attach_tests;
 mod compact_tests;
 
 #[cfg(test)]
+mod env_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
@@ -552,6 +555,14 @@ fn env_args(call: &AgentCall, files: &Files) -> Vec<OsString> {
     let mut vars: Vec<(String, OsString)> = vec![
         // pi is Node, whose fetch ignores the sandbox's proxy without it.
         ("NODE_USE_ENV_PROXY".into(), "1".into()),
+        // pi's own `grep` and `find` run `rg` and `fd`, which pi downloads from
+        // GitHub when it finds neither in its `bin` folder or on `PATH`. Each
+        // kelpie call has a pi home of its own, whose `bin` is always empty,
+        // and the sandbox refuses the download, so pi is told here that the
+        // call is offline. `--offline` says the same to pi's own argument
+        // parsing; this reaches every program pi starts, and is what pi's
+        // tools read.
+        ("PI_OFFLINE".into(), "1".into()),
         ("PI_CODING_AGENT_DIR".into(), files.home.clone().into()),
         ("TMPDIR".into(), files.scratch.clone().into()),
         // zsh ignores `TMPDIR` for a heredoc and writes under this prefix.
