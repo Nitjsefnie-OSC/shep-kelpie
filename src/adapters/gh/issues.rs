@@ -6,8 +6,8 @@ use serde::Deserialize;
 use super::review_bot::time;
 use super::{gh, unreadable};
 use crate::ports::{
-    AuthorAssociation, FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull,
-    SubIssue, SubIssueState, Timestamp,
+    AuthorAssociation, FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, SubIssue,
+    SubIssueState, Timestamp,
 };
 use crate::settings::ForgeSlug;
 
@@ -147,10 +147,6 @@ pub(super) fn set_label(
         label,
     ])
     .map(drop)
-}
-
-fn parse_open_issues(stdout: &[u8]) -> Result<Vec<OpenIssue>, ForgeError> {
-    Ok(parse_open_page(stdout)?.into_iter().flatten().collect())
 }
 
 // One page of the endpoint's answer: every item, with `None` for the pull
@@ -372,6 +368,16 @@ mod tests {
     use super::*;
     use crate::ports::Timestamp;
 
+    // One page of the listing's answer, as the runner would have it: the issues,
+    // the pull requests left out
+    fn page(stdout: &[u8]) -> Vec<OpenIssue> {
+        parse_open_page(stdout)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     #[test]
     fn an_issue_closes_with_the_reason_the_forge_records_it_under() {
         let repo = ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap();
@@ -509,7 +515,7 @@ mod tests {
             {"number":6,"title":"d","body":"","created_at":"2026-10-14T09:30:00Z",
              "user":null,"labels":[]}
         ]"#;
-        let issues = parse_open_issues(out).unwrap();
+        let issues = page(out);
         assert_eq!(
             issues,
             [
@@ -583,7 +589,7 @@ mod tests {
             let out = format!(
                 r#"[{{"number":4,"title":"a","body":"b","created_at":"2026-10-14T08:00:00Z","user":null,"labels":[],"author_association":"{word}"}}]"#
             );
-            let issues = parse_open_issues(out.as_bytes()).unwrap();
+            let issues = page(out.as_bytes());
             assert_eq!(issues[0].author_association, want, "{word}");
         }
     }
@@ -591,7 +597,10 @@ mod tests {
     #[test]
     fn an_account_is_read_by_the_time_its_answer_gives_it() {
         let out = br#"{"login":"newcomer","created_at":"2026-10-14T08:00:00Z"}"#;
-        assert_eq!(parse_account_created(out).unwrap(), Timestamp(1_791_964_800));
+        assert_eq!(
+            parse_account_created(out).unwrap(),
+            Timestamp(1_791_964_800)
+        );
         let bad = br#"{"login":"newcomer"}"#;
         assert!(matches!(
             parse_account_created(bad),

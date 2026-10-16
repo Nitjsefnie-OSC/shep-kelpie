@@ -106,9 +106,12 @@ pub struct OpenIssue {
     pub created: Timestamp,
 }
 
+use serde::Serialize;
+
 /// How the forge counts the person who opened an issue to the repo it is on,
 /// which is what it says per issue rather than per repo
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum AuthorAssociation {
     /// No history on the repo at all
     None,

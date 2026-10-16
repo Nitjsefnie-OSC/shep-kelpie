@@ -549,7 +549,13 @@ impl Forge for FakeForge {
         if self.accounts_down.load(Ordering::SeqCst) {
             return Err(ForgeError::Failed("the account is unreadable".into()));
         }
-        Ok(self.accounts.lock().unwrap().get(&key).copied().unwrap_or(Timestamp(0)))
+        Ok(self
+            .accounts
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or(Timestamp(0)))
     }
 
     fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {

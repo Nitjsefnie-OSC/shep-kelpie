@@ -16,6 +16,7 @@ use std::path::{Component, Path};
 use serde::Deserialize;
 
 use super::super::untrusted::fenced;
+use super::limits;
 use crate::runner::claim::Notes;
 
 /// An open issue, by number and title
@@ -137,12 +138,16 @@ pub(super) fn prompt(
     number: u64,
     title: &str,
     body: &str,
+    max_body_kb: u32,
     open: &[Listed],
     pulls: &[ListedPull],
     max_questions: usize,
     settling: Option<&(String, String)>,
 ) -> String {
-    let issue = format!("# {}\n\n{}", title.trim(), body.trim());
+    // The body is what the limit cuts, never the title, and the cut says so in
+    // the fence beside the text it left out.
+    let (body, cut) = limits::cut_body(body, max_body_kb);
+    let issue = format!("# {}\n\n{}{}", title.trim(), body.trim(), cut);
     let listing = (open.iter())
         .map(|(n, title)| format!("#{n} {}", title.trim().replace('\n', " ")))
         .collect::<Vec<_>>()

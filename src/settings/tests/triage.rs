@@ -75,7 +75,10 @@ fn the_limits_default_to_10_a_day_2_per_author_30_days_and_20_kb() {
     assert_eq!(t.max_body_kb, 20);
     assert_eq!(parse(&with("")).unwrap().triage, t, "an empty table");
     let partial = parse(&with("pick = \"all\"\n")).unwrap().triage;
-    assert_eq!(partial.per_day, t.per_day, "a key left out keeps its default");
+    assert_eq!(
+        partial.per_day, t.per_day,
+        "a key left out keeps its default"
+    );
     assert_eq!(partial.per_author_per_day, t.per_author_per_day);
     assert_eq!(partial.min_account_days, t.min_account_days);
     assert_eq!(partial.max_body_kb, t.max_body_kb);

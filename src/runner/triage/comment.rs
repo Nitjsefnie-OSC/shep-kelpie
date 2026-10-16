@@ -76,7 +76,7 @@ pub(super) struct Marked {
 pub(super) const TRIES: u32 = 5;
 
 // Made on a repo that lacks it before the first issue is labelled with it
-const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
+pub(super) const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
     name: TRIAGE,
     color: "d876e3",
     description: "Kelpie researched this issue; it waits on the maintainer",

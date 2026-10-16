@@ -346,7 +346,10 @@ impl Runner {
                 _ => continue,
             };
             self.flights.triage_try(issue);
-            if let Some(job) = self.triage_job(issue, purpose) {
+            // The author's round is a pass like the first, so the limits reach it
+            // the same way, and the record is where its author comes from.
+            let limited = self.triage_limited(&record.author, false);
+            if let Some(job) = self.triage_job(issue, purpose, limited) {
                 return Ok(Some(Begin::Triage(job)));
             }
         }
