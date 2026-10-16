@@ -72,6 +72,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         seen: Vec::new(),
         asked: None,
         questions: None,
+        local: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -112,6 +113,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             seen: Vec::new(),
             asked: None,
             questions: None,
+            local: None,
         }]
     );
 
@@ -125,6 +127,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         seen: Vec::new(),
         asked: None,
         questions: None,
+        local: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -153,6 +156,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         seen: Vec::new(),
         asked: None,
         questions: None,
+        local: None,
     };
     let mut triage = TriageState {
         since: Timestamp(1),
@@ -193,6 +197,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                 seen: Vec::new(),
                 asked: None,
                 questions: None,
+                local: None,
             })
             .collect(),
     };
@@ -297,6 +302,7 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
             comment: 5010,
             at: Timestamp(1_792_054_800),
         }),
+        local: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -313,6 +319,55 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
                 "issue": 13, "comment": 5002, "step": "answers",
                 "questions": { "comment": 5010, "at": 1_792_054_800 },
             },
+        ])
+    );
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A version 67 file, saved before the local round, has records with no `local`
+// wait, so they load with none and save again at the current version. A waiting
+// record keeps the time its prompt went up and the hash of the body it was
+// posted against, and the wait is left out while unset.
+#[test]
+fn a_file_saved_before_this_version_loads_with_no_local_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 67.into();
+    old["triage"] = serde_json::json!({
+        "since": 1_791_964_800,
+        "issues": [
+            { "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug"] },
+            { "issue": 13, "comment": 5002, "step": "done" },
+        ],
+    });
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    let triage = loaded.triage.as_ref().expect("the records");
+    assert!(
+        triage.issues.iter().all(|t| t.local.is_none()),
+        "{:?}",
+        triage.issues
+    );
+
+    let triage = loaded.triage.as_mut().unwrap();
+    triage.issues[0].local = Some(TriageLocal {
+        at: Timestamp(1_792_051_200),
+        body: 18_446_744_073_709_551_615,
+    });
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["triage"]["issues"],
+        serde_json::json!([
+            {
+                "issue": 12, "comment": 5001, "step": "commented", "labels": ["bug"],
+                "local": { "at": 1_792_051_200, "body": 18_446_744_073_709_551_615_u64 },
+            },
+            { "issue": 13, "comment": 5002, "step": "done" },
         ])
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
