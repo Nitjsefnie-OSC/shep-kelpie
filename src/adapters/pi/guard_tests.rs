@@ -276,10 +276,7 @@ fn an_after_command_refusal_reaches_a_pi_worker_as_feedback_on_the_result() {
     let content = results[1]["content"].as_array().unwrap();
     assert_eq!(content[0], bad[0]);
     assert!(
-        content[1]["text"]
-            .as_str()
-            .unwrap()
-            .starts_with(GUARD_MARK),
+        content[1]["text"].as_str().unwrap().starts_with(GUARD_MARK),
         "{content:?}"
     );
     assert!(

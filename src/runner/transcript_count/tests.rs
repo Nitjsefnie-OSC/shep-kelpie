@@ -290,10 +290,8 @@ fn a_hook_that_is_not_kelpies_is_named_in_a_note_and_in_no_label() {
 
     assert_eq!(
         notes.take(),
-        [
-            "issue #794's worker had one tool call refused by the hook \
-             `/opt/homebrew/bin/node ~/.claude/hooks/kelpie-gate.js`"
-        ],
+        ["issue #794's worker had one tool call refused by the hook \
+             `/opt/homebrew/bin/node ~/.claude/hooks/kelpie-gate.js`"],
         "the hook is told once for the call, and kelpie's own `confine` refusal is told nowhere"
     );
     let labels: std::collections::BTreeSet<Vec<&str>> = sink

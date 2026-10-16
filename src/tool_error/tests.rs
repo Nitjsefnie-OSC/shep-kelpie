@@ -27,8 +27,16 @@ fn pi_of(text: &str) -> BTreeMap<&'static str, u64> {
 #[test]
 fn a_refusal_by_kelpies_own_guard_or_confine_hook_is_a_guard_block() {
     let kinds = claude_of(CLAUDE);
-    assert_eq!(kinds.get("guard-block").copied(), Some(1), "the `confine` hook");
-    assert_eq!(kinds.get("hook-block").copied(), Some(1), "the project's own hook");
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(1),
+        "the `confine` hook"
+    );
+    assert_eq!(
+        kinds.get("hook-block").copied(),
+        Some(1),
+        "the project's own hook"
+    );
 }
 
 #[test]
@@ -43,7 +51,10 @@ fn a_skill_the_call_does_not_have_counts_as_unknown_skill() {
 
 #[test]
 fn a_command_outside_the_calls_allow_list_counts_as_permission_refused() {
-    assert_eq!(claude_of(CLAUDE).get("permission-refused").copied(), Some(1));
+    assert_eq!(
+        claude_of(CLAUDE).get("permission-refused").copied(),
+        Some(1)
+    );
 }
 
 #[test]
@@ -169,13 +180,21 @@ fn a_guard_refusal_that_also_holds_a_timeout_is_a_guard_block() {
         Some(2),
         "the refusal, and the guard's own"
     );
-    assert_eq!(kinds.get("timeout"), None, "the first kind that matches wins");
+    assert_eq!(
+        kinds.get("timeout"),
+        None,
+        "the first kind that matches wins"
+    );
 }
 
 #[test]
 fn a_result_that_succeeded_counts_nothing() {
     let clean = CLAUDE.replace("\"is_error\":true", "\"is_error\":false");
-    assert_eq!(claude(&clean, 0), Vec::new(), "12 real results, none failed");
+    assert_eq!(
+        claude(&clean, 0),
+        Vec::new(),
+        "12 real results, none failed"
+    );
     let clean = PI.replace("\"isError\":true", "\"isError\":false");
     assert_eq!(pi(&clean, 0), Vec::new(), "8 real results, none failed");
 }

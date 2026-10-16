@@ -184,10 +184,13 @@ fn kind_of(text: &str, tool: Option<&str>) -> Kind {
             Kind::GitRefLock => lines
                 .iter()
                 .any(|line| line.starts_with("error: cannot lock ref")),
-            Kind::TmpRefused => lines.iter().any(|line| denied(line) && line.contains("/tmp/")),
+            Kind::TmpRefused => lines
+                .iter()
+                .any(|line| denied(line) && line.contains("/tmp/")),
             Kind::PathRefused => lines.iter().any(|line| denied(line)),
             Kind::CommandNotFound => {
-                holds("no such file or directory") || holds("is not available and could not be downloaded")
+                holds("no such file or directory")
+                    || holds("is not available and could not be downloaded")
             }
             Kind::EditMiss => {
                 holds("string to replace not found in file")
@@ -239,8 +242,7 @@ fn entries(text: &str, from: usize) -> impl Iterator<Item = Value> {
 
 // A message's blocks of type `kind`
 fn blocks<'a>(content: &'a Value, kind: &str) -> impl Iterator<Item = &'a Value> {
-    (content.as_array().into_iter().flatten())
-        .filter(move |block| block["type"] == kind)
+    (content.as_array().into_iter().flatten()).filter(move |block| block["type"] == kind)
 }
 
 // A tool result's text, which one harness writes as a string and the other as blocks

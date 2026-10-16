@@ -199,8 +199,10 @@ impl TranscriptCount {
                 1 => "one tool call".to_owned(),
                 n => format!("{n} tool calls"),
             };
-            self.notes
-                .push(format!("{} had {calls} refused by the hook `{hook}`", who(call)));
+            self.notes.push(format!(
+                "{} had {calls} refused by the hook `{hook}`",
+                who(call)
+            ));
         }
     }
 

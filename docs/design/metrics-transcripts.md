@@ -1,6 +1,6 @@
 # Metrics from transcripts
 
-What a call's transcript says once it ends, as series, and the reports that read transcripts. The rest of kelpie's numbers are in `metrics.md`. ADR 0012, #920, #924.
+What a call's transcript says once it ends, as series, and the reports that read transcripts. The rest of kelpie's numbers are in `metrics.md`. ADR 0012, #920, #924, #968.
 
 ## Series
 
@@ -14,7 +14,11 @@ Requests, read from the same file by the same wrapper (`src/request_use.rs`, `do
 - `kelpie_request_context_tokens{role,harness,le}`: requests by context size (input, cache read and cache write), as cumulative counters with `le` 50000, 150000, 200000 and `+Inf`: the worker's compaction threshold (150000), the context window (200000) and 50000 below. Five or six buckets did not fit the runner's 200 series beside the plan, compaction and feature series, which `histogram_quantile` reads over a `rate`. The channel has no histogram type, so this counter has no `_total`. All four are sent with a role and harness's first request.
 - `kelpie_cache_write_tokens_total{role,harness,after}`: tokens written to the cache, `after` `start` (the session's first request), `gap` (longer since the request before, which may be an earlier call's, than the cache keeps a write: 1 hour once a request has written to the 1-hour cache, else 5 minutes) or `growth`. All three are sent with the first. A role and harness holds 7 series between the two.
 - A request is one however many lines Claude Code wrote it as; a reply that sent nothing is none.
-- A worker's turn carried through a handover is counted by the image that adopts it. `CarriedTurn` holds a `Mark` (the transcript's folder, the session and its length as the turn began), and the image counts the requests past it when the turn ends. Its MCP servers and tool calls are not counted, since the mark holds no servers.
+- A worker's turn carried through a handover is counted by the image that adopts it. `CarriedTurn` holds a `Mark` (the transcript's folder, the session and its length as the turn began), and the image counts the requests and the failed tool calls past it when the turn ends. Its MCP servers are not counted, since the mark holds no servers.
+
+Tool calls that failed, read from the same file by the same wrapper (`src/tool_error.rs`, `docs/facts/tool-errors.md`), of the worker, the reviewer and the project manager, as their requests are. Claude Code and pi (`harness.tool-errors`):
+
+- `kelpie_tool_errors_total{role,kind}`: each tool call whose result the harness wrote as a failure, by what made it fail. Thirteen kinds for each of the three roles is 39 series of the runner's 200. A result counts once, however many lines of output it holds: one failed command printed 621 `Operation not permitted` lines over 15 results. `kind` is the first that matches, so a guard refusal that also holds a sandbox error is a guard refusal: `guard-block` (kelpie's `guard` or `confine` refused it), `hook-block` (a hook that is not kelpie's refused it), `tool-not-given`, `unknown-skill`, `permission-refused`, `git-ref-lock`, `tmp-refused`, `path-refused`, `command-not-found`, `edit-miss`, `timeout`, `mcp` (a failed `mcp__*` call that says nothing else), `other` (a command that ran and failed). No tool, path or command is in a label: a hook that is not kelpie's is named in a note instead (`log-lines.md`). Codex and goose read no transcript yet (#757, #784).
 
 ## Reports from transcripts
 
