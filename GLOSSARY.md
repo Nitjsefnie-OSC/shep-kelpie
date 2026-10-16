@@ -237,13 +237,21 @@ _Avoid_: rep (reads as repo), liaison, voice
 The agent that researches an issue another person opened, read-only on
 every **harness**, and reports what it found. It changes and posts nothing:
 kelpie's code does.
-_Avoid_: triage bot, classifier
+_Avoid_: triage bot, classifier (that word is the **spam check**'s model)
 
 **Triage**:
 Kelpie's handling of issues other people open, chosen by `triage.pick`. An
 issue is **untouched** until it carries one of kelpie's triage labels, and
 only one opened after `triage.since` is looked at.
 _Avoid_: grooming, intake
+
+**Spam check**:
+The classifier a **gateway** runs on an issue after its triage limits and
+before the **triager**'s call, under `[app.dogs.kelpie.triage.spam]`. At or
+above `triage.spam.threshold` the issue gets `possible-spam` and no comment,
+and the maintainer decides. It is no **lamb**: no session, no harness, no
+lease, and no place of a triage cap.
+_Avoid_: spam filter, spam bot
 
 **Phase**:
 A stage of a work item: `implement`, `review`, `ci`, `ruling`, `merge` and

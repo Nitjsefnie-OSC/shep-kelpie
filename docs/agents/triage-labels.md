@@ -14,6 +14,8 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the right-hand column to match whatever vocabulary you actually use.
 
+Kelpie also puts `possible-spam` on an issue its **spam check** read as spam. It is no role: it is the label left for the maintainer to decide, and no worker acts on it.
+
 ## Priority
 
 Every issue gets one `priority:` label. The board takes `P0` first and `P4` last, then an issue with none.
