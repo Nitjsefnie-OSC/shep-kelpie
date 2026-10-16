@@ -596,6 +596,10 @@ fn the_instructions_tell_a_worker_that_kelpie_fetches_main() {
         INSTRUCTIONS.contains("`git merge origin/main`"),
         "{INSTRUCTIONS}"
     );
+    assert!(
+        INSTRUCTIONS.contains("A repo you make inside your worktree is yours to fetch in"),
+        "{INSTRUCTIONS}"
+    );
     assert!(!INSTRUCTIONS.contains("fetch and merge"), "{INSTRUCTIONS}");
 }
 
