@@ -564,6 +564,21 @@ fn a_plain_status_names_what_a_closed_duplicate_was_closed_as_a_duplicate_of() {
     );
 }
 
+// The ready path's two steps, as the plain status says them
+#[test]
+fn a_plain_status_says_an_issue_made_agent_ready_is_ready() {
+    let body = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[
+        {"issue":30,"comment":101,"step":"body-written"},
+        {"issue":31,"comment":102,"step":"ready"}]},"rulings":[]}"#;
+    assert_eq!(
+        plain_status("koji", body)[3..5],
+        [
+            "  triaged #30: comment 101, body-written",
+            "  triaged #31: comment 102, ready",
+        ]
+    );
+}
+
 #[test]
 fn a_plain_status_lists_each_issue_triage_would_pick_up() {
     let body = r#"{"project":"koji","work_items":[],"triage":{"due":[

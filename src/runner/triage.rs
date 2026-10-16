@@ -11,7 +11,8 @@
 //! them, or on the issue `shep kelpie triage` queued ahead of them: one call at a
 //! time, in flight like the security review ([`flight::triage`]), whose
 //! reply [`comment`] posts as one comment under the representative's words and
-//! [`research`] reads. Each issue ends at `needs-triage`.
+//! [`research`] reads. Each issue ends at `needs-triage`, except a maintainer's
+//! issue the pass is sure of, which [`ready`] rewrites and makes `ready-for-agent`.
 
 use serde::Serialize;
 
@@ -26,6 +27,7 @@ use research::{Listed, ListedPull};
 
 pub(super) mod addressed;
 pub(super) mod comment;
+pub(super) mod ready;
 pub(super) mod research;
 
 use super::contributions::post::forge_is_busy;
@@ -147,7 +149,10 @@ impl Runner {
             .triage
             .as_ref()
             .map_or_else(Vec::new, |t| t.issues.clone());
-        for record in held.iter().filter(|t| t.step != TriageStep::Done) {
+        for record in held
+            .iter()
+            .filter(|t| !matches!(t.step, TriageStep::Done | TriageStep::Ready))
+        {
             if self.triage_given_up(record.issue) || self.flights.triaging() == Some(record.issue) {
                 continue;
             }
@@ -244,6 +249,12 @@ impl Runner {
             self.triage_queue.retain(|&n| n != issue);
             return None;
         };
+        // The labels the issue carries when its pass begins, kept once so a
+        // triage label that comes by later is the maintainer's own.
+        let tries = self.triage_tries.entry(issue).or_default();
+        if tries.seen.is_none() {
+            tries.seen = Some(this.labels.clone());
+        }
         let listed: Vec<Listed> = (open.iter())
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
@@ -383,6 +394,8 @@ fn untouched(issue: &OpenIssue, since: Timestamp, only: Option<&str>) -> bool {
 mod addressed_tests;
 #[cfg(test)]
 mod pick_tests;
+#[cfg(test)]
+mod ready_tests;
 #[cfg(test)]
 mod research_tests;
 #[cfg(test)]
