@@ -48,6 +48,8 @@ fn a_fork_without_maintainer_edits_raises_the_leave_open_or_close_ruling_at_quie
     for option in ["leave it open", "close with thanks"] {
         assert!(question.contains(option), "{option}: {question}");
     }
+    assert!(question.contains("deleted"), "{question}");
+    assert!(!question.contains("  "), "no run of spaces: {question}");
     assert_eq!(comments(&rig), [ASKS], "nothing is posted for it");
     assert_eq!(followed(&runner), [30], "still followed until it is ruled");
     polls(&rig, &runner);

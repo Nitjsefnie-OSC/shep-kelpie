@@ -98,7 +98,8 @@ impl fmt::Display for AdoptError {
             Self::Fork(number) => write!(f, "pull request #{number} comes from a fork"),
             Self::NoEdits(number) => write!(
                 f,
-                "pull request #{number} comes from a fork that does not let maintainers edit it"
+                "pull request #{number} comes from a fork kelpie cannot push to: it does not let \
+                 maintainers edit it, or it has been deleted"
             ),
             Self::Base(number, base) => write!(
                 f,

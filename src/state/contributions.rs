@@ -718,7 +718,7 @@ pub enum Held {
     /// adopt it anyway, or close it with thanks.
     Waiting,
     /// The contributor has been quiet for `quiet_days` and the pull request's
-    /// fork does not let the maintainers edit it, so kelpie cannot finish it
+    /// fork does not let the maintainers edit it or is gone, so kelpie cannot finish it
     /// on its own branch. The maintainer chooses: leave it open, which
     /// follows it no further, or close it with thanks.
     NoEdits,

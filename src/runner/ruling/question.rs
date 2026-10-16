@@ -303,7 +303,11 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
         }
         RulingKind::Contribution(Held::NoEdits) => {
             return format!(
-                "The contributor of {about} has been quiet for the whole wait, and the fork it                  comes from does not let maintainers edit it, so kelpie cannot push to it to                  finish the work. Nothing is posted on the pull request until you answer: {}                  leaves it open and kelpie follows it no further, and {} has the representative                  thank the contributor and closes it.",
+                "The contributor of {about} has been quiet for the whole wait, and kelpie \
+                 cannot push to the fork it comes from: the fork does not let maintainers \
+                 edit it, or it has been deleted. Nothing is posted on the pull request until \
+                 you answer: {} leaves it open and kelpie follows it no further, and {} has \
+                 the representative thank the contributor and closes it.",
                 trigger("answer leave it open"),
                 trigger("answer close with thanks")
             );
