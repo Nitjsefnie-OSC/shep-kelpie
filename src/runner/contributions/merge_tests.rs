@@ -5,9 +5,11 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::pass_tests::{listing, read_through, write};
+use super::release_tests::{ASKS, TAKEN, held, later, waiting};
 use super::ruling_tests::rule;
 use super::security_tests::{commit_on, contribute, contribution};
 use super::tests::{poll, poll_or_adopt};
+use crate::github::ApiError;
 use crate::ports::{AgentError, CLEAN, Checks, Finding, PullRequestState, Role, Severity};
 use crate::runner::words::NO_NOTE;
 use crate::runner::{Runner, StepReport, step};
@@ -522,6 +524,84 @@ fn a_new_head_after_a_rework_answer_keeps_the_maintainers_note_for_the_worker() 
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
     let text =
         std::fs::read_to_string(rig.paths().build(issue).join("adopted-pull-request.md")).unwrap();
+    assert!(
+        text.contains(
+            "# The maintainer's note on pull request #30\n\nAdd the test the review asked for."
+        ),
+        "{text}"
+    );
+}
+
+// A release that landed while the merge ruling still waits is the maintainer's
+// `rework` to overrule. The record keeps the note and says the maintainer took
+// the pull request over, which is what starts its work item at a worker's turn
+// rather than a review pass of the contributor's own head.
+#[test]
+fn a_rework_answer_after_the_release_landed_takes_the_pull_request_over_with_the_note() {
+    let (rig, runner) = waiting(&[ASKS, TAKEN]);
+    // The release lands at `quiet_days`, and its issue cannot be filed, so
+    // nothing is queued and the record stands with its merge ruling open.
+    rig.github.refuse_issue_creates(ApiError::Refused(502));
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 1);
+
+    let record = held(&rig, &runner);
+    assert_eq!(record["released"]["how"], "silence", "{record}");
+    assert_eq!(rig.ask(&runner, "status", None)["adopted"], json!([]));
+
+    rig.claude
+        .script([Scripted::Push("two.txt", "two\n"), Scripted::Text(CLEAN)]);
+    rule(
+        &rig,
+        &runner,
+        "30 rework Add the test the review asked for.",
+    );
+    rig.github.accept_issue_creates();
+    later(&rig, &runner, 1);
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["pull_request"], 30);
+    assert_eq!(status["work_item"]["adopted"], json!(true));
+    assert_eq!(
+        status["work_item"]["phase"]["state"], "implement",
+        "a worker goes first: {status}"
+    );
+    assert_eq!(status["work_item"]["turn"]["state"], "due", "{status}");
+    assert_eq!(
+        held(&rig, &runner)["released"]["how"],
+        "rework",
+        "the maintainer's answer, not the contributor's silence"
+    );
+    assert_eq!(
+        held(&rig, &runner)["rework"],
+        "Add the test the review asked for.",
+        "the note is kept for the worker"
+    );
+
+    // The worker's turn went before any reviewer read the pull request, and it
+    // was sent the file with the note in it.
+    for _ in 0..4 {
+        step(&runner).unwrap();
+        if !rig.claude.seen().is_empty() {
+            break;
+        }
+    }
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(
+        status["work_item"]["qwen"]["rounds"], 0,
+        "no review round had gone: {status}"
+    );
+    let seen = rig.claude.seen();
+    let [worker] = seen.try_into().unwrap();
+    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let named = rig.paths().build(issue).join("adopted-pull-request.md");
+    assert!(
+        worker.call.prompt.contains(&named.display().to_string()),
+        "{}",
+        worker.call.prompt
+    );
+    let text = std::fs::read_to_string(named).unwrap();
     assert!(
         text.contains(
             "# The maintainer's note on pull request #30\n\nAdd the test the review asked for."
