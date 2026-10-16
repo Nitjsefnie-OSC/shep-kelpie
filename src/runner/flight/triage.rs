@@ -227,15 +227,22 @@ impl Runner {
                 Ok(())
             }
             (Ok(_), Some(Ok(found))) => match flight.purpose {
-                // The questions a restart lost are researched again, and what
-                // its reply gives is what goes up.
+                // The questions or the prompt a restart lost are researched
+                // again, and what its reply gives is what goes up.
                 Purpose::Questions => {
                     if let Some(tries) = self.triage_tries.get_mut(&issue) {
                         tries.open = found.open.clone();
                     }
                     self.post_questions(issue, &flight.said)
                 }
-                Purpose::First | Purpose::Answers => self.post_triage(
+                Purpose::LocalPrompt => {
+                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                        tries.open = found.open.clone();
+                        tries.files = found.files.clone();
+                    }
+                    self.post_local_prompt(issue, &flight.said)
+                }
+                Purpose::First | Purpose::Answers | Purpose::LocalRead => self.post_triage(
                     issue,
                     &flight.author,
                     &flight.said,

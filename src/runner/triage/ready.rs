@@ -143,6 +143,7 @@ impl Runner {
         }
         match self.ports.voice.edit_issue_body(&self.remote, issue, body) {
             Ok(()) => {
+                self.triage_body_written(issue, body)?;
                 self.triage_stepped(issue, TriageStep::BodyWritten)?;
                 Ok(ReadyWrite::Written)
             }
