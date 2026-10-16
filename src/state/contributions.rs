@@ -769,6 +769,17 @@ pub enum Held {
     /// on its own branch. The maintainer chooses: leave it open, which
     /// follows it no further, or close it with thanks.
     NoEdits,
+    /// A contribution kelpie has taken over cannot be adopted: its pull request
+    /// merges into another branch, or the issue its work item would hang on is
+    /// labelled for an implementer the project does not list. The maintainer
+    /// chooses: leave it open, which follows it no further, or close with
+    /// thanks. Answering is not the only way out: the reason is read again each
+    /// poll, so retargeting the pull request or fixing the label adopts it and
+    /// withdraws the ruling.
+    CannotAdopt {
+        /// Why kelpie cannot adopt it, as the maintainer reads it
+        why: String,
+    },
     /// The pass has ended and CI is green on the head, and the maintainer
     /// decides every merge of someone else's work, whatever `git.merging`
     /// says. The ruling names the findings recorded and the bot threads

@@ -384,7 +384,7 @@ impl Card {
                     );
                     choices.push(choice(
                         "Rework",
-                        "Takes the pull request over, and kelpie's reviewers and a worker finish it",
+                        "Takes the pull request over: a worker changes it, then the project's reviewers read what it pushed",
                         Answer::Rework(NO_NOTE.to_owned()),
                     ));
                     choices
@@ -426,6 +426,28 @@ impl Card {
                      the fork does not allow edits by maintainers or has been deleted."
                         .to_owned(),
                 ),
+                choices: vec![
+                    choice(
+                        "Leave it open",
+                        "Kelpie follows the pull request no further, and posts nothing on it",
+                        Answer::Text(LEAVE_OPEN.to_owned()),
+                    ),
+                    choice(
+                        "Close with thanks",
+                        "The representative thanks the contributor and the pull request is closed",
+                        Answer::Text(CLOSE_WITH_THANKS.to_owned()),
+                    ),
+                ],
+            },
+            RulingKind::Contribution(Held::CannotAdopt { why }) => Self {
+                problem: None,
+                board: None,
+                title: "A pull request kelpie took over cannot be adopted".to_owned(),
+                facts: Some(format!(
+                    "Kelpie cannot start a work item on it: {why}. Retarget it at `{}`, or fix \
+                     what its issue is labelled for, and the next poll adopts it.",
+                    crate::worktree::BASE
+                )),
                 choices: vec![
                     choice(
                         "Leave it open",

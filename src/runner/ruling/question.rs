@@ -288,8 +288,8 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                  this head and the representative thanks the contributor. {no} merges nothing: \
                  the representative words your note for the contributor and posts it, and a no \
                  with no note posts nothing. {rework} takes the pull request over: kelpie opens \
-                 a work item on its branch, has it read by the project's reviewers, and has a \
-                 worker finish it. No fix turn runs for a yes or a no.",
+                 a work item on its branch, has a worker change it, and has the project's \
+                 reviewers read what it pushed. No fix turn runs for a yes or a no.",
                 short(head)
             );
         }
@@ -311,6 +311,17 @@ pub(in crate::runner) fn question(issue: u64, number: Option<u64>, kind: &Ruling
                  edit it, or it has been deleted. Nothing is posted on the pull request until \
                  you answer: {} leaves it open and kelpie follows it no further, and {} has \
                  the representative thank the contributor and closes it.",
+                trigger("answer leave it open"),
+                trigger("answer close with thanks")
+            );
+        }
+        RulingKind::Contribution(Held::CannotAdopt { why }) => {
+            return format!(
+                "Kelpie has {about} and cannot adopt it: {why}. Nothing is posted on the pull \
+                 request until you answer: {} leaves it open and kelpie follows it no further, \
+                 and {} has the representative thank the contributor and closes it. Changing \
+                 the pull request or its issue so kelpie can adopt it is taken up at the next \
+                 poll, and this ruling goes with it.",
                 trigger("answer leave it open"),
                 trigger("answer close with thanks")
             );

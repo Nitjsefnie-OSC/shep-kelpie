@@ -20,15 +20,19 @@
 //!
 //! A fork kelpie cannot push to is the maintainer's to decide on, not
 //! kelpie's: a quiet one gets a ruling ([`awaits_edits`]) and nothing is
-//! released. A filing or an edit the forge refuses is told in the log and
-//! tried again at the next poll, and the pull request is queued for adoption
-//! only once both went through.
+//! released. A released one kelpie cannot start a work item on gets a ruling of
+//! its own ([`ask_adopt`]): queueing it would have the board refuse it and post
+//! that refusal on the contributor's pull request, poll after poll.
+//! A filing or an edit the forge refuses is told in the log and tried again at
+//! the next poll, and the pull request is queued for adoption only once both
+//! went through.
 
 use super::super::Runner;
-use super::ruling::raise_no_edits;
+use super::ruling::{raise_cannot_adopt, raise_no_edits};
 use crate::issues::AgentLabel;
 use crate::ports::Reviewed;
-use crate::state::{Adopting, How, StateError, Waiting};
+use crate::state::{Adopting, Held, How, Ruling, RulingKind, StateError, Waiting};
+use crate::worktree::BASE;
 
 impl Runner {
     // Whether the release stage stops for the pull request this poll: the
@@ -98,6 +102,16 @@ impl Runner {
             self.save(next)?;
             return Ok(());
         }
+        // A pull request that merges into another branch is no work item
+        // kelpie can start: the board would refuse it every poll and post the
+        // refusal on the contributor's pull request. Nothing is filed for it
+        // while that stands.
+        if pr.base != BASE {
+            return self.ask_adopt(
+                number,
+                format!("it merges into `{}`, not `{}`", pr.base, BASE),
+            );
+        }
         // The issue its work item hangs on: the one an earlier poll filed for
         // it, or the lowest the pull request closes. A pull request that closes
         // an issue only after kelpie filed one keeps kelpie's: the filed issue
@@ -127,12 +141,44 @@ impl Runner {
         if to_link && !self.link_issue(number, &pr, issue)? {
             return Ok(());
         }
+        // An issue labelled for an implementer the project does not list gives
+        // the work item no agent, and the board would refuse it every poll.
+        if let Some(why) = self.issue_label_refuses(issue) {
+            return self.ask_adopt(number, why);
+        }
+        // The reason was read again and is gone: retargeting the pull request or
+        // fixing the label takes the adoption up, and the ruling goes with it.
         let mut next = self.state.clone();
+        next.rulings.retain(|r| !cannot_adopt_on(r, number));
         next.adopted.push(Waiting {
             pull_request: number,
             by_label: false,
         });
         self.save(next)
+    }
+
+    // Asks the maintainer what to do with a released contribution kelpie cannot
+    // adopt. While its ruling waits nothing is queued, nothing is raised again,
+    // and nothing is posted on the contributor's pull request.
+    fn ask_adopt(&mut self, number: u64, why: String) -> Result<(), StateError> {
+        if self.ruling_waits(number) {
+            return Ok(());
+        }
+        let now = self.ports.clock.now();
+        let mut next = self.state.clone();
+        raise_cannot_adopt(&mut next, number, why, now);
+        self.save(next)
+    }
+
+    // Why issue `issue` gives a work item no agent to run on, where it does: an
+    // `agent:` label for an implementer `agents.implementers` does not list, or
+    // more than one. A forge that cannot show the issue is no answer, and the
+    // board tries the adoption and skips it, as it does now.
+    fn issue_label_refuses(&self, issue: u64) -> Option<String> {
+        let found = self.ports.forge.issue(&self.remote, issue).ok()?;
+        self.labelled_agent(issue, &found.labels)
+            .err()
+            .map(|why| why.to_string())
     }
 
     // Files the issue `number`'s work item hangs on, from the pull request's
@@ -200,6 +246,16 @@ impl Runner {
             "contribution #{number}: cannot {what}: {why}; it is tried at the next poll"
         ));
     }
+}
+
+// Whether `ruling` is the one that asks about a contribution kelpie cannot
+// adopt
+fn cannot_adopt_on(ruling: &Ruling, number: u64) -> bool {
+    ruling.id == number
+        && matches!(
+            ruling.kind,
+            RulingKind::Contribution(Held::CannotAdopt { .. })
+        )
 }
 
 // What the filed issue says: where it came from and who handed the pull

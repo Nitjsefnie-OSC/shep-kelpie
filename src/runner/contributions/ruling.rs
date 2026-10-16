@@ -114,6 +114,17 @@ pub(super) fn raise_no_edits(next: &mut ProjectState, pull_request: u64, now: Ti
     raise_held(next, pull_request, Held::NoEdits, now);
 }
 
+/// Adds the ruling that asks what to do about a contribution kelpie has taken
+/// over and cannot adopt, for `why`, to `next`
+pub(super) fn raise_cannot_adopt(
+    next: &mut ProjectState,
+    pull_request: u64,
+    why: String,
+    now: Timestamp,
+) {
+    raise_held(next, pull_request, Held::CannotAdopt { why }, now);
+}
+
 /// Adds the ruling that asks whether `pull_request`'s `head` is merged to
 /// `next`, with `facts` after its question: what the reviewers found
 pub(super) fn raise_merge(
@@ -174,7 +185,11 @@ pub(super) fn withdraw(next: &mut ProjectState) {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
         RulingKind::Contribution(
-            Held::OverBudget { .. } | Held::Question { .. } | Held::Waiting | Held::NoEdits,
+            Held::OverBudget { .. }
+            | Held::Question { .. }
+            | Held::Waiting
+            | Held::NoEdits
+            | Held::CannotAdopt { .. },
         ) => (followed.iter()).any(|c| c.pull_request == r.number()),
         _ => true,
     });
@@ -274,9 +289,10 @@ pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ru
 /// adopting anyway records a release by the maintainer, and closing with
 /// thanks is left for the next poll, which has the representative say it
 ///
-/// The answers to the ruling for a fork kelpie cannot push to are the same
-/// kind of choice: leaving it open drops the pull request from the ones
-/// followed, and closing with thanks is left for the next poll.
+/// The answers to the ruling for a fork kelpie cannot push to, and for one
+/// kelpie cannot adopt, are the same kind of choice: leaving it open drops the
+/// pull request from the ones followed, and closing with thanks is left for the
+/// next poll.
 ///
 /// # Errors
 ///
@@ -293,7 +309,7 @@ pub(in crate::runner) fn settle(
     };
     let no_edits = match held {
         Held::Waiting => false,
-        Held::NoEdits => true,
+        Held::NoEdits | Held::CannotAdopt { .. } => true,
         _ => return Ok(()),
     };
     let words = text.split_whitespace().collect::<Vec<_>>().join(" ");

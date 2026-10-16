@@ -15,6 +15,7 @@ use super::release_tests::{
 };
 use super::ruling_tests::rule;
 use crate::github::ApiError;
+use crate::ports::Forge;
 use crate::runner::Runner;
 use crate::test::Rig;
 
@@ -346,4 +347,90 @@ fn a_pull_request_that_closes_an_issue_after_kelpie_filed_one_is_adopted_against
     );
     let body = rig.forge.pull_request_body(30);
     assert!(body.ends_with(&format!("Resolves #{issue}")), "{body}");
+}
+
+// A released contribution whose pull request merges into another branch is no
+// work item kelpie can start. Queueing it would have the board refuse it and
+// post that refusal on the contributor's pull request, poll after poll: the
+// maintainer is asked once, and nothing is filed or queued while that stands.
+#[test]
+fn a_released_pull_request_that_merges_into_another_branch_is_ruled_on_and_not_commented_on() {
+    let (rig, runner) = waiting(&[ASKS, TAKEN]);
+    rig.forge.set_base(30, "dev");
+
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 1);
+
+    let asked = rulings(&rig, &runner);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["kind"]["reason"], "cannot-adopt");
+    assert_eq!(asked[0]["issue"], Value::Null, "no work item");
+    let why = asked[0]["kind"]["why"].as_str().unwrap();
+    assert!(why.contains("`dev`"), "{why}");
+    let question = asked[0]["question"].as_str().unwrap();
+    for option in ["leave it open", "close with thanks"] {
+        assert!(question.contains(option), "{option}: {question}");
+    }
+    assert_eq!(rig.github.issues_created(), 0, "no issue is filed for it");
+    assert_eq!(rig.ask(&runner, "status", None)["adopted"], json!([]));
+    assert_eq!(comments(&rig), [ASKS, TAKEN], "nothing on the pull request");
+
+    polls(&rig, &runner);
+    polls(&rig, &runner);
+    assert_eq!(rulings(&rig, &runner).len(), 1, "asked once");
+    assert_eq!(
+        comments(&rig).len(),
+        2,
+        "no refusal comment on the contributor's pull request"
+    );
+
+    // Retargeting it at `main` is taken up at the next poll, and the ruling goes.
+    rig.forge.set_base(30, "main");
+    later(&rig, &runner, 1);
+
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["pull_request"], 30);
+    assert_eq!(status["work_item"]["adopted"], json!(true));
+}
+
+// A released contribution whose issue is labelled for an implementer the
+// project does not list gives its work item no agent. The maintainer is asked,
+// and listing the agent takes the adoption up.
+#[test]
+fn a_released_pull_request_whose_issue_names_an_unlisted_agent_is_ruled_on() {
+    let (rig, runner) = waiting(&[ASKS, TAKEN]);
+    rig.forge.set_closes(30, &[5]);
+    rig.forge.label(5, "agent:nope");
+
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 1);
+
+    let asked = rulings(&rig, &runner);
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(asked[0]["kind"]["reason"], "cannot-adopt");
+    let why = asked[0]["kind"]["why"].as_str().unwrap();
+    assert!(why.contains("agent:nope"), "{why}");
+    assert_eq!(comments(&rig), [ASKS, TAKEN], "nothing on the pull request");
+    polls(&rig, &runner);
+    assert_eq!(rulings(&rig, &runner).len(), 1, "asked once");
+
+    let repo = rig.settings().git.remote.unwrap();
+    rig.forge
+        .set_issue_label(&repo, 5, "agent:nope", false)
+        .unwrap();
+    later(&rig, &runner, 1);
+
+    assert_eq!(
+        rulings(&rig, &runner),
+        Vec::<Value>::new(),
+        "the reason is gone, and the ruling goes with it"
+    );
+    assert_eq!(
+        rig.ask(&runner, "status", None)["work_item"]["pull_request"],
+        30,
+        "the issue its contributor's pull request closes"
+    );
 }
