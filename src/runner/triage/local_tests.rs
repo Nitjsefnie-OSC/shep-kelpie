@@ -15,7 +15,7 @@ use super::research_tests::{calls, crashed_with, moves, reply, restart};
 use crate::github::ApiError;
 use crate::ports::{OpenIssue, Role};
 use crate::runner::{Runner, step};
-use crate::test::{Rig, Scripted};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 // What the representative says beside the prompt an author runs themselves
 pub(super) const L_WORDS: &str = "Here is one prompt to paste into your own session.";
@@ -693,4 +693,47 @@ fn a_prompt_already_on_the_issue_is_taken_up_when_no_question_is_left_to_settle(
         ]
     );
     assert_eq!(record(&rig, &runner)["step"], "done");
+}
+
+// The wording call before the prompt can run for minutes. A body rewritten in
+// that time is the body the prompt goes up against, and is not read as the
+// session's answer.
+#[test]
+fn a_body_rewritten_while_the_prompt_is_being_worded_is_the_body_it_measures_against() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_with_files());
+    assert_eq!(step(&runner).unwrap(), None);
+
+    wrote(&rig, MAINTAINER, "local");
+    let hold = Hold::default();
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::HoldThenSay(hold.clone(), L_WORDS)],
+    );
+
+    rig.next_look();
+    std::thread::scope(|scope| {
+        let posting = scope.spawn(|| step(&runner).unwrap());
+        assert!(hold.entered(CALL_PATIENCE), "the prompt was never worded");
+        // The author's session rewrote the body before the prompt went up.
+        list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+        hold.release();
+        posting.join().unwrap();
+    });
+
+    let held = record(&rig, &runner);
+    assert!(held["local"].is_object(), "{held}");
+    assert_eq!(moves(&rig), ["comment", "comment"], "the prompt is up");
+
+    // The wait is measured against the body the prompt went up against, so that
+    // edit does not end the round.
+    for _ in 0..3 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "no call on the edit that came before the prompt"
+    );
+    assert_eq!(moves(&rig), ["comment", "comment"], "the round is open");
 }

@@ -23,10 +23,11 @@
 //! against, so a prompt that posted before a crash leaves the round measured
 //! against that body rather than whatever the forge holds when kelpie comes
 //! back. A prompt kelpie finds on the issue is taken up before a pass that
-//! finds no question left is ended as `none`. Everything the block names, the
-//! title, the files and each question with what it recommends, is put on one
-//! line with its backticks gone, so none of it can close the fence the prompt
-//! is posted in.
+//! finds no question left is ended as `none`. The hash is taken from a read
+//! made just before the post, since the wording call before it can run for
+//! minutes. Everything the block names, the title, the files and each question
+//! with what it recommends, is put on one line with its backticks gone, so
+//! none of it can close the fence the prompt is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -145,6 +146,18 @@ impl Runner {
             Ok(words) => words,
             Err(e) => {
                 self.triage_failed(issue, &e.to_string(), true);
+                return Ok(());
+            }
+        };
+        // The wording call can take minutes, and the author's session can
+        // rewrite the body while it runs. The wait is measured against the body
+        // the prompt goes up against, so it is read again here rather than
+        // hashed from the read made before the call.
+        let found = match self.ports.forge.issue(&self.remote, issue) {
+            Ok(found) => found,
+            Err(e) => {
+                let why = format!("cannot read its body: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
                 return Ok(());
             }
         };
