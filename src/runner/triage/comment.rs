@@ -13,6 +13,8 @@
 //! A step that fails is told once in the log and tried at the next poll, and
 //! five failures give the issue up until kelpie restarts.
 
+use std::collections::BTreeMap;
+
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::super::representative::IssuePost;
@@ -167,9 +169,9 @@ pub(in crate::runner) struct Tries {
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
-    // The author's reply the pass already read, and the word it was read as,
-    // so a post that failed is not paid for again at the next poll
-    pub(in crate::runner) heard: Option<(u64, String)>,
+    // The author's replies the pass already read, each with the word it was
+    // read as, so a post that failed is not paid for again at the next poll
+    pub(in crate::runner) heard: BTreeMap<u64, String>,
 }
 
 impl Tries {
@@ -387,12 +389,19 @@ impl Runner {
             (None, ready::Ready::Not) => None,
         };
         // An outside issue the answers pass has settled keeps its author's text:
-        // what is settled goes under it, never in place of it.
+        // what is settled goes under it, never in place of it. A body kelpie
+        // could not read is not stood for by a comment without it: the pass is
+        // tried again at the next poll with its round still open.
         let answers_body = match (ready_body.as_ref(), answers, stood.as_ref()) {
-            (None, true, None) if found.open.is_empty() => found
+            (None, true, None) if found.open.is_empty() => match found
                 .body
                 .as_deref()
-                .and_then(|settled| self.settled_answers(issue, settled)),
+                .map(|settled| self.settled_answers(issue, settled))
+            {
+                Some(ask::Settled::Body(body)) => Some(body),
+                Some(ask::Settled::Not) | None => None,
+                Some(ask::Settled::Held) => return Ok(()),
+            },
             _ => None,
         };
         let kind = match (answers, ask) {

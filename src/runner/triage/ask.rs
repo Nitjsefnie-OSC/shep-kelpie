@@ -86,6 +86,20 @@ pub(in crate::runner) enum Write {
     Held,
 }
 
+/// What the answers pass can put under the issue author's text: the whole body
+/// to write, nothing to write, or a read of the issue that failed and is tried
+/// again. The last is not the first: the round is still open and its comment is
+/// not worded from a settled body kelpie does not have.
+pub(in crate::runner) enum Settled {
+    /// The author's text with what is settled under it
+    Body(String),
+    /// Nothing goes in the body: the pass settled no body, or what it settled
+    /// names something of this machine
+    Not,
+    /// The issue's body could not be read, so the pass is tried again
+    Held,
+}
+
 impl Runner {
     // Whether `author` is one kelpie asks to settle its open questions itself:
     // the maintainer on their own issue, and any author under `pick = "all"`.
@@ -432,29 +446,6 @@ impl Runner {
         self.save(next)
     }
 
-    // The issue's body with the settled answers under its author's own text, or
-    // `None` when the body cannot be read or the whole names something of this
-    // machine. The author's text is never written over.
-    pub(super) fn settled_answers(&mut self, issue: u64, settled: &str) -> Option<String> {
-        let body = match self.ports.forge.issue(&self.remote, issue) {
-            Ok(found) => found.body,
-            Err(e) => {
-                let why = format!("cannot read its body: {e}");
-                self.triage_failed(issue, &why, !forge_is_busy(&e));
-                return None;
-            }
-        };
-        let whole = format!("{}\n\n{}", body.trim(), settled.trim());
-        if let Some(leak) = self.local.find(&whole, crate::local_paths::Surface::Prose) {
-            self.notes.push(format!(
-                "triage #{issue}: the answers it would write name {leak}, so they are not \
-                 written and the issue ends `{TRIAGE}"
-            ));
-            return None;
-        }
-        Some(whole)
-    }
-
     // Saves the record as commented with its labels still owed, which is what
     // the answers write leaves behind: the write is done, the labels are not.
     // `triage_stepped` would clear them with the body, so this keeps them.
@@ -522,6 +513,30 @@ impl Runner {
                 Ok(Write::Held)
             }
         }
+    }
+
+    // The issue's body with the settled answers under its author's own text.
+    // [`Settled::Held`] is the forge failing to read it, which is tried again:
+    // the round stays open and no comment is worded without the body. The
+    // author's text is never written over.
+    pub(in crate::runner) fn settled_answers(&mut self, issue: u64, settled: &str) -> Settled {
+        let body = match self.ports.forge.issue(&self.remote, issue) {
+            Ok(found) => found.body,
+            Err(e) => {
+                let why = format!("cannot read its body: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return Settled::Held;
+            }
+        };
+        let whole = format!("{}\n\n{}", body.trim(), settled.trim());
+        if let Some(leak) = self.local.find(&whole, crate::local_paths::Surface::Prose) {
+            self.notes.push(format!(
+                "triage #{issue}: the answers it would write name {leak}, so they are not \
+                 written and the issue ends `{TRIAGE}"
+            ));
+            return Settled::Not;
+        }
+        Settled::Body(whole)
     }
 
     // The questions kelpie posted for `issue` and its author's answers, which

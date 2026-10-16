@@ -25,6 +25,7 @@ pub(crate) struct FakeForge {
     // What the repos a test named are, in place of `visibility`; keyed by lowercase slug
     visibilities: Arc<Mutex<HashMap<String, Visibility>>>,
     missing: Arc<Mutex<HashSet<u64>>>,
+    unread: Arc<Mutex<BTreeMap<u64, usize>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
     blockers: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
@@ -124,6 +125,7 @@ impl FakeForge {
             visibility: Arc::new(Mutex::new(Visibility::Public)),
             visibilities: Arc::default(),
             missing: Arc::default(),
+            unread: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
             blockers: Arc::default(),
@@ -202,16 +204,6 @@ impl FakeForge {
     /// Removes `label` from pull request `number`, as someone other than kelpie would
     pub(crate) fn unlabel_pull_request(&self, number: u64, label: &str) {
         self.coderabbit.put_label(number, label, false);
-    }
-
-    pub(crate) fn remove_issue(&self, number: u64) {
-        self.missing.lock().unwrap().insert(number);
-    }
-
-    /// Labels issue `number` with `label`, on the board and when viewed
-    pub(crate) fn label(&self, number: u64, label: &str) {
-        let mut labels = self.labels.lock().unwrap();
-        labels.entry(number).or_default().push(label.to_owned());
     }
 
     /// Lists issue `number` as ready, with whether anyone is assigned
@@ -342,10 +334,6 @@ impl FakeForge {
     }
 
     /// Issue `number`'s labels, in the order they went on
-    pub(crate) fn issue_labels(&self, number: u64) -> Vec<String> {
-        self.labels_of(number)
-    }
-
     /// Makes changing a pull request's or an issue's labels fail, or work again
     pub(crate) fn set_labels_down(&self, down: bool) {
         self.labels_down.store(down, Ordering::SeqCst);
@@ -480,6 +468,14 @@ impl Forge for FakeForge {
         self.ask()?;
         if self.missing.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("no issue #{number}")));
+        }
+        if let Some(allowed) = self.unread.lock().unwrap().get_mut(&number) {
+            if *allowed == 0 {
+                return Err(ForgeError::Failed(format!(
+                    "#{number} cannot be read right now"
+                )));
+            }
+            *allowed -= 1;
         }
         // Each read takes its own lock, so none may be held across another.
         let open = !self.closed.lock().unwrap().contains(&number);

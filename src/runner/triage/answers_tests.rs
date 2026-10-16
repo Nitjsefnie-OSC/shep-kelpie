@@ -1,6 +1,8 @@
 //! The answers half of the author's round, through the runner's stand-ins: the
 //! second triager call, what it writes, and what it is not made or written from
 
+use std::sync::Mutex;
+
 use serde_json::{Value, json};
 
 use super::ask_tests::{
@@ -10,8 +12,8 @@ use super::comment::MARKER;
 use super::pick_tests::{MAINTAINER, issue, list};
 use super::research_tests::{calls, crashed_with, moves, nothing, pump, reply, restart};
 use crate::ports::Role;
-use crate::runner::{Pass, advance, step};
-use crate::test::{CALL_PATIENCE, Hold, Scripted};
+use crate::runner::{Pass, Runner, advance, step};
+use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted};
 
 #[test]
 fn answers_settling_everything_on_a_maintainer_issue_make_it_ready_for_agent() {
@@ -344,4 +346,72 @@ fn a_hand_label_while_the_answers_call_runs_is_not_settled_under_it() {
         held.get("asked").is_none() && held.get("questions").is_none(),
         "{held}"
     );
+}
+
+// The answers pass on an outside issue, up to its comment: the ask went up, the
+// author said `github`, the questions went up and they answered them.
+pub(super) fn asked_and_answered(rig: &Rig, runner: &Mutex<Runner>, author: &str, answers: &str) {
+    assert_eq!(step(runner).unwrap(), None);
+    wrote(rig, author, "github");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("github"), Scripted::Say(Q_WORDS)],
+    );
+    rig.next_look();
+    assert_eq!(step(runner).unwrap(), None);
+    wrote(rig, author, answers);
+}
+// The issue's body cannot be read, so the pass has no settled body to put under
+// the author's text. That is not stood for by a comment and a label.
+#[test]
+fn answers_whose_issue_body_cannot_be_read_post_nothing_and_are_tried_again() {
+    let (rig, runner) = filed("pick = \"all\"", "newcomer", asked());
+    asked_and_answered(&rig, &runner, "newcomer", "Q1: Linux, on start.");
+    rig.claude
+        .script_for(Role::Triager, [reply(settled()), reply(settled())]);
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say(A_WORDS), Scripted::Say(A_WORDS)],
+    );
+    // The pass reads its labels, then cannot read its body.
+    rig.forge.fail_issue_reads_after(30, 1);
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let posted = posted(&rig);
+    for n in runner.lock().unwrap().take_notes() {
+        println!("NOTE: {n}");
+    }
+    println!("POSTED: {posted:?}");
+    println!("MOVES: {:?}", moves(&rig));
+    assert_eq!(posted.len(), 2, "{posted:?}");
+    assert!(!posted[1].contains(A_WORDS), "{posted:?}");
+    assert_eq!(moves(&rig), ["comment", "comment"], "no label goes on");
+    let held = record(&rig, &runner);
+    assert!(held["questions"]["comment"].is_number(), "{held}");
+    assert_eq!(held["step"], "commented", "the round is still open");
+
+    rig.forge.let_issue_read(30);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        rig.github.issue_edits(),
+        [(
+            30,
+            "It crashes when I run it.\n\n## Settled\n\n- Linux, on start.".to_owned()
+        )],
+        "under the author's text, once the body can be read"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ]
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
 }

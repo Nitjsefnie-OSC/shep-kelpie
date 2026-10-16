@@ -142,6 +142,24 @@ impl FakeForge {
         self.created.lock().unwrap().clone()
     }
 
+    /// Takes `number` out of what the forge can read, as a repo whose issue is
+    /// gone reads
+    pub(crate) fn remove_issue(&self, number: u64) {
+        self.missing.lock().unwrap().insert(number);
+    }
+
+    /// Lets `n` reads of `number` through and fails every one after, as a forge
+    /// that begins to fail partway through what kelpie is doing, until
+    /// [`Self::let_issue_read`]
+    pub(crate) fn fail_issue_reads_after(&self, number: u64, n: usize) {
+        self.unread.lock().unwrap().insert(number, n);
+    }
+
+    /// Lets reads of `number` through again after [`Self::fail_issue_reads_after`]
+    pub(crate) fn let_issue_read(&self, number: u64) {
+        self.unread.lock().unwrap().remove(&number);
+    }
+
     /// Makes listing and opening issues fail, or work again
     pub(crate) fn set_issues_down(&self, down: bool) {
         let why = down.then(|| "issues are down".to_owned());
