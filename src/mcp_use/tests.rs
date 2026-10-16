@@ -7,6 +7,10 @@ const FAILED: &str = include_str!("../../fixtures/claude-transcript-mcp-failed.j
 // A session given the code graph, which connected, and a server whose command is not there, over
 // two calls, from Claude Code 2.1.301. The first called the graph's `list_projects`.
 const TOOL_CALLS: &str = include_str!("../../fixtures/claude-transcript-mcp-tool-calls.jsonl");
+// A reviewer's call from Claude Code 2.1.301 whose only server, the code graph, connected and whose
+// tools were not deferred: it wrote no state of its servers, and its second prompt snapshot lists
+// the graph's tools.
+const CONNECTED: &str = include_str!("../../fixtures/claude-transcript-mcp-connected.jsonl");
 // A pi 1.1.0 session given the code graph, which connected, and the server whose command is not
 // there, whose model called the graph's `list_projects`.
 const PI: &str = include_str!("../../fixtures/pi-session-mcp.jsonl");
@@ -89,6 +93,20 @@ fn a_claude_transcript_with_no_state_of_its_servers_says_nothing_of_them() {
         0,
     );
     assert_eq!(used.servers, None);
+}
+
+#[test]
+fn a_claude_call_whose_servers_all_connected_and_wrote_no_state_reads_none_failed() {
+    let stood = claude(CONNECTED, 0)
+        .servers
+        .expect("its prompt snapshot lists a server's tools");
+    assert_eq!(stood, Stood::default());
+}
+
+#[test]
+fn a_prompt_snapshot_with_no_server_s_tools_says_nothing_of_the_servers() {
+    let line = r#"{"type":"attachment","attachment":{"type":"prompt_snapshot","tools":[{"name":"Read"}]}}"#;
+    assert_eq!(claude(line, 0).servers, None);
 }
 
 #[test]

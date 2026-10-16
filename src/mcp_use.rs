@@ -4,8 +4,11 @@
 //! Claude Code writes how a session's servers stand in an `attachment` line,
 //! and writes another only when that changes, so a resumed call whose servers
 //! stand as before writes none: the last such line in the whole transcript is
-//! how they stood at the call's end. pi's session file records the call's
-//! tool calls, and nothing of a server that failed to connect.
+//! how they stood at the call's end. While every server connects and none of
+//! their tools is deferred it writes no such line, and its prompt snapshot
+//! lists each server's tools with the server's name. pi's session file
+//! records the call's tool calls, and nothing of a server that failed to
+//! connect.
 //! `docs/facts/mcp-servers.md`
 
 use std::collections::BTreeMap;
@@ -41,7 +44,8 @@ pub(crate) fn claude(text: &str, from: usize) -> McpUse {
     let servers = (text.lines().rev())
         .filter(|line| line.contains("McpServers"))
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find_map(|entry| stood(&entry["attachment"]));
+        .find_map(|entry| stood(&entry["attachment"]))
+        .or_else(|| all_connected(text));
     let tool_calls = tool_calls(own_lines(text, from), |entry| {
         (entry["type"] == "assistant").then(|| tools(&entry["message"]["content"], "tool_use"))
     });
@@ -102,6 +106,19 @@ fn stood(attachment: &Value) -> Option<Stood> {
         stood.failed.insert(name, NEEDS_AUTH.to_owned());
     }
     Some(stood)
+}
+
+// The servers all connected, where the last prompt snapshot that lists tools
+// lists one of a server: a server that failed would have its own line
+fn all_connected(text: &str) -> Option<Stood> {
+    (text.lines().rev())
+        .filter(|line| line.contains("prompt_snapshot"))
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find_map(|entry| {
+            let tools = entry["attachment"]["tools"].as_array()?;
+            Some(tools.iter().any(|tool| tool["server"].is_string()))
+        })
+        .and_then(|served| served.then(Stood::default))
 }
 
 // The names of a message's tool calls, blocks of type `kind`
