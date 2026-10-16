@@ -157,7 +157,11 @@ impl Runner {
             if end.reached_no_model() {
                 ledger.no_model(key);
             }
-            let _ = news.send(News::Triaged { issue, end, found });
+            let _ = news.send(News::Triaged {
+                issue,
+                end,
+                found: found.map(Box::new),
+            });
             if let Some(wake) = &wake {
                 let _ = wake.send(());
             }
