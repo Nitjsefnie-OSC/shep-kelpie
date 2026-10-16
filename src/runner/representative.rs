@@ -27,6 +27,8 @@ use crate::settings::SettingsError;
 use crate::usage::{CallKind, Draft, Line, Spent, ended};
 use crate::work_item::new_session_id;
 
+pub(in crate::runner) mod reading;
+
 /// How long a call may run before it is ended, as the issue writer's is
 const CEILING: Duration = Duration::from_secs(15 * 60);
 

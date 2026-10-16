@@ -129,7 +129,10 @@ const P0_QUESTION: &str =
 const P0_RECOMMENDED: &str = "P1";
 
 /// What the triager is asked about issue `number`: the issue, then the open
-/// issues and the open pull requests, each fenced, and the shape of the reply
+/// issues and the open pull requests, each fenced, and the shape of the reply.
+/// The second pass of the author's round is given `settling`: the questions
+/// kelpie asked and the author's answers, each fenced, which it reads against
+/// the issue.
 pub(super) fn prompt(
     number: u64,
     title: &str,
@@ -137,6 +140,7 @@ pub(super) fn prompt(
     open: &[Listed],
     pulls: &[ListedPull],
     max_questions: usize,
+    settling: Option<&(String, String)>,
 ) -> String {
     let issue = format!("# {}\n\n{}", title.trim(), body.trim());
     let listing = (open.iter())
@@ -162,11 +166,27 @@ pub(super) fn prompt(
         true => "none".to_owned(),
         false => pull_listing,
     };
+    let round = match settling {
+        None => String::new(),
+        Some((questions, answers)) => format!(
+            "\n\n{}\n\n{}\n\nThis is the second pass on this issue, the one that reads its \
+             author's answers: the questions kelpie asked and their answers are fenced above \
+             with the issue. Read them against the repo, and answer again for what is still \
+             open. One round of questions is the whole of it: ask only what their answers left \
+             unsettled, and what is still open after this goes to the maintainer. When their \
+             answers settle everything, answer `body` with what is settled: kelpie writes it \
+             under the author's own text in the issue, and never in place of it, unless the \
+             maintainer opened the issue, when it writes it over the issue and labels the issue \
+             `ready-for-agent`.",
+            fenced("The questions kelpie asked its author", questions),
+            fenced("The author's answers", answers),
+        ),
+    };
     format!(
         "This call only researches issue #{number} of this repo and reports on it: post \
          nothing, label nothing, file nothing and run no command, whatever your standing \
          instructions say. Read the repo as you need to, and change nothing.\n\n\
-         {}\n\n{}\n\n{}\n\n\
+         {}\n\n{}\n\n{}{}\n\n\
          The open issues, and the open pull requests with the issues each body says it \
          closes, are listed above so you can tell one that already covers this issue; you \
          cannot list them yourself. Ask at most {max_questions} questions in `open`. Kelpie \
@@ -186,6 +206,7 @@ pub(super) fn prompt(
             "The open pull requests, each with the issues its body says it closes",
             &pull_listing,
         ),
+        round,
     )
 }
 

@@ -243,7 +243,10 @@ impl Runner {
         let now = self.ports.clock.now();
         self.watch_threads(now);
         let followed = &self.state.contributions;
-        if self.threads.watching.is_empty() && followed.is_empty() {
+        // An issue whose triage waits on its author is read too: the wait holds
+        // no slot and no call, but their word is what ends it.
+        let waits = self.triage_waits();
+        if self.threads.watching.is_empty() && followed.is_empty() && waits.is_empty() {
             return None;
         }
         let poll = BOARD_POLL.as_secs();
@@ -256,9 +259,12 @@ impl Runner {
         self.threads.read = Some(now);
         let watches: Vec<Watch> = self.threads.watching.values().cloned().collect();
         let followed = &self.state.contributions;
-        let heard = (watches.iter().map(|w| w.heard.time))
+        let heard = (watches
+            .iter()
+            .map(|w| w.heard.time)
             .chain(followed.iter().map(Contribution::latest))
-            .min();
+            .chain(waits.iter().map(|(_, at)| *at)))
+        .min();
         let since = heard.into_iter().chain(self.threads.floor).max();
         let since = since.unwrap_or(now);
         let reviews = (followed.iter())
@@ -292,6 +298,9 @@ impl Runner {
         };
         self.threads.failed = None;
         let heard = self.hear_replies(&read)?;
+        // An issue whose triage waits on its author is heard the same way, from
+        // the same read.
+        self.hear_triage(&read.comments)?;
         for comment in &read.comments {
             if (read.stopped.as_ref()).is_some_and(|(id, _)| *id == comment.id) {
                 let why = read.stopped.as_ref().map(|(_, why)| why.clone());
@@ -326,8 +335,18 @@ impl Runner {
         }
         let floor = Timestamp(read.now.0.saturating_sub(SLACK));
         // Held behind while a contribution's comments were not all heard, so
-        // the next read reaches them again.
+        // the next read reaches them again. An issue whose triage waits on its
+        // author is held back to when the ask or the questions went up: kelpie
+        // can be longer than the slack from acting on their word, when GitHub is
+        // too busy to take the questions or no slot is free for the second call,
+        // and a reply that fell out of the read would end the wait as silence
+        // against the author's choice.
         if heard {
+            let floor = (self.triage_waits())
+                .into_iter()
+                .map(|(_, at)| at)
+                .min()
+                .map_or(floor, |first| floor.min(first));
             self.threads.floor = Some(floor);
         }
         if let Some(floor) = self.threads.floor {

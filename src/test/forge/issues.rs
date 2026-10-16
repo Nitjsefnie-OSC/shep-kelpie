@@ -132,9 +132,32 @@ impl FakeForge {
         listed.push(issue);
     }
 
+    /// Takes issue `number` off the open listing, as closing it does
+    pub(crate) fn unlist_open_issue(&self, number: u64) {
+        self.issues.lock().unwrap().retain(|i| i.number != number);
+    }
+
     /// Every issue kelpie opened, oldest first
     pub(crate) fn created(&self) -> Vec<CreatedIssue> {
         self.created.lock().unwrap().clone()
+    }
+
+    /// Takes `number` out of what the forge can read, as a repo whose issue is
+    /// gone reads
+    pub(crate) fn remove_issue(&self, number: u64) {
+        self.missing.lock().unwrap().insert(number);
+    }
+
+    /// Lets `n` reads of `number` through and fails every one after, as a forge
+    /// that begins to fail partway through what kelpie is doing, until
+    /// [`Self::let_issue_read`]
+    pub(crate) fn fail_issue_reads_after(&self, number: u64, n: usize) {
+        self.unread.lock().unwrap().insert(number, n);
+    }
+
+    /// Lets reads of `number` through again after [`Self::fail_issue_reads_after`]
+    pub(crate) fn let_issue_read(&self, number: u64) {
+        self.unread.lock().unwrap().remove(&number);
     }
 
     /// Makes listing and opening issues fail, or work again

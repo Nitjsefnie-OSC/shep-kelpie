@@ -25,8 +25,12 @@ use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use research::{Listed, ListedPull};
 
+use ask::Purpose;
+
 pub(super) mod addressed;
+pub(super) mod ask;
 pub(super) mod comment;
+pub(super) mod heard;
 pub(super) mod ready;
 pub(super) mod research;
 
@@ -100,10 +104,14 @@ impl Runner {
             return Ok(());
         }
         self.flights.triage_retry();
-        self.resume_triage()?;
         let Ok(open) = self.ports.forge.open_issues(&self.remote) else {
             return Ok(());
         };
+        // A wait on the author ends when the forge says the issue is closed or
+        // carries a triage label the maintainer put on by hand, before anything
+        // the record owes is written.
+        self.settle_triage_waits(&open)?;
+        self.resume_triage()?;
         let only = match self.settings.triage.pick {
             TriagePick::Maintainer => match self.maintainer() {
                 Ok(login) => Some(login),
@@ -197,11 +205,13 @@ impl Runner {
                 self.retry_triage(issue)?;
                 continue;
             }
-            if let Some(job) = self.triage_job(issue) {
+            if let Some(job) = self.triage_job(issue, Purpose::First) {
                 return Ok(Some(Begin::Triage(job)));
             }
         }
-        Ok(None)
+        // The author's round: the second triager call, once their answers are
+        // in, and a questions comment a restart left owed.
+        self.triage_round_due()
     }
 
     // Reads `issue`'s comments, once, for a triage comment of the App's own: one
@@ -236,7 +246,7 @@ impl Runner {
 
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
-    fn triage_job(&mut self, issue: u64) -> Option<Job> {
+    fn triage_job(&mut self, issue: u64, purpose: Purpose) -> Option<Job> {
         let open = match self.ports.forge.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => {
@@ -287,7 +297,27 @@ impl Runner {
             }
         };
         let most = usize::from(self.settings.triage.max_questions.get());
-        let prompt = research::prompt(issue, &this.title, &this.body, &listed, &listed_pulls, most);
+        // The second pass reads the questions it asked and the author's answers
+        // to them, each fenced like everything else that comes from outside. It
+        // is not made without them: a triager shown neither the questions nor
+        // the answers answers from the repo alone, and its `body` would be
+        // written into the issue as if it came from the author.
+        let settling = match purpose {
+            Purpose::Answers => self.answers_round(issue),
+            Purpose::First | Purpose::Questions => None,
+        };
+        if matches!(purpose, Purpose::Answers) && settling.is_none() {
+            return None;
+        }
+        let prompt = research::prompt(
+            issue,
+            &this.title,
+            &this.body,
+            &listed,
+            &listed_pulls,
+            most,
+            settling.as_ref(),
+        );
         let view = self.paths.triage(issue);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
@@ -302,6 +332,7 @@ impl Runner {
             said: format!("{}\n\n{}", this.title.trim(), this.body.trim()),
             agent: agent.name.as_str().to_owned(),
             shown,
+            purpose,
             research: Research {
                 call,
                 checkout: self.settings.git.checkout.clone(),
@@ -392,6 +423,10 @@ fn untouched(issue: &OpenIssue, since: Timestamp, only: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod addressed_tests;
+#[cfg(test)]
+mod answers_tests;
+#[cfg(test)]
+mod ask_tests;
 #[cfg(test)]
 mod pick_tests;
 #[cfg(test)]

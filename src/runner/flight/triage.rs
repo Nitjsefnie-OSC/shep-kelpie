@@ -15,6 +15,7 @@ use std::thread;
 use super::super::Runner;
 use super::super::claim::Notes;
 use super::super::code_graph::{indexed, remove};
+use super::super::triage::ask::Purpose;
 use super::super::triage::research::{Found, Listed, read_reply};
 use super::{End, News};
 use crate::metrics::Recorder;
@@ -39,6 +40,8 @@ pub(in crate::runner) struct Job {
     pub(in crate::runner) agent: String,
     /// The numbers the call was shown, which is all an `addressed_by` may name
     pub(in crate::runner) shown: Vec<u64>,
+    /// Which pass of the author's round this call is
+    pub(in crate::runner) purpose: Purpose,
     pub(in crate::runner) research: Research,
 }
 
@@ -58,6 +61,7 @@ pub(in crate::runner) struct Triaging {
     author: String,
     said: String,
     shown: Vec<u64>,
+    purpose: Purpose,
     deadline: Timestamp,
     ending: Ending,
 }
@@ -113,6 +117,7 @@ impl Runner {
             said,
             agent,
             shown,
+            purpose,
             mut research,
         } = job;
         let now = self.ports.clock.now();
@@ -182,6 +187,7 @@ impl Runner {
             author,
             said,
             shown,
+            purpose,
             deadline: Timestamp(now.0.saturating_add(CEILING)),
             ending,
         });
@@ -220,9 +226,24 @@ impl Runner {
                 self.triage_failed(issue, &format!("its call failed: {e}"), true);
                 Ok(())
             }
-            (Ok(_), Some(Ok(found))) => {
-                self.post_triage(issue, &flight.author, &flight.said, &flight.shown, &found)
-            }
+            (Ok(_), Some(Ok(found))) => match flight.purpose {
+                // The questions a restart lost are researched again, and what
+                // its reply gives is what goes up.
+                Purpose::Questions => {
+                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                        tries.open = found.open.clone();
+                    }
+                    self.post_questions(issue, &flight.said)
+                }
+                Purpose::First | Purpose::Answers => self.post_triage(
+                    issue,
+                    &flight.author,
+                    &flight.said,
+                    &flight.shown,
+                    &found,
+                    flight.purpose,
+                ),
+            },
             (Ok(_), Some(Err(why))) => {
                 self.triage_failed(issue, &why, true);
                 Ok(())

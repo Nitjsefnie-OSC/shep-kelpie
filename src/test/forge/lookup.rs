@@ -5,6 +5,17 @@ use super::FakeForge;
 use crate::board::{Blocker, SubIssues};
 
 impl FakeForge {
+    /// Issue `number`'s labels, in the order they went on
+    pub(crate) fn issue_labels(&self, number: u64) -> Vec<String> {
+        self.labels_of(number)
+    }
+
+    /// Labels issue `number` with `label`, on the board and when viewed
+    pub(crate) fn label(&self, number: u64, label: &str) {
+        let mut labels = self.labels.lock().unwrap();
+        labels.entry(number).or_default().push(label.to_owned());
+    }
+
     pub(super) fn labels_of(&self, number: u64) -> Vec<String> {
         let labels = self.labels.lock().unwrap();
         labels.get(&number).cloned().unwrap_or_default()

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::coderabbit::FakeCodeRabbit;
-use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
+use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
     IssueCloseReason, MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest,
@@ -25,6 +25,7 @@ pub(crate) struct FakeForge {
     // What the repos a test named are, in place of `visibility`; keyed by lowercase slug
     visibilities: Arc<Mutex<HashMap<String, Visibility>>>,
     missing: Arc<Mutex<HashSet<u64>>>,
+    unread: Arc<Mutex<BTreeMap<u64, usize>>>,
     labels: Arc<Mutex<HashMap<u64, Vec<String>>>>,
     ready: Arc<Mutex<Vec<ReadyIssue>>>,
     blockers: Arc<Mutex<HashMap<u64, Vec<u64>>>>,
@@ -110,6 +111,9 @@ pub(crate) struct FakeForge {
     pub(crate) coderabbit: FakeCodeRabbit,
     /// What people wrote on the threads, and who may write to the repo
     pub(crate) threads: thread::FakeThreads,
+    // The App whose comments the forge then lists beside what people wrote,
+    // which is what an App's own post looks like on a real repo
+    app_comments: Arc<Mutex<Option<super::github::FakeGithub>>>,
 }
 
 /// The account the fake forge says kelpie acts as, and opens pull requests as
@@ -122,6 +126,7 @@ impl FakeForge {
             visibility: Arc::new(Mutex::new(Visibility::Public)),
             visibilities: Arc::default(),
             missing: Arc::default(),
+            unread: Arc::default(),
             labels: Arc::default(),
             ready: Arc::default(),
             blockers: Arc::default(),
@@ -184,78 +189,8 @@ impl FakeForge {
             limited: Arc::default(),
             coderabbit: FakeCodeRabbit::default(),
             threads: thread::FakeThreads::default(),
+            app_comments: Arc::default(),
         }
-    }
-
-    /// Adds `label` to pull request `number`, as someone other than kelpie would
-    pub(crate) fn label_pull_request(&self, number: u64, label: &str) {
-        self.coderabbit.put_label(number, label, true);
-    }
-
-    /// Pull request `number`'s labels, in the order they went on
-    pub(crate) fn pull_request_labels(&self, number: u64) -> Vec<String> {
-        self.coderabbit.labels(number)
-    }
-
-    /// Removes `label` from pull request `number`, as someone other than kelpie would
-    pub(crate) fn unlabel_pull_request(&self, number: u64, label: &str) {
-        self.coderabbit.put_label(number, label, false);
-    }
-
-    pub(crate) fn remove_issue(&self, number: u64) {
-        self.missing.lock().unwrap().insert(number);
-    }
-
-    /// Labels issue `number` with `label`, on the board and when viewed
-    pub(crate) fn label(&self, number: u64, label: &str) {
-        let mut labels = self.labels.lock().unwrap();
-        labels.entry(number).or_default().push(label.to_owned());
-    }
-
-    /// Lists issue `number` as ready, with whether anyone is assigned
-    pub(crate) fn list_ready(&self, number: u64, assigned: bool) {
-        self.label(number, READY);
-        self.ready.lock().unwrap().push(ReadyIssue {
-            number,
-            title: format!("Title of #{number}"),
-            body: format!("Body of #{number}.\n"),
-            assigned,
-            labels: Vec::new(),
-            blocked_by: Vec::new(),
-            unlisted_blockers: 0,
-            parent: None,
-            sub_issues: SubIssues::default(),
-        });
-    }
-
-    /// Takes `ready-for-agent` off issue `number`, so the board no longer lists it
-    pub(crate) fn unlist_ready(&self, number: u64) {
-        self.ready.lock().unwrap().retain(|i| i.number != number);
-        let mut labels = self.labels.lock().unwrap();
-        labels.entry(number).or_default().retain(|l| l != READY);
-    }
-
-    /// Gives ready issue `number` the body `body`, as its author wrote it
-    pub(crate) fn set_ready_body(&self, number: u64, body: &str) {
-        let mut ready = self.ready.lock().unwrap();
-        let issue = ready.iter_mut().find(|i| i.number == number).unwrap();
-        issue.body = body.to_owned();
-    }
-
-    /// The issues issue `number` is blocked by, open or closed
-    pub(crate) fn blockers(&self, number: u64) -> Vec<u64> {
-        self.blockers_of(number).iter().map(|b| b.number).collect()
-    }
-
-    /// Marks issue `number` blocked by issue `by`, which is open until closed
-    pub(crate) fn block(&self, number: u64, by: u64) {
-        let mut blockers = self.blockers.lock().unwrap();
-        blockers.entry(number).or_default().push(by);
-    }
-
-    /// Closes issue `number`, as merging its pull request or someone else would
-    pub(crate) fn close_issue(&self, number: u64) {
-        self.closed.lock().unwrap().insert(number);
     }
 
     /// Opens draft pull request `number` from `head`, closing `closes`
@@ -340,10 +275,6 @@ impl FakeForge {
     }
 
     /// Issue `number`'s labels, in the order they went on
-    pub(crate) fn issue_labels(&self, number: u64) -> Vec<String> {
-        self.labels_of(number)
-    }
-
     /// Makes changing a pull request's or an issue's labels fail, or work again
     pub(crate) fn set_labels_down(&self, down: bool) {
         self.labels_down.store(down, Ordering::SeqCst);
@@ -478,6 +409,14 @@ impl Forge for FakeForge {
         self.ask()?;
         if self.missing.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("no issue #{number}")));
+        }
+        if let Some(allowed) = self.unread.lock().unwrap().get_mut(&number) {
+            if *allowed == 0 {
+                return Err(ForgeError::Failed(format!(
+                    "#{number} cannot be read right now"
+                )));
+            }
+            *allowed -= 1;
         }
         // Each read takes its own lock, so none may be held across another.
         let open = !self.closed.lock().unwrap().contains(&number);
@@ -616,7 +555,13 @@ impl Forge for FakeForge {
         number: u64,
     ) -> Result<Vec<ThreadComment>, ForgeError> {
         self.ask()?;
-        Ok(self.threads.on(number))
+        let mut on = self.threads.on(number);
+        // An App's own comment is on the issue like anyone's: the forge lists it.
+        if let Some(github) = self.app_comments.lock().unwrap().clone() {
+            on.extend(github.posted_on(number));
+            on.sort_by_key(|c| c.id);
+        }
+        Ok(on)
     }
 
     fn thread_replies_since(
@@ -986,10 +931,12 @@ use handed::FakePullRequest;
 mod app;
 mod approvals;
 mod authors;
+mod comments;
 mod down;
 mod handed;
 mod issues;
 mod lookup;
+mod pulls;
 mod queue;
 mod reads;
 mod repo;

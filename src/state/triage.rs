@@ -73,10 +73,12 @@ pub struct Triaged {
     /// Left out unless the issue was closed as a duplicate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duplicate_of: Option<u64>,
-    /// The agent-ready body kelpie is owed to write over the issue's, kept so
-    /// a restart writes it and never writes it twice
+    /// The body kelpie is owed to write: the agent-ready body over the
+    /// issue's on the ready path, or the issue's body with the settled answers
+    /// under its author's text on the answers path. Kept so a restart writes
+    /// it and never writes it twice
     ///
-    /// Left out unless the issue is on the ready path and the edit is owed.
+    /// Left out unless an edit is owed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_body: Option<String>,
     /// The labels the issue carried when this pass began, kept so a pass that
@@ -86,6 +88,68 @@ pub struct Triaged {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
+    /// The ask kelpie's triage comment put to the author, while the triage
+    /// waits for their word: `github` or `none`. No label goes on meanwhile.
+    ///
+    /// Left out unless the triage waits on the ask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<TriageAsked>,
+    /// The questions comment kelpie posted for the author to answer, while the
+    /// triage waits for the answers.
+    ///
+    /// Left out unless the triage waits on the answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub questions: Option<TriageQuestions>,
+}
+
+/// The ask kelpie waits an author's answer to
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriageAsked {
+    /// When the ask kelpie waits on went up: the triage comment's, or the
+    /// plain ask that followed a reply kelpie could not read as either word.
+    /// Silence this long past it counts as `none`.
+    pub at: Timestamp,
+    /// How many times kelpie has asked: 1, or 2 once its plain ask has gone
+    /// up. A second reply it can read as neither word counts as `none`.
+    ///
+    /// Left out while it has asked once.
+    #[serde(default = "asked_once", skip_serializing_if = "is_once")]
+    pub asks: u32,
+}
+
+fn asked_once() -> u32 {
+    1
+}
+
+fn is_once(asks: &u32) -> bool {
+    *asks <= 1
+}
+
+impl TriageAsked {
+    /// The first ask, the one the triage comment ends with
+    pub fn first(at: Timestamp) -> Self {
+        Self { at, asks: 1 }
+    }
+
+    /// Whether kelpie has put its one plain ask again, so the next reply it
+    /// cannot read counts as `none`
+    pub fn asked_again(&self) -> bool {
+        self.asks > 1
+    }
+}
+
+/// The questions comment kelpie waits an author's answers to
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriageQuestions {
+    /// The id of the comment holding them
+    pub comment: u64,
+    /// When it went up: the answers are the author's comments after it, and
+    /// silence this long past it ends the round
+    pub at: Timestamp,
 }
 
 /// How far an issue's triage has got, saved before the next write to the forge
@@ -102,6 +166,9 @@ pub enum TriageStep {
     /// The agent-ready body is written over the issue's and the type and
     /// priority labels are not all on
     BodyWritten,
+    /// The answers round's comment is posted, and its settled answers are
+    /// owed under the issue's author's text, in `ready_body`
+    Answers,
     /// The labels the reply gave are on and `needs-triage` is not
     Labelled,
     /// `needs-triage` is on, or the maintainer's own triage label stood
