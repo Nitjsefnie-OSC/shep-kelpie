@@ -204,6 +204,8 @@ impl Runner {
         match built {
             Ok(call) => {
                 self.launch_retro(call, CEILING, agent.name.as_str());
+                // The retro's call is in flight from here.
+                self.post();
                 true
             }
             Err(why) => {

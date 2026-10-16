@@ -134,6 +134,13 @@ impl Runner {
                     Ok(criteria) => criteria,
                     Err(reason) => return Ok(self.gate_failed(reason)),
                 };
+                // `criteria` reads the issue from the forge with the runner's
+                // lock held, and a `drain` answered from the posted copy in that
+                // time sets its flag there. Checked again before the round is
+                // booked, so no reviewer call starts past the drain.
+                if self.draining() {
+                    return Ok(Begin::Idle);
+                }
                 self.round_started(&chosen, CallKind::Local)?;
                 Ok(Begin::Review(ReviewCall::Local {
                     local,
@@ -200,6 +207,13 @@ impl Runner {
             Ok(criteria) => criteria,
             Err(reason) => return Ok(self.gate_failed(reason)),
         };
+        // `criteria` reads the issue from the forge with the runner's lock held,
+        // and a `drain` answered from the posted copy in that time sets its flag
+        // there. Checked again before the round is booked, so no reviewer call
+        // starts past the drain.
+        if self.draining() {
+            return Ok(Begin::Idle);
+        }
         let diff = match calls::diff_against(&self.settings.git.checkout, &worktree, &base) {
             Ok(diff) => diff,
             Err(reason) => return Ok(self.gate_failed(reason)),
@@ -916,5 +930,7 @@ fn both_looks(first: Vec<Finding>, more: Vec<Finding>) -> Vec<Finding> {
     all
 }
 
+#[cfg(test)]
+mod draining_tests;
 #[cfg(test)]
 mod tests;

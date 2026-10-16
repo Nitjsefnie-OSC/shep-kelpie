@@ -510,19 +510,28 @@ impl Runner {
             Begin::Review(action) => Launch::Review(action),
             Begin::Label(issue) => {
                 let report = self.ask_writer(&issue)?;
+                // The issue writer's call is in flight from here, and the pass
+                // goes on holding the runner's lock.
+                self.post();
                 return Ok(report.map_or(Pass::Started, Pass::Report));
             }
             Begin::Secure(job) => {
                 self.launch_security(job);
+                self.post();
                 return Ok(Pass::Started);
             }
             Begin::Triage(job) => {
                 self.launch_triage(job);
+                self.post();
                 return Ok(Pass::Started);
             }
         };
         let issue = self.focus.expect("a call is a work item's");
         self.launch(issue, launch);
+        // The call is in flight from here, and the pass goes on with the lock
+        // held. A trigger refused it answers from this post, so `drain` never
+        // answers that nothing runs while a call has just started.
+        self.post();
         Ok(Pass::Started)
     }
 

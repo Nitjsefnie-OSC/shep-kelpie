@@ -4,6 +4,7 @@
 use std::sync::atomic::Ordering;
 
 use super::FakeForge;
+use super::held;
 use crate::ports::{Cooldown, ForgeError, Timestamp};
 
 /// What every call fails with while the forge is down, and when its rate
@@ -56,7 +57,7 @@ impl FakeForge {
     /// runner's lock.
     pub(super) fn ask(&self) -> Result<(), ForgeError> {
         self.asked.fetch_add(1, Ordering::SeqCst);
-        self.wait_if_held();
+        self.wait_if_held(held::At::Any);
         if let Some(cooldown) = *self.limited.lock().unwrap() {
             let said = "gh: You have exceeded a secondary rate limit. (HTTP 403)";
             return Err(ForgeError::Limited {

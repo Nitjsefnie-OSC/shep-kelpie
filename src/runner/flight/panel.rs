@@ -221,6 +221,8 @@ impl Runner {
         }
         while let Some(id) = self.panel.queue_pop(self.ports.clock.now()) {
             if self.ask_experts(id) {
+                // The experts' calls are in flight from here.
+                self.post();
                 return true;
             }
         }

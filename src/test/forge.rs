@@ -419,6 +419,7 @@ impl Forge for FakeForge {
 
     fn issue(&self, _repo: &ForgeSlug, number: u64) -> Result<Issue, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::Issue);
         if self.missing.lock().unwrap().contains(&number) {
             return Err(ForgeError::Failed(format!("no issue #{number}")));
         }
@@ -787,6 +788,7 @@ impl Forge for FakeForge {
 
     fn branch_runs(&self, _repo: &ForgeSlug, branch: &str) -> Result<Vec<BranchRun>, ForgeError> {
         self.ask()?;
+        self.wait_if_held(held::At::MainRuns);
         self.branch_runs_of(branch).map_err(ForgeError::Failed)
     }
 

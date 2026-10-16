@@ -135,6 +135,8 @@ impl Runner {
         }
         self.flights.proving.open = Some((pull_request, head.to_owned()));
         self.flights.proving.launched = true;
+        // The proof's run is in flight from here.
+        self.post();
         true
     }
 

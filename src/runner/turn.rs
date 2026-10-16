@@ -112,8 +112,10 @@ impl Runner {
         self.looks.pass_began(self.forge_ledger.writes());
         // What follows asks the forge with the runner's lock held.
         self.post();
-        let begin = self.step_rotation(start_over);
+        // Read `main`'s workflows before any step is chosen, so no forge read
+        // falls between a step's drain check and the call it starts.
         self.read_main_ci();
+        let begin = self.step_rotation(start_over);
         self.snapshot.end_pass();
         begin
     }

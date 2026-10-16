@@ -341,7 +341,12 @@ impl Runner {
                 .push(format!("cannot wake the project manager: {why}"));
             self.give_up();
         }
-        launched.is_ok()
+        let woke = launched.is_ok();
+        // The project manager's call is in flight from here.
+        if woke {
+            self.post();
+        }
+        woke
     }
 
     fn give_up(&mut self) {

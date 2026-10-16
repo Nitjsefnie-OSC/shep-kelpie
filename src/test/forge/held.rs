@@ -6,11 +6,23 @@ use std::time::Duration;
 
 use super::FakeForge;
 
+// Which forge call a test waits on
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum At {
+    // The next call the runner makes, whichever it is
+    Any,
+    // The read of `main`'s workflow runs, which a pass makes for every work item
+    MainRuns,
+    // The read of one issue, which a review round makes for its criteria
+    Issue,
+}
+
 // Who reached the forge and who lets it go
 #[derive(Debug)]
 pub(super) struct Gate {
     entered: Sender<()>,
     release: Receiver<()>,
+    at: At,
 }
 
 /// A forge that holds its next call open until this is dropped
@@ -36,11 +48,27 @@ impl FakeForge {
     /// Holds the forge's next call open, so a test can ask a trigger of a
     /// runner whose pass is in the middle of it
     pub(crate) fn hold_next_call(&self) -> HeldCall {
+        self.hold_open(At::Any)
+    }
+
+    /// Holds the next read of `main`'s workflow runs open, and lets every
+    /// other call through
+    pub(crate) fn hold_next_main_runs_read(&self) -> HeldCall {
+        self.hold_open(At::MainRuns)
+    }
+
+    /// Holds the next read of one issue open, and lets every other call through
+    pub(crate) fn hold_next_issue_read(&self) -> HeldCall {
+        self.hold_open(At::Issue)
+    }
+
+    fn hold_open(&self, at: At) -> HeldCall {
         let (entered, heard) = mpsc::channel();
         let (release, waited) = mpsc::channel();
         *self.hold.lock().unwrap_or_else(PoisonError::into_inner) = Some(Gate {
             entered,
             release: waited,
+            at,
         });
         HeldCall {
             entered: heard,
@@ -49,15 +77,16 @@ impl FakeForge {
     }
 
     // Holds one call here until the test drops the [`HeldCall`] it took.
-    pub(super) fn wait_if_held(&self) {
-        let gate = self
-            .hold
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        if let Some(gate) = gate {
-            let _ = gate.entered.send(());
-            let _ = gate.release.recv();
-        }
+    // A gate named for one call waits for that call and lets the rest through.
+    pub(super) fn wait_if_held(&self, at: At) {
+        let gate = {
+            let mut hold = self.hold.lock().unwrap_or_else(PoisonError::into_inner);
+            match hold.as_ref() {
+                Some(gate) if gate.at == At::Any || gate.at == at => hold.take().expect("checked"),
+                _ => return,
+            }
+        };
+        let _ = gate.entered.send(());
+        let _ = gate.release.recv();
     }
 }
