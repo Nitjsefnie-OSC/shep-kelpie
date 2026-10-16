@@ -47,6 +47,25 @@ struct Scene {
     checkouts: [PathBuf; 2],
 }
 
+// kelpie's own section naming one gateway, whose key's variable this shell does not hold
+const GATEWAY: &str = "[gateways.paddock]\nurl = \"http://gpu-box:8700\"\n\
+                        key_env = \"KELPIE_TEST_KEY_NEVER_SET\"\n";
+
+// An implementer that runs on the gateway `paddock`, and one on `elsewhere`
+const ON_GATEWAY: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\n\
+                          effort: medium\ngateway: paddock\ncontext: 65536\n---\n";
+const ON_ELSEWHERE: &str = "---\nrole: implementer\nharness: pi\nmodel: qwen3.8:27b\n\
+                            effort: medium\ngateway: elsewhere\ncontext: 65536\n---\n";
+
+// Writes `files` into the agent folder every project's settings are checked against.
+fn write_agents(shepherd: &FakeShepherd, files: &[(&str, &str)]) {
+    let folder = shepherd.scratch("home").join("kelpie").join("agents");
+    std::fs::create_dir_all(&folder).unwrap();
+    for (name, text) in files {
+        std::fs::write(folder.join(name), text).unwrap();
+    }
+}
+
 // A git checkout under `shepherd`'s scratch home whose `origin` is `remote` on GitHub.
 fn checkout(shepherd: &FakeShepherd, folder: &str, remote: &str) -> PathBuf {
     let root = shepherd.scratch(folder);
@@ -63,13 +82,18 @@ fn checkout(shepherd: &FakeShepherd, folder: &str, remote: &str) -> PathBuf {
 
 impl Scene {
     async fn new() -> Self {
+        Self::holding(TABLE).await
+    }
+
+    /// A flock whose `koji` and `eevee` hold `table` as their settings
+    async fn holding(table: &str) -> Self {
         let shepherd = FakeShepherd::new();
         let checkouts = [
             checkout(&shepherd, "koji-checkout", "shep-pm/koji"),
             checkout(&shepherd, "eevee-checkout", "shep-pm/eevee"),
         ];
         for (name, root) in ["koji", "eevee"].into_iter().zip(&checkouts) {
-            let text = TABLE
+            let text = table
                 .replace("CHECKOUT", &root.display().to_string())
                 .replace("REMOTE", &format!("shep-pm/{name}"));
             let mut runner = AppConfig::minimal(name, "/opt/kelpie");
@@ -82,6 +106,23 @@ impl Scene {
             shepherd,
             checkouts,
         }
+    }
+
+    /// A flock whose `koji` lists `local`, an implementer on the gateway in
+    /// kelpie's own settings, and holds `box`, an implementer on a gateway of
+    /// kelpie has none of
+    async fn keyed_gateway() -> Self {
+        let table = TABLE.replace(
+            "implementers = [\"sonnet-high\"]",
+            "implementers = [\"local\"]",
+        );
+        let scene = Self::holding(&table).await;
+        scene.shepherd.holds_section(GATEWAY);
+        write_agents(
+            &scene.shepherd,
+            &[("local.md", ON_GATEWAY), ("box.md", ON_ELSEWHERE)],
+        );
+        scene
     }
 
     async fn set(&self, key: &str, value: &str) -> Result<Vec<String>, String> {
@@ -298,4 +339,30 @@ async fn a_checkout_moved_to_one_no_other_project_runs_is_written_and_waits_for_
     );
     let said = scene.set("git.merging", "auto").await.unwrap();
     assert!(said[0].ends_with("at its next wake"), "{said:?}");
+}
+
+#[tokio::test]
+async fn a_project_on_a_keyed_gateway_needs_no_key_in_the_shell_that_runs_set() {
+    let scene = Scene::keyed_gateway().await;
+    let said = scene.set("concurrency.active_items", "2").await.unwrap();
+    assert!(said[0].contains("concurrency.active_items = 2"), "{said:?}");
+    assert_eq!(scene.table()["concurrency"]["active_items"], 2);
+}
+
+#[tokio::test]
+async fn an_agent_on_a_gateway_kelpie_has_none_of_is_refused_naming_it_and_nothing_is_written() {
+    let mut scene = Scene::keyed_gateway().await;
+    let before = scene.table();
+    let refused = scene
+        .set("agents.implementers", r#"["box"]"#)
+        .await
+        .unwrap_err();
+    assert!(refused.contains("box"), "{refused}");
+    assert!(
+        refused.contains("gateway elsewhere is not in kelpie's settings"),
+        "{refused}"
+    );
+    assert!(!refused.contains("KELPIE_TEST_KEY_NEVER_SET"), "{refused}");
+    assert_eq!(scene.shepherd.writes(), []);
+    assert_eq!(scene.table(), before);
 }

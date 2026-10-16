@@ -13,9 +13,11 @@
 use super::{OpenError, Runner, check_bots, check_coderabbit, check_local, instructions};
 use crate::agents::Agents;
 use crate::review_bot::Bot;
-use crate::settings::{Gateways, Git, ListedReviewer, RoleAgents, Settings, SettingsError};
+use crate::settings::{AgentName, Gateways, ListedReviewer, RoleAgents, Settings, SettingsError};
 use crate::skills::{RepoPlugins, Skills, default_head};
-use crate::webhook::{KelpieSettings, Webhook};
+use crate::webhook::KelpieSettings;
+
+mod changed;
 
 impl Runner {
     /// Takes `settings` and kelpie's own as the runner's, from its next step
@@ -113,7 +115,7 @@ impl Runner {
             lineup = settings.lineup(&book, &self.home)?;
         }
         let webhook = kelpie.webhook;
-        let mut changed = changed((&self.settings, &self.webhook), (&settings, &webhook));
+        let mut changed = changed::names((&self.settings, &self.webhook), (&settings, &webhook));
         let (was, now) = (&self.settings.agents, &settings.agents);
         let writer =
             (was.issue_writer != now.issue_writer) || (was.fallback_after != now.fallback_after);
@@ -249,100 +251,32 @@ pub(crate) fn check_gateways(
     agents: &RoleAgents,
     lineup: &[ListedReviewer],
 ) -> Result<(), SettingsError> {
-    let listed = agents.implementers.iter().map(|i| &i.name);
-    let reviewers = lineup.iter().map(|r| &r.name);
-    let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
-    gateways.check_listed(book, listed.chain(reviewers).chain(experts))
+    gateways.check_listed(book, listed(agents, lineup))
 }
 
-// A project's settings and the webhook.
-type Reach<'a> = (&'a Settings, &'a Option<Webhook>);
+// Whether every listed agent names a gateway kelpie's settings hold and can reach. No key
+// is read, for a shell that holds none of them.
+pub(crate) fn check_gateway_shapes(
+    gateways: &Gateways,
+    book: &Agents,
+    agents: &RoleAgents,
+    lineup: &[ListedReviewer],
+) -> Result<(), SettingsError> {
+    gateways.check_listed_without_keys(book, listed(agents, lineup))
+}
 
-// The settings that differ, by key or by table. `webhook` also changes
-// when kelpie's own settings do. Both `Settings` are taken apart without
-// `..`, so a field added to one is a compile error until this decides what
-// `reread` does with it: list it here, or leave it out with a reason.
-fn changed((old, was): Reach<'_>, (new, now): Reach<'_>) -> Vec<&'static str> {
-    let Settings {
-        git: old_git,
-        ci: old_ci,
-        concurrency: old_concurrency,
-        budget: old_budget,
-        agents: _, // `reread` compares the agents it resolves, with the files
-        pacing: old_pacing,
-        worker: old_worker,
-        researcher: old_researcher,
-        rulings: old_rulings,
-        contributions: _, // waits for the next start, when the runner checks it
-        dependencies: _,  // waits for the next start, like `contributions`
-        triage: _,        // waits for the next start, like `contributions`
-        hooks: _,         // waits for the next start, so `reread` keeps the old
-        skills: old_skills,
-        repo_setup: old_repo_setup,
-        code_graph: old_code_graph,
-        browser: old_browser,
-        local_rounds: old_local_rounds,
-        builds: old_builds,
-        e2e: _, // waits for the next start, when the runner writes it for the dog
-    } = old;
-    let Settings {
-        git: new_git,
-        ci: new_ci,
-        concurrency: new_concurrency,
-        budget: new_budget,
-        agents: _,
-        pacing: new_pacing,
-        worker: new_worker,
-        researcher: new_researcher,
-        rulings: new_rulings,
-        contributions: _,
-        dependencies: _,
-        triage: _,
-        hooks: _,
-        skills: new_skills,
-        repo_setup: new_repo_setup,
-        code_graph: new_code_graph,
-        browser: new_browser,
-        local_rounds: new_local_rounds,
-        builds: new_builds,
-        e2e: _,
-    } = new;
-    let Git {
-        checkout: _, // waits for the next start
-        remote: _,   // waits for the next start
-        merging: old_merging,
-        issues: old_issues,
-        maintainer: old_maintainer,
-    } = old_git;
-    let Git {
-        checkout: _,
-        remote: _,
-        merging: new_merging,
-        issues: new_issues,
-        maintainer: new_maintainer,
-    } = new_git;
-    [
-        ("git.merging", old_merging != new_merging),
-        ("git.issues", old_issues != new_issues),
-        ("git.maintainer", old_maintainer != new_maintainer),
-        ("ci", old_ci != new_ci),
-        ("concurrency", old_concurrency != new_concurrency),
-        ("budget", old_budget != new_budget),
-        ("pacing", old_pacing != new_pacing),
-        ("worker", old_worker != new_worker),
-        ("skills", old_skills != new_skills),
-        ("repo_setup", old_repo_setup != new_repo_setup),
-        ("code_graph", old_code_graph != new_code_graph),
-        ("browser", old_browser != new_browser),
-        ("local_rounds", old_local_rounds != new_local_rounds),
-        ("builds", old_builds != new_builds),
-        ("researcher", old_researcher != new_researcher),
-        ("rulings", old_rulings != new_rulings),
-        ("webhook", was != now),
-    ]
-    .into_iter()
-    .filter_map(|(name, differs)| differs.then_some(name))
-    .collect()
+// Every agent a project runs a call on: its implementers, its reviewers, its advisor
+// and its researcher.
+fn listed<'a>(
+    agents: &'a RoleAgents,
+    lineup: &'a [ListedReviewer],
+) -> impl Iterator<Item = &'a AgentName> + 'a {
+    let implementers = agents.implementers.iter().map(|i| &i.name);
+    let reviewers = lineup.iter().map(|r| &r.name);
+    let experts = agents.advisor.iter().chain(agents.researcher.iter());
+    implementers
+        .chain(reviewers)
+        .chain(experts.map(|e| &e.name))
 }
 
 #[cfg(test)]

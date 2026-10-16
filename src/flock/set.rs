@@ -15,7 +15,7 @@ use shep_client::shep_core::protocol::request::Response;
 use super::send;
 use super::share::share_none;
 use crate::agents::Agents;
-use crate::runner::{ProjectName, ProjectPaths, check_gateways};
+use crate::runner::{ProjectName, ProjectPaths, check_gateway_shapes};
 use crate::settings::{Settings, SettingsError, source};
 use crate::shepherd::{self, Connection, DOG, Tables};
 
@@ -59,7 +59,9 @@ pub async fn get(
 /// table, or the changed table is settings the runner would refuse to start
 /// or reread on: the message is its reason, and nothing is written. Moving
 /// `git.checkout` or `git.remote` onto a checkout or repo another project
-/// runs is refused as `add` refuses it.
+/// runs is refused as `add` refuses it. A gateway's key is no such setting:
+/// this shell does not hold it, and the runner that does checks it at its
+/// start and reread.
 pub async fn set(
     client: &dyn Connection,
     name: &ProjectName,
@@ -118,7 +120,7 @@ fn waits_for_start(key: &str) -> bool {
 
 // The settings in `tables`, when they pass the checks a runner makes of them as it
 // starts and rereads that need only the files: its agents, reviewers, rulings,
-// gateways, skills and instructions.
+// gateway shapes, skills and instructions.
 fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Settings, String> {
     let paths = place.paths;
     let invalid = |e: SettingsError| e.to_string();
@@ -131,7 +133,7 @@ fn runnable(tables: &Tables, name: &ProjectName, place: Place<'_>) -> Result<Set
         let setting = "rulings.pm_alone";
         return Err(invalid(SettingsError::Invalid { setting, reason }));
     }
-    check_gateways(&loaded.kelpie.gateways(), &book, &agents, &lineup).map_err(invalid)?;
+    check_gateway_shapes(&loaded.kelpie.gateways(), &book, &agents, &lineup).map_err(invalid)?;
     crate::skills::check(&settings.skills, &paths.skills).map_err(invalid)?;
     crate::runner::check_instructions(&settings).map_err(invalid)?;
     Ok(settings)
