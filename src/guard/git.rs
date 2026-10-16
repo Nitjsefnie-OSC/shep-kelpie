@@ -359,9 +359,9 @@ impl Refspec {
 
 // What a worker is told instead of a fetch of the shared clone
 fn fetch_answered() -> String {
-    "kelpie fetches `origin/main` in this repo and merges `main` into your branch \
-     itself, and the clone's other refs are not yours to write, so a fetch here \
-     fails. To take main into your branch, run `git merge origin/main`."
+    "kelpie fetches `origin/main` in this repo before each of your turns, and the \
+     clone's other refs are not yours to write, so a fetch here fails. To take main \
+     into your branch, run `git merge origin/main`."
         .to_owned()
 }
 

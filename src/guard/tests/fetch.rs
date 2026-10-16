@@ -37,6 +37,9 @@ fn a_fetch_in_the_work_item_s_repo_is_answered_with_what_kelpie_does() {
         let why = refusal(tree.bash(command));
         assert!(why.contains(FETCHED), "{command}: {why}");
         assert!(why.contains(MERGE), "{command}: {why}");
+        // Kelpie fetches main. Whether it lands in the branch is the worker's
+        // merge or kelpie's catch-up, so the answer claims no merge of its own.
+        assert!(!why.contains("merges"), "{command}: {why}");
     }
 }
 
