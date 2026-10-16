@@ -18,6 +18,14 @@ pub struct TriageState {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<Triaged>,
+    /// The triager calls made on issues that have no record to carry them yet,
+    /// oldest issue first, the last [`TRIAGED_KEPT`] issues' worth. A first pass
+    /// has no record until its comment is recorded, so its calls are kept here:
+    /// a restart does not forget the places they spent.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unrecorded: Vec<UnrecordedCall>,
 }
 
 /// How many finished records are kept, the oldest going first. An issue whose
@@ -29,38 +37,143 @@ pub struct TriageState {
 /// reopened one out of the due list.
 pub const TRIAGED_KEPT: usize = 200;
 
+/// How many of one issue's triage call times are kept, which is more than the
+/// most one issue can make in a day: its first pass, its author's answers, a
+/// questions comment or a local prompt a restart lost, and a body the author
+/// rewrote.
+pub const TRIAGE_CALLS_KEPT: usize = 8;
+
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
-    /// one that closed an issue as a duplicate
+    /// one that closed an issue as a duplicate, and the records that hold a call
+    /// ahead of the ones that hold none
+    ///
+    /// The daily caps count the calls the records hold, so a record that holds
+    /// one is all a cap can see. A limit's hold makes a record that holds none,
+    /// and a burst of them is what would otherwise push the counted records out
+    /// and free the cap partway through the burst it exists for. The calls kept
+    /// for an issue with no record are bounded the same way.
     pub fn prune(&mut self) {
-        let kept = |t: &Triaged| {
+        let finished = |t: &Triaged| {
             matches!(t.step, TriageStep::Done | TriageStep::Ready) && t.duplicate_of.is_none()
         };
         let mut extra = self
             .issues
             .iter()
-            .filter(|t| kept(t))
+            .filter(|t| finished(t))
             .count()
             .saturating_sub(TRIAGED_KEPT);
         self.issues.retain(|t| {
-            let drop = extra > 0 && kept(t);
+            let drop = extra > 0 && finished(t) && t.calls.is_empty();
             extra -= usize::from(drop);
             !drop
         });
+        self.issues.retain(|t| {
+            let drop = extra > 0 && finished(t);
+            extra -= usize::from(drop);
+            !drop
+        });
+        if self.unrecorded.len() > TRIAGED_KEPT {
+            self.unrecorded
+                .drain(..self.unrecorded.len() - TRIAGED_KEPT);
+        }
+    }
+
+    /// Records that a triager call on `issue` ended at `at`, for an issue that
+    /// has no record to carry it yet
+    pub fn record_call(&mut self, issue: u64, author: &str, at: Timestamp) {
+        match self.unrecorded.iter_mut().find(|c| c.issue == issue) {
+            Some(made) => {
+                made.calls.push(at);
+                if made.calls.len() > TRIAGE_CALLS_KEPT {
+                    made.calls.remove(0);
+                }
+                if made.author.is_empty() {
+                    made.author = author.to_owned();
+                }
+            }
+            None => self.unrecorded.push(UnrecordedCall {
+                issue,
+                author: author.to_owned(),
+                calls: vec![at],
+            }),
+        }
+    }
+
+    /// Takes the calls kept for `issue`, with their author, for a record that
+    /// carries them from here on
+    pub fn take_calls(&mut self, issue: u64) -> (String, Vec<Timestamp>) {
+        match self.unrecorded.iter().position(|c| c.issue == issue) {
+            Some(at) => {
+                let made = self.unrecorded.remove(at);
+                (made.author, made.calls)
+            }
+            None => (String::new(), Vec::new()),
+        }
     }
 }
 
-/// An issue whose triage comment kelpie has posted
+/// A triager call that ran on an issue with no record to carry it: the first
+/// pass has none until its comment is recorded, and a call whose reply could not
+/// be read never makes one at all. Its time is kept here so the caps see it
+/// across a restart.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnrecordedCall {
+    /// The issue it ran on
+    pub issue: u64,
+    /// The login of whoever opened it, which the per-author cap counts by,
+    /// ignoring case. Empty when the listing gave none.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    /// When each call on that issue ended, oldest first, the last
+    /// [`TRIAGE_CALLS_KEPT`] of them
+    pub calls: Vec<Timestamp>,
+}
+
+/// An issue whose triage comment kelpie has posted, or which a triage limit
+/// held with no call at all
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Triaged {
     /// The issue's number
     pub issue: u64,
-    /// The id of the comment kelpie posted on it
+    /// The id of the comment kelpie posted on it, 0 when no comment was
+    /// posted, which is what a limit's hold leaves
     pub comment: u64,
     /// How far the issue has got
     pub step: TriageStep,
+    /// When the record was made: the moment its triage comment was recorded,
+    /// or the moment a limit held the issue. A record saved before it existed
+    /// reads as 0.
+    #[serde(default = "no_time")]
+    pub at: Timestamp,
+    /// The login of whoever opened the issue, which the per-author cap counts
+    /// by, ignoring case. Empty for a deleted account, and for a record saved
+    /// before the cap existed.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    /// The limit that held this issue, which kelpie labelled `needs-triage`
+    /// with no call and no comment
+    ///
+    /// Left out unless a limit held the issue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<TriageHeld>,
+    /// When each of this issue's triage calls ran, oldest first, the last
+    /// [`TRIAGE_CALLS_KEPT`] of them. The caps count calls, so an issue whose
+    /// author's round made several in a day spends that many places of them.
+    /// A record with none made no call: a limit held it, or it was saved
+    /// before calls were counted.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<Timestamp>,
     /// The labels the research asked for that are not all on yet, so that a
     /// restart at `commented` puts them on
     ///
@@ -109,6 +222,17 @@ pub struct Triaged {
     pub local: Option<TriageLocal>,
 }
 
+impl Triaged {
+    /// Records that a triage call ran at `at`, keeping the times oldest first
+    /// and the last [`TRIAGE_CALLS_KEPT`] of them
+    pub fn add_call(&mut self, at: Timestamp) {
+        self.calls.push(at);
+        if self.calls.len() > TRIAGE_CALLS_KEPT {
+            self.calls.remove(0);
+        }
+    }
+}
+
 /// The ask kelpie waits an author's answer to
 // wire format: changing this is a breaking change to the state file
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +252,12 @@ pub struct TriageAsked {
 
 fn asked_once() -> u32 {
     1
+}
+
+// A record saved before `at` existed has no time, which is past any cap's
+// 24 hours, so no cap counts it.
+fn no_time() -> Timestamp {
+    Timestamp(0)
 }
 
 fn is_once(asks: &u32) -> bool {
@@ -197,4 +327,29 @@ pub enum TriageStep {
     Done,
     /// `ready-for-agent` is on
     Ready,
+}
+
+/// Which triage limit held an issue, so it got `needs-triage` with no call and
+/// no comment. The hold is final for that issue: the pass does not come back to
+/// it, and `shep kelpie triage` can still be asked of it.
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TriageHeld {
+    /// The author already had `triage.per_author_per_day` issues triaged in
+    /// the 24 hours before it
+    AuthorCap,
+    /// The author's account is younger than `triage.min_account_days` and the
+    /// forge counts them as having no history in the repo
+    NewAccount,
+}
+
+impl TriageHeld {
+    /// What `status` says of the issue's limit
+    pub fn said(&self) -> &'static str {
+        match self {
+            Self::AuthorCap => "its author already had the day's triage calls",
+            Self::NewAccount => "its author's account is new and has no history in the repo",
+        }
+    }
 }

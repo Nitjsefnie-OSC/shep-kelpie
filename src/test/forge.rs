@@ -73,6 +73,12 @@ pub(crate) struct FakeForge {
     skipped: Arc<Mutex<Vec<u64>>>,
     merges: Arc<Mutex<Vec<(u64, String)>>>,
     issues: Arc<Mutex<Vec<OpenIssue>>>,
+    // Each account's age, by lowercase login. One no test names is old.
+    accounts: Arc<Mutex<HashMap<String, Timestamp>>>,
+    // Whether reading an account's age fails
+    accounts_down: Arc<AtomicBool>,
+    // How many times each account's age was asked for, by lowercase login
+    account_reads: Arc<Mutex<HashMap<String, usize>>>,
     created: Arc<Mutex<Vec<CreatedIssue>>>,
     // The failed CI runs: what their logs say, and the reruns asked of them
     ci: Arc<Mutex<handed::CiRuns>>,
@@ -127,6 +133,9 @@ impl FakeForge {
         Self {
             visibility: Arc::new(Mutex::new(Visibility::Public)),
             visibilities: Arc::default(),
+            accounts: Arc::default(),
+            accounts_down: Arc::default(),
+            account_reads: Arc::default(),
             missing: Arc::default(),
             unread: Arc::default(),
             labels: Arc::default(),
@@ -532,6 +541,24 @@ impl Forge for FakeForge {
             Some(error) => Err(error.clone()),
             None => Ok(VIEWER.to_owned()),
         }
+    }
+
+    fn account_created(&self, login: &str) -> Result<Timestamp, ForgeError> {
+        self.ask()?;
+        let key = login.to_lowercase();
+        let mut reads = self.account_reads.lock().unwrap();
+        *reads.entry(key.clone()).or_default() += 1;
+        drop(reads);
+        if self.accounts_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed("the account is unreadable".into()));
+        }
+        Ok(self
+            .accounts
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or(Timestamp(0)))
     }
 
     fn talk(&self, _repo: &ForgeSlug, number: u64) -> Result<Talk, ForgeError> {

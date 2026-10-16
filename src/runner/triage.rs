@@ -20,7 +20,7 @@ use super::Runner;
 use super::report::Begin;
 use super::review::calls::build_call;
 use crate::board::TRIAGE;
-use crate::ports::{AgentCall, OpenIssue, Role, Timestamp, Tools};
+use crate::ports::{AgentCall, AuthorAssociation, OpenIssue, Role, Timestamp, Tools};
 use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use research::{Listed, ListedPull};
@@ -31,6 +31,7 @@ pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
 pub(super) mod heard;
+pub(super) mod limits;
 pub(super) mod local;
 pub(super) mod ready;
 pub(super) mod research;
@@ -56,8 +57,27 @@ pub struct DueStatus {
     pub title: String,
     /// The login of whoever opened it, empty when their account is gone
     pub author: String,
+    /// How the forge counts whoever opened it to the repo, which is what the
+    /// new-account limit reads, or none when the listing does not say
+    pub author_association: Option<AuthorAssociation>,
     /// When it was opened
     pub created: Timestamp,
+}
+
+/// What the daily triage cap says, as `status` shows it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DailyStatus {
+    /// The triage calls the records place in the last 24 hours
+    pub used: u32,
+    /// `triage.per_day`
+    pub cap: u32,
+    /// When the next place opens, while the day's are all taken
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opens: Option<Timestamp>,
+    /// How long from now that is, in seconds, which is the same fact for the
+    /// plain block, and has no clock of its own to work it out from
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wait: Option<u64>,
 }
 
 /// What `status` says of triage
@@ -71,6 +91,10 @@ pub struct TriageStatus<'a> {
     /// The issues kelpie has commented on, and how far each has got
     #[serde(skip_serializing_if = "<[Triaged]>::is_empty")]
     pub issues: &'a [Triaged],
+    /// The day's cap and how many of its places are taken, while triage is on
+    /// and the cap is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily: Option<DailyStatus>,
 }
 
 /// Sets `state.triage` for a start under `settings`: stamped `now` when
@@ -83,6 +107,7 @@ pub(super) fn settle_since(state: &mut ProjectState, settings: &Settings, now: T
             state.triage = Some(TriageState {
                 since: now,
                 issues: Vec::new(),
+                unrecorded: Vec::new(),
             })
         }
         _ => return false,
@@ -108,6 +133,11 @@ impl Runner {
         let Ok(open) = self.ports.forge.open_issues(&self.remote) else {
             return Ok(());
         };
+        // A record that names no author, which is what a file saved before the
+        // caps existed leaves, gets it from the listing: the author is what the
+        // author's cap counts by and what tells the maintainer's own issues from
+        // everyone else's.
+        self.note_triage_authors(&open)?;
         // A wait on the author ends when the forge says the issue is closed or
         // carries a triage label the maintainer put on by hand, before anything
         // the record owes is written.
@@ -135,21 +165,41 @@ impl Runner {
                 issue: issue.number,
                 title: issue.title.clone(),
                 author: issue.author.clone(),
+                author_association: issue.author_association,
                 created: issue.created,
             })
             .collect();
         Ok(())
     }
 
+    // What the daily cap says, or none while triage is off or the cap is
+    fn triage_daily(&self) -> Option<DailyStatus> {
+        let cap = self.settings.triage.per_day;
+        if self.state.triage.is_none() || cap == 0 {
+            return None;
+        }
+        let now = self.ports.clock.now();
+        let (used, opens) = self.triage_day(now);
+        let wait = (opens).map(|at| at.0.saturating_sub(now.0));
+        Some(DailyStatus {
+            used,
+            cap,
+            opens,
+            wait,
+        })
+    }
+
     // What `status` says of triage, or none while there is nothing to say
     pub(super) fn triage_status(&self) -> Option<TriageStatus<'_>> {
         let issues = self.state.triage.as_ref().map_or(&[][..], |t| &t.issues);
         let running = self.flights.triaging();
+        let daily = self.triage_daily();
         let silent = self.triage_due.is_empty() && issues.is_empty() && running.is_none();
         (!silent).then_some(TriageStatus {
             due: &self.triage_due,
             running,
             issues,
+            daily,
         })
     }
 
@@ -209,7 +259,28 @@ impl Runner {
                 self.retry_triage(issue)?;
                 continue;
             }
-            if let Some(job) = self.triage_job(issue, Purpose::First) {
+            // The limits, read from the records and the listing, before the call
+            // is made.
+            let waiting = (!asked)
+                .then(|| self.triage_due.iter().find(|d| d.issue == issue).cloned())
+                .flatten();
+            let limited = match &waiting {
+                Some(due) => self.triage_limited(&due.author, asked),
+                None => false,
+            };
+            if let Some(due) = &waiting
+                && limited
+            {
+                match self.triage_held(due) {
+                    Some(limits::Held::Day) => continue,
+                    Some(limits::Held::Final(limit)) => {
+                        self.triage_hold(issue, &due.author, limit)?;
+                        continue;
+                    }
+                    None => {}
+                }
+            }
+            if let Some(job) = self.triage_job(issue, Purpose::First, limited) {
                 return Ok(Some(Begin::Triage(job)));
             }
         }
@@ -251,7 +322,7 @@ impl Runner {
 
     // Everything the research on `issue` needs, or `None` when it cannot be
     // had: the issue is no longer open, or what it needs cannot be read or built.
-    fn triage_job(&mut self, issue: u64, purpose: Purpose) -> Option<Job> {
+    fn triage_job(&mut self, issue: u64, purpose: Purpose, limited: bool) -> Option<Job> {
         let open = match self.ports.forge.open_issues(&self.remote) {
             Ok(open) => open,
             Err(e) => {
@@ -269,6 +340,11 @@ impl Runner {
         let tries = self.triage_tries.entry(issue).or_default();
         if tries.seen.is_none() {
             tries.seen = Some(this.labels.clone());
+        }
+        // The author's login comes from the same listing that made the call, so
+        // a call that never posted is still counted against their cap.
+        if tries.author.is_none() {
+            tries.author = Some(this.author.clone());
         }
         let listed: Vec<Listed> = (open.iter())
             .filter(|i| i.number != issue)
@@ -314,15 +390,19 @@ impl Runner {
         if matches!(purpose, Purpose::Answers) && settling.is_none() {
             return None;
         }
-        let prompt = research::prompt(
-            issue,
-            &this.title,
-            &this.body,
-            &listed,
-            &listed_pulls,
-            most,
-            settling.as_ref(),
-        );
+        let subject = research::Subject {
+            number: issue,
+            title: &this.title,
+            body: &this.body,
+            // The body limit is one of the four, so it reaches no issue the
+            // limits do not.
+            max_body_kb: if limited {
+                self.settings.triage.max_body_kb
+            } else {
+                0
+            },
+        };
+        let prompt = research::prompt(&subject, &listed, &listed_pulls, most, settling.as_ref());
         let view = self.paths.triage(issue);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
@@ -432,6 +512,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod limits_tests;
 #[cfg(test)]
 mod local_tests;
 #[cfg(test)]

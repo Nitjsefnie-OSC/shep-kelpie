@@ -163,7 +163,7 @@ pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
 pub use representative::{Post, RepresentError};
-pub(crate) use reread::check_gateways;
+pub(crate) use reread::{check_gateway_shapes, check_gateways};
 use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Action, Answer, RuleError};
@@ -312,6 +312,10 @@ pub struct Runner {
     triage_queue: Vec<u64>,
     // What keeps each issue's triage from finishing, kept in memory only
     triage_tries: BTreeMap<u64, triage::comment::Tries>,
+    // When each triage author's account was created, read once per author per
+    // start, keyed by the login lowered. A `None` is an age the forge could not
+    // say, kept so a poll does not ask again
+    triage_accounts: BTreeMap<String, Option<Timestamp>>,
     // Each adopted pull request that keeps failing to start, kept in memory only
     adopt_failing: BTreeMap<u64, adopt::Failing>,
     // The forge's refusals in a row to close a done parent, kept in memory only
@@ -480,11 +484,8 @@ impl Runner {
         told.extend(notes);
         let agents = settings.role_agents(&book)?;
         let lineup = settings.lineup(&book, home)?;
-        let listed = agents.implementers.iter().map(|i| &i.name);
-        let reviewers = lineup.iter().map(|r| &r.name);
-        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
         let gateways = kelpie_settings.gateways();
-        gateways.check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        check_gateways(&gateways, &book, &agents, &lineup)?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
@@ -619,6 +620,7 @@ impl Runner {
             triage_due: Vec::new(),
             triage_queue: Vec::new(),
             triage_tries: BTreeMap::new(),
+            triage_accounts: BTreeMap::new(),
             adopt_failing: BTreeMap::new(),
             close_refused: parent::Refused::new(),
             unbuilt: parent::Unbuilt::new(),
