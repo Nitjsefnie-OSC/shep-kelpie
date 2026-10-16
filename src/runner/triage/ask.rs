@@ -20,10 +20,12 @@
 //! [`Runner::triage_ask_again`] with the plain ask that follows a reply kelpie could
 //! not read as either word; it is cleared by [`Runner::set_questions`] when
 //! the questions go up, by [`Runner::triage_none`] when the wait ends as
-//! `none`, and by [`Runner::triage_wait_stood`] when a triage label the
-//! maintainer put on by hand or a closed issue ends it. `questions` is set by
-//! [`Runner::set_questions`] and cleared by [`Runner::triage_none`] and
-//! [`Runner::triage_wait_stood`].
+//! `none`, by [`Runner::triage_wait_stood`] when a triage label the maintainer
+//! put on by hand or a closed issue ends it, and by [`Runner::record_triage`]
+//! when a pass that asks nothing records its comment. `questions` is set by
+//! [`Runner::set_questions`] and cleared by [`Runner::triage_none`],
+//! [`Runner::triage_wait_stood`] and [`Runner::record_triage`], whose record
+//! carries no questions once the answers round's comment is up.
 
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
@@ -141,6 +143,13 @@ impl Runner {
     pub(super) fn settle_triage_waits(&mut self, open: &[OpenIssue]) -> Result<(), StateError> {
         for record in self.triage_waiting() {
             let issue = record.issue;
+            // A call on the issue is in flight. Ending its wait under the call
+            // would let the call land on a record already saved finished and put
+            // a comment and labels on an issue that is closed or already labelled
+            // by hand. The next poll settles it once the call has landed.
+            if self.flights.triaging() == Some(issue) {
+                continue;
+            }
             let Some(this) = open.iter().find(|i| i.number == issue) else {
                 self.triage_wait_stood(
                     issue,
@@ -532,15 +541,25 @@ impl Runner {
             }
         };
         // A questions comment that cannot be read is stood for by the questions
-        // the pass still holds.
-        let asked = round.or_else(|| {
+        // the pass still holds. With neither, there is nothing to put beside the
+        // issue, and no call this poll.
+        let asked = match round.or_else(|| {
             let open = self
                 .triage_tries
                 .get(&issue)
                 .map(|t| t.open.clone())
                 .unwrap_or_default();
             (!open.is_empty()).then(|| questions_block(&open))
-        })?;
+        }) {
+            Some(asked) => asked,
+            None => {
+                self.notes.push(format!(
+                    "triage #{issue}: its questions comment is gone and its questions were lost, \
+                     so its answers are not read and the second pass waits for the next poll"
+                ));
+                return None;
+            }
+        };
         Some((asked, answers))
     }
 

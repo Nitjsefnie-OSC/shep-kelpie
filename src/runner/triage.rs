@@ -298,11 +298,17 @@ impl Runner {
         };
         let most = usize::from(self.settings.triage.max_questions.get());
         // The second pass reads the questions it asked and the author's answers
-        // to them, each fenced like everything else that comes from outside.
+        // to them, each fenced like everything else that comes from outside. It
+        // is not made without them: a triager shown neither the questions nor
+        // the answers answers from the repo alone, and its `body` would be
+        // written into the issue as if it came from the author.
         let settling = match purpose {
             Purpose::Answers => self.answers_round(issue),
             Purpose::First | Purpose::Questions => None,
         };
+        if matches!(purpose, Purpose::Answers) && settling.is_none() {
+            return None;
+        }
         let prompt = research::prompt(
             issue,
             &this.title,

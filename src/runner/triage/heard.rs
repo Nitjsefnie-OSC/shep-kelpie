@@ -16,7 +16,9 @@
 //! `github` asks for the questions, `none` ends the wait as `none`, and a
 //! reply that is neither gets one plain ask again ([`Runner::ask_again`]); a
 //! second such reply counts as `none`. Silence `triage.wait_days` after the
-//! ask, or after the questions, ends the wait the same way `none` does.
+//! ask, or after the questions, ends the wait the same way `none` does. An
+//! issue kelpie has given up on after five failures is not heard from either,
+//! as no other part of triage tries it again until kelpie restarts.
 
 use super::super::Runner;
 use super::super::representative::IssuePost;
@@ -48,8 +50,11 @@ impl Runner {
     ) -> Result<(), StateError> {
         for record in self.triage_waiting() {
             // A call on the issue is in flight: its answer is heard as news,
-            // and the wait is not read again under it.
-            if self.flights.triaging() == Some(record.issue) {
+            // and the wait is not read again under it. An issue kelpie has given
+            // up on is not read either, as no other part of triage tries it
+            // again until kelpie restarts: hearing it would post its ask or its
+            // questions over and over.
+            if self.flights.triaging() == Some(record.issue) || self.triage_given_up(record.issue) {
                 continue;
             }
             let Some(author) = self
