@@ -5,11 +5,16 @@
 //! the author's cap and the account's age end it at `needs-triage` with no call
 //! and no comment; the body limit cuts what the call is given. The maintainer's
 //! own issues and one `shep kelpie triage` asked for skip all four.
+//!
+//! The caps count the calls the records save, so an author's round spends places
+//! beside the first pass's call, and a round call past a cap waits for the next
+//! free place instead of ending the issue.
 
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
+use super::ask_tests::{A_WORDS, Q_WORDS, asked as one_question, filed, read, settled, wrote};
 use super::comment::MARKER;
 use super::limits::DAY;
 use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
@@ -31,7 +36,7 @@ fn limits_on(lines: &str) -> (Rig, Mutex<Runner>) {
 }
 
 // Records saved to the state, as triages that already happened leave them: one
-// per `(author, when it was made)`, numbered from 11, none held by a limit.
+// per `(author, when its call ran)`, numbered from 11, none held by a limit.
 // The runner must be closed first, as a restart is.
 fn seeded(rig: &Rig, records: &[(&str, u64)]) {
     let store = StateStore::new(rig.paths().state);
@@ -46,6 +51,7 @@ fn seeded(rig: &Rig, records: &[(&str, u64)]) {
                 "step": "done",
                 "at": at,
                 "author": author,
+                "calls": [at],
             })
         })
         .collect();
@@ -76,6 +82,31 @@ fn fresh(rig: &Rig, number: u64, author: &str, after: u64) -> OpenIssue {
     let mut fresh = issue(rig, number, author, after);
     fresh.author_association = Some(AuthorAssociation::None);
     fresh
+}
+
+// The author's round on issue 30, driven as the ask tests drive it: their word
+// on the ask, the questions comment, and their answers, with the second
+// triager call scripted and not yet run.
+fn answered(rig: &Rig, runner: &Mutex<Runner>) {
+    wrote(rig, "newcomer", "github");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("github"), Scripted::Say(Q_WORDS)],
+    );
+    rig.next_look();
+    assert_eq!(step(runner).unwrap(), None, "the questions comment");
+    wrote(rig, "newcomer", "Q1: Linux, on start.");
+    rig.claude.script_for(Role::Triager, [reply(settled())]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(A_WORDS)]);
+}
+
+// How many comments the App put on issue 30
+fn posted(rig: &Rig) -> Vec<u64> {
+    (rig.github.comments())
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect()
 }
 
 // The issues kelpie put `label` on, in the order it did
@@ -233,7 +264,8 @@ fn a_new_account_that_has_contributed_before_is_triaged() {
     assert_eq!(record(&rig, &runner, 30)["held"], "new-account");
     assert_eq!(record(&rig, &runner, 31).get("held"), None);
 
-    // The held one is triaged once the account is old enough
+    // The hold is final for the issue. Its label keeps it out of the pass even
+    // once the account is old enough, and only the verb reaches it again.
     rig.clock.advance(30 * DAY);
     rig.next_look();
     assert_eq!(step(&runner).unwrap(), None);
@@ -466,4 +498,97 @@ fn an_accounts_age_is_read_once_per_author() {
         "an unreadable age holds nothing"
     );
     assert_eq!(rig.forge.account_reads("another"), 1);
+}
+
+#[test]
+fn the_day_counts_every_call_on_one_issue_and_not_the_issue_once() {
+    let (rig, runner) = filed("pick = \"all\"", "newcomer", one_question());
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "the first pass");
+
+    answered(&rig, &runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        2,
+        "the author's answers had a call of their own"
+    );
+    let daily = triage(&rig, &runner)["daily"].clone();
+    assert_eq!(daily["used"], 2, "one issue spends more than one place");
+    assert_eq!(
+        record(&rig, &runner, 30)["calls"].as_array().unwrap().len(),
+        2,
+        "and the record keeps the moment of each"
+    );
+}
+
+#[test]
+fn an_authors_answers_call_past_the_days_cap_waits_and_is_made_once_a_place_opens() {
+    let (rig, runner) = filed("pick = \"all\"\nper_day = 1", "newcomer", one_question());
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "the first pass takes the day's one place"
+    );
+
+    answered(&rig, &runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "the answers call waits on the day's cap"
+    );
+    assert_eq!(
+        posted(&rig).len(),
+        2,
+        "the triage comment and the questions"
+    );
+    assert_eq!(triage(&rig, &runner)["daily"]["used"], 1);
+
+    // A round is read from the records at every poll, so a call that waited is
+    // made as soon as a place frees. It is not held by a limit and not labelled
+    // over: the issue is already triaged.
+    rig.clock.advance(DAY + 1);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 2, "the call is made");
+    assert_eq!(posted(&rig).len(), 3, "and its comment goes up");
+    assert_eq!(record(&rig, &runner, 30).get("held"), None);
+}
+
+#[test]
+fn an_issue_whose_author_deleted_their_account_counts_toward_no_authors_cap() {
+    let (rig, runner) = triaging("all");
+    let now = rig.clock.now().0;
+    drop(runner);
+    // Two calls on issues whose author's account is gone since: the listing
+    // gives no login for either, so they share no bucket and cannot spend each
+    // other's allowance
+    seeded(&rig, &[("", now), ("", now)]);
+    let runner = rig.open().unwrap();
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+    list(&rig, issue(&rig, 30, "", 5));
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "no author's cap reaches an issue with no author to count"
+    );
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))]
+    );
+    assert_eq!(record(&rig, &runner, 30).get("held"), None);
 }

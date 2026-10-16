@@ -345,10 +345,17 @@ impl Runner {
                 (false, false, false, true) => Purpose::LocalRead,
                 _ => continue,
             };
-            self.flights.triage_try(issue);
-            // The author's round is a pass like the first, so the limits reach it
-            // the same way, and the record is where its author comes from.
+            // The limits reach the round as they reach the first pass, and the
+            // record is where its author comes from. A round call waits for a
+            // free place instead of ending the issue, which is already triaged,
+            // and a round is read from the records at every poll. The account's
+            // age is not asked of here: a limit's hold would label over an issue
+            // in progress.
             let limited = self.triage_limited(&record.author, false);
+            if limited && self.triage_round_held(&record.author) {
+                continue;
+            }
+            self.flights.triage_try(issue);
             if let Some(job) = self.triage_job(issue, purpose, limited) {
                 return Ok(Some(Begin::Triage(job)));
             }

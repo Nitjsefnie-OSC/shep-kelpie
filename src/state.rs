@@ -27,8 +27,8 @@ pub use red::RedWorkflow;
 pub use removed::OldWorker;
 pub use ruling::Ruling;
 pub use triage::{
-    TRIAGED_KEPT, TriageAsked, TriageHeld, TriageLocal, TriageQuestions, TriageState, TriageStep,
-    Triaged,
+    TRIAGE_CALLS_KEPT, TRIAGED_KEPT, TriageAsked, TriageHeld, TriageLocal, TriageQuestions,
+    TriageState, TriageStep, Triaged,
 };
 
 use std::collections::BTreeMap;

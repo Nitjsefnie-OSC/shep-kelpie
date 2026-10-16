@@ -29,6 +29,12 @@ pub struct TriageState {
 /// reopened one out of the due list.
 pub const TRIAGED_KEPT: usize = 200;
 
+/// How many of one issue's triage call times are kept, which is more than the
+/// most one issue can make in a day: its first pass, its author's answers, a
+/// questions comment or a local prompt a restart lost, and a body the author
+/// rewrote.
+pub const TRIAGE_CALLS_KEPT: usize = 8;
+
 impl TriageState {
     /// Drops the oldest finished records past [`TRIAGED_KEPT`], keeping every
     /// one that closed an issue as a duplicate
@@ -64,9 +70,8 @@ pub struct Triaged {
     /// How far the issue has got
     pub step: TriageStep,
     /// When the record was made: the moment its triage comment was recorded,
-    /// or the moment a limit held the issue. What the daily and per-author
-    /// caps count their 24 hours from. A record saved before it existed reads
-    /// as 0, which is past any window.
+    /// or the moment a limit held the issue. A record saved before it existed
+    /// reads as 0.
     #[serde(default = "no_time")]
     pub at: Timestamp,
     /// The login of whoever opened the issue, which the per-author cap counts
@@ -82,6 +87,15 @@ pub struct Triaged {
     /// Left out unless a limit held the issue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held: Option<TriageHeld>,
+    /// When each of this issue's triage calls ran, oldest first, the last
+    /// [`TRIAGE_CALLS_KEPT`] of them. The caps count calls, so an issue whose
+    /// author's round made several in a day spends that many places of them.
+    /// A record with none made no call: a limit held it, or it was saved
+    /// before calls were counted.
+    ///
+    /// Left out while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<Timestamp>,
     /// The labels the research asked for that are not all on yet, so that a
     /// restart at `commented` puts them on
     ///
@@ -128,6 +142,17 @@ pub struct Triaged {
     /// Left out unless the triage waits on a local session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local: Option<TriageLocal>,
+}
+
+impl Triaged {
+    /// Records that a triage call ran at `at`, keeping the times oldest first
+    /// and the last [`TRIAGE_CALLS_KEPT`] of them
+    pub fn add_call(&mut self, at: Timestamp) {
+        self.calls.push(at);
+        if self.calls.len() > TRIAGE_CALLS_KEPT {
+            self.calls.remove(0);
+        }
+    }
 }
 
 /// The ask kelpie waits an author's answer to

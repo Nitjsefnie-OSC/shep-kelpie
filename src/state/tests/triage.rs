@@ -69,6 +69,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         at: Timestamp(0),
         author: String::new(),
         held: None,
+        calls: Vec::new(),
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -113,6 +114,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
             at: Timestamp(0),
             author: String::new(),
             held: None,
+            calls: Vec::new(),
             labels: Vec::new(),
             duplicate_of: None,
             ready_body: None,
@@ -130,6 +132,7 @@ fn a_file_saved_before_this_version_loads_with_no_duplicate() {
         at: Timestamp(0),
         author: String::new(),
         held: None,
+        calls: Vec::new(),
         labels: Vec::new(),
         duplicate_of: Some(41),
         ready_body: None,
@@ -162,6 +165,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         at: Timestamp(0),
         author: String::new(),
         held: None,
+        calls: Vec::new(),
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -203,6 +207,7 @@ fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
                 at: Timestamp(0),
                 author: String::new(),
                 held: None,
+                calls: Vec::new(),
                 labels: Vec::new(),
                 duplicate_of: match issue {
                     2 => Some(41),
@@ -311,6 +316,7 @@ fn a_file_saved_before_this_version_loads_with_no_ask() {
         at: Timestamp(0),
         author: String::new(),
         held: None,
+        calls: Vec::new(),
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -391,10 +397,10 @@ fn a_file_saved_before_this_version_loads_with_no_local_wait() {
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
 
-// A version 68 file has records with no `at`, no `author` and no `held`, so
-// they load with none of them: no time, so no cap counts them, and no author,
-// so no author's count reaches them. A record a limit held keeps the limit it
-// was held by, with no comment id behind it.
+// A version 68 file has records with no `at`, no `author`, no `held` and no
+// `calls`, so they load with none of them: no time, so no cap counts them, and
+// no author, so no author's count reaches them. A record a limit held keeps the
+// limit it was held by, with no comment id and no call behind it.
 #[test]
 fn a_file_saved_before_this_version_loads_with_no_limit_record() {
     let dir = tempfile::tempdir().unwrap();
@@ -412,6 +418,7 @@ fn a_file_saved_before_this_version_loads_with_no_limit_record() {
     assert_eq!(triage.issues[0].at, Timestamp(0), "no time to count");
     assert_eq!(triage.issues[0].author, "", "no author to count");
     assert_eq!(triage.issues[0].held, None);
+    assert_eq!(triage.issues[0].calls, [], "no call to count");
 
     triage.issues.push(Triaged {
         issue: 13,
@@ -420,6 +427,7 @@ fn a_file_saved_before_this_version_loads_with_no_limit_record() {
         at: Timestamp(1_792_051_200),
         author: "newcomer".to_owned(),
         held: Some(TriageHeld::AuthorCap),
+        calls: Vec::new(),
         labels: Vec::new(),
         duplicate_of: None,
         ready_body: None,
@@ -443,4 +451,41 @@ fn a_file_saved_before_this_version_loads_with_no_limit_record() {
         ])
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A record keeps the time of every call its issue made, oldest first, so the
+// caps count an author's round beside the first pass's call. Past
+// `TRIAGE_CALLS_KEPT` the oldest times go.
+#[test]
+fn a_record_keeps_the_time_of_every_call_its_issue_made() {
+    let mut record = Triaged {
+        issue: 12,
+        comment: 5001,
+        step: TriageStep::Done,
+        at: Timestamp(1_792_051_200),
+        author: "newcomer".to_owned(),
+        held: None,
+        calls: Vec::new(),
+        labels: Vec::new(),
+        duplicate_of: None,
+        ready_body: None,
+        seen: Vec::new(),
+        asked: None,
+        questions: None,
+        local: None,
+    };
+    for n in 0..(TRIAGE_CALLS_KEPT + 3) {
+        record.add_call(Timestamp(1_792_051_200 + n as u64));
+    }
+
+    assert_eq!(record.calls.len(), TRIAGE_CALLS_KEPT);
+    assert_eq!(
+        record.calls.first().cloned().unwrap(),
+        Timestamp(1_792_051_200 + 3),
+        "the oldest calls went first"
+    );
+    assert_eq!(
+        record.calls.last().cloned().unwrap(),
+        Timestamp(1_792_051_200 + TRIAGE_CALLS_KEPT as u64 + 2)
+    );
 }

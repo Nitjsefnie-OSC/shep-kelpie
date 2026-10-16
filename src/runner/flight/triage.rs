@@ -226,31 +226,39 @@ impl Runner {
                 self.triage_failed(issue, &format!("its call failed: {e}"), true);
                 Ok(())
             }
-            (Ok(_), Some(Ok(found))) => match flight.purpose {
-                // The questions or the prompt a restart lost are researched
-                // again, and what its reply gives is what goes up.
-                Purpose::Questions => {
-                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                        tries.open = found.open.clone();
-                    }
-                    self.post_questions(issue, &flight.said)
+            (Ok(_), Some(Ok(found))) => {
+                // The call ran and its reply read, so the record counts it: a
+                // round's call spends a place of the day's cap as the first
+                // pass's does.
+                if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                    tries.calls.push(self.ports.clock.now());
                 }
-                Purpose::LocalPrompt => {
-                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                        tries.open = found.open.clone();
-                        tries.files = found.files.clone();
+                match flight.purpose {
+                    // The questions or the prompt a restart lost are researched
+                    // again, and what its reply gives is what goes up.
+                    Purpose::Questions => {
+                        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                            tries.open = found.open.clone();
+                        }
+                        self.post_questions(issue, &flight.said)
                     }
-                    self.post_local_prompt(issue, &flight.said)
+                    Purpose::LocalPrompt => {
+                        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                            tries.open = found.open.clone();
+                            tries.files = found.files.clone();
+                        }
+                        self.post_local_prompt(issue, &flight.said)
+                    }
+                    Purpose::First | Purpose::Answers | Purpose::LocalRead => self.post_triage(
+                        issue,
+                        &flight.author,
+                        &flight.said,
+                        &flight.shown,
+                        &found,
+                        flight.purpose,
+                    ),
                 }
-                Purpose::First | Purpose::Answers | Purpose::LocalRead => self.post_triage(
-                    issue,
-                    &flight.author,
-                    &flight.said,
-                    &flight.shown,
-                    &found,
-                    flight.purpose,
-                ),
-            },
+            }
             (Ok(_), Some(Err(why))) => {
                 self.triage_failed(issue, &why, true);
                 Ok(())

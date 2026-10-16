@@ -11,9 +11,11 @@
 //! not come back to it, and only the verb reaches it again. The last cuts the
 //! body the call is given, and says in the fence that it did.
 //!
-//! The counts come from the records in `ProjectState.triage`, so a cap survives
-//! a restart. A record a limit held stands for no call of its own, so it spends
-//! no place of a cap it was held by.
+//! The counts come from the calls saved in `ProjectState.triage`, each record
+//! holding the moment of every triager call its issue made, so a cap survives a
+//! restart. A record a limit held stands for no call, so it spends no place of
+//! a cap it was held by, and a record made from a triage comment found on the
+//! issue holds no call of its own either.
 
 use crate::board::TRIAGE;
 use crate::ports::Timestamp;
@@ -88,14 +90,20 @@ impl Runner {
     }
 
     // How many of the day's calls belong to `login`, logins compared ignoring
-    // case
+    // case. An author the listing gives no login for, which is what an account
+    // deleted since the issue went up leaves, is counted with no one: their
+    // records share no bucket, so they cannot spend each other's allowance.
     fn triage_author_calls(&self, login: &str, now: Timestamp) -> u32 {
+        if login.is_empty() {
+            return 0;
+        }
         self.triage_count(now, Some(login)).0
     }
 
-    // The day's triage calls, and the oldest of them. With `login`, only that
-    // author's. A record with no time is one saved before the caps existed, and
-    // counts toward none.
+    // The day's triage calls, and the oldest of them: every call saved in the
+    // records whose moment falls in the 24 hours back from `now`. With `login`,
+    // only that author's. A record a limit held, and one made from a comment
+    // found on the issue, hold no call and count toward none.
     fn triage_count(&self, now: Timestamp, login: Option<&str>) -> (u32, Option<Timestamp>) {
         let from = now.0.saturating_sub(DAY);
         let Some(triage) = self.state.triage.as_ref() else {
@@ -104,12 +112,14 @@ impl Runner {
         let mut used = 0;
         let mut oldest = None;
         for record in &triage.issues {
-            let counts = record.held.is_none()
-                && record.at.0 > from
-                && login.is_none_or(|login| record.author.eq_ignore_ascii_case(login));
-            if counts {
+            if record.held.is_some()
+                || !login.is_none_or(|login| record.author.eq_ignore_ascii_case(login))
+            {
+                continue;
+            }
+            for at in record.calls.iter().filter(|at| at.0 > from) {
                 used += 1;
-                oldest = Some(oldest.map_or(record.at, |old: Timestamp| old.min(record.at)));
+                oldest = Some(oldest.map_or(*at, |old: Timestamp| old.min(*at)));
             }
         }
         (used, oldest)
@@ -133,6 +143,21 @@ impl Runner {
             return Some(Held::Final(TriageHeld::NewAccount));
         }
         None
+    }
+
+    // Whether a call of the author's round waits for a free place: the day's
+    // cap, or the author's share of it. The account's age is not asked of here,
+    // since the issue is already triaged and a limit's hold would label over an
+    // issue in progress. A round is read from the records at every poll, so a
+    // call that waits is simply made at the next one.
+    pub(super) fn triage_round_held(&mut self, author: &str) -> bool {
+        let now = self.ports.clock.now();
+        let per_day = self.settings.triage.per_day;
+        if per_day > 0 && self.triage_day(now).0 >= per_day {
+            return true;
+        }
+        let per_author = self.settings.triage.per_author_per_day;
+        per_author > 0 && self.triage_author_calls(author, now) >= per_author
     }
 
     // Whether the author's account is younger than `triage.min_account_days`
@@ -200,6 +225,7 @@ impl Runner {
                 at: self.ports.clock.now(),
                 author: author.to_owned(),
                 held: Some(limit),
+                calls: Vec::new(),
                 labels: Vec::new(),
                 duplicate_of: None,
                 ready_body: None,
