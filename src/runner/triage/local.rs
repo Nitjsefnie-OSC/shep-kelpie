@@ -19,9 +19,12 @@
 //! Kelpie's own body edits set the hash, so a write of kelpie's own is never
 //! read as the author's.
 //!
-//! Everything the block names, the title, the files and each question with
-//! what it recommends, is put on one line with its backticks gone, so none of
-//! it can close the fence the prompt is posted in.
+//! The prompt comment's last line carries the hash of the body it went up
+//! against, so a prompt that posted before a crash leaves the round measured
+//! against that body rather than whatever the forge holds when kelpie comes
+//! back. Everything the block names, the title, the files and each question
+//! with what it recommends, is put on one line with its backticks gone, so
+//! none of it can close the fence the prompt is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -31,8 +34,9 @@ use super::ask::Purpose;
 use super::research::Question;
 use crate::state::{StateError, TriageLocal};
 
-/// What marks kelpie's local prompt comment
-pub(in crate::runner) const LOCAL_MARKER: &str = "<!-- kelpie:triage local -->";
+/// What begins the last line of kelpie's local prompt comment, which also
+/// carries the hash of the body the prompt was posted against
+pub(in crate::runner) const LOCAL_MARKER: &str = "<!-- kelpie:triage local";
 
 /// The skill the prompt starts with
 const SKILL: &str = "grill-with-docs";
@@ -63,7 +67,8 @@ impl Runner {
     // Posts the one prompt kelpie gives an author who settles the questions in
     // their own terminal: the numbered files and questions under a lead-in the
     // representative words. The body it posts the hash of is the one the forge
-    // holds now, which is what the wait is measured against.
+    // holds now, which is what the wait is measured against, and the comment
+    // itself carries that hash.
     pub(in crate::runner) fn post_local_prompt(
         &mut self,
         issue: u64,
@@ -106,9 +111,14 @@ impl Runner {
             }
         };
         // The forge may take a post whose answer is lost, so the marker is read
-        // again before asking a second time.
+        // again before asking a second time. The comment it finds carries the
+        // body the prompt went up against, so an edit made between that post and
+        // this read is still the round's answer.
         match self.app_comment_after(issue, LOCAL_MARKER, asked.at) {
-            Ok(Some(_)) => return self.set_local(issue, body_hash(&found.body)),
+            Ok(Some(prompt)) => {
+                let seen = prompt_hash(&prompt.body).unwrap_or_else(|| body_hash(&found.body));
+                return self.set_local(issue, seen);
+            }
             Ok(None) => {}
             Err(e) => {
                 let why = format!("cannot read its comments: {e}");
@@ -133,6 +143,7 @@ impl Runner {
                 return Ok(());
             }
         };
+        let seen = body_hash(&found.body);
         let block = local_block(
             self.remote.as_str(),
             issue,
@@ -140,13 +151,15 @@ impl Runner {
             &files,
             &questions,
         );
-        let body = format!("{words}\n\n{SKILL_WHERE}\n\n```text\n{block}\n```\n\n{LOCAL_MARKER}");
+        let body = format!(
+            "{words}\n\n{SKILL_WHERE}\n\n```text\n{block}\n```\n\n{LOCAL_MARKER} body:{seen:016x} -->"
+        );
         match self.ports.voice.post(&self.remote, issue, &body) {
             Ok(_) => {
                 if let Some(tries) = self.triage_tries.get_mut(&issue) {
                     tries.local_call = false;
                 }
-                self.set_local(issue, body_hash(&found.body))
+                self.set_local(issue, seen)
             }
             Err(e) => {
                 let why = format!("cannot post the prompt: {e}");
@@ -353,6 +366,18 @@ fn local_facts(most: usize) -> String {
          that goes to the maintainer.\n",
     );
     facts
+}
+
+// The hash of the body a prompt comment was posted against, read off its last
+// line. A comment with no hash there is kelpie's marker written by someone
+// else, and the caller takes the body the forge holds for it.
+fn prompt_hash(comment: &str) -> Option<u64> {
+    let hex = (comment.trim_end().lines().last()?)
+        .strip_prefix(LOCAL_MARKER)?
+        .trim()
+        .strip_prefix("body:")?
+        .strip_suffix(" -->")?;
+    u64::from_str_radix(hex, 16).ok()
 }
 
 // FNV-1a over the body's bytes, trimmed. A saved hash is read again after a

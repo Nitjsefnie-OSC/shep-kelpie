@@ -39,7 +39,7 @@ use super::super::thread_replies::plain_login;
 use super::TRIAGE_LABELS;
 use super::research::Question;
 use crate::board::TRIAGE;
-use crate::ports::{ForgeError, OpenIssue, Timestamp};
+use crate::ports::{ForgeError, OpenIssue, ThreadComment, Timestamp};
 use crate::settings::TriagePick;
 use crate::state::{StateError, TriageAsked, TriageQuestions, TriageStep, Triaged};
 
@@ -268,14 +268,15 @@ impl Runner {
     }
 
     // The newest comment on `issue` that the App covering the repo wrote after
-    // `after` and ends with `marker`. Kelpie's own markers in anyone else's
-    // comment count for nothing.
+    // `after`, whose last line begins with `marker`. Kelpie's own markers in
+    // anyone else's comment count for nothing. The whole comment comes back, so
+    // a marker that carries a value can be read off it.
     pub(in crate::runner) fn app_comment_after(
         &self,
         issue: u64,
         marker: &str,
         after: Timestamp,
-    ) -> Result<Option<u64>, ForgeError> {
+    ) -> Result<Option<ThreadComment>, ForgeError> {
         let comments = self.ports.forge.issue_comments(&self.remote, issue)?;
         let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
             return Ok(None);
@@ -285,10 +286,14 @@ impl Runner {
             .filter(|c| {
                 plain_login(&c.author) == app
                     && c.created > after
-                    && c.body.trim_end().ends_with(marker)
+                    && c.body
+                        .trim_end()
+                        .lines()
+                        .last()
+                        .is_some_and(|line| line.starts_with(marker))
             })
-            .map(|c| c.id)
-            .max())
+            .max_by_key(|c| c.id)
+            .cloned())
     }
 
     // Posts the one round of questions kelpie asks on GitHub: the numbered
@@ -326,7 +331,7 @@ impl Runner {
         // The forge may take a post whose answer is lost, so the marker is read
         // again before asking a second time.
         match self.app_comment_after(issue, QUESTIONS_MARKER, asked.at) {
-            Ok(Some(id)) => return self.set_questions(issue, id),
+            Ok(Some(prompt)) => return self.set_questions(issue, prompt.id),
             Ok(None) => {}
             Err(e) => {
                 let why = format!("cannot read its comments: {e}");

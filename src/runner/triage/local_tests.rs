@@ -47,6 +47,11 @@ fn asked_with_fences() -> Value {
     })
 }
 
+// The last line of a comment kelpie posted, which carries its marker
+fn marker_line(comment: &str) -> &str {
+    comment.trim_end().lines().last().unwrap_or_default()
+}
+
 // Issue 30 as the forge lists it after its author's session rewrote its body
 fn rewritten(rig: &Rig, author: &str, body: &str) -> OpenIssue {
     let mut edited = issue(rig, 30, author, 5);
@@ -68,7 +73,11 @@ fn local_round(rig: &Rig, runner: &Mutex<Runner>, author: &str) {
     assert_eq!(step(runner).unwrap(), None);
     let posted = posted(rig);
     assert_eq!(posted.len(), 2, "{posted:?}");
-    assert!(posted[1].ends_with(LOCAL_MARKER), "{}", posted[1]);
+    assert!(
+        marker_line(&posted[1]).starts_with(LOCAL_MARKER),
+        "{}",
+        posted[1]
+    );
     let held = record(rig, runner);
     assert!(held.get("asked").is_none(), "{held}");
     assert!(held["local"]["at"].is_number(), "{held}");
@@ -481,7 +490,11 @@ fn a_local_prompt_kelpie_cannot_post_is_tried_at_the_next_poll() {
         .map(|c| c.body)
         .collect();
     assert_eq!(taken.len(), 2, "{taken:?}");
-    assert!(taken[1].ends_with(LOCAL_MARKER), "{}", taken[1]);
+    assert!(
+        marker_line(&taken[1]).starts_with(LOCAL_MARKER),
+        "{}",
+        taken[1]
+    );
     let held = record(&rig, &runner);
     assert!(held.get("asked").is_none(), "{held}");
     assert!(held["local"]["body"].is_number(), "{held}");
@@ -525,7 +538,88 @@ fn a_local_prompt_whose_questions_a_restart_lost_is_researched_again() {
     assert_eq!(posted(&rig).len(), 2);
     let prompt = posted(&rig).remove(1);
     assert!(prompt.contains("- `README.md`"), "{prompt}");
-    assert!(prompt.ends_with(LOCAL_MARKER), "{prompt}");
+    assert!(marker_line(&prompt).starts_with(LOCAL_MARKER), "{prompt}");
     let held = record(&rig, &runner);
     assert!(held["local"]["body"].is_number(), "{held}");
+}
+
+// The prompt went up, the author's session rewrote the body, and a crash came
+// before kelpie saved the wait. The comment it posted carries the body the
+// prompt was posted against, so the edit is still the round's answer.
+#[test]
+fn a_local_prompt_a_restart_lost_still_measures_against_the_body_it_was_posted_again() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_with_files());
+    assert_eq!(step(&runner).unwrap(), None);
+    let owed = record(&rig, &runner);
+    assert!(owed["asked"]["at"].is_number(), "{owed}");
+
+    wrote(&rig, MAINTAINER, "local");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::Say(L_WORDS)],
+    );
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let prompt = posted(&rig).remove(1);
+    assert!(marker_line(&prompt).starts_with(LOCAL_MARKER), "{prompt}");
+    let measured = record(&rig, &runner)["local"]["body"].clone();
+
+    // The author's session rewrites the body, and a crash comes before kelpie
+    // saves the wait: the record it restarts on still has the ask on it.
+    list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+    drop(runner);
+    crashed_with(&rig, owed);
+    let runner = rig.open().unwrap();
+
+    rig.claude
+        .script_for(Role::Triager, [reply(asked_with_files()), reply(settled())]);
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::Say(A_WORDS)],
+    );
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(
+        moves(&rig),
+        ["comment", "comment"],
+        "the edit it missed is not labelled past"
+    );
+
+    // Its own prompt is on the issue, so the wait goes back on it, measured
+    // against the body the prompt names and not the one the forge holds now.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let held = record(&rig, &runner);
+    assert_eq!(held["local"]["body"], measured, "{held}");
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        2,
+        "researched again for what the prompt names"
+    );
+    assert_eq!(moves(&rig), ["comment", "comment"], "no label yet");
+
+    // The next look reads the body against that hash and triages it.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        3,
+        "the body its session rewrote is triaged"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ]
+    );
+    let held = record(&rig, &runner);
+    assert_eq!(held["step"], "done");
+    assert!(held.get("local").is_none(), "{held}");
 }
