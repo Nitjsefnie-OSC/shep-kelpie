@@ -72,7 +72,8 @@ fn a_pi_workers_commands_ask_for_the_test_lease_at_the_dogs_door() {
     assert!(vars.contains(&door), "{vars:?}");
 }
 
-// zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
+// The worker's instructions send its scratch files to the folder `TMPDIR`
+// names, and zsh ignores `TMPDIR` for a heredoc and writes under `TMPPREFIX`.
 #[test]
 fn a_pi_call_s_zsh_makes_its_heredoc_files_in_the_call_s_scratch_folder() {
     let w = World::new();
@@ -82,6 +83,8 @@ fn a_pi_call_s_zsh_makes_its_heredoc_files_in_the_call_s_scratch_folder() {
         .into_iter()
         .map(|a| a.into_string().unwrap())
         .collect();
+    let temp = format!("TMPDIR={}", files.scratch.display());
+    assert!(vars.contains(&temp), "{vars:?}");
     let prefix = format!("TMPPREFIX={}/zsh", files.scratch.display());
     assert!(vars.contains(&prefix), "{vars:?}");
 }
