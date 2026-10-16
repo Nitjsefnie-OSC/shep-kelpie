@@ -31,6 +31,7 @@ pub(super) mod addressed;
 pub(super) mod ask;
 pub(super) mod comment;
 pub(super) mod heard;
+pub(super) mod local;
 pub(super) mod ready;
 pub(super) mod research;
 
@@ -111,6 +112,9 @@ impl Runner {
         // carries a triage label the maintainer put on by hand, before anything
         // the record owes is written.
         self.settle_triage_waits(&open)?;
+        // An author who took `local` answers by rewriting the issue body, which is
+        // what the next pass is made on.
+        self.watch_local_waits()?;
         self.resume_triage()?;
         let only = match self.settings.triage.pick {
             TriagePick::Maintainer => match self.maintainer() {
@@ -210,7 +214,8 @@ impl Runner {
             }
         }
         // The author's round: the second triager call, once their answers are
-        // in, and a questions comment a restart left owed.
+        // in, the body their own session rewrote, and a questions comment or a
+        // prompt a restart left owed.
         self.triage_round_due()
     }
 
@@ -304,7 +309,7 @@ impl Runner {
         // written into the issue as if it came from the author.
         let settling = match purpose {
             Purpose::Answers => self.answers_round(issue),
-            Purpose::First | Purpose::Questions => None,
+            Purpose::First | Purpose::Questions | Purpose::LocalPrompt | Purpose::LocalRead => None,
         };
         if matches!(purpose, Purpose::Answers) && settling.is_none() {
             return None;
@@ -427,6 +432,8 @@ mod addressed_tests;
 mod answers_tests;
 #[cfg(test)]
 mod ask_tests;
+#[cfg(test)]
+mod local_tests;
 #[cfg(test)]
 mod pick_tests;
 #[cfg(test)]

@@ -153,10 +153,13 @@ pub(in crate::runner) struct Tries {
     // The login of whoever opened the issue, kept so what they write while the
     // triage waits is told from what anyone else writes
     pub(in crate::runner) author: Option<String>,
-    // That the triage comment asked its author `github` or `none`, and the
-    // questions the questions comment posts under its lead-in
+    // That the triage comment asked its author `github`, `local` or `none`, and
+    // the questions the questions comment posts under its lead-in
     pub(in crate::runner) ask: bool,
     pub(in crate::runner) open: Vec<Question>,
+    // The files the triage comment named, which the local prompt tells the
+    // author's session to read
+    pub(in crate::runner) files: Vec<String>,
     // What the triager call on this issue is for: the first pass, the
     // questions comment, or the pass that reads the author's answers
     pub(in crate::runner) purpose: Purpose,
@@ -166,6 +169,15 @@ pub(in crate::runner) struct Tries {
     // That the questions comment is owed and the research must run again for
     // it, which is what a restart leaves when it lost the questions
     pub(in crate::runner) questions_call: bool,
+    // That the local prompt is owed and the research must run again for it, the
+    // same loss for a prompt
+    pub(in crate::runner) local_call: bool,
+    // That the body the author's own session was told to rewrite has changed, so
+    // the triager reads the issue again
+    pub(in crate::runner) local_edit: bool,
+    // The hash of the body the pass that reads a rewritten body was made on,
+    // which its comment is not owed when the body changes again under the call
+    pub(in crate::runner) local_read: Option<u64>,
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
@@ -275,6 +287,7 @@ impl Runner {
         tries.purpose = purpose;
         tries.author = Some(author.to_owned());
         tries.open = found.open.clone();
+        tries.files = found.files.clone();
         tries.waiting = Some(Waiting {
             author: author.to_owned(),
             said: said.to_owned(),
@@ -297,6 +310,12 @@ impl Runner {
 
     // Words the comment from the waiting research and posts it
     fn say_triage(&mut self, issue: u64) -> Result<(), StateError> {
+        // The call can run for minutes, and the author's session can rewrite the
+        // body again while it runs. A comment, labels or a ready write from that
+        // read would describe a body the issue no longer holds.
+        if self.local_read_stale(issue)? {
+            return Ok(());
+        }
         let Some(waiting) = self
             .triage_tries
             .get(&issue)
@@ -362,13 +381,16 @@ impl Runner {
             }
         };
         // The first pass asks its author when the reply left a question only
-        // they can answer and they are one kelpie asks. The answers pass never
-        // asks again: one round of questions is the whole of it.
-        let answers = matches!(
-            self.triage_tries.get(&issue).map(|t| t.purpose),
-            Some(Purpose::Answers)
-        );
-        let ask = !answers && stood.is_none() && !found.open.is_empty() && self.askable(author);
+        // they can answer and they are one kelpie asks. Neither the answers pass
+        // nor the pass that reads a body the author rewrote asks again: one
+        // round of questions is the whole of it.
+        let purpose = self.triage_tries.get(&issue).map(|t| t.purpose);
+        let answers = purpose == Some(Purpose::Answers);
+        let local = purpose == Some(Purpose::LocalRead);
+        let ask = purpose == Some(Purpose::First)
+            && stood.is_none()
+            && !found.open.is_empty()
+            && self.askable(author);
         let ready = ready::readiness(self, author, found);
         let ready_body = match (stood.as_ref(), ready) {
             (Some(label), _) => {
@@ -404,10 +426,11 @@ impl Runner {
             },
             _ => None,
         };
-        let kind = match (answers, ask) {
-            (true, _) => ANSWERS_KIND,
-            (false, true) => ASK_KIND,
-            (false, false) => KIND,
+        let kind = match (answers, local, ask) {
+            (true, _, _) => ANSWERS_KIND,
+            (false, true, _) => super::local::LOCAL_READ_KIND,
+            (false, false, true) => ASK_KIND,
+            (false, false, false) => KIND,
         };
         let facts = facts(
             found,
@@ -415,6 +438,7 @@ impl Runner {
             ready_body.is_some(),
             ask,
             answers,
+            local,
             answers_body.is_some(),
         );
         let earlier: Vec<u64> = self
@@ -492,6 +516,11 @@ impl Runner {
         let Some(body) = self.triage_tries.get(&issue).and_then(|t| t.body.clone()) else {
             return Ok(());
         };
+        // The same read again for a pass that was worded but could not be
+        // posted: the body it was worded on may not be the one the issue holds.
+        if self.local_read_stale(issue)? {
+            return Ok(());
+        }
         // The wording call can run for minutes, so a duplicate's cover is read
         // again against the forge right before the post. A cover that went in
         // the meantime is not posted: the comment is worded again at the next
@@ -599,6 +628,7 @@ impl Runner {
             seen,
             asked,
             questions: None,
+            local: None,
         });
         // A record saved finished needs the cap kept, as `triage_stepped` does
         // for the steps that finish later.
@@ -618,6 +648,9 @@ impl Runner {
             tries.stood = None;
             tries.ask = false;
             tries.answers_body = None;
+            tries.local_call = false;
+            tries.local_edit = false;
+            tries.local_read = None;
         }
         Ok(())
     }
@@ -659,7 +692,7 @@ impl Runner {
             let Some(record) = self.triage_record(issue).cloned() else {
                 return Ok(());
             };
-            if record.asked.is_some() || record.questions.is_some() {
+            if record.asked.is_some() || record.questions.is_some() || record.local.is_some() {
                 return Ok(());
             }
             match record.step {
@@ -759,14 +792,16 @@ fn duplicate_facts(named: &Addressed) -> String {
 // What the representative words the comment from: the labels that go on, the
 // related issues as `#n`, the files, tests and draft criteria, the questions,
 // whether the pass is sure enough to make the issue its board's, and how the
-// author's round ends: asking them `github` or `none`, or reading their
-// answers as the last round
+// author's round ends: asking them `github`, `local` or `none`, reading their
+// answers as the last round, or reading the issue again after their own session
+// rewrote its body
 fn facts(
     found: &Found,
     labels: &[String],
     ready: bool,
     ask: bool,
     answers: bool,
+    local: bool,
     settled: bool,
 ) -> String {
     let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
@@ -826,17 +861,19 @@ fn facts(
                      this issue's body, and never in place of it.\n",
                 );
             }
-            match (ask, answers) {
-                (true, _) => facts.push_str(
+            match (ask, answers, local) {
+                (true, _, _) => facts.push_str(
                     "\nKelpie asks its author how they want to settle these: reply `github` and \
-                     kelpie posts these questions on GitHub for the author to answer, or reply \
-                     `none` and the maintainer triages the issue as it stands.\n",
+                     kelpie posts these questions on GitHub for the author to answer, reply \
+                     `local` and kelpie gives them one prompt to settle them in their own \
+                     terminal, or reply `none` and the maintainer triages the issue as it \
+                     stands.\n",
                 ),
-                (false, true) => facts.push_str(
+                (false, true, _) | (false, false, true) => facts.push_str(
                     "\nThis is the last round of questions: what is still open goes to the \
                      maintainer.\n",
                 ),
-                (false, false) => facts.push_str("\nThe maintainer triages it next.\n"),
+                (false, false, false) => facts.push_str("\nThe maintainer triages it next.\n"),
             }
         }
     }

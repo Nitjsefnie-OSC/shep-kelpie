@@ -100,6 +100,13 @@ pub struct Triaged {
     /// Left out unless the triage waits on the answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub questions: Option<TriageQuestions>,
+    /// The prompt kelpie posted for the author to run in their own terminal,
+    /// while the triage waits for the body their session writes back. No label
+    /// goes on meanwhile.
+    ///
+    /// Left out unless the triage waits on a local session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<TriageLocal>,
 }
 
 /// The ask kelpie waits an author's answer to
@@ -150,6 +157,21 @@ pub struct TriageQuestions {
     /// When it went up: the answers are the author's comments after it, and
     /// silence this long past it ends the round
     pub at: Timestamp,
+}
+
+/// The prompt kelpie waits an author's own session to answer
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriageLocal {
+    /// When its prompt went up: silence this long past it, with no body edit,
+    /// ends the round as `none`
+    pub at: Timestamp,
+    /// A hash of the issue body as kelpie last saw it. A body whose hash
+    /// differs is one the author's session rewrote, and kelpie triages it
+    /// again. Kelpie's own body edits set it, so its own write is never read
+    /// as the author's
+    pub body: u64,
 }
 
 /// How far an issue's triage has got, saved before the next write to the forge

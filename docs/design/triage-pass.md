@@ -1,6 +1,6 @@
 # The triage pass
 
-One issue's pass (#887): the call, the post, the labels, the duplicate close, the agent-ready branch for the maintainer's own issue the pass is sure of (#891), and the wait on an author kelpie is not sure about (#892). The settings, the pick rule and the author's round are in `triage.md`.
+One issue's pass (#887): the call, the post, the labels, the duplicate close, the agent-ready branch for a maintainer issue the pass is sure of (#891), and the wait on an author it is not sure about (#892). The settings and pick rule are in `triage.md`, the author's round in `triage-author.md`.
 
 - `Runner::triage_due` runs from `dispatch` after `contribution_due` and before the board's pick, so it needs the board open and a free slot. It takes the issue the verb queued, then the oldest in `triage.due`, one at a time, and starts nothing while draining or where no App covers the repo. Each issue is tried once a poll. `src/runner/triage.rs`
 - Before an issue's first call its comments are read once (`Forge::issue_comments`). A comment by the App's login holding `<!-- kelpie:triage -->` records the issue with no call, and one holding `<!-- kelpie:triage duplicate #n -->` closes it as a duplicate of `n`. Only the last line's marker counts: worded text can hold marker-shaped text of its own. The marker in anyone else's comment counts for nothing. The verb's issue skips the first read, and is read past its old record's comment. The call's ledger line is keyed apart from any work item's (`flight/triage.rs` `KEY`).
