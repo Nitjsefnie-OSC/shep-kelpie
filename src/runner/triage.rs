@@ -200,7 +200,8 @@ impl Runner {
     }
 
     // Reads `issue`'s comments, once, for a triage comment of the App's own: one
-    // there records the issue as triaged with no call. Whether the issue needs no
+    // there records the issue as triaged with no call, and closes it again when
+    // its marker says it was closing a duplicate. Whether the issue needs no
     // call now: it was recorded, or its comments could not be read.
     fn triage_settled(&mut self, issue: u64) -> Result<bool, StateError> {
         if self.triage_tries.get(&issue).is_some_and(|t| t.read) {
@@ -208,9 +209,12 @@ impl Runner {
         }
         let before = self.triage_record(issue).map(|t| t.comment);
         match self.marked_by_app(issue, before) {
-            Ok(Some(comment)) => {
-                self.record_triage(issue, comment, None)?;
-                self.finish_triage(issue)?;
+            Ok(Some(marked)) => {
+                self.record_triage(issue, marked.comment, marked.duplicate_of)?;
+                match marked.duplicate_of {
+                    Some(of) => self.close_duplicate(issue, of)?,
+                    None => self.finish_triage(issue)?,
+                }
                 Ok(true)
             }
             Ok(None) => {

@@ -24,6 +24,51 @@ use crate::state::{StateError, TriageStep, Triaged};
 /// What marks a comment as kelpie's triage comment
 pub(in crate::runner) const MARKER: &str = "<!-- kelpie:triage -->";
 
+/// The same marker, naming the item the comment says covers the issue. It is
+/// what lets a comment kelpie posted whose record did not save be read again
+/// as the close it was, rather than as an ordinary triage.
+pub(in crate::runner) fn duplicate_marker(of: u64) -> String {
+    format!("<!-- kelpie:triage duplicate #{of} -->")
+}
+
+/// The start of either marker form
+const MARKER_HEAD: &str = "<!-- kelpie:triage";
+
+/// What a triage marker says
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Marker {
+    /// An ordinary triage comment, which names nothing
+    Ordinary,
+    /// A comment that named the item it closes this one as a duplicate of
+    Duplicate(u64),
+}
+
+// What the marker on `body` says, or `None` when it holds no marker kelpie
+// wrote. A marker holding a word kelpie never writes counts as none, since its
+// comment cannot be told apart from anyone else's.
+fn marker_says(body: &str) -> Option<Marker> {
+    let (_, after) = body.split_once(MARKER_HEAD)?;
+    let (head, _) = after.split_once("-->")?;
+    let mut words = head.split_whitespace();
+    match (words.next(), words.next()) {
+        (None, _) => Some(Marker::Ordinary),
+        (Some("duplicate"), Some(number)) => number
+            .strip_prefix('#')
+            .and_then(|digits| digits.parse::<u64>().ok())
+            .map(Marker::Duplicate),
+        _ => None,
+    }
+}
+
+/// The App's own triage comment on an issue, and what its marker says
+#[derive(Debug)]
+pub(super) struct Marked {
+    pub(super) comment: u64,
+    /// The item it named as covering the issue, which an ordinary marker names
+    /// none
+    pub(super) duplicate_of: Option<u64>,
+}
+
 /// How many times a step may fail for an issue before kelpie stops trying it
 pub(super) const TRIES: u32 = 5;
 
@@ -132,23 +177,34 @@ impl Runner {
         Some(app.slug)
     }
 
-    // The id of the comment on `issue` the App wrote with the marker in it,
-    // past `after` when a comment is given: a triage asked again is not found
-    // by the comment of the one before. A marker in anyone else's comment
-    // counts for nothing.
+    // The App's own triage comment on `issue` and what its marker says, past
+    // `after` when a comment is given: a triage asked again is not found by the
+    // comment of the one before. A marker in anyone else's comment counts for
+    // nothing.
     pub(super) fn marked_by_app(
         &self,
         issue: u64,
         after: Option<u64>,
-    ) -> Result<Option<u64>, ForgeError> {
+    ) -> Result<Option<Marked>, ForgeError> {
         let comments = self.ports.forge.issue_comments(&self.remote, issue)?;
         let Some(app) = self.app_login().map(|app| plain_login(&app)) else {
             return Ok(None);
         };
-        let ours = |c: &&crate::ports::ThreadComment| {
-            c.body.contains(MARKER) && plain_login(&c.author) == app && Some(c.id) > after
-        };
-        Ok(comments.iter().filter(ours).map(|c| c.id).min())
+        let ours = comments.iter().filter_map(|c| {
+            let marked = match marker_says(&c.body) {
+                Some(Marker::Ordinary) => Marked {
+                    comment: c.id,
+                    duplicate_of: None,
+                },
+                Some(Marker::Duplicate(of)) => Marked {
+                    comment: c.id,
+                    duplicate_of: Some(of),
+                },
+                None => return None,
+            };
+            (plain_login(&c.author) == app && Some(c.id) > after).then_some(marked)
+        });
+        Ok(ours.min_by_key(|m| m.comment))
     }
 
     // Posts what the research found: the labels the repo has are read first,
@@ -286,7 +342,7 @@ impl Runner {
             }
         };
         let tries = self.triage_tries.entry(issue).or_default();
-        tries.body = Some(format!("{words}\n\n{MARKER}"));
+        tries.body = Some(format!("{words}\n\n{}", duplicate_marker(named.number)));
         tries.labels.clear();
         tries.duplicate = Some(named.clone());
         self.send_triage(issue)

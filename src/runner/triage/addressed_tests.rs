@@ -3,12 +3,12 @@
 
 use serde_json::json;
 
-use super::comment::MARKER;
+use super::comment::{MARKER, duplicate_marker};
 use super::pick_tests::{issue, list};
 use super::research_tests::{
-    WORDS, calls, crashed_with, facts, moves, pump, reply, triage, untouched,
+    APP, WORDS, calls, crashed_with, facts, moves, pump, reply, triage, untouched,
 };
-use crate::ports::{IssueCloseReason, PullRequestState, Role};
+use crate::ports::{IssueCloseReason, PullRequestState, Role, Timestamp};
 use crate::runner::{Pass, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Scripted};
 
@@ -33,7 +33,7 @@ fn an_issue_an_open_pull_request_resolves_is_closed_as_duplicate_with_a_comment_
 
     assert_eq!(
         rig.github.comments(),
-        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        [(30, format!("{WORDS}\n\n{}", duplicate_marker(41)))],
         "one short comment, worded from what the research named"
     );
     let said = facts(&rig);
@@ -224,6 +224,36 @@ fn a_restart_after_the_comment_closes_it_without_posting_again() {
         "the close the record says is owed"
     );
     let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["step"], "done");
+    assert_eq!(triaged["issues"][0]["duplicate_of"], 41);
+}
+
+#[test]
+fn a_duplicate_comment_found_by_its_marker_closes_the_issue_with_no_second_comment() {
+    let (rig, runner) = untouched();
+    // The comment went up and its record did not save, so only the marker is
+    // left to say what the pass was doing.
+    let marked = format!("It duplicates #41.\n\n{}", duplicate_marker(41));
+    let comment = rig.forge.threads.write(30, APP, &marked, Timestamp(1));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.claude.all_seen().len(),
+        0,
+        "no call, not even a wording"
+    );
+    assert_eq!(rig.github.comments(), [], "the comment is not posted twice");
+    assert_eq!(moves(&rig), Vec::<String>::new(), "no label of any kind");
+    assert_eq!(rig.forge.closings(), [30]);
+    assert_eq!(
+        rig.forge.closing_reason(30),
+        Some(IssueCloseReason::Duplicate),
+        "the marker's own close, not an ordinary triage"
+    );
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["comment"], comment);
     assert_eq!(triaged["issues"][0]["step"], "done");
     assert_eq!(triaged["issues"][0]["duplicate_of"], 41);
 }
