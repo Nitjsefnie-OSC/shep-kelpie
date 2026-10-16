@@ -922,6 +922,7 @@ fn an_unreadable_call_is_refused() {
 }
 
 mod agents;
+mod fetch;
 mod hooks;
 mod killing;
 mod manager;

@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering;
 
 use super::FakeForge;
 use crate::ports::{
-    FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, PullRequestState, SubIssue,
-    SubIssueState, Timestamp,
+    AuthorAssociation, FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull,
+    PullRequestState, SubIssue, SubIssueState, Timestamp,
 };
 
 /// An issue kelpie opened on the fake forge
@@ -24,12 +24,38 @@ fn plain_issue(number: u64, title: &str, body: &str) -> OpenIssue {
         body: body.to_owned(),
         author: "the-maintainer".to_owned(),
         author_is_bot: false,
+        author_association: Some(AuthorAssociation::Owner),
         labels: Vec::new(),
         created: Timestamp(0),
     }
 }
 
 impl FakeForge {
+    /// Says the account `login` was created at `at`, which is how a test makes
+    /// an author's account new. An account no test names is old.
+    pub(crate) fn set_account_created(&self, login: &str, at: Timestamp) {
+        self.accounts
+            .lock()
+            .unwrap()
+            .insert(login.to_lowercase(), at);
+    }
+
+    /// Makes reading an account's age fail, or work again
+    pub(crate) fn set_accounts_down(&self, down: bool) {
+        self.accounts_down.store(down, Ordering::SeqCst);
+    }
+
+    /// How many times the forge was asked for `login`'s account, which the
+    /// runner asks for once per author per start
+    pub(crate) fn account_reads(&self, login: &str) -> usize {
+        self.account_reads
+            .lock()
+            .unwrap()
+            .get(&login.to_lowercase())
+            .copied()
+            .unwrap_or_default()
+    }
+
     /// Makes issue `child` a sub-issue of issue `parent`, as someone else would
     pub(crate) fn link_sub_issue(&self, parent: u64, child: u64) {
         let mut links = self.sub_issues.lock().unwrap();
