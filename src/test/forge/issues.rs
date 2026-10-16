@@ -42,6 +42,12 @@ impl FakeForge {
         self.close_issue(number);
     }
 
+    /// Reopens closed issue `number`, as its author would. Its labels, and what
+    /// kelpie closed it for, stay as they were.
+    pub(crate) fn reopen_issue(&self, number: u64) {
+        self.closed.lock().unwrap().remove(&number);
+    }
+
     /// Makes listing a parent's sub-issues fail, or work again
     pub(crate) fn set_sub_issues_down(&self, down: bool) {
         self.sub_issues_down.store(down, Ordering::SeqCst);

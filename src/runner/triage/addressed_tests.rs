@@ -270,12 +270,18 @@ fn a_closed_duplicate_is_not_triaged_again_while_its_record_is_kept() {
 
     assert_eq!(step(&runner).unwrap(), None);
 
-    // The author reopens it: it carries no triage label, and kelpie has its
-    // record, so no pass is started on kelpie's own.
+    // The author reopens it. It is open again and carries no triage label, and
+    // kelpie has its record, so no pass is started on kelpie's own.
+    rig.forge.reopen_issue(30);
     for _ in 0..2 {
         rig.next_look();
         assert_eq!(step(&runner).unwrap(), None);
     }
+    assert_eq!(
+        triage(&rig, &runner)["due"],
+        json!([]),
+        "its record keeps it out of the due list"
+    );
     assert_eq!(calls(&rig, Role::Triager).len(), 1, "researched once");
     assert_eq!(rig.github.comments().len(), 1);
     assert_eq!(rig.forge.closings(), [30], "closed once");
