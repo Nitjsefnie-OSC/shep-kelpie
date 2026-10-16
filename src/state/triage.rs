@@ -55,6 +55,12 @@ pub struct Triaged {
     /// Left out while empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
+    /// The open issue or pull request this one was closed as a duplicate of,
+    /// which the comment named before the close
+    ///
+    /// Left out unless the issue was closed as a duplicate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_of: Option<u64>,
 }
 
 /// How far an issue's triage has got, saved before the next write to the forge
@@ -64,6 +70,9 @@ pub struct Triaged {
 pub enum TriageStep {
     /// The comment is posted and the labels are not all on
     Commented,
+    /// The comment naming the other item is posted, and the close as a
+    /// duplicate of `duplicate_of` is not
+    Closed,
     /// The labels the reply gave are on and `needs-triage` is not
     Labelled,
     /// `needs-triage` is on

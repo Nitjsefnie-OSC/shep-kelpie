@@ -24,6 +24,7 @@ use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
 use research::{Listed, ListedPull};
 
+pub(super) mod addressed;
 pub(super) mod comment;
 pub(super) mod research;
 
@@ -208,7 +209,7 @@ impl Runner {
         let before = self.triage_record(issue).map(|t| t.comment);
         match self.marked_by_app(issue, before) {
             Ok(Some(comment)) => {
-                self.record_triage(issue, comment)?;
+                self.record_triage(issue, comment, None)?;
                 self.finish_triage(issue)?;
                 Ok(true)
             }

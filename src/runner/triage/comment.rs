@@ -14,7 +14,8 @@ use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::super::representative::IssuePost;
 use super::super::thread_replies::plain_login;
-use super::research::Found;
+use super::addressed::Cover;
+use super::research::{Addressed, Found};
 use crate::board::TRIAGE;
 use crate::github::{Apps, Owner};
 use crate::ports::{ForgeError, NewLabel};
@@ -37,6 +38,13 @@ const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
 const KIND: &str = "Write the first triage comment on this issue, from what kelpie found in the \
     repo. Greet the author, say what was found, and ask only the questions listed. It is a \
     comment, not a review: no verdict, and nothing promised.";
+
+/// What kind of post the representative is asked for on an issue that
+/// something else already covers
+const DUPLICATE_KIND: &str = "Write the short comment that closes this issue as a duplicate. Greet \
+    the author, thank them for the report, name the open issue or pull request that already \
+    covers it and say why in one sentence, and say kelpie is closing the issue as a duplicate of \
+    it. It is a comment, not a review: no verdict, and nothing promised.";
 
 /// A research that read, whose comment is not yet on the issue
 #[derive(Debug)]
@@ -63,6 +71,9 @@ pub(in crate::runner) struct Tries {
     // The labels the research asked for that the repo has, put on after the
     // comment; the record keeps them from there
     labels: Vec<String>,
+    // The other item this issue is being closed as a duplicate of, kept with
+    // the comment so the post is followed by the close and not by labels
+    duplicate: Option<Addressed>,
 }
 
 impl Tries {
@@ -184,6 +195,22 @@ impl Runner {
             waiting.found.clone(),
         );
         let (author, said, found) = (author.as_str(), said.as_str(), &found);
+        // The research named something that already covers the issue. Kelpie
+        // closes it as a duplicate when the forge still agrees the item is
+        // open, and words an ordinary triage comment when it does not.
+        if let Some(named) = found.addressed_by.clone() {
+            match self.cover_of(issue, &named) {
+                Cover::Yes => return self.say_duplicate(issue, author, said, &named),
+                Cover::No(why) => {
+                    self.notes.push(format!(
+                        "triage #{issue}: its reply names #{} as covering it, and {why}; it is \
+                         triaged as any other issue",
+                        named.number
+                    ));
+                }
+                Cover::Unknown => return Ok(()),
+            }
+        }
         let have = match self.ports.forge.repo_labels(&self.remote) {
             Ok(have) => have,
             Err(e) => {
@@ -220,10 +247,48 @@ impl Runner {
         let tries = self.triage_tries.entry(issue).or_default();
         tries.body = Some(format!("{words}\n\n{MARKER}"));
         tries.labels = labels;
+        tries.duplicate = None;
         self.send_triage(issue)
     }
 
-    // Posts the comment kept for `issue`, records it, and goes on to its labels
+    // Words the short comment that names the other item, and posts it ahead of
+    // the close. No label is asked for: a closed duplicate carries none.
+    fn say_duplicate(
+        &mut self,
+        issue: u64,
+        author: &str,
+        said: &str,
+        named: &Addressed,
+    ) -> Result<(), StateError> {
+        let facts = duplicate_facts(named);
+        let earlier: Vec<u64> = self
+            .triage_record(issue)
+            .map(|t| t.comment)
+            .into_iter()
+            .collect();
+        let post = IssuePost {
+            kind: DUPLICATE_KIND,
+            facts: &facts,
+            earlier: &earlier,
+            author,
+            said,
+        };
+        let words = match self.represent_issue(issue, &post) {
+            Ok(words) => words,
+            Err(e) => {
+                self.triage_failed(issue, &e.to_string(), true);
+                return Ok(());
+            }
+        };
+        let tries = self.triage_tries.entry(issue).or_default();
+        tries.body = Some(format!("{words}\n\n{MARKER}"));
+        tries.labels.clear();
+        tries.duplicate = Some(named.clone());
+        self.send_triage(issue)
+    }
+
+    // Posts the comment kept for `issue`, records it, and goes on to what the
+    // record says is left: the close of a duplicate, or its labels
     pub(super) fn send_triage(&mut self, issue: u64) -> Result<(), StateError> {
         let Some(body) = self.triage_tries.get(&issue).and_then(|t| t.body.clone()) else {
             return Ok(());
@@ -234,8 +299,15 @@ impl Runner {
         }
         match self.ports.voice.post(&self.remote, issue, &body) {
             Ok(posted) => {
-                self.record_triage(issue, posted.id)?;
-                self.finish_triage(issue)
+                let cover = self
+                    .triage_tries
+                    .get(&issue)
+                    .and_then(|t| t.duplicate.as_ref().map(|t| t.number));
+                self.record_triage(issue, posted.id, cover)?;
+                match cover {
+                    Some(of) => self.close_duplicate(issue, of),
+                    None => self.finish_triage(issue),
+                }
             }
             Err(e) => {
                 let why = format!("cannot post the comment: {e}");
@@ -252,19 +324,31 @@ impl Runner {
     }
 
     // Records `comment` as `issue`'s triage comment, in place of any record it
-    // had, at the step that says the forge has it
-    pub(super) fn record_triage(&mut self, issue: u64, comment: u64) -> Result<(), StateError> {
+    // had, at the step that says the forge has it. A comment naming the other
+    // item it duplicates is recorded at `closed`, saved before the close, so a
+    // restart closes it without wording or posting the comment again
+    pub(super) fn record_triage(
+        &mut self,
+        issue: u64,
+        comment: u64,
+        duplicate_of: Option<u64>,
+    ) -> Result<(), StateError> {
         let mut next = self.state.clone();
         let Some(triage) = next.triage.as_mut() else {
             return Ok(());
         };
         triage.issues.retain(|t| t.issue != issue);
         let labels = (self.triage_tries.get(&issue)).map_or_else(Vec::new, |t| t.labels.clone());
+        let step = match duplicate_of {
+            Some(_) => TriageStep::Closed,
+            None => TriageStep::Commented,
+        };
         triage.issues.push(Triaged {
             issue,
             comment,
-            step: TriageStep::Commented,
+            step,
             labels,
+            duplicate_of,
         });
         self.save(next)?;
         self.triage_due.retain(|d| d.issue != issue);
@@ -272,11 +356,16 @@ impl Runner {
         if let Some(tries) = self.triage_tries.get_mut(&issue) {
             tries.body = None;
             tries.waiting = None;
+            tries.duplicate = None;
         }
         Ok(())
     }
 
-    fn triage_stepped(&mut self, issue: u64, step: TriageStep) -> Result<(), StateError> {
+    pub(super) fn triage_stepped(
+        &mut self,
+        issue: u64,
+        step: TriageStep,
+    ) -> Result<(), StateError> {
         let mut next = self.state.clone();
         let held = next
             .triage
@@ -295,8 +384,9 @@ impl Runner {
         self.save(next)
     }
 
-    // Does what `issue`'s record says is left: the labels the research asked
-    // for, then `needs-triage`, each step saved before the next write
+    // Does what `issue`'s record says is left: the close of a duplicate, or
+    // the labels the research asked for and then `needs-triage`, each step
+    // saved before the next write
     pub(super) fn finish_triage(&mut self, issue: u64) -> Result<(), StateError> {
         loop {
             let Some(step) = self.triage_record(issue).map(|t| t.step) else {
@@ -304,6 +394,13 @@ impl Runner {
             };
             match step {
                 TriageStep::Done => return Ok(()),
+                TriageStep::Closed => {
+                    let Some(of) = self.triage_record(issue).and_then(|t| t.duplicate_of) else {
+                        return Ok(());
+                    };
+                    self.close_duplicate(issue, of)?;
+                    return Ok(());
+                }
                 TriageStep::Commented => {
                     let labels = self
                         .triage_record(issue)
@@ -334,6 +431,28 @@ impl Runner {
             }
         }
     }
+}
+
+// What the representative words the comment of a duplicate from: the other
+// item as `#n`, what it is, why the research says it covers this issue, and
+// the close that follows the comment
+fn duplicate_facts(named: &Addressed) -> String {
+    let why = named.why.trim();
+    let reason = match why.is_empty() {
+        true => String::new(),
+        false => format!(": {why}"),
+    };
+    let mut facts = String::from("Kelpie read the issue against the repo's main branch.\n");
+    facts.push_str(&format!(
+        "\n#{} is an open {} that already covers it{reason}.\n",
+        named.number,
+        named.item.word()
+    ));
+    facts.push_str(&format!(
+        "\nKelpie closes this issue as a duplicate of #{}, and puts no labels on it.\n",
+        named.number
+    ));
+    facts
 }
 
 // What the representative words the comment from: the labels that go on, the

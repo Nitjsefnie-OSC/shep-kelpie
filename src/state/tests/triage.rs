@@ -67,6 +67,7 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
         comment: 5001,
         step: TriageStep::Labelled,
         labels: Vec::new(),
+        duplicate_of: None,
     });
     store.save(&loaded).unwrap();
     let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
@@ -74,6 +75,54 @@ fn a_file_saved_before_this_version_loads_with_no_records() {
     assert_eq!(
         saved["triage"]["issues"],
         serde_json::json!([{ "issue": 12, "comment": 5001, "step": "labelled" }])
+    );
+    assert_eq!(store.load().unwrap(), Some(loaded));
+}
+
+// A version 62 file has a record with no `duplicate_of`, so it loads with
+// none. A closed record keeps the item it was closed as a duplicate of, and
+// the step that says the close is still owed.
+#[test]
+fn a_file_saved_before_this_version_loads_with_no_duplicate() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(dir.path());
+    let mut old = serde_json::to_value(ProjectState::new()).unwrap();
+    old["version"] = 62.into();
+    old["triage"] = serde_json::json!({
+        "since": 1_791_964_800,
+        "issues": [{ "issue": 12, "comment": 5001, "step": "done" }],
+    });
+    fs::write(dir.path().join(STATE_FILE), old.to_string()).unwrap();
+
+    let mut loaded = store.load().unwrap().expect("a saved state");
+    let triage = loaded.triage.as_mut().expect("the since");
+    assert_eq!(
+        triage.issues,
+        [Triaged {
+            issue: 12,
+            comment: 5001,
+            step: TriageStep::Done,
+            labels: Vec::new(),
+            duplicate_of: None,
+        }]
+    );
+
+    triage.issues.push(Triaged {
+        issue: 13,
+        comment: 5002,
+        step: TriageStep::Closed,
+        labels: Vec::new(),
+        duplicate_of: Some(41),
+    });
+    store.save(&loaded).unwrap();
+    let text = fs::read_to_string(dir.path().join(STATE_FILE)).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["version"], VERSION);
+    assert_eq!(
+        saved["triage"]["issues"][1],
+        serde_json::json!({
+            "issue": 13, "comment": 5002, "step": "closed", "duplicate_of": 41
+        })
     );
     assert_eq!(store.load().unwrap(), Some(loaded));
 }
@@ -87,6 +136,7 @@ fn the_oldest_finished_records_go_past_the_cap() {
         comment: issue + 1_000,
         step,
         labels: Vec::new(),
+        duplicate_of: None,
     };
     let mut triage = TriageState {
         since: Timestamp(1),
