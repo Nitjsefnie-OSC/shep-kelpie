@@ -31,10 +31,12 @@ impl Wants {
     pub fn of(kind: &RulingKind) -> Self {
         match kind {
             RulingKind::Question { .. }
-            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting | Held::NoEdits) => {
-                Self::Answer
-            }
-            RulingKind::Merge { .. } => Self::Merge,
+            | RulingKind::Contribution(
+                Held::Question { .. } | Held::Waiting | Held::NoEdits | Held::CannotAdopt { .. },
+            ) => Self::Answer,
+            // Kelpie's own merge ruling and a contribution's take the same
+            // three answers.
+            RulingKind::Merge { .. } | RulingKind::Contribution(Held::Merge { .. }) => Self::Merge,
             RulingKind::Stuck(..)
             | RulingKind::AgentFiles { .. }
             | RulingKind::ForeignChange { .. }

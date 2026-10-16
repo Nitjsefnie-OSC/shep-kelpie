@@ -5,11 +5,11 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::ports::Checks;
+use crate::ports::{CLEAN, Checks};
 use crate::runner::contributions::tests::picking;
 use crate::runner::{StepReport, step};
 use crate::state::{How, Released};
-use crate::test::{Rig, git};
+use crate::test::{Rig, Scripted, git};
 
 // The fork holds the pull request's head under the name the forge reports
 const FORK_BRANCH: &str = "topic/80";
@@ -159,9 +159,17 @@ fn a_catch_up_with_main_on_an_adopted_fork_merges_into_the_fork_and_not_origin()
     let landed = rig.land_on_origin("landed.txt");
     rig.forge.set_checks(&fork_head, Checks::Passed);
 
-    let report = step(&runner).unwrap();
-    let Some(StepReport::Rebased { head: merged, .. }) = report else {
-        panic!("the fork's branch was not caught up: {report:?}");
+    // The adopted pull request is read by the project's reviewers first, and
+    // the catch-up with `main` comes at the CI gate once that pass ends.
+    let mut merged = None;
+    for _ in 0..12 {
+        if let Some(StepReport::Rebased { head, .. }) = step(&runner).unwrap() {
+            merged = Some(head);
+            break;
+        }
+    }
+    let Some(merged) = merged else {
+        panic!("the fork's branch was not caught up");
     };
 
     let fork = std::path::Path::new(&url);
@@ -181,5 +189,63 @@ fn a_catch_up_with_main_on_an_adopted_fork_merges_into_the_fork_and_not_origin()
         rig.forge.head_of("kelpie/5"),
         None,
         "nothing reached origin"
+    );
+}
+
+// The issue the pull request closes is the work item's own, and kelpie files
+// nothing.
+#[test]
+fn a_pull_request_that_closes_an_issue_is_adopted_against_that_one() {
+    let (rig, runner) = contributed();
+    release(&runner);
+    assert_eq!(rig.ask(&runner, "adopt", Some("80")).get("error"), None);
+
+    assert_eq!(step(&runner).unwrap(), Some(adopted()));
+
+    let status = rig.ask(&runner, "status", None);
+    assert_eq!(status["work_item"]["issue"], 5);
+    assert!(rig.forge.created().is_empty(), "no issue was filed");
+    assert_eq!(
+        rig.github.issues_created(),
+        0,
+        "none through the App either"
+    );
+    assert_eq!(
+        rig.forge.pull_request_body(80),
+        "Body of pull request #80.\n",
+        "its body is left as its contributor wrote it"
+    );
+}
+
+// A released contribution is kelpie's own work item now: the project's full
+// `agents.reviewers` lineup reads it, where an adopted pull request of
+// kelpie's own owes only the review bots the read they are owed.
+#[test]
+fn the_adopted_work_item_runs_the_full_agents_reviewers_pass() {
+    let (rig, runner) = contributed();
+    let head = rig.forge.head_of("topic/80").unwrap();
+    rig.forge.set_checks(&head, Checks::Passed);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    release(&runner);
+    assert_eq!(rig.ask(&runner, "adopt", Some("80")).get("error"), None);
+
+    assert_eq!(step(&runner).unwrap(), Some(adopted()));
+    for _ in 0..8 {
+        step(&runner).unwrap();
+    }
+
+    let told: Vec<String> = (rig.github.comments().into_iter())
+        .map(|(_, body)| body)
+        .collect();
+    assert_eq!(rig.reviewer.seen().len(), 1, "the qwen round ran: {told:?}");
+    assert!(
+        told.iter()
+            .any(|c| c.contains("qwen read this pull request")),
+        "{told:?}"
+    );
+    assert!(
+        told.iter()
+            .any(|c| c.contains("claude read this pull request")),
+        "{told:?}"
     );
 }

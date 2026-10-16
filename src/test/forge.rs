@@ -44,6 +44,7 @@ pub(crate) struct FakeForge {
     pull_request_closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing a pull request is refused
     pull_request_closes_down: Arc<AtomicBool>,
+    pull_request_edit_down: Arc<AtomicBool>,
     // Whether closing an issue is refused
     closes_down: Arc<AtomicBool>,
     closes_refused: Arc<AtomicUsize>,
@@ -133,6 +134,7 @@ impl FakeForge {
             closed_as: Arc::default(),
             pull_request_closings: Arc::default(),
             pull_request_closes_down: Arc::default(),
+            pull_request_edit_down: Arc::default(),
             closes_down: Arc::default(),
             closes_refused: Arc::default(),
             open: Arc::default(),
@@ -788,6 +790,11 @@ impl Forge for FakeForge {
     ) -> Result<(), ForgeError> {
         self.ask()?;
         self.opened(number)?;
+        if self.pull_request_edit_down.load(Ordering::SeqCst) {
+            return Err(ForgeError::Failed(
+                "editing a pull request is refused".into(),
+            ));
+        }
         let text = (title.to_owned(), body.to_owned());
         self.texts.lock().unwrap().insert(number, text);
         Ok(())

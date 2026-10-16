@@ -47,6 +47,8 @@ struct Hub {
     comments_refused: Option<ApiError>,
     // Why every issue body edit is refused, while it is
     issue_edits_refused: Option<ApiError>,
+    // Why every new issue is refused, while it is
+    issue_creates_refused: Option<ApiError>,
     // Whether a review that carries line comments is refused with 422, as
     // GitHub does one naming a line the diff does not show
     line_comments_refused: bool,
@@ -140,6 +142,21 @@ impl FakeGithub {
     /// Takes issue body edits again after [`Self::refuse_issue_edits`]
     pub(crate) fn accept_issue_edits(&self) {
         self.hub.lock().unwrap().issue_edits_refused = None;
+    }
+
+    /// Makes every new issue answer `error` from now on
+    pub(crate) fn refuse_issue_creates(&self, error: ApiError) {
+        self.hub.lock().unwrap().issue_creates_refused = Some(error);
+    }
+
+    /// Takes new issues again after [`Self::refuse_issue_creates`]
+    pub(crate) fn accept_issue_creates(&self) {
+        self.hub.lock().unwrap().issue_creates_refused = None;
+    }
+
+    /// How many issues the App opened
+    pub(crate) fn issues_created(&self) -> u64 {
+        self.hub.lock().unwrap().issues
     }
 
     /// Makes GitHub answer 422 to every review that carries a line comment
@@ -512,6 +529,13 @@ impl GithubApi for FakeGithub {
                 r#"{{"id":{},"created_at":"{created}"}}"#,
                 99 + hub.comment_ids
             ));
+        }
+        if let Some(error) = hub
+            .issue_creates_refused
+            .clone()
+            .filter(|_| call.path.ends_with("/issues"))
+        {
+            return Err(error);
         }
         if call.path.ends_with("/issues") {
             hub.issues += 1;

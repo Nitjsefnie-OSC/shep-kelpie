@@ -39,4 +39,34 @@ impl Rig {
         git(&clone, &["push", "--quiet", path(&fork), branch]);
         (path(&fork).to_owned(), git(&clone, &["rev-parse", "HEAD"]))
     }
+
+    /// Copies origin's `branch` to the fork as it is, and returns the fork's
+    /// URL
+    ///
+    /// The fork holds the very commit the pull request's head is, so the
+    /// runner reads the contribution as it did before, and can fetch the head
+    /// from the fork once its contributor releases it.
+    pub(crate) fn fork_at_origin(&self, branch: &str) -> String {
+        let fork = self.home.path().join("fork.git");
+        if !fork.exists() {
+            git(
+                self.home.path(),
+                &["init", "--quiet", "--bare", "-b", "main", path(&fork)],
+            );
+        }
+        let origin = self.origin();
+        let refspec = format!("+refs/heads/{branch}:refs/heads/{branch}");
+        git(
+            self.home.path(),
+            &[
+                "--git-dir",
+                path(&fork),
+                "fetch",
+                "--quiet",
+                path(&origin),
+                &refspec,
+            ],
+        );
+        path(&fork).to_owned()
+    }
 }

@@ -139,6 +139,38 @@ pub struct Contribution {
     /// `head` or nothing. A head with an answer is not asked about again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruled: Option<Ruled>,
+    /// Where kelpie's taking the pull request over stands: the issue it filed
+    /// for one that closes none, and whether the pull request's body names it
+    ///
+    /// Left out until a release or a `rework` answer to the merge ruling has
+    /// kelpie take the pull request, and gone with the record once its work
+    /// item opens. A pull request that closes an issue of its own needs no
+    /// filing, and stays without this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopting: Option<Adopting>,
+    /// What the maintainer answered a `rework` merge ruling with, for the
+    /// worker who takes the pull request over
+    ///
+    /// Left out until kelpie takes the pull request over. It is about the pull
+    /// request and not one head, so a push keeps it: the work item's start
+    /// reads it even where its contributor pushed after the answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rework: Option<String>,
+}
+
+/// How far kelpie has come to hang a released contribution's work item on an
+/// issue, for a pull request that closes none
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Adopting {
+    /// The issue kelpie filed from the pull request's title and body. A poll
+    /// that filed it and failed to edit the body files no second one.
+    pub issue: u64,
+    /// That `Resolves #<issue>` is in the pull request's body, so the merge
+    /// closes the issue and the next poll edits the body no more
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub resolves: bool,
 }
 
 /// The maintainer's answer to the merge ruling on one head of a contribution,
@@ -172,6 +204,15 @@ pub enum Verdict {
     No {
         /// The maintainer's note, until it is posted; none for a no with no
         /// note
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
+    /// Rework: kelpie takes the pull request over and finishes it itself.
+    /// The note is what the maintainer wants changed, and the worker gets it
+    /// before its first turn.
+    Rework {
+        /// The maintainer's note for the worker; none for a rework with no
+        /// note, which a tick or the card's choice gives
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
@@ -239,8 +280,12 @@ pub enum How {
     ThumbsUp,
     /// The contributor did not answer before `quiet_days` ran out
     Silence,
-    /// The maintainer chose to adopt it anyway
+    /// The maintainer had kelpie take it over: `adopt anyway` on the ruling for
+    /// a contributor who said no twice
     Maintainer,
+    /// The maintainer answered the merge ruling `rework`, which takes the pull
+    /// request over without a release from its contributor
+    Rework,
 }
 
 /// A contributor's request for a decision, handed to the maintainer as a
@@ -402,6 +447,8 @@ impl Contribution {
             asked: None,
             released: None,
             ruled: None,
+            adopting: None,
+            rework: None,
         }
     }
 
@@ -722,6 +769,17 @@ pub enum Held {
     /// on its own branch. The maintainer chooses: leave it open, which
     /// follows it no further, or close it with thanks.
     NoEdits,
+    /// A contribution kelpie has taken over cannot be adopted: its pull request
+    /// merges into another branch, or the issue its work item would hang on is
+    /// labelled for an implementer the project does not list. The maintainer
+    /// chooses: leave it open, which follows it no further, or close with
+    /// thanks. Answering is not the only way out: the reason is read again each
+    /// poll, so retargeting the pull request or fixing the label adopts it and
+    /// withdraws the ruling.
+    CannotAdopt {
+        /// Why kelpie cannot adopt it, as the maintainer reads it
+        why: String,
+    },
     /// The pass has ended and CI is green on the head, and the maintainer
     /// decides every merge of someone else's work, whatever `git.merging`
     /// says. The ruling names the findings recorded and the bot threads

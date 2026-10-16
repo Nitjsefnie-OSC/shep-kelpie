@@ -146,6 +146,19 @@ pub struct AgentLabel {
 }
 
 impl AgentLabel {
+    /// The `agent:` label of the implementer `name`, as kelpie makes it on a repo
+    pub fn of(name: &AgentName) -> Self {
+        Self {
+            name: format!("{AGENT_LABEL}{name}"),
+            about: format!("Built by kelpie's {name} agent"),
+        }
+    }
+
+    /// The label's name, as an issue carries it
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// The label to make
     pub fn new_label(&self) -> NewLabel<'_> {
         NewLabel {
@@ -158,11 +171,10 @@ impl AgentLabel {
 
 /// The `agent:` label of each implementer `agents` lists
 pub fn agent_labels(agents: &RoleAgents) -> Vec<AgentLabel> {
-    (agents.implementers.iter())
-        .map(|i| AgentLabel {
-            name: format!("{AGENT_LABEL}{}", i.name),
-            about: format!("Built by kelpie's {} agent", i.name),
-        })
+    agents
+        .implementers
+        .iter()
+        .map(|i| AgentLabel::of(&i.name))
         .collect()
 }
 

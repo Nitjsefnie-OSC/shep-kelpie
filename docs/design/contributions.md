@@ -1,6 +1,6 @@
 # Contributions
 
-Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), records the reviewers' pass over a green head (`contribution-pass.md`), and rules every merge (`contribution-merge.md`). #617 to #619, #622 to #625
+Whether and how kelpie picks up other people's pull requests. It sees and lists the others (below), reads each new head for security (`contribution-security.md`), hears what they say (`contribution-talk.md`), asks for a release (`contribution-release.md`), runs nothing of theirs but the CI runs of a head that passed the security review (below), records the reviewers' pass over a green head (`contribution-pass.md`), rules every merge (`contribution-merge.md`), and takes a released one over as its own work item (`contribution-release.md`). #617 to #619, #622 to #625, #634
 
 ## Settings
 
@@ -29,11 +29,12 @@ Whether and how kelpie picks up other people's pull requests. It sees and lists 
 - `ProjectState.contributions` holds `Contribution { pull_request, author, head, seen }`, one per pull request, oldest first; `head` is the head commit, `seen` when that head was first seen. Absent in a file saved before version 40. `src/state/contributions.rs`
 - `Runner::follow_contributions` runs once a `BOARD_POLL` before the rotation, so it runs with every slot held. It reads the pass's listing, which the board then shares. A new head updates the record; a pull request closed, merged, a draft again, or unlabelled under `label` drops it, with no post. An unreadable listing or login changes nothing.
 - `adopt_waiting` leaves a labelled contribution alone when `pick` is not `off`. With `off` a labelled fork is refused as before. `rework_asked` still refuses a fork.
+- A released contribution is queued for adoption by `follow_adoption` and adopted in the next free slot, ahead of a new issue: `contribution-release.md`. Its record is gone once its work item is open.
 - `status` lists the records as `contributions`, absent when empty.
 
 ## Remote
 
-- `worktree::Remote`, where a work item's branch lives (`Origin` or a contributor's fork), and the adoption of a released contribution: `contribution-release.md`. #631, #632
+- `worktree::Remote`, where a work item's branch lives (`Origin` or a contributor's fork), and the adoption of a released contribution: `contribution-release.md`. #631, #632, #634
 
 ## CI on a trusted head
 
