@@ -8,6 +8,7 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Any finding, nits included, goes to one fix turn; next reviewer reads the fix (skipped nits left open threads). Nit-only fix starts nothing new; bot nits on a head it read stay open. ADR 0007, #354
 - Round waits for CI on its head first (red costs no read or window); `doctor` names CI that skips drafts. #423
 - A contribution's head gets its held runs approved only after it passes the security review, and its CI is tracked in `contributions[].ci`; no reviewer reads it before `green` (ADR 0008), and then one pass of the contribution's reviewers records findings, posting none. `contributions.md`. #622, #623
+- A released contribution's adopted work item starts at the full pass: `agents.reviewers` in order, each once, not `contributions.reviewers` and not the bots-only read an adopted pull request of kelpie's own owes. A merge ruling's `rework` answer takes the pull request over the same way. `contribution-release.md`, `src/runner/adopt.rs`. #634
 - Pass restarts only on a new head that needs it (merge `rework`, accepted foreign change, rework). ADR 0006
 - Merge ruling `no <note>` = fix turn back to the ruling, no new pass; restarts pass only after unread/open-thread warning. #354
 - Reviewer = agent file on session harness (read-only), `command`, `endpoint` or `bot`; runs no commands (running tests found fewer bugs). #314
