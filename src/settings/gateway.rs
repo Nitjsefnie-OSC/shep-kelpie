@@ -316,18 +316,54 @@ impl Gateways {
         book: &Agents,
         listed: impl IntoIterator<Item = &'a AgentName>,
     ) -> Result<(), SettingsError> {
+        self.check_each(book, listed, |gateway| self.key(gateway).map(|_| ()))
+    }
+
+    /// As [`Gateways::check_listed`], for a shell that holds no gateway key, such as the one
+    /// that runs `shep kelpie set`. The key is left to the runner that holds it, and to
+    /// `doctor`, which says what this shell cannot know
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming the agent and the reason, which here is
+    /// only that kelpie's settings name no such gateway or that its URL is not
+    /// one the forwarder can dial.
+    pub fn check_listed_without_keys<'a>(
+        &self,
+        book: &Agents,
+        listed: impl IntoIterator<Item = &'a AgentName>,
+    ) -> Result<(), SettingsError> {
+        self.check_each(book, listed, |_| Ok(()))
+    }
+
+    // Refuses the first `listed` agent whose gateway cannot be dialed, or whose
+    // key `needs` cannot find.
+    fn check_each<'a>(
+        &self,
+        book: &Agents,
+        listed: impl IntoIterator<Item = &'a AgentName>,
+        needs: impl Fn(&Gateway) -> Result<(), String>,
+    ) -> Result<(), SettingsError> {
         for name in listed {
             let Some((gateway, _)) = book.get(name).and_then(|a| a.runs.gateway()) else {
                 continue;
             };
-            let host = ModelHost::Gateway(gateway.clone());
-            self.upstream(&host)
-                .map_err(|reason| SettingsError::Invalid {
+            let reason = self.dialable(gateway).and_then(&needs).err();
+            if let Some(reason) = reason {
+                return Err(SettingsError::Invalid {
                     setting: "agents",
                     reason: format!("{name}: {reason}"),
-                })?;
+                });
+            }
         }
         Ok(())
+    }
+
+    // The gateway `name` in kelpie's settings, when its URL is one the forwarder can dial.
+    fn dialable(&self, name: &GatewayName) -> Result<&Gateway, String> {
+        let gateway = self.named(name)?;
+        Upstream::new(&gateway.base()).map_err(|e| e.to_string())?;
+        Ok(gateway)
     }
 
     /// What a forwarder passes `host`'s chat calls to, with a gateway's key
@@ -431,5 +467,31 @@ mod tests {
         let err = check("https://gpu:8700").unwrap_err().to_string();
         assert!(err.contains("local"), "{err}");
         assert!(err.contains("plain `http://`"), "{err}");
+    }
+
+    #[test]
+    fn a_check_without_keys_holds_the_shape_and_names_no_key() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("local.md"),
+            "---\nrole: implementer\nharness: pi\nmodel: m\neffort: low\n\
+             gateway: paddock\ncontext: 65536\n---\n",
+        )
+        .unwrap();
+        let book = Agents::load(dir.path()).unwrap();
+        let listed = [AgentName::try_from("local".to_owned()).unwrap()];
+        let check = |table| {
+            let gateways = Gateways::reading(table, |_| None);
+            gateways.check_listed_without_keys(&book, &listed)
+        };
+        check(paddock("http://gpu:8700")).unwrap();
+        let err = check(paddock("https://gpu:8700")).unwrap_err().to_string();
+        assert!(err.contains("plain `http://`"), "{err}");
+        let err = check(BTreeMap::new()).unwrap_err().to_string();
+        assert!(
+            err.contains("local: gateway paddock is not in kelpie's settings")
+                && !err.contains("PADDOCK_KEY"),
+            "{err}"
+        );
     }
 }
