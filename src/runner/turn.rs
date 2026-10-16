@@ -572,6 +572,20 @@ impl Runner {
             &item.build,
         )
         .map_err(|e| e.to_string())?;
+        // The worker merges `origin/main` and runs no fetch of its own, so a
+        // fetch that failed leaves it merging a main kelpie last fetched.
+        let key = format!("main-fetch-{}", item.issue);
+        match &dirs.main_fetch_failed {
+            Some(why) => self.notes.standing(
+                &key,
+                format!(
+                    "issue #{}'s worker runs with `origin/main` where kelpie last fetched it: \
+                     {why}",
+                    item.issue
+                ),
+            ),
+            None => self.notes.ends(&key),
+        }
         if let Some(reason) = self.claude_files_refusal() {
             return Err(reason);
         }

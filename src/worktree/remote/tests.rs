@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use crate::test::git;
 use crate::worktree::{
-    Base, Rebase, Remote, Start, base_of, head, origin_head, prepare, rebase, remove,
+    Base, Rebase, Remote, Start, Worktree, WorktreeError, base_of, head, origin_head, prepare,
+    rebase, remove,
 };
 
 // An origin holding `main`, a clone of it, and a second bare repository as
@@ -77,6 +78,26 @@ impl Rig {
 
     fn at_worktree(&self, args: &[&str]) -> String {
         git(&self.worktree(), args)
+    }
+
+    // Take `main` off origin, which is what a fetch of it fails against
+    fn drop_main(&self) {
+        git(
+            &self.root.join("origin.git"),
+            &["update-ref", "-d", "refs/heads/main"],
+        );
+    }
+
+    fn prepared(&self, branch: &str, start: Start, remote: &Remote) -> Worktree {
+        prepare(
+            &self.repo(),
+            &self.worktree(),
+            branch,
+            start,
+            remote,
+            &self.build(),
+        )
+        .unwrap()
     }
 }
 
@@ -170,6 +191,69 @@ fn prepare_on_origin_starts_a_pushed_branch_where_origin_holds_it() {
         rig.at_worktree(&["rev-parse", "HEAD"]),
         rig.rev("origin.git", "kelpie/7")
     );
+}
+
+// The worker runs no fetch of its own, so a fetch of main that fails is told
+// to the maintainer rather than left as a ref the worker merges blind.
+#[test]
+fn a_main_fetch_that_fails_is_reported_and_the_worktree_is_kept() {
+    let rig = Rig::new();
+    rig.prepare("kelpie/7", Start::Main, &Remote::Origin);
+    rig.at_worktree(&["commit", "--quiet", "--allow-empty", "-m", "work"]);
+    let worked = rig.at_worktree(&["rev-parse", "HEAD"]);
+    rig.drop_main();
+
+    let prepared = rig.prepared("kelpie/7", Start::Main, &Remote::Origin);
+
+    let why = prepared.main_fetch_failed.expect("the failed fetch");
+    assert!(why.contains("git fetch"), "{why}");
+    assert!(why.contains("main"), "{why}");
+    assert_eq!(rig.at_worktree(&["rev-parse", "HEAD"]), worked);
+    assert!(rig.build().is_dir());
+}
+
+// A branch that is already pushed needs main only for the merge its worker
+// runs, so its worktree is made even when that fetch fails.
+#[test]
+fn a_pushed_branch_starts_and_reports_a_main_fetch_that_failed() {
+    let rig = Rig::new();
+    git(
+        &rig.repo(),
+        &["push", "--quiet", "origin", "contrib:kelpie/7"],
+    );
+    rig.drop_main();
+
+    let prepared = rig.prepared("kelpie/7", Start::Pushed, &Remote::Origin);
+
+    assert!(prepared.main_fetch_failed.is_some());
+    assert_eq!(
+        rig.at_worktree(&["rev-parse", "HEAD"]),
+        rig.rev("origin.git", "kelpie/7")
+    );
+}
+
+// A new worktree on `Start::Main` starts on that ref, so without it there is
+// nothing to cut the branch from.
+#[test]
+fn a_new_worktree_on_main_without_main_is_an_error() {
+    let rig = Rig::new();
+    rig.drop_main();
+
+    let err = prepare(
+        &rig.repo(),
+        &rig.worktree(),
+        "kelpie/7",
+        Start::Main,
+        &Remote::Origin,
+        &rig.build(),
+    )
+    .unwrap_err();
+
+    assert!(
+        matches!(&err, WorktreeError::Git { args, .. } if args.contains("fetch")),
+        "{err}"
+    );
+    assert!(!rig.worktree().exists());
 }
 
 #[test]
