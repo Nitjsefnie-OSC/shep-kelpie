@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::comment::MARKER;
 use super::limits::DAY;
-use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, triaging};
+use super::pick_tests::{MAINTAINER, due, issue, list, rig_with, status, triaging};
 use super::research_tests::{WORDS, calls, moves, reply, triage};
 use crate::ports::{AuthorAssociation, Clock, OpenIssue, Role, Timestamp};
 use crate::runner::{Runner, step};
@@ -113,6 +113,12 @@ fn the_eleventh_issue_in_a_day_waits_and_is_triaged_once_a_place_opens() {
     assert_eq!(calls(&rig, Role::Triager).len(), 0, "no eleventh call");
     assert_eq!(rig.github.comments(), [], "nothing is posted");
     assert_eq!(due(&rig, &runner), [30], "it waits in the due list");
+    let status = status(&rig, &runner);
+    assert_eq!(
+        status["triage"]["due"][0]["author_association"], "contributor",
+        "the listing says how the author stands to the repo, which is what the \
+         account check reads"
+    );
     let daily = triage(&rig, &runner)["daily"].clone();
     assert_eq!(daily["used"], 10);
     assert_eq!(daily["cap"], 10);
