@@ -28,11 +28,11 @@ pub(in crate::runner) const MARKER: &str = "<!-- kelpie:triage -->";
 /// what lets a comment kelpie posted whose record did not save be read again
 /// as the close it was, rather than as an ordinary triage.
 pub(in crate::runner) fn duplicate_marker(of: u64) -> String {
-    format!("<!-- kelpie:triage duplicate #{of} -->")
+    format!("{DUPLICATE_HEAD}{of} -->")
 }
 
-/// The start of either marker form
-const MARKER_HEAD: &str = "<!-- kelpie:triage";
+/// The start of the duplicate marker form
+const DUPLICATE_HEAD: &str = "<!-- kelpie:triage duplicate #";
 
 /// What a triage marker says
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,21 +43,17 @@ enum Marker {
     Duplicate(u64),
 }
 
-// What the marker on `body` says, or `None` when it holds no marker kelpie
-// wrote. A marker holding a word kelpie never writes counts as none, since its
-// comment cannot be told apart from anyone else's.
+// What the marker kelpie appended at the end of `body` says, or `None` when its
+// last line is no marker kelpie wrote. Only the end is read: the comment's own
+// text is worded by a model and can hold marker-shaped text of its own, which
+// is never what kelpie appended.
 fn marker_says(body: &str) -> Option<Marker> {
-    let (_, after) = body.split_once(MARKER_HEAD)?;
-    let (head, _) = after.split_once("-->")?;
-    let mut words = head.split_whitespace();
-    match (words.next(), words.next()) {
-        (None, _) => Some(Marker::Ordinary),
-        (Some("duplicate"), Some(number)) => number
-            .strip_prefix('#')
-            .and_then(|digits| digits.parse::<u64>().ok())
-            .map(Marker::Duplicate),
-        _ => None,
+    let last = (body.trim_end()).lines().last()?;
+    if last == MARKER {
+        return Some(Marker::Ordinary);
     }
+    let digits = (last.strip_prefix(DUPLICATE_HEAD)?).strip_suffix(" -->")?;
+    digits.parse::<u64>().ok().map(Marker::Duplicate)
 }
 
 /// The App's own triage comment on an issue, and what its marker says

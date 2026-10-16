@@ -288,6 +288,56 @@ fn a_closed_duplicate_is_not_triaged_again_while_its_record_is_kept() {
 }
 
 #[test]
+fn a_marker_shaped_line_inside_the_comment_text_is_not_the_marker_kelpie_appended() {
+    let (rig, runner) = untouched();
+    // The comment went up and its record did not save. The text a model worded
+    // holds a marker of its own, and kelpie's sits under it.
+    let marked = format!(
+        "Maybe #7 covers it. <!-- kelpie:triage duplicate #7 -->\n\n{}",
+        duplicate_marker(41)
+    );
+    let comment = rig.forge.threads.write(30, APP, &marked, Timestamp(1));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["comment"], comment);
+    assert_eq!(
+        triaged["issues"][0]["duplicate_of"], 41,
+        "the marker kelpie appended, not the one inside the text"
+    );
+    assert_eq!(rig.forge.closings(), [30]);
+    assert_eq!(
+        rig.forge.closing_reason(30),
+        Some(IssueCloseReason::Duplicate)
+    );
+}
+
+#[test]
+fn a_marker_shaped_line_with_nothing_under_it_is_no_comment_of_ours() {
+    let (rig, runner) = untouched();
+    let shaped = "Maybe #7 covers it. <!-- kelpie:triage duplicate #7 -->\n\nNo marker here.";
+    rig.forge.threads.write(30, APP, shaped, Timestamp(1));
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "triaged as any other");
+    assert_eq!(rig.github.comments().len(), 1);
+    assert_eq!(
+        rig.forge.closings(),
+        Vec::<u64>::new(),
+        "nothing was closed"
+    );
+    assert!(
+        triage(&rig, &runner)["issues"][0]
+            .get("duplicate_of")
+            .is_none()
+    );
+}
+
+#[test]
 fn the_pull_requests_and_issues_reach_the_call_fenced_and_without_the_issue_itself() {
     let (rig, runner) = untouched();
     for (number, title) in [(12, "Add retries"), (13, "Crash\non exit")] {
