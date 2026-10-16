@@ -188,6 +188,25 @@ fn a_guard_refusal_that_also_holds_a_timeout_is_a_guard_block() {
 }
 
 #[test]
+fn a_pi_command_a_hook_refused_after_it_ran_is_a_guard_block() {
+    let text = PI.replace(
+        "\"text\":\"\\n\\n\\nCommand exited with code 1\"",
+        &format!("\"text\":\"\\n\\n\\nCommand exited with code 1\\n{GUARD_MARK}the build is red\""),
+    );
+    let kinds = pi_of(&text);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(2),
+        "the refusal of a call, and the feedback on a result"
+    );
+    assert_eq!(
+        kinds.get("other"),
+        None,
+        "the command ran, and the refusal is what counts"
+    );
+}
+
+#[test]
 fn a_result_that_succeeded_counts_nothing() {
     let clean = CLAUDE.replace("\"is_error\":true", "\"is_error\":false");
     assert_eq!(
@@ -197,6 +216,30 @@ fn a_result_that_succeeded_counts_nothing() {
     );
     let clean = PI.replace("\"isError\":true", "\"isError\":false");
     assert_eq!(pi(&clean, 0), Vec::new(), "8 real results, none failed");
+}
+
+#[test]
+fn a_hook_that_refused_an_mcp_tool_call_is_a_hook_block() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"PostToolUse:mcp__repo__ask hook error: [~/bin/after]: the post is not yours"}]}}
+"#;
+    assert_eq!(
+        claude_of(line).get("hook-block").copied(),
+        Some(1),
+        "the tool's name is no kind of its own"
+    );
+}
+
+#[test]
+fn output_that_quotes_a_hook_refusal_is_not_one() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"Exit code 1\nthe docs say PreToolUse:Bash hook error: [cmd]: why"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("hook-block"),
+        None,
+        "not the result's own first line"
+    );
+    assert_eq!(kinds.get("other").copied(), Some(1));
 }
 
 #[test]

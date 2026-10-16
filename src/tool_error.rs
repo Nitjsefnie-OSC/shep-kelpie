@@ -159,10 +159,16 @@ fn claude_one(text: &str, tool: Option<&str>) -> ToolError {
     }
 }
 
-// A pi result that failed: its guard extension's refusal, or what else it says
+// A pi result that failed: its guard extension's refusal, or what else it says. A refusal of a
+// call is the whole result; a refusal of a command that already ran is feedback joined to its end.
 fn pi_one(text: &str, tool: Option<&str>) -> ToolError {
+    let marked = |line: &str| line.starts_with(GUARD_MARK);
+    let refused = text.lines().next().is_some_and(marked)
+        || (text.lines().rev())
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(marked);
     ToolError {
-        kind: match text.starts_with(GUARD_MARK).then_some(Kind::GuardBlock) {
+        kind: match refused.then_some(Kind::GuardBlock) {
             Some(kind) => kind,
             None => kind_of(text, tool),
         },
@@ -213,12 +219,13 @@ fn kind_of(text: &str, tool: Option<&str>) -> Kind {
 fn hook_refusal(text: &str) -> Option<&str> {
     let first = text.lines().next()?;
     let (head, rest) = first.split_once(" hook error: [")?;
+    let named = |word: &str| {
+        let mut chars = word.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
     let words: Vec<&str> = head.split(':').collect();
-    if words.len() != 2
-        || !words
-            .iter()
-            .all(|w| !w.is_empty() && w.chars().all(char::is_alphanumeric))
-    {
+    if words.len() > 2 || !words.iter().all(|w| named(w)) {
         return None;
     }
     let (command, _) = rest.split_once(']')?;
