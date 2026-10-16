@@ -27,8 +27,8 @@ use serde::Deserialize;
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed, SubIssue, Talk,
-    ThreadComment, Timestamp, Visibility, Workflow,
+    IssueCloseReason, NewLabel, OpenIssue, OpenPull, PullRequest, PullRequestState, QueueStanding,
+    Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -213,6 +213,19 @@ impl Forge for Gh {
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         issues::close_issue(repo, number)
+    }
+
+    fn close_issue_as(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        reason: IssueCloseReason,
+    ) -> Result<(), ForgeError> {
+        issues::close_issue_as(repo, number, reason)
+    }
+
+    fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+        issues::open_pulls(repo)
     }
 
     fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

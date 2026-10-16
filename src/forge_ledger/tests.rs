@@ -310,3 +310,17 @@ fn a_report_with_no_304_has_no_section_for_them() {
 
     assert!(!report(&lines, None).iter().any(|l| l.contains("304")));
 }
+
+// gh's own list commands go through its GraphQL list query, so every listing
+// kelpie asks that way spends GraphQL, whatever flags it carries.
+#[test]
+fn every_listing_gh_reads_for_kelpie_spends_graphql() {
+    for kind in [
+        Kind::OpenIssues,
+        Kind::OpenPulls,
+        Kind::OpenPullRequests,
+        Kind::ReadyIssues,
+    ] {
+        assert_eq!(kind.api(), Api::GraphQl, "{kind:?}");
+    }
+}

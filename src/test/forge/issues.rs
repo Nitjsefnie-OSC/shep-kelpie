@@ -4,7 +4,8 @@ use std::sync::atomic::Ordering;
 
 use super::FakeForge;
 use crate::ports::{
-    FinishedParent, ForgeError, OpenIssue, PullRequestState, SubIssue, SubIssueState, Timestamp,
+    FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, PullRequestState, SubIssue,
+    SubIssueState, Timestamp,
 };
 
 /// An issue kelpie opened on the fake forge
@@ -39,6 +40,12 @@ impl FakeForge {
     pub(crate) fn close_issue_as_not_planned(&self, number: u64) {
         self.not_planned.lock().unwrap().insert(number);
         self.close_issue(number);
+    }
+
+    /// Reopens closed issue `number`, as its author would. Its labels, and what
+    /// kelpie closed it for, stay as they were.
+    pub(crate) fn reopen_issue(&self, number: u64) {
+        self.closed.lock().unwrap().remove(&number);
     }
 
     /// Makes listing a parent's sub-issues fail, or work again
@@ -169,6 +176,51 @@ impl FakeForge {
     /// Makes closing a pull request fail, or work again
     pub(crate) fn set_pull_request_closes_down(&self, down: bool) {
         self.pull_request_closes_down.store(down, Ordering::SeqCst);
+    }
+
+    /// Lists open pull request `number`, titled `title` and closing `closes`,
+    /// as someone other than kelpie opening it would
+    pub(crate) fn list_open_pull(&self, number: u64, title: &str, closes: &[u64]) {
+        self.open_pull_request(number, &format!("someone/{number}"), closes);
+        self.titles.lock().unwrap().insert(number, title.to_owned());
+    }
+
+    /// The reason kelpie closed issue `number` for, once it has closed it
+    pub(crate) fn closing_reason(&self, number: u64) -> Option<IssueCloseReason> {
+        self.closed_as.lock().unwrap().get(&number).copied()
+    }
+
+    // Every open pull request, each with the title a test named it and the
+    // issues its listing says it closes
+    pub(super) fn read_open_pulls(&self) -> Result<Vec<OpenPull>, ForgeError> {
+        let states: Vec<(u64, PullRequestState)> = self
+            .pull_requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(number, pr)| (*number, pr.state))
+            .collect();
+        let titles = self.titles.lock().unwrap();
+        let texts = self.texts.lock().unwrap();
+        let open = self.open.lock().unwrap();
+        Ok(open
+            .iter()
+            .filter(|pull| {
+                states
+                    .iter()
+                    .find(|(number, _)| *number == pull.number)
+                    .is_none_or(|(_, state)| *state == PullRequestState::Open)
+            })
+            .map(|pull| OpenPull {
+                number: pull.number,
+                title: titles
+                    .get(&pull.number)
+                    .cloned()
+                    .or_else(|| texts.get(&pull.number).map(|(title, _)| title.clone()))
+                    .unwrap_or_else(|| format!("pull {}", pull.number)),
+                closes: pull.closes.clone(),
+            })
+            .collect())
     }
 
     pub(super) fn close_open_pull_request(&self, number: u64) -> Result<(), ForgeError> {

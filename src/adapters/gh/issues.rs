@@ -5,7 +5,9 @@ use serde::Deserialize;
 
 use super::review_bot::time;
 use super::{gh, unreadable};
-use crate::ports::{FinishedParent, ForgeError, OpenIssue, SubIssue, SubIssueState};
+use crate::ports::{
+    FinishedParent, ForgeError, IssueCloseReason, OpenIssue, OpenPull, SubIssue, SubIssueState,
+};
 use crate::settings::ForgeSlug;
 
 // The same ceiling the board's lists use, since `gh` lists newest first and
@@ -154,6 +156,117 @@ pub(super) fn close_issue(repo: &ForgeSlug, number: u64) -> Result<(), ForgeErro
     gh(&["issue", "close", &number, "--repo", repo.as_str()]).map(drop)
 }
 
+// `gh issue close` has no flag for the reason an issue closed for, so the
+// issue is closed through the API, which records `state_reason` on it.
+fn close_as_args(repo: &ForgeSlug, number: u64, reason: IssueCloseReason) -> Vec<String> {
+    let path = format!("repos/{}/issues/{number}", repo.as_str());
+    let why = format!("state_reason={}", reason.as_str());
+    [
+        "api",
+        "--method",
+        "PATCH",
+        path.as_str(),
+        "-f",
+        "state=closed",
+        "-f",
+        why.as_str(),
+    ]
+    .map(str::to_owned)
+    .to_vec()
+}
+
+pub(super) fn close_issue_as(
+    repo: &ForgeSlug,
+    number: u64,
+    reason: IssueCloseReason,
+) -> Result<(), ForgeError> {
+    let args = close_as_args(repo, number, reason);
+    gh(&args.iter().map(String::as_str).collect::<Vec<_>>()).map(drop)
+}
+
+pub(super) fn open_pulls(repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+    let args = [
+        "pr",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--state",
+        "open",
+        "--limit",
+        LIST_LIMIT,
+        "--json",
+        "number,title,body",
+    ];
+    parse_open_pulls(&gh(&args)?)
+}
+
+fn parse_open_pulls(stdout: &[u8]) -> Result<Vec<OpenPull>, ForgeError> {
+    #[derive(Deserialize)]
+    struct Listed {
+        number: u64,
+        title: String,
+        body: Option<String>,
+    }
+    let listed: Vec<Listed> = serde_json::from_slice(stdout).map_err(|_| unreadable(stdout))?;
+    Ok(listed
+        .into_iter()
+        .map(|pull| OpenPull {
+            number: pull.number,
+            title: pull.title,
+            closes: closes_named_in(pull.body.as_deref().unwrap_or_default()),
+        })
+        .collect())
+}
+
+// The issues a pull request's body names with `Resolves`, `Fixes` or `Closes`,
+// each keyword read in any case, in the order they first appear. As GitHub
+// reads them, the keyword is a word of its own: it may carry a colon after it
+// (`Fixes: #12`, `Fixes:#12`) and markup or punctuation before it (`(Fixes
+// #12)`, `**Fixes #12**`), and a number ends at whitespace, punctuation or the
+// end of the body: `#12abc` and `#12_3` name nothing, since GitHub reads no
+// issue of that number.
+fn closes_named_in(body: &str) -> Vec<u64> {
+    const KEYWORDS: [&str; 3] = ["resolves", "fixes", "closes"];
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let mut named = Vec::new();
+    for (at, word) in words.iter().enumerate() {
+        let word = word.trim_start_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let (keyword, tail) = match word.split_once(':') {
+            Some((keyword, tail)) => (keyword, Some(tail)),
+            None => (word, None),
+        };
+        if !KEYWORDS.iter().any(|k| keyword.eq_ignore_ascii_case(k)) {
+            continue;
+        }
+        // The number is what the colon left in the same word, or the next word
+        let tail = tail.filter(|t| !t.is_empty());
+        let rest = match tail {
+            Some(tail) => tail,
+            None => words.get(at + 1).map_or("", |next| next),
+        };
+        let Some(rest) = rest.strip_prefix('#') else {
+            continue;
+        };
+        let digits: String = (rest.chars())
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        let ends = match rest.chars().nth(digits.len()) {
+            None => true,
+            Some(next) => !(next.is_ascii_alphanumeric() || matches!(next, '_' | '-')),
+        };
+        let Ok(number) = digits.parse::<u64>() else {
+            continue;
+        };
+        if !ends || digits.is_empty() {
+            continue;
+        }
+        if !named.contains(&number) {
+            named.push(number);
+        }
+    }
+    named
+}
+
 pub(super) fn close_pull_request(repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
     let number = number.to_string();
     gh(&["pr", "close", &number, "--repo", repo.as_str()]).map(drop)
@@ -203,6 +316,111 @@ fn parse_created(stdout: &[u8]) -> Result<u64, ForgeError> {
 mod tests {
     use super::*;
     use crate::ports::Timestamp;
+
+    #[test]
+    fn an_issue_closes_with_the_reason_the_forge_records_it_under() {
+        let repo = ForgeSlug::try_from("shep-pm/koji".to_owned()).unwrap();
+        for (reason, named) in [
+            (IssueCloseReason::Duplicate, "duplicate"),
+            (IssueCloseReason::NotPlanned, "not_planned"),
+            (IssueCloseReason::Completed, "completed"),
+        ] {
+            let why = format!("state_reason={named}");
+            assert_eq!(
+                close_as_args(&repo, 12, reason),
+                [
+                    "api",
+                    "--method",
+                    "PATCH",
+                    "repos/shep-pm/koji/issues/12",
+                    "-f",
+                    "state=closed",
+                    "-f",
+                    why.as_str(),
+                ],
+                "{reason:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn open_pulls_are_read_with_the_issues_their_bodies_close() {
+        let out = br#"[
+            {"number":41,"title":"Fix the crash","body":"One line.\n\nResolves #30\nfixes #31, and Closes #30 again."},
+            {"number":42,"title":"Rework the docs","body":"No closing line here."},
+            {"number":43,"title":"No body","body":null},
+            {"number":44,"title":"Stop the crash","body":"Closes: #30, and (fixes #31)."}
+        ]"#;
+        let pulls = parse_open_pulls(out).unwrap();
+        assert_eq!(
+            pulls,
+            [
+                OpenPull {
+                    number: 41,
+                    title: "Fix the crash".into(),
+                    closes: vec![30, 31],
+                },
+                OpenPull {
+                    number: 42,
+                    title: "Rework the docs".into(),
+                    closes: Vec::new(),
+                },
+                OpenPull {
+                    number: 43,
+                    title: "No body".into(),
+                    closes: Vec::new(),
+                },
+                OpenPull {
+                    number: 44,
+                    title: "Stop the crash".into(),
+                    closes: vec![30, 31],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_closing_keyword_names_nothing_without_a_number_after_it() {
+        for body in [
+            "Resolves #<issue>",
+            "Resolves the crash",
+            "fixes issue 12",
+            "Closes#12",
+            "Fixes:: #12",
+            "Fixes::#12",
+            "Fixes. #12",
+            "unfixes #12",
+            "Resolves #12abc",
+            "Resolves #12_3",
+            "Resolves #12-13",
+            "Resolves #1x",
+            "Resolves #",
+            "Resolves:",
+        ] {
+            assert_eq!(closes_named_in(body), Vec::<u64>::new(), "{body}");
+        }
+        assert_eq!(closes_named_in("Fixes #12.\n"), [12]);
+        assert_eq!(closes_named_in("Resolves #12; fixes #13."), [12, 13]);
+    }
+
+    // GitHub reads the keyword at a word boundary and takes a colon between it
+    // and the number, with or without a space, so a body written either way
+    // names the issue, and markup around the keyword hides nothing.
+    #[test]
+    fn a_closing_keyword_names_the_number_after_a_colon_or_under_punctuation() {
+        for body in [
+            "Fixes: #12",
+            "Fixes:#12",
+            "Closes: #12",
+            "(Resolves #12)",
+            "- Fixes: #12",
+            "`Closes #12`",
+            "**Closes #12**",
+        ] {
+            assert_eq!(closes_named_in(body), [12], "{body}");
+        }
+        assert_eq!(closes_named_in("Resolves: #12 and (fixes #13)"), [12, 13]);
+    }
 
     #[test]
     fn finished_parents_are_the_issues_whose_sub_issues_are_all_closed() {

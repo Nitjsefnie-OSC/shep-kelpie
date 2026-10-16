@@ -22,8 +22,9 @@ use crate::board::TRIAGE;
 use crate::ports::{AgentCall, OpenIssue, Role, Timestamp, Tools};
 use crate::settings::{ExpertAgent, Settings, TriagePick};
 use crate::state::{ProjectState, StateError, TriageState, TriageStep, Triaged};
-use research::Listed;
+use research::{Listed, ListedPull};
 
+pub(super) mod addressed;
 pub(super) mod comment;
 pub(super) mod research;
 
@@ -199,7 +200,8 @@ impl Runner {
     }
 
     // Reads `issue`'s comments, once, for a triage comment of the App's own: one
-    // there records the issue as triaged with no call. Whether the issue needs no
+    // there records the issue as triaged with no call, and closes it again when
+    // its marker says it was closing a duplicate. Whether the issue needs no
     // call now: it was recorded, or its comments could not be read.
     fn triage_settled(&mut self, issue: u64) -> Result<bool, StateError> {
         if self.triage_tries.get(&issue).is_some_and(|t| t.read) {
@@ -207,9 +209,12 @@ impl Runner {
         }
         let before = self.triage_record(issue).map(|t| t.comment);
         match self.marked_by_app(issue, before) {
-            Ok(Some(comment)) => {
-                self.record_triage(issue, comment)?;
-                self.finish_triage(issue)?;
+            Ok(Some(marked)) => {
+                self.record_triage(issue, marked.comment, marked.duplicate_of)?;
+                match marked.duplicate_of {
+                    Some(of) => self.close_duplicate(issue, of)?,
+                    None => self.finish_triage(issue)?,
+                }
                 Ok(true)
             }
             Ok(None) => {
@@ -243,6 +248,26 @@ impl Runner {
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
             .collect();
+        let pulls = match self.ports.forge.open_pulls(&self.remote) {
+            Ok(pulls) => pulls,
+            Err(e) => {
+                let why = format!("cannot list the open pull requests: {e}");
+                self.triage_failed(issue, &why, !forge_is_busy(&e));
+                return None;
+            }
+        };
+        let listed_pulls: Vec<ListedPull> = (pulls.iter())
+            .filter(|pull| pull.number != issue)
+            .map(|pull| ListedPull {
+                number: pull.number,
+                title: pull.title.clone(),
+                closes: pull.closes.clone(),
+            })
+            .collect();
+        let shown: Vec<u64> = (listed.iter())
+            .map(|(n, _)| *n)
+            .chain(listed_pulls.iter().map(|pull| pull.number))
+            .collect();
         let agent = match self.settings.triager(&self.book) {
             Ok(agent) => agent,
             Err(e) => {
@@ -251,7 +276,7 @@ impl Runner {
             }
         };
         let most = usize::from(self.settings.triage.max_questions.get());
-        let prompt = research::prompt(issue, &this.title, &this.body, &listed, most);
+        let prompt = research::prompt(issue, &this.title, &this.body, &listed, &listed_pulls, most);
         let view = self.paths.triage(issue);
         let call = match self.triage_call(issue, &agent, &view, prompt) {
             Ok(call) => call,
@@ -265,6 +290,7 @@ impl Runner {
             author: this.author.clone(),
             said: format!("{}\n\n{}", this.title.trim(), this.body.trim()),
             agent: agent.name.as_str().to_owned(),
+            shown,
             research: Research {
                 call,
                 checkout: self.settings.git.checkout.clone(),
@@ -353,6 +379,8 @@ fn untouched(issue: &OpenIssue, since: Timestamp, only: Option<&str>) -> bool {
         && only.is_none_or(|login| issue.author.eq_ignore_ascii_case(login))
 }
 
+#[cfg(test)]
+mod addressed_tests;
 #[cfg(test)]
 mod pick_tests;
 #[cfg(test)]

@@ -13,8 +13,8 @@ use std::time::Instant;
 use super::Revalidated;
 use super::{
     BranchRun, Clock, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    LocalPace, NewLabel, OpenIssue, Pace, PullRequest, QueueStanding, Reviewed, SubIssue, Talk,
-    ThreadComment, Timestamp, Visibility, Workflow, pace,
+    IssueCloseReason, LocalPace, NewLabel, OpenIssue, OpenPull, Pace, PullRequest, QueueStanding,
+    Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow, pace,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::forge_ledger::{Ended, Identity, Kind, Ledger};
@@ -427,6 +427,21 @@ impl Forge for RateHeld {
 
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.call(Kind::CloseIssue, |f| f.close_issue(repo, number))
+    }
+
+    fn close_issue_as(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        reason: IssueCloseReason,
+    ) -> Result<(), ForgeError> {
+        self.call(Kind::CloseIssueAs, |f| {
+            f.close_issue_as(repo, number, reason)
+        })
+    }
+
+    fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+        self.call(Kind::OpenPulls, |f| f.open_pulls(repo))
     }
 
     fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

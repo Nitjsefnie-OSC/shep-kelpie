@@ -37,6 +37,8 @@ pub(in crate::runner) struct Job {
     pub(in crate::runner) author: String,
     pub(in crate::runner) said: String,
     pub(in crate::runner) agent: String,
+    /// The numbers the call was shown, which is all an `addressed_by` may name
+    pub(in crate::runner) shown: Vec<u64>,
     pub(in crate::runner) research: Research,
 }
 
@@ -55,6 +57,7 @@ pub(in crate::runner) struct Triaging {
     issue: u64,
     author: String,
     said: String,
+    shown: Vec<u64>,
     deadline: Timestamp,
     ending: Ending,
 }
@@ -109,6 +112,7 @@ impl Runner {
             author,
             said,
             agent,
+            shown,
             mut research,
         } = job;
         let now = self.ports.clock.now();
@@ -131,7 +135,14 @@ impl Runner {
             .map(|g| [g.index.clone(), g.runtime.clone()]);
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
-                researched(agents.as_ref(), &mut research, &notes, &metrics, &held)
+                researched(
+                    issue,
+                    agents.as_ref(),
+                    &mut research,
+                    &notes,
+                    &metrics,
+                    &held,
+                )
             }));
             if let Err(e) = worktree::remove_view(&research.checkout, &research.view) {
                 eprintln!("triage #{issue}: cannot remove its view of main: {e}");
@@ -166,6 +177,7 @@ impl Runner {
             issue,
             author,
             said,
+            shown,
             deadline: Timestamp(now.0.saturating_add(CEILING)),
             ending,
         });
@@ -205,7 +217,7 @@ impl Runner {
                 Ok(())
             }
             (Ok(_), Some(Ok(found))) => {
-                self.post_triage(issue, &flight.author, &flight.said, &found)
+                self.post_triage(issue, &flight.author, &flight.said, &flight.shown, &found)
             }
             (Ok(_), Some(Err(why))) => {
                 self.triage_failed(issue, &why, true);
@@ -222,6 +234,7 @@ impl Runner {
 // Runs the call in a view of `origin/main` made for it, and reads its reply
 // against that view.
 fn researched(
+    issue: u64,
     agents: &dyn Agents,
     research: &mut Research,
     notes: &Notes,
@@ -243,6 +256,7 @@ fn researched(
     }
     indexed(call, notes, metrics, ending);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));
-    let found = (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, open, view, *most));
+    let found =
+        (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, issue, open, view, *most, notes));
     (End::Turn(ran), found)
 }
