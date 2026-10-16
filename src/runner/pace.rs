@@ -169,11 +169,11 @@ impl Runner {
     }
 
     /// Who holds the gateway's lease on each model the project's local agents
-    /// call, for `status`
+    /// call, for `status`, keeping what it read for a post
     ///
     /// A model is shown by its own name, or as `model@gateway` when another
     /// gateway's model has that name, so no holder hides another.
-    pub(super) fn local_leases(&self) -> BTreeMap<String, Option<PaddockHolder>> {
+    pub(super) fn read_local_leases(&self) -> BTreeMap<String, Option<PaddockHolder>> {
         let mut shown = BTreeMap::new();
         for (gateway, model) in self.gateway_models() {
             let name = match shown.contains_key(&model) {
@@ -184,7 +184,20 @@ impl Runner {
             let holder = up.and_then(|up| self.ports.local_leases.paddock_holder(&up, &model));
             shown.insert(name, holder);
         }
+        *self.lease_holders.borrow_mut() = shown.clone();
         shown
+    }
+
+    /// The gateway's leases as they were last read, for a post
+    ///
+    /// Read once at the start, where a trigger could have been answered anyway,
+    /// and kept after that, so no pass asks the gateway.
+    pub(super) fn posted_local_leases(&self) -> BTreeMap<String, Option<PaddockHolder>> {
+        let held = self.lease_holders.borrow().clone();
+        if held.is_empty() && !self.gateway_models().is_empty() {
+            return self.read_local_leases();
+        }
+        held
     }
 
     // Each model the project's local agents call behind a gateway, once.

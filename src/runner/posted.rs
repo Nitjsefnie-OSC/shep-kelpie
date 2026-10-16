@@ -148,9 +148,12 @@ impl Runner {
     ///
     /// Called at each point where the runner has changed what `status` shows
     /// and asked the forge nothing, so what a trigger reads is never held up
-    /// by a call that waits its turn behind the login's pace.
+    /// by a call that waits its turn behind the login's pace. It asks the
+    /// gateway nothing either: a pass posts at each of these points, and a
+    /// gateway read there would hold a trigger up behind the gateway.
     pub(super) fn post(&self) {
-        let mut status = serde_json::to_value(self.status()).expect("status serializes to JSON");
+        let posted = self.status_of(self.posted_local_leases());
+        let mut status = serde_json::to_value(posted).expect("status serializes to JSON");
         let drain = serde_json::to_value(self.drain_state()).expect("the drain serializes to JSON");
         // `draining` goes in when a trigger reads the post, from the flag the
         // post itself is not held by.
@@ -164,6 +167,35 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::runner::advance;
+    use crate::test::Rig;
+
+    // A pi implementer behind a gateway, which is what makes `status` ask that
+    // gateway who holds its lease.
+    const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\neffort: low\n\
+                                  gateway: paddock\ncontext: 65536\n---\n";
+
+    // A post builds the whole status, so it must not ask the gateway itself:
+    // a pass posts at every point where it holds the runner's lock.
+    #[test]
+    fn a_pass_asks_the_gateway_for_its_leases_no_more_than_status_does() {
+        let rig = Rig::new("rotom");
+        rig.write_agent("mine", BEHIND_PADDOCK);
+        rig.implementers(&["mine"]);
+        let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
+        let gateway =
+            "[gateways.paddock]\nurl = \"http://127.0.0.1:1/\"\nkey_env = \"CARGO_PKG_NAME\"\n";
+        rig.set_kelpie_settings(&format!("{settings}{gateway}"));
+        let reads = rig.count_lease_reads();
+        let runner = rig.open().unwrap();
+        let opened = reads.count();
+
+        assert_eq!(rig.ask(&runner, "status", None)["project"], "rotom");
+        assert_eq!(reads.count(), opened + 1, "`status` asks the gateway once");
+
+        advance(&runner).unwrap();
+        assert_eq!(reads.count(), opened + 1, "a pass asked the gateway again");
+    }
 
     #[test]
     fn a_posted_body_is_the_last_one_posted() {

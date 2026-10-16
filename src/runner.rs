@@ -388,6 +388,8 @@ pub struct Runner {
     // read, held beside the runner so a trigger can reach it while a pass
     // holds the runner's lock. In memory only, so a restart ends the drain.
     postings: Arc<posted::Posted>,
+    // Who holds each gateway model's lease, as last read, so a post asks nothing
+    lease_holders: std::cell::RefCell<BTreeMap<String, Option<crate::ports::PaddockHolder>>>,
     // What `finish` keeps in memory, beside the state file's `finishing`
     finish: finishing::Finish,
     // What the answers folder held that was no answer, in memory only
@@ -651,6 +653,7 @@ impl Runner {
             panel: panel::Desk::default(),
             retro_book: retro::Book::default(),
             postings,
+            lease_holders: std::cell::RefCell::default(),
             finish: finishing::Finish::default(),
             left: left::Seen::default(),
             late_reads: BTreeMap::new(),
@@ -719,6 +722,13 @@ impl Runner {
 
     /// The project's state as `status` reports it
     pub fn status(&self) -> Status<'_> {
+        self.status_of(self.read_local_leases())
+    }
+
+    pub(super) fn status_of(
+        &self,
+        local_leases: BTreeMap<String, Option<crate::ports::PaddockHolder>>,
+    ) -> Status<'_> {
         let now = self.ports.clock.now();
         Status {
             project: self.project.as_str(),
@@ -763,7 +773,7 @@ impl Runner {
             pull_request_template: self.template_source(),
             gpu: self.gpu.status(),
             disk_free_bytes: self.builds.free_bytes(),
-            local_leases: self.local_leases(),
+            local_leases,
             board: &self.paths.board,
             pm: self.pm_status(),
             build: crate::upgrade::seen::running(),
