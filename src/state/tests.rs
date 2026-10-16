@@ -16,7 +16,7 @@ fn store_in(dir: &Path) -> StateStore {
 // deliberate edit here and shows in review. Every other test reads `VERSION`.
 #[test]
 fn the_state_file_version_is_pinned() {
-    assert_eq!(VERSION, 64);
+    assert_eq!(VERSION, 65);
 }
 
 // Large, so a kill is likely to land inside a write, and uniform, so a
@@ -930,5 +930,6 @@ mod merge;
 mod numbered;
 mod pass;
 mod release;
+mod remote;
 mod triage;
 mod versions;

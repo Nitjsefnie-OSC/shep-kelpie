@@ -38,14 +38,14 @@ Review passes, bots, rulings. CI and the merge are in merge.md.
 - Unheard summon resent once after 15 min, same lease. #122
 - CodeRabbit gets `full review` on a PR it read or after catch-up (label sees only new commits). Clean catch-up with `main` summons no bot (own diff unchanged; CI checks combined code). #100, #106
 - cubic summoned by comment (no label); Codex by `@codex review` or marking ready; `P0` to `P3` badges are severities. #124, #126
-- Bot `rounds` caps reads per PR; adopted PR owes each bot a fresh summon. #84, #158
+- Bot `rounds` caps reads per PR; adopted PR owes each bot a fresh summon; a released one too (`contribution-release.md`). #84, #158, #632
 
 ## Rulings
 
-- Seven kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `src/runner/ruling.rs`
+- Seven kinds: `merge`, `question`, `stuck` (with reason), `agent-files`, `foreign-change`, `follow-up` (kept: findings wait for a yes), `contribution` (with reason: `security`, `over-budget`, `question`, `waiting`, `no-edits`, `merge`; see `contribution-release.md`, `contribution-merge.md`). ADR 0006, #330, `src/runner/ruling.rs`
 - A `contribution` ruling has no work item and is never posted on the contributor's pull request (it would accuse them and tip off an attacker): webhook, `status` and `rule` only. It never goes to the panel, and `rulings.pm_alone` naming `security` or `contribution-merge` is refused at load. #620, #629, #630
 - Ruling = log line + `status` entry + webhook post with one question; `no <note>` is worker's next turn. #89
-- A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The number is the ruling's only name: the counter ids are gone, and a state file saved under them is renamed when it loads (version 38). #508, #509
+- A ruling is named by its number where the maintainer reads it: `#<pr>`, or `#<issue>` before there is a pull request. The question, the webhook title, kelpie's GitHub comment and card and `status`'s `id` all show it, and a reply starts with it. The counter ids are gone; a state file saved under them is renamed on load (version 38). #508, #509
 - `rule <number> <answer>` (`rule 427`; one ruling per item within a project), refuses an answer older than the ruling. An answer file left under an old counter id is read once, then refused. #509. Each trigger is `shep kelpie <verb>`, project from folder unless `-p`. #119, #507
 - `rule` reaches a stopped runner via `<kelpie home>/<project>/answers/<number>` files applied next pass. `src/runner/trigger.rs`
 - One webhook (`discord` or `ntfy`) until shep carries questions; URL is a credential, passed to `curl` on stdin. ADR 0005, #333, `src/webhook.rs`

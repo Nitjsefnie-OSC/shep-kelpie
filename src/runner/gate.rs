@@ -23,7 +23,7 @@ use crate::settings::Merging;
 use crate::skills::Step;
 use crate::state::{RulingKind, StateError, Stuck};
 use crate::work_item::{Phase, Review, Turn, foreign_change};
-use crate::worktree::{self, Base, Remote};
+use crate::worktree::{self, Base};
 
 // GitHub registers the checks a push or a ready pull request starts within
 // seconds, one at a time. Kelpie trusts a rollup once two minutes have passed.
@@ -312,7 +312,7 @@ impl Runner {
             &self.settings.git.checkout,
             &item.branch,
             head,
-            &Remote::Origin,
+            &item.remote,
         )
         .map_err(|e| format!("cannot fetch main: {e}"))
     }

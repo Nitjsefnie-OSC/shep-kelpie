@@ -111,7 +111,7 @@ impl RulingName {
             RulingKind::Contribution(held) => match held {
                 Held::Security { .. } => Self::Security,
                 Held::OverBudget { .. } => Self::OverBudget,
-                Held::Question { .. } | Held::Waiting => Self::Question,
+                Held::Question { .. } | Held::Waiting | Held::NoEdits => Self::Question,
                 Held::Merge { .. } => Self::ContributionMerge,
             },
             RulingKind::Stuck(stuck) => match stuck {

@@ -3,7 +3,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -278,6 +277,7 @@ impl FakeForge {
             state: PullRequestState::Open,
             draft: true,
             from_fork: false,
+            fork: None,
             author: VIEWER.to_owned(),
             author_is_bot: false,
         };
@@ -376,21 +376,6 @@ impl FakeForge {
     /// Every merge made, with the head it was held to
     pub(crate) fn merges(&self) -> Vec<(u64, String)> {
         self.merges.lock().unwrap().clone()
-    }
-
-    /// The commit `branch` points at on origin, if it exists there
-    pub(crate) fn head_of(&self, branch: &str) -> Option<String> {
-        let output = Command::new("git")
-            .arg("--git-dir")
-            .arg(&self.origin)
-            .args(["rev-parse", "--verify", "--quiet"])
-            .arg(format!("refs/heads/{branch}"))
-            .output()
-            .unwrap();
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
     }
 
     fn opened(&self, number: u64) -> Result<FakePullRequest, ForgeError> {
@@ -582,6 +567,13 @@ impl Forge for FakeForge {
             base: pr.base,
             branch: pr.branch,
             from_fork: pr.from_fork,
+            maintainer_can_edit: pr.fork.as_ref().is_some_and(|(_, edits)| *edits),
+            head_clone_url: match pr.fork {
+                Some((url, _)) => Some(url),
+                // A branch of the repo itself is cloned from origin.
+                None if !pr.from_fork => Some("origin".to_owned()),
+                None => None,
+            },
             author: pr.author,
             draft: pr.draft,
             labels: self.coderabbit.labels(number),

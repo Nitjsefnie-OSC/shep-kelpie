@@ -507,6 +507,17 @@ pub fn origin_head(repo: &Path, branch: &str, remote: &Remote) -> Result<String,
     git(repo, ["rev-parse", "--verify", "--quiet", &tracking])
 }
 
+/// Fetches `origin/main` and `branch` from `remote` together, and returns the
+/// branch's head
+///
+/// # Errors
+///
+/// [`WorktreeError`] naming the git command that failed.
+pub fn head_with_main(repo: &Path, branch: &str, remote: &Remote) -> Result<String, WorktreeError> {
+    let tracking = remote.fetch_with_main(repo, branch)?;
+    git(repo, ["rev-parse", "--verify", "--quiet", &tracking])
+}
+
 /// The commit `worktree` has checked out
 ///
 /// # Errors

@@ -13,7 +13,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::worktree::{self, BASE, WorktreeError, git};
+use crate::worktree::{self, BASE, Remote, WorktreeError, git};
 
 mod nested;
 
@@ -186,7 +186,8 @@ fn folds_to(part: &OsStr, name: &str) -> bool {
     folded == name
 }
 
-/// Fetches `branch`, and names the harnesses' own files its head changes
+/// Fetches `branch` from `remote`, and names the harnesses' own files its head
+/// changes
 ///
 /// A file counts when the branch changes it from `main`, and from `accepted`,
 /// a head whose change to them the maintainer accepted, if there is one.
@@ -198,11 +199,10 @@ fn folds_to(part: &OsStr, name: &str) -> bool {
 pub fn changed(
     repo: &Path,
     branch: &str,
+    remote: &Remote,
     accepted: Option<&str>,
 ) -> Result<(String, Vec<String>), WorktreeError> {
-    git(repo, ["fetch", "--quiet", "origin", BASE, branch])?;
-    let tracking = format!("refs/remotes/origin/{branch}");
-    let head = git(repo, ["rev-parse", "--verify", "--quiet", &tracking])?;
+    let head = worktree::head_with_main(repo, branch, remote)?;
     let between = |range: &str| -> Result<Vec<String>, WorktreeError> {
         let names = git(repo, ["diff", "--name-only", "--no-renames", "-z", range])?;
         Ok(names
@@ -513,7 +513,9 @@ mod tests {
         }
 
         fn changed(&self, accepted: Option<&str>) -> Vec<String> {
-            changed(&self.repo(), "kelpie/7", accepted).unwrap().1
+            changed(&self.repo(), "kelpie/7", &Remote::Origin, accepted)
+                .unwrap()
+                .1
         }
 
         fn push_branch(&self, file: &str, text: &str) -> String {

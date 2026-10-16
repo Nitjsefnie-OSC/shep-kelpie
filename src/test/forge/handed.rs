@@ -15,6 +15,9 @@ pub(super) struct FakePullRequest {
     pub(super) state: PullRequestState,
     pub(super) draft: bool,
     pub(super) from_fork: bool,
+    // Where the fork is cloned from, and whether its owner lets the
+    // maintainers edit it
+    pub(super) fork: Option<(String, bool)>,
     pub(super) author: String,
     pub(super) author_is_bot: bool,
 }

@@ -25,6 +25,7 @@
 //! `budget.per_item_usd` no call starts until a ruling is answered
 //! ([`budget`]).
 
+mod adopt;
 mod answer;
 mod bots;
 mod budget;
@@ -41,8 +42,8 @@ mod security;
 pub(super) use bots::waiting_on;
 pub use clock::Followed;
 pub(super) use ruling::{
-    ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, flagged_lines, keep_answer, raise_budget,
-    rule_merge, settle, trust,
+    ADOPT_ANYWAY, CLOSE_WITH_THANKS, KEEP_WAITING, LEAVE_OPEN, flagged_lines, keep_answer,
+    raise_budget, rule_merge, settle, trust,
 };
 
 use crate::ports::{Agents, Ending, Reviewer};
@@ -159,7 +160,8 @@ impl Runner {
             Pick::Label => labelled,
             Pick::All => true,
         };
-        picked && !pr.draft && self.by_someone_else(pr, own)
+        let left = self.state.left_open.contains(&pr.number);
+        picked && !pr.draft && !left && self.by_someone_else(pr, own)
     }
 
     // Whether another person opened `pr`, ready or not: the contributions
@@ -203,6 +205,19 @@ impl Runner {
             return Ok(());
         };
         self.flights.security_retry();
+        // The maintainer's choice to leave a pull request open lasts as long
+        // as it is open.
+        if self
+            .state
+            .left_open
+            .iter()
+            .any(|n| !open.iter().any(|pr| pr.number == *n))
+        {
+            let mut next = self.state.clone();
+            next.left_open
+                .retain(|n| open.iter().any(|pr| pr.number == *n));
+            self.save(next)?;
+        }
         let mut followed: Vec<Contribution> = Vec::new();
         for pr in open.iter().filter(|pr| self.is_contribution(pr, &own)) {
             let known = (self.state.contributions.iter()).find(|c| c.pull_request == pr.number);
@@ -242,6 +257,8 @@ impl Runner {
     }
 }
 
+#[cfg(test)]
+mod adopt_tests;
 #[cfg(test)]
 mod answer_tests;
 #[cfg(test)]

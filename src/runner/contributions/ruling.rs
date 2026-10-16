@@ -19,7 +19,9 @@ use super::super::words::NO_NOTE;
 use super::super::{Answer, RuleError};
 use crate::ports::{Cost, Finding, Timestamp};
 use crate::settings::PerItemUsd;
-use crate::state::{Asked, Held, How, ProjectState, Released, Ruled, Ruling, RulingKind, Verdict};
+use crate::state::{
+    Asked, Contribution, Held, How, ProjectState, Released, Ruled, Ruling, RulingKind, Verdict,
+};
 
 /// The answer to the ruling for a contributor who said no twice that waits
 /// on, and asks again after
@@ -27,6 +29,10 @@ pub(in crate::runner) const KEEP_WAITING: &str = "keep waiting";
 
 /// The answer that takes the pull request over anyway
 pub(in crate::runner) const ADOPT_ANYWAY: &str = "adopt anyway";
+
+/// The answer that leaves a pull request kelpie cannot finish open and
+/// follows it no further
+pub(in crate::runner) const LEAVE_OPEN: &str = "leave it open";
 
 /// The answer that thanks the contributor and closes the pull request
 pub(in crate::runner) const CLOSE_WITH_THANKS: &str = "close with thanks";
@@ -102,6 +108,12 @@ pub(super) fn raise_waiting(next: &mut ProjectState, pull_request: u64, now: Tim
     raise_held(next, pull_request, Held::Waiting, now);
 }
 
+/// Adds the ruling that asks what to do about a fork kelpie cannot push to,
+/// whose contributor has been quiet, to `next`
+pub(super) fn raise_no_edits(next: &mut ProjectState, pull_request: u64, now: Timestamp) {
+    raise_held(next, pull_request, Held::NoEdits, now);
+}
+
 /// Adds the ruling that asks whether `pull_request`'s `head` is merged to
 /// `next`, with `facts` after its question: what the reviewers found
 pub(super) fn raise_merge(
@@ -162,7 +174,7 @@ pub(super) fn withdraw(next: &mut ProjectState) {
             (followed.iter()).any(|c| c.pull_request == r.number() && c.head == *head)
         }
         RulingKind::Contribution(
-            Held::OverBudget { .. } | Held::Question { .. } | Held::Waiting,
+            Held::OverBudget { .. } | Held::Question { .. } | Held::Waiting | Held::NoEdits,
         ) => (followed.iter()).any(|c| c.pull_request == r.number()),
         _ => true,
     });
@@ -254,21 +266,33 @@ pub(in crate::runner) fn rule_merge(next: &mut ProjectState, answer: &Answer, ru
 /// adopting anyway records a release by the maintainer, and closing with
 /// thanks is left for the next poll, which has the representative say it
 ///
+/// The answers to the ruling for a fork kelpie cannot push to are the same
+/// kind of choice: leaving it open drops the pull request from the ones
+/// followed, and closing with thanks is left for the next poll.
+///
 /// # Errors
 ///
-/// [`RuleError::Choice`] when the text is none of the three.
+/// [`RuleError::Choice`] when the text is none of the three, or of the two
+/// for a fork without edits.
 pub(in crate::runner) fn settle(
     next: &mut ProjectState,
     answer: &Answer,
     ruling: &Ruling,
     now: Timestamp,
 ) -> Result<(), RuleError> {
-    let (Answer::Text(text), RulingKind::Contribution(Held::Waiting)) = (answer, &ruling.kind)
-    else {
+    let (Answer::Text(text), RulingKind::Contribution(held)) = (answer, &ruling.kind) else {
         return Ok(());
+    };
+    let no_edits = match held {
+        Held::Waiting => false,
+        Held::NoEdits => true,
+        _ => return Ok(()),
     };
     let words = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let chosen = words.to_ascii_lowercase();
+    if no_edits {
+        return settle_no_edits(next, ruling, &words, now);
+    }
     let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == ruling.number());
     match chosen.as_str() {
         KEEP_WAITING | "keep" => {
@@ -285,24 +309,54 @@ pub(in crate::runner) fn settle(
                 });
             }
         }
-        CLOSE_WITH_THANKS | "close" => {
-            if let Some(held) = followed {
-                let asked = held.asked.get_or_insert_with(|| Asked {
-                    comment: 0,
-                    at: now,
-                    asks: 0,
-                    nos: 0,
-                    read: Vec::new(),
-                    closing: false,
-                    thanked: false,
-                });
-                asked.closing = true;
-            }
-        }
+        CLOSE_WITH_THANKS | "close" => close_with_thanks(followed, now),
         _ => {
             let why = format!(
                 "takes `{KEEP_WAITING}`, `{ADOPT_ANYWAY}` or `{CLOSE_WITH_THANKS}`, not {words:?}"
             );
+            return Err(RuleError::Choice(ruling.id, why));
+        }
+    }
+    Ok(())
+}
+
+fn close_with_thanks(followed: Option<&mut Contribution>, now: Timestamp) {
+    if let Some(held) = followed {
+        let asked = held.asked.get_or_insert_with(|| Asked {
+            comment: 0,
+            at: now,
+            asks: 0,
+            nos: 0,
+            read: Vec::new(),
+            closing: false,
+            thanked: false,
+        });
+        asked.closing = true;
+    }
+}
+
+// The answer to the ruling for a fork kelpie cannot push to. Leaving it open
+// only notes the pull request: the next poll drops its record, with the
+// turns it held, and does not take it up again.
+fn settle_no_edits(
+    next: &mut ProjectState,
+    ruling: &Ruling,
+    words: &str,
+    now: Timestamp,
+) -> Result<(), RuleError> {
+    let number = ruling.number();
+    match words.to_ascii_lowercase().as_str() {
+        LEAVE_OPEN | "leave" => {
+            if !next.left_open.contains(&number) {
+                next.left_open.push(number);
+            }
+        }
+        CLOSE_WITH_THANKS | "close" => {
+            let followed = (next.contributions.iter_mut()).find(|c| c.pull_request == number);
+            close_with_thanks(followed, now);
+        }
+        _ => {
+            let why = format!("takes `{LEAVE_OPEN}` or `{CLOSE_WITH_THANKS}`, not {words:?}");
             return Err(RuleError::Choice(ruling.id, why));
         }
     }

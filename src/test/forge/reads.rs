@@ -1,8 +1,11 @@
 //! The fake forge's reads of pull requests, and the count of each kind
 
+use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::AtomicUsize;
 
 use super::FakeForge;
+use super::handed::FakePullRequest;
 use crate::board::{OpenPullRequest, ReviewMarks};
 use crate::ports::{Checks, ForgeError, PullRequest, PullRequestState};
 
@@ -55,9 +58,47 @@ impl FakeForge {
             .from_fork = true;
     }
 
+    /// Makes pull request `number` come from the fork cloned from `url`,
+    /// whose owner lets the maintainers edit it or not
+    pub(crate) fn set_fork(&self, number: u64, url: &str, maintainer_can_edit: bool) {
+        let mut prs = self.pull_requests.lock().unwrap();
+        let pr = prs.get_mut(&number).expect("an opened pull request");
+        pr.from_fork = true;
+        pr.fork = Some((url.to_owned(), maintainer_can_edit));
+    }
+
     pub(super) fn count_review(&self, number: u64) {
         let mut counts = self.review_counts.lock().unwrap();
         *counts.entry(number).or_default() += 1;
+    }
+
+    /// The commit `branch` points at on origin, if it exists there
+    pub(crate) fn head_of(&self, branch: &str) -> Option<String> {
+        Self::head_in(&self.origin, branch)
+    }
+
+    // The commit `branch` points at in the bare repository `git_dir`
+    pub(super) fn head_in(git_dir: &Path, branch: &str) -> Option<String> {
+        let output = Command::new("git")
+            .arg("--git-dir")
+            .arg(git_dir)
+            .args(["rev-parse", "--verify", "--quiet"])
+            .arg(format!("refs/heads/{branch}"))
+            .output()
+            .unwrap();
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    }
+
+    // The head of `pr`'s branch in the repository it lives in: the fork when
+    // one was set that is a folder on disk, else origin
+    fn head_in_its_repository(&self, pr: &FakePullRequest) -> Option<String> {
+        match &pr.fork {
+            Some((url, _)) if Path::new(url).is_dir() => Self::head_in(Path::new(url), &pr.branch),
+            _ => self.head_of(&pr.branch),
+        }
     }
 
     // Pull request `number` as the forge shows it now, with no call counted
@@ -67,7 +108,7 @@ impl FakeForge {
         let head = match lagging {
             Some(head) => head,
             None => self
-                .head_of(&pr.branch)
+                .head_in_its_repository(&pr)
                 .ok_or_else(|| ForgeError::Failed(format!("no branch {} on origin", pr.branch)))?,
         };
         let checks = self.checks.lock().unwrap().get(&head).cloned();

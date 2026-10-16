@@ -20,7 +20,7 @@ use crate::ports::Timestamp;
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
-use crate::worktree::{self, Remote};
+use crate::worktree::{self};
 
 mod act;
 mod prompts;
@@ -332,7 +332,7 @@ impl Runner {
             && let RulingKind::ForeignChange { known: seen, .. } = &ruling.kind
         {
             let tip =
-                worktree::origin_head(&self.settings.git.checkout, &item.branch, &Remote::Origin)
+                worktree::origin_head(&self.settings.git.checkout, &item.branch, &item.remote)
                     .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
             if tip != *to {
                 let change = foreign_change(&item.known, &seen.labels, seen.ready, &tip);
@@ -440,15 +440,8 @@ impl Runner {
                     item.phase = match (from, to) {
                         (Some(from), Some(to)) if from != to => {
                             let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                            worktree::adopt(
-                                repo,
-                                &item.worktree,
-                                branch,
-                                &from,
-                                &to,
-                                &Remote::Origin,
-                            )
-                            .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
+                            worktree::adopt(repo, &item.worktree, branch, &from, &to, &item.remote)
+                                .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
                             Phase::Review(Review::first())
                         }
                         _ => Phase::Ci {
@@ -461,7 +454,7 @@ impl Runner {
                 }
                 Move::Decline { prompt, from, to } => {
                     let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &Remote::Origin)
+                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &item.remote)
                         .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
                     item.known.head = Some(to);
                     let review = Some(Phase::Review(Review::first()));
@@ -617,7 +610,7 @@ impl Runner {
 // Returns whether it does; an unchanged head keeps its place.
 fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError> {
     let known = item.known.head.clone();
-    let tip = worktree::origin_head(repo, &item.branch, &Remote::Origin)
+    let tip = worktree::origin_head(repo, &item.branch, &item.remote)
         .map_err(|e| RuleError::Adopt(known.clone().unwrap_or_default(), e.to_string()))?;
     let from = match known {
         Some(known) => known,
@@ -633,7 +626,7 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
         &item.branch,
         &from,
         &tip,
-        &Remote::Origin,
+        &item.remote,
     )
     .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
     item.known.head = Some(tip);
@@ -721,13 +714,14 @@ fn decide(
         // No work item is parked on it, so an answer only clears it. For a
         // decision the representative words the text for the contributor; a
         // waiting ruling's text is a choice that kelpie carries out.
-        (Answer::Text(_), RulingKind::Contribution(Held::Question { .. } | Held::Waiting)) => {
-            Phase::Implement
-        }
+        (
+            Answer::Text(_),
+            RulingKind::Contribution(Held::Question { .. } | Held::Waiting | Held::NoEdits),
+        ) => Phase::Implement,
         (
             _,
             RulingKind::Question { .. }
-            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting),
+            | RulingKind::Contribution(Held::Question { .. } | Held::Waiting | Held::NoEdits),
         ) => {
             return Err(RuleError::WantsAnswer(id));
         }
