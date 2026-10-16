@@ -115,6 +115,31 @@ fn a_limit_that_is_negative_or_not_a_number_is_refused_naming_it() {
 }
 
 #[test]
+fn a_daily_cap_past_the_records_a_count_can_see_is_refused_naming_it() {
+    assert_eq!(
+        u32::try_from(crate::state::TRIAGED_KEPT).unwrap(),
+        crate::settings::triage::MOST_PER_DAY,
+        "the caps are bounded by what the state keeps"
+    );
+    for key in ["per_day", "per_author_per_day"] {
+        for n in [201, 1_000, u32::MAX] {
+            let err = parse_err(&with(&format!("{key} = {n}\n")));
+            assert!(
+                err.contains(key) && err.contains("200"),
+                "{key} = {n}: {err}"
+            );
+        }
+        let t = parse(&with(&format!("{key} = 200\n"))).unwrap().triage;
+        let got = if key == "per_day" {
+            t.per_day
+        } else {
+            t.per_author_per_day
+        };
+        assert_eq!(got, 200, "{key} = 200 is the ceiling");
+    }
+}
+
+#[test]
 fn an_unknown_key_in_triage_is_refused_naming_it() {
     let err = parse_err(&with("pik = \"all\"\n"));
     assert!(err.contains("pik"), "{err}");
