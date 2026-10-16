@@ -82,6 +82,23 @@ pub(super) const NEEDS_TRIAGE: NewLabel<'static> = NewLabel {
     description: "Kelpie researched this issue; it waits on the maintainer",
 };
 
+// The label made for a priority on a repo that has no label for it, under
+// the name the board ranks by
+fn priority_label(priority: &str) -> Option<NewLabel<'static>> {
+    let (name, description) = match priority {
+        "P1" => ("priority: P1", "Next up"),
+        "P2" => ("priority: P2", "After P1"),
+        "P3" => ("priority: P3", "Wanted, once higher priorities are done"),
+        "P4" => ("priority: P4", "Wanted someday, after everything above it"),
+        _ => return None,
+    };
+    Some(NewLabel {
+        name,
+        color: "c5def5",
+        description,
+    })
+}
+
 /// What kind of post the representative is asked for
 const KIND: &str = "Write the first triage comment on this issue, from what kelpie found in the \
     repo. Greet the author, say what was found, and ask only the questions listed. It is a \
@@ -312,6 +329,21 @@ impl Runner {
         self.say_triage(issue)
     }
 
+    // The board's label for `priority`, made on the repo, or none with a note
+    // where the forge would not make it
+    fn made_priority(&self, issue: u64, priority: &str) -> Option<String> {
+        let label = priority_label(priority)?;
+        match self.make_missing_labels([label]) {
+            Ok(()) => Some(label.name.to_owned()),
+            Err(why) => {
+                self.notes.push(format!(
+                    "triage #{issue}: {why}, so it goes on with no priority"
+                ));
+                None
+            }
+        }
+    }
+
     // Words the comment from the waiting research and posts it
     fn say_triage(&mut self, issue: u64) -> Result<(), StateError> {
         // The call can run for minutes, and the author's session can rewrite the
@@ -364,14 +396,16 @@ impl Runner {
         // The reply names a type `bug` and a priority `P2`. The board ranks by
         // `priority: P2`, the label name it reads, so a priority is looked for
         // under that name first, and under the bare `P2` only on a repo that
-        // names its priorities that way. A label the repo does not have is
-        // never put on.
+        // names its priorities that way. A repo with neither gets the board's
+        // name made, so no priority the triager chose is dropped. A type the
+        // repo does not have is never put on.
         let mut labels: Vec<String> = Vec::new();
         if let Some(kind) = found.kind {
             labels.extend(board::repo_label(&have, kind).map(str::to_owned));
         }
         if let Some(priority) = found.priority {
-            labels.extend(board::repo_priority(&have, priority).map(str::to_owned));
+            let named = board::repo_priority(&have, priority).map(str::to_owned);
+            labels.extend(named.or_else(|| self.made_priority(issue, priority)));
         }
         // A triage label the maintainer put on while the call ran stands, and
         // it is read for before the comment is worded: the comment never
