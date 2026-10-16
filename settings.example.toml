@@ -335,11 +335,27 @@ compact_window = 200000
 # 10, the most one comment asks. `agent` is an agent file whose role is
 # `triager`. The agent file is checked only when `pick` is not `off`. A change
 # waits for the runner's next start.
+#
+# Four limits are checked before any issue's research call, so a burst of issues
+# or one noisy author cannot spend the triager's budget. Each is 0 for off, and
+# the maintainer's own issues and `shep kelpie triage <issue>` skip all four.
+# `per_day` is the most triage calls in any 24 hours: an issue past it stays in
+# `triage.due` for the next free place and is never dropped. `per_author_per_day`
+# is the most triage calls on one author's issues in any 24 hours: an issue past
+# it is labelled `needs-triage` with no call and no comment. `min_account_days`
+# is the age in days an author's account must reach, and one younger, with no
+# history in the repo, is labelled `needs-triage` the same way. `max_body_kb` is
+# the most of an issue body the triager is given, cut at that size with a line
+# in the fence saying it was cut and how long it was; the title is never cut.
 # [app.dogs.kelpie.triage]
 # pick = "off"
 # wait_days = 7
 # max_questions = 10
 # agent = "triager"
+# per_day = 10
+# per_author_per_day = 2
+# min_account_days = 30
+# max_body_kb = 20
 
 # Whether kelpie merges the bumps bots open. `pick` is `off` (every bot's pull
 # request is left alone) or `on`. A bump behind `main` is asked to rebase once

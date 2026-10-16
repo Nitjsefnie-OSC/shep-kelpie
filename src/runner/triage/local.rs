@@ -345,8 +345,19 @@ impl Runner {
                 (false, false, false, true) => Purpose::LocalRead,
                 _ => continue,
             };
+            // The day's cap reaches the round as it reaches the first pass, and
+            // the record is where its author comes from, filled in from the
+            // listing when the record names none. A round call waits for a free
+            // place instead of ending the issue, which is already triaged, and a
+            // round is read from the records at every poll. The author's share and
+            // the account's age are left out here: they decide which of an
+            // author's issues kelpie took on, and this is one it took on already.
+            let limited = self.triage_limited(&record.author, false);
+            if limited && self.triage_round_held() {
+                continue;
+            }
             self.flights.triage_try(issue);
-            if let Some(job) = self.triage_job(issue, purpose) {
+            if let Some(job) = self.triage_job(issue, purpose, limited) {
                 return Ok(Some(Begin::Triage(job)));
             }
         }

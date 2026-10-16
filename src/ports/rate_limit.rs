@@ -370,6 +370,10 @@ impl Forge for RateHeld {
         self.call(Kind::Viewer, |f| f.viewer())
     }
 
+    fn account_created(&self, login: &str) -> Result<Timestamp, ForgeError> {
+        self.call(Kind::AccountCreated, |f| f.account_created(login))
+    }
+
     fn comments_since(
         &self,
         repo: &ForgeSlug,

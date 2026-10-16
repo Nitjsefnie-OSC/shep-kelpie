@@ -19,7 +19,7 @@ use super::Runner;
 use super::report::{Begin, StepReport};
 use super::review::findings;
 use crate::board::{READY, TRIAGE};
-use crate::ports::{Finding, ForgeError, NewLabel, OpenIssue, Severity};
+use crate::ports::{AuthorAssociation, Finding, ForgeError, NewLabel, OpenIssue, Severity};
 use crate::settings::Filing;
 use crate::state::{RulingKind, StateError};
 use crate::work_item::{FollowUps, WorkItem};
@@ -138,6 +138,7 @@ impl Runner {
                             body,
                             author: self.maintainer().unwrap_or_default(),
                             author_is_bot: false,
+                            author_association: Some(AuthorAssociation::Owner),
                             labels: vec![label.to_owned()],
                             created: self.ports.clock.now(),
                         });

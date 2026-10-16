@@ -42,6 +42,8 @@ pub enum Kind {
     Talk,
     /// The login gh acts as
     Viewer,
+    /// When an account was created
+    AccountCreated,
     /// The comments made since a time
     CommentsSince,
     /// The comments in a pull request's review threads since a time
@@ -155,6 +157,7 @@ impl Kind {
                 | Self::Reviewed
                 | Self::Talk
                 | Self::Viewer
+                | Self::AccountCreated
                 | Self::CommentsSince
                 | Self::ThreadReplies
                 | Self::IssueComments
@@ -194,7 +197,6 @@ impl Kind {
             | Self::Talk
             | Self::ThreadReplies
             | Self::CommentMarks
-            | Self::OpenIssues
             | Self::CreateIssue
             | Self::CloseIssue
             | Self::ClosePullRequest
@@ -217,6 +219,8 @@ impl Kind {
             | Self::RateLimitReset
             | Self::ReviewBotSeen
             | Self::Viewer
+            | Self::AccountCreated
+            | Self::OpenIssues
             | Self::CommentsSince
             | Self::IssueComments
             | Self::CanWrite

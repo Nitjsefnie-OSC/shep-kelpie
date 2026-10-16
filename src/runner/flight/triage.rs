@@ -206,6 +206,10 @@ impl Runner {
             return Ok(());
         };
         let open = self.flights.ledger.take(KEY);
+        // Whether the call reached a model, which is what a cap counts: a call
+        // whose reply could not be parsed cost one as surely as a call whose
+        // reply read, and it is tried again at the next poll.
+        let spent = !end.reached_no_model();
         let result = match end {
             End::Turn(result) => result,
             End::Review(_) => return Ok(()),
@@ -219,6 +223,13 @@ impl Runner {
         if let Some(open) = &open {
             self.plain_line(open, &result);
         }
+        // A call that reached a model spent a place of the day's cap and of its
+        // author's share of it, whether or not its reply read. One that never
+        // got that far, whose settings could not be written or whose harness
+        // could not start, spends nothing.
+        if spent {
+            self.triage_call_made(issue)?;
+        }
         match (result, found) {
             // Stopped with the runner: the next poll asks again.
             (Err(AgentError::Stopped), _) => Ok(()),
@@ -226,31 +237,33 @@ impl Runner {
                 self.triage_failed(issue, &format!("its call failed: {e}"), true);
                 Ok(())
             }
-            (Ok(_), Some(Ok(found))) => match flight.purpose {
-                // The questions or the prompt a restart lost are researched
-                // again, and what its reply gives is what goes up.
-                Purpose::Questions => {
-                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                        tries.open = found.open.clone();
+            (Ok(_), Some(Ok(found))) => {
+                match flight.purpose {
+                    // The questions or the prompt a restart lost are researched
+                    // again, and what its reply gives is what goes up.
+                    Purpose::Questions => {
+                        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                            tries.open = found.open.clone();
+                        }
+                        self.post_questions(issue, &flight.said)
                     }
-                    self.post_questions(issue, &flight.said)
-                }
-                Purpose::LocalPrompt => {
-                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                        tries.open = found.open.clone();
-                        tries.files = found.files.clone();
+                    Purpose::LocalPrompt => {
+                        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                            tries.open = found.open.clone();
+                            tries.files = found.files.clone();
+                        }
+                        self.post_local_prompt(issue, &flight.said)
                     }
-                    self.post_local_prompt(issue, &flight.said)
+                    Purpose::First | Purpose::Answers | Purpose::LocalRead => self.post_triage(
+                        issue,
+                        &flight.author,
+                        &flight.said,
+                        &flight.shown,
+                        &found,
+                        flight.purpose,
+                    ),
                 }
-                Purpose::First | Purpose::Answers | Purpose::LocalRead => self.post_triage(
-                    issue,
-                    &flight.author,
-                    &flight.said,
-                    &flight.shown,
-                    &found,
-                    flight.purpose,
-                ),
-            },
+            }
             (Ok(_), Some(Err(why))) => {
                 self.triage_failed(issue, &why, true);
                 Ok(())

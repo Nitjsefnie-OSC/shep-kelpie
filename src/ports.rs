@@ -63,7 +63,8 @@ pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
 pub use issue::{
-    FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, SubIssue, SubIssueState,
+    AuthorAssociation, FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, SubIssue,
+    SubIssueState,
 };
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
@@ -244,6 +245,15 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge cannot be asked or its answer read.
     fn viewer(&self) -> Result<String, ForgeError>;
+
+    /// When the account `login` was created, for telling a new account from an
+    /// established one
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked, has no such account, or
+    /// its answer cannot be read.
+    fn account_created(&self, login: &str) -> Result<Timestamp, ForgeError>;
 
     /// The comments written on any issue or pull request of `repo` since
     /// `since`, oldest first
