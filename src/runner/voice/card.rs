@@ -412,7 +412,8 @@ impl Card {
                 board: None,
                 title: "A contributor has gone quiet and their fork cannot be edited".to_owned(),
                 facts: Some(
-                    "Kelpie can only finish a pull request by pushing to its branch, and the                      fork does not allow edits by maintainers."
+                    "Kelpie can only finish a pull request by pushing to its branch, and \
+                     the fork does not allow edits by maintainers or has been deleted."
                         .to_owned(),
                 ),
                 choices: vec![
