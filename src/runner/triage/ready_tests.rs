@@ -164,7 +164,7 @@ fn a_reply_with_an_open_question_or_no_priority_is_not_sure() {
 #[test]
 fn a_body_naming_a_local_path_is_refused_and_the_issue_ends_needs_triage() {
     let (rig, runner) = filed("maintainer", MAINTAINER);
-    let body = format!("Touches:\n- `/home/newcomer/notes.md`\n\n{BODY}");
+    let body = format!("Touches:\n- `/home/me/notes.md`\n\n{BODY}");
     rig.claude.script_for(
         Role::Triager,
         [reply(
