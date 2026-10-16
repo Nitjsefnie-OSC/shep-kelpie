@@ -67,6 +67,51 @@ fn zero_wait_days_is_refused() {
 }
 
 #[test]
+fn the_limits_default_to_10_a_day_2_per_author_30_days_and_20_kb() {
+    let t = parse(EXAMPLE).unwrap().triage;
+    assert_eq!(t.per_day, 10);
+    assert_eq!(t.per_author_per_day, 2);
+    assert_eq!(t.min_account_days, 30);
+    assert_eq!(t.max_body_kb, 20);
+    assert_eq!(parse(&with("")).unwrap().triage, t, "an empty table");
+    let partial = parse(&with("pick = \"all\"\n")).unwrap().triage;
+    assert_eq!(partial.per_day, t.per_day, "a key left out keeps its default");
+    assert_eq!(partial.per_author_per_day, t.per_author_per_day);
+    assert_eq!(partial.min_account_days, t.min_account_days);
+    assert_eq!(partial.max_body_kb, t.max_body_kb);
+    for (key, want) in [
+        ("per_day", 0u32),
+        ("per_author_per_day", 1),
+        ("min_account_days", 7),
+        ("max_body_kb", 3),
+    ] {
+        let t = parse(&with(&format!("{key} = {want}\n"))).unwrap().triage;
+        let got = match key {
+            "per_day" => t.per_day,
+            "per_author_per_day" => t.per_author_per_day,
+            "min_account_days" => t.min_account_days,
+            _ => t.max_body_kb,
+        };
+        assert_eq!(got, want, "{key} = {want}");
+    }
+}
+
+#[test]
+fn a_limit_that_is_negative_or_not_a_number_is_refused_naming_it() {
+    for key in [
+        "per_day",
+        "per_author_per_day",
+        "min_account_days",
+        "max_body_kb",
+    ] {
+        for value in ["-1", "\"ten\"", "1.5", "true"] {
+            let err = parse_err(&with(&format!("{key} = {value}\n")));
+            assert!(err.contains(key), "{key} = {value}: {err}");
+        }
+    }
+}
+
+#[test]
 fn an_unknown_key_in_triage_is_refused_naming_it() {
     let err = parse_err(&with("pik = \"all\"\n"));
     assert!(err.contains("pik"), "{err}");
