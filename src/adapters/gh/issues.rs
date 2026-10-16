@@ -35,12 +35,19 @@ pub(super) fn open_issues(repo: &ForgeSlug) -> Result<Vec<OpenIssue>, ForgeError
         let stdout = gh(&["api", &issue_page(repo, page)])?;
         let listed = parse_open_page(&stdout)?;
         let items = listed.len();
-        open.extend(listed.into_iter().flatten());
+        // A full page can take the count past the ceiling, and the endpoint
+        // lists newest first, so what does not fit is the oldest of it and goes.
+        open.extend(listed.into_iter().flatten().take(room(open.len())));
         if !more_pages(items, open.len()) {
             break;
         }
     }
     Ok(open)
+}
+
+// How many more issues a listing has room for under its ceiling
+fn room(issues: usize) -> usize {
+    LIST_ISSUES.saturating_sub(issues)
 }
 
 // Whether another page is worth asking for: the endpoint has more items, and
@@ -645,6 +652,10 @@ mod tests {
             !more_pages(40, 12),
             "a short page is the end of the listing"
         );
+        assert_eq!(room(0), LIST_ISSUES, "a fresh listing has room");
+        assert_eq!(room(LIST_ISSUES - 1), 1, "one issue of the last page");
+        assert_eq!(room(LIST_ISSUES), 0, "nothing past the ceiling");
+        assert_eq!(room(LIST_ISSUES + 500), 0, "and nothing to make up for it");
     }
 
     #[test]
