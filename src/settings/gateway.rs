@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 use super::local::EndpointUrl;
 use super::reviewers::lowercase_name;
-use super::{AgentName, SettingsError};
+use super::{AgentName, SettingsError, TriageSpam};
 use crate::adapters::openai_gateway::OpenAi;
 use crate::adapters::paddock::{Paddock, Timing};
 use crate::agents::Agents;
@@ -379,11 +379,37 @@ impl Gateways {
             None => upstream,
         })
     }
+
+    /// Refuses a start or a change whose triage spam check names a gateway
+    /// kelpie's settings lack or cannot dial, as an endpoint that does not
+    /// answer is refused
+    ///
+    /// The key is left to the check itself: a gateway whose key is unset is one
+    /// kelpie cannot ask, and triage goes on without the check rather than the
+    /// runner refusing to start.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError::Invalid`] naming `triage.spam.gateway` and the reason.
+    pub fn check_triage_spam(&self, spam: &TriageSpam) -> Result<(), SettingsError> {
+        let Some(name) = &spam.gateway else {
+            return Ok(());
+        };
+        match self.dialable(name).err() {
+            None => Ok(()),
+            Some(reason) => Err(SettingsError::Invalid {
+                setting: "triage.spam.gateway",
+                reason: format!("{name}: {reason}"),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Probability;
+    use crate::settings::ClassifierPath;
 
     fn paddock(url: &str) -> BTreeMap<GatewayName, Gateway> {
         let gateway = Gateway {
@@ -491,6 +517,53 @@ mod tests {
         assert!(
             err.contains("local: gateway paddock is not in kelpie's settings")
                 && !err.contains("PADDOCK_KEY"),
+            "{err}"
+        );
+    }
+
+    // `triage.spam.gateway`, which is a gateway name and not an agent's
+    fn spam_on(name: &str) -> TriageSpam {
+        TriageSpam {
+            gateway: Some(GatewayName::try_from(name.to_owned()).unwrap()),
+            path: Some(ClassifierPath::try_from("/classify".to_owned()).unwrap()),
+            threshold: Probability::thousandths(800),
+        }
+    }
+
+    #[test]
+    fn a_triage_spam_gateway_kelpie_does_not_have_is_refused_naming_it() {
+        let gateways = Gateways::reading(paddock("http://gpu:8700"), |_| Some("pk-1".into()));
+        gateways.check_triage_spam(&TriageSpam::default()).unwrap();
+        gateways.check_triage_spam(&spam_on("paddock")).unwrap();
+        let err = gateways
+            .check_triage_spam(&spam_on("other"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("triage.spam.gateway") && err.contains("other"),
+            "{err}"
+        );
+        assert!(err.contains("[kelpie.gateways.other]"), "{err}");
+    }
+
+    #[test]
+    fn a_triage_spam_gateway_the_forwarder_cannot_dial_is_refused_saying_it_speaks_http() {
+        let mut table = paddock("https://gpu:8700");
+        table.insert(
+            GatewayName::try_from("secure".to_owned()).unwrap(),
+            Gateway {
+                kind: GatewayKind::Paddock,
+                url: EndpointUrl::try_from("https://gpu:8700".to_owned()).unwrap(),
+                key_env: KeyVar::try_from("PADDOCK_KEY".to_owned()).unwrap(),
+            },
+        );
+        let gateways = Gateways::reading(table, |_| Some("pk-1".into()));
+        let err = gateways
+            .check_triage_spam(&spam_on("secure"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("triage.spam.gateway") && err.contains("plain `http://`"),
             "{err}"
         );
     }
