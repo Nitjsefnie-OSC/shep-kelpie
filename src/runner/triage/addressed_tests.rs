@@ -5,8 +5,8 @@ use serde_json::json;
 
 use super::comment::MARKER;
 use super::pick_tests::{issue, list};
-use super::research_tests::{WORDS, calls, facts, reply, triage, untouched};
-use crate::ports::{IssueCloseReason, Role};
+use super::research_tests::{WORDS, calls, crashed_with, facts, moves, reply, triage, untouched};
+use crate::ports::{IssueCloseReason, PullRequestState, Role};
 use crate::runner::step;
 use crate::test::Scripted;
 
@@ -72,6 +72,137 @@ fn an_issue_another_open_issue_covers_is_closed_as_duplicate() {
     assert!(said.contains("#12"), "{said}");
     assert!(said.contains("It asks for the same retry."), "{said}");
     assert_eq!(triage(&rig, &runner)["issues"][0]["duplicate_of"], 12);
+}
+
+#[test]
+fn a_number_not_in_the_listing_or_closed_or_itself_is_dropped_and_the_issue_is_triaged() {
+    // `named` is what the reply gives, `other` what the forge holds beside it
+    let cases = [
+        ("no item of that number is open at all", 99, "issue", None),
+        (
+            "the pull request it named is closed",
+            41,
+            "pull_request",
+            Some(true),
+        ),
+        ("it named the issue itself", 30, "issue", None),
+    ];
+    for (what, number, kind, closed) in cases {
+        let (rig, runner) = untouched();
+        rig.forge
+            .list_open_pull(41, "Fix the crash on start", &[30]);
+        if closed == Some(true) {
+            rig.forge.set_state(41, PullRequestState::Closed);
+        }
+        rig.claude
+            .script_for(Role::Triager, [covered(number, kind, "It covers it.")]);
+
+        assert_eq!(step(&runner).unwrap(), None, "{what}");
+
+        assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "{what}");
+        assert_eq!(
+            rig.github.comments(),
+            [(30, format!("{WORDS}\n\n{MARKER}"))],
+            "{what}"
+        );
+        assert_eq!(
+            moves(&rig),
+            ["comment", "make needs-triage", "label needs-triage"],
+            "{what}"
+        );
+        let triaged = triage(&rig, &runner);
+        assert_eq!(triaged["issues"][0]["step"], "done", "{what}");
+        assert!(triaged["issues"][0].get("duplicate_of").is_none(), "{what}");
+        let told: Vec<String> = runner.lock().unwrap().take_notes();
+        assert!(
+            told.iter().any(|n| n.starts_with("triage #30:")
+                && n.contains(&format!("names #{number}"))
+                && n.contains("triaged as any other")),
+            "{what}: {told:?}"
+        );
+    }
+}
+
+#[test]
+fn a_closed_duplicate_gets_no_labels() {
+    let (rig, runner) = untouched();
+    rig.forge.set_repo_labels(&["bug", "P2", "needs-triage"]);
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [reply(json!({
+            "type": "bug",
+            "priority": "P2",
+            "addressed_by": {
+                "number": 41, "kind": "pull_request", "why": "It fixes the same crash."
+            },
+        }))],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(moves(&rig), ["comment"], "no label of any kind");
+    assert_eq!(rig.forge.closings(), [30]);
+    assert_eq!(
+        rig.forge.closing_reason(30),
+        Some(IssueCloseReason::Duplicate)
+    );
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
+}
+
+#[test]
+fn a_restart_after_the_comment_closes_it_without_posting_again() {
+    let (rig, runner) = untouched();
+    drop(runner);
+    crashed_with(
+        &rig,
+        json!({ "issue": 30, "comment": 101, "step": "closed", "duplicate_of": 41 }),
+    );
+    let runner = rig.open().unwrap();
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.claude.all_seen().len(), 0, "no call and no new wording");
+    assert_eq!(rig.github.comments(), []);
+    assert_eq!(
+        moves(&rig),
+        Vec::<String>::new(),
+        "a closed duplicate carries no label"
+    );
+    assert_eq!(rig.forge.closings(), [30]);
+    assert_eq!(
+        rig.forge.closing_reason(30),
+        Some(IssueCloseReason::Duplicate),
+        "the close the record says is owed"
+    );
+    let triaged = triage(&rig, &runner);
+    assert_eq!(triaged["issues"][0]["step"], "done");
+    assert_eq!(triaged["issues"][0]["duplicate_of"], 41);
+}
+
+#[test]
+fn a_closed_duplicate_is_not_triaged_again_while_its_record_is_kept() {
+    let (rig, runner) = untouched();
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [covered(41, "pull_request", "It fixes the same crash.")],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    // The author reopens it: it carries no triage label, and kelpie has its
+    // record, so no pass is started on kelpie's own.
+    for _ in 0..2 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+    }
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "researched once");
+    assert_eq!(rig.github.comments().len(), 1);
+    assert_eq!(rig.forge.closings(), [30], "closed once");
 }
 
 #[test]
