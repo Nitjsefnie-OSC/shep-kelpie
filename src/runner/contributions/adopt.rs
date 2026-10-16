@@ -210,7 +210,9 @@ fn filed_body(number: u64, pr: &Reviewed, how: Option<How>) -> String {
         Some(How::Yes | How::ThumbsUp | How::Silence) => {
             "which its contributor released and kelpie took over"
         }
-        Some(How::Maintainer) | None => "which the maintainer's ruling had kelpie take over",
+        Some(How::Maintainer | How::Rework) | None => {
+            "which the maintainer's ruling had kelpie take over"
+        }
     };
     format!(
         "Kelpie filed this issue from pull request #{number}, {taken}.\n\n{}\n",

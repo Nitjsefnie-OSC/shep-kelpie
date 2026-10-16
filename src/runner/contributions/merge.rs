@@ -21,12 +21,12 @@
 //! - A no with a note has the representative word the note and post it for
 //!   the contributor. A no with no note, or one given by a reaction or a tick,
 //!   posts nothing.
-//! - A rework hands the pull request to kelpie: the record is released, which
-//!   is what adoption needs, and it is queued for a work item at once, without
-//!   waiting for the contributor to release it. The note is kept on the record,
-//!   where the work item's start reads it, and a push after the answer keeps
-//!   it. A rework with no note, which a tick or the card's choice gives, sends
-//!   the worker none.
+//! - A rework hands the pull request to kelpie: the record is released as
+//!   `how: rework`, which is what adoption needs, and it is queued for a work
+//!   item at once, without waiting for the contributor to release it. The note
+//!   is kept on the record, where the work item's start reads it, and a push
+//!   after the answer keeps it. A rework with no note, which a tick or the
+//!   card's choice gives, sends the worker none.
 //!
 //! A yes, a no and a rework run no fix turn of their own. A new head clears
 //! the answer, withdraws the ruling and is read afresh.
@@ -137,7 +137,7 @@ impl Runner {
         self.change(number, |held| {
             held.released = Some(Released {
                 at: now,
-                how: How::Maintainer,
+                how: How::Rework,
             });
             held.rework = note.clone();
         })?;

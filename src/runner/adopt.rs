@@ -7,7 +7,9 @@
 //! it, with its labels, ready state and head taken as kelpie's own, at a
 //! pass of the review bots the project lists, which each owe it a read of
 //! kelpie's own summon, or at CI when it lists none. A review asking for
-//! changes is the worker's first turn instead. The
+//! changes is the worker's first turn instead, and so is a contribution whose
+//! merge ruling the maintainer answered `rework`, which has the project's full
+//! pass queued behind that turn. The
 //! branch's owner may still be pushing, so only a push the worker's worktree
 //! holds is the worker's.
 //!
@@ -30,7 +32,7 @@ use crate::ports::{
     ForgeError, Issue, MaintainerReview, PullRequestState, Reviewed, Role, Timestamp,
 };
 use crate::settings::AgentName;
-use crate::state::{Ruling, RulingKind, StateError, Stuck, Waiting};
+use crate::state::{How, Ruling, RulingKind, StateError, Stuck, Waiting};
 use crate::work_item::{Known, Phase, Review, Turn, WorkItem, new_session_id};
 use crate::worktree::{self, Remote, Start};
 
@@ -546,6 +548,8 @@ impl Runner {
         // record and not on the answer, so a contributor who pushes after the
         // answer leaves it there.
         let rework_note = (released.as_ref()).and_then(|c| c.rework.clone());
+        let taken_over = (released.as_ref())
+            .is_some_and(|c| c.released.as_ref().is_some_and(|r| r.how == How::Rework));
         let text = adopted_text(
             number,
             &pr,
@@ -553,6 +557,7 @@ impl Runner {
             &found,
             review.as_ref(),
             rework_note.as_deref(),
+            taken_over,
         );
         turn::write(&fresh.build, &adopted_path(&fresh.build), &text).map_err(AdoptError::File)?;
         // With the summon labels off, no push summons a review bot outside the lease.
@@ -576,6 +581,15 @@ impl Runner {
                 next.reworked.push(review.id.clone());
                 let first = Some(Phase::Review(Review::first()));
                 (Turn::Due, Phase::Implement, first)
+            }
+            // The maintainer answered the merge ruling `rework`: a worker
+            // changes the pull request first, and the project's full reviewers
+            // read what it pushed. A pass over the contributor's own head could
+            // come back clean and let the change the maintainer asked for go
+            // undone, so it is not what a rework starts at.
+            None if taken_over => {
+                let pass = Some(Phase::Review(Review::first()));
+                (Turn::Due, Phase::Implement, pass)
             }
             // A released contribution is kelpie's own work item now, so the
             // project's full reviewers read it, not the bots' owed read alone.
@@ -716,6 +730,7 @@ fn adopted_text(
     found: &Issue,
     review: Option<&MaintainerReview>,
     note: Option<&str>,
+    taken_over: bool,
 ) -> String {
     let mut text = format!("# Pull request #{number}: {}\n", pr.title);
     push_block(&mut text, &pr.body);
@@ -729,6 +744,13 @@ fn adopted_text(
         text.push_str(&format!(
             "\n# The maintainer's note on pull request #{number}\n\n{note}\n"
         ));
+    }
+    if taken_over && note.is_none() {
+        text.push_str(
+            "\n# Kelpie took this pull request over\n\nThe maintainer answered its merge \
+             ruling `rework`, so a worker finishes it and the project's reviewers read what \
+             the worker pushed.\n",
+        );
     }
     text
 }

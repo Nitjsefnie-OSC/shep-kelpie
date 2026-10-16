@@ -351,12 +351,15 @@ fn the_maintainers_comment_does_not_reset_the_contributors_clock() {
     assert_eq!(rulings(&rig, &runner).len(), 1, "the ruling still waits");
 }
 
-// `rework` takes the pull request over at once: no release, no merge, and
-// the adopted work item runs the project's own reviewers.
+// `rework` takes the pull request over at once: no release, no merge, and a
+// worker changes the pull request before the project's own reviewers read it.
 #[test]
 fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
-    let (rig, runner, _) = ruled_on();
-    rig.claude.script([Scripted::Text(CLEAN)]);
+    let (rig, runner, head) = ruled_on();
+    // The worker's turn, then its Claude reviewer. The project's qwen round is
+    // a review bot and needs no script.
+    rig.claude
+        .script([Scripted::Push("two.txt", "two\n"), Scripted::Text(CLEAN)]);
 
     rule(
         &rig,
@@ -380,11 +383,31 @@ fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
         "{told:?}"
     );
 
-    // The project's own reviewers read it: its qwen round, then its Claude
-    // reviewer, where `contributions.reviewers` listed only "mine".
-    for _ in 0..8 {
+    // A worker went before any reviewer read it, and its prompt named the file
+    // with the pull request, its issue and the maintainer's note.
+    let [worker] = rig.claude.calls().try_into().unwrap();
+    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    let named = rig.paths().build(issue).join("adopted-pull-request.md");
+    assert!(
+        worker.prompt.contains(&named.display().to_string()),
+        "{}",
+        worker.prompt
+    );
+    let text = std::fs::read_to_string(named).unwrap();
+    assert!(
+        text.contains(
+            "# The maintainer's note on pull request #30\n\nAdd the test the review asked for."
+        ),
+        "{text}"
+    );
+
+    // The project's own reviewers over what the worker pushed: its qwen round,
+    // then its Claude reviewer, where `contributions.reviewers` listed only
+    // "mine".
+    for _ in 0..10 {
         step(&runner).unwrap();
     }
+
     let said = comments(&rig);
     assert!(
         said.iter()
@@ -395,6 +418,12 @@ fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
         said.iter()
             .any(|c| c.contains("claude read this pull request")),
         "{said:?}"
+    );
+    let read = rig.reviewer.seen();
+    assert!(!read.is_empty(), "{read:?}");
+    assert_ne!(
+        read[0].base, head,
+        "the reviewers read the head the worker pushed"
     );
 }
 
@@ -468,7 +497,7 @@ fn a_new_head_after_a_rework_answer_keeps_the_maintainers_note_for_the_worker() 
     poll_or_adopt(&rig, &runner);
 
     let record = contribution(&rig, &runner);
-    assert_eq!(record["released"]["how"], "maintainer", "{record}");
+    assert_eq!(record["released"]["how"], "rework", "{record}");
     assert_eq!(
         record["rework"], "Add the test the review asked for.",
         "{record}"

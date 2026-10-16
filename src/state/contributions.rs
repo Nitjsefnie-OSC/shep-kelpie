@@ -280,10 +280,12 @@ pub enum How {
     ThumbsUp,
     /// The contributor did not answer before `quiet_days` ran out
     Silence,
-    /// The maintainer had kelpie take it over: a `rework` answer to the merge
-    /// ruling, or `adopt anyway` on the ruling for a contributor who said no
-    /// twice
+    /// The maintainer had kelpie take it over: `adopt anyway` on the ruling for
+    /// a contributor who said no twice
     Maintainer,
+    /// The maintainer answered the merge ruling `rework`, which takes the pull
+    /// request over without a release from its contributor
+    Rework,
 }
 
 /// A contributor's request for a decision, handed to the maintainer as a
