@@ -1,12 +1,12 @@
 //! `git commit`, `git tag` and `git push` in a worker's Bash call
 //!
-//! A `git fetch` or `git pull` in the work item's own repo is answered before it
-//! runs: every worktree shares one `.git`, a worker may write only its own
-//! branch's refs, and a fetch updates every `refs/remotes/origin/*`, so it
-//! fails on the others. Kelpie fetches `origin/main` for the worker. A fetch
-//! git is pointed at another repo, by `--git-dir`, `--work-tree`, `--bare` or
-//! a `GIT_` assignment, is left to git, since the guard cannot tell which repo
-//! it names.
+//! A `git fetch`, `git pull`, `git remote update` or `git remote prune` in the
+//! work item's own repo is answered before it runs: every worktree shares one
+//! `.git`, a worker may write only its own branch's refs, and each of these
+//! writes every `refs/remotes/origin/*`, so it fails on the others. Kelpie
+//! fetches `origin/main` for the worker. A fetch git is pointed at another
+//! repo, by `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment, is
+//! left to git, since the guard cannot tell which repo it names.
 //!
 //! Messages are read from the command. What a commit adds and a push sends
 //! is read from the worktree's own git, once a call, through kelpie's
@@ -21,6 +21,7 @@ mod hooks;
 mod runs;
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::Path;
 
 use super::shell::Quoting;
@@ -165,9 +166,10 @@ pub(super) fn judge(
     // cannot tell which repo such a fetch names, and a fetch is no write to
     // the work item's branch.
     if runs
-        && matches!(sub, "fetch" | "pull")
+        && writes_remote_refs(sub, args)
         && !(front.redirected || git.redirected)
-        && in_own_repo(checkout.worktree, dir.as_deref())
+        && !git.after_new_repo
+        && fetch_reaches_clone(checkout.worktree, dir.as_deref())
     {
         out.push(fetch_answered());
         return out;
@@ -524,10 +526,65 @@ fn in_own_repo(worktree: &Path, dir: Option<&Path>) -> bool {
         return false;
     };
     dir.starts_with(&worktree)
-        && dir.ancestors().take_while(|a| *a != worktree).all(|a| {
-            a.join(".git").symlink_metadata().is_err()
-                && !["HEAD", "objects", "refs"]
-                    .iter()
-                    .all(|name| a.join(name).symlink_metadata().is_ok())
-        })
+        && dir
+            .ancestors()
+            .take_while(|a| *a != worktree)
+            .all(no_repo_between)
+}
+
+// Whether a fetch reaches the item's shared clone. git searches upward for a
+// repo, so a folder kelpie cannot follow, or one the call made inside the
+// worktree, reaches it too. Only a repo of the worker's own, in the folder or
+// between it and the worktree, keeps a fetch out of the answer.
+fn fetch_reaches_clone(worktree: &Path, dir: Option<&Path>) -> bool {
+    // A folder kelpie cannot follow: the only repo it can name is the item's.
+    let (Ok(worktree), Some(dir)) = (worktree.canonicalize(), dir) else {
+        return true;
+    };
+    // The deepest part of the path that is there, with its links resolved, and
+    // the names after it, which are not there yet.
+    let Some(at) = dir.ancestors().position(Path::exists) else {
+        return true;
+    };
+    let Some(base) = dir.ancestors().nth(at).and_then(|a| a.canonicalize().ok()) else {
+        return true;
+    };
+    let folder = {
+        let mut missing: Vec<&OsStr> = dir
+            .ancestors()
+            .take(at)
+            .filter_map(Path::file_name)
+            .collect();
+        missing.reverse();
+        missing
+            .into_iter()
+            .fold(base, |folder, name| folder.join(name))
+    };
+    folder.starts_with(&worktree)
+        && folder
+            .ancestors()
+            .take_while(|a| *a != worktree)
+            .all(no_repo_between)
+}
+
+// Whether one folder of the worktree holds no repo of its own
+fn no_repo_between(folder: &Path) -> bool {
+    folder.join(".git").symlink_metadata().is_err()
+        && !["HEAD", "objects", "refs"]
+            .iter()
+            .all(|name| folder.join(name).symlink_metadata().is_ok())
+}
+
+// Whether the command writes the clone's remote refs. `fetch` and `pull` do,
+// and so do `remote update`, which fetches every remote, and `remote prune`,
+// which deletes the same refs.
+fn writes_remote_refs(sub: &str, args: &[String]) -> bool {
+    match sub {
+        "fetch" | "pull" => true,
+        "remote" => args
+            .iter()
+            .find(|w| !w.starts_with('-'))
+            .is_some_and(|w| matches!(w.as_str(), "update" | "prune")),
+        _ => false,
+    }
 }

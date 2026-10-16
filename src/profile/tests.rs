@@ -597,7 +597,7 @@ fn the_instructions_send_a_worker_to_its_own_temp_folder_for_scratch_files() {
 #[test]
 fn the_instructions_tell_a_worker_that_kelpie_fetches_main() {
     assert!(
-        INSTRUCTIONS.contains("Run no `git fetch` or `git pull`"),
+        INSTRUCTIONS.contains("Run no `git fetch`, `git pull` or `git remote update`"),
         "{INSTRUCTIONS}"
     );
     assert!(

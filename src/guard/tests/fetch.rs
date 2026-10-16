@@ -3,10 +3,11 @@
 //! Every work item's worktree shares one `.git`, and a worker may write only
 //! its own branch's refs. A bare `git fetch` updates every
 //! `refs/remotes/origin/*`, so each other branch's lock fails and git exits 1,
-//! which a worker spent turns reading as a broken sandbox. Kelpie fetches
-//! `origin/main` itself, so the guard answers the attempt instead. A fetch git
-//! is pointed at another repo, by `--git-dir` or `GIT_DIR`, is left to git:
-//! kelpie cannot tell which repo such a command names.
+//! which a worker spent turns reading as a broken sandbox. `git pull`,
+//! `git remote update` and `git remote prune` write the same refs. Kelpie
+//! fetches `origin/main` itself, so the guard answers the attempt instead. A
+//! fetch git is pointed at another repo, by `--git-dir` or `GIT_DIR`, is left
+//! to git: kelpie cannot tell which repo such a command names.
 
 use super::*;
 
@@ -133,6 +134,75 @@ fn a_fetch_git_is_pointed_at_another_repo_goes_through() {
         "env GIT_DIR=fixture/repo.git git fetch origin",
         "export GIT_DIR=fixture/repo.git; git fetch origin",
         "git --git-dir=.git fetch",
+    ] {
+        assert_eq!(tree.bash(command), Verdict::Allow, "{command}");
+    }
+}
+
+// git searches upward for a repo, so a folder kelpie cannot follow still
+// leaves it in the item's shared clone.
+#[test]
+fn a_fetch_in_a_folder_kelpie_cannot_follow_is_answered() {
+    let tree = WorkerTree::new();
+    for command in [
+        "cd \"$(git rev-parse --show-toplevel)\" && git fetch origin main",
+        "cd \"$WT\" && git pull",
+        "git -C \"$WT\" fetch",
+        "env -C \"$WT\" git fetch origin",
+    ] {
+        refused_with(tree.bash(command), FETCHED, command);
+    }
+}
+
+// A folder the call makes inside the worktree holds no repo of its own, so
+// git's search walks up into the shared clone.
+#[test]
+fn a_fetch_in_a_folder_the_call_makes_is_answered() {
+    let tree = WorkerTree::new();
+    for command in [
+        "mkdir -p scratch && cd scratch && git fetch",
+        "mkdir -p scratch/nested && cd scratch/nested && git pull",
+        "cd scratch && git fetch origin main",
+    ] {
+        refused_with(tree.bash(command), FETCHED, command);
+    }
+}
+
+// A repo the call made is the worker's own, and a folder past the worktree is
+// no repo of kelpie's, so neither is answered.
+#[test]
+fn a_fetch_in_no_repo_of_kelpie_s_goes_through() {
+    let tree = WorkerTree::new();
+    for command in [
+        "git init --quiet x && cd x && git fetch",
+        "mkdir -p x && cd x && git init --quiet && git fetch",
+        "cd /tmp && git fetch",
+        "cd ../elsewhere && git fetch",
+    ] {
+        assert_eq!(tree.bash(command), Verdict::Allow, "{command}");
+    }
+}
+
+// `git remote update` fetches every remote the way `git fetch` does, and
+// `git remote prune` deletes the same refs, so both are answered. What only
+// reads the remotes is left alone.
+#[test]
+fn a_remote_update_or_prune_of_origins_refs_is_answered() {
+    let tree = WorkerTree::new();
+    for command in [
+        "git remote update",
+        "git remote update origin",
+        "git remote update --fetch",
+        "git remote prune origin",
+        "cd src && git remote update",
+    ] {
+        refused_with(tree.bash(command), FETCHED, command);
+    }
+    for command in [
+        "git remote",
+        "git remote -v",
+        "git remote show origin",
+        "git remote set-url origin https://example.invalid/x",
     ] {
         assert_eq!(tree.bash(command), Verdict::Allow, "{command}");
     }
