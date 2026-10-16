@@ -161,7 +161,7 @@ pub use refused::Refusal;
 pub use replies::READ_EVERY;
 pub use report::StepReport;
 pub use representative::{Post, RepresentError};
-pub(crate) use reread::check_gateways;
+pub(crate) use reread::{check_gateway_shapes, check_gateways};
 use reviewers_check::{check_bots, check_coderabbit, check_local};
 pub use rework::{HUMAN, ReworkError};
 pub use ruling::{Action, Answer, RuleError};
@@ -477,11 +477,8 @@ impl Runner {
         told.extend(notes);
         let agents = settings.role_agents(&book)?;
         let lineup = settings.lineup(&book, home)?;
-        let listed = agents.implementers.iter().map(|i| &i.name);
-        let reviewers = lineup.iter().map(|r| &r.name);
-        let experts = (agents.advisor.iter().chain(agents.researcher.iter())).map(|e| &e.name);
         let gateways = kelpie_settings.gateways();
-        gateways.check_listed(&book, listed.chain(reviewers).chain(experts))?;
+        check_gateways(&gateways, &book, &agents, &lineup)?;
         let webhook = kelpie_settings.webhook;
         if webhook.is_none() {
             eprintln!(
