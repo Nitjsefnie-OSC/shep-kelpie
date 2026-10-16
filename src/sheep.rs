@@ -22,8 +22,9 @@ use std::time::Duration;
 use shep_handover::Arrival;
 
 use crate::adapters::{
-    ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, Gh, GhApps, GpuCurl, LocalReviewer,
-    LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemClock, SystemGit, stop_calls,
+    ClaudeCli, Curl, CurlGithub, DogE2e, DoorPace, Etags, GatewayClassifier, Gh, GhApps, GpuCurl,
+    LocalReviewer, LoginToken, Openssl, PlaywrightPages, ShepLeases, StatDisk, SystemClock,
+    SystemGit, stop_calls,
 };
 use crate::coderabbit::CodeRabbit;
 use crate::codex::Codex;
@@ -251,6 +252,7 @@ fn serve(project: &str, arrival: Option<Arrival<Carry>>) -> Result<(), Exit> {
         pages: Arc::new(PlaywrightPages),
         leases: Arc::clone(&leases) as Arc<dyn Leases>,
         metrics: Arc::new(shepherd.clone()),
+        classifier: Arc::new(GatewayClassifier),
         clock: Arc::new(SystemClock),
         pace: Arc::new(DoorPace::new(paths.door.clone())),
         flock,

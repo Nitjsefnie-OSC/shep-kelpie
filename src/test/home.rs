@@ -48,6 +48,7 @@ impl Rig {
             e2e: FakeE2e::default(),
             pages: FakePages::default(),
             samples: super::RecordedSink::default(),
+            classifier: FakeClassifier::new(),
             github: FakeGithub::new(clock.clone(), "shep-pm"),
             pace: Arc::new(LocalPace::with(CallPacer::new(usize::MAX, usize::MAX))),
             clock,
