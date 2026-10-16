@@ -154,3 +154,36 @@ fn the_oldest_finished_records_go_past_the_cap() {
     assert_eq!(triage.issues[1].issue, 5, "the oldest finished ones went");
     assert_eq!(triage.issues.last().map(|t| t.issue), Some(cap + 4));
 }
+
+// A record that closed an issue as a duplicate is kept past the cap: the issue
+// carries no `needs-triage` label, and the record is what keeps a reopened one
+// out of the due list.
+#[test]
+fn a_record_that_closed_a_duplicate_is_kept_past_the_cap() {
+    let cap = TRIAGED_KEPT as u64;
+    let mut triage = TriageState {
+        since: Timestamp(1),
+        issues: (1..cap + 3)
+            .map(|issue| Triaged {
+                issue,
+                comment: issue + 1_000,
+                step: TriageStep::Done,
+                labels: Vec::new(),
+                duplicate_of: match issue {
+                    2 => Some(41),
+                    _ => None,
+                },
+            })
+            .collect(),
+    };
+
+    triage.prune();
+
+    assert_eq!(triage.issues.len(), TRIAGED_KEPT + 1);
+    assert_eq!(
+        triage.issues.first().map(|t| t.issue),
+        Some(2),
+        "the oldest ordinary record went and the duplicate's stayed"
+    );
+    assert_eq!(triage.issues[1].duplicate_of, None);
+}

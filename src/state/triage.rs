@@ -23,15 +23,25 @@ pub struct TriageState {
 /// How many finished records are kept, the oldest going first. An issue whose
 /// record went is told apart from an untouched one by its `needs-triage` label
 /// and, if that is taken off, by the marker in its comments.
+///
+/// A record that closed an issue as a duplicate is kept past the count: the
+/// issue carries no `needs-triage` label, and the record is what keeps a
+/// reopened one out of the due list.
 pub const TRIAGED_KEPT: usize = 200;
 
 impl TriageState {
-    /// Drops the oldest records at `done` past [`TRIAGED_KEPT`]
+    /// Drops the oldest records at `done` past [`TRIAGED_KEPT`], keeping every
+    /// one that closed an issue as a duplicate
     pub fn prune(&mut self) {
-        let done = self.issues.iter().filter(|t| t.step == TriageStep::Done);
-        let mut extra = done.count().saturating_sub(TRIAGED_KEPT);
+        let kept = |t: &Triaged| t.step == TriageStep::Done && t.duplicate_of.is_none();
+        let mut extra = self
+            .issues
+            .iter()
+            .filter(|t| kept(t))
+            .count()
+            .saturating_sub(TRIAGED_KEPT);
         self.issues.retain(|t| {
-            let drop = extra > 0 && t.step == TriageStep::Done;
+            let drop = extra > 0 && kept(t);
             extra -= usize::from(drop);
             !drop
         });
