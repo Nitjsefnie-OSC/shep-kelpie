@@ -135,7 +135,14 @@ impl Runner {
             .map(|g| [g.index.clone(), g.runtime.clone()]);
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
-                researched(agents.as_ref(), &mut research, &notes, &metrics, &held)
+                researched(
+                    issue,
+                    agents.as_ref(),
+                    &mut research,
+                    &notes,
+                    &metrics,
+                    &held,
+                )
             }));
             if let Err(e) = worktree::remove_view(&research.checkout, &research.view) {
                 eprintln!("triage #{issue}: cannot remove its view of main: {e}");
@@ -227,6 +234,7 @@ impl Runner {
 // Runs the call in a view of `origin/main` made for it, and reads its reply
 // against that view.
 fn researched(
+    issue: u64,
     agents: &dyn Agents,
     research: &mut Research,
     notes: &Notes,
@@ -248,6 +256,7 @@ fn researched(
     }
     indexed(call, notes, metrics, ending);
     let ran = agents.prepare(call).and_then(|()| agents.run(call, ending));
-    let found = (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, open, view, *most));
+    let found =
+        (ran.as_ref().ok()).map(|reply| read_reply(&reply.text, issue, open, view, *most, notes));
     (End::Turn(ran), found)
 }

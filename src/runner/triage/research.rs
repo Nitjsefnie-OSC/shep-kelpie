@@ -16,6 +16,7 @@ use std::path::{Component, Path};
 use serde::Deserialize;
 
 use super::super::untrusted::fenced;
+use crate::runner::claim::Notes;
 
 /// An open issue, by number and title
 pub(in crate::runner) type Listed = (u64, String);
@@ -183,7 +184,9 @@ pub(super) fn prompt(
 }
 
 /// Reads the triager's `text`, keeping a related number only if `open`
-/// holds it and a file only if `view` has it, and no more than `most` questions
+/// holds it and a file only if `view` has it, and no more than `most` questions.
+/// A cover named in words kelpie cannot read is dropped, and `notes` names the
+/// words the triager used
 ///
 /// # Errors
 ///
@@ -191,9 +194,11 @@ pub(super) fn prompt(
 /// the shape asked for.
 pub(in crate::runner) fn read_reply(
     text: &str,
+    issue: u64,
     open: &[Listed],
     view: &Path,
     most: usize,
+    notes: &Notes,
 ) -> Result<Found, String> {
     let json = object_in(text).ok_or("its reply holds no JSON object")?;
     let reply: Reply =
@@ -229,7 +234,20 @@ pub(in crate::runner) fn read_reply(
         let item = match said.kind.trim().to_ascii_lowercase().as_str() {
             "issue" => Covered::Issue,
             "pull_request" => Covered::PullRequest,
-            _ => return None,
+            _ => {
+                // A cover named in words kelpie cannot read is dropped, and the
+                // log names the words rather than passing over it in silence
+                let given = match said.kind.trim() {
+                    "" => "with no kind".to_owned(),
+                    kind => format!("given as {kind:?}"),
+                };
+                notes.push(format!(
+                    "triage #{issue}: its reply names #{} as covering it, {given}, which is \
+                     neither an issue nor a pull request; it is triaged as any other issue",
+                    said.number
+                ));
+                return None;
+            }
         };
         Some(Addressed {
             number: said.number,

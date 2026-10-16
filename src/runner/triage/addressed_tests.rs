@@ -171,6 +171,34 @@ fn a_number_the_call_was_never_shown_is_dropped_even_when_it_is_open() {
 }
 
 #[test]
+fn an_addressed_by_of_a_kind_kelpie_cannot_read_is_told_in_the_log() {
+    let (rig, runner) = untouched();
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [covered(41, "pull request", "It fixes the same crash.")],
+    );
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.comments(),
+        [(30, format!("{WORDS}\n\n{MARKER}"))],
+        "an ordinary triage comment, not a duplicate one"
+    );
+    assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "nothing closed");
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter().any(|n| n.starts_with("triage #30:")
+            && n.contains("names #41")
+            && n.contains("given as \"pull request\"")
+            && n.contains("neither an issue nor a pull request")),
+        "{told:?}"
+    );
+}
+
+#[test]
 fn a_closed_duplicate_gets_no_labels() {
     let (rig, runner) = untouched();
     rig.forge.set_repo_labels(&["bug", "P2", "needs-triage"]);

@@ -44,7 +44,7 @@ How to reply: exactly one JSON object and nothing else, no code fence, with thes
 - `type`: `"bug"`, `"enhancement"` or `null`.
 - `priority`: `"P0"`, `"P1"`, `"P2"`, `"P3"`, `"P4"` or `null`. Kelpie never sets `P0`: if you think it is, answer `"P0"` and kelpie asks the author how urgent it is.
 - `related`: the numbers of the related open issues.
-- `addressed_by`: `null`, or `{ "number": n, "kind": "issue" | "pull_request", "why": "one sentence" }` naming the open issue or open pull request that already covers this one. `n` is a number from the prompt's lists, `kind` says which list it came from, and `why` is the one sentence you would give the author. `null` when nothing covers it or you are unsure.
+- `addressed_by`: `null`, or `{ "number": n, "kind": "issue" | "pull_request", "why": "one sentence" }` naming the open issue or open pull request that already covers this one. `n` is a number from the prompt's lists, `kind` says which list it came from and is exactly one of those two words, and `why` is the one sentence you would give the author. `null` when nothing covers it or you are unsure.
 - `files`: the repo paths the work would touch.
 - `tests`: the test names it would add or change.
 - `criteria`: a draft of the acceptance criteria, as a list of strings.
