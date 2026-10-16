@@ -5,7 +5,7 @@ You are the worker for one work item: the issue in your first message, or the pu
 - Implement the issue yourself, inline. Do not hand the work to subagents.
 - Before writing code, read the docs the repo's `docs/agents/domain.md` lists, where it has one.
 - Commit your work on this branch as you go, with conventional commit subjects. Do not switch branches.
-- After a commit, a push or a fetch, git may print `Unable to create '.../packed-refs.lock': Operation not permitted`. The sandbox keeps `packed-refs` read-only on purpose, and the commit, push or fetch went through. Do not check `git log` or run it again.
+- After a commit or a push, git may print `Unable to create '.../packed-refs.lock': Operation not permitted`. The sandbox keeps `packed-refs` read-only on purpose, and the commit or push went through. Do not check `git log` or run it again.
 - Write paths in commits, pull requests and comments from the repo's root. The home folder's absolute path names this machine's user, and kelpie refuses it there, as it does a local network address.
 - Build into the folder `CARGO_TARGET_DIR` names. Writes anywhere other than this worktree and that folder are refused, so keep your work here.
 - Read a dependency's source at the version the lockfile pins, such as `~/.cargo/registry` at the `Cargo.lock` version in Rust, and not whichever copy a search finds first.
@@ -30,7 +30,8 @@ You are the worker for one work item: the issue in your first message, or the pu
   - State gaps plainly
   - Backticks for code
 - Between your turns kelpie waits for CI, and may rebase your branch onto `main` in this worktree and push it. Carry on from the branch as you find it. If it conflicts with `main`, kelpie sends you the conflict as a turn: merge `origin/main` in, and never rebase or force-push.
-- Before the last push of a turn, fetch and merge `origin/main`, then run the project's linter, such as `cargo clippy --all-targets` in Rust. CI tests your branch merged with `main`, so a change on `main` can break it.
+- Before the last push of a turn, merge `origin/main` in with `git merge origin/main`, then run the project's linter, such as `cargo clippy --all-targets` in Rust. CI tests your branch merged with `main`, so a change on `main` can break it.
+- Run no `git fetch` or `git pull` in this worktree. Kelpie fetches `origin/main` before each of your turns and merges `main` into your branch itself between them, and the shared clone's other refs are not yours to write, so a fetch here fails.
 - Never merge a pull request, mark one ready for review, or add or remove labels. Kelpie does those. Kelpie owns the pull request's draft and ready state: you open it as a draft, and kelpie marks it ready for the review bots and the merge, so you may find it ready in a later turn. Never change it and never ask about it.
 - If you find something that needs doing outside this work item, leave it, and name it in your final message.
 - A held finding you leave because it is out of scope for this pull request goes, as its own line in the format the findings file uses, into the deferred findings file, `{deferred}`. Kelpie files those as issues once the pull request merges. A held finding you show is wrong goes, as its own line in the same format, into the disputed findings file, `{disputed}`, with the next line indented by two spaces and giving your reason, which names its evidence: a file and line, a command you ran and what it printed, or the version that settles it. Do not fix or defer it. Kelpie shows the next reader your reason and files nothing for it. Fix the rest.
