@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 use super::FakeClock;
 use super::coderabbit::FakeCodeRabbit;
@@ -57,6 +59,8 @@ struct Hub {
     review_answer: Option<String>,
     // Why every worker's token is refused, while it is
     workers_refused: Option<ApiError>,
+    // A worker's token mint held open, with who reached it and who lets it go
+    worker_hold: Option<Gate>,
     // A permission GitHub grants a worker's token beyond the one asked for
     extra_grant: Option<(String, String)>,
     // Permissions the App was never given: a token asking for one is refused
@@ -83,6 +87,37 @@ pub(crate) const REVIEW_ANSWER: &str = include_str!("../../fixtures/github-app-r
 
 /// The id [`REVIEW_ANSWER`] holds
 pub(crate) const REVIEW_ID: u64 = 2_718_281_828;
+
+// Who reached a held mint and who lets it go
+#[derive(Debug)]
+struct Gate {
+    entered: Sender<()>,
+    release: Receiver<()>,
+}
+
+/// A GitHub that holds its next worker token mint open until this is dropped
+///
+/// Preparing a worker turn mints its token with the runner's lock held, so a
+/// mint held here is a pass that holds the lock. A test takes one to ask a
+/// trigger of a runner in the middle of preparing a turn.
+#[derive(Debug)]
+pub(crate) struct HeldToken {
+    entered: Receiver<()>,
+    // Let go of this and the mint goes through
+    release: Option<Sender<()>>,
+}
+
+impl HeldToken {
+    /// Whether the mint reached GitHub and waits here, within `within`
+    pub(crate) fn waiting(&self, within: Duration) -> bool {
+        self.entered.recv_timeout(within).is_ok()
+    }
+
+    /// Lets the mint through
+    pub(crate) fn release(&mut self) {
+        self.release = None;
+    }
+}
 
 /// GitHub as kelpie's App sees it: one code converts to an App owned by
 /// `owner`, and each token lasts an hour from the clock's now
@@ -210,6 +245,21 @@ impl FakeGithub {
     /// Mints workers' tokens again after [`Self::refuse_workers`]
     pub(crate) fn accept_workers(&self) {
         self.hub.lock().unwrap().workers_refused = None;
+    }
+
+    /// Holds the next worker token mint open, so a test can ask a trigger of a
+    /// runner whose pass is in the middle of preparing the turn it mints for
+    pub(crate) fn hold_next_worker_token(&self) -> HeldToken {
+        let (entered, heard) = mpsc::channel();
+        let (release, waited) = mpsc::channel();
+        self.hub.lock().unwrap().worker_hold = Some(Gate {
+            entered,
+            release: waited,
+        });
+        HeldToken {
+            entered: heard,
+            release: Some(release),
+        }
     }
 
     /// Makes GitHub grant every worker's token `permission` at `level` besides
@@ -426,11 +476,22 @@ impl GithubApi for FakeGithub {
         repo: &ForgeSlug,
         grant: Grant,
     ) -> Result<IssuedToken, ApiError> {
-        let mut hub = self.hub.lock().unwrap();
         let body = crate::github::api::token_request(repo, grant);
-        hub.asked
-            .push(Asked::AccessToken(installation, body.clone()));
-        hub.jwts.push(jwt.expose().to_owned());
+        let held = {
+            let mut hub = self.hub.lock().unwrap();
+            hub.asked
+                .push(Asked::AccessToken(installation, body.clone()));
+            hub.jwts.push(jwt.expose().to_owned());
+            (matches!(grant, Grant::Worker { .. }))
+                .then(|| hub.worker_hold.take())
+                .flatten()
+        };
+        // The hub is let go while it waits, so nothing else is held up behind it.
+        if let Some(gate) = held {
+            let _ = gate.entered.send(());
+            let _ = gate.release.recv();
+        }
+        let mut hub = self.hub.lock().unwrap();
         if let Some(error) = hub.failures.pop_front() {
             return Err(error);
         }

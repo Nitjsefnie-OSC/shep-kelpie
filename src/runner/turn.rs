@@ -401,6 +401,17 @@ impl Runner {
                 return Ok(self.idle(Reason::Token));
             }
             Ok(call) => {
+                // `prepare` mints the worker's GitHub token and prepares its
+                // worktree with the runner's lock held, and a `drain` that
+                // lands in that time sets its flag there without waiting for
+                // it. Checked again here, so the turn stays due rather than
+                // starting past the drain.
+                if self.draining() {
+                    self.token_wait.ends();
+                    // No flight will take the bridge this turn's call opened.
+                    drop(self.opened.take(issue));
+                    return Ok(self.idle(Reason::Draining));
+                }
                 self.token_wait.ends();
                 resumed = !compacting && paused::resumes_pause(item);
                 self.builds_turn_begins();
