@@ -107,6 +107,66 @@ async fn a_pi_off_the_path_is_missing_and_says_to_install() {
     assert!(!report.passed());
 }
 
+// pi's own `grep` and `find` run `rg` and `fd`. It looks for them in its own
+// `bin` folder, which is empty for every kelpie call, then on `PATH`, then
+// downloads them, which the sandbox refuses. `docs/facts/tool-errors.md`.
+#[tokio::test]
+async fn a_pi_tool_off_the_path_is_missing_and_says_to_install() {
+    let mut scene = Scene::new().await;
+    scene.runs_pi_on_golbat();
+    scene.host.off_path = vec!["rg"];
+    let report = scene.report().await;
+    let (what, fix) = missing(&report, "golbat: pi tools");
+    assert_eq!(
+        what,
+        "`grep` runs `rg`, which is not on your PATH, so pi's `grep` tool fails in every call"
+    );
+    assert_eq!(
+        fix,
+        "install them: `brew install ripgrep fd` on macOS, `apt-get install ripgrep fd-find` on Debian"
+    );
+    assert!(!report.passed(), "{:#?}", report.render());
+    assert!(!subjects(&report).contains(&"koji: pi tools"));
+}
+
+#[tokio::test]
+async fn each_pi_tool_off_the_path_is_named_by_the_tool_it_breaks_and_debian_s_name_counts() {
+    let mut scene = Scene::new().await;
+    scene.runs_pi_on_golbat();
+
+    scene.host.path = Some(vec!["pi", "rg"]);
+    let (what, _) = missing(&scene.report().await, "golbat: pi tools");
+    assert_eq!(
+        what,
+        "`find` runs `fd`, which is not on your PATH, so pi's `find` tool fails in every call"
+    );
+
+    scene.host.path = Some(vec!["pi"]);
+    let (what, _) = missing(&scene.report().await, "golbat: pi tools");
+    assert_eq!(
+        what,
+        "`grep` runs `rg`, which is not on your PATH, so pi's `grep` tool fails in every call; \
+         `find` runs `fd`, which is not on your PATH, so pi's `find` tool fails in every call"
+    );
+
+    // Debian calls `fd` `fdfind`, and pi takes either name.
+    scene.host.path = Some(vec!["pi", "rg", "fdfind"]);
+    assert_eq!(
+        ok(&scene.report().await, "golbat: pi tools"),
+        "`rg` and `fd` are on your PATH, which pi's `grep` and `find` run"
+    );
+}
+
+#[tokio::test]
+async fn a_project_with_no_pi_agent_gets_no_pi_tools_line() {
+    let mut scene = Scene::new().await;
+    scene.host.off_path = vec!["rg", "fd"];
+    scene.runs_pi_on_golbat();
+    let report = scene.report().await;
+    assert!(!subjects(&report).contains(&"koji: pi tools"));
+    assert!(subjects(&report).contains(&"golbat: pi tools"));
+}
+
 #[tokio::test]
 async fn a_pi_whose_version_cannot_be_read_is_unsure_and_never_fails_the_run() {
     let mut scene = Scene::new().await;

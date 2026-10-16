@@ -133,6 +133,45 @@ pub(super) fn pi(subject: String, host: &dyn Host) -> Line {
     }
 }
 
+// Each of pi's own search tools, the program it runs, and every name pi
+// accepts for it: Debian calls `fd` `fdfind`.
+const PI_TOOLS: [(&str, &str, &[&str]); 2] =
+    [("grep", "rg", &["rg"]), ("find", "fd", &["fd", "fdfind"])];
+
+/// `rg` and `fd` on the `PATH`, which pi's own `grep` and `find` tools run,
+/// for `subject`, a project with an agent on pi
+///
+/// pi looks in its own `bin` folder first, which is empty for every kelpie
+/// call since each call gets a pi home of its own, then on `PATH`, then
+/// downloads the program from GitHub, which the sandbox refuses. A tool with
+/// none of those fails in every call (`docs/facts/tool-errors.md`).
+pub(super) fn pi_tools(subject: String, host: &dyn Host) -> Line {
+    let gone: Vec<(&str, &str)> = PI_TOOLS
+        .iter()
+        .filter(|(_, _, names)| !names.iter().any(|name| host.on_path(name)))
+        .map(|(tool, program, _)| (*tool, *program))
+        .collect();
+    if gone.is_empty() {
+        return Line::ok(
+            subject,
+            "`rg` and `fd` are on your PATH, which pi's `grep` and `find` run",
+        );
+    }
+    let said: Vec<String> = gone
+        .iter()
+        .map(|(tool, program)| {
+            format!(
+                "`{tool}` runs `{program}`, which is not on your PATH, so pi's `{tool}` tool fails in every call"
+            )
+        })
+        .collect();
+    Line::missing(
+        subject,
+        said.join("; "),
+        "install them: `brew install ripgrep fd` on macOS, `apt-get install ripgrep fd-find` on Debian",
+    )
+}
+
 /// `goose` on the `PATH` at [`GOOSE_MINIMUM`] or later, for `subject`, a project with an agent on goose
 pub(super) fn goose(subject: String, host: &dyn Host) -> Line {
     if !host.on_path("goose") {
