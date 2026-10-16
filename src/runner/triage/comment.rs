@@ -93,8 +93,6 @@ pub(super) struct Waiting {
     pub(super) author: String,
     pub(super) said: String,
     pub(super) found: Found,
-    /// The numbers its call was shown, which is all an `addressed_by` may name
-    pub(super) shown: Vec<u64>,
 }
 
 /// What the runner keeps of one issue's triage that has not gone through, in
@@ -117,6 +115,9 @@ pub(in crate::runner) struct Tries {
     // The other item this issue is being closed as a duplicate of, kept with
     // the comment so the post is followed by the close and not by labels
     duplicate: Option<Addressed>,
+    // The numbers the research was shown, which is all an `addressed_by` may
+    // name, kept so the cover can be read again before the post
+    shown: Vec<u64>,
 }
 
 impl Tries {
@@ -215,11 +216,11 @@ impl Runner {
         found: &Found,
     ) -> Result<(), StateError> {
         let tries = self.triage_tries.entry(issue).or_default();
+        tries.shown = shown.to_owned();
         tries.waiting = Some(Waiting {
             author: author.to_owned(),
             said: said.to_owned(),
             found: found.clone(),
-            shown: shown.to_owned(),
         });
         self.say_triage(issue)
     }
@@ -245,12 +246,15 @@ impl Runner {
         else {
             return Ok(());
         };
-        let (author, said, found, shown) = (
+        let (author, said, found) = (
             waiting.author.clone(),
             waiting.said.clone(),
             waiting.found.clone(),
-            waiting.shown.clone(),
         );
+        let shown = self
+            .triage_tries
+            .get(&issue)
+            .map_or_else(Vec::new, |t| t.shown.clone());
         let (author, said, found) = (author.as_str(), said.as_str(), &found);
         // The research named something that already covers the issue. Kelpie
         // closes it as a duplicate when the forge still agrees the item is
@@ -350,6 +354,36 @@ impl Runner {
         let Some(body) = self.triage_tries.get(&issue).and_then(|t| t.body.clone()) else {
             return Ok(());
         };
+        // The wording call can run for minutes, so a duplicate's cover is read
+        // again against the forge right before the post. A cover that went in
+        // the meantime is not posted: the comment is worded again at the next
+        // poll, and by then as an ordinary one.
+        let named = self
+            .triage_tries
+            .get(&issue)
+            .and_then(|t| t.duplicate.clone());
+        if let Some(named) = named {
+            let shown = self
+                .triage_tries
+                .get(&issue)
+                .map_or_else(Vec::new, |t| t.shown.clone());
+            match self.cover_of(issue, &named, &shown) {
+                Cover::Yes => {}
+                Cover::No(why) => {
+                    self.notes.push(format!(
+                        "triage #{issue}: its reply names #{} as covering it, and {why}; its \
+                         comment is not posted, and it is triaged at the next poll",
+                        named.number
+                    ));
+                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                        tries.body = None;
+                        tries.duplicate = None;
+                    }
+                    return Ok(());
+                }
+                Cover::Unknown => return Ok(()),
+            }
+        }
         // The forge may take a post whose answer is lost, so the marker is read again.
         if let Some(tries) = self.triage_tries.get_mut(&issue) {
             tries.read = false;

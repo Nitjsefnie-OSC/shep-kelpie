@@ -8,6 +8,7 @@ use super::pick_tests::{issue, list};
 use super::research_tests::{
     APP, WORDS, calls, crashed_with, facts, moves, pump, reply, triage, untouched,
 };
+use crate::github::ApiError;
 use crate::ports::{IssueCloseReason, PullRequestState, Role, Timestamp};
 use crate::runner::{Pass, advance, step};
 use crate::test::{CALL_PATIENCE, Hold, Scripted};
@@ -335,6 +336,60 @@ fn a_marker_shaped_line_with_nothing_under_it_is_no_comment_of_ours() {
             .get("duplicate_of")
             .is_none()
     );
+}
+
+#[test]
+fn a_cover_that_went_while_the_comment_waited_to_be_posted_is_not_posted() {
+    let (rig, runner) = untouched();
+    rig.forge
+        .list_open_pull(41, "Fix the crash on start", &[30]);
+    rig.claude.script_for(
+        Role::Triager,
+        [covered(41, "pull_request", "It fixes the same crash.")],
+    );
+    rig.claude.script_for(
+        Role::Representative,
+        [Scripted::Say(WORDS), Scripted::Say(WORDS)],
+    );
+    rig.github.refuse_comments(ApiError::Refused(502));
+
+    assert_eq!(step(&runner).unwrap(), None);
+    let tried = rig.github.comments();
+    assert_eq!(tried.len(), 1, "the try whose answer was refused");
+    assert!(tried[0].1.contains("duplicate #41"), "{tried:?}");
+    assert_eq!(rig.forge.closings(), Vec::<u64>::new());
+
+    // The pull request merges and closes while the worded comment waits.
+    rig.forge.set_state(41, PullRequestState::Closed);
+    rig.github.accept_comments();
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        rig.github.comments().len(),
+        1,
+        "the comment that calls #41 open is not posted"
+    );
+    assert_eq!(rig.forge.closings(), Vec::<u64>::new());
+    let told: Vec<String> = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.contains("names #41") && n.contains("is not posted")),
+        "{told:?}"
+    );
+
+    // And at the next poll the issue is triaged as any other.
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    let posted = rig.github.comments();
+    assert_eq!(posted.len(), 2, "one more comment, worded again");
+    assert_eq!(
+        posted[1],
+        (30, format!("{WORDS}\n\n{MARKER}")),
+        "an ordinary triage comment"
+    );
+    assert_eq!(rig.forge.closings(), Vec::<u64>::new(), "and no close");
+    assert_eq!(triage(&rig, &runner)["issues"][0]["step"], "done");
 }
 
 #[test]
