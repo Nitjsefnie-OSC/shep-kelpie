@@ -2,13 +2,13 @@
 
 use std::sync::Mutex;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::pass_tests::{listing, read_through, write};
 use super::ruling_tests::rule;
 use super::security_tests::{commit_on, contribute, contribution};
 use super::tests::{poll, poll_or_adopt};
-use crate::ports::{AgentError, CLEAN, Finding, PullRequestState, Role, Severity};
+use crate::ports::{AgentError, CLEAN, Checks, Finding, PullRequestState, Role, Severity};
 use crate::runner::words::NO_NOTE;
 use crate::runner::{Runner, StepReport, step};
 use crate::settings::Harness;
@@ -395,5 +395,108 @@ fn a_rework_answer_to_the_merge_ruling_adopts_at_once_and_runs_the_full_pass() {
         said.iter()
             .any(|c| c.contains("claude read this pull request")),
         "{said:?}"
+    );
+}
+
+// The card's `rework` option and a tick give no note of their own: the worker
+// is sent to the pull request, and no placeholder is written for it.
+#[test]
+fn a_rework_answer_with_the_note_a_tick_gives_sends_the_worker_none() {
+    let (rig, runner, _) = ruled_on();
+    rig.claude.script([Scripted::Text(CLEAN)]);
+
+    rule(&rig, &runner, &format!("30 rework {NO_NOTE}"));
+    poll_or_adopt(&rig, &runner);
+
+    let record = contribution(&rig, &runner);
+    assert_eq!(record.get("rework"), None, "{record}");
+    let told = runner.lock().unwrap().take_notes();
+    assert!(
+        told.iter()
+            .any(|n| n.ends_with("kelpie takes the pull request over")),
+        "{told:?}"
+    );
+
+    let issue = rig.ask(&runner, "status", None)["work_item"]["issue"]
+        .as_u64()
+        .unwrap();
+    let text =
+        std::fs::read_to_string(rig.paths().build(issue).join("adopted-pull-request.md")).unwrap();
+    assert!(
+        !text.contains("The maintainer's note"),
+        "no note for the worker: {text}"
+    );
+
+    // The issue kelpie filed says who handed the pull request over, and does
+    // not claim its contributor released it.
+    let filed = filed(&rig);
+    assert_eq!(filed.len(), 1, "{filed:?}");
+    let body = filed[0]["body"].as_str().unwrap();
+    assert!(
+        body.contains("the maintainer's ruling had kelpie take over"),
+        "{body}"
+    );
+}
+
+// The issues the App filed, oldest first, as the forge was asked to open them
+fn filed(rig: &Rig) -> Vec<Value> {
+    (rig.github.writes().into_iter())
+        .filter(|(_, call)| call.path.ends_with("/issues"))
+        .filter_map(|(_, call)| {
+            let text: Value = serde_json::from_str(call.body.as_deref()?).ok()?;
+            Some(text)
+        })
+        .collect()
+}
+
+// A contributor who pushes after the maintainer answered `rework` does not take
+// the note away: it sits on the record, and the worker still reads it. Nothing
+// is asked about merging a pull request kelpie has taken over.
+#[test]
+fn a_new_head_after_a_rework_answer_keeps_the_maintainers_note_for_the_worker() {
+    let (rig, runner, _) = ruled_on();
+    rig.claude
+        .script([Scripted::Text(CLEAN), Scripted::Text(CLEAN)]);
+    // The issue is filed and its body names it, so the pull request is queued.
+    rig.forge.set_pull_request_edit_down(true);
+
+    rule(
+        &rig,
+        &runner,
+        "30 rework Add the test the review asked for.",
+    );
+    poll_or_adopt(&rig, &runner);
+
+    let record = contribution(&rig, &runner);
+    assert_eq!(record["released"]["how"], "maintainer", "{record}");
+    assert_eq!(
+        record["rework"], "Add the test the review asked for.",
+        "{record}"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["adopted"], json!([]));
+
+    // Its contributor pushes before its work item starts.
+    let moved = commit_on(&rig, 30, "origin/main", |h| write(h, "two.txt", "two\n"));
+    rig.forge.set_checks(&moved, Checks::Passed);
+    rig.forge.set_pull_request_edit_down(false);
+
+    for _ in 0..4 {
+        poll_or_adopt(&rig, &runner);
+        if rig.ask(&runner, "status", None)["work_item"] != Value::Null {
+            break;
+        }
+    }
+
+    let status = rig.ask(&runner, "status", None);
+    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    assert_eq!(status["work_item"]["pull_request"], 30);
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+    let text =
+        std::fs::read_to_string(rig.paths().build(issue).join("adopted-pull-request.md")).unwrap();
+    assert!(
+        text.contains(
+            "# The maintainer's note on pull request #30\n\nAdd the test the review asked for."
+        ),
+        "{text}"
     );
 }

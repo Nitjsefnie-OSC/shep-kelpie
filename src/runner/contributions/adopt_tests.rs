@@ -309,3 +309,41 @@ fn a_release_starts_an_adoption_in_the_next_free_slot_ahead_of_new_issues() {
     assert_eq!(status["work_item"]["pull_request"], 30);
     assert_eq!(status["work_item"]["adopted"], json!(true));
 }
+
+// The issue kelpie filed for a pull request that closed none stays the one its
+// work item hangs on, even where its contributor names an issue before it
+// starts. The filed one is the one the pull request's body carries, so it
+// closes with the merge and none is left open beside the work.
+#[test]
+fn a_pull_request_that_closes_an_issue_after_kelpie_filed_one_is_adopted_against_the_filed_one() {
+    let (rig, runner) = waiting(&[ASKS, TAKEN]);
+    rig.forge.set_pull_request_edit_down(true);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 1);
+
+    let record = held(&rig, &runner);
+    assert_eq!(record["released"]["how"], "silence", "{record}");
+    let filed = record["adopting"]["issue"].as_u64().unwrap();
+    assert_eq!(
+        record["adopting"].get("resolves"),
+        None,
+        "the body edit was refused: {record}"
+    );
+    assert_eq!(rig.ask(&runner, "status", None)["adopted"], json!([]));
+
+    // Its contributor names an issue of their own before the work item starts.
+    rig.forge.set_closes(30, &[5]);
+    rig.forge.set_pull_request_edit_down(false);
+    later(&rig, &runner, 1);
+
+    let status = rig.ask(&runner, "status", None);
+    let issue = status["work_item"]["issue"].as_u64().unwrap();
+    assert_eq!(status["work_item"]["pull_request"], 30);
+    assert_eq!(
+        issue, filed,
+        "the issue kelpie filed, not the one named later"
+    );
+    let body = rig.forge.pull_request_body(30);
+    assert!(body.ends_with(&format!("Resolves #{issue}")), "{body}");
+}
