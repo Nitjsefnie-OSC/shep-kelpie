@@ -139,6 +139,30 @@ pub struct Contribution {
     /// `head` or nothing. A head with an answer is not asked about again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ruled: Option<Ruled>,
+    /// Where kelpie's taking the pull request over stands: the issue it filed
+    /// for one that closes none, and whether the pull request's body names it
+    ///
+    /// Left out until a release or a `rework` answer to the merge ruling has
+    /// kelpie take the pull request, and gone with the record once its work
+    /// item opens. A pull request that closes an issue of its own needs no
+    /// filing, and stays without this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopting: Option<Adopting>,
+}
+
+/// How far kelpie has come to hang a released contribution's work item on an
+/// issue, for a pull request that closes none
+// wire format: changing this is a breaking change to the state file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Adopting {
+    /// The issue kelpie filed from the pull request's title and body. A poll
+    /// that filed it and failed to edit the body files no second one.
+    pub issue: u64,
+    /// That `Resolves #<issue>` is in the pull request's body, so the merge
+    /// closes the issue and the next poll edits the body no more
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub resolves: bool,
 }
 
 /// The maintainer's answer to the merge ruling on one head of a contribution,
@@ -174,6 +198,13 @@ pub enum Verdict {
         /// note
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+    },
+    /// Rework: kelpie takes the pull request over and finishes it itself.
+    /// The note is what the maintainer wants changed, and the worker gets it
+    /// before its first turn.
+    Rework {
+        /// The maintainer's note for the worker
+        note: String,
     },
 }
 
@@ -402,6 +433,7 @@ impl Contribution {
             asked: None,
             released: None,
             ruled: None,
+            adopting: None,
         }
     }
 
