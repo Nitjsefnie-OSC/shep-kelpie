@@ -39,6 +39,7 @@ Runner loop, worker turns, fences, agents and harnesses. Skills and plugins are 
 - Guard refuses `claude`, `codex`, `pi` as programs (a nested session runs without hooks). `src/guard.rs`
 - Linux: srt skips `denyWrite` globs, so `fence::deny_write` also lists nested harness folders present at call start (`src/fence/nested.rs`); one made during a call is caught by the check against `main` after it. srt also refuses every Unix socket, so no worker reaches the dog's door and `cargo-test` runs unleased; `doctor` says so. #488
 - Each harness declares run-code + login files; fence holds all, so no call plants or reads another harness's. #233
+- Every call reads the installed sources and docs of its dependencies and toolchains: cargo's `registry/src` and `git/checkouts`, and each rustup toolchain's `lib/rustlib/src` and `share/doc`, each folder from the tool's own variable or its default home, a folder not on the machine adding nothing. `Runner::prepared` puts them in the call's read list and the fence's read carve-outs, so Claude Code's `additionalDirectories` and the sandbox's `allowRead` both let them through; the write list is untouched, and `CREDENTIALS` still denies what sits beside them. A call that works an item also gets the cargo home its `build_env` points into the build folder. An answer reads only its prompt. #952, `src/dep_sources.rs`, `src/runner/turn.rs`
 
 ## Not built
 

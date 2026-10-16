@@ -173,7 +173,9 @@ kickoff_hours = 8
 # refuse to start on them: a live reread keeps the running settings and names
 # the entry. `build_env` points tool caches into the
 # worker's build folder, such as `BUN_INSTALL_CACHE_DIR = "bun"` for bun.
-# `CARGO_TARGET_DIR` is always the build folder itself.
+# `CARGO_TARGET_DIR` is always the build folder itself. Every call that works
+# the item reads the unpacked crates of a `CARGO_HOME` there, as it reads the
+# machine's own installed dependency and toolchain sources.
 [app.dogs.kelpie.worker]
 allowed_domains = ["crates.io", "index.crates.io", "static.crates.io"]
 build_env = {}
