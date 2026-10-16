@@ -4,7 +4,9 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use super::release_tests::{ASKS, TAKEN, THANKED, comments, later, polls, rulings, waiting};
+use super::release_tests::{
+    ASKS, TAKEN, THANKED, YES, comments, held, later, polls, rulings, waiting,
+};
 use super::ruling_tests::rule;
 use crate::runner::Runner;
 use crate::test::Rig;
@@ -62,7 +64,7 @@ fn a_fork_with_maintainer_edits_is_released_at_quiet_days_as_before() {
     later(&rig, &runner, 1);
 
     assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
-    let record = super::release_tests::held(&rig, &runner);
+    let record = held(&rig, &runner);
     assert_eq!(record["released"]["how"], "silence");
 }
 
@@ -98,4 +100,36 @@ fn close_with_thanks_posts_thanks_and_closes_it() {
     polls(&rig, &runner);
     assert_eq!(comments(&rig).len(), 2, "thanked once");
     assert_eq!(rig.forge.pull_request_closings(), [30], "closed once");
+}
+
+#[test]
+fn a_reply_met_at_quiet_days_is_read_before_a_fork_without_edits_is_ruled_on() {
+    let (rig, runner) = waiting(&[ASKS, YES, TAKEN]);
+    rig.forge
+        .set_fork(30, "https://example.test/fork.git", false);
+    later(&rig, &runner, 3);
+    later(&rig, &runner, 3);
+    rig.writes_on(30, "newcomer", "Yes, please go ahead.");
+
+    later(&rig, &runner, 1);
+    polls(&rig, &runner);
+
+    assert_eq!(held(&rig, &runner)["released"]["how"], "yes");
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
+}
+
+#[test]
+fn a_contribution_first_asked_at_quiet_days_is_asked_and_not_ruled_on() {
+    let (rig, runner) = waiting(&[ASKS]);
+    rig.forge
+        .set_fork(30, "https://example.test/fork.git", false);
+
+    later(&rig, &runner, 7);
+
+    assert_eq!(
+        comments(&rig),
+        [ASKS],
+        "asked, with the whole window to answer"
+    );
+    assert_eq!(rulings(&rig, &runner), Vec::<Value>::new());
 }

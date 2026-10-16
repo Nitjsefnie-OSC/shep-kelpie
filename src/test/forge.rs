@@ -2,7 +2,7 @@
 //! the rig's bare origin
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -377,9 +377,14 @@ impl FakeForge {
 
     /// The commit `branch` points at on origin, if it exists there
     pub(crate) fn head_of(&self, branch: &str) -> Option<String> {
+        Self::head_in(&self.origin, branch)
+    }
+
+    // The commit `branch` points at in the bare repository `git_dir`
+    pub(super) fn head_in(git_dir: &Path, branch: &str) -> Option<String> {
         let output = Command::new("git")
             .arg("--git-dir")
-            .arg(&self.origin)
+            .arg(git_dir)
             .args(["rev-parse", "--verify", "--quiet"])
             .arg(format!("refs/heads/{branch}"))
             .output()

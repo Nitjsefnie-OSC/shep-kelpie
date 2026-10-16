@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::ports::Checks;
 use crate::runner::contributions::tests::picking;
 use crate::runner::{StepReport, step};
 use crate::state::{How, Released};
@@ -145,4 +146,40 @@ fn a_released_fork_without_edits_cannot_be_adopted() {
         json!({ "error": "pull request #80 comes from a fork kelpie cannot push to: it does not let maintainers edit it, or it has been deleted" })
     );
     assert_eq!(work_item(&rig, &runner), Value::Null);
+}
+
+#[test]
+fn a_catch_up_with_main_on_an_adopted_fork_merges_into_the_fork_and_not_origin() {
+    let (rig, runner) = contributed();
+    let (url, fork_head) = rig.push_to_fork(FORK_BRANCH, "fork.txt");
+    rig.forge.set_fork(80, &url, true);
+    release(&runner);
+    assert_eq!(rig.ask(&runner, "adopt", Some("80")).get("error"), None);
+    assert_eq!(step(&runner).unwrap(), Some(adopted()));
+    let landed = rig.land_on_origin("landed.txt");
+    rig.forge.set_checks(&fork_head, Checks::Passed);
+
+    let report = step(&runner).unwrap();
+    let Some(StepReport::Rebased { head: merged, .. }) = report else {
+        panic!("the fork's branch was not caught up: {report:?}");
+    };
+
+    let fork = std::path::Path::new(&url);
+    assert_eq!(
+        git(fork, &["rev-parse", &format!("refs/heads/{FORK_BRANCH}")]),
+        merged,
+        "the merge went to the fork"
+    );
+    assert_eq!(
+        git(
+            fork,
+            &["rev-parse", &format!("{merged}^1"), &format!("{merged}^2")]
+        ),
+        format!("{fork_head}\n{landed}")
+    );
+    assert_eq!(
+        rig.forge.head_of("kelpie/5"),
+        None,
+        "nothing reached origin"
+    );
 }

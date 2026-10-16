@@ -1,8 +1,10 @@
 //! The fake forge's reads of pull requests, and the count of each kind
 
+use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 
 use super::FakeForge;
+use super::handed::FakePullRequest;
 use crate::board::{OpenPullRequest, ReviewMarks};
 use crate::ports::{Checks, ForgeError, PullRequest, PullRequestState};
 
@@ -69,6 +71,15 @@ impl FakeForge {
         *counts.entry(number).or_default() += 1;
     }
 
+    // The head of `pr`'s branch in the repository it lives in: the fork when
+    // one was set that is a folder on disk, else origin
+    fn head_in_its_repository(&self, pr: &FakePullRequest) -> Option<String> {
+        match &pr.fork {
+            Some((url, _)) if Path::new(url).is_dir() => Self::head_in(Path::new(url), &pr.branch),
+            _ => self.head_of(&pr.branch),
+        }
+    }
+
     // Pull request `number` as the forge shows it now, with no call counted
     pub(super) fn read(&self, number: u64) -> Result<PullRequest, ForgeError> {
         let pr = self.opened(number)?;
@@ -76,7 +87,7 @@ impl FakeForge {
         let head = match lagging {
             Some(head) => head,
             None => self
-                .head_of(&pr.branch)
+                .head_in_its_repository(&pr)
                 .ok_or_else(|| ForgeError::Failed(format!("no branch {} on origin", pr.branch)))?,
         };
         let checks = self.checks.lock().unwrap().get(&head).cloned();

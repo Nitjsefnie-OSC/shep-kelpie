@@ -20,7 +20,7 @@ use crate::ports::Timestamp;
 use crate::settings::Merging;
 use crate::state::{Fix, Held, ProjectState, Resume, Ruling, RulingKind, StateError, Stuck};
 use crate::work_item::{Known, Phase, Review, ReviewStage, Turn, WorkItem, foreign_change};
-use crate::worktree::{self, Remote};
+use crate::worktree::{self};
 
 mod act;
 mod prompts;
@@ -440,15 +440,8 @@ impl Runner {
                     item.phase = match (from, to) {
                         (Some(from), Some(to)) if from != to => {
                             let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                            worktree::adopt(
-                                repo,
-                                &item.worktree,
-                                branch,
-                                &from,
-                                &to,
-                                &Remote::Origin,
-                            )
-                            .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
+                            worktree::adopt(repo, &item.worktree, branch, &from, &to, &item.remote)
+                                .map_err(|e| RuleError::Adopt(to, e.to_string()))?;
                             Phase::Review(Review::first())
                         }
                         _ => Phase::Ci {
@@ -461,7 +454,7 @@ impl Runner {
                 }
                 Move::Decline { prompt, from, to } => {
                     let (repo, branch) = (&self.settings.git.checkout, &item.branch);
-                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &Remote::Origin)
+                    worktree::adopt(repo, &item.worktree, branch, &from, &to, &item.remote)
                         .map_err(|e| RuleError::Adopt(to.clone(), e.to_string()))?;
                     item.known.head = Some(to);
                     let review = Some(Phase::Review(Review::first()));
@@ -633,7 +626,7 @@ fn regate(repo: &std::path::Path, item: &mut WorkItem) -> Result<bool, RuleError
         &item.branch,
         &from,
         &tip,
-        &Remote::Origin,
+        &item.remote,
     )
     .map_err(|e| RuleError::Adopt(tip.clone(), e.to_string()))?;
     item.known.head = Some(tip);

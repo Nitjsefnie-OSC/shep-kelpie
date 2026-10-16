@@ -19,7 +19,7 @@ const DAY: u64 = Rig::DAY;
 pub(super) const ASKS: &str =
     "May kelpie take this from here? A review bot still has a thread open.";
 const ASKS_AGAIN: &str = "One more time: may kelpie take this from here?";
-const YES: &str = r#"{"reading": "yes"}"#;
+pub(super) const YES: &str = r#"{"reading": "yes"}"#;
 const NO: &str = r#"{"reading": "no"}"#;
 const OTHER: &str = r#"{"reading": "other"}"#;
 pub(super) const TAKEN: &str = "This pull request is kelpie's now. Your commits and credit stay.";

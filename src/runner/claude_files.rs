@@ -40,7 +40,12 @@ impl Runner {
         };
         let accepted = item.claude_files_accepted.as_deref();
         let phase = item.phase.clone();
-        match fence::changed(&self.settings.git.checkout, &item.branch, accepted) {
+        match fence::changed(
+            &self.settings.git.checkout,
+            &item.branch,
+            &item.remote,
+            accepted,
+        ) {
             Ok((_, files)) if files.is_empty() => Ok(None),
             Ok((head, files)) => {
                 let kind = RulingKind::AgentFiles { head, files, phase };

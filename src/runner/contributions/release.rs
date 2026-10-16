@@ -153,11 +153,6 @@ impl Runner {
             return Ok(());
         };
         let due = clock.due(now);
-        // Kelpie takes a pull request over by pushing to its branch, so one
-        // it cannot push to is the maintainer's to decide at the quiet.
-        if due == Some(Due::Quiet) && self.awaits_edits(number)? {
-            return Ok(());
-        }
         match &held.asked {
             None => match due {
                 Some(due) => self.ask(&held, &clock, due == Due::Quiet),
@@ -166,9 +161,13 @@ impl Runner {
             Some(asked) if asked.is_open() => match self.look_for_answer(&held, asked)? {
                 Look::Told(Told::Yes(how, said)) => self.release_to(&held, how, said),
                 Look::Told(Told::No(said)) => self.record_no(number, said),
-                Look::Nothing if due == Some(Due::Quiet) => {
-                    self.release_to(&held, How::Silence, None)
-                }
+                // Kelpie takes a pull request over by pushing to its branch,
+                // so a silence on one it cannot push to is the maintainer's
+                // to decide, after the replies are read.
+                Look::Nothing if due == Some(Due::Quiet) => match self.awaits_edits(number)? {
+                    true => Ok(()),
+                    false => self.release_to(&held, How::Silence, None),
+                },
                 Look::Nothing | Look::Stuck => Ok(()),
             },
             Some(asked) if due == Some(Due::Quiet) && asked.nos >= 2 => {
