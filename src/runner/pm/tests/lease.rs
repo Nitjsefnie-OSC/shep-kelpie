@@ -18,6 +18,9 @@ const BEHIND_PADDOCK: &str = "---\nrole: implementer\nharness: pi\nmodel: coder\
 /// gateway at `server`, and issue 7 open on it
 fn behind(rig: &Rig, server: &StandInEndpoint) -> Mutex<Runner> {
     rig.write_agent("mine", BEHIND_PADDOCK);
+    // `name_pm` and `implementers` each rewrite the example's `implementers`
+    // line, so the one that checks it goes first.
+    name_pm(rig);
     rig.implementers(&["sonnet-high", "mine"]);
     let settings = std::fs::read_to_string(rig.kelpie_settings_file()).unwrap();
     let gateway = format!(
