@@ -424,6 +424,8 @@ fn untouched(issue: &OpenIssue, since: Timestamp, only: Option<&str>) -> bool {
 #[cfg(test)]
 mod addressed_tests;
 #[cfg(test)]
+mod answers_tests;
+#[cfg(test)]
 mod ask_tests;
 #[cfg(test)]
 mod pick_tests;
