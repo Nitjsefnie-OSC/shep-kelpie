@@ -45,6 +45,8 @@ struct Hub {
     comment_ids: u64,
     // Why every comment is refused, while it is
     comments_refused: Option<ApiError>,
+    // Why every issue body edit is refused, while it is
+    issue_edits_refused: Option<ApiError>,
     // Whether a review that carries line comments is refused with 422, as
     // GitHub does one naming a line the diff does not show
     line_comments_refused: bool,
@@ -128,6 +130,16 @@ impl FakeGithub {
     /// Makes every comment answer `error` from now on, whatever else is asked
     pub(crate) fn refuse_comments(&self, error: ApiError) {
         self.hub.lock().unwrap().comments_refused = Some(error);
+    }
+
+    /// Makes every issue body edit answer `error` from now on
+    pub(crate) fn refuse_issue_edits(&self, error: ApiError) {
+        self.hub.lock().unwrap().issue_edits_refused = Some(error);
+    }
+
+    /// Takes issue body edits again after [`Self::refuse_issue_edits`]
+    pub(crate) fn accept_issue_edits(&self) {
+        self.hub.lock().unwrap().issue_edits_refused = None;
     }
 
     /// Makes GitHub answer 422 to every review that carries a line comment
@@ -265,11 +277,24 @@ impl FakeGithub {
     /// The id and new text of each comment the App edited, in order
     pub(crate) fn edits(&self) -> Vec<(u64, String)> {
         (self.writes().into_iter())
-            .filter(|(_, call)| call.verb == Verb::Patch)
+            .filter(|(_, call)| call.verb == Verb::Patch && call.path.contains("/issues/comments/"))
             .filter_map(|(_, call)| {
                 let id = call.path.rsplit('/').next()?.parse().ok()?;
                 let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
                 Some((id, body["body"].as_str()?.to_owned()))
+            })
+            .collect()
+    }
+
+    /// The number and new body of each issue whose body the App replaced,
+    /// in order
+    pub(crate) fn issue_edits(&self) -> Vec<(u64, String)> {
+        (self.writes().into_iter())
+            .filter(|(_, call)| is_issue_edit(call))
+            .filter_map(|(_, call)| {
+                let number = call.path.rsplit('/').next()?;
+                let body: serde_json::Value = serde_json::from_str(call.body.as_deref()?).ok()?;
+                Some((number.parse().ok()?, body["body"].as_str()?.to_owned()))
             })
             .collect()
     }
@@ -432,6 +457,13 @@ impl GithubApi for FakeGithub {
         {
             return Err(error);
         }
+        if let Some(error) = hub
+            .issue_edits_refused
+            .clone()
+            .filter(|_| is_issue_edit(call))
+        {
+            return Err(error);
+        }
         if call.path == "/graphql" {
             let threads = hub.threads.clone();
             drop(hub);
@@ -470,6 +502,11 @@ impl GithubApi for FakeGithub {
         }
         Ok("{}".to_owned())
     }
+}
+
+// A `PATCH /repos/{owner}/{repo}/issues/{number}`: an issue body edit.
+fn is_issue_edit(call: &Call) -> bool {
+    call.verb == Verb::Patch && call.path.rsplit('/').nth(1) == Some("issues")
 }
 
 // A GraphQL call's JSON body.

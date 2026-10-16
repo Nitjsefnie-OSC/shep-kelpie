@@ -116,6 +116,8 @@ pub enum Kind {
     AppThumbsUp,
     /// An issue opened by the App
     AppCreateIssue,
+    /// An issue's body rewritten by the App, its title as it stands
+    AppEditIssue,
     /// A review thread resolved by the App
     AppResolveThread,
     /// A reply to a review thread by the App
@@ -234,6 +236,7 @@ impl Kind {
             | Self::AppEditComment
             | Self::AppThumbsUp
             | Self::AppCreateIssue
+            | Self::AppEditIssue
             | Self::AppCreateLabel
             | Self::AppSetIssueLabel => Api::Rest,
         }

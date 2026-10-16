@@ -519,6 +519,11 @@ impl Voice for GuardedVoice {
         self.voice.create_issue(repo, title, body, labels)
     }
 
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.check(repo, "the issue's body", body)?;
+        self.voice.edit_issue_body(repo, number, body)
+    }
+
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
         self.voice.resolve_thread(repo, thread)
     }

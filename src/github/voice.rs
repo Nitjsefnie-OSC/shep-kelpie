@@ -160,6 +160,11 @@ impl Voice for AppVoice {
         api::parse_number(&answer).map_err(|e| ForgeError::App(e.to_string()))
     }
 
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.write(repo, &Call::edit_issue(repo, number, body))
+            .map(drop)
+    }
+
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
         let token = (self.tokens.thread_token(repo)).map_err(token_error)?;
         let call = Call::resolve_thread(thread);
