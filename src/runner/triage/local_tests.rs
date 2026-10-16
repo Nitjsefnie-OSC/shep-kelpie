@@ -623,3 +623,74 @@ fn a_local_prompt_a_restart_lost_still_measures_against_the_body_it_was_posted_a
     assert_eq!(held["step"], "done");
     assert!(held.get("local").is_none(), "{held}");
 }
+
+// The prompt went up, its answer was lost, and the author followed it: their
+// session rewrote the body, so the research that recovery runs finds nothing
+// left to settle. The prompt is taken up again, and the body is triaged.
+#[test]
+fn a_prompt_already_on_the_issue_is_taken_up_when_no_question_is_left_to_settle() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked_with_files());
+    assert_eq!(step(&runner).unwrap(), None);
+    let owed = record(&rig, &runner);
+
+    wrote(&rig, MAINTAINER, "local");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::Say(L_WORDS)],
+    );
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+    assert!(
+        marker_line(&posted(&rig).remove(1)).starts_with(LOCAL_MARKER),
+        "the prompt is on the issue"
+    );
+
+    list(&rig, rewritten(&rig, MAINTAINER, EDITED));
+    drop(runner);
+    crashed_with(&rig, owed);
+    let runner = rig.open().unwrap();
+
+    rig.claude.script_for(
+        Role::Representative,
+        [read("local"), Scripted::Say(A_WORDS)],
+    );
+    rig.claude
+        .script_for(Role::Triager, [reply(settled()), reply(settled())]);
+
+    for _ in 0..3 {
+        rig.next_look();
+        assert_eq!(step(&runner).unwrap(), None);
+        if record(&rig, &runner)["local"].is_object() {
+            break;
+        }
+    }
+    let held = record(&rig, &runner);
+    assert!(held["local"].is_object(), "{held}");
+    assert!(held.get("asked").is_none(), "{held}");
+    assert_eq!(
+        moves(&rig),
+        ["comment", "comment"],
+        "no question left is not the round ending as `none`"
+    );
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        3,
+        "its new body is read again"
+    );
+    assert_eq!(
+        moves(&rig),
+        [
+            "comment",
+            "comment",
+            "comment",
+            "label bug",
+            "label P2",
+            "label needs-triage",
+        ]
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
+}

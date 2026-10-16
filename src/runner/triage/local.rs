@@ -22,9 +22,11 @@
 //! The prompt comment's last line carries the hash of the body it went up
 //! against, so a prompt that posted before a crash leaves the round measured
 //! against that body rather than whatever the forge holds when kelpie comes
-//! back. Everything the block names, the title, the files and each question
-//! with what it recommends, is put on one line with its backticks gone, so
-//! none of it can close the fence the prompt is posted in.
+//! back. A prompt kelpie finds on the issue is taken up before a pass that
+//! finds no question left is ended as `none`. Everything the block names, the
+//! title, the files and each question with what it recommends, is put on one
+//! line with its backticks gone, so none of it can close the fence the prompt
+//! is posted in.
 
 use super::super::Runner;
 use super::super::contributions::post::forge_is_busy;
@@ -85,13 +87,6 @@ impl Runner {
             .get(&issue)
             .map(|t| t.open.clone())
             .unwrap_or_default();
-        if questions.is_empty() {
-            self.notes.push(format!(
-                "triage #{issue}: its author replied `local`, but the pass left no question to \
-                 settle, so the maintainer triages it as it stands"
-            ));
-            return self.triage_none(issue);
-        }
         let files = self
             .triage_tries
             .get(&issue)
@@ -110,10 +105,13 @@ impl Runner {
                 return Ok(());
             }
         };
-        // The forge may take a post whose answer is lost, so the marker is read
-        // again before asking a second time. The comment it finds carries the
-        // body the prompt went up against, so an edit made between that post and
-        // this read is still the round's answer.
+        // The forge may take a post whose answer is lost, and a crash may leave
+        // the wait unsaved, so the prompt kelpie already posted is taken up
+        // first: what its author did after it is read from the body, and a pass
+        // that now finds no question left is the round's answer rather than a
+        // reason to end it as `none`. The comment it finds carries the body the
+        // prompt went up against, so an edit made between that post and this
+        // read is still the round's answer.
         match self.app_comment_after(issue, LOCAL_MARKER, asked.at) {
             Ok(Some(prompt)) => {
                 let seen = prompt_hash(&prompt.body).unwrap_or_else(|| body_hash(&found.body));
@@ -125,6 +123,13 @@ impl Runner {
                 self.triage_failed(issue, &why, !forge_is_busy(&e));
                 return Ok(());
             }
+        }
+        if questions.is_empty() {
+            self.notes.push(format!(
+                "triage #{issue}: its author replied `local`, but the pass left no question to \
+                 settle, so the maintainer triages it as it stands"
+            ));
+            return self.triage_none(issue);
         }
         let facts = local_facts(questions.len());
         let kind = LOCAL_KIND;
