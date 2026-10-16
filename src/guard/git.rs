@@ -3,7 +3,10 @@
 //! A `git fetch` or `git pull` in the work item's own repo is answered before it
 //! runs: every worktree shares one `.git`, a worker may write only its own
 //! branch's refs, and a fetch updates every `refs/remotes/origin/*`, so it
-//! fails on the others. Kelpie fetches `origin/main` for the worker.
+//! fails on the others. Kelpie fetches `origin/main` for the worker. A fetch
+//! git is pointed at another repo, by `--git-dir`, `--work-tree`, `--bare` or
+//! a `GIT_` assignment, is left to git, since the guard cannot tell which repo
+//! it names.
 //!
 //! Messages are read from the command. What a commit adds and a push sends
 //! is read from the worktree's own git, once a call, through kelpie's
@@ -157,8 +160,15 @@ pub(super) fn judge(
     let args = &git.words[at + 1..];
     // A fetch of the shared clone is answered rather than run. In a repo the
     // worker made inside its worktree its refs are its own to write, so a
-    // fetch there is left to git.
-    if runs && matches!(sub, "fetch" | "pull") && in_own_repo(checkout.worktree, dir.as_deref()) {
+    // fetch there is left to git. So is one git is pointed at another repo
+    // by `--git-dir`, `--work-tree`, `--bare` or a `GIT_` assignment: kelpie
+    // cannot tell which repo such a fetch names, and a fetch is no write to
+    // the work item's branch.
+    if runs
+        && matches!(sub, "fetch" | "pull")
+        && !(front.redirected || git.redirected)
+        && in_own_repo(checkout.worktree, dir.as_deref())
+    {
         out.push(fetch_answered());
         return out;
     }

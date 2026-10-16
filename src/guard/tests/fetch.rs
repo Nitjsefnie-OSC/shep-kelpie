@@ -4,7 +4,9 @@
 //! its own branch's refs. A bare `git fetch` updates every
 //! `refs/remotes/origin/*`, so each other branch's lock fails and git exits 1,
 //! which a worker spent turns reading as a broken sandbox. Kelpie fetches
-//! `origin/main` itself, so the guard answers the attempt instead.
+//! `origin/main` itself, so the guard answers the attempt instead. A fetch git
+//! is pointed at another repo, by `--git-dir` or `GIT_DIR`, is left to git:
+//! kelpie cannot tell which repo such a command names.
 
 use super::*;
 
@@ -112,4 +114,26 @@ fn a_fetch_in_a_repo_the_worker_made_goes_through() {
 fn a_fetch_that_only_a_program_names_is_not_refused() {
     let tree = WorkerTree::new();
     assert_eq!(tree.bash("rg 'git fetch'"), Verdict::Allow);
+}
+
+// A fetch git is pointed at another repo is left to git. `--git-dir` and
+// `GIT_DIR` name a repo kelpie cannot tell the worker's own fixture from, and
+// a fetch writes none of the work item's refs, so none of them is answered.
+// `--git-dir=.git` is the shared clone named plainly, and git's own failure is
+// what answers it there.
+#[test]
+fn a_fetch_git_is_pointed_at_another_repo_goes_through() {
+    let tree = WorkerTree::new();
+    tree.git(&["init", "--quiet", "--bare", "fixture/repo.git"]);
+    for command in [
+        "git --git-dir=fixture/repo.git fetch origin",
+        "git --git-dir fixture/repo.git fetch",
+        "git --git-dir=fixture/repo.git pull",
+        "GIT_DIR=fixture/repo.git git fetch origin",
+        "env GIT_DIR=fixture/repo.git git fetch origin",
+        "export GIT_DIR=fixture/repo.git; git fetch origin",
+        "git --git-dir=.git fetch",
+    ] {
+        assert_eq!(tree.bash(command), Verdict::Allow, "{command}");
+    }
 }
