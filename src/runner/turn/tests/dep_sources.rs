@@ -63,3 +63,59 @@ fn a_worker_reads_the_installed_dependency_sources_and_no_credential_of_cargo() 
         );
     }
 }
+
+#[test]
+fn a_worker_reads_the_toolchain_its_build_env_points_into_the_build_folder() {
+    let rig = Rig::new("shep");
+    rig.edit_settings(|s| {
+        s.replace(
+            "build_env = {}",
+            "build_env = { CARGO_HOME = \"cargo\", RUSTUP_HOME = \"rustup\" }",
+        )
+    });
+    let rustup = rig.build_7().join("rustup");
+    for rel in [
+        "toolchains/stable-aarch64/lib/rustlib/src/rust/library/std/src/lib.rs",
+        "toolchains/stable-aarch64/share/doc/rust/index.html",
+        "toolchains/stable-aarch64/lib/libstd.rlib",
+        "downloads/crates",
+    ] {
+        write_in(&rustup, rel, "x\n");
+    }
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    rig.claude
+        .script([Scripted::Reply(usage(1), Cost(20_085_300))]);
+    step(&runner).unwrap();
+    let [seen] = rig.claude.seen().try_into().unwrap();
+
+    for read in [
+        rustup.join("toolchains/stable-aarch64/lib/rustlib/src/rust/library/std/src/lib.rs"),
+        rustup.join("toolchains/stable-aarch64/share/doc/rust/index.html"),
+    ] {
+        assert_reads(&seen, &read);
+    }
+    let granted: Vec<&str> = (seen.settings["permissions"]["additionalDirectories"]
+        .as_array()
+        .expect("the worker is granted folders outside its worktree")
+        .iter())
+    .filter_map(serde_json::Value::as_str)
+    .collect();
+    for folder in [
+        rustup.join("toolchains/stable-aarch64/lib/rustlib/src"),
+        rustup.join("toolchains/stable-aarch64/share/doc"),
+    ] {
+        assert!(granted.contains(&folder.to_str().unwrap()), "{granted:?}");
+    }
+    // A toolchain's own binaries and rustup's download cache are no source to read.
+    for other in [
+        rustup.join("toolchains/stable-aarch64/lib"),
+        rustup.join("downloads"),
+    ] {
+        assert!(
+            !granted.contains(&other.to_str().unwrap()),
+            "{}: {granted:?}",
+            other.display()
+        );
+    }
+}

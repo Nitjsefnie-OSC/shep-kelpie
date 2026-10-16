@@ -45,21 +45,26 @@ impl Runner {
         }
     }
 
-    // The machine's own dependency and toolchain sources, and the crates the
-    // build folder `build` holds when the project's `build_env` points cargo's
-    // home there.
+    // The machine's own dependency and toolchain sources, and what the build
+    // folder `build` holds of them when the project's `build_env` points a
+    // tool's home there.
     fn dep_reads(&self, build: Option<&Path>) -> Vec<PathBuf> {
+        let named = |name: &str| {
+            build.and_then(|build| {
+                self.settings
+                    .worker
+                    .build_env
+                    .iter()
+                    .find(|(key, _)| key.as_str() == name)
+                    .map(|(_, dir)| build.join(dir.as_path()))
+            })
+        };
         let mut reads = self.dep_sources.folders().to_vec();
-        let cargo = build.and_then(|build| {
-            self.settings
-                .worker
-                .build_env
-                .iter()
-                .find(|(name, _)| name.as_str() == "CARGO_HOME")
-                .map(|(_, dir)| build.join(dir.as_path()))
-        });
-        if let Some(cargo) = cargo {
+        if let Some(cargo) = named("CARGO_HOME") {
             reads.extend(crate::dep_sources::cargo_srcs(&cargo));
+        }
+        if let Some(rustup) = named("RUSTUP_HOME") {
+            reads.extend(crate::dep_sources::rustup_srcs(&rustup));
         }
         reads
     }
