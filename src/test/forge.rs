@@ -2,8 +2,7 @@
 //! the rig's bare origin
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -11,8 +10,9 @@ use super::coderabbit::FakeCodeRabbit;
 use crate::board::{OpenPullRequest, READY, ReadyIssue, ReviewMarks, SubIssues};
 use crate::ports::{
     BranchRun, Checks, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
-    MaintainerReview, NewLabel, OpenIssue, PullRequest, PullRequestState, QueueStanding, Reviewed,
-    SubIssue, Talk, ThreadComment, Timestamp, Visibility, Workflow,
+    IssueCloseReason, MaintainerReview, NewLabel, OpenIssue, OpenPull, PullRequest,
+    PullRequestState, QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp,
+    Visibility, Workflow,
 };
 use crate::review_bot::{Activity, Login};
 use crate::settings::ForgeSlug;
@@ -38,6 +38,8 @@ pub(crate) struct FakeForge {
     listed_finished: Arc<Mutex<Vec<u64>>>,
     // The issues kelpie closed
     closings: Arc<Mutex<Vec<u64>>>,
+    // Why each issue kelpie closed was closed, as `close_issue_as` gave it
+    closed_as: Arc<Mutex<HashMap<u64, IssueCloseReason>>>,
     // The pull requests kelpie closed unmerged
     pull_request_closings: Arc<Mutex<Vec<u64>>>,
     // Whether closing a pull request is refused
@@ -128,6 +130,7 @@ impl FakeForge {
             sub_issues_down: Arc::default(),
             listed_finished: Arc::default(),
             closings: Arc::default(),
+            closed_as: Arc::default(),
             pull_request_closings: Arc::default(),
             pull_request_closes_down: Arc::default(),
             closes_down: Arc::default(),
@@ -373,26 +376,6 @@ impl FakeForge {
     /// Every merge made, with the head it was held to
     pub(crate) fn merges(&self) -> Vec<(u64, String)> {
         self.merges.lock().unwrap().clone()
-    }
-
-    /// The commit `branch` points at on origin, if it exists there
-    pub(crate) fn head_of(&self, branch: &str) -> Option<String> {
-        Self::head_in(&self.origin, branch)
-    }
-
-    // The commit `branch` points at in the bare repository `git_dir`
-    pub(super) fn head_in(git_dir: &Path, branch: &str) -> Option<String> {
-        let output = Command::new("git")
-            .arg("--git-dir")
-            .arg(git_dir)
-            .args(["rev-parse", "--verify", "--quiet"])
-            .arg(format!("refs/heads/{branch}"))
-            .output()
-            .unwrap();
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
     }
 
     fn opened(&self, number: u64) -> Result<FakePullRequest, ForgeError> {
@@ -745,6 +728,29 @@ impl Forge for FakeForge {
         self.closed.lock().unwrap().insert(number);
         self.closings.lock().unwrap().push(number);
         Ok(())
+    }
+
+    fn close_issue_as(
+        &self,
+        _repo: &ForgeSlug,
+        number: u64,
+        reason: IssueCloseReason,
+    ) -> Result<(), ForgeError> {
+        self.ask()?;
+        self.issues_up()?;
+        if self.closes_down.load(Ordering::SeqCst) {
+            self.closes_refused.fetch_add(1, Ordering::SeqCst);
+            return Err(ForgeError::Failed("closing is refused".into()));
+        }
+        self.closed.lock().unwrap().insert(number);
+        self.closings.lock().unwrap().push(number);
+        self.closed_as.lock().unwrap().insert(number, reason);
+        Ok(())
+    }
+
+    fn open_pulls(&self, _repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+        self.ask()?;
+        self.read_open_pulls()
     }
 
     fn close_pull_request(&self, _repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {

@@ -14,7 +14,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 - The shepherd is reached through the `Dial` port (`src/shepherd/connection.rs`): `Socket` is shep's control socket, and tests dial `FakeShepherd`, which answers in memory and binds nothing. A test binds a real socket only to prove the socket itself; the sandbox-red list names those. #587
 - Socket path over 103 bytes: runner refuses to start (macOS caps 104). `src/runner.rs`
 - Home never moved from `~/.kelpie`: refuses to start naming each old file, exit 78 (in `stop_exit_codes`, no restart into refusal). #311, #345
-- State file version 63 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
+- State file version 65 (`VERSION` in `src/state.rs`); each change one way, so rollback means finishing or dropping open items first. `src/state/removed.rs`
 - Rust for all business code; Tauri GUI after MVP, until then run and watched from a Claude session. #5
 - Never put budget numbers in agent prompts; never let a worker merge or post as the maintainer (see workers.md, github-app.md).
 
@@ -44,14 +44,15 @@ Rules live in Rust code; a model is called only for work and judgement.
 | contribution-merge.md | the merge ruling a contribution always gets, its yes, thanks and no | `src/runner/contributions/merge.rs`, `src/runner/contributions/ruling.rs`, `src/settings/rulings.rs`, `src/state/contributions.rs` |
 | representative.md | the representative: its agent file, `agents.representative`, the one call that words a post, the mention check | `src/runner/representative.rs`, `src/agents/front.rs`, `src/settings/agents.rs`, `agents/representative.md` |
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `src/settings/dependencies.rs`, `src/runner/dependencies.rs`, `src/runner/flight/proving.rs`, `src/runner/dev_server/bump.rs`, `src/state/bumps.rs`, `src/adapters/e2e_runner.rs`, `src/adapters/pages.rs`, `src/adapters/bridge/client.rs` |
-| triage.md | triage of other people's issues: `triage` settings, the triager, the pick rule, `triage.since`, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/state/triage.rs`, `src/ports/issue.rs`, `agents/triager.md` |
+| triage.md | settings, the triager, the pick rule, `triage.since`, the verb, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/ports/issue.rs`, `agents/triager.md` |
+| triage-pass.md | one issue's pass: post, labels, the duplicate close, agent-ready | `src/runner/triage/`, `src/runner/flight/`, `src/ports/voice.rs` |
 | log-lines.md | what the runner and the dog log between steps: pause, handover, lease waits, board skips, standing warnings | `src/runner/drain.rs`, `src/runner/skip_log.rs`, `src/runner/review_bot/lease_wait.rs`, `src/runner/claim.rs`, `src/dog/desk.rs`, `src/dog/door.rs` |
 | metrics.md | kelpie's series on shep's metrics endpoint, the alerts and dashboard | `src/metrics.rs`, `src/metrics/`, `src/ports/metrics.rs`, `src/adapters/metric_sink.rs`, `assets/prometheus/`, `assets/grafana/` |
 | metrics-dog.md | the dog's series: leases, summons and the forge hold | `src/metrics/dog.rs`, `src/dog/watch.rs` |
 | metrics-transcripts.md | the series and reports read from a call's transcript: MCP servers, tool calls, requests, `shep kelpie usage` | `src/mcp_use.rs`, `src/request_use.rs`, `src/runner/transcript_count.rs`, `src/usage/` |
 | budget.md | pacing, dog + leases, time, usage, settings | `src/runner/pace.rs`, `src/dog/`, `src/usage.rs`, `src/settings/`, `src/sheep.rs` |
 
-Each file stays under 8 KB, and a changed decision updates its bullet in the same PR. An area past 8 KB splits in two, with a new row here. `scripts/design-size.sh` checks both, in CI too.
+Each file stays under 8 KB; a changed decision updates its bullet in the same PR. An area past it splits in two, with a new row here. `scripts/design-size.sh` checks both, in CI too.
 
 ## Elsewhere
 

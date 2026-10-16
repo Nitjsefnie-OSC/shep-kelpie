@@ -98,6 +98,13 @@ pub trait Voice: Send + Sync {
         labels: &[&str],
     ) -> Result<u64, ForgeError>;
 
+    /// Replaces issue `number`'s body with `body`, its title as it stands
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the App cannot edit it.
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError>;
+
     /// Resolves review thread `thread`
     ///
     /// A thread already resolved, or one the forge no longer has, is done.

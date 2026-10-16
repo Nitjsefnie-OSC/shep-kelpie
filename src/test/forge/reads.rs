@@ -1,6 +1,7 @@
 //! The fake forge's reads of pull requests, and the count of each kind
 
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::AtomicUsize;
 
 use super::FakeForge;
@@ -69,6 +70,26 @@ impl FakeForge {
     pub(super) fn count_review(&self, number: u64) {
         let mut counts = self.review_counts.lock().unwrap();
         *counts.entry(number).or_default() += 1;
+    }
+
+    /// The commit `branch` points at on origin, if it exists there
+    pub(crate) fn head_of(&self, branch: &str) -> Option<String> {
+        Self::head_in(&self.origin, branch)
+    }
+
+    // The commit `branch` points at in the bare repository `git_dir`
+    pub(super) fn head_in(git_dir: &Path, branch: &str) -> Option<String> {
+        let output = Command::new("git")
+            .arg("--git-dir")
+            .arg(git_dir)
+            .args(["rev-parse", "--verify", "--quiet"])
+            .arg(format!("refs/heads/{branch}"))
+            .output()
+            .unwrap();
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
     }
 
     // The head of `pr`'s branch in the repository it lives in: the fork when

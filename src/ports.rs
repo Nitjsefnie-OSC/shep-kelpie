@@ -62,7 +62,9 @@ pub use forge_error::{Cooldown, ForgeError};
 pub use gateway::{KeyCheck, ModelGateway, Stand, Taking, Unheld};
 pub use git::{Git, GitError};
 pub use gpu::{Gpu, GpuError, GpuMetrics};
-pub use issue::{FinishedParent, Issue, OpenIssue, SubIssue, SubIssueState};
+pub use issue::{
+    FinishedParent, Issue, IssueCloseReason, OpenIssue, OpenPull, SubIssue, SubIssueState,
+};
 pub use keychain::KeychainBlocked;
 pub use leased::{LocalLeases, PaddockHolder};
 pub use local_paths::{Guarded, GuardedVoice};
@@ -337,6 +339,26 @@ pub trait Forge: Send + Sync {
     ///
     /// [`ForgeError`] when the forge refuses or cannot be asked.
     fn close_issue(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError>;
+
+    /// Closes issue `number` for `reason`, which the forge records on it
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge refuses or cannot be asked.
+    fn close_issue_as(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        reason: IssueCloseReason,
+    ) -> Result<(), ForgeError>;
+
+    /// The open pull requests on `repo`, each with its title and the issues its
+    /// body names, for telling one that already covers an issue
+    ///
+    /// # Errors
+    ///
+    /// [`ForgeError`] when the forge cannot be asked or its answer cannot be read.
+    fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError>;
 
     /// Closes pull request `number` without merging it, with no comment
     ///

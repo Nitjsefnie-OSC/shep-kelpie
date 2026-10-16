@@ -17,13 +17,13 @@ use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git, write_script};
 use crate::usage::{self, CallKind, Line};
 
 // How the forge names the App's comments: the rig's owner, as a bot
-const APP: &str = "kelpie-shep-pm[bot]";
+pub(super) const APP: &str = "kelpie-shep-pm[bot]";
 
 // What the representative says, before kelpie's marker goes under it
-const WORDS: &str = "Thanks for the report. I looked it over.";
+pub(super) const WORDS: &str = "Thanks for the report. I looked it over.";
 
 // A reply with nothing found, which a test fills in
-fn nothing() -> Value {
+pub(super) fn nothing() -> Value {
     json!({
         "type": null,
         "priority": null,
@@ -37,7 +37,7 @@ fn nothing() -> Value {
 }
 
 // The triager's reply with `found` set over nothing found
-fn reply(found: Value) -> Scripted {
+pub(super) fn reply(found: Value) -> Scripted {
     let mut all = nothing();
     for (key, value) in found.as_object().expect("an object") {
         all[key] = value.clone();
@@ -46,7 +46,7 @@ fn reply(found: Value) -> Scripted {
 }
 
 // Issue 30, opened after triage was turned on, with `body`
-fn crash(rig: &Rig, body: &str) -> OpenIssue {
+pub(super) fn crash(rig: &Rig, body: &str) -> OpenIssue {
     let mut crash = issue(rig, 30, "newcomer", 5);
     crash.title = "Crash on start".to_owned();
     crash.body = body.to_owned();
@@ -55,7 +55,7 @@ fn crash(rig: &Rig, body: &str) -> OpenIssue {
 
 // A rig whose App covers the repo, with `[triage]` set to `lines` and open
 // issue 30 untouched, whose representative says `WORDS`
-fn researching(lines: &str) -> (Rig, Mutex<Runner>) {
+pub(super) fn researching(lines: &str) -> (Rig, Mutex<Runner>) {
     let rig = rig_with(lines);
     let runner = rig.open().unwrap();
     list(&rig, crash(&rig, "It crashes when I run it."));
@@ -64,24 +64,24 @@ fn researching(lines: &str) -> (Rig, Mutex<Runner>) {
     (rig, runner)
 }
 
-fn untouched() -> (Rig, Mutex<Runner>) {
+pub(super) fn untouched() -> (Rig, Mutex<Runner>) {
     researching("pick = \"all\"")
 }
 
-fn calls(rig: &Rig, role: Role) -> Vec<Seen> {
+pub(super) fn calls(rig: &Rig, role: Role) -> Vec<Seen> {
     let all = rig.claude.all_seen();
     all.into_iter().filter(|s| s.call.role == role).collect()
 }
 
 // What the representative was asked to word, which holds the facts
-fn facts(rig: &Rig) -> String {
+pub(super) fn facts(rig: &Rig) -> String {
     let mut asked = calls(rig, Role::Representative);
     assert_eq!(asked.len(), 1, "one comment is worded");
     asked.remove(0).call.prompt
 }
 
 // What the App wrote on the repo, in order: a comment, a label made or put on an issue
-fn moves(rig: &Rig) -> Vec<String> {
+pub(super) fn moves(rig: &Rig) -> Vec<String> {
     let writes = rig.github.writes();
     writes
         .into_iter()
@@ -102,7 +102,7 @@ fn moves(rig: &Rig) -> Vec<String> {
 }
 
 // Steps until `done`, hearing each call's end as the loop would
-fn pump(runner: &Mutex<Runner>, mut done: impl FnMut() -> bool) {
+pub(super) fn pump(runner: &Mutex<Runner>, mut done: impl FnMut() -> bool) {
     let by = Instant::now() + CALL_PATIENCE;
     while !done() {
         assert!(Instant::now() < by, "it never came about");
@@ -111,23 +111,23 @@ fn pump(runner: &Mutex<Runner>, mut done: impl FnMut() -> bool) {
     }
 }
 
-fn triage(rig: &Rig, runner: &Mutex<Runner>) -> Value {
+pub(super) fn triage(rig: &Rig, runner: &Mutex<Runner>) -> Value {
     status(rig, runner)["triage"].clone()
 }
 
 // Closes `runner` and reopens it on the same state, as a restart does
-fn restart(rig: &Rig, runner: Mutex<Runner>) -> Mutex<Runner> {
+pub(super) fn restart(rig: &Rig, runner: Mutex<Runner>) -> Mutex<Runner> {
     drop(runner);
     rig.open().unwrap()
 }
 
 // Sets the triage record of `issue` as a crash at `step` leaves it
-fn crashed_at(rig: &Rig, issue: u64, step: &str) {
+pub(super) fn crashed_at(rig: &Rig, issue: u64, step: &str) {
     crashed_with(rig, json!({ "issue": issue, "comment": 101, "step": step }));
 }
 
 // Sets the triage record of an issue as `record` says
-fn crashed_with(rig: &Rig, record: Value) {
+pub(super) fn crashed_with(rig: &Rig, record: Value) {
     let store = StateStore::new(rig.paths().state);
     let mut saved = serde_json::to_value(store.load().unwrap().unwrap()).unwrap();
     saved["triage"]["issues"] = json!([record]);

@@ -15,9 +15,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use super::{
-    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue, LineComment,
-    NewLabel, OpenIssue, PostedComment, PullRequest, QueueStanding, Reviewed, SubIssue, Talk,
-    ThreadComment, Timestamp, Visibility, Voice, Workflow,
+    BranchRun, CommentMarks, FinishedParent, FolderEntry, Forge, ForgeError, Issue,
+    IssueCloseReason, LineComment, NewLabel, OpenIssue, OpenPull, PostedComment, PullRequest,
+    QueueStanding, Reviewed, SubIssue, Talk, ThreadComment, Timestamp, Visibility, Voice, Workflow,
 };
 use crate::board::{OpenPullRequest, ReadyIssue};
 use crate::github::InstallationToken;
@@ -268,6 +268,19 @@ impl Forge for Guarded {
         self.forge.close_issue(repo, number)
     }
 
+    fn close_issue_as(
+        &self,
+        repo: &ForgeSlug,
+        number: u64,
+        reason: IssueCloseReason,
+    ) -> Result<(), ForgeError> {
+        self.forge.close_issue_as(repo, number, reason)
+    }
+
+    fn open_pulls(&self, repo: &ForgeSlug) -> Result<Vec<OpenPull>, ForgeError> {
+        self.forge.open_pulls(repo)
+    }
+
     fn close_pull_request(&self, repo: &ForgeSlug, number: u64) -> Result<(), ForgeError> {
         self.forge.close_pull_request(repo, number)
     }
@@ -504,6 +517,11 @@ impl Voice for GuardedVoice {
         self.check(repo, "the issue's title", title)?;
         self.check(repo, "the issue's body", body)?;
         self.voice.create_issue(repo, title, body, labels)
+    }
+
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.check(repo, "the issue's body", body)?;
+        self.voice.edit_issue_body(repo, number, body)
     }
 
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {

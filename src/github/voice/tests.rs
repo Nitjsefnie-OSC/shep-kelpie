@@ -189,6 +189,29 @@ fn a_comment_is_edited_in_place_as_the_app() {
 }
 
 #[test]
+fn an_issues_body_is_replaced_in_place_with_the_title_as_it_stands() {
+    let (voice, github, _home) = voiced();
+
+    voice
+        .edit_issue_body(&slug("shep-pm/koji"), 12, "agent-ready")
+        .unwrap();
+
+    assert_eq!(
+        writes(&github),
+        [(
+            "ghs_test1".to_owned(),
+            Call {
+                verb: Verb::Patch,
+                path: "/repos/shep-pm/koji/issues/12".to_owned(),
+                // The documented edit names only the fields to change, so a
+                // call holding no `title` leaves the title as it stands.
+                body: Some(r#"{"body":"agent-ready"}"#.to_owned()),
+            }
+        )]
+    );
+}
+
+#[test]
 fn an_issue_is_opened_with_its_labels_and_its_number_read_back() {
     let (voice, github, _home) = voiced();
 

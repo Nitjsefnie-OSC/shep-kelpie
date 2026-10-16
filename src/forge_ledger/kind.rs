@@ -60,6 +60,10 @@ pub enum Kind {
     CreateIssue,
     /// An issue closed
     CloseIssue,
+    /// An issue closed for a reason the forge records
+    CloseIssueAs,
+    /// The repo's open pull requests, each with its title and what its body closes
+    OpenPulls,
     /// A pull request closed unmerged
     ClosePullRequest,
     /// A pull request opened
@@ -112,6 +116,8 @@ pub enum Kind {
     AppThumbsUp,
     /// An issue opened by the App
     AppCreateIssue,
+    /// An issue's body rewritten by the App, its title as it stands
+    AppEditIssue,
     /// A review thread resolved by the App
     AppResolveThread,
     /// A reply to a review thread by the App
@@ -155,6 +161,7 @@ impl Kind {
                 | Self::CanWrite
                 | Self::CommentMarks
                 | Self::OpenIssues
+                | Self::OpenPulls
                 | Self::FailedRunLogs
                 | Self::BranchRuns
                 | Self::Workflows
@@ -168,6 +175,9 @@ impl Kind {
 
     /// Which of GitHub's APIs the call spends from; a call that asks both
     /// counts as GraphQL, the one with the smaller allowance
+    ///
+    /// gh's own list commands go through its GraphQL list query, so `gh issue
+    /// list` and `gh pr list` count as GraphQL whatever flags they carry.
     pub fn api(self) -> Api {
         match self {
             Self::Visibility
@@ -178,6 +188,7 @@ impl Kind {
             | Self::FinishedParents
             | Self::ReadyIssues
             | Self::OpenPullRequests
+            | Self::OpenPulls
             | Self::PullRequest
             | Self::Reviewed
             | Self::Talk
@@ -201,6 +212,7 @@ impl Kind {
             Self::Folder
             | Self::FileText
             | Self::SubIssues
+            | Self::CloseIssueAs
             | Self::CreateLabel
             | Self::RateLimitReset
             | Self::ReviewBotSeen
@@ -224,6 +236,7 @@ impl Kind {
             | Self::AppEditComment
             | Self::AppThumbsUp
             | Self::AppCreateIssue
+            | Self::AppEditIssue
             | Self::AppCreateLabel
             | Self::AppSetIssueLabel => Api::Rest,
         }

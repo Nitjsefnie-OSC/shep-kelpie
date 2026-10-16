@@ -113,6 +113,12 @@ impl Voice for RecordedVoice {
         })
     }
 
+    fn edit_issue_body(&self, repo: &ForgeSlug, number: u64, body: &str) -> Result<(), ForgeError> {
+        self.call(Kind::AppEditIssue, |v| {
+            v.edit_issue_body(repo, number, body)
+        })
+    }
+
     fn resolve_thread(&self, repo: &ForgeSlug, thread: &str) -> Result<(), ForgeError> {
         self.call(Kind::AppResolveThread, |v| v.resolve_thread(repo, thread))
     }
