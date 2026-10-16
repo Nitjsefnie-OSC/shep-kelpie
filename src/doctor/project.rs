@@ -165,6 +165,7 @@ pub(super) fn checks(
     let on_pi = |h: &AgentHarness| matches!(h, AgentHarness::Pi(_));
     if spends_on(&settings, &book, here, on_pi) {
         lines.push(super::machine::pi(at("pi"), probes.host));
+        lines.push(super::machine::pi_tools(at("pi tools"), probes.host));
     }
     // parity: harness.doctor
     let on_goose = |h: &AgentHarness| matches!(h, AgentHarness::Goose(_));

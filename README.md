@@ -53,6 +53,7 @@ You need these on your machine:
 - `git`, and `gh` signed in to the account that opens the pull requests
 - `curl` and `openssl`, which reach GitHub as kelpie's App and sign its tokens
 - `pi`, `codex` or `goose`, only to run an agent on that harness (see [Agents](docs/guide/agents.md#agents))
+  - For pi, `ripgrep` and `fd` on the `PATH` as well: pi's own `grep` and `find` tools run `rg` and `fd`, and neither is in the pi folder kelpie gives each call. `shep kelpie doctor` names a project that lacks them
   - On Codex and goose, a reviewer, advisor and retro read the repo through a read-only shell (`kelpie guard --read-only`: `cat`, `head`, `tail`, `ls`, `tree`, `grep`, `rg`, `find`, `wc`, `file`, `stat`, `nl`, no git, no redirects). goose's `tree` is allowed, and its `edit` is refused. Its `write` is refused too, unless the reviewer is asked for a failing test (`ci.test_command`), when it writes the reviewer's tests folder and nothing else
 - a GitHub repo whose default branch is `main`, and a checkout of it
 
