@@ -13,6 +13,8 @@
 //! A step that fails is told once in the log and tried at the next poll, and
 //! five failures give the issue up until kelpie restarts.
 
+use std::collections::BTreeMap;
+
 use super::super::Runner;
 use super::super::contributions::post::{forge_is_busy, refused_text};
 use super::super::representative::IssuePost;
@@ -167,9 +169,9 @@ pub(in crate::runner) struct Tries {
     // The issue body with the settled answers under its author's text, kept
     // until the record carries it
     pub(in crate::runner) answers_body: Option<String>,
-    // The author's reply the pass already read, and the word it was read as,
-    // so a post that failed is not paid for again at the next poll
-    pub(in crate::runner) heard: Option<(u64, String)>,
+    // The author's replies the pass already read, each with the word it was
+    // read as, so a post that failed is not paid for again at the next poll
+    pub(in crate::runner) heard: BTreeMap<u64, String>,
 }
 
 impl Tries {

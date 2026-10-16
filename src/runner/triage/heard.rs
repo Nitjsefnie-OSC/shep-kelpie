@@ -15,8 +15,11 @@
 //!
 //! `github` asks for the questions, `none` ends the wait as `none`, and a
 //! reply that is neither gets one plain ask again ([`Runner::ask_again`]); a
-//! second such reply counts as `none`. Silence `triage.wait_days` after the
-//! ask, or after the questions, ends the wait the same way `none` does. An
+//! second such reply counts as `none`. Each reply the read found is read,
+//! oldest first, and the first word kelpie can read is what it acts on, so an
+//! author who wrote a question and then `github` before the next read is not
+//! asked again for a word they already gave. Silence `triage.wait_days` after
+//! the ask, or after the questions, ends the wait the same way `none` does. An
 //! issue kelpie has given up on after five failures is not heard from either,
 //! as no other part of triage tries it again until kelpie restarts.
 
@@ -108,7 +111,10 @@ impl Runner {
         replies
     }
 
-    // One reply to the ask, read as `github`, `none` or neither
+    // Each reply to the ask, oldest first, read as `github`, `none` or neither.
+    // The first word kelpie can read is what it acts on: an author who wrote a
+    // question and then `github` before the next read is not asked again for a
+    // word they already gave. Two replies it cannot read count as `none`.
     fn hear_ask(
         &mut self,
         record: &Triaged,
@@ -117,48 +123,56 @@ impl Runner {
         replies: &[&ThreadComment],
     ) -> Result<(), StateError> {
         let issue = record.issue;
-        let Some(reply) = replies.first() else {
-            return self.triage_ask_silent(record, asked.at);
-        };
-        let Some(read) = self.read_triage_reply(issue, author, record.comment, reply)? else {
-            return Ok(());
-        };
-        match read {
-            Read::Word("github") => {
-                let open = self
-                    .triage_tries
-                    .get(&issue)
-                    .is_some_and(|t| !t.open.is_empty());
-                if open {
-                    self.post_questions(issue, &reply.body)?;
-                } else {
-                    // A restart lost the questions the pass had: they are
-                    // researched again before anything is posted.
-                    if let Some(tries) = self.triage_tries.get_mut(&issue) {
-                        tries.questions_call = true;
+        let mut unread: Option<&ThreadComment> = None;
+        let mut others = 0usize;
+        for reply in replies {
+            let Some(read) = self.read_triage_reply(issue, author, record.comment, reply)? else {
+                // The reading failed and is tried at the next poll, from the
+                // oldest reply again.
+                return Ok(());
+            };
+            match read {
+                Read::Word("github") => {
+                    let open = self
+                        .triage_tries
+                        .get(&issue)
+                        .is_some_and(|t| !t.open.is_empty());
+                    if open {
+                        self.post_questions(issue, &reply.body)?;
+                    } else {
+                        // A restart lost the questions the pass had: they are
+                        // researched again before anything is posted.
+                        if let Some(tries) = self.triage_tries.get_mut(&issue) {
+                            tries.questions_call = true;
+                        }
                     }
+                    return Ok(());
                 }
-            }
-            Read::Word("none") => {
-                self.notes.push(format!(
-                    "triage #{issue}: its author replied `none`, so the maintainer triages it as \
-                     it stands"
-                ));
-                self.triage_none(issue)?;
-            }
-            _ => {
-                if asked.asked_again() {
+                Read::Word("none") => {
                     self.notes.push(format!(
-                        "triage #{issue}: its author answered twice in words kelpie could not \
-                         read as `github` or `none`, which counts as `none`: the maintainer \
-                         triages it as it stands"
+                        "triage #{issue}: its author replied `none`, so the maintainer triages it \
+                         as it stands"
                     ));
                     return self.triage_none(issue);
                 }
-                self.triage_ask_again(issue, &reply.body)?;
+                _ => {
+                    others += 1;
+                    unread.get_or_insert(reply);
+                }
             }
         }
-        Ok(())
+        let Some(unread) = unread else {
+            return self.triage_ask_silent(record, asked.at);
+        };
+        if asked.asked_again() || others > 1 {
+            self.notes.push(format!(
+                "triage #{issue}: its author answered twice in words kelpie could not read as \
+                 `github` or `none`, which counts as `none`: the maintainer triages it as it \
+                 stands"
+            ));
+            return self.triage_none(issue);
+        }
+        self.triage_ask_again(issue, &unread.body)
     }
 
     // Silence `triage.wait_days` after the ask counts as `none`
@@ -210,14 +224,13 @@ impl Runner {
         comment: u64,
         reply: &ThreadComment,
     ) -> Result<Option<Read>, StateError> {
-        if let Some(kept) = self
+        if let Some(read) = self
             .triage_tries
             .get(&issue)
-            .and_then(|t| t.heard.clone())
-            .filter(|(id, _)| *id == reply.id)
-            .and_then(|(_, word)| Read::of(&word, &WORDS))
+            .and_then(|t| t.heard.get(&reply.id))
+            .and_then(|word| Read::of(word, &WORDS))
         {
-            return Ok(Some(kept));
+            return Ok(Some(read));
         }
         let kind = read_kind();
         let facts = "Kelpie asked the author of this issue to reply `github` or `none` to its \
@@ -247,7 +260,7 @@ impl Runner {
             return Ok(None);
         };
         if let Some(tries) = self.triage_tries.get_mut(&issue) {
-            tries.heard = Some((reply.id, read.word().to_owned()));
+            tries.heard.insert(reply.id, read.word().to_owned());
         }
         Ok(Some(read))
     }

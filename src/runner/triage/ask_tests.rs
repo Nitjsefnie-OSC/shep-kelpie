@@ -522,3 +522,53 @@ fn a_github_reply_is_still_read_after_the_forge_was_too_busy_to_post_the_questio
         "the triage comment, the reply read once, the questions worded seven times"
     );
 }
+
+// The author wrote a question and then `github` before the next read. The word
+// they gave is taken, and they are not asked again for it.
+
+// The author wrote a question and then `github` before the next read. The word
+// they gave is taken, and they are not asked again for it.
+#[test]
+fn a_github_after_a_reply_kelpie_cannot_read_posts_the_questions() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "what do you mean by settled?");
+    wrote(&rig, MAINTAINER, "github");
+    rig.claude.script_for(
+        Role::Representative,
+        [read("other"), read("github"), Scripted::Say(Q_WORDS)],
+    );
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let posted = posted(&rig);
+    assert_eq!(posted.len(), 2, "{posted:?}");
+    assert!(posted[1].contains(QUESTIONS_MARKER), "{posted:?}");
+    assert!(!posted[1].contains(ASK_MARKER), "{posted:?}");
+    let held = record(&rig, &runner);
+    assert!(held["questions"]["comment"].is_number(), "{held}");
+    assert!(held.get("asked").is_none(), "{held}");
+}
+
+// Two replies kelpie cannot read, written before one read, are the second
+// answer: they count as `none` with no ask posted again.
+#[test]
+fn two_replies_kelpie_cannot_read_in_one_read_count_as_none() {
+    let (rig, runner) = filed("pick = \"maintainer\"", MAINTAINER, asked());
+    assert_eq!(step(&runner).unwrap(), None);
+    wrote(&rig, MAINTAINER, "what do you mean?");
+    wrote(&rig, MAINTAINER, "I do not follow this.");
+    rig.claude
+        .script_for(Role::Representative, [read("other"), read("other")]);
+
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(taken(&rig), 1, "no ask posted again");
+    assert_eq!(
+        moves(&rig),
+        ["comment", "label bug", "label P2", "label needs-triage"]
+    );
+    assert_eq!(record(&rig, &runner)["step"], "done");
+}
