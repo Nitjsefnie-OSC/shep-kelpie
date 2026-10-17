@@ -294,6 +294,58 @@ fn a_hook_named_guard_that_is_not_kelpies_is_a_hook_block() {
 }
 
 #[test]
+fn output_that_quotes_an_error_phrase_is_not_that_error() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"Exit code 1\ndocs/facts/tool-errors.md:12: each kind matches an error line (^error: cannot lock ref, a line naming /tmp/ and Operation not permitted)\nthe docs say Command timed out after 2m 0s and No such tool available"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("other").copied(),
+        Some(1),
+        "a command that ran and failed"
+    );
+    for quoted in [
+        "git-ref-lock",
+        "tmp-refused",
+        "path-refused",
+        "timeout",
+        "tool-not-given",
+        "unknown-skill",
+    ] {
+        assert_eq!(
+            kinds.get(quoted),
+            None,
+            "{quoted} is not at the head of a line"
+        );
+    }
+}
+
+#[test]
+fn a_pi_result_that_quotes_an_error_phrase_counts_as_other() {
+    let line = r#"{"type":"message","id":"m1","parentId":"p1","timestamp":"2026-10-16T00:00:00.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"docs/facts/tool-errors.md:20: ripgrep (rg) is not available and could not be downloaded\n\n\nCommand exited with code 1"}],"isError":true,"durationMs":5,"timestamp":1792078844059}}
+"#;
+    let kinds = pi_of(line);
+    assert_eq!(kinds.get("other").copied(), Some(1));
+    assert_eq!(
+        kinds.get("command-not-found"),
+        None,
+        "the phrase is at the end of a line that names the file it quoted"
+    );
+}
+
+#[test]
+fn a_kelpie_hook_under_a_path_with_a_space_is_still_a_guard_block() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"PreToolUse:Bash hook error: ['/Users/me/My Cargo/bin/shep-kelpie' 'guard' '--git-dir' '/x']: the fetch is not yours"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(1),
+        "the quoted path is one word, not three"
+    );
+    assert_eq!(kinds.get("hook-block"), None);
+}
+
+#[test]
 fn a_hook_refusal_names_the_hook_that_refused() {
     let errors = claude(CLAUDE, 0);
     let hooks: Vec<&str> = errors

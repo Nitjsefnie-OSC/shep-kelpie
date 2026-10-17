@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Runner;
 use super::claim::Notes;
-use super::code_graph::who;
+use super::code_graph::{who, who_carried};
 use crate::mcp_use::{self, McpUse};
 use crate::metrics::{OWN_SERVERS, Recorder};
 use crate::ports::{
@@ -123,6 +123,26 @@ fn length(file: &Path) -> u64 {
     std::fs::metadata(file).map_or(0, |m| m.len())
 }
 
+// Count each failed tool call of `role`, and name each hook that is not kelpie's in a note,
+// since no label may hold a command. The wrapper does this for a turn it began, and a carried
+// turn does it for the one its own image began.
+fn counted_errors(who: &str, role: &str, errors: &[ToolError], metrics: &Recorder, notes: &Notes) {
+    let mut refused: BTreeMap<String, u64> = BTreeMap::new();
+    for error in errors {
+        metrics.tool_error(role, error.kind.as_str());
+        if let Some(hook) = &error.hook {
+            *refused.entry(hook.clone()).or_insert(0) += 1;
+        }
+    }
+    for (hook, count) in refused {
+        let calls = match count {
+            1 => "one tool call".to_owned(),
+            n => format!("{n} tool calls"),
+        };
+        notes.push(format!("{who} had {calls} refused by the hook `{hook}`"));
+    }
+}
+
 /// Where a worker's turn found its session's transcript as it began, which a handover carries so
 /// the next image counts the turn's requests when it ends
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,7 +168,7 @@ impl Mark {
 
     /// Counts the requests and the failed tool calls the turn made since, as the
     /// wrapper does for a turn this image began
-    pub(super) fn count(&self, harness: Harness, metrics: &Recorder) {
+    pub(super) fn count(&self, harness: Harness, issue: u64, metrics: &Recorder, notes: &Notes) {
         let Some(format) = Format::of_harness(harness) else {
             return;
         };
@@ -163,9 +183,13 @@ impl Mark {
             for request in format.requests(&text, from) {
                 metrics.request(Role::Worker.as_str(), harness.as_str(), &request);
             }
-            for error in format.errors(&text, from) {
-                metrics.tool_error(Role::Worker.as_str(), error.kind.as_str());
-            }
+            counted_errors(
+                &who_carried(issue),
+                Role::Worker.as_str(),
+                &format.errors(&text, from),
+                metrics,
+                notes,
+            );
         }
     }
 }
@@ -183,27 +207,15 @@ impl TranscriptCount {
         }
     }
 
-    // Each failed tool call of the roles whose requests are counted. A hook that is not
-    // kelpie's is named in a note, since no label may hold a command.
+    // Each failed tool call of the roles whose requests are counted
     fn count_errors(&self, call: &AgentCall, format: Format, text: &str, from: usize) {
-        let role = call.role.as_str();
-        let mut refused: BTreeMap<String, u64> = BTreeMap::new();
-        for error in format.errors(text, from) {
-            self.metrics.tool_error(role, error.kind.as_str());
-            if let Some(hook) = &error.hook {
-                *refused.entry(hook.clone()).or_insert(0) += 1;
-            }
-        }
-        for (hook, count) in refused {
-            let calls = match count {
-                1 => "one tool call".to_owned(),
-                n => format!("{n} tool calls"),
-            };
-            self.notes.push(format!(
-                "{} had {calls} refused by the hook `{hook}`",
-                who(call)
-            ));
-        }
+        counted_errors(
+            &who(call),
+            call.role.as_str(),
+            &format.errors(text, from),
+            &self.metrics,
+            &self.notes,
+        );
     }
 
     fn count_mcp(&self, call: &AgentCall, format: Format, used: &McpUse) {

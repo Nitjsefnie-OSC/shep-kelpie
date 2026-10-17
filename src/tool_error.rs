@@ -4,11 +4,14 @@
 //! A failed result counts once, however many lines of output it holds: one
 //! command can print the same error on hundreds of lines. A kind is the first
 //! that matches, so a guard refusal of a result that also holds a sandbox
-//! error is a guard refusal. Claude Code names the hook that refused inside its
-//! refusal text, and kelpie's own hooks are its `guard` and `confine` programs.
-//! pi's guard extension marks its refusals with [`GUARD_MARK`] and writes each
-//! one as a content block of its own, which is what tells a refusal from output
-//! that quotes the mark. `docs/facts/tool-errors.md`
+//! error is a guard refusal. Each kind's phrase is read at the head of a line,
+//! once the markers a harness or a program write in front of its own error are
+//! taken off, so output that quotes a phrase is not that error. Claude Code
+//! names the hook that refused inside its refusal text, and kelpie's own hooks
+//! are its `guard` and `confine` programs, read as shell words. pi's guard
+//! extension marks its refusals with [`GUARD_MARK`] and writes each one as a
+//! content block of its own, which is what tells a refusal from output that
+//! quotes the mark. `docs/facts/tool-errors.md`
 
 use std::collections::HashMap;
 
@@ -185,34 +188,44 @@ fn pi_one(message: &Value) -> ToolError {
     }
 }
 
-// What made a failed result fail, the first kind one of its lines says. Output that
-// quotes an error is told from the error itself by matching a line, not a phrase.
+// What made a failed result fail, the first kind one of its lines says as its own error.
+// A phrase quoted inside output is not an error line: each kind's phrase is read at the head
+// of a line, once the markers a harness or a program put in front of its error are taken off.
 fn kind_of(text: &str, tool: Option<&str>) -> Kind {
-    let lines: Vec<String> = text.lines().map(str::to_lowercase).collect();
-    let holds = |needle: &str| lines.iter().any(|line| line.contains(needle));
-    let denied = |line: &str| line.contains("operation not permitted");
+    let lines: Vec<Line> = text.lines().map(Line::of).collect();
+    let head = |needle: &str| lines.iter().any(|line| line.head.starts_with(needle));
+    // pi's own tool message is the whole line and names no file. A line that quotes it names
+    // the file it quoted, so its phrase is read at the end only on a line that holds no colon.
+    let tail = |needle: &str| {
+        lines
+            .iter()
+            .any(|line| line.all.ends_with(needle) && !line.all.contains(':'))
+    };
     for kind in IN_ORDER {
         let matched = match kind {
-            Kind::ToolNotGiven => holds("no such tool available"),
-            Kind::UnknownSkill => holds("unknown skill"),
-            Kind::PermissionRefused => holds("has been denied"),
-            Kind::GitRefLock => lines
-                .iter()
-                .any(|line| line.starts_with("error: cannot lock ref")),
+            Kind::ToolNotGiven => head("no such tool available"),
+            Kind::UnknownSkill => head("unknown skill"),
+            Kind::PermissionRefused => head("permission to use"),
+            Kind::GitRefLock => head("cannot lock ref"),
             Kind::TmpRefused => lines
                 .iter()
-                .any(|line| denied(line) && line.contains("/tmp/")),
-            Kind::PathRefused => lines.iter().any(|line| denied(line)),
+                .any(|line| line.head.starts_with("operation not permitted") && line.names_tmp()),
+            Kind::PathRefused => lines
+                .iter()
+                .any(|line| line.head.starts_with("operation not permitted")),
             Kind::CommandNotFound => {
-                holds("no such file or directory")
-                    || holds("is not available and could not be downloaded")
+                head("no such file or directory")
+                    || tail("is not available and could not be downloaded")
             }
             Kind::EditMiss => {
-                holds("string to replace not found in file")
-                    || holds("matches of the string to replace")
-                    || holds("oldtext must match exactly")
+                head("string to replace not found in file")
+                    || head("could not find edits")
+                    || (head("found")
+                        && lines
+                            .iter()
+                            .any(|line| line.holds("matches of the string to replace")))
             }
-            Kind::Timeout => holds("timed out after"),
+            Kind::Timeout => head("command timed out after"),
             Kind::Mcp => tool.is_some_and(|name| name.starts_with("mcp__")),
             Kind::Other => true,
             Kind::GuardBlock | Kind::HookBlock => false,
@@ -222,6 +235,48 @@ fn kind_of(text: &str, tool: Option<&str>) -> Kind {
         }
     }
     Kind::Other
+}
+
+// One line of a failed result: what it says, and what it says about itself. `head` is the line
+// with the markers a harness or a program writes in front of its own error taken off: Claude
+// Code's `<tool_use_error>` wrapper, and each leading `<something>:` (`error:`, `mkdir:`,
+// `(eval):1:`, `grep: /tmp/x:`). A line that quotes an error keeps its own words at its head,
+// so no kind's phrase lands there.
+#[derive(Debug)]
+struct Line {
+    head: String,
+    all: String,
+}
+
+impl Line {
+    fn of(raw: &str) -> Self {
+        let mut head = raw.trim();
+        if let Some(inner) = head.strip_prefix("<tool_use_error>") {
+            head = inner
+                .trim_end()
+                .strip_suffix("</tool_use_error>")
+                .unwrap_or(inner);
+        }
+        while let Some((token, rest)) = head.split_once(':') {
+            if token.is_empty() || token.chars().any(char::is_whitespace) {
+                break;
+            }
+            head = rest.trim_start();
+        }
+        Self {
+            head: head.to_lowercase(),
+            all: raw.trim_end().to_lowercase(),
+        }
+    }
+
+    // A sandbox or `confine` refusal names the path it refused
+    fn names_tmp(&self) -> bool {
+        self.all.contains("/tmp/")
+    }
+
+    fn holds(&self, needle: &str) -> bool {
+        self.all.contains(needle)
+    }
 }
 
 // `PreToolUse:Bash hook error: [<the hook's command>]: <its reason>`, as the whole first line
@@ -245,12 +300,46 @@ fn hook_refusal(text: &str) -> Option<&str> {
 // and its `guard` or `confine` program second, so a command that merely names `guard` for
 // some other program is the project's own hook.
 fn names_kelpies_check(command: &str) -> bool {
-    let mut words = (command.split_whitespace()).map(|word| word.trim_matches(['\'', '"']));
-    let program = (words.next().unwrap_or_default()).rsplit('/').next();
-    program == Some(env!("CARGO_PKG_NAME"))
+    let mut words = shell_words(command).into_iter();
+    let program = words.next().unwrap_or_default();
+    (program.rsplit('/').next().unwrap_or_default()) == env!("CARGO_PKG_NAME")
         && words
             .next()
             .is_some_and(|sub| sub == "guard" || sub == "confine")
+}
+
+// A shell command's words, each quoted part kept as one word. kelpie's own hook commands are
+// shell-quoted, so a binary under a folder with a space in its name is one word here and
+// several under a plain split.
+fn shell_words(command: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut open = false;
+    let mut quote: Option<char> = None;
+    for c in command.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => word.push(c),
+            None if c == '\'' || c == '"' => {
+                quote = Some(c);
+                open = true;
+            }
+            None if c.is_whitespace() => {
+                if open {
+                    words.push(std::mem::take(&mut word));
+                }
+                open = false;
+            }
+            None => {
+                word.push(c);
+                open = true;
+            }
+        }
+    }
+    if open {
+        words.push(word);
+    }
+    words
 }
 
 // The transcript's lines from byte `from` on, as JSON. A file shorter than `from` is a new one.

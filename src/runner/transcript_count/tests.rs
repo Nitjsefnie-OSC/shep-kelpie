@@ -320,3 +320,46 @@ fn a_role_whose_requests_are_not_counted_counts_no_tool_errors() {
     counted.run(&call, &Ending::default()).unwrap();
     assert_eq!(sink.total("kelpie_tool_errors_total"), 0.0);
 }
+
+#[test]
+fn a_carried_turn_counts_its_failed_tool_calls_and_names_a_hook_that_is_not_kelpies() {
+    let folder = short_tempdir();
+    let sessions = sessions_of(folder.path());
+    let agents = Claude {
+        sessions: sessions.clone(),
+        recorded: CLAUDE_ERRORS,
+    };
+    let call = claude_call(folder.path());
+    let Some(mark) = Mark::of(&agents, &call) else {
+        panic!("a worker's Claude Code call has a mark");
+    };
+    std::fs::write(sessions.join(format!("{SESSION}.jsonl")), CLAUDE_ERRORS).unwrap();
+
+    let sink = RecordedSink::default();
+    let notes = Notes::default();
+    mark.count(
+        Harness::ClaudeCode,
+        794,
+        &Recorder::new(Arc::new(sink.clone())),
+        &notes,
+    );
+
+    assert_eq!(
+        sink.total("kelpie_tool_errors_total"),
+        12.0,
+        "one for each recorded failure"
+    );
+    assert_eq!(
+        sink.value(
+            "kelpie_tool_errors_total",
+            &[("kind", "hook-block"), ("role", "worker")]
+        ),
+        Some(1.0)
+    );
+    assert_eq!(
+        notes.take(),
+        ["issue #794's worker had one tool call refused by the hook \
+             `/opt/homebrew/bin/node ~/.claude/hooks/kelpie-gate.js`"],
+        "the carried turn names the hook as the turn this image began would"
+    );
+}
