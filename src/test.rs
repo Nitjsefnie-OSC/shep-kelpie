@@ -13,8 +13,8 @@ use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
-    SessionId, Timestamp, Usage, Utilization, Window,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalLeases, LocalPace, Meter, MeterError, Pace,
+    Ports, Role, SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{
@@ -40,6 +40,7 @@ mod fork;
 mod git;
 mod github;
 mod home;
+mod leased;
 mod leases;
 mod memory;
 mod pages;
@@ -66,7 +67,10 @@ pub(crate) use home::Home;
 pub(crate) use leases::{DogStandIn, FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use pages::{FakePages, clean as clean_visit};
-pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
+pub(crate) use reads::{
+    assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
+    source_folders, tools_refuse,
+};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
 pub(crate) use samples::RecordedSink;
 pub(crate) use sandbox::OpenSandbox;
@@ -283,6 +287,9 @@ pub(crate) struct Rig {
     pub(crate) codex_meter: FakeMeter,
     pub(crate) reviewer: FakeReviewer,
     pub(crate) local_leases: LocalReviewer,
+    // The gateway's leases, answered with nothing and counted, in place of the
+    // real read, for a test that says who asked
+    counted_leases: Arc<Mutex<Option<Arc<leased::LeaseReads>>>>,
     pub(crate) alerts: FakeAlerts,
     pub(crate) disk: FakeDisk,
     pub(crate) leases: FakeLeases,
@@ -703,6 +710,25 @@ impl Rig {
         Settings::from_table(&project_table(&entry), project, home, folder)
     }
 
+    /// Answers the gateway's lease reads with nothing, and counts them, so a
+    /// test can say who asked the gateway
+    pub(crate) fn count_lease_reads(&self) -> Arc<leased::LeaseReads> {
+        let reads = Arc::new(leased::LeaseReads::default());
+        *self.counted_leases.lock().unwrap() = Some(Arc::clone(&reads));
+        reads
+    }
+
+    // The gateway's leases as the rig answers them: the real stand-in, or the
+    // counted one once a test asked for it.
+    fn lease_port(&self) -> Arc<dyn LocalLeases> {
+        self.counted_leases
+            .lock()
+            .unwrap()
+            .clone()
+            .map(|reads| reads as Arc<dyn LocalLeases>)
+            .unwrap_or_else(|| Arc::new(self.local_leases.clone()))
+    }
+
     /// Starts a runner, as a restarted sheep would, on the rig's stand-ins
     pub(crate) fn open(&self) -> Result<Mutex<Runner>, OpenError> {
         self.open_with(vec![Arc::new(CodeRabbit), Arc::new(Cubic), Arc::new(Codex)])
@@ -741,7 +767,7 @@ impl Rig {
             git: Arc::new(self.git.clone()),
             gpu: Arc::new(GpuCurl),
             disk: Arc::new(self.disk.clone()),
-            local_leases: Arc::new(self.local_leases.clone()),
+            local_leases: self.lease_port(),
             review_bots,
             alerts: Arc::new(self.alerts.clone()),
             leases: Arc::new(self.leases.clone()),
@@ -774,7 +800,8 @@ impl Rig {
         action: &str,
         params: Option<&str>,
     ) -> serde_json::Value {
-        let reply = answer(runner, action, params);
+        let postings = runner.lock().unwrap().postings();
+        let reply = answer(runner, &postings, action, params);
         runner.lock().unwrap().settle_notices();
         serde_json::from_str(&reply).expect("a JSON reply")
     }

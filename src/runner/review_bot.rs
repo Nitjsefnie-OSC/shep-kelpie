@@ -80,7 +80,7 @@ impl Runner {
         bot: BotReviewer,
         review: Review,
     ) -> Result<Begin, StateError> {
-        if self.draining {
+        if self.draining() {
             return Ok(Begin::Idle);
         }
         if let Some(parked) = self.park_over_budget()? {

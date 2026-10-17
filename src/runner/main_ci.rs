@@ -37,10 +37,12 @@ pub struct RedStatus {
 
 impl Runner {
     // Reads `main`'s workflows when they are due and the forge is not held, at
-    // the end of every pass, so a work item that acts on each pass cannot keep
-    // them from being read. A read the forge refuses waits as any failed read
-    // does and leaves what the state holds; a state that cannot be saved is
-    // read again at the next poll.
+    // the start of every pass, before any work item is stepped. A step checks
+    // that it drains just before it saves the turn it starts, and a forge read
+    // between that check and the call is time enough for a `drain` to land past
+    // it. A read the forge refuses waits as any failed read does and leaves what
+    // the state holds; a state that cannot be saved is read again at the next
+    // poll.
     pub(super) fn read_main_ci(&mut self) {
         let now = self.ports.clock.now();
         if !self.looks.main_ci_due(now) || self.forge_hold.until(now).is_some() {

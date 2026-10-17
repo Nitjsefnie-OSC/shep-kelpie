@@ -96,7 +96,9 @@ fn unknown_option(option: &str) -> String {
     )
 }
 
-// Git's own commands a worker may run. `--version` and `--help` come as options.
+// Git's own commands the guard knows. `--version` and `--help` come as options.
+// A `fetch` or `pull` in the work item's own repo is answered before it runs,
+// in `judge`.
 pub(super) const BUILTINS: [&str; 77] = [
     "add",
     "am",

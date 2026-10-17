@@ -151,6 +151,10 @@ impl Forge for Gh {
         review::viewer()
     }
 
+    fn account_created(&self, login: &str) -> Result<Timestamp, ForgeError> {
+        issues::account_created(login)
+    }
+
     fn comments_since(
         &self,
         repo: &ForgeSlug,

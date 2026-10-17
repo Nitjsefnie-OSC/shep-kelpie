@@ -13,7 +13,10 @@ use crate::ports::{AgentError, CLEAN, OpenIssue, Role, Timestamp, Tools};
 use crate::runner::{Pass, Runner, advance, step};
 use crate::settings::Harness;
 use crate::state::StateStore;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git, write_script};
+use crate::test::{
+    CALL_PATIENCE, Hold, Rig, Scripted, Seen, assert_granted, git, installed_sources,
+    source_folders, write_script,
+};
 use crate::usage::{self, CallKind, Line};
 
 // How the forge names the App's comments: the rig's owner, as a bot
@@ -816,4 +819,16 @@ fn an_issue_with_a_record_is_not_listed_as_due() {
     let due = triage(&rig, &runner)["due"].clone();
     assert!(due.as_array().is_none_or(Vec::is_empty), "{due}");
     assert_eq!(rig.claude.all_seen().len(), 0);
+}
+
+#[test]
+fn the_triager_reads_the_installed_dependency_sources_and_no_credential_of_them() {
+    let (rig, runner) = untouched();
+    let (cargo, rustup, secret) = installed_sources(&rig);
+    rig.claude.script_for(Role::Triager, [reply(json!({}))]);
+
+    assert_eq!(step(&runner).unwrap(), None);
+
+    let [seen] = calls(&rig, Role::Triager).try_into().unwrap();
+    assert_granted(&seen, &source_folders(&cargo, &rustup), &secret);
 }

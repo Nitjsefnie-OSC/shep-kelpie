@@ -331,7 +331,7 @@ impl Runner {
         let Some(agent) = self.agents.pm.clone() else {
             return false;
         };
-        if self.pm.flying.is_some() || self.draining {
+        if self.pm.flying.is_some() || self.draining() {
             return false;
         }
         // What the maintainer told it outlasts a restart, and wakes it again.
@@ -358,7 +358,12 @@ impl Runner {
                 .push(format!("cannot wake the project manager: {why}"));
             self.give_up();
         }
-        launched.is_ok()
+        let woke = launched.is_ok();
+        // The project manager's call is in flight from here.
+        if woke {
+            self.post();
+        }
+        woke
     }
 
     fn give_up(&mut self) {
@@ -390,7 +395,7 @@ impl Runner {
     /// Whether question ruling `id` waits on the project manager's answer,
     /// at most one wake, and so is not posted to the maintainer yet
     pub(super) fn pm_holds_ruling(&self, id: u64) -> bool {
-        !self.draining && self.pm_has_asked(id)
+        !self.draining() && self.pm_has_asked(id)
     }
 
     /// Whether question ruling `id` was put to the project manager, at most
