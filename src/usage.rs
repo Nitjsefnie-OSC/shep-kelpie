@@ -101,6 +101,9 @@ pub enum CallKind {
     Post,
     /// The triager's research of an issue
     Triage,
+    /// The classifier's check of an issue for spam, which spent no tokens and
+    /// made no model call of the caps' counting
+    SpamCheck,
 }
 
 /// How a call ended

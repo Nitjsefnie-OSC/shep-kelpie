@@ -14,6 +14,8 @@
 //! [`research`] reads. Each issue ends at `needs-triage`, except a maintainer's
 //! issue the pass is sure of, which [`ready`] rewrites and makes `ready-for-agent`.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use super::Runner;
@@ -35,18 +37,38 @@ pub(super) mod limits;
 pub(super) mod local;
 pub(super) mod ready;
 pub(super) mod research;
+pub(super) mod spam;
 
 use super::contributions::post::forge_is_busy;
 use super::flight::triage::{Job, Research};
+use spam::POSSIBLE_SPAM;
 
-/// The labels that say an issue has been looked at, so triage leaves it alone
-pub(super) const TRIAGE_LABELS: [&str; 5] = [
+/// The labels that say an issue has been looked at, so triage leaves it alone.
+/// `possible-spam` is one of them: an issue its classifier read as spam is left
+/// alone until the maintainer says otherwise.
+pub(super) const TRIAGE_LABELS: [&str; 6] = [
     "needs-triage",
     "needs-info",
     "ready-for-agent",
     "ready-for-human",
     "wontfix",
+    POSSIBLE_SPAM,
 ];
+
+/// What one runner's triage holds for its own run only: the account ages it
+/// read from the forge, and what its spam check answered. The next start reads
+/// the forge and the gateway again.
+#[derive(Debug, Default)]
+pub(super) struct Run {
+    /// When each triage author's account was created, keyed by the login lowered.
+    /// A `None` is an age the forge could not say, kept so a poll does not ask again
+    pub(super) accounts: BTreeMap<String, Option<Timestamp>>,
+    /// Whether the spam check is off for the rest of the run, told once
+    pub(super) spam_off: bool,
+    /// Whether an answer kelpie could not read has been told yet, so a broken
+    /// route is named once and not on every issue. The check stays on.
+    pub(super) spam_unreadable_told: bool,
+}
 
 /// An untouched issue, as `status` lists it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -346,6 +368,19 @@ impl Runner {
         if tries.author.is_none() {
             tries.author = Some(this.author.clone());
         }
+        // The classifier, after the limits and before the call. The maintainer's
+        // own issues and one the verb asked for skip it, as they skip the limits.
+        if matches!(purpose, Purpose::First) && limited {
+            match self.triage_spam(this) {
+                Ok(true) => return None,
+                Ok(false) => {}
+                Err(e) => {
+                    let why = format!("cannot record its spam check: {e}");
+                    self.triage_failed(issue, &why, true);
+                    return None;
+                }
+            }
+        }
         let listed: Vec<Listed> = (open.iter())
             .filter(|i| i.number != issue)
             .map(|i| (i.number, i.title.clone()))
@@ -459,7 +494,9 @@ impl Runner {
     // Queues issue `issue` ahead of the untouched ones, for `shep kelpie triage`
     //
     // The pick rule's `since` and author tests do not apply. A recorded issue is
-    // triaged again, and its record is replaced once the new comment posts.
+    // triaged again, and its record is replaced once the new comment posts. The
+    // `possible-spam` kelpie's own read put on comes off, since the verb is how
+    // the maintainer overrules it.
     //
     // # Errors
     //
@@ -479,12 +516,33 @@ impl Runner {
         };
         // The `needs-triage` its own record put on lets it through: that is the
         // issue to triage again.
+        // Kelpie's own labels let the verb through: the `needs-triage` its record
+        // put on, which is the issue to triage again, and the `possible-spam` its
+        // classifier put on, which the maintainer overrules by asking for it.
         let recorded = self.triage_record(issue).is_some();
-        let held = (found.labels.iter())
-            .find(|l| TRIAGE_LABELS.contains(&l.as_str()) && !(recorded && *l == TRIAGE));
+        let held = (found.labels.iter()).find(|l| {
+            TRIAGE_LABELS.contains(&l.as_str())
+                && *l != POSSIBLE_SPAM
+                && !(recorded && *l == TRIAGE)
+        });
         if let Some(label) = held {
             return Err(format!(
                 "#{issue} carries `{label}`, so it is not untouched"
+            ));
+        }
+        // Asking for an issue kelpie's classifier read as spam is the maintainer's
+        // answer to that read, so its `possible-spam` comes off now: the pass that
+        // follows labels the issue as any other, and a read the maintainer has
+        // answered would else keep it on the board as suspected spam. A
+        // `possible-spam` no record of kelpie's says it read the issue as spam came
+        // by hand, and stands as any hand label does. A record keeps the issue out
+        // of the pick rule either way, so taking the label off opens no second
+        // triage no one asked for.
+        if self.triage_record(issue).is_some_and(|t| t.spam.is_some())
+            && let Err(e) = self.label_issue(issue, POSSIBLE_SPAM, false)
+        {
+            self.notes.push(format!(
+                "cannot take `{POSSIBLE_SPAM}` off issue #{issue}: {e}"
             ));
         }
         if !self.triage_queue.contains(&issue) {
@@ -525,5 +583,7 @@ mod pick_tests;
 mod ready_tests;
 #[cfg(test)]
 mod research_tests;
+#[cfg(test)]
+mod spam_tests;
 #[cfg(test)]
 mod verb_tests;

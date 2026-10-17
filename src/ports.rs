@@ -20,6 +20,7 @@ use crate::settings::{Account, ForgeSlug};
 use crate::webhook::Webhook;
 
 mod agent;
+mod classifier;
 mod dev_server;
 mod disk;
 mod e2e_runner;
@@ -54,6 +55,7 @@ pub use agent::{
     Cost, Ending, Fence, Flying, Guard, Kept, KeptServer, PM_NOTES, Reach, Role, Session,
     SessionId, Tools, Transcript, Usage, Wait, written_at,
 };
+pub use classifier::{Classifier, ClassifierError, Probability, SpamState};
 pub use dev_server::{DevPort, DevRun, DevServers, READY_WITHIN, Started};
 pub use disk::Disk;
 pub use e2e_runner::{E2eOutcome, E2eRun, E2eRunner};
@@ -888,6 +890,8 @@ pub struct Ports {
     pub leases: Arc<dyn Leases>,
     /// Where the runner's metrics go, shep's metrics dog
     pub metrics: Arc<dyn Sink>,
+    /// The classifier each project's gateway serves, for triage's spam check
+    pub classifier: Arc<dyn Classifier>,
     /// The clock, shared with the forge's rate-limit hold
     pub clock: Arc<dyn Clock>,
     /// The login's forge hold and pace, kept by the dog where it is reached
