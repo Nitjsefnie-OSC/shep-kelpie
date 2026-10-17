@@ -359,15 +359,22 @@ impl Runner {
                 flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
                 flight.ending.carry(flight.flying(now));
             }
-            (said, turn, waited)
+            (said, turn, told.map(|(_, why)| why), waited)
         });
-        // The board names the gap the lease took, so a reader sees the wait was real.
-        if let Some((said, turn, waited)) = told
+        // The board names the gap the wait took, so a reader sees the wait was
+        // real, and names what the call got. Only a wait for a lease got one.
+        if let Some((said, turn, why, waited)) = told
             && said
         {
             let who = if turn { "worker" } else { "review call" };
+            let got = match why.unwrap_or(Wait::Lease) {
+                Wait::Lease => "its model's lease",
+                Wait::Busy => "its gateway back",
+                Wait::Silent => "its model",
+                Wait::Unreachable => "its model host back",
+            };
             self.board_event(format!(
-                "#{issue}: {who} has its model's lease, after waiting {}",
+                "#{issue}: {who} has {got}, after waiting {}",
                 elapsed(waited)
             ));
         }

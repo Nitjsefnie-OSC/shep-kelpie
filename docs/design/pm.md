@@ -4,7 +4,7 @@ The agent kelpie wakes to pick, answer and unstick, and the board file it reads.
 
 - Runner writes `board.md` so PM never runs git or gh (code-written board decides as well). Keeps newest 50 events + PM cursor; issue bodies quoted (600 chars) behind `> `; text naming this machine withheld. #326, `src/runner/briefing.rs`
 - Worker silent 10 min reads as idle (PM told only "busy" misses a hung worker). #326
-- A call that has not had its gateway lease is never idle or stuck: quiet counts from the grant, and a wait past 10 min is its own wake, not a stuck item. Only a wait for a lease names the lease holder; a gateway that answered busy named no client as the cause. #964, `src/runner/briefing.rs`
+- A call that has not had its gateway lease is never idle or stuck: quiet counts from the grant, and a wait past 10 min is its own wake, not a stuck item. Only a wait for a lease names the lease holder; a gateway that answered busy named no client as the cause, and the board names what the call waits for, and what it got, in the same words the wake uses. #964, `src/runner/briefing.rs`, `src/runner/flight.rs`
 - Overlap from `git diff` + pairwise `git merge-tree` (git 2.38+), cached by commit, run without runner lock (trigger never waits on git). #326
 - `agents.pm` opts a project in (`pm`, Opus 5.5 at medium; Sonnet cost about the same here); without one board rule picks and every ruling waits on maintainer. `src/runner/pm.rs`, #327
 - Code wakes it, never a timer: free slot with 2+ choices, new conflict, stuck item, a lease wait past 10 min, worker question, `shep kelpie tell`. #327, #964

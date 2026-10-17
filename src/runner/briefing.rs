@@ -39,8 +39,8 @@ const RECENT: usize = 20;
 /// How often the board is written again with nothing changed, in seconds
 const REFRESH: u64 = 60;
 
-/// How long a call in flight waits for its model's lease before the project
-/// manager is woken for it, in seconds
+/// How long a call in flight waits for its model before the project manager
+/// is woken for it, in seconds
 ///
 /// The board calls a quiet turn idle at the same length. A wait is not the
 /// worker being quiet, but a long one is worth a word of its own.
@@ -234,8 +234,8 @@ impl Runner {
         for (issue, watched) in self.flights.watched_mut() {
             // A call that has not been granted its model's lease is never idle:
             // what it has shown nothing for is the gateway's turn, not the
-            // worker's. A long wait is its own wake, naming the lease holder.
-            if let Some((since, _)) = watched.told {
+            // worker's. A long wait is a wake of its own.
+            if let Some((since, why)) = watched.told {
                 watched.idle = false;
                 let waited = now.0.saturating_sub(since.0);
                 if !watched.woken && waited >= LEASE_WAIT_AFTER {
@@ -245,8 +245,16 @@ impl Runner {
                     } else {
                         "review call"
                     };
+                    // The board names what the call waits for, as the wake
+                    // does. A gateway that answered busy has no lease in the
+                    // way, and a line that says its model's lease is waiting
+                    // points the reader at a holder to release.
+                    let for_what = match why {
+                        Wait::Lease => "its model's lease",
+                        _ => why.as_str(),
+                    };
                     found.push(format!(
-                        "#{issue}: {who} waits {} for its model's lease",
+                        "#{issue}: {who} waits {} for {for_what}",
                         elapsed(waited)
                     ));
                     waiting.push(issue);
@@ -285,11 +293,10 @@ impl Runner {
     }
 
     /// `issue`'s wake for a call in flight that has waited past
-    /// [`LEASE_WAIT_AFTER`] for a lease on its model, naming who holds it
-    /// where the gateway will say
+    /// [`LEASE_WAIT_AFTER`] for its model, naming who holds the lease when the
+    /// wait is one for a lease and the gateway will say
     ///
-    /// `None` when it waits on nothing, waits on no lease, or has not waited
-    /// that long.
+    /// `None` when it waits on nothing or has not waited that long.
     pub(super) fn lease_wake(&self, issue: u64) -> Option<super::pm::Wake> {
         let watched = self.flights.watched(issue)?;
         let (since, why) = watched.told?;

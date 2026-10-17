@@ -250,6 +250,56 @@ fn a_turn_queued_for_its_lease_is_never_idle_and_its_quiet_starts_at_the_grant()
     assert!(work.answered(CALL_PATIENCE), "the turn never answered");
 }
 
+/// A wait the gateway answered busy is not a wait for a lease, and the board
+/// says what it waits for rather than the lease the wake names no holder for
+#[test]
+fn a_turn_the_gateway_answered_busy_waits_on_its_gateway_and_not_on_a_lease() {
+    let rig = Rig::new("acme");
+    let runner = rig.open().unwrap();
+    rig.ask(&runner, "add", Some("7"));
+    let busy = Hold::default();
+    let work = Hold::default();
+    rig.claude.script([Scripted::Busy(
+        busy.clone(),
+        Box::new(Scripted::Hold(work.clone())),
+    )]);
+    rig.claude.set_activity(CallActivity::Nothing);
+    let driven = Driven::new(&runner);
+    driven.started();
+    assert!(
+        busy.entered(CALL_PATIENCE),
+        "the turn never said its gateway was busy"
+    );
+    assert_eq!(driven.heard(), None, "the wait is no report");
+
+    rig.clock.advance(11 * 60);
+    driven.pass();
+    let text = board(&rig);
+    let waiting = "  - Session: worker turn running for 11m, waiting for its model\n";
+    assert!(text.contains(waiting), "{text}");
+    let gateway = "  - Waiting for its model since 14:13 (11m): for its gateway, \
+                    which answered busy\n";
+    assert!(text.contains(gateway), "{text}");
+    assert!(
+        text.contains("#7: worker waits 11m for its gateway, which answered busy\n"),
+        "{text}"
+    );
+    assert!(!text.contains("lease"), "{text}");
+
+    busy.release();
+    assert_eq!(driven.heard(), None, "the grant is no report");
+    assert!(work.entered(CALL_PATIENCE), "the turn never began");
+    driven.pass();
+    let text = board(&rig);
+    assert!(
+        text.contains("#7: worker has its gateway back, after waiting 11m\n"),
+        "{text}"
+    );
+    assert!(!text.contains("lease"), "{text}");
+    work.release();
+    assert!(work.answered(CALL_PATIENCE), "the turn never answered");
+}
+
 #[test]
 fn the_events_shown_start_after_the_project_managers_cursor() {
     let rig = Rig::new("acme");
