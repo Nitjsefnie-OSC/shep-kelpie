@@ -9,8 +9,10 @@
 //! still holding, while an answer kelpie cannot read is told once and leaves the
 //! check on. The maintainer's own issues and one `shep kelpie triage` asked for
 //! skip the check, as they skip the four limits, and the verb takes the label off
-//! when it was kelpie's own read, while one put on by hand stands. Each check that
-//! got an answer is a ledger line of its own, and spends no place of a triage cap.
+//! when it was kelpie's own read, while one put on by hand stands. A record the
+//! check makes carries the calls the issue made before it, so the caps keep
+//! counting them. Each check that got an answer is a ledger line of its own, and
+//! spends no place of a triage cap.
 
 use std::sync::Mutex;
 
@@ -534,6 +536,50 @@ fn a_possible_spam_no_record_of_kelpies_says_it_read_stands_when_the_verb_asks()
             .any(|path| path.ends_with(&format!("/labels/{POSSIBLE_SPAM}"))),
         "and kelpie took nothing off: {:?}",
         written_on(&rig, 30)
+    );
+}
+
+#[test]
+fn a_call_the_issue_made_before_it_was_read_as_spam_keeps_its_place() {
+    // A research call that came to nothing is saved against the issue until a
+    // record carries it. The spam record has to take it, or the caps lose the
+    // place it spent.
+    let rig = rig_triaging("pick = \"all\"", SPAM, &[]);
+    list(&rig, issue(&rig, 30, "newcomer", 5));
+    rig.classifier.answers(&[0.1, 0.9]);
+    rig.claude
+        .script_for(Role::Representative, [Scripted::Say(WORDS)]);
+    rig.claude
+        .script_for(Role::Triager, [Scripted::Text("not a triage reply")]);
+    let runner = rig.open().unwrap();
+
+    assert_eq!(step(&runner).unwrap(), None);
+    assert_eq!(calls(&rig, Role::Triager).len(), 1, "the call ran");
+    assert_eq!(record(&rig, &runner, 30), Value::Null, "and left no record");
+    assert_eq!(triage(&rig, &runner)["daily"]["used"], 1);
+
+    // A restart, and the classifier now reads the issue as spam.
+    let runner = restart(&rig, runner);
+    rig.next_look();
+    assert_eq!(step(&runner).unwrap(), None);
+
+    assert_eq!(rig.classifier.count(), 2, "the check is asked again");
+    let made = record(&rig, &runner, 30);
+    assert_eq!(made["spam"], 0.9);
+    assert_eq!(
+        made["calls"].as_array().unwrap().len(),
+        1,
+        "the call it made before went into the record: {made}"
+    );
+    assert_eq!(
+        triage(&rig, &runner)["daily"]["used"],
+        1,
+        "and the day's cap still counts it"
+    );
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        1,
+        "while the check itself made no call"
     );
 }
 

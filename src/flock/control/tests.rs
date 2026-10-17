@@ -582,12 +582,13 @@ fn a_plain_status_says_an_issue_made_agent_ready_is_ready() {
 #[test]
 fn a_plain_status_says_an_issue_a_classifier_read_as_spam_was_labelled_for_the_maintainer() {
     let body = r#"{"project":"koji","work_items":[],"triage":{"due":[],"issues":[
-        {"issue":30,"comment":0,"step":"done","author":"newcomer","spam":0.9},
+        {"issue":30,"comment":0,"step":"done","author":"newcomer","calls":[1790000000],"spam":0.9},
         {"issue":31,"comment":102,"step":"done"}]},"rulings":[]}"#;
     assert_eq!(
         plain_status("koji", body)[3..5],
         [
-            "  triaged #30: no call, a classifier read it as 0.9 spam, so it is labelled possible-spam",
+            "  triaged #30: a classifier read it as 0.9 spam, so it is labelled possible-spam with no call \
+             of its own",
             "  triaged #31: comment 102, done",
         ]
     );

@@ -106,15 +106,26 @@ impl Runner {
         }
         let mut next = self.state.clone();
         if let Some(triage) = next.triage.as_mut() {
+            // The calls the issue already made join the record: the ones its own
+            // record kept, and the ones saved against it while it had none, as a
+            // research call that came to nothing leaves them. A saved call stops
+            // being counted once the issue has a record, so a record made here with
+            // none of its own would drop the place an earlier pass spent.
+            let kept = triage
+                .issues
+                .iter()
+                .find(|t| t.issue == issue.number)
+                .map_or_else(Vec::new, |t| t.calls.clone());
+            let (_, made) = triage.take_calls(issue.number);
             triage.issues.retain(|t| t.issue != issue.number);
-            triage.issues.push(Triaged {
+            let mut record = Triaged {
                 issue: issue.number,
                 comment: 0,
                 step: TriageStep::Done,
                 at: now,
                 author: issue.author.clone(),
                 held: None,
-                calls: Vec::new(),
+                calls: kept,
                 labels: Vec::new(),
                 duplicate_of: None,
                 ready_body: None,
@@ -123,7 +134,11 @@ impl Runner {
                 questions: None,
                 local: None,
                 spam: Some(probability),
-            });
+            };
+            for at in made {
+                record.add_call(at);
+            }
+            triage.issues.push(record);
             triage.prune();
         }
         self.save(next)?;

@@ -247,12 +247,14 @@ fn triage(status: &Value, lines: &mut Vec<String>) {
     let records = triage["issues"].as_array().map_or(&[][..], Vec::as_slice);
     for record in records {
         let (issue, comment) = (&record["issue"], &record["comment"]);
-        // A classifier read it as spam: no call and no comment, and the label
-        // the maintainer is asked to look at is the whole of the pass.
+        // A classifier read it as spam: the pass made no call of its own and
+        // posted no comment, and the label the maintainer is asked to look at is
+        // the whole of it. A call the issue made before the check can still be in
+        // the record, which is why the line says "of its own".
         if let Some(p) = spam(record) {
             lines.push(format!(
-                "  triaged #{issue}: no call, a classifier read it as {p} spam, so it is labelled \
-                 possible-spam"
+                "  triaged #{issue}: a classifier read it as {p} spam, so it is labelled \
+                 possible-spam with no call of its own"
             ));
             continue;
         }
