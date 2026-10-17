@@ -169,16 +169,18 @@ fn a_failed_pi_mcp_tool_call_that_says_nothing_else_counts_as_mcp() {
 }
 
 #[test]
-fn a_guard_refusal_that_also_holds_a_timeout_is_a_guard_block() {
+fn a_guard_refusal_on_a_result_that_also_holds_a_timeout_is_a_guard_block() {
     let text = PI.replace(
-        "\"text\":\"Command timed out after 600 seconds\"",
-        &format!("\"text\":\"{GUARD_MARK}Command timed out after 600 seconds\""),
+        r#""content":[{"type":"text","text":"Command timed out after 600 seconds"}]"#,
+        &format!(
+            r#""content":[{{"type":"text","text":"Command timed out after 600 seconds"}},{{"type":"text","text":"{GUARD_MARK}the build is red"}}]"#
+        ),
     );
     let kinds = pi_of(&text);
     assert_eq!(
         kinds.get("guard-block").copied(),
         Some(2),
-        "the refusal, and the guard's own"
+        "the refusal of a call, and the feedback on a result"
     );
     assert_eq!(
         kinds.get("timeout"),
@@ -190,8 +192,10 @@ fn a_guard_refusal_that_also_holds_a_timeout_is_a_guard_block() {
 #[test]
 fn a_pi_command_a_hook_refused_after_it_ran_is_a_guard_block() {
     let text = PI.replace(
-        "\"text\":\"\\n\\n\\nCommand exited with code 1\"",
-        &format!("\"text\":\"\\n\\n\\nCommand exited with code 1\\n{GUARD_MARK}the build is red\""),
+        r#""content":[{"type":"text","text":"\n\n\nCommand exited with code 1"}]"#,
+        &format!(
+            r#""content":[{{"type":"text","text":"\n\n\nCommand exited with code 1"}},{{"type":"text","text":"{GUARD_MARK}the build is red"}}]"#
+        ),
     );
     let kinds = pi_of(&text);
     assert_eq!(
@@ -204,6 +208,40 @@ fn a_pi_command_a_hook_refused_after_it_ran_is_a_guard_block() {
         None,
         "the command ran, and the refusal is what counts"
     );
+}
+
+#[test]
+fn a_command_that_prints_the_guard_mark_is_not_a_guard_refusal() {
+    let text = PI.replace(
+        r#""text":"\n\n\nCommand exited with code 1"#,
+        &format!(r#""text":"{GUARD_MARK}the docs quote it\n\n\nCommand exited with code 1"#),
+    );
+    let kinds = pi_of(&text);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(1),
+        "only the recorded refusal, which is a block of its own on a call that never ran"
+    );
+    assert_eq!(
+        kinds.get("other").copied(),
+        Some(1),
+        "the command ran, so its own output is what failed"
+    );
+}
+
+#[test]
+fn output_that_quotes_the_guard_mark_is_not_a_guard_refusal() {
+    let text = PI.replace(
+        r#""text":"Command timed out after 600 seconds"#,
+        r#""text":"the log line reads kelpie guard: no\nCommand timed out after 600 seconds"#,
+    );
+    let kinds = pi_of(&text);
+    assert_eq!(
+        kinds.get("guard-block").copied(),
+        Some(1),
+        "only the recorded refusal"
+    );
+    assert_eq!(kinds.get("timeout").copied(), Some(1));
 }
 
 #[test]
@@ -240,6 +278,19 @@ fn output_that_quotes_a_hook_refusal_is_not_one() {
         "not the result's own first line"
     );
     assert_eq!(kinds.get("other").copied(), Some(1));
+}
+
+#[test]
+fn a_hook_named_guard_that_is_not_kelpies_is_a_hook_block() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"PreToolUse:Bash hook error: [/usr/local/bin/safety guard --strict]: the project's own gate"}]}}
+"#;
+    let kinds = claude_of(line);
+    assert_eq!(
+        kinds.get("hook-block").copied(),
+        Some(1),
+        "the program is `safety`, not kelpie's"
+    );
+    assert_eq!(kinds.get("guard-block"), None);
 }
 
 #[test]

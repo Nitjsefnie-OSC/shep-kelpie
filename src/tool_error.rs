@@ -5,8 +5,10 @@
 //! command can print the same error on hundreds of lines. A kind is the first
 //! that matches, so a guard refusal of a result that also holds a sandbox
 //! error is a guard refusal. Claude Code names the hook that refused inside its
-//! refusal text; pi's guard extension marks its refusals with [`GUARD_MARK`],
-//! which nothing else writes. `docs/facts/tool-errors.md`
+//! refusal text, and kelpie's own hooks are its `guard` and `confine` programs.
+//! pi's guard extension marks its refusals with [`GUARD_MARK`] and writes each
+//! one as a content block of its own, which is what tells a refusal from output
+//! that quotes the mark. `docs/facts/tool-errors.md`
 
 use std::collections::HashMap;
 
@@ -135,8 +137,7 @@ pub(crate) fn pi(text: &str, from: usize) -> Vec<ToolError> {
         if message["isError"].as_bool() != Some(true) {
             continue;
         }
-        let tool = message["toolName"].as_str();
-        failed.push(pi_one(&text_of(&message["content"]), tool));
+        failed.push(pi_one(message));
     }
     failed
 }
@@ -159,18 +160,26 @@ fn claude_one(text: &str, tool: Option<&str>) -> ToolError {
     }
 }
 
-// A pi result that failed: its guard extension's refusal, or what else it says. A refusal of a
-// call is the whole result; a refusal of a command that already ran is feedback joined to its end.
-fn pi_one(text: &str, tool: Option<&str>) -> ToolError {
-    let marked = |line: &str| line.starts_with(GUARD_MARK);
-    let refused = text.lines().next().is_some_and(marked)
-        || (text.lines().rev())
-            .find(|line| !line.trim().is_empty())
-            .is_some_and(marked);
+// A pi result that failed: its guard extension's refusal, or what else it says. The
+// extension refuses a call that never ran by writing the refusal as the result's only
+// block, and pi writes no `durationMs` for a call that never ran. It refuses a command
+// that already ran by adding its reason as a block of its own at the end. A command's own
+// output is one block, so output that starts with the mark or quotes it is not a refusal.
+fn pi_one(message: &Value) -> ToolError {
+    let texts: Vec<&str> = match &message["content"] {
+        Value::String(text) => vec![text],
+        content => blocks(content, "text")
+            .filter_map(|block| block["text"].as_str())
+            .collect(),
+    };
+    let marked = |text: &str| text.starts_with(GUARD_MARK);
+    let ran = !message["durationMs"].is_null();
+    let refused = (!ran && texts.len() == 1 && marked(texts[0]))
+        || (texts.len() > 1 && texts.last().is_some_and(|last| marked(last)));
     ToolError {
         kind: match refused.then_some(Kind::GuardBlock) {
             Some(kind) => kind,
-            None => kind_of(text, tool),
+            None => kind_of(&texts.join("\n"), message["toolName"].as_str()),
         },
         hook: None,
     }
@@ -232,12 +241,16 @@ fn hook_refusal(text: &str) -> Option<&str> {
     Some(command)
 }
 
-// Whether a hook's command runs kelpie's own `guard` or `confine`
+// Whether a hook's command is kelpie's own check. The settings write kelpie's binary first
+// and its `guard` or `confine` program second, so a command that merely names `guard` for
+// some other program is the project's own hook.
 fn names_kelpies_check(command: &str) -> bool {
-    command
-        .split_whitespace()
-        .map(|word| word.trim_matches(['\'', '"']))
-        .any(|word| word == "guard" || word == "confine")
+    let mut words = (command.split_whitespace()).map(|word| word.trim_matches(['\'', '"']));
+    let program = (words.next().unwrap_or_default()).rsplit('/').next();
+    program == Some(env!("CARGO_PKG_NAME"))
+        && words
+            .next()
+            .is_some_and(|sub| sub == "guard" || sub == "confine")
 }
 
 // The transcript's lines from byte `from` on, as JSON. A file shorter than `from` is a new one.
