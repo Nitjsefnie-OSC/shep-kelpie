@@ -303,11 +303,17 @@ impl Runner {
             worker: watched.call.is_some(),
             why,
             waited: elapsed(waited),
-            holder: watched
-                .lease
-                .as_ref()
-                .and_then(|l| self.lease_holder(l))
-                .map(|h| self.shown_holder(h)),
+            // Only a wait for a lease has a holder to name. `Wait::Busy` is the
+            // gateway turned away for another reason, such as a load, and
+            // naming a client for it blames one that is not in the way.
+            holder: match why {
+                Wait::Lease => watched
+                    .lease
+                    .as_ref()
+                    .and_then(|lease| self.lease_holder(lease))
+                    .map(|held| self.shown_holder(held)),
+                _ => None,
+            },
         })
     }
 

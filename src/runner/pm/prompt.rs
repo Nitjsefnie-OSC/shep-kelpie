@@ -4,7 +4,7 @@
 use std::fmt::Write as _;
 
 use super::{Wake, diffs};
-use crate::ports::PM_NOTES;
+use crate::ports::{PM_NOTES, Wait};
 
 /// The `answer` key as the answer shows it, which a wake with a question
 /// shows again to a session that has seen the answer without it
@@ -258,10 +258,15 @@ pub(super) fn reason(wake: &Wake) -> String {
                 true => ("worker", "its turn"),
                 false => ("review call", "its review"),
             };
+            // Only a wait for a lease is one the maintainer can end by letting
+            // a lease go. A gateway that answered busy is another matter.
+            let release = match why {
+                Wait::Lease => " Reply to the maintainer if the lease should be released.",
+                _ => "",
+            };
             format!(
                 "#{issue} has waited {waited} for {}{held}. Its {who} is not stuck: it has had \
-                 no model to show anything through, and kelpie leaves {run} running. Reply to \
-                 the maintainer if the lease should be released.",
+                 no model to show anything through, and kelpie leaves {run} running.{release}",
                 why.as_str()
             )
         }

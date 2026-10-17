@@ -718,6 +718,14 @@ impl Rig {
         reads
     }
 
+    /// Answers the gateway's lease reads with `client` holding its model for
+    /// `what`, so a test can see who a wake would be told holds it
+    pub(crate) fn lease_held_by(&self, client: &str, what: &str) -> Arc<leased::LeaseReads> {
+        let reads = self.count_lease_reads();
+        reads.held_by(client, what);
+        reads
+    }
+
     // The gateway's leases as the rig answers them: the real stand-in, or the
     // counted one once a test asked for it.
     fn lease_port(&self) -> Arc<dyn LocalLeases> {
