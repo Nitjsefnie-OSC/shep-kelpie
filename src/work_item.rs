@@ -136,6 +136,12 @@ pub struct WorkItem {
     /// file the branch changed. A head is rerun once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reran: Option<String>,
+    /// The head whose failed CI kelpie has already counted in
+    /// `kelpie_ci_failures_total`. A head is counted once whatever the gate did
+    /// with it after: a fix turn, a rerun, or a still-red ruling a `yes` sent
+    /// back to CI at the same head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counted_head: Option<String>,
     /// The conflict with `main` that last went to the worker
     #[serde(default)]
     pub conflict: Option<Conflict>,
@@ -454,6 +460,7 @@ impl WorkItem {
             phase: Phase::default(),
             red_head: None,
             reran: None,
+            counted_head: None,
             conflict: None,
             resume: None,
             review_call: ReviewCallState::default(),

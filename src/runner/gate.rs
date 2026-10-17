@@ -224,7 +224,7 @@ impl Runner {
         // The failed runs' logs are read once here: they are what the failure is
         // counted by, what a rerun is judged on, and what the fix turn is told.
         let logs = self.read_logs(&head, false);
-        self.count_ci_failure(&head, &logs);
+        self.count_ci_failure(&head, &logs)?;
         let item = self.current().expect("CI runs on a work item");
         if item.red_head.as_deref() == Some(head.as_str()) {
             let fix_turns = None;

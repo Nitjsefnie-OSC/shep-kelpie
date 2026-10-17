@@ -26,7 +26,10 @@
 //! A step whose name says it ran tests, whose failure kelpie cannot read as cargo's,
 //! is a test failure in a runner kelpie cannot name: pytest, jest, go test. It counts
 //! as one the worker could have run, since kelpie cannot say it is one no worker
-//! could have run. A step whose name says nothing of tests is no test failure.
+//! could have run. A step whose name says nothing of tests is no test failure, and
+//! neither is one that failed on a build: cargo's `error: could not compile` and
+//! rustc's `error[E0061]` are a build that never got as far as running a test, which
+//! is the commonest way a test job goes red without a test failing.
 //!
 //! A log is the last 6000 bytes of a run (`LOG_BYTES` in `src/adapters/gh/runs.rs`),
 //! and kelpie reads the logs of at most three failed runs (`RUNS` there), so a head
@@ -39,6 +42,7 @@ use std::collections::BTreeSet;
 use super::Runner;
 use super::ci_help::Logs;
 use crate::metrics::CiTests;
+use crate::state::StateError;
 
 /// The modules and test binaries `docs/agents/sandbox-red-tests.md` lists whole:
 /// every test of one is a test a worker's sandbox cannot run. The entries the doc
@@ -74,12 +78,16 @@ const SANDBOX_RED: [&str; 18] = [
 /// test counts as one its worker could have run.
 const DESCRIBED_REPO: &str = "shep-pm/shep-kelpie";
 
-/// The words a step's name must carry for kelpie to read it as a test run. `gh`
-/// prints the name a workflow gave the step before each line of its log, so
-/// `Run cargo test --locked`, `Run pytest`, `npm test` and `Run go test` are read as
-/// tests, and `Run cargo doc --no-deps --locked` or `Run scripts/check-private.sh`
-/// are not. A test step named none of these words is read as no test failure.
-const TEST_STEPS: [&str; 5] = ["test", "jest", "mocha", "rspec", "e2e"];
+/// The runner names a step's name must carry for kelpie to read it as a test run,
+/// each as a whole word of the name. `gh` prints the name a workflow gave the step
+/// before each line of its log, so `Run cargo test --locked`, `Run pytest`, `npm
+/// test` and `Run go test` are read as tests, and `Run cargo doc --no-deps --locked`
+/// or `Run scripts/check-private.sh` are not. A word that only ends in one, such as
+/// the `latest` of `Install latest gh`, is not a runner's name. A test step named
+/// none of these words is read as no test failure.
+const TEST_STEPS: [&str; 9] = [
+    "test", "tests", "pytest", "jest", "mocha", "rspec", "e2e", "nextest", "vitest",
+];
 
 /// Where a failing test ran, as cargo's own lines name it
 #[derive(Debug, PartialEq, Eq)]
@@ -183,24 +191,25 @@ struct Step {
     name: Option<String>,
     /// Whether cargo's own test shapes appeared in it
     cargo: bool,
+    /// Whether cargo or rustc said the build itself failed
+    build: bool,
     /// Whether the runner marked it failed
     failed: bool,
 }
 
 impl Step {
-    // A step that says it ran tests and failed in output kelpie cannot read as cargo's
+    // A step that says it ran tests and failed in output kelpie cannot read as cargo's.
+    // A step that failed on a build ran no test, whatever its name says.
     fn unreadable(&self) -> bool {
-        self.failed && !self.cargo && self.name.as_deref().is_some_and(names_tests)
+        self.failed && !self.cargo && !self.build && self.name.as_deref().is_some_and(names_tests)
     }
 }
 
-// Whether a step's name says it ran tests
+// Whether a step's name says it ran tests, on a whole word of it
 fn names_tests(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    TEST_STEPS.iter().any(|word| {
-        name.split(|c: char| !c.is_alphanumeric())
-            .any(|part| part.contains(word))
-    })
+    name.split(|c: char| !c.is_alphanumeric())
+        .any(|word| TEST_STEPS.contains(&word))
 }
 
 // Every cargo run the log holds, in the order cargo printed them, and whether a step
@@ -262,6 +271,8 @@ fn read(log: &str) -> Log {
             if let Some(run) = runs.last_mut() {
                 run.target.get_or_insert(target);
             }
+        } else if build_failure(&text) {
+            step.build = true;
         }
     }
     unreadable |= step.unreadable();
@@ -352,6 +363,16 @@ fn result_counts(text: &str) -> Option<usize> {
     counts.split_whitespace().next()?.parse::<usize>().ok()
 }
 
+// `error: could not compile `shep-kelpie` (lib test) due to 1 previous error`,
+// `error: could not document `shep-kelp``, and rustc's `error[E0061]: ...`. A step
+// that printed one and none of cargo's test shapes failed while building, which is a
+// build that ran no test rather than a test that failed.
+fn build_failure(text: &str) -> bool {
+    text.starts_with("error: could not compile")
+        || text.starts_with("error: could not document")
+        || text.starts_with("error[E")
+}
+
 // `error: test failed, to rerun pass `--lib``, or the `--test <name>` of one
 // integration test binary. Cargo prints it while the run is still writing, so it
 // is not the log's last line.
@@ -373,20 +394,24 @@ impl Runner {
     /// the doc that lists them describes. On any other project kelpie holds no list,
     /// and a failing test there counts as one its worker could have run.
     ///
-    /// One head counts once. The work item's own record of the head it marked red
-    /// and the head it reran says kelpie has already counted it, and both are
-    /// saved, so a runner that restarts on a red head does not count it again.
-    pub(super) fn count_ci_failure(&mut self, head: &str, logs: &Logs) {
-        let Logs::Read(logs) = logs else { return };
+    /// One head counts once, and the work item's own record of the head it counted
+    /// says so. It is saved, so a runner that restarts on a red head does not count it
+    /// again, and it says nothing about what the gate did with the head after: a head
+    /// that went to a fix turn, one kelpie reran, and one a still-red ruling sent back
+    /// to CI by a `yes` are each counted once.
+    pub(super) fn count_ci_failure(&mut self, head: &str, logs: &Logs) -> Result<(), StateError> {
+        let Logs::Read(logs) = logs else {
+            return Ok(());
+        };
         if logs.text.trim().is_empty() {
-            return;
+            return Ok(());
         }
         let counted = {
             let item = self.current().expect("CI runs on a work item");
-            item.red_head.as_deref() == Some(head) || item.reran.as_deref() == Some(head)
+            item.counted_head.as_deref() == Some(head)
         };
         if counted {
-            return;
+            return Ok(());
         }
         let listed: &[&str] = match self.remote.as_str() {
             DESCRIBED_REPO => &SANDBOX_RED,
@@ -394,6 +419,8 @@ impl Runner {
         };
         self.metrics
             .ci_failure(failed_tests(&logs.text, logs.omitted, listed));
+        let counted = head.to_owned();
+        self.update(|item| item.counted_head = Some(counted))
     }
 }
 
@@ -403,8 +430,9 @@ mod tests {
     use crate::ports::Checks;
     use crate::runner::{StepReport, step};
     use crate::test::{Rig, Scripted};
+    use serde_json::json;
 
-    // Five failed runs of this repo, each kept as `failed_run_logs` hands it:
+    // Six failed runs of this repo, each kept as `failed_run_logs` hands it:
     // `gh run view --log-failed` on gh 2.96, then `failure_tail` at 6000 bytes.
 
     // Run 38854765050 failed on one test of `sheep::handover::tests::pi`, which the
@@ -429,6 +457,13 @@ mod tests {
 
     // Run 38950550504 failed in `cargo doc --no-deps --locked`, with no test run at all.
     const NO_TEST: &str = include_str!("../../fixtures/gh-run-log-no-test.txt");
+
+    // Run 38567261082 failed while building its tests: `Run cargo test --locked
+    // --no-run` printed rustc's `error[E0061]` and cargo's `error: could not compile
+    // `shep-kelpie` (lib test)`, and no test ran. It is that job's part of the run's
+    // failed log, which is what `failure_tail` keeps when a test build is the failure
+    // in the tail. The run's other failed job, `msrv`, failed on the same error.
+    const COMPILE_FAILURE: &str = include_str!("../../fixtures/gh-run-log-compile-failure.txt");
 
     // What kelpie makes of a log on the repo its sandbox-red list is of, with every
     // failed run read
@@ -482,6 +517,28 @@ mod tests {
         assert_eq!(tests_of(NO_TEST), CiTests::NoTests);
     }
 
+    // The commonest way a test job goes red with no test failing: the build of the
+    // tests itself failed. Its step is named for a test run, and kelpie still reads it
+    // as no test failure.
+    #[test]
+    fn a_test_job_that_failed_while_building_its_tests_counts_as_none() {
+        assert!(names_tests("Run cargo test --locked --no-run"));
+        assert_eq!(tests_of(COMPILE_FAILURE), CiTests::NoTests);
+
+        let log = read(COMPILE_FAILURE);
+        assert!(!log.unreadable, "a build failure is not an unread test run");
+        assert!(log.runs.is_empty(), "{}", log.runs.len());
+    }
+
+    // A build failure in a step kelpie cannot read as cargo's is still no test failure
+    // on a repo kelpie holds no sandbox-red list of, and a test failure in such a step
+    // is still runnable there.
+    #[test]
+    fn a_build_failure_is_no_test_on_any_repo() {
+        assert_eq!(failed_tests(COMPILE_FAILURE, 0, &[]), CiTests::NoTests);
+        assert_eq!(failed_tests(PYTEST, 0, &[]), CiTests::Runnable);
+    }
+
     // The list is of this crate's modules. On a repo kelpie holds no list of, the same
     // log's failures are ones its worker could have run.
     #[test]
@@ -503,8 +560,15 @@ mod tests {
         assert!(names_tests("Run go test"));
         assert!(names_tests("npm test"));
         assert!(names_tests("Run cargo nextest run"));
+        assert!(names_tests("Run cargo test --locked --no-run"));
+        assert!(names_tests("Run vitest run"));
+        assert!(names_tests("Run tests"));
         assert!(!names_tests("Run cargo doc --no-deps --locked"));
         assert!(!names_tests("Run scripts/check-private.sh"));
+        assert!(!names_tests("Run cargo +1.88 check --all-targets --locked"));
+        // A word of the name that only ends in a runner's name is not one
+        assert!(!names_tests("Install latest gh"));
+        assert!(!names_tests("Run latest"));
         assert!(!names_tests("Run eslint"));
     }
 
@@ -814,6 +878,47 @@ mod tests {
         rig.verdict(&runner);
         assert_eq!(counted(&rig, "runnable"), Some(1.0));
         assert_eq!(counted(&rig, "sandbox-only"), None);
+    }
+
+    // `ci.fix_attempts = 0` sends a head that goes red straight to the still-red
+    // ruling, with no fix turn, and a `yes` returns the work item to CI at the same
+    // head, where the gate reads it red again. The head was counted once, and stays
+    // counted once however many times the ruling is answered.
+    #[test]
+    fn a_still_red_head_a_yes_sends_back_to_ci_counts_once() {
+        let (rig, runner, head) = Rig::with_pull_request_set("koji", |rig| {
+            rig.remote_is_kelpie();
+            rig.fix_attempts(0);
+        });
+        rig.forge.set_ci_log(UNLISTED_TEST);
+        // The log names no file the branch changed, so kelpie would rerun it. A forge
+        // that refuses the rerun leaves the red run to the cap, which is the path here.
+        rig.forge.set_rerun_error("gh failed: no admin rights");
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
+
+        let report = rig.verdict(&runner);
+        assert!(
+            matches!(report, Some(StepReport::Ruling { id: 71, .. })),
+            "{report:?}"
+        );
+        assert_eq!(
+            rig.ask(&runner, "status", None)["rulings"][0]["kind"]["reason"],
+            json!("still-red")
+        );
+        assert_eq!(counted(&rig, "runnable"), Some(1.0));
+
+        rig.ask(&runner, "rule", Some("71 yes"));
+        rig.forge
+            .set_checks(&head, Checks::Failed(vec!["test".to_owned()]));
+        let reports: Vec<_> = (0..4).map(|_| rig.verdict(&runner)).collect();
+        assert!(
+            reports
+                .iter()
+                .any(|r| matches!(r, Some(StepReport::Ruling { .. }))),
+            "the gate read the same head red again: {reports:?}"
+        );
+        assert_eq!(counted(&rig, "runnable"), Some(1.0), "{reports:?}");
     }
 
     #[test]
