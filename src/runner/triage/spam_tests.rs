@@ -6,7 +6,8 @@
 //! research call, no close, no lock and no body edit. Below it the pass goes on as
 //! it was. A gateway that cannot be asked is told once and the check is off for
 //! the rest of the run, with the issues going on to their calls and the limits
-//! still holding. The maintainer's own issues and one `shep kelpie triage` asked
+//! still holding, while an answer kelpie cannot read is told once and leaves the
+//! check on. The maintainer's own issues and one `shep kelpie triage` asked
 //! for skip the check, as they skip the four limits. Each check that got an answer
 //! is a ledger line of its own, and spends no place of a triage cap.
 
@@ -304,6 +305,47 @@ fn an_unreachable_classifier_is_logged_once_and_the_issue_is_researched() {
         "and nothing was labelled possible-spam: {:?}",
         moves(&rig)
     );
+}
+
+#[test]
+fn an_answer_kelpie_cannot_read_is_told_once_and_leaves_the_check_on() {
+    // A gateway that answers the wrong thing is a broken route and not an outage:
+    // the issue keeps its research call, and the next issue is still asked of the
+    // classifier.
+    let rig = rig_triaging("pick = \"all\"", SPAM, &["newcomer", "someone"]);
+    rig.classifier.fails(ClassifierError::Unreadable(
+        "no number in the answer".to_owned(),
+    ));
+    let runner = rig.open().unwrap();
+
+    for _ in 0..2 {
+        assert_eq!(step(&runner).unwrap(), None);
+        rig.next_look();
+    }
+
+    assert_eq!(rig.classifier.count(), 2, "the check is asked again");
+    assert_eq!(
+        calls(&rig, Role::Triager).len(),
+        2,
+        "and both issues had their research call"
+    );
+    assert!(
+        (moves(&rig)).iter().all(|m| !m.contains(POSSIBLE_SPAM)),
+        "and nothing was labelled possible-spam: {:?}",
+        moves(&rig)
+    );
+    assert_eq!(
+        checks(&rig),
+        Vec::new(),
+        "a check that got no answer is not on the ledger"
+    );
+    let notes: Vec<String> = (told(&runner))
+        .into_iter()
+        .filter(|n| n.contains("cannot read"))
+        .collect();
+    assert_eq!(notes.len(), 1, "told once: {notes:?}");
+    assert!(notes[0].contains("no number in the answer"), "{}", notes[0]);
+    assert_eq!(record(&rig, &runner, 30).get("spam"), None);
 }
 
 #[test]

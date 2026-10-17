@@ -12,17 +12,20 @@
 //! maintainer's own issues and one `shep kelpie triage` asked for skip it as they
 //! skip the limits.
 //!
-//! A gateway that cannot be reached, or one that refuses the request, is told
-//! once and turns the check off for the rest of the run: an outage that left a
-//! question on every issue would spend a connection timeout on each. The pass
-//! goes on without the check, and the limits still apply, so it opens no flood.
+//! A gateway that cannot be reached, one that refuses the request, or one kelpie
+//! cannot build a request to at all, is told once and turns the check off for the
+//! rest of the run: an outage that left a question on every issue would spend a
+//! connection timeout on each. An answer kelpie cannot read is a different thing,
+//! and is told once without turning the check off, so one malformed reply does not
+//! stop the check for every later issue. The pass goes on without the answer, and
+//! the limits still apply, so it opens no flood.
 //!
 //! Each check that got an answer is a ledger line of its own, role `triager` and
 //! kind `spam-check`, with the issue, no tokens and no cost. It is a call the
 //! project made, and it is not one of the triager calls the caps count, which
 //! count research calls.
 
-use crate::ports::{NewLabel, OpenIssue, Role, SpamState, Timestamp, Usage};
+use crate::ports::{ClassifierError, NewLabel, OpenIssue, Role, SpamState, Timestamp, Usage};
 use crate::settings::ModelHost;
 use crate::state::{StateError, TriageStep, Triaged};
 use crate::usage::{CallKind, CallLine, Ended, Line};
@@ -75,6 +78,12 @@ impl Runner {
         };
         let probability = match (self.ports.classifier).spam(&upstream, path.as_str(), &asked) {
             Ok(p) => p,
+            // An answer kelpie cannot read is no outage: the gateway is there and
+            // answered. The check stays on, so a route that serves the wrong thing
+            // is named and not one that stops working for the whole run.
+            Err(ClassifierError::Unreadable(why)) => {
+                return Ok(self.triage_spam_unreadable(&why));
+            }
             Err(e) => return Ok(self.triage_spam_gone(&e.to_string())),
         };
         self.ledger
@@ -140,6 +149,22 @@ impl Runner {
         self.notes.push(format!(
             "triage's spam check is off for the rest of this run: {why}. Issues go on to their \
              research call, and the triage limits still apply"
+        ));
+        false
+    }
+
+    // An answer kelpie could not read: told once, and the check is asked again
+    // for the next issue, so a gateway that answers the wrong thing is named
+    // rather than turning the check off for every later issue. `false`, which
+    // sends the pass on to the research call.
+    fn triage_spam_unreadable(&mut self, why: &str) -> bool {
+        if self.triage_run.spam_unreadable_told {
+            return false;
+        }
+        self.triage_run.spam_unreadable_told = true;
+        self.notes.push(format!(
+            "triage's spam check answered something kelpie cannot read: {why}. The issue goes on \
+             to its research call, and the check is asked again for the next one"
         ));
         false
     }

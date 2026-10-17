@@ -56,8 +56,8 @@ pub(super) const TRIAGE_LABELS: [&str; 6] = [
 ];
 
 /// What one runner's triage holds for its own run only: the account ages it
-/// read from the forge, and whether the spam check could not be asked. The next
-/// start reads the forge and the gateway again.
+/// read from the forge, and what its spam check answered. The next start reads
+/// the forge and the gateway again.
 #[derive(Debug, Default)]
 pub(super) struct Run {
     /// When each triage author's account was created, keyed by the login lowered.
@@ -65,6 +65,9 @@ pub(super) struct Run {
     pub(super) accounts: BTreeMap<String, Option<Timestamp>>,
     /// Whether the spam check is off for the rest of the run, told once
     pub(super) spam_off: bool,
+    /// Whether an answer kelpie could not read has been told yet, so a broken
+    /// route is named once and not on every issue. The check stays on.
+    pub(super) spam_unreadable_told: bool,
 }
 
 /// An untouched issue, as `status` lists it
