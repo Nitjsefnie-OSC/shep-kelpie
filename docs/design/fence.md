@@ -1,6 +1,7 @@
 # Fence
 
-The fence every call runs inside: the settings each harness is handed, kelpie's OS sandbox, the guard, and the folders a call may read. The runner loop and worker turns are in workers.md.
+What a worker may touch, run, write and read, and what only kelpie does. The runner
+loop and turns are in workers.md, agent files and harnesses in agents.md.
 
 
 - Workers start `--setting-sources project` + kelpie-written settings file; maintainer's hooks, plugins, skills don't load (on goose, the call's plugins' skills are linked into its own `config/skills`, `skills.md`). #98, `src/profile.rs`

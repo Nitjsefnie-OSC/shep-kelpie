@@ -936,6 +936,7 @@ mod browser;
 mod budget;
 mod dep_sources;
 mod dev_server;
+mod draining;
 mod hand_over;
 mod held;
 mod main_fetch;

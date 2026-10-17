@@ -510,19 +510,28 @@ impl Runner {
             Begin::Review(action) => Launch::Review(action),
             Begin::Label(issue) => {
                 let report = self.ask_writer(&issue)?;
+                // The issue writer's call is in flight from here, and the pass
+                // goes on holding the runner's lock.
+                self.post();
                 return Ok(report.map_or(Pass::Started, Pass::Report));
             }
             Begin::Secure(job) => {
                 self.launch_security(job);
+                self.post();
                 return Ok(Pass::Started);
             }
             Begin::Triage(job) => {
                 self.launch_triage(job);
+                self.post();
                 return Ok(Pass::Started);
             }
         };
         let issue = self.focus.expect("a call is a work item's");
         self.launch(issue, launch);
+        // The call is in flight from here, and the pass goes on with the lock
+        // held. A trigger refused it answers from this post, so `drain` never
+        // answers that nothing runs while a call has just started.
+        self.post();
         Ok(Pass::Started)
     }
 
@@ -755,6 +764,11 @@ fn unstarted(harness: Option<Harness>, e: &std::io::Error) -> End {
 /// Resumes the panic of a call's thread, as one in the runner's own would be.
 #[track_caller]
 pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
+    // A pass holds the runner's lock through its forge calls, and each of those
+    // waits its turn behind the login's pace. Post what `status` and `drain`
+    // read before the pass asks the forge anything, and again once it has
+    // started or ended a call.
+    lock(runner).post();
     let pass = one_pass(runner);
     if let Ok(Pass::Report(report)) = &pass {
         lock(runner).journal_report(report);
@@ -764,7 +778,7 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
     brief(runner);
     // The project manager wakes only on a pass that started nothing else,
     // once the board it reads is written.
-    match pass {
+    let pass = match pass {
         // Experts that just started, or a wake, are calls in flight: the loop goes on.
         Ok(Pass::Idle) => {
             let woke = lock(runner).wake_pm();
@@ -782,11 +796,16 @@ pub fn advance(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
             Ok(Pass::Report(report))
         }
         pass => pass,
-    }
+    };
+    lock(runner).post();
+    pass
 }
 
 #[track_caller]
 fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
+    // A `drain` or `undrain` that landed while a pass held the lock set its
+    // flag at once; what it asked the runner itself is taken up here.
+    lock(runner).take_posted();
     lock(runner).beat();
     lock(runner).send_metrics();
     lock(runner).let_go_of_the_gone();
@@ -827,6 +846,9 @@ fn one_pass(runner: &Mutex<Runner>) -> Result<Pass, StateError> {
 fn hear(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, StateError> {
     let heard = hear_news(runner, news);
     lock(runner).tell_rulings();
+    // A call's end is what `drain` answers with, and the pass goes on to ask
+    // the forge with the lock held.
+    lock(runner).post();
     heard
 }
 

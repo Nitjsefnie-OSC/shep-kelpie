@@ -3,12 +3,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError, TryLockError};
 
 use serde::Serialize;
 
 use super::gpu::GpuStatus;
 use super::pace::PacerStatus;
+use super::posted::{Body, Posted};
 use super::{Action, Answer, Runner};
 use crate::board::Skip;
 use crate::ports::PaddockHolder;
@@ -360,15 +361,35 @@ enum Request {
 /// calls start again. `finish` holds the board back until the open work
 /// items end, `start` lets it pick again, and `pausing`, which `pause` sends
 /// before its stop, clears the saved `finishing` so the runner comes back picking.
-pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> String {
+///
+/// `status`, `drain` and `undrain` are answered from what the loop last posted
+/// whenever a pass holds the runner's lock, which it holds through the pass's
+/// forge calls. A `drain` or `undrain` answered that way sets its flag at once
+/// and leaves the rest for the pass to take up at its next lock.
+pub(crate) fn answer(
+    runner: &Mutex<Runner>,
+    posted: &Posted,
+    action: &str,
+    params: Option<&str>,
+) -> String {
     let error = |message: String| serde_json::json!({ "error": message }).to_string();
     let request = match read(action, params.map(str::trim).filter(|p| !p.is_empty())) {
         Ok(request) => request,
         Err(e) => return error(e),
     };
+    let held = match runner.try_lock() {
+        Ok(runner) => Some(runner),
+        Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
+        Err(TryLockError::WouldBlock) => None,
+    };
+    if held.is_none()
+        && let Some(reply) = from_posted(posted, &request)
+    {
+        return reply;
+    }
     // Memory changes only after a save succeeds, so a panicked holder
     // cannot have left the runner half changed.
-    let mut runner = lock(runner);
+    let mut runner = held.unwrap_or_else(|| lock(runner));
     let totals_of = match &request {
         Request::Timings(last) => Some(*last),
         _ => None,
@@ -376,14 +397,20 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
     let changed = match request {
         Request::Attach(issue, pid, session) => {
             return match runner.attach(issue, pid, session) {
-                Ok(attaching) => serde_json::to_string(&attaching).expect("it serializes to JSON"),
+                Ok(attaching) => {
+                    runner.post();
+                    serde_json::to_string(&attaching).expect("it serializes to JSON")
+                }
                 Err(e) => error(e.to_string()),
             };
         }
         Request::Detach(issue, pid) => runner.detach(issue, pid).map_err(|e| e.to_string()),
         Request::PmAttach(pid, session) => {
             return match runner.attach_pm(pid, session) {
-                Ok(attaching) => serde_json::to_string(&attaching).expect("it serializes to JSON"),
+                Ok(attaching) => {
+                    runner.post();
+                    serde_json::to_string(&attaching).expect("it serializes to JSON")
+                }
                 Err(e) => error(e.to_string()),
             };
         }
@@ -394,6 +421,7 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
             {
                 return error(e.to_string());
             }
+            runner.post();
             return serde_json::to_string(&runner.board()).expect("the list serializes to JSON");
         }
         Request::Tell(note) => runner.tell(&note).map_err(|e| e.to_string()),
@@ -417,6 +445,8 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
         Request::Drop(issue) => runner.drop_work_item(issue).map_err(|e| e.to_string()),
         Request::Triage(issue) => runner.triage_ask(issue),
     };
+    // What a trigger asks while a pass holds the lock reads this copy.
+    runner.post();
     match (changed, totals_of) {
         (Ok(()), Some(last)) => {
             serde_json::to_string(&runner.totals(last)).expect("totals serialize to JSON")
@@ -435,6 +465,37 @@ pub fn answer(runner: &Mutex<Runner>, action: &str, params: Option<&str>) -> Str
 /// `status` twice a second. `undrain` wakes it, to start the calls it lets go.
 pub fn wakes(action: &str) -> bool {
     !matches!(action, "status" | "timings" | "drain")
+}
+
+// Answers `request` from what the loop last posted, for a runner whose lock a
+// pass holds.
+//
+// Only the triggers that ask have a posted answer. A `drain` or `undrain`
+// answered that way sets its flag here, where every step reads it, and leaves
+// what it asks the runner itself for the pass to take up at its next lock.
+fn from_posted(posted: &Posted, request: &Request) -> Option<String> {
+    let asked = match request {
+        Request::Status => true,
+        Request::Drain { at_tool } => {
+            posted.ask_drain(*at_tool);
+            true
+        }
+        Request::Undrain => {
+            posted.ask_undrain();
+            true
+        }
+        _ => false,
+    };
+    if !asked {
+        return None;
+    }
+    let Body { mut status, drain } = posted.body()?;
+    if posted.draining() {
+        status["draining"] = drain;
+    } else {
+        (status.as_object_mut()?).remove("draining");
+    }
+    Some(status.to_string())
 }
 
 fn read(action: &str, params: Option<&str>) -> Result<Request, String> {

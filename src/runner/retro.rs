@@ -170,7 +170,7 @@ impl Runner {
         let draining_now = std::mem::take(&mut self.retro_book.at_drain);
         let batch = self.finished_since_retro();
         let due = batch.len() >= EVERY || (draining_now && !batch.is_empty());
-        if !due || (self.draining && !draining_now) {
+        if !due || (self.draining() && !draining_now) {
             return false;
         }
         // A wake in flight has the project manager's account; the retro follows.
@@ -204,6 +204,8 @@ impl Runner {
         match built {
             Ok(call) => {
                 self.launch_retro(call, CEILING, agent.name.as_str());
+                // The retro's call is in flight from here.
+                self.post();
                 true
             }
             Err(why) => {
