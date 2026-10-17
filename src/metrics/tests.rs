@@ -409,6 +409,29 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
         recorder.mcp_server(server, true);
         recorder.mcp_server(server, false);
     }
+    // Every kind for each of the three roles whose tool calls are counted, and one for a role
+    // whose are not, which adds none.
+    const KINDS: [&str; 13] = [
+        "guard-block",
+        "hook-block",
+        "tool-not-given",
+        "unknown-skill",
+        "permission-refused",
+        "git-ref-lock",
+        "tmp-refused",
+        "path-refused",
+        "command-not-found",
+        "edit-miss",
+        "timeout",
+        "mcp",
+        "other",
+    ];
+    for kind in KINDS {
+        for role in ["worker", "reviewer", "pm"] {
+            recorder.tool_error(role, kind);
+        }
+        recorder.tool_error("triager", kind);
+    }
     // The series set from the state and the settings, and the finished work items', which these
     // lines do not drive: six phases, four features' enabled gauges, the plan gauges of the two
     // accounts (two windows' two gauges, and two more), and nine of the finished line's.
@@ -426,14 +449,23 @@ fn a_runner_with_every_role_and_harness_in_use_stays_under_the_cap() {
             .contains(name)
         })
         .count();
+    let errors = held
+        .iter()
+        .filter(|(name, _)| *name == "kelpie_tool_errors_total")
+        .count();
     eprintln!(
-        "series: {} and {not_driven} more, {requests} of them requests",
+        "series: {} and {not_driven} more, {requests} of them requests and {errors} tool errors",
         held.len()
     );
     assert_eq!(
         requests,
         5 * 7,
         "four buckets and three writes for each of the five pairs, and none for the one-shot roles"
+    );
+    assert_eq!(
+        errors,
+        13 * 3,
+        "thirteen kinds for each of the three roles whose tool calls are counted, and none for the rest"
     );
     assert!(
         held.len() + not_driven < SERIES_CAP,

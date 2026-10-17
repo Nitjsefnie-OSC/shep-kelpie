@@ -15,6 +15,7 @@ fn a_fenced_call_gets_a_guard_that_runs_kelpies_checks() {
     stand_in(&w, FRESH).prepare(&call).unwrap();
     let guard = std::fs::read_to_string(w.path("settings.guard.ts")).unwrap();
     assert!(!guard.contains("__CHECKS__"), "{guard}");
+    assert!(!guard.contains("__MARK__"), "{guard}");
     let (wt, build) = (w.path("wt"), w.path("build"));
     let line = guard
         .lines()
@@ -142,7 +143,7 @@ fn the_guard_sends_commands_to_guard_and_writes_to_confine_and_refuses_the_rest(
         verdicts.iter().map(refused).collect::<Vec<_>>(),
         [false, true, false, false, true, false, true]
     );
-    assert_eq!(reasons[1], "no, says kelpie");
+    assert_eq!(reasons[1], format!("{GUARD_MARK}no, says kelpie"));
     assert!(reasons[4].contains("file: URL"), "{}", reasons[4]);
     assert!(reasons[6].contains("webfetch"), "{}", reasons[6]);
 
@@ -274,6 +275,10 @@ fn an_after_command_refusal_reaches_a_pi_worker_as_feedback_on_the_result() {
     assert_eq!(results[1]["isError"], true);
     let content = results[1]["content"].as_array().unwrap();
     assert_eq!(content[0], bad[0]);
+    assert!(
+        content[1]["text"].as_str().unwrap().starts_with(GUARD_MARK),
+        "{content:?}"
+    );
     assert!(
         content[1]["text"]
             .as_str()

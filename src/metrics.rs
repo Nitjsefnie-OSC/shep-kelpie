@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use crate::ports::{Sample, SeriesKind, Sink, Timestamp};
 
 mod dog;
+mod errors;
 mod mcp;
 mod plan;
 mod requests;
@@ -20,8 +21,9 @@ pub(crate) use mcp::OWN_SERVERS;
 pub use series::{CiTests, FEATURE_RUNS, Feature};
 
 /// The most series a runner sends, under the metrics dog's 256 a sender
-/// (shep-pm/shep#733), with room for the dog's own refusal counter
-pub const SERIES_CAP: usize = 200;
+/// (shep-pm/shep#733). The worst case the budget test drives is 197 series, and
+/// the failed tool call series of #968 need 39 more, so the room is 240
+pub const SERIES_CAP: usize = 240;
 
 // Seconds between sending every series again. A minute is a scrape or four
 // at Prometheus's usual interval, and a few hundred samples a minute is
