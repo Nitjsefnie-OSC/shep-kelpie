@@ -116,6 +116,10 @@ pub enum Session {
     Turn {
         /// When it started
         since: Timestamp,
+        /// When its quiet counts from: the grant of the lease it waited for, or
+        /// its start when it waited for none. `None` while it still waits for
+        /// its model, when nothing it shows is late.
+        active: Option<Timestamp>,
         /// What its harness says it last showed
         last: CallActivity,
     },
@@ -123,6 +127,8 @@ pub enum Session {
     Review {
         /// When it started
         since: Timestamp,
+        /// Since when it waits for its model, and for what
+        waiting: Option<(Timestamp, Wait)>,
     },
     /// No call is in flight, and this is where the turn stands
     Still(String),
@@ -293,9 +299,16 @@ fn open_work(out: &mut String, board: &Briefing<'_>) {
 
 fn session(session: &Session, now: Timestamp) -> String {
     match session {
-        Session::Turn { since, last } => {
+        Session::Turn {
+            since,
+            active,
+            last,
+        } => {
             let running = format!("worker turn running for {}", age(now, *since));
-            let Some(quiet) = quiet_for(*since, *last, now) else {
+            let Some(active) = active else {
+                return format!("{running}, waiting for its model");
+            };
+            let Some(quiet) = quiet_for(*active, *last, now) else {
                 return format!("{running}, its activity unreadable");
             };
             let gap = age(now, Timestamp(now.0.saturating_sub(quiet)));
@@ -309,16 +322,22 @@ fn session(session: &Session, now: Timestamp) -> String {
                 _ => format!("{running}, no tool call or output yet"),
             }
         }
-        Session::Review { since } => format!("review call running for {}", age(now, *since)),
+        Session::Review { since, waiting } => {
+            let running = format!("review call running for {}", age(now, *since));
+            match waiting {
+                Some((_, why)) => format!("{running}, waiting for {}", why.as_str()),
+                None => running,
+            }
+        }
         Session::Still(what) => what.clone(),
     }
 }
 
-/// How long a turn started at `since` has shown nothing, at `now`, or
-/// `None` when its harness keeps no record of what it shows
+/// How long a turn whose quiet runs from `since` has shown nothing, at
+/// `now`, or `None` when its harness keeps no record of what it shows
 ///
-/// A record from before the turn began, as a resumed session's transcript
-/// is, counts from the turn's start.
+/// A record from before the turn's quiet began, as a resumed session's
+/// transcript is, counts from `since`.
 pub fn quiet_for(since: Timestamp, last: CallActivity, now: Timestamp) -> Option<u64> {
     let seen = match last {
         CallActivity::Untracked => return None,

@@ -8,7 +8,6 @@
 //! a deadline each pass checks, and a call past it is ended through its own
 //! process group.
 
-use std::any::Any;
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -23,12 +22,13 @@ use super::dev_server;
 use super::in_flight::InFlight;
 use super::login_refresh;
 use super::replies::answer_replies;
-use super::report::{Begin, ReviewCall, ReviewResult, Reviewed, Spent, StepReport};
+use super::report::{Begin, ReviewCall, Reviewed, Spent, StepReport};
 use super::review::run_review_call;
 use super::transcript_count::Mark;
 use super::trigger::lock;
 use super::turn_hooks::TurnHooks;
 use crate::adapters::bridge::Bridge;
+use crate::board::briefing::elapsed;
 use crate::ports::{
     AgentCall, AgentError, AgentReply, Ending, Flying, RoundStage, Timestamp, Wait,
 };
@@ -202,10 +202,6 @@ struct Flight {
     first: bool,
     // Whether it is a `/compact` of the worker's session, sent before a turn
     compact: bool,
-    // When the call began, past the lease it waited for
-    began_at: Option<Timestamp>,
-    // What the call last said it waits for, and since when
-    told: Option<(Timestamp, Wait)>,
     // Where a first turn that waited too long moves
     fallback: waiting::Fallback,
     // The browser the turn drives, which lasts as long as the turn does
@@ -223,131 +219,6 @@ impl Flight {
             again: self.again,
             first: self.first,
             compact: self.compact,
-        }
-    }
-}
-
-// What a call's thread sends the runner
-enum News {
-    Ended {
-        issue: u64,
-        end: End,
-    },
-    // The project manager's call ended
-    Pm(End),
-    // The batch retro's call ended
-    Retro(End),
-    // The issue writer's call labelling an issue ended
-    Labelled {
-        issue: u64,
-        end: End,
-    },
-    // The e2e run of a bump's head ended
-    Proved(proving::Proof),
-    // A contribution's head was read for security, to a verdict or to none
-    Secured {
-        pull_request: u64,
-        head: String,
-        reading: crate::runner::contributions::Reading,
-    },
-    // The triager's research of an issue ended, with its reply read against its
-    // view. The reply is boxed: it is the largest thing any `News` variant holds
-    // by far, and the rest of the enum is small next to it.
-    Triaged {
-        issue: u64,
-        end: End,
-        found: Option<Box<Result<crate::runner::triage::research::Found, String>>>,
-    },
-    // The experts of a ruling ended, each as its own call did
-    Paneled {
-        id: u64,
-        ends: Vec<(crate::panel::Voter, Result<AgentReply, AgentError>)>,
-    },
-    // A local round queued for the GPU or began to run. The call waits until
-    // `_seen` drops, once the stage is saved, so its time is charged right.
-    Stage {
-        issue: u64,
-        stage: RoundStage,
-        _seen: Sender<()>,
-    },
-    // The call has the lease it waited for, and begins now. It waits until
-    // `_seen` drops, once its ceiling counts from now.
-    Began {
-        issue: u64,
-        _seen: Sender<()>,
-    },
-    // The call waits for its model
-    Waits {
-        issue: u64,
-        wait: Wait,
-    },
-}
-
-// How a call ended
-enum End {
-    Turn(Result<AgentReply, AgentError>),
-    Review(Reviewed),
-    // The call's thread panicked, which ends the runner as a panic in its
-    // own thread does
-    Panicked(Box<dyn Any + Send>),
-}
-
-impl End {
-    // Whether it ended before reaching a model: its settings, its harness or
-    // its session never got that far
-    fn reached_no_model(&self) -> bool {
-        match self {
-            Self::Turn(result) => crate::usage::ended(result).is_none(),
-            Self::Review(reviewed) => matches!(
-                (&reviewed.result, &reviewed.spent),
-                (ReviewResult::Findings(Err(_)), None)
-            ),
-            Self::Panicked(_) => false,
-        }
-    }
-}
-
-// What a call's thread needs to tell the runner about its call
-#[derive(Clone)]
-struct Tell {
-    issue: u64,
-    news: Sender<News>,
-    wake: Option<Sender<()>>,
-}
-
-impl Tell {
-    fn send(&self, news: News) -> bool {
-        let sent = self.news.send(news).is_ok();
-        if let Some(wake) = &self.wake {
-            let _ = wake.send(());
-        }
-        sent
-    }
-
-    fn stage(&self, stage: RoundStage) {
-        let issue = self.issue;
-        self.until_heard(|seen| News::Stage {
-            issue,
-            stage,
-            _seen: seen,
-        });
-    }
-
-    fn began(&self) {
-        let issue = self.issue;
-        self.until_heard(|seen| News::Began { issue, _seen: seen });
-    }
-
-    fn waits(&self, wait: Wait) {
-        let issue = self.issue;
-        self.send(News::Waits { issue, wait });
-    }
-
-    // Sends the news `news` makes, and waits until the runner has heard it.
-    fn until_heard(&self, news: impl FnOnce(Sender<()>) -> News) {
-        let (seen, heard) = mpsc::channel();
-        if self.send(news(seen)) {
-            let _ = heard.recv();
         }
     }
 }
@@ -474,16 +345,38 @@ impl Runner {
     }
 
     // Counts `issue`'s turn ceiling from now, once its call has the lease it
-    // waited for.
+    // waited for, and starts the board's quiet clock from the same moment.
     fn began(&mut self, issue: u64) {
         let now = self.ports.clock.now();
-        if let Some(flight) = self.flights.flying.get_mut(&issue)
-            && flight.deadline.is_some()
+        let told = self.flights.flying.get_mut(&issue).map(|flight| {
+            let told = flight.watched.told.take();
+            let said = flight.watched.woken;
+            let turn = flight.watched.call.is_some();
+            let waited = told.map_or(0, |(since, _)| now.0.saturating_sub(since.0));
+            flight.watched.granted = Some(now);
+            flight.watched.woken = false;
+            if flight.deadline.is_some() {
+                flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
+                flight.ending.carry(flight.flying(now));
+            }
+            (said, turn, told.map(|(_, why)| why), waited)
+        });
+        // The board names the gap the wait took, so a reader sees the wait was
+        // real, and names what the call got. Only a wait for a lease got one.
+        if let Some((said, turn, why, waited)) = told
+            && said
         {
-            flight.deadline = Some(Timestamp(now.0.saturating_add(flight.left)));
-            flight.began_at = Some(now);
-            flight.ending.carry(flight.flying(now));
-            flight.told = None;
+            let who = if turn { "worker" } else { "review call" };
+            let got = match why.unwrap_or(Wait::Lease) {
+                Wait::Lease => "its model's lease",
+                Wait::Busy => "its gateway back",
+                Wait::Silent => "its model",
+                Wait::Unreachable => "its model host back",
+            };
+            self.board_event(format!(
+                "#{issue}: {who} has {got}, after waiting {}",
+                elapsed(waited)
+            ));
         }
         self.board_changed();
     }
@@ -578,6 +471,10 @@ impl Runner {
                 Launch::Review(_) => None,
             },
             idle: false,
+            told: None,
+            granted: None,
+            woken: false,
+            lease: waiting::lease_of(&launch),
         };
         let draft = match &launch {
             Launch::Turn { call, .. } => {
@@ -623,8 +520,6 @@ impl Runner {
             watched,
             first,
             compact,
-            began_at: None,
-            told: None,
             fallback: waiting::Fallback::Stays,
             browser: deadline.and_then(|_| self.opened.take(issue)),
             requests: match &launch {
@@ -859,6 +754,11 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
             if stage == RoundStage::Running {
                 let now = runner.ports.clock.now();
                 runner.flights.ledger.ran(Some(issue), now);
+                // The round has the lease it queued for.
+                runner.began(issue);
+            } else {
+                // A round queued at its model's lease waits like a turn does.
+                runner.told(issue, Wait::Lease);
             }
             // A failed save is told and let go. A GPU wait may then count as
             // the round's, but the phases still sum to the wall time.
@@ -966,16 +866,18 @@ fn hear_news(runner: &Mutex<Runner>, news: News) -> Result<Option<StepReport>, S
 mod calls;
 mod carry;
 pub(super) mod label;
+mod news;
 pub(super) mod panel;
 mod proving;
 
+use news::{End, News, Tell};
 pub(in crate::runner) use proving::Verdict;
 pub(super) mod retro;
 pub(super) mod security;
 #[cfg(test)]
 mod step;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(super) mod triage;
 mod waiting;
 

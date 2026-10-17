@@ -13,15 +13,15 @@ use crate::codex::Codex;
 use crate::cubic::Cubic;
 use crate::github::AppVoice;
 use crate::ports::{
-    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalLeases, LocalPace, Meter, MeterError, Pace,
-    Ports, Role, SessionId, Timestamp, Usage, Utilization, Window,
+    Agents, CLEAN, CallPacer, Checks, Clock, Cost, LocalPace, Meter, MeterError, Pace, Ports, Role,
+    SessionId, Timestamp, Usage, Utilization, Window,
 };
 use crate::review_bot::Profile;
 use crate::runner::{
     CHECKS_SETTLE, OpenError, ProjectName, ProjectPaths, Runner, SETTLE_LEAST, StepReport, answer,
     step,
 };
-use crate::settings::{Settings, SettingsError};
+use crate::settings::SettingsError;
 use crate::webhook::{KelpieSettings, Webhook};
 use crate::work_item::{CallRecord, Known, Phase, Seconds, TimingPhase, Timings, Turn, WorkItem};
 
@@ -47,6 +47,7 @@ mod memory;
 mod pages;
 mod reads;
 mod reviewer;
+mod rig_settings;
 mod samples;
 mod sandbox;
 mod script;
@@ -540,206 +541,6 @@ impl Rig {
         // Kelpie's home under the shepherd's, as the runner works it out.
         let shep = self.home.path().join("shep");
         ProjectPaths::under(&shep.join("kelpie"), &shep, &self.project)
-    }
-
-    /// Registers kelpie's App for the project's repo owner and installs it on
-    /// the repo, so a runner opened next posts through it
-    pub(crate) fn with_app(&self) {
-        let kelpie_home = self.paths().kelpie_home;
-        self.github.registered(&kelpie_home, Self::REMOTE);
-    }
-
-    /// Lists CodeRabbit after the rig's reviewers, so it reads each pass last
-    pub(crate) fn coderabbit_on(&self) {
-        self.edit_settings(|s| {
-            assert!(s.contains(RIG_REVIEWERS), "the rig's reviewers moved");
-            s.replace(RIG_REVIEWERS, RIG_REVIEWERS_AND_CODERABBIT)
-        });
-    }
-
-    /// Makes the project's `git.merging` `auto`, read when a runner next opens
-    pub(crate) fn merge_auto(&self) {
-        let (ask, auto) = ("merging = \"ask\"", "merging = \"auto\"");
-        self.edit_settings(|s| {
-            assert!(s.contains(ask), "the example's `git.merging` moved");
-            s.replace(ask, auto)
-        });
-    }
-
-    /// Sets the project's `git.maintainer` to `login`, read when a runner next opens
-    pub(crate) fn maintainer(&self, login: &str) {
-        let ask = "issues = \"ask\"";
-        self.edit_settings(|s| {
-            assert!(s.contains(ask), "the example's `git.issues` moved");
-            s.replace(ask, &format!("{ask}\nmaintainer = \"{login}\""))
-        });
-    }
-
-    /// Gives the project a hook at each of `points` that runs `script`, a
-    /// shell script written to the rig's home as `name`, read when a
-    /// runner next opens
-    pub(crate) fn hook(&self, name: &str, points: &[&str], script: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        let file = self.home.path().join(name);
-        std::fs::write(&file, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let hooks: String = points
-            .iter()
-            .map(|point| {
-                format!(
-                    "\n[[app.dogs.kelpie.hooks]]\npoint = \"{point}\"\ncommand = \"{}\"\n",
-                    file.display()
-                )
-            })
-            .collect();
-        self.edit_settings(|s| s + &hooks);
-    }
-
-    /// Gives the project a hook at each of `points` that refuses any text
-    /// naming `word`, exit 2 with a reason that does not repeat it, read
-    /// when a runner next opens
-    pub(crate) fn forbid_word(&self, points: &[&str], word: &str) {
-        let script = format!(
-            "if grep -q '{word}'; then echo 'it names a word the project keeps private' >&2; exit 2; fi"
-        );
-        self.hook("forbid-word.sh", points, &script);
-    }
-
-    /// Has the project block on CI, read when a runner next opens
-    pub(crate) fn ci_on(&self) {
-        self.edit_settings(|s| s.replace("block = false", "block = true"));
-    }
-
-    /// [`Rig::ci_on`] for a runner already open, which reads its settings again
-    pub(crate) fn ci_on_now(&self, runner: &Mutex<Runner>) {
-        self.ci_on();
-        let (settings, kelpie) = (self.settings(), self.kelpie_settings());
-        runner.lock().unwrap().reread(settings, kelpie).unwrap();
-    }
-
-    /// Lets the project run its retro, read when a runner next opens
-    pub(crate) fn retro_on(&self) {
-        self.edit_settings(|s| {
-            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
-            s.replace(NO_RETRO, RETRO_ON)
-        });
-    }
-
-    /// Leaves the retro out of the project's settings, read when a runner next opens
-    pub(crate) fn retro_left_out(&self) {
-        self.edit_settings(|s| {
-            assert!(s.contains(NO_RETRO), "the rig's no-retro table moved");
-            s.replace(NO_RETRO, "")
-        });
-    }
-
-    /// Sets the project's `git.issues` to `filing`, read when a runner next opens
-    pub(crate) fn issues(&self, filing: &str) {
-        let ask = "issues = \"ask\"";
-        self.edit_settings(|s| {
-            assert!(s.contains(ask), "the example's `git.issues` moved");
-            s.replace(ask, &format!("issues = \"{filing}\""))
-        });
-    }
-
-    /// Sets the project's `ci.fix_attempts` to `cap`, read when a runner next opens
-    pub(crate) fn fix_attempts(&self, cap: i64) {
-        let none = "fix_attempts = -1";
-        self.edit_settings(|s| {
-            assert!(s.contains(none), "the example's `ci.fix_attempts` moved");
-            s.replace(none, &format!("fix_attempts = {cap}"))
-        });
-    }
-
-    /// Sets the project's `ci.test_command`, read when a runner next opens
-    pub(crate) fn test_command(&self, command: &str) {
-        let off = "# test_command = \"cargo test --test {name}\"";
-        self.edit_settings(|s| {
-            assert!(s.contains(off), "the example's `ci.test_command` moved");
-            s.replace(off, &format!("test_command = \"{command}\""))
-        });
-    }
-
-    /// Writes kelpie's agent file `name.md` holding `text`, read when a runner next opens
-    pub(crate) fn write_agent(&self, name: &str, text: &str) {
-        write_in(&self.paths().agents, &format!("{name}.md"), text);
-    }
-
-    /// Lists `names` as the project's implementers, read when a runner next opens
-    pub(crate) fn implementers(&self, names: &[&str]) {
-        let listed = format!("implementers = {names:?}");
-        self.edit_settings(|s| {
-            assert!(
-                s.contains("\nimplementers = "),
-                "the example's implementers moved"
-            );
-            let lines = s
-                .lines()
-                .map(|line| match line.starts_with("implementers = ") {
-                    true => listed.as_str(),
-                    false => line,
-                });
-            lines.map(|line| format!("{line}\n")).collect()
-        });
-    }
-
-    /// Makes the project a new one, which lists no reviewers: the qwen round,
-    /// since the rig has the script, and then `defect-hunter`
-    pub(crate) fn default_review(&self) {
-        self.edit_settings(|s| s.replace(RIG_REVIEWERS, ""));
-    }
-
-    /// Lists `names` as the project's reviewers, read when a runner next opens
-    pub(crate) fn reviewers(&self, names: &[&str]) {
-        let listed = format!("reviewers = {names:?}\n");
-        self.edit_settings(|s| {
-            assert!(s.contains(RIG_REVIEWERS), "the rig's reviewers moved");
-            s.replace(RIG_REVIEWERS, &listed)
-        });
-    }
-
-    /// Gives the project an e2e host, `e2e-box`, read when a runner next opens
-    pub(crate) fn e2e_on(&self) {
-        self.edit_settings(|s| s + "\n[app.dogs.kelpie.e2e]\nhost = \"e2e-box\"\n");
-    }
-
-    pub(crate) fn edit_settings(&self, edit: impl FnOnce(String) -> String) {
-        let file = self.settings_file();
-        let text = std::fs::read_to_string(&file).unwrap();
-        std::fs::write(&file, edit(text)).unwrap();
-    }
-
-    /// The project's settings as its table now stands
-    pub(crate) fn settings(&self) -> Settings {
-        self.try_settings().unwrap()
-    }
-
-    // The rig keeps the runner's Flockfile entry where the old settings file was.
-    pub(crate) fn try_settings(&self) -> Result<Settings, SettingsError> {
-        let paths = self.paths();
-        let entry = std::fs::read_to_string(self.settings_file()).unwrap();
-        let folder = &paths.folder;
-        let (project, home) = (self.project.as_str(), self.home.path());
-        Settings::from_table(&project_table(&entry), project, home, folder)
-    }
-
-    /// Answers the gateway's lease reads with nothing, and counts them, so a
-    /// test can say who asked the gateway
-    pub(crate) fn count_lease_reads(&self) -> Arc<leased::LeaseReads> {
-        let reads = Arc::new(leased::LeaseReads::default());
-        *self.counted_leases.lock().unwrap() = Some(Arc::clone(&reads));
-        reads
-    }
-
-    // The gateway's leases as the rig answers them: the real stand-in, or the
-    // counted one once a test asked for it.
-    fn lease_port(&self) -> Arc<dyn LocalLeases> {
-        self.counted_leases
-            .lock()
-            .unwrap()
-            .clone()
-            .map(|reads| reads as Arc<dyn LocalLeases>)
-            .unwrap_or_else(|| Arc::new(self.local_leases.clone()))
     }
 
     /// Starts a runner, as a restarted sheep would, on the rig's stand-ins

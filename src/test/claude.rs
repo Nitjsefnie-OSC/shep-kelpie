@@ -98,6 +98,10 @@ pub(crate) enum Scripted {
     /// Waits for a lease on its model until the test releases the hold, as a
     /// call queued at a gateway does, then goes on as the second does
     Queued(Hold, Box<Scripted>),
+    /// Says its gateway answered busy, as a take turned away for a reason other
+    /// than another lease's turn does, until the test releases the hold, then
+    /// goes on as the second does
+    Busy(Hold, Box<Scripted>),
     /// Appends these lines to its session's transcript, in the folder its
     /// `transcript` names, as Claude Code writes them, then goes on as the
     /// second does
@@ -404,6 +408,12 @@ impl Agents for FakeClaude {
                 ending.begin();
                 Some(*then)
             }
+            Some(Scripted::Busy(busy, then)) => {
+                ending.wait(Wait::Busy);
+                self.hold(&busy, call, ending)?;
+                ending.begin();
+                Some(*then)
+            }
             other => other,
         };
         let (at_tool, next) = match next {
@@ -483,7 +493,9 @@ impl Agents for FakeClaude {
                 self.hold(&hold, call, ending)?;
                 Ok(said(text))
             }
-            Some(Scripted::Queued(..)) => unreachable!("turned into its second above"),
+            Some(Scripted::Queued(..) | Scripted::Busy(..)) => {
+                unreachable!("turned into its second above")
+            }
             Some(Scripted::AtTool(..) | Scripted::Transcribed(..)) => {
                 unreachable!("turned into its second above")
             }
