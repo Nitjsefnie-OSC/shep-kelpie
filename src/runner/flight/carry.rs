@@ -166,12 +166,13 @@ impl Runner {
         let (held, ledger) = (ending.clone(), self.flights.ledger.clone());
         let agents = Arc::clone(&self.ports.agents);
         let metrics = Arc::clone(&self.metrics);
+        let notes = self.notes.clone();
         let run = move || {
             let ran = catch_unwind(AssertUnwindSafe(|| {
                 End::Turn(agents.adopt(&adopted, &held))
             }));
             if let Some(mark) = &requests {
-                mark.count(adopted.harness, &metrics);
+                mark.count(adopted.harness, issue, &metrics, &notes);
             }
             let end = ran.unwrap_or_else(End::Panicked);
             if end.reached_no_model() {
