@@ -7,7 +7,10 @@ use super::tests::{picking, poll};
 use crate::ports::{AgentError, CLEAN, Role};
 use crate::runner::{Pass, Runner, StepReport, advance, step};
 use crate::settings::Harness;
-use crate::test::{CALL_PATIENCE, Hold, Rig, Scripted, Seen, git};
+use crate::test::{
+    CALL_PATIENCE, Hold, Rig, Scripted, Seen, assert_granted, git, installed_sources,
+    source_folders,
+};
 
 // The clone the rig's contributors push from
 fn hand(rig: &Rig) -> PathBuf {
@@ -406,4 +409,15 @@ fn a_contribution_review_s_requests_are_counted_as_the_reviewer_s() {
     ];
     let requests = rig.samples.value("kelpie_request_context_tokens", &all);
     assert_eq!(requests, Some(6.0), "the six requests of the transcript");
+}
+
+#[test]
+fn the_security_reviewer_reads_the_installed_dependency_sources_and_no_credential_of_them() {
+    let (rig, runner) = picking("all");
+    let (cargo, rustup, secret) = installed_sources(&rig);
+    rig.claude.script([Scripted::Text(CLEAN)]);
+    contribute(&rig, 30, |h| write(h, "one.txt", "one\n"));
+    poll(&rig, &runner);
+    let seen = &reviews(&rig)[0];
+    assert_granted(seen, &source_folders(&cargo, &rustup), &secret);
 }

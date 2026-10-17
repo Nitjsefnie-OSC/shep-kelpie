@@ -25,7 +25,7 @@ Rules live in Rust code; a model is called only for work and judgement.
 | work.md | projects, board, adoption, slots, issue writer | `src/board.rs`, `src/issues.rs`, `src/runner/adopt.rs`, `src/runner/slots.rs`, `src/flock/verbs.rs`, `src/guard/issues.rs` |
 | pm.md | the project manager, its board file | `src/runner/pm.rs`, `src/runner/pm/`, `src/runner/briefing.rs` |
 | workers.md | runner loop, turns | `src/runner/turn.rs`, `src/runner/flight.rs` |
-| fence.md | sandbox, guard, hooks | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs` |
+| fence.md | sandbox, guard, hooks, reads | `src/profile.rs`, `src/guard.rs`, `src/hooks.rs`, `src/dep_sources.rs`, `src/runner/turn/dep_reads.rs` |
 | browser.md | a worker's browser outside its sandbox: bridge, filter, tools | `src/bridge.rs`, `src/browse.rs`, `src/adapters/bridge.rs`, `src/runner/browser.rs`, `src/settings/browser.rs`, `src/tools/browser.rs` |
 | browser-dev-server.md | the dev server for a worker's browser: launch, port, readiness | `src/runner/dev_server.rs`, `src/runner/dev_server/launch.rs`, `src/ports/dev_server.rs`, `src/adapters/dev_server.rs` |
 | compaction.md | when a session compacts, `worker.compact_window` per harness, `COMPACT` | `src/runner/compact.rs`, `src/adapters/pi/compact.rs`, `src/adapters/codex/context.rs`, `src/adapters/goose/compact.rs` |
@@ -39,11 +39,11 @@ Rules live in Rust code; a model is called only for work and judgement.
 | github-app.md | App tokens, posting, answers, ruling panel | `src/runner/voice/`, `src/runner/panel/`, `src/panel/`, `src/guard/gh.rs`, `src/worker_folder.rs` |
 | contributions.md | other people's pull requests: `contributions` settings, detection | `src/settings/contributions.rs`, `src/settings/reviewers.rs`, `src/runner/contributions.rs`, `src/state/contributions.rs` |
 | contribution-security.md | a contribution's security review, slots, budget | `src/runner/contributions/`, `src/runner/flight/security.rs`, `src/worktree/contribution.rs` |
-| contribution-pass.md | the reviewers' pass over a green head: rotation, the record | `src/runner/contributions/pass.rs`, `src/worktree/contribution.rs`, `src/state/contributions.rs` |
-| contribution-talk.md | what contributors say: hearing, answering, the quiet clock | `src/runner/contributions/heard.rs`, `src/runner/contributions/clock.rs`, `src/runner/thread_replies.rs`, `src/state/contributions.rs` |
-| contribution-release.md | asking a contributor for a release: yes, thumbs up or silence, the ruling | `src/runner/contributions/release.rs`, `src/runner/contributions/ruling.rs`, `src/state/contributions.rs` |
-| contribution-merge.md | the merge ruling every contribution gets: yes, thanks, no | `src/runner/contributions/merge.rs`, `src/runner/contributions/ruling.rs`, `src/settings/rulings.rs`, `src/state/contributions.rs` |
-| representative.md | its agent file, `agents.representative`, the call that words a post | `src/runner/representative.rs`, `src/agents/front.rs`, `src/settings/agents.rs`, `agents/representative.md` |
+| contribution-pass.md | the reviewers' pass over a green head: rotation, the record | `src/runner/contributions/pass.rs`, `src/worktree/contribution.rs` |
+| contribution-talk.md | what contributors say: hearing, answering, the quiet clock | `src/runner/contributions/heard.rs`, `src/runner/contributions/clock.rs`, `src/runner/thread_replies.rs` |
+| contribution-release.md | asking a contributor for a release: yes, thumbs up or silence, the ruling | `src/runner/contributions/release.rs`, `src/runner/contributions/ruling.rs` |
+| contribution-merge.md | the merge ruling every contribution gets: yes, thanks and no | `src/runner/contributions/merge.rs`, `src/runner/contributions/ruling.rs`, `src/settings/rulings.rs` |
+| representative.md | the representative: its agent file, `agents.representative`, the call that words a post | `src/runner/representative.rs`, `src/agents/front.rs`, `src/settings/agents.rs`, `agents/representative.md` |
 | dependencies.md | the bumps bots open: `dependencies` settings, rebase asks, proof, merge, red | `src/settings/dependencies.rs`, `src/runner/dependencies.rs`, `src/runner/flight/proving.rs`, `src/runner/dev_server/bump.rs`, `src/state/bumps.rs`, `src/adapters/e2e_runner.rs`, `src/adapters/pages.rs`, `src/adapters/bridge/client.rs` |
 | triage.md | settings, the triager, the pick rule, `since`, the verb, `status` | `src/settings/triage.rs`, `src/runner/triage.rs`, `src/runner/open_checks.rs`, `src/ports/issue.rs` |
 | triage-pass.md | one issue's pass: post, labels, duplicate close, agent-ready | `src/runner/triage/`, `src/runner/flight/`, `src/ports/voice.rs` |

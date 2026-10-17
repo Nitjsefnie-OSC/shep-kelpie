@@ -114,7 +114,9 @@ mod tests {
     use crate::ports::CLEAN;
     use crate::runner::step;
     use crate::settings::AgentHarness;
-    use crate::test::{Rig, Scripted, git, linked_worktree, main_commits};
+    use crate::test::{
+        Rig, Scripted, assert_reads, assert_refuses, git, linked_worktree, main_commits, write_in,
+    };
     use crate::trim::deny_with_trim;
 
     // `origin/main` at the commit the branch was cut from, and one commit of
@@ -155,6 +157,69 @@ mod tests {
         assert!(diff.contains("+++ b/later.txt"), "{diff}");
         assert!(!diff.contains("work.txt"), "{diff}");
         assert!(!diff.contains("only_main.txt"), "{diff}");
+    }
+
+    #[test]
+    fn a_reviewer_reads_the_installed_dependency_sources_and_none_of_a_cargo_homes_credentials() {
+        let rig = Rig::new("shep");
+        rig.test_command("cargo test --test {name}");
+        rig.edit_settings(|s| {
+            s.replace("build_env = {}", "build_env = { CARGO_HOME = \"cargo\" }")
+        });
+        // cargo's own default home, and the one this project points into the
+        // work item's build folder, both there before the runner looks.
+        let (machine, build_cargo) = (rig.home.path().join(".cargo"), rig.build_7().join("cargo"));
+        for root in [&machine, &build_cargo] {
+            for file in [
+                "registry/src/serde-1.0.2/src/lib.rs",
+                "git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs",
+                "registry/cache/index.crates.io-6a1f/serde-1.0.2.crate",
+                "registry/index/index.crates.io-6a1f/.cache",
+                "credentials.toml",
+            ] {
+                write_in(root, file, "x\n");
+            }
+        }
+        let runner = rig.open().unwrap();
+        rig.ask(&runner, "add", Some("7"));
+        rig.forge.open_pull_request(71, "kelpie/7", &[7]);
+        rig.claude
+            .script([Scripted::Push("work.txt", "work\n"), Scripted::Text(CLEAN)]);
+        step(&runner).unwrap(); // the worker's first turn
+        step(&runner).unwrap(); // round 1, qwen: clean by default
+        step(&runner).unwrap(); // round 2, claude: the reviewer
+
+        let seen = (rig.claude.all_seen().into_iter())
+            .find(|s| s.call.role == Role::Reviewer)
+            .expect("a reviewer round ran");
+        let granted: Vec<&str> = (seen.settings["permissions"]["additionalDirectories"]
+            .as_array()
+            .expect("the reviewer is granted folders outside its worktree")
+            .iter())
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+        for root in [&machine, &build_cargo] {
+            for sub in ["registry/src", "git/checkouts"] {
+                let folder = root.join(sub);
+                assert!(granted.contains(&folder.to_str().unwrap()), "{granted:?}");
+            }
+            assert_reads(&seen, &root.join("registry/src/serde-1.0.2/src/lib.rs"));
+            assert_reads(
+                &seen,
+                &root.join("git/checkouts/shep-core-1a2b3c/HEAD/src/lib.rs"),
+            );
+        }
+        // The build folder is the worker's, and the reviewer reads only the
+        // crates in it. The machine's own cargo home is denied its credentials
+        // by name, which `a_worker_reads_the_installed_dependency_sources_and_no_credential_of_cargo`
+        // checks on the rules themselves.
+        for unread in [
+            build_cargo.join("credentials.toml"),
+            build_cargo.join("registry/cache/index.crates.io-6a1f/serde-1.0.2.crate"),
+            build_cargo.join("registry/index/index.crates.io-6a1f/.cache"),
+        ] {
+            assert_refuses(&seen, &unread);
+        }
     }
 
     #[test]
@@ -348,6 +413,15 @@ mod tests {
         (rig, build, seen)
     }
 
+    // A reviewer's fence with no write folder reads its worktree and these
+    // folders of the machine's toolchains, and nothing else
+    const DEP_SUFFIXES: [&str; 4] = [
+        "/registry/src",
+        "/git/checkouts",
+        "/lib/rustlib/src",
+        "/share/doc",
+    ];
+
     // A reviewer of `harness`'s first round gets a fence of its own with nothing to write.
     #[track_caller]
     fn gets_a_fence_with_no_write_folder(harness: &str) {
@@ -360,7 +434,17 @@ mod tests {
         assert_eq!(std::fs::read_dir(own).unwrap().count(), 0);
         assert!(own.starts_with(&build), "{}", own.display());
         assert!(!own.starts_with(&seen.call.cwd), "{}", own.display());
-        assert_eq!(seen.call.reach.read, std::slice::from_ref(&seen.call.cwd));
+        // Its worktree, then the installed sources and docs of dependencies and
+        // toolchains, which every call reads, and nothing else.
+        let (own_read, rest) = seen.call.reach.read.split_first().expect("its worktree");
+        assert_eq!(own_read, &seen.call.cwd);
+        for folder in rest {
+            let named = folder.display().to_string();
+            assert!(
+                DEP_SUFFIXES.iter().any(|s| named.ends_with(s)),
+                "{named} is not a dependency or toolchain source"
+            );
+        }
     }
 
     #[test]

@@ -69,7 +69,10 @@ pub(crate) use home::Home;
 pub(crate) use leases::{DogStandIn, FakeLeases, Told};
 pub(crate) use memory::Memory;
 pub(crate) use pages::{FakePages, clean as clean_visit};
-pub(crate) use reads::{assert_reads, assert_refuses, sandbox_refuses, tools_refuse};
+pub(crate) use reads::{
+    assert_granted, assert_reads, assert_refuses, installed_sources, sandbox_refuses,
+    source_folders, tools_refuse,
+};
 pub(crate) use reviewer::{FakeReviewer, ScriptedRound, SeenRound};
 pub(crate) use samples::RecordedSink;
 pub(crate) use sandbox::OpenSandbox;

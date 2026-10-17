@@ -17,6 +17,7 @@ pub mod coderabbit;
 pub mod codex;
 pub mod confine;
 pub mod cubic;
+mod dep_sources;
 pub mod doctor;
 pub mod dog;
 pub mod fence;

@@ -253,3 +253,40 @@ fn a_reviewer_is_told_what_its_shell_runs_and_an_advisor_and_a_retro_are_left_al
     call.prompt = "Review the change.".into();
     assert!(strings(&call).contains(&"--text=Review the change.".to_owned()));
 }
+
+#[test]
+fn a_goose_call_reads_the_dependency_sources_it_is_given_and_no_credential_of_them() {
+    let w = World::new();
+    let mut call = fenced(
+        &w,
+        Role::Reviewer,
+        Tools::Review,
+        Session::New(id(FRESH_ID)),
+    );
+    // The folders `crate::dep_sources` finds, as the runner puts them in a call's reach.
+    let sources = [
+        w.path("cargo/registry/src/serde-1.0.2"),
+        w.path("cargo/git/checkouts/shep-core-1a2b3c"),
+        w.path("rustup/toolchains/stable/lib/rustlib/src"),
+        w.path("rustup/toolchains/stable/share/doc"),
+    ];
+    for folder in &sources {
+        call.reach.read.push(folder.clone());
+        call.reach.fence.as_mut().unwrap().read.push(folder.clone());
+    }
+    let policy = policy_of(&w, &call);
+    for folder in &sources {
+        assert!(policy.read.contains(folder), "{}", folder.display());
+        assert!(
+            !policy
+                .write
+                .iter()
+                .any(|writable| folder.starts_with(writable)),
+            "{} is writable",
+            folder.display()
+        );
+    }
+    for secret in ["~/.cargo/credentials", "~/.npmrc", "~/.netrc", "~/.ssh/**"] {
+        assert!(policy.no_read.iter().any(|r| r == secret), "{secret}");
+    }
+}

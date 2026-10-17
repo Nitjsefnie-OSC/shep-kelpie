@@ -481,6 +481,9 @@ impl Runner {
         call.settings = folder.join(format!("triage-settings-{issue}.json"));
         call.instructions = Some(instructions);
         call.tools = Tools::Review;
+        // It reads the repo, so it reads the installed sources of its
+        // dependencies and toolchains, as every other call that reads code does.
+        self.with_machine_sources(&mut call);
         self.with_code_graph(&mut call);
         Ok(call)
     }
